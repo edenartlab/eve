@@ -8,14 +8,18 @@ import os
 from farcaster import Warpcast
 from dotenv import load_dotenv
 from fastapi.background import BackgroundTasks
-
+from ably import AblyRealtime
+import aiohttp
+from contextlib import asynccontextmanager
+import traceback
 
 from eve.agent import Agent
-from eve.llm import UserMessage, async_prompt_thread, UpdateType
+from eve.llm import UpdateType
 from eve.thread import Thread
-from eve.tool import get_tools_from_mongo
 from eve.user import User
 from eve.eden_utils import prepare_result
+from eve.clients import common
+from eve.models import ClientType
 
 logger = logging.getLogger(__name__)
 
@@ -34,21 +38,105 @@ class CastWebhook(BaseModel):
     data: dict
 
 
-def create_app(
-    env: str = None, 
-    agent: str = "eve", 
-    db: str = "STAGE"
-):
-    app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Setup
+    ably_client = AblyRealtime(os.getenv("ABLY_SUBSCRIBER_KEY"))
+    app.state.channel_name = common.get_ably_channel_name(
+        app.state.agent.name, ClientType.FARCASTER
+    )
+    channel = ably_client.channels.get(app.state.channel_name)
 
-    if env:
-        load_dotenv(env)
+    async def async_callback(message):
+        logger.info(f"Received update in Farcaster client: {message.data}")
+
+        data = message.data
+        if not isinstance(data, dict) or "type" not in data:
+            logger.error("Invalid message format:", data)
+            return
+
+        update_type = data["type"]
+        update_config = data.get("update_config", {})
+        cast_hash = update_config.get("cast_hash")
+        author_fid = update_config.get("author_fid")
+
+        if not cast_hash or not author_fid:
+            logger.error("Missing cast_hash or author_fid in update_config:", data)
+            return
+
+        logger.info(f"Processing update type: {update_type} for cast: {cast_hash}")
+
+        try:
+            if update_type == UpdateType.START_PROMPT:
+                pass
+
+            elif update_type == UpdateType.ERROR:
+                error_msg = data.get("error", "Unknown error occurred")
+                app.state.client.post_cast(
+                    text=f"Error: {error_msg}",
+                    parent={"hash": cast_hash, "fid": author_fid},
+                )
+
+            elif update_type == UpdateType.ASSISTANT_MESSAGE:
+                content = data.get("content")
+                if content:
+                    app.state.client.post_cast(
+                        text=content,
+                        parent={"hash": cast_hash, "fid": author_fid},
+                    )
+
+            elif update_type == UpdateType.TOOL_COMPLETE:
+                result = data.get("result", {})
+                result["result"] = prepare_result(result["result"], db=app.state.db)
+                url = result["result"][0]["output"][0]["url"]
+                app.state.client.post_cast(
+                    text="",
+                    embeds=[url],
+                    parent={"hash": cast_hash, "fid": author_fid},
+                )
+
+        except Exception as e:
+            logger.error(
+                f"Error processing Ably update: {str(e)}\n"
+                f"Stack trace:\n{traceback.format_exc()}"
+            )
+            try:
+                app.state.client.post_cast(
+                    text=f"Sorry, I encountered an error: {str(e)}",
+                    parent={"hash": cast_hash, "fid": author_fid},
+                )
+            except Exception as post_error:
+                logger.error(
+                    f"Failed to send error message to Farcaster: {str(post_error)}\n"
+                    f"Stack trace:\n{traceback.format_exc()}"
+                )
+
+    # Subscribe using the async callback
+    await channel.subscribe(async_callback)
+    logger.info(f"Subscribed to Ably channel: {app.state.channel_name}")
+
+    yield  # Server is running
+
+    # Cleanup
+    if ably_client:
+        ably_client.close()
+        logger.info("Closed Ably connection")
+
+
+def create_app(env: str, db: str = "STAGE"):
+    app = FastAPI(lifespan=lifespan)
+
+    load_dotenv(env)
 
     mnemonic = os.environ.get("CLIENT_FARCASTER_MNEMONIC")
     db = os.environ.get("DB", "STAGE")
+    agent_name = os.getenv("EDEN_AGENT_USERNAME")
 
-    client = Warpcast(mnemonic=mnemonic)
-    agent = Agent.load(agent, db=db)
+    # Store these in app.state for access in lifespan and routes
+    app.state.client = Warpcast(mnemonic=mnemonic)
+    app.state.agent = Agent.load(agent_name, db=db)
+    app.state.db = db
+
     logger.info("Initialized Farcaster client")
 
     app.add_middleware(
@@ -83,15 +171,24 @@ def create_app(
         if not cast_data or "hash" not in cast_data:
             raise HTTPException(status_code=400, detail="Invalid cast data")
 
-        # Add the background task
-        background_tasks.add_task(process_webhook, cast_data, client, agent, db)
+        # Add the background task with channel_name
+        background_tasks.add_task(
+            process_webhook,
+            cast_data,
+            app.state.client,
+            app.state.agent,
+            app.state.db,
+            app.state.channel_name,
+        )
 
         return {"status": "accepted"}
 
     return app
 
 
-async def process_webhook(cast_data: dict, client: Warpcast, agent: Agent, db: str):
+async def process_webhook(
+    cast_data: dict, client: Warpcast, agent: Agent, db: str, channel_name: str
+):
     """Process the webhook data in the background"""
     logger.info(f"Processing webhook for cast {cast_data['hash']}")
     try:
@@ -105,71 +202,58 @@ async def process_webhook(cast_data: dict, client: Warpcast, agent: Agent, db: s
 
         # Get or create thread
         thread_key = f"farcaster-{author_fid}-{cast_hash}"
-        thread = Thread.get_collection(db).find_one({"key": thread_key})
-        if not thread:
-            thread = Thread.create(key=thread_key, db=db)
-        thread_id = thread.get("_id") if isinstance(thread, dict) else thread.id
-
-        # Create message
-        user_message = UserMessage(
-            content=cast_data["text"],
-            name=author_username,
+        thread = agent.request_thread(
+            key=thread_key,
+            db=db,
         )
 
-        # Get response from Eve
-        tools = get_tools_from_mongo(db=db)
+        # Make API request
+        api_url = os.getenv("EDEN_API_URL")
+        request_data = {
+            "user_id": str(user.id),
+            "agent_id": str(agent.id),
+            "thread_id": str(thread.id),
+            "user_message": {
+                "content": cast_data["text"],
+                "name": author_username,
+            },
+            "update_config": {
+                "sub_channel_name": channel_name,
+                "cast_hash": cast_hash,
+                "author_fid": author_fid,
+            },
+        }
 
-        async for update in async_prompt_thread(
-            db=db,
-            user_id=user.id,
-            agent_id=agent.id,
-            thread_id=thread_id,
-            user_messages=user_message,
-            tools=tools,
-        ):
-            if update.type == UpdateType.ASSISTANT_MESSAGE:
-                if update.message.content:
-                    client.post_cast(
-                        text=update.message.content,
-                        parent={"hash": cast_hash, "fid": author_fid},
-                    )
-            elif update.type == UpdateType.TOOL_COMPLETE:
-                logger.info(f"Tool complete: {update}")
-                update.result["result"] = prepare_result(update.result["result"], db=db)
-                url = update.result["result"][0]["output"][0]["url"]
-                client.post_cast(
-                    text="",
-                    embeds=[url],  # Add URL as embed
-                    parent={"hash": cast_hash, "fid": author_fid},
-                )
-            elif update.type == UpdateType.ERROR:
-                client.post_cast(
-                    text=f"Error: {update.error}",
-                    parent={"hash": cast_hash, "fid": author_fid},
-                )
-
-        logger.info(f"Successfully processed webhook for cast {cast_hash}")
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{api_url}/chat",
+                json=request_data,
+            ) as response:
+                if response.status != 200:
+                    raise Exception("Failed to process request")
 
     except Exception as e:
-        logger.error(f"Error processing webhook in background: {str(e)}")
+        logger.error(
+            f"Error processing webhook in background: {str(e)}\n"
+            f"Stack trace:\n{traceback.format_exc()}"
+        )
         try:
             client.post_cast(
                 text=f"Sorry, I encountered an error: {str(e)}",
                 parent={"hash": cast_hash, "fid": author_fid},
             )
-        except:
-            logger.error("Failed to send error message to Farcaster")
+        except Exception as post_error:
+            logger.error(
+                f"Failed to send error message to Farcaster: {str(post_error)}\n"
+                f"Stack trace:\n{traceback.format_exc()}"
+            )
 
 
-def start(
-    env: str, 
-    db: str = "STAGE"
-):
+def start(env: str, db: str = "STAGE"):
     """Start the FastAPI server locally"""
     import uvicorn
 
-    agent_name = os.getenv("EDEN_AGENT_USERNAME")
-    app = create_app(env, agent_name, db)
+    app = create_app(env, db)
     uvicorn.run(app, host="0.0.0.0", port=8001)
 
 

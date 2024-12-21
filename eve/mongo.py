@@ -3,6 +3,10 @@ import copy
 import yaml
 from pydantic import BaseModel, Field, ConfigDict, ValidationError
 from pymongo import MongoClient
+<<<<<<< HEAD
+from pymongo.server_api import ServerApi
+=======
+>>>>>>> 471ba0a5f991e6b58129cdc1783b944f6e4fbdc2
 from datetime import datetime, timezone
 from bson import ObjectId
 from typing import Optional
@@ -23,24 +27,52 @@ db_names = {
 }
 
 if not all([MONGO_URI, MONGO_DB_NAME_STAGE, MONGO_DB_NAME_PROD]):
-    # raise ValueError("MONGO_URI, MONGO_DB_NAME_STAGE, and MONGO_DB_NAME_PROD must be set in the environment")
-    print("WARNING: MONGO_URI, MONGO_DB_NAME_STAGE, and MONGO_DB_NAME_PROD must be set in the environment")
+    print(
+        "WARNING: MONGO_URI, MONGO_DB_NAME_STAGE, and MONGO_DB_NAME_PROD must be set in the environment"
+    )
+
+# Global connection pool
+_mongo_client = None
+_collections = {}
 
 def get_collection(collection_name: str, db: str):
-    mongo_client = MongoClient(MONGO_URI)
-    db_name = db_names[db]
-    return mongo_client[db_name][collection_name]
+    """Get a MongoDB collection with connection pooling"""
+    global _mongo_client
+    
+    cache_key = f"{db}:{collection_name}"
+    if cache_key in _collections:
+        return _collections[cache_key]
+        
+    if _mongo_client is None:
+        _mongo_client = MongoClient(
+            MONGO_URI,
+            maxPoolSize=50,
+            minPoolSize=10,
+            maxIdleTimeMS=60000,
+            connectTimeoutMS=2000,
+            serverSelectionTimeoutMS=3000,
+            retryWrites=True,
+            server_api=ServerApi('1'),
+        )
+        
+    _collections[cache_key] = _mongo_client[db_names[db]][collection_name]
+    return _collections[cache_key]
 
 def Collection(name):
     def wrapper(cls):
         cls.collection_name = name
         return cls
+
     return wrapper
 
 
 class Document(BaseModel):
-    id: Optional[ObjectId] = Field(None, alias="_id") #= Field(default_factory=ObjectId, alias="_id")
-    createdAt: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
+    id: Optional[ObjectId] = Field(
+        None, alias="_id"
+    )  # = Field(default_factory=ObjectId, alias="_id")
+    createdAt: Optional[datetime] = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
     updatedAt: Optional[datetime] = None
     db: Optional[str] = None
 
@@ -50,7 +82,7 @@ class Document(BaseModel):
             datetime: lambda v: v.isoformat(),
         },
         populate_by_name=True,
-        arbitrary_types_allowed=True
+        arbitrary_types_allowed=True,
     )
 
     @classmethod
@@ -64,9 +96,11 @@ class Document(BaseModel):
 
     @classmethod
     def from_schema(cls, schema: dict, db="STAGE", from_yaml=True):
+        """Load a document from a schema."""
         schema["db"] = db
         sub_cls = cls.get_sub_class(schema, from_yaml=from_yaml, db=db)
-        return sub_cls.model_validate(schema)
+        result = sub_cls.model_validate(schema)
+        return result
 
     @classmethod
     def from_yaml(cls, file_path: str, db="STAGE"):
@@ -86,14 +120,18 @@ class Document(BaseModel):
         """
         Load the document from the database and return an instance of the model.
         """
-        document_id = document_id if isinstance(document_id, ObjectId) else ObjectId(document_id)
+        document_id = (
+            document_id if isinstance(document_id, ObjectId) else ObjectId(document_id)
+        )
         schema = cls.get_collection(db).find_one({"_id": document_id})
         if not schema:
-            raise ValueError(f"Document {document_id} not found in {cls.collection_name}:{db}")        
+            raise ValueError(
+                f"Document {document_id} not found in {cls.collection_name}:{db}"
+            )
         sub_cls = cls.get_sub_class(schema, from_yaml=False, db=db)
         schema = sub_cls.convert_from_mongo(schema, db=db)
         return cls.from_schema(schema, db, from_yaml=False)
-        
+
     @classmethod
     def load(cls, db="STAGE", **kwargs):
         """
@@ -105,7 +143,7 @@ class Document(BaseModel):
         sub_cls = cls.get_sub_class(schema, from_yaml=False, db=db)
         schema = sub_cls.convert_from_mongo(schema, db=db)
         return cls.from_schema(schema, db, from_yaml=False)
-        
+
     @classmethod
     def get_sub_class(cls, schema: dict = None, db="STAGE", from_yaml=True) -> type:
         return cls
@@ -130,14 +168,14 @@ class Document(BaseModel):
         """
         Save the current state of the model to the database.
         """
-        db = db or self.db or "STAGE"        
-        
+        db = db or self.db or "STAGE"
+
         schema = self.model_dump(by_alias=True, exclude={"db"})
         self.model_validate(schema)
         schema = self.convert_to_mongo(schema)
         schema.update(kwargs)
         self.updatedAt = datetime.now(timezone.utc)
-        
+
         filter = upsert_filter or {"_id": self.id or ObjectId()}
         collection = self.get_collection(db)
         if self.id or filter:
@@ -147,9 +185,9 @@ class Document(BaseModel):
                 filter,
                 schema,
                 upsert=True,
-                return_document=True  # Returns the document after changes
+                return_document=True,  # Returns the document after changes
             )
-            self.id = result["_id"]            
+            self.id = result["_id"]
         else:
             schema["_id"] = ObjectId()
             self.createdAt = datetime.now(timezone.utc)
@@ -166,8 +204,12 @@ class Document(BaseModel):
             documents[d] = documents[d].model_dump(by_alias=True, exclude={"db"})
             cls.model_validate(documents[d])
             documents[d] = cls.convert_to_mongo(documents[d])
-            documents[d]["createdAt"] = documents[d].get("createdAt", datetime.now(timezone.utc))
-            documents[d]["updatedAt"] = documents[d].get("updatedAt", datetime.now(timezone.utc))
+            documents[d]["createdAt"] = documents[d].get(
+                "createdAt", datetime.now(timezone.utc)
+            )
+            documents[d]["updatedAt"] = documents[d].get(
+                "updatedAt", datetime.now(timezone.utc)
+            )
         collection.insert_many(documents)
 
     def update(self, **kwargs):
@@ -176,11 +218,7 @@ class Document(BaseModel):
         """        
         collection = self.get_collection(self.db)
         update_result = collection.update_one(
-            {"_id": self.id}, 
-            {
-                "$set": kwargs,
-                "$currentDate": {"updatedAt": True}
-            }
+            {"_id": self.id}, {"$set": kwargs, "$currentDate": {"updatedAt": True}}
         )
         if update_result.modified_count > 0:
             for key, value in kwargs.items():
@@ -193,10 +231,7 @@ class Document(BaseModel):
         collection = self.get_collection(self.db)
         update_result = collection.update_one(
             {"_id": self.id, **filter},
-            {
-                "$set": updates,
-                "$currentDate": {"updatedAt": True}
-            }
+            {"$set": updates, "$currentDate": {"updatedAt": True}},
         )
         if update_result.modified_count > 0:
             self.updatedAt = datetime.now(timezone.utc)
@@ -258,13 +293,17 @@ class Document(BaseModel):
         """
         # Create a copy of the current instance and update the nested field for validation
         updated_data = self.model_copy()
-        if hasattr(updated_data, field_name) and isinstance(getattr(updated_data, field_name), list):
+        if hasattr(updated_data, field_name) and isinstance(
+            getattr(updated_data, field_name), list
+        ):
             field_list = getattr(updated_data, field_name)
             if len(field_list) > index and isinstance(field_list[index], dict):
                 field_list[index][sub_field] = value
                 # updated_data.validate_fields()
             else:
-                raise ValidationError(f"Field '{field_name}[{index}]' is not a valid dictionary field.")
+                raise ValidationError(
+                    f"Field '{field_name}[{index}]' is not a valid dictionary field."
+                )
         else:
             raise ValidationError(f"Field '{field_name}' is not a valid list field.")
 
@@ -272,14 +311,16 @@ class Document(BaseModel):
         collection = self.get_collection(self.db)
         update_result = collection.update_one(
             {"_id": self.id},
-            {"$set": {
-                f"{field_name}.{index}.{sub_field}": value}, 
-                "$currentDate": {"updatedAt": True}
-            }
+            {
+                "$set": {f"{field_name}.{index}.{sub_field}": value},
+                "$currentDate": {"updatedAt": True},
+            },
         )
         if update_result.modified_count > 0:
             # Update the value in the local instance if the update was successful
-            if hasattr(self, field_name) and isinstance(getattr(self, field_name), list):
+            if hasattr(self, field_name) and isinstance(
+                getattr(self, field_name), list
+            ):
                 field_list = getattr(self, field_name)
                 if len(field_list) > index and isinstance(field_list[index], dict):
                     field_list[index][sub_field] = value
@@ -294,7 +335,6 @@ class Document(BaseModel):
             # Use model_dump to get the data while maintaining type information
             for key, value in updated_instance.model_dump().items():
                 setattr(self, key, value)
-        
 
     def delete(self):
         """
@@ -318,7 +358,10 @@ def serialize_document(obj):
 
 class MongoDocumentNotFound(Exception):
     """Exception raised when a document is not found in MongoDB."""
-    def __init__(self, collection_name: str, db: str, document_id: str=None, **kwargs):
+
+    def __init__(
+        self, collection_name: str, db: str, document_id: str = None, **kwargs
+    ):
         if document_id:
             self.message = f"Document with id {document_id} not found in collection {collection_name}, db: {db}"
         else:
