@@ -10,6 +10,8 @@ from pydantic import BaseModel, ConfigDict
 from typing import Optional
 from bson import ObjectId
 import logging
+from ably import AblyRealtime
+from pathlib import Path
 
 from eve import auth
 from eve.tool import Tool, get_tools_from_mongo
@@ -18,7 +20,6 @@ from eve.thread import Thread
 from eve.mongo import serialize_document
 from eve.agent import Agent
 from eve.user import User
-from ably import AblyRealtime
 
 # Config and logging setup
 logging.basicConfig(level=logging.INFO)
@@ -39,11 +40,16 @@ web_app.add_middleware(
     allow_headers=["*"],
 )
 
-ably_client = AblyRealtime(os.getenv("ABLY_PUBLISHER_KEY"))
-
 api_key_header = APIKeyHeader(name="X-Api-Key", auto_error=False)
 bearer_scheme = HTTPBearer(auto_error=False)
 background_tasks: BackgroundTasks = BackgroundTasks()
+
+
+# Store ably client at app state level
+@web_app.on_event("startup")
+async def startup_event():
+    web_app.state.ably_client = AblyRealtime(os.getenv("ABLY_PUBLISHER_KEY"))
+
 
 # web_app.post("/create")(task_handler)
 # web_app.post("/chat")(chat_handler)
@@ -138,10 +144,11 @@ async def fetch_resources(
 async def handle_chat(
     request: ChatRequest,
     background_tasks: BackgroundTasks,
+    # auth: dict = Depends(auth.authenticate_admin),
 ):
     update_channel = None
     if request.update_config:
-        update_channel = ably_client.channels.get(
+        update_channel = web_app.state.ably_client.channels.get(
             request.update_config.sub_channel_name
         )
 
@@ -231,30 +238,19 @@ async def stream_chat(
 app = modal.App(
     name=app_name,
     secrets=[
-        modal.Secret.from_name(s)
-        for s in [
-            "admin-key",
-            "s3-credentials",
-            "mongo-credentials",
-            "gcp-credentials",
-            "replicate",
-            "openai",
-            "anthropic",
-            "elevenlabs",
-            "hedra",
-            "newsapi",
-            "runway",
-            "sentry",
-        ]
+        modal.Secret.from_name("eve-secrets"),
     ],
 )
+
+root_dir = Path(__file__).parent.parent
+workflows_dir = root_dir / ".." / "workflows"
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .env({"DB": db, "MODAL_SERVE": os.getenv("MODAL_SERVE")})
     .apt_install("libmagic1", "ffmpeg", "wget")
-    .pip_install_from_pyproject("../pyproject.toml")
-    .copy_local_dir("../../workflows", "/workflows")
+    .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
+    .copy_local_dir(str(workflows_dir), "/workflows")
 )
 
 

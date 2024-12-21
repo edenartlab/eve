@@ -7,38 +7,75 @@ from pathlib import Path
 from dotenv import dotenv_values
 
 root_dir = Path(__file__).parent.parent.parent
+ENV_NAME = "deployments"
 
 
-def check_environment_exists(env_name: str) -> bool:
-    result = subprocess.run(
-        ["rye", "run", "modal", "environment", "list"], capture_output=True, text=True
+def modify_client_file(file_path: str, agent_key: str) -> None:
+    """Modify the client file to use correct secret name and fix pyproject path"""
+    with open(file_path, "r") as f:
+        content = f.read()
+
+    # Get the repo root directory
+    repo_root = root_dir.absolute()
+    pyproject_path = repo_root / "pyproject.toml"
+
+    # Replace the static secret name with the dynamic one
+    modified_content = content.replace(
+        'modal.Secret.from_name("client-secrets")',
+        f'modal.Secret.from_name("{agent_key}-client-secrets")',
     )
-    return f"│ {env_name} " in result.stdout
+
+    # Fix pyproject.toml path to use absolute path
+    modified_content = modified_content.replace(
+        '.pip_install_from_pyproject("pyproject.toml")',
+        f'.pip_install_from_pyproject("{pyproject_path}")',
+    )
+
+    with open(file_path, "w") as f:
+        f.write(modified_content)
 
 
-def create_environment(env_name: str):
-    subprocess.run(["rye", "run", "modal", "environment", "create", env_name])
-
-
-def create_secrets(env_name: str, secrets_dict: dict, group_name: str):
+def create_secrets(agent_key: str, secrets_dict: dict):
     if not secrets_dict:
-        click.echo(click.style(f"No secrets found for {group_name}", fg="yellow"))
+        click.echo(click.style(f"No secrets found for {agent_key}", fg="yellow"))
         return
 
-    cmd_parts = ["rye", "run", "modal", "secret", "create", group_name]
+    cmd_parts = [
+        "rye",
+        "run",
+        "modal",
+        "secret",
+        "create",
+        f"{agent_key}-client-secrets",
+    ]
     for key, value in secrets_dict.items():
         if value is not None:
             value = str(value).strip().strip("'\"")
             cmd_parts.append(f"{key}={value}")
-    cmd_parts.extend(["-e", env_name, "--force"])
+    cmd_parts.extend(["-e", ENV_NAME, "--force"])
 
     subprocess.run(cmd_parts)
 
 
-def deploy_client(client_name: str, env_name: str):
-    client_path = f"./eve/clients/{client_name}/modal_client.py"
-    if Path(root_dir / f"eve/clients/{client_name}/modal_client.py").exists():
-        subprocess.run(["rye", "run", "modal", "deploy", client_path, "-e", env_name])
+def deploy_client(agent_key: str, client_name: str):
+    client_path = root_dir / f"eve/clients/{client_name}/modal_client.py"
+    if client_path.exists():
+        # Modify the client file to use the correct secret name
+        modify_client_file(str(client_path), agent_key)
+        app_name = f"{agent_key}-client-{client_name}"
+        subprocess.run(
+            [
+                "rye",
+                "run",
+                "modal",
+                "deploy",
+                "--name",
+                app_name,
+                str(client_path),
+                "-e",
+                ENV_NAME,
+            ]
+        )
     else:
         click.echo(
             click.style(
@@ -58,22 +95,17 @@ def process_agent(agent_path: Path):
     agent_key = agent_path.parent.name
     click.echo(click.style(f"Processing agent: {agent_key}", fg="blue"))
 
-    # Create environment if it doesn't exist
-    if not check_environment_exists(agent_key):
-        click.echo(click.style(f"Creating environment: {agent_key}", fg="green"))
-        create_environment(agent_key)
-
     # Create secrets if .env exists
     env_file = agent_path.parent / ".env"
     if env_file.exists():
         click.echo(click.style(f"Creating secrets for: {agent_key}", fg="green"))
         client_secrets = dotenv_values(env_file)
-        create_secrets(agent_key, client_secrets, "client-secrets")
+        create_secrets(agent_key, client_secrets)
 
     # Deploy each client
     for deployment in agent_config["deployments"]:
         click.echo(click.style(f"Deploying client: {deployment}", fg="green"))
-        deploy_client(deployment, agent_key)
+        deploy_client(agent_key, deployment)
 
 
 @click.command()
