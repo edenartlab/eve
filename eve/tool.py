@@ -34,7 +34,7 @@ class Tool(Document, ABC):
     output_type: Literal["boolean", "string", "integer", "float", "image", "video", "audio", "lora"]
     cost_estimate: str
     resolutions: Optional[List[str]] = None
-    base_model: Optional[Literal["sd15", "sdxl", "sd3", "sd35", "flux-dev", "flux-schnell", "hellomeme", "stable-audio-open", "inspyrenet-rembg", "mochi-preview", "runway", "mmaudio", "librosa"]] = None
+    base_model: Optional[Literal["sd15", "sdxl", "sd3", "sd35", "flux-dev", "flux-schnell", "hellomeme", "stable-audio-open", "inspyrenet-rembg", "mochi-preview", "runway", "mmaudio", "librosa", "musicgen"]] = None
 
     status: Optional[Literal["inactive", "stage", "prod"]] = "stage"
     visible: Optional[bool] = True

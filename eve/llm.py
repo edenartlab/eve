@@ -63,7 +63,10 @@ async def async_anthropic_prompt(
             prompt["tool_choice"] = {"type": "tool", "name": response_model.__name__}
         prompt["tools"] = tools
 
-    response = await anthropic_client.messages.create(**prompt)
+    try:
+        response = await anthropic_client.messages.create(**prompt)
+    except Exception as e:
+        raise Exception(e)
 
     if response_model:
         return response_model(**response.content[0].input)
@@ -142,6 +145,7 @@ async def async_prompt(
     tools: Dict[str, Tool] = {},
     db: str = "STAGE"
 ):    
+
     if model.startswith("claude"):
         return await async_anthropic_prompt(
             messages, system_message, model, response_model, tools, db
@@ -229,12 +233,12 @@ async def async_prompt_thread(
     model: Literal[tuple(models)] = "claude-3-5-sonnet-20241022"
 ):
     
-    print("================================================")
-    print(user_messages)
-    print("================================================")
+    # print("================================================")
+    # print(user_messages)
+    # print("================================================")
 
 
-    print(agent)
+    # print(agent)
     
 
     user_messages = user_messages if isinstance(user_messages, List) else [user_messages]
@@ -270,15 +274,18 @@ async def async_prompt_thread(
 
     while True:
         try:
+
+            messages = thread.get_messages()
+
             # for error tracing
             sentry_sdk.add_breadcrumb(
-                category="prompt",
-                data={"messages": thread.get_messages(), "system_message": system_message, "model": model, "tools": tools.keys()}
+                category="prompt_in",
+                data={"messages": messages, "system_message": system_message, "model": model, "tools": tools.keys()}
             )
 
             # main call to LLM            
             content, tool_calls, stop = await async_prompt(
-                thread.get_messages(), 
+                messages,
                 system_message=system_message,
                 model=model,
                 tools=tools
@@ -286,7 +293,7 @@ async def async_prompt_thread(
 
             # for error tracing
             sentry_sdk.add_breadcrumb(
-                category="prompt",
+                category="prompt_out",
                 data={"content": content, "tool_calls": tool_calls, "stop": stop}
             )
 

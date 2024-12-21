@@ -394,9 +394,4 @@ class Thread(Document):
         # if reply to inside messages, mark it
         # if reply to by old message, include context leading up to it
         # self.reload()
-        messages = copy.deepcopy(self.messages[-15:])
-        # hack to remove any spurious assistant messages at end
-        # todo: should try to actually fix this bug
-        while messages and messages[-1].role == "assistant":
-            messages.pop()
-        return messages
+        return self.messages[-15:]
