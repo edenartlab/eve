@@ -11,16 +11,7 @@ from typing import Optional, List, Dict, Any, Type, Literal, TYPE_CHECKING, Forw
 from datetime import datetime, timezone
 from instructor.function_calls import openai_schema
 
-<<<<<<< HEAD
-from sentry_sdk import add_breadcrumb, capture_exception
-import sentry_sdk
-
-sentry_dsn = os.getenv("SENTRY_DSN")
-sentry_sdk.init(dsn=sentry_dsn, traces_sample_rate=1.0, profiles_sample_rate=1.0)
-
-=======
 from . import sentry_sdk
->>>>>>> 471ba0a5f991e6b58129cdc1783b944f6e4fbdc2
 from . import eden_utils
 from .base import parse_schema
 from .user import User
@@ -72,6 +63,7 @@ class Tool(Document, ABC):
             "runway",
             "mmaudio",
             "librosa",
+            "musicgen"
         ]
     ] = None
 
@@ -307,17 +299,12 @@ class Tool(Document, ABC):
                     result = {"output": eden_utils.mock_image(args)}
                 else:
                     result = await run_function(self, args, db)
-<<<<<<< HEAD
                 result["output"] = (
                     result["output"]
                     if isinstance(result["output"], list)
                     else [result["output"]]
                 )
-                add_breadcrumb(category="handle_run", data=result)
-=======
-                result["output"] = result["output"] if isinstance(result["output"], list) else [result["output"]]
                 sentry_sdk.add_breadcrumb(category="handle_run", data=result)
->>>>>>> 471ba0a5f991e6b58129cdc1783b944f6e4fbdc2
                 result = eden_utils.upload_result(result, db)
                 sentry_sdk.add_breadcrumb(category="handle_run", data=result)
                 result["status"] = "completed"
@@ -343,11 +330,7 @@ class Tool(Document, ABC):
             try:
                 # validate args and user manna balance
                 args = self.prepare_args(args)
-<<<<<<< HEAD
-                add_breadcrumb(category="handle_start_task", data=args)
-=======
                 sentry_sdk.add_breadcrumb(category="handle_start_task", data=args)                
->>>>>>> 471ba0a5f991e6b58129cdc1783b944f6e4fbdc2
                 cost = self.calculate_cost(args)
                 user = User.from_mongo(user_id, db=db)
                 if "freeTools" in (user.featureFlags or []):

@@ -4,6 +4,7 @@ cost_estimate: 0.1 * duration
 output_type: audio
 handler: replicate
 replicate_model: meta/musicgen
+base_model: musicgen
 version: 671ac645ce5e552cc63a54a2bbff63fcf798043055d2dac5fc9e36a837eedcfb
 output_handler: normal
 parameters:
