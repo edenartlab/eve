@@ -10,6 +10,8 @@
 #   universal: false
 
 -e file:.
+ably==2.0.7
+    # via eve
 aiofiles==24.1.0
     # via eve
 aiohappyeyeballs==2.4.4
@@ -63,6 +65,8 @@ click==8.1.7
     # via eve
     # via modal
     # via typer
+colorama==0.4.6
+    # via eve
 cryptography==43.0.3
     # via clerk-backend-api
 cytoolz==1.0.1
@@ -166,6 +170,7 @@ grpclib==0.4.7
 h11==0.14.0
     # via httpcore
 h2==4.1.0
+    # via ably
     # via grpclib
 hexbytes==0.3.1
     # via eth-account
@@ -175,6 +180,7 @@ hpack==4.0.0
 httpcore==1.0.7
     # via httpx
 httpx==0.27.2
+    # via ably
     # via anthropic
     # via clerk-backend-api
     # via elevenlabs
@@ -215,10 +221,14 @@ markupsafe==3.0.2
     # via jinja2
 mdurl==0.1.2
     # via markdown-it-py
+methoddispatch==3.0.2
+    # via ably
 modal==0.67.41
     # via eve
 moviepy==1.0.3
     # via eve
+msgpack==1.1.0
+    # via ably
 multidict==6.1.0
     # via aiohttp
     # via grpclib
@@ -292,6 +302,8 @@ pydantic-core==2.23.4
     # via pydantic
 pydub==0.25.1
     # via eve
+pyee==11.1.1
+    # via ably
 pygments==2.18.0
     # via rich
 pyhumps==3.8.0
@@ -397,6 +409,7 @@ typing-extensions==4.12.2
     # via openai
     # via pydantic
     # via pydantic-core
+    # via pyee
     # via replicate
     # via runwayml
     # via synchronicity
@@ -410,7 +423,8 @@ urllib3==2.2.3
     # via sentry-sdk
 watchfiles==1.0.1
     # via modal
-websockets==14.1
+websockets==12.0
+    # via ably
     # via elevenlabs
     # via eve
 yarl==1.18.3

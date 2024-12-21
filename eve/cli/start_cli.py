@@ -28,10 +28,10 @@ from ..clients.farcaster.client import start as start_farcaster
     "--platforms",
     type=click.Choice(
         [
-            ClientType.DISCORD,
-            ClientType.TELEGRAM,
-            ClientType.FARCASTER,
-            ClientType.LOCAL,
+            ClientType.DISCORD.value,
+            ClientType.TELEGRAM.value,
+            ClientType.FARCASTER.value,
+            ClientType.LOCAL.value,
         ]
     ),
     multiple=True,

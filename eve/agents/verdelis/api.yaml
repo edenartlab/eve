@@ -133,8 +133,13 @@ tools:
         hide_from_ui: true
 
 clients:
-  discord:
+  # discord:
+  #   enabled: true
+  telegram:
+    enabled: true
+  farcaster:
     enabled: true
 
 deployments:
-  - discord
+  - farcaster
+
