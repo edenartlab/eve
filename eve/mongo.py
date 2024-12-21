@@ -3,16 +3,8 @@ import copy
 import yaml
 from pydantic import BaseModel, Field, ConfigDict, ValidationError
 from pymongo import MongoClient
-<<<<<<< HEAD
 from pymongo.server_api import ServerApi
-=======
->>>>>>> 471ba0a5f991e6b58129cdc1783b944f6e4fbdc2
 from datetime import datetime, timezone
-from bson import ObjectId
-from typing import Optional
-
-from pydantic import BaseModel, Field, ValidationError
-from pymongo import MongoClient
 from bson import ObjectId
 from typing import Optional, List, Dict, Any, Union
 
@@ -35,14 +27,15 @@ if not all([MONGO_URI, MONGO_DB_NAME_STAGE, MONGO_DB_NAME_PROD]):
 _mongo_client = None
 _collections = {}
 
+
 def get_collection(collection_name: str, db: str):
     """Get a MongoDB collection with connection pooling"""
     global _mongo_client
-    
+
     cache_key = f"{db}:{collection_name}"
     if cache_key in _collections:
         return _collections[cache_key]
-        
+
     if _mongo_client is None:
         _mongo_client = MongoClient(
             MONGO_URI,
@@ -52,11 +45,12 @@ def get_collection(collection_name: str, db: str):
             connectTimeoutMS=2000,
             serverSelectionTimeoutMS=3000,
             retryWrites=True,
-            server_api=ServerApi('1'),
+            server_api=ServerApi("1"),
         )
-        
+
     _collections[cache_key] = _mongo_client[db_names[db]][collection_name]
     return _collections[cache_key]
+
 
 def Collection(name):
     def wrapper(cls):
@@ -215,7 +209,7 @@ class Document(BaseModel):
     def update(self, **kwargs):
         """
         Perform granular updates on specific fields.
-        """        
+        """
         collection = self.get_collection(self.db)
         update_result = collection.update_one(
             {"_id": self.id}, {"$set": kwargs, "$currentDate": {"updatedAt": True}}
@@ -237,9 +231,7 @@ class Document(BaseModel):
             self.updatedAt = datetime.now(timezone.utc)
 
     def push(
-        self, 
-        pushes: Dict[str, Union[Any, List[Any]]] = {},
-        pulls: Dict[str, Any] = {}
+        self, pushes: Dict[str, Union[Any, List[Any]]] = {}, pulls: Dict[str, Any] = {}
     ):
         """
         Push or pull values granularly to array fields in document.
@@ -250,24 +242,33 @@ class Document(BaseModel):
 
             # Convert Pydantic models to dictionaries if needed
             values_original = [copy.deepcopy(v) for v in values_to_push]
-            values_to_push = [v.model_dump() if isinstance(v, BaseModel) else v for v in values_to_push]
-            
+            values_to_push = [
+                v.model_dump() if isinstance(v, BaseModel) else v
+                for v in values_to_push
+            ]
+
             # Create a copy of the current instance and update the array field with the new values for validation
             updated_data = copy.deepcopy(self)
-            if hasattr(updated_data, field_name) and isinstance(getattr(updated_data, field_name), list):
+            if hasattr(updated_data, field_name) and isinstance(
+                getattr(updated_data, field_name), list
+            ):
                 getattr(updated_data, field_name).extend(values_original)
-            
+
             push_ops[field_name] = {"$each": values_to_push}
 
             # Set field values in local instance
-            if hasattr(self, field_name) and isinstance(getattr(self, field_name), list):
+            if hasattr(self, field_name) and isinstance(
+                getattr(self, field_name), list
+            ):
                 setattr(self, field_name, getattr(self, field_name) + values_original)
 
         # Do same thing for pulls
         for field_name, value in pulls.items():
             pull_ops[field_name] = value
 
-            if hasattr(self, field_name) and isinstance(getattr(self, field_name), list):
+            if hasattr(self, field_name) and isinstance(
+                getattr(self, field_name), list
+            ):
                 # Remove all instances of value from the local list
                 current_list = getattr(self, field_name)
                 setattr(self, field_name, [x for x in current_list if x != value])
@@ -280,10 +281,7 @@ class Document(BaseModel):
         if pull_ops:
             update_ops["$pull"] = pull_ops
 
-        update_result = collection.update_one(
-            {"_id": self.id},
-            update_ops
-        )
+        update_result = collection.update_one({"_id": self.id}, update_ops)
         if update_result.modified_count > 0:
             self.updatedAt = datetime.now(timezone.utc)
 

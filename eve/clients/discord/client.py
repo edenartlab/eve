@@ -213,6 +213,7 @@ class Eden2Cog(commands.Cog):
             async with session.post(
                 f"{api_url}/chat",
                 json=request_data,
+                headers={"Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}"},
             ) as response:
                 if response.status != 200:
                     await reply(
