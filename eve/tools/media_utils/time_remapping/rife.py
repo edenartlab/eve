@@ -46,19 +46,22 @@ class RIFEModel:
         
         return middle
 
-def interpolate_sequence(frames, target_frames):
+def interpolate_sequence(frames, target_frames, loop_seamless=False):
     """Interpolate a sequence of frames to target length using RIFE"""
     rife = RIFEModel()
     output = []
     
     # Calculate positions for target frames
-    src_positions = np.linspace(0, len(frames)-1, len(frames))
-    target_positions = np.linspace(0, len(frames)-1, target_frames)
+    if loop_seamless:
+        # For looping, use modulo to wrap around
+        target_positions = np.linspace(0, len(frames), target_frames + 1)[:-1]
+    else:
+        target_positions = np.linspace(0, len(frames)-1, target_frames)
     
     for pos in target_positions:
-        idx_low = int(np.floor(pos))
-        idx_high = min(idx_low + 1, len(frames)-1)
-        fraction = pos - idx_low
+        idx_low = int(np.floor(pos)) % len(frames)  # Use modulo for looping
+        idx_high = (idx_low + 1) % len(frames)      # Wrap around to first frame
+        fraction = pos - int(pos)
         
         if idx_low == idx_high:
             output.append(frames[idx_low])

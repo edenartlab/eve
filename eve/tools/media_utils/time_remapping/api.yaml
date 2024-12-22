@@ -14,21 +14,19 @@ parameters:
     tip: Leave empty to keep original FPS. Can be combined with total_frames or duration.
     minimum: 1
     maximum: 120
-    default: null
+    default: 24
   total_frames:
     type: integer
     label: Total Frames
     description: Total number of frames in output video
     tip: Overrides duration if both are specified. Leave empty to calculate from FPS and duration.
     minimum: 1
-    default: null
   duration:
     type: float
     label: Duration
     description: Desired duration of output video in seconds
     tip: Leave empty to keep original duration. Ignored if total_frames is specified.
     minimum: 0.1
-    default: null
   blend_strength:
     type: float
     label: Blend Strength
@@ -44,7 +42,7 @@ parameters:
     choices: [linear, cosine, nearest]
     choices_labels: [Linear, Cosine, Nearest]
     default: linear
-    tip: Linear is simple, cosine is smooth, nearest has no blending
+    tip: Linear is simple, cosine is smooth, nearest repeats frames and has no blending
   loop_seamless:
     type: boolean
     label: Seamless Loop
@@ -61,12 +59,6 @@ parameters:
     type: boolean
     label: Use RIFE Interpolation
     description: Use RIFE AI model for high-quality frame interpolation
-    tip: Higher quality but slower than traditional methods. Requires additional dependencies.
-    default: false
+    tip: Higher quality for stretching frames, but slower than traditional methods. Requires additional dependencies.
+    default: true
 
-examples:
-  - {"video": "input.mp4", "target_fps": 60}
-  - {"video": "input.mp4", "total_frames": 120, "method": "cosine"}
-  - {"video": "input.mp4", "duration": 10.0, "target_fps": 30}
-  - {"video": "input.mp4", "duration": 8.0, "target_fps": 60, "preserve_pitch": true, "use_rife": true}
-  - {"video": "input.mp4", "duration": 4.0, "preserve_pitch": false, "use_rife": false} 

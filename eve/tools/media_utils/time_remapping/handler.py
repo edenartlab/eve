@@ -135,7 +135,7 @@ async def handler(args: dict, db: str):
         # Process frames using selected interpolation method
         if args.get("use_rife", False):
             from .rife import interpolate_sequence
-            output = interpolate_sequence(images, target_frames)
+            output = interpolate_sequence(images, target_frames, loop_seamless=loop_seamless)
         else:
             # Process frames using the same interpolation logic
             if orig_size == 1:
