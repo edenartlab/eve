@@ -144,7 +144,7 @@ async def fetch_resources(
 async def handle_chat(
     request: ChatRequest,
     background_tasks: BackgroundTasks,
-    # auth: dict = Depends(auth.authenticate_admin),
+    auth: dict = Depends(auth.authenticate_admin),
 ):
     update_channel = None
     if request.update_config:
