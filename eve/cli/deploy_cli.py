@@ -10,6 +10,25 @@ root_dir = Path(__file__).parent.parent.parent
 ENV_NAME = "deployments"
 
 
+def ensure_modal_env_exists():
+    """Create the Modal environment if it doesn't exist"""
+    # List existing environments
+    result = subprocess.run(
+        ["rye", "run", "modal", "environment", "list"],
+        capture_output=True,
+        text=True,
+    )
+
+    # Check if our environment exists
+    if ENV_NAME not in result.stdout:
+        click.echo(click.style(f"Creating Modal environment: {ENV_NAME}", fg="green"))
+        subprocess.run(["rye", "run", "modal", "environment", "create", ENV_NAME])
+    else:
+        click.echo(
+            click.style(f"Using existing Modal environment: {ENV_NAME}", fg="blue")
+        )
+
+
 def modify_client_file(file_path: str, agent_key: str) -> None:
     """Modify the client file to use correct secret name and fix pyproject path"""
     with open(file_path, "r") as f:
@@ -113,6 +132,9 @@ def process_agent(agent_path: Path):
 def deploy(agent: str):
     """Deploy Modal agents"""
     try:
+        # Ensure Modal environment exists
+        ensure_modal_env_exists()
+
         agents_dir = root_dir / "eve/agents"
         agent_path = agents_dir / agent / "api.yaml"
         if agent_path.exists():
