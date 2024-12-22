@@ -12,6 +12,8 @@ from bson import ObjectId
 import logging
 from ably import AblyRealtime
 from pathlib import Path
+import aiohttp
+import traceback
 
 from eve import auth
 from eve.tool import Tool, get_tools_from_mongo
@@ -81,7 +83,8 @@ async def task_admin(request: TaskRequest, _: dict = Depends(auth.authenticate_a
 
 
 class UpdateConfig(BaseModel):
-    sub_channel_name: str
+    sub_channel_name: Optional[str] = None
+    update_endpoint: Optional[str] = None
     discord_channel_id: Optional[str] = None
     telegram_chat_id: Optional[str] = None
     cast_hash: Optional[str] = None
@@ -144,19 +147,22 @@ async def fetch_resources(
 async def handle_chat(
     request: ChatRequest,
     background_tasks: BackgroundTasks,
-    # auth: dict = Depends(auth.authenticate_admin),
+    auth: dict = Depends(auth.authenticate_admin),
 ):
     update_channel = None
-    if request.update_config:
-        update_channel = web_app.state.ably_client.channels.get(
-            request.update_config.sub_channel_name
-        )
-
-    user, agent, thread, tools = await fetch_resources(
-        request.user_id, request.agent_id, request.thread_id, db
-    )
-
     try:
+        if request.update_config and request.update_config.sub_channel_name:
+            try:
+                update_channel = web_app.state.ably_client.channels.get(
+                    str(request.update_config.sub_channel_name)
+                )
+            except Exception as e:
+                logger.error(f"Failed to create Ably channel: {str(e)}")
+                # Continue without the channel - updates will still work via HTTP if configured
+
+        user, agent, thread, tools = await fetch_resources(
+            request.user_id, request.agent_id, request.thread_id, db
+        )
 
         async def run_prompt():
             async for update in async_prompt_thread(
@@ -169,28 +175,56 @@ async def handle_chat(
                 force_reply=True,
                 model="claude-3-5-sonnet-20241022",
             ):
-                if update_channel:
-                    data = {
-                        "type": update.type.value,
-                        "update_config": request.update_config.model_dump(),
-                    }
+                data = {
+                    "type": update.type.value,
+                    "update_config": request.update_config.model_dump()
+                    if request.update_config
+                    else {},
+                }
 
-                    if update.type == UpdateType.ASSISTANT_MESSAGE:
-                        data["content"] = update.message.content
-                    elif update.type == UpdateType.TOOL_COMPLETE:
-                        data["tool"] = update.tool_name
-                        data["result"] = serialize_for_json(update.result)
-                    elif update.type == UpdateType.ERROR:
-                        data["error"] = (
-                            update.error if hasattr(update, "error") else None
-                        )
+                if update.type == UpdateType.ASSISTANT_MESSAGE:
+                    data["content"] = update.message.content
+                elif update.type == UpdateType.TOOL_COMPLETE:
+                    data["tool"] = update.tool_name
+                    data["result"] = serialize_for_json(update.result)
+                elif update.type == UpdateType.ERROR:
+                    data["error"] = update.error if hasattr(update, "error") else None
 
-                    await update_channel.publish("update", data)
+                if request.update_config:
+                    if request.update_config.update_endpoint:
+                        # Send update via HTTP POST
+                        async with aiohttp.ClientSession() as session:
+                            try:
+                                async with session.post(
+                                    request.update_config.update_endpoint,
+                                    json=data,
+                                    headers={
+                                        "Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}"
+                                    },
+                                ) as response:
+                                    if response.status != 200:
+                                        logger.error(
+                                            f"Failed to send update to endpoint: {await response.text()}"
+                                        )
+                            except Exception as e:
+                                logger.error(
+                                    f"Error sending update to endpoint: {str(e)}"
+                                )
+
+                    elif (
+                        update_channel
+                    ):  # Only try Ably if we successfully created the channel
+                        # Send update via Ably
+                        try:
+                            await update_channel.publish("update", data)
+                        except Exception as e:
+                            logger.error(f"Failed to publish to Ably: {str(e)}")
 
         background_tasks.add_task(run_prompt)
         return {"status": "success", "thread_id": str(thread.id)}
 
     except Exception as e:
+        logger.error(f"Error in handle_chat: {str(e)}\n{traceback.format_exc()}")
         return {"status": "error", "message": str(e)}
 
 

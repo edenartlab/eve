@@ -41,7 +41,7 @@ async def async_chat(db, agent_name, new_thread=True, debug=False):
         key += f"_{int(time.time())}"
 
     thread = agent.request_thread(key=key, db=db)
-    tools = agent.get_tools(db)
+    tools = agent.get_tools(db=db)
 
     print("THE TOOLS ARE", tools.keys())
     from ..eden_utils import dump_json

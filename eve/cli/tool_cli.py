@@ -119,7 +119,7 @@ def update(db: str, names: tuple):
 )
 @click.argument("tool", required=False)
 @click.pass_context
-def create(ctx, tool: str, db: str):
+def run(ctx, tool: str, db: str):
     """Create with a tool. Args are passed as --key=value or --key value"""
     
     db = db.upper()

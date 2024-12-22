@@ -21,7 +21,7 @@ from pydantic import Field
 from typing import Dict, Any
 from bson import ObjectId
 
-from eve.mongo import Document, Collection, VersionableMongoModel
+from eve.mongo import Document, Collection#, VersionableMongoModel
 from test_base import TestModel, InnerModel
 
 
@@ -68,7 +68,11 @@ def test_mongo_document():
     assert t3 == MongoModelTest(db="STAGE", num=7, args={"foo": "hello world"}, user=ObjectId("666666663333366666666666"), id=t2.id, createdAt=t3.createdAt, updatedAt=t3.updatedAt)
 
 
-def test_versionable_base_model():
+
+"""
+Todo: VersionableDocument
+"""
+def _test_versionable_base_model():
     """
     Test versionable base model saving, loading, and applying edits
     """

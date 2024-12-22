@@ -474,3 +474,6 @@ async def async_title_thread(thread: Thread, *extra_messages: UserMessage):
         sentry_sdk.capture_exception(e)
         traceback.print_exc()
         return
+
+def title_thread(thread: Thread, *extra_messages: UserMessage):
+    return asyncio.run(async_title_thread(thread, *extra_messages))

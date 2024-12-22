@@ -5,8 +5,8 @@ from eve.clients.telegram.client import start as telegram_start
 app = modal.App(
     name="client-telegram",
     secrets=[
+        modal.Secret.from_name("client-secrets"),
         modal.Secret.from_name("eve-secrets", environment_name="main"),
-        modal.Secret.from_name("verdelis-client-secrets"),
     ],
 )
 
@@ -18,7 +18,7 @@ image = (
         }
     )
     .apt_install("libmagic1", "ffmpeg", "wget")
-    .pip_install_from_pyproject("/Users/jmill/projects/eden/eve/pyproject.toml")
+    .pip_install_from_pyproject("pyproject.toml")
     .pip_install("python-telegram-bot>=21.7")
     .copy_local_dir("../workflows", "/workflows")
 )

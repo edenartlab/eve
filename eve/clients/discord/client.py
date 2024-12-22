@@ -112,8 +112,6 @@ class Eden2Cog(commands.Cog):
                     result["result"] = prepare_result(result["result"], db=self.db)
                     url = result["result"][0]["output"][0]["url"]
                     await channel.send(url, reference=reference)
-                else:
-                    print(f"Unknown update type: {update_type}")
 
             except Exception as e:
                 print(f"Error processing update: {e}")

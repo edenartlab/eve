@@ -1,4 +1,66 @@
 # from tools import runway, video_concat
+"""
+
+eleven(text, voice) -> voiceover
+musicgen(text) -> music
+mmaudio(text) -> audio
+
+flux(prompt) -> image
+runway(image) -> video
+
+
+
+1) make images first
+ [images, ] 
+
+2) make voiceover first
+
+
+reel_composite
+- scenes
+   X prompt
+   - image
+   - video w/ audio
+   - video w/o audio
+- music 
+   - prompt
+   - audio
+- voiceovers
+   - prompts
+   - audios
+
+   
+
+reel_audiotrack
+- music
+  - prompt
+  - audio
+- voiceovers
+  - prompts[]
+  - audios[]
+
+reel_videotrack  
+- scenes
+  - prompt
+  - image
+  - video w/ audio
+  - video w/o audio
+
+reel_composite
+- video: scenes
+- audio: music + voiceover
+* frame stretching
+
+
+media_utils
+- audio_video_mix
+   - video[] + audio[][] -> video
+   - time_tolerance: 20%
+   - sync_method: stretch/cut
+
+
+"""
+
 
 
 import math
