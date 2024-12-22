@@ -195,7 +195,7 @@ class ComfyUI:
             output = outputs[str(tool.comfyui_output_node_id)]
             if not output:
                 raise Exception(f"No output found for {workflow_name} at output node {tool.comfyui_output_node_id}") 
-            print("---- the final output is ----")
+            print("---- comfyui output ----")
             result = {"output": output}
             if tool.comfyui_intermediate_outputs:
                 result["intermediate_outputs"] = {

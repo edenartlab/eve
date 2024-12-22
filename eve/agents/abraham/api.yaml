@@ -27,18 +27,17 @@ instructions: |
 
 tools:
   animate_3D:
+    tip: You should only use this tool to make video as a fallback if runway fails or is unavailable, or if the user specifically requests it.
   texture_flow:
-  face_styler:
-  upscaler:
-  txt2img:
   flux_inpainting:
-  remix_flux_schnell:
   stable_audio:
   musicgen:
   runway:
+    tip: This should be your primary tool for making videos.
   flux_schnell:
   flux_dev_lora:
   reel:
+  send_eth:
 
 clients:
   discord:

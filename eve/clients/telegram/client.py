@@ -120,7 +120,7 @@ class EdenTG:
         self.token = token
         self.agent = agent
         self.db = db
-        self.tools = get_tools_from_mongo(db=self.db)
+        self.tools = agent.get_tools() #get_tools_from_mongo(db=self.db)
         self.known_users = {}
         self.known_threads = {}
         self.channel_name = common.get_ably_channel_name(
@@ -294,10 +294,15 @@ class EdenTG:
         }
 
         async with aiohttp.ClientSession() as session:
+            print(f"Sending request to {api_url}/chat")
             async with session.post(
                 f"{api_url}/chat",
                 json=request_data,
+                headers={"Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}"},
             ) as response:
+                print(f"Response from {api_url}/chat: {response.status}")
+                #json
+                print(await response.json())
                 if response.status != 200:
                     await send_response(
                         message_type,

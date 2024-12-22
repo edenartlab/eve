@@ -23,7 +23,7 @@ generic_instructions = """Follow these additional guidelines:
 - When doing multi-step tasks, present your intermediate results in each message before moving onto the next tool use. For example, if you are asked to create an image and then animate it, make sure to return the image (including the url) to the user (as markdown, like above)."""
 
 
-
+from dotenv import load_dotenv
 
 # from eve.llm import async_prompt_thread
 
@@ -59,6 +59,10 @@ class Agent(User):
             data['owner'] = ObjectId(data['owner'])
         if data.get('models'):
             data['models'] = {k: ObjectId(v) if isinstance(v, str) else v for k, v in data['models'].items()}
+        # username = data.get("username")
+        # env_file = f"eve/agents/{username}/.env"
+        # if os.path.exists(env_file):
+        #     load_dotenv(env_file)
         super().__init__(**data)
 
     @classmethod
@@ -108,15 +112,19 @@ class Agent(User):
         thread.save()
         return thread
 
-    def get_tools(self, db="STAGE"):
+    def get_tools(self, tools=None, db="STAGE"):
         return {
             k: Tool.from_raw_yaml({"parent_tool": k, **v}, db=db) 
             for k, v in (self.tools or {}).items()
+            if tools is None or k in tools
         }
 
-    # def get_system_message(self):
-    #     system_message = f"{self.description}\n\n{self.instructions}\n\n{generic_instructions}"
-    #     return system_message
+    def get_tool(self, tool_name, db="STAGE"):
+        return self.get_tools(tools=[tool_name], db=db)[tool_name]
+    
+    def get_system_message(self):
+        system_message = f"{self.description}\n\n{self.instructions}\n\n{generic_instructions}"
+        return system_message
 
 
 def get_agents_from_api_files(root_dir: str = None, agents: List[str] = None, include_inactive: bool = False) -> Dict[str, Agent]:

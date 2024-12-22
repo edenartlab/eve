@@ -1,0 +1,19 @@
+name: Send ETH
+description: Send ETH on Base Sepolia
+cost_estimate: 0.025 * amount_eth
+output_type: string
+status: stage
+visible: false
+parameters:
+  receiver_address:
+    type: string
+    label: Address
+    description: Address to send ETH to.
+    tip: Do not make this up! If you don't have the address of the person you wish to send ETH to, make sure to ask them for it.
+    required: true
+  amount_eth:
+    type: float
+    label: Amount
+    description: Amount of ETH to send
+    required: true
+    maximum: 0.001

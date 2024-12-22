@@ -3,10 +3,12 @@ from typing import Dict, Any, Optional, Literal, List
 from functools import wraps
 from datetime import datetime, timezone
 import asyncio
+import traceback
 
 from .user import User
 from .mongo import Document, Collection
 from . import eden_utils
+from . import sentry_sdk
 
 
 
@@ -87,7 +89,6 @@ async def _preprocess_task(task: Task):
 
 async def _task_handler(func, *args, **kwargs):
     task = kwargs.pop("task", args[-1])
-    
     start_time = datetime.now(timezone.utc)
     queue_time = (start_time - task.createdAt).total_seconds()
 
@@ -98,6 +99,7 @@ async def _task_handler(func, *args, **kwargs):
     
     results = []
     n_samples = task.args.get("n_samples", 1)
+    output_type = task.output_type
 
     try:
         for i in range(n_samples):
@@ -109,28 +111,29 @@ async def _task_handler(func, *args, **kwargs):
             main_task = func(*args[:-1], task.parent_tool or task.tool, task_args, task.db)
             preprocess_task = _preprocess_task(task)
             result, preprocess_result = await asyncio.gather(main_task, preprocess_task)
-            
-            result["output"] = result["output"] if isinstance(result["output"], list) else [result["output"]]
-            result = eden_utils.upload_result(result, db=task.db, save_thumbnails=True, save_blurhash=True)
-            
-            for output in result["output"]:
-                name = preprocess_result.get("name") or task_args.get("prompt") or args.get("text_input")
-                if not name:
-                    name = args.get("interpolation_prompts") or args.get("interpolation_texts")
-                    if name:
-                        name = " to ".join(name)
-                new_creation = Creation(
-                    user=task.user,
-                    requester=task.requester,
-                    agent=None,
-                    task=task.id,
-                    tool=task.tool,
-                    filename=output['filename'],
-                    mediaAttributes=output['mediaAttributes'],
-                    name=name
-                )
-                new_creation.save(db=task.db)
-                output["creation"] = new_creation.id
+
+            if output_type in ["image", "video", "audio", "lora"]:
+                result["output"] = result["output"] if isinstance(result["output"], list) else [result["output"]]
+                result = eden_utils.upload_result(result, db=task.db, save_thumbnails=True, save_blurhash=True)
+
+                for output in result["output"]:
+                    name = preprocess_result.get("name") or task_args.get("prompt") or args.get("text_input")
+                    if not name:
+                        name = args.get("interpolation_prompts") or args.get("interpolation_texts")
+                        if name:
+                            name = " to ".join(name)
+                    new_creation = Creation(
+                        user=task.user,
+                        requester=task.requester,
+                        agent=None,
+                        task=task.id,
+                        tool=task.tool,
+                        filename=output['filename'],
+                        mediaAttributes=output['mediaAttributes'],
+                        name=name
+                    )
+                    new_creation.save(db=task.db)
+                    output["creation"] = new_creation.id
 
             results.extend([result])
 
@@ -150,6 +153,9 @@ async def _task_handler(func, *args, **kwargs):
         return task_update.copy()
 
     except Exception as error:
+        sentry_sdk.capture_exception(error)
+        print(traceback.format_exc())
+
         task_update = {
             "status": "failed",
             "error": str(error),

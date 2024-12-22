@@ -44,6 +44,7 @@ dependencies = [
     "farcaster>=0.7.11",
     "ably>=2.0.7",
     "colorama>=0.4.6",
+    "web3<7.6.1",
 ]
 
 [build-system]
