@@ -2,6 +2,9 @@ name: Time Remapping
 description: Adjusts the timing of videos by interpolating between frames
 tip: Useful for slow motion, speed-up effects, or smoothing animations. Specify either target FPS, total frames, or duration.
 output_type: video
+cost_estimate: 0.1
+status: stage
+visible: false
 parameters:
   video:
     type: string
