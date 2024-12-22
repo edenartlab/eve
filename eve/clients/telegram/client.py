@@ -120,7 +120,7 @@ class EdenTG:
         self.token = token
         self.agent = agent
         self.db = db
-        self.tools = agent.get_tools() #get_tools_from_mongo(db=self.db)
+        self.tools = agent.get_tools()  # get_tools_from_mongo(db=self.db)
         self.known_users = {}
         self.known_threads = {}
         self.channel_name = common.get_ably_channel_name(
@@ -197,8 +197,6 @@ class EdenTG:
                     await application.bot.send_photo(
                         chat_id=telegram_chat_id, photo=url
                     )
-            else:
-                print(f"Unknown update type: {update_type}")
 
         # Subscribe using the async callback
         await self.channel.subscribe(async_callback)
@@ -301,7 +299,7 @@ class EdenTG:
                 headers={"Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}"},
             ) as response:
                 print(f"Response from {api_url}/chat: {response.status}")
-                #json
+                # json
                 print(await response.json())
                 if response.status != 200:
                     await send_response(
