@@ -7,7 +7,7 @@ from .media_utils.audio_video_combine.handler import handler as audio_video_comb
 from .media_utils.image_concat.handler import handler as image_concat
 from .media_utils.image_crop.handler import handler as image_crop
 from .media_utils.video_concat.handler import handler as video_concat
-
+from .media_utils.time_remapping.handler import handler as time_remapping
 from .twitter.get_tweets.handler import handler as get_tweets
 from .twitter.tweet.handler import handler as tweet
 
