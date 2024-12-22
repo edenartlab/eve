@@ -48,7 +48,7 @@ handlers = {
     "image_concat": image_concat,
     "image_crop": image_crop,
     "video_concat": video_concat,
-
+    "time_remapping": time_remapping,
     "get_tweets": get_tweets,
     "tweet": tweet,
 
