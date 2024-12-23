@@ -175,49 +175,52 @@ class Eden2Cog(commands.Cog):
                 flags=re.IGNORECASE,
             )
 
-        if message.reference:
-            source_message = await message.channel.fetch_message(
-                message.reference.message_id
-            )
-            content = f"(Replying to message: {source_message.content[:100]} ...)\n\n{content}"
+            if message.reference:
+                source_message = await message.channel.fetch_message(
+                    message.reference.message_id
+                )
+                content = f"(Replying to message: {source_message.content[:100]} ...)\n\n{content}"
 
-        ctx = await self.bot.get_context(message)
-        await ctx.channel.trigger_typing()
+            ctx = await self.bot.get_context(message)
+            await ctx.channel.trigger_typing()
 
-        # Make API request
-        api_url = os.getenv("EDEN_API_URL")
+            # Make API request
+            api_url = os.getenv("EDEN_API_URL")
 
-        async with aiohttp.ClientSession() as session:
-            request_data = {
-                "user_id": str(user.id),
-                "agent_id": str(self.agent.id),
-                "thread_id": str(thread.id),
-                "user_message": {
-                    "content": content,
-                    "name": message.author.name,
-                    "attachments": [
-                        attachment.url for attachment in message.attachments
-                    ],
-                },
-                "update_config": {
-                    "sub_channel_name": self.channel_name,
-                    "discord_channel_id": str(message.channel.id),
-                    "message_id": str(message.id),  # Add message ID to update_config
-                },
-            }
+            async with aiohttp.ClientSession() as session:
+                request_data = {
+                    "user_id": str(user.id),
+                    "agent_id": str(self.agent.id),
+                    "thread_id": str(thread.id),
+                    "user_message": {
+                        "content": content,
+                        "name": message.author.name,
+                        "attachments": [
+                            attachment.url for attachment in message.attachments
+                        ],
+                    },
+                    "update_config": {
+                        "sub_channel_name": self.channel_name,
+                        "discord_channel_id": str(message.channel.id),
+                        "message_id": str(
+                            message.id
+                        ),  # Add message ID to update_config
+                    },
+                }
 
-            print(f"Sending request: {request_data}")
+                print(f"Sending request: {request_data}")
 
-            async with session.post(
-                f"{api_url}/chat",
-                json=request_data,
-                headers={"Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}"},
-            ) as response:
-                if response.status != 200:
-                    await reply(
-                        message, "Sorry, something went wrong processing your request."
-                    )
-                    return
+                async with session.post(
+                    f"{api_url}/chat",
+                    json=request_data,
+                    headers={"Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}"},
+                ) as response:
+                    if response.status != 200:
+                        await reply(
+                            message,
+                            "Sorry, something went wrong processing your request.",
+                        )
+                        return
 
     @commands.Cog.listener()
     async def on_member_join(self, member):
