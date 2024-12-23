@@ -17,7 +17,7 @@ import traceback
 
 from eve import auth
 from eve.tool import Tool, get_tools_from_mongo
-from eve.llm import UpdateType, UserMessage, async_prompt_thread, async_title_thread
+from eve.llm import UpdateType, UserMessage, async_prompt_thread
 from eve.thread import Thread
 from eve.mongo import serialize_document
 from eve.agent import Agent
@@ -172,7 +172,6 @@ async def handle_chat(
                 thread=thread,
                 user_messages=request.user_message,
                 tools=tools,
-                force_reply=True,
                 model="claude-3-5-sonnet-20241022",
             ):
                 data = {
