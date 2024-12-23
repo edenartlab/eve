@@ -18,7 +18,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 
 from . import sentry_sdk
 from .tool import Tool
-from .user import User
+from .app.schemas.user import User
 from .agent import Agent
 from .thread import UserMessage, AssistantMessage, ToolCall, Thread
 

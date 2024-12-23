@@ -7,7 +7,7 @@ import os
 import asyncio
 from eve.llm import *
 from eve.tool import get_tools_from_mongo
-from eve.auth import get_my_eden_user
+from eve.app.auth.auth import get_my_eden_user
 
 db = "STAGE"
 user = get_my_eden_user(db=db)

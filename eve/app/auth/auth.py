@@ -1,25 +1,27 @@
 import os
 from fastapi.security import APIKeyHeader, HTTPBearer, HTTPAuthorizationCredentials
-from fastapi import WebSocket, HTTPException, Depends, status
+from fastapi import WebSocket, HTTPException, Depends, status, Header
 from clerk_backend_api import Clerk
 from clerk_backend_api.jwks_helpers import AuthenticateRequestOptions
 from bson import ObjectId
 import httpx
 from pydantic import BaseModel
+from typing import Optional
 
-from .mongo import get_collection
-from .user import User
-from . import EDEN_API_KEY_PROD, EDEN_API_KEY_STAGE
+from ..database.mongo import get_collection
+from ..schemas.user import User
+from ... import EDEN_API_KEY_PROD, EDEN_API_KEY_STAGE
 
 # Initialize Clerk SDK
 clerk = Clerk(bearer_auth=os.getenv("CLERK_SECRET_KEY"))
 
 api_key_header = APIKeyHeader(name="X-Api-Key", auto_error=False)
 bearer_scheme = HTTPBearer(auto_error=False)
+userid_header = APIKeyHeader(name="X-User-Id", auto_error=False)
 
 db = os.getenv("DB", "STAGE")
 api_keys = get_collection("apikeys", db=db)
-users = get_collection("users2", db=db)
+users = get_collection("users", db="PROD")
 
 EDEN_ADMIN_KEY = os.getenv("EDEN_ADMIN_KEY")
 ABRAHAM_ADMIN_KEY = os.getenv("ABRAHAM_ADMIN_KEY")
@@ -27,7 +29,7 @@ ISSUER_URL = os.getenv("CLERK_ISSUER_URL")
 
 
 class UserData(BaseModel):
-    userId: str
+    user_id: str
     subscriptionTier: int = 0
     featureFlags: list = []
     isAdmin: bool = False
@@ -53,7 +55,7 @@ def get_user_data(user_id: str) -> UserData:
         raise HTTPException(status_code=401, detail="User not found")
 
     return UserData(
-        userId=str(user["_id"]),
+        user_id=str(user["_id"]),
         subscriptionTier=user.get("subscriptionTier", 0),
         featureFlags=user.get("featureFlags", []),
         isAdmin=user.get("isAdmin", False),
@@ -107,6 +109,7 @@ async def get_clerk_session(
 def authenticate(
     api_key: str = Depends(api_key_header),
     bearer_token: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    sub: str = Depends(userid_header)
 ):
     """Authenticate using either API key or Clerk session"""
     if api_key:
@@ -114,6 +117,9 @@ def authenticate(
     
     if bearer_token:
         return get_clerk_session(bearer_token)
+    
+    if sub:
+        return get_user_data(sub)
     
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,

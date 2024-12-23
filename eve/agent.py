@@ -11,7 +11,7 @@ from pydantic import ConfigDict, Field
 from typing import Optional, Literal, Any, Dict, List, Union
 from .thread import UserMessage, Thread
 from .tool import get_tools_from_api_files, get_tools_from_mongo, Tool
-from .mongo import Document, Collection, get_collection
+from .app.database.mongo import Document, Collection, get_collection
 
 
 generic_instructions = """Follow these additional guidelines:
@@ -27,7 +27,7 @@ from dotenv import load_dotenv
 
 # from eve.llm import async_prompt_thread
 
-from eve.user import User, Manna
+from eve.app.schemas.user import User, Manna
 
 # todo: consolidate with Tool class
 # @Collection("agents4")

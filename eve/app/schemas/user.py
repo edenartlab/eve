@@ -2,7 +2,7 @@ from bson import ObjectId
 from pydantic import Field
 from typing import Optional, Literal, List
 
-from .mongo import Document, Collection, get_collection, MongoDocumentNotFound
+from eve.app.database.mongo import Document, Collection, get_collection, MongoDocumentNotFound
 
 @Collection("mannas")
 class Manna(Document):

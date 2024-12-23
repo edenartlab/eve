@@ -3,7 +3,7 @@ from bson import ObjectId
 from typing import Dict, Any, Optional, List, Literal
 
 # from .mongo import MongoModel, get_collection
-from .mongo import Document, Collection, get_collection
+from .app.database.mongo import Document, Collection, get_collection
 
 
 @Collection("models3")
