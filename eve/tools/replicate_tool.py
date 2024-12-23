@@ -105,7 +105,7 @@ class ReplicateTool(Tool):
             lora = parameter.get('type') == 'lora'
             if field in new_args:
                 if lora:
-                    lora_doc = get_collection("models", db=self.db).find_one({"_id": ObjectId(args[field])}) if args[field] else None
+                    lora_doc = get_collection(Model.collection_name, db=self.db).find_one({"_id": ObjectId(args[field])}) if args[field] else None
                     if lora_doc:
                         lora_url = lora_doc.get("checkpoint")
                         lora_name = lora_doc.get("name")
@@ -195,28 +195,14 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
         if output_handler in ["eden", "trainer"]:
             thumbnails = output[-1]["thumbnails"]
             output = output[-1]["files"]
-            # output = {"output": output}
-            # result = eden_utils.upload_result(output, db=task.db, save_thumbnails=True, save_blurhash=True)
-            
             output = eden_utils.upload_result(output, db=task.db, save_thumbnails=True, save_blurhash=True)
             result = [{"output": [out]} for out in output]
         else:
-            # output = {"output": output}
-            # result = eden_utils.upload_result(output, db=task.db, save_thumbnails=True, save_blurhash=True)
-            print("success 1")
             output = eden_utils.upload_result(output, db=task.db, save_thumbnails=True, save_blurhash=True)
-            print("success 2")
-            print(output)
             result = [{"output": [out]} for out in output]
-            print("success 3")
-            print(result)
 
         for r, res in enumerate(result):
-            print("*****")
-            print(res)
             for o, output in enumerate(res["output"]):
-                print("^^^^^^^")
-                print(output)
                 if output_handler == "trainer":
                     filename = output["filename"]
                     thumbnail = eden_utils.upload_media(
@@ -253,31 +239,6 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
                     creation.save(db=task.db)
                     result[r]["output"][o]["creation"] = creation.id
         
-
-
-
-        # elif output_handler in ["trainer", "eden"]: 
-        #     result = replicate_process_eden(output, db=task.db)
-
-        #     if output_handler == "trainer":
-        #         filename = result[0]["filename"]
-        #         thumbnail = result[0]["thumbnail"]
-        #         url = f"{s3.get_root_url(db=task.db)}/{filename}"
-        #         model = Model(
-        #             name=task.args["name"],
-        #             user=task.user,
-        #             requester=task.requester,
-        #             task=task.id,
-        #             thumbnail=thumbnail,
-        #             args=task.args,
-        #             checkpoint=url, 
-        #             base_model="sdxl",
-        #         )
-        #         model.save(upsert_filter={"task": ObjectId(task.id)})  # upsert_filter prevents duplicates
-        #         result[0]["model"] = model.id
-        
-
-
         run_time = (datetime.now(timezone.utc) - task.createdAt).total_seconds()
         if task.performance.get("waitTime"):
             run_time -= task.performance["waitTime"]
@@ -292,35 +253,6 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
             "result": result
         }
 
-
-# def replicate_process_eden(output, db):
-#     output = output[-1]
-#     if not output or "files" not in output:
-#         raise Exception("No output found")         
-
-#     results = []
-    
-#     for file, thumb in zip(output["files"], output["thumbnails"]):
-#         file_url, _ = s3.upload_file_from_url(file, db=db)
-#         filename = file_url.split("/")[-1]
-#         metadata = output.get("attributes")
-#         media_attributes, thumbnail = eden_utils.get_media_attributes(file_url)
-        
-#         result = {
-#             "filename": filename,
-#             "metadata": metadata,
-#             "mediaAttributes": media_attributes
-#         }
-
-#         thumbnail = thumbnail or thumb or None
-#         if thumbnail:
-#             thumbnail_url, _ = s3.upload(thumbnail, file_type='.webp', db=db)
-#             result["thumbnail"] = thumbnail_url
-
-#         results.append(result)
-
-#     return {"output": results}
-    
 
 def check_replicate_api_token():
     if not os.getenv("REPLICATE_API_TOKEN"):
