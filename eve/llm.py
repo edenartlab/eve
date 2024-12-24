@@ -267,6 +267,7 @@ async def async_prompt_thread(
         for msg in user_messages
     )
 
+    print("THE FORCE REPLY", force_reply)
     if agent_mentioned or force_reply:
         pushes["active"] = user_message_id
         thread.push(pushes)

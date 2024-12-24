@@ -17,7 +17,7 @@ import traceback
 
 from eve import auth
 from eve.tool import Tool, get_tools_from_mongo
-from eve.llm import UpdateType, UserMessage, async_prompt_thread
+from eve.llm import UpdateType, UserMessage, async_prompt_thread, async_title_thread
 from eve.thread import Thread
 from eve.mongo import serialize_document
 from eve.agent import Agent
@@ -99,6 +99,7 @@ class ChatRequest(BaseModel):
     user_message: UserMessage
     thread_id: Optional[str] = None
     update_config: Optional[UpdateConfig] = None
+    force_reply: bool = False
 
 
 def serialize_for_json(obj):
@@ -124,23 +125,11 @@ async def fetch_resources(
     )
     tools_task = asyncio.create_task(asyncio.to_thread(get_tools_from_mongo, db))
 
-    if thread_id:
-        thread_task = asyncio.create_task(
-            asyncio.to_thread(Thread.from_mongo, str(thread_id), db)
-        )
-    else:
-        thread_task = None
-
     user = await user_task
     agent = await agent_task
     tools = await tools_task
 
-    if thread_task:
-        thread = await thread_task
-    else:
-        thread = agent.request_thread(db=db, user=user.id)
-
-    return user, agent, thread, tools
+    return user, agent, tools
 
 
 @web_app.post("/chat")
@@ -160,9 +149,18 @@ async def handle_chat(
                 logger.error(f"Failed to create Ably channel: {str(e)}")
                 # Continue without the channel - updates will still work via HTTP if configured
 
-        user, agent, thread, tools = await fetch_resources(
+        user, agent, tools = await fetch_resources(
             request.user_id, request.agent_id, request.thread_id, db
         )
+
+        if request.thread_id:
+            thread_task = asyncio.create_task(
+                asyncio.to_thread(Thread.from_mongo, str(request.thread_id), db)
+            )
+            thread = await thread_task
+        else:
+            thread = agent.request_thread(db=db, user=user.id)
+            background_tasks.add_task(async_title_thread, thread, request.user_message)
 
         async def run_prompt():
             async for update in async_prompt_thread(
@@ -172,6 +170,7 @@ async def handle_chat(
                 thread=thread,
                 user_messages=request.user_message,
                 tools=tools,
+                force_reply=request.force_reply,
                 model="claude-3-5-sonnet-20241022",
             ):
                 data = {
@@ -241,6 +240,7 @@ async def stream_chat(
             thread_name=request.thread_name,
             user_messages=user_messages,
             tools=get_tools_from_mongo(db=db),
+            force_reply=request.force_reply,
             provider="anthropic",
         ):
             if update.type == UpdateType.ASSISTANT_MESSAGE:
