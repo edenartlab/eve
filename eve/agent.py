@@ -41,10 +41,6 @@ class Agent(User):
             data['owner'] = ObjectId(data['owner'])
         if data.get('models'):
             data['models'] = {k: ObjectId(v) if isinstance(v, str) else v for k, v in data['models'].items()}
-        # username = data.get("username")
-        # env_file = f"eve/agents/{username}/.env"
-        # if os.path.exists(env_file):
-        #     load_dotenv(env_file)
         super().__init__(**data)
 
     @classmethod

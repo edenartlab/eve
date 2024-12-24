@@ -46,7 +46,6 @@ def start(agent: str, db: str, env: str, platforms: tuple):
 
         db = db.upper()
         env_path = env or env_path
-        # Set the environment variable
 
         clients_to_start = {}
 
