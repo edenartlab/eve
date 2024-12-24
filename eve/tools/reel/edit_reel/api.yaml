@@ -1,0 +1,17 @@
+name: Draft a Reel
+description: Draft a full reel video or storyboard from a prompt. 
+cost_estimate: 0.01
+status: stage
+visible: false
+output_type: object
+parameters:
+  prompt:
+    type: string
+    label: Prompt
+    description: A prompt that describes in as little or as much detail as needed, a synopsis for a short video reel, which will be converted into a full-detailed storyboard and then rendered into a video.
+    tip: If you are just starting to develop an idea, feel free to start with a short prompt and then expand it as you get feedback from the assistant or want to elaborate on it. The more detail you provide, the more authentic to your vision the video will come out. If you want the assistant to have more creative control, you may say so in the prompt.
+    required: true
+  agent_name:
+    type: string
+    label: Agent
+    description: An agent who will serve as the assistant for this task. If not set, will use a default agent.
