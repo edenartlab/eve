@@ -31,6 +31,43 @@ _parent_tool_cache: Dict[str, dict] = {}  # Cache for parent tool schemas
 _tool_cache: Dict[str, Dict[str, ToolType]] = {}  # Cache for complete tool sets
 
 
+OUTPUT_TYPES = Literal[
+    "boolean", 
+    "string", 
+    "integer", 
+    "float", 
+    "image", 
+    "video", 
+    "audio", 
+    "lora"
+]
+
+BASE_MODELS = Literal[
+    "sd15",
+    "sdxl",
+    "sd3",
+    "sd35",
+    "flux-dev",
+    "flux-schnell",
+    "hellomeme",
+    "stable-audio-open",
+    "inspyrenet-rembg",
+    "mochi-preview",
+    "runway",
+    "mmaudio",
+    "librosa",
+    "musicgen"
+]
+
+HANDLERS = Literal[
+    "local", 
+    "modal", 
+    "comfyui", 
+    "replicate", 
+    "gcp"
+]
+
+
 @Collection("tools3")
 class Tool(Document, ABC):
     """
@@ -43,36 +80,17 @@ class Tool(Document, ABC):
     tip: Optional[str] = None
     thumbnail: Optional[str] = None
 
-    output_type: Literal[
-        "boolean", "string", "integer", "float", "image", "video", "audio", "lora"
-    ]
+    output_type: OUTPUT_TYPES
     cost_estimate: str
     resolutions: Optional[List[str]] = None
-    base_model: Optional[
-        Literal[
-            "sd15",
-            "sdxl",
-            "sd3",
-            "sd35",
-            "flux-dev",
-            "flux-schnell",
-            "hellomeme",
-            "stable-audio-open",
-            "inspyrenet-rembg",
-            "mochi-preview",
-            "runway",
-            "mmaudio",
-            "librosa",
-            "musicgen"
-        ]
-    ] = None
+    base_model: Optional[BASE_MODELS] = None
 
     status: Optional[Literal["inactive", "stage", "prod"]] = "stage"
     visible: Optional[bool] = True
     allowlist: Optional[str] = None
 
     model: Type[BaseModel]
-    handler: Literal["local", "modal", "comfyui", "replicate", "gcp"] = "local"
+    handler: HANDLERS = "local"
     parent_tool: Optional[str] = None
     parameters: Optional[Dict[str, Any]] = None
     parameter_presets: Optional[Dict[str, Any]] = None
@@ -104,7 +122,6 @@ class Tool(Document, ABC):
         else:
             # MongoDB path
             collection = get_collection(cls.collection_name, db=db)
-
             schema = collection.find_one({"key": key})
 
         _parent_tool_cache[cache_key] = schema

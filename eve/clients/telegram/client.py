@@ -312,6 +312,7 @@ class EdenTG:
 
 
 def start(env: str, db: str = "STAGE") -> None:
+    print("Starting Telegram client...")
     load_dotenv(env)
 
     agent_name = os.getenv("EDEN_AGENT_USERNAME")

@@ -125,7 +125,6 @@ async def _task_handler(func, *args, **kwargs):
                     new_creation = Creation(
                         user=task.user,
                         requester=task.requester,
-                        agent=None,
                         task=task.id,
                         tool=task.tool,
                         filename=output['filename'],
