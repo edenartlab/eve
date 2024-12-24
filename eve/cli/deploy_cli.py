@@ -5,6 +5,8 @@ import traceback
 import subprocess
 from pathlib import Path
 from dotenv import dotenv_values
+import tempfile
+import shutil
 
 root_dir = Path(__file__).parent.parent.parent
 ENV_NAME = "deployments"
@@ -29,8 +31,8 @@ def ensure_modal_env_exists():
         )
 
 
-def modify_client_file(file_path: str, agent_key: str) -> None:
-    """Modify the client file to use correct secret name and fix pyproject path"""
+def prepare_client_file(file_path: str, agent_key: str) -> str:
+    """Create a temporary copy of the client file with modifications"""
     with open(file_path, "r") as f:
         content = f.read()
 
@@ -50,8 +52,13 @@ def modify_client_file(file_path: str, agent_key: str) -> None:
         f'.pip_install_from_pyproject("{pyproject_path}")',
     )
 
-    with open(file_path, "w") as f:
+    # Create a temporary file with the modified content
+    temp_dir = tempfile.mkdtemp()
+    temp_file = Path(temp_dir) / "modal_client.py"
+    with open(temp_file, "w") as f:
         f.write(modified_content)
+
+    return str(temp_file)
 
 
 def create_secrets(agent_key: str, secrets_dict: dict):
@@ -79,22 +86,29 @@ def create_secrets(agent_key: str, secrets_dict: dict):
 def deploy_client(agent_key: str, client_name: str):
     client_path = root_dir / f"eve/clients/{client_name}/modal_client.py"
     if client_path.exists():
-        # Modify the client file to use the correct secret name
-        modify_client_file(str(client_path), agent_key)
-        app_name = f"{agent_key}-client-{client_name}"
-        subprocess.run(
-            [
-                "rye",
-                "run",
-                "modal",
-                "deploy",
-                "--name",
-                app_name,
-                str(client_path),
-                "-e",
-                ENV_NAME,
-            ]
-        )
+        try:
+            # Create a temporary modified version of the client file
+            temp_file = prepare_client_file(str(client_path), agent_key)
+            app_name = f"{agent_key}-client-{client_name}"
+
+            # Deploy using the temporary file
+            subprocess.run(
+                [
+                    "rye",
+                    "run",
+                    "modal",
+                    "deploy",
+                    "--name",
+                    app_name,
+                    temp_file,
+                    "-e",
+                    ENV_NAME,
+                ]
+            )
+        finally:
+            # Clean up temporary directory
+            if temp_file:
+                shutil.rmtree(Path(temp_file).parent)
     else:
         click.echo(
             click.style(

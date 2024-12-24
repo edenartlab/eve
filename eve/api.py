@@ -93,7 +93,7 @@ async def handle_chat(
                 user_messages=user_message,
                 tools=tools,
                 force_reply=True,
-                model="claude-3-5-sonnet-20241022"
+                model="claude-3-5-sonnet-20241022",
             ):
                 pass
         
