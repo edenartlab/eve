@@ -3,6 +3,13 @@ import yaml
 import json
 import traceback
 from bson import ObjectId
+from datetime import datetime, timezone
+from abc import ABC
+from pydantic import ConfigDict, Field
+from typing import Optional, Literal, Any, Dict, List, Union
+from .thread import UserMessage, Thread
+from .tool import get_tools_from_api_files, get_tools_from_mongo, Tool
+from .app.database.mongo import Document, Collection, get_collection
 from typing import Optional, Literal, Any, Dict, List
 
 from .thread import Thread
@@ -13,6 +20,13 @@ from .user import User, Manna
 
 
 from dotenv import load_dotenv
+
+# from eve.llm import async_prompt_thread
+
+from eve.app.schemas.user import User, Manna
+
+# todo: consolidate with Tool class
+# @Collection("agents4")
 
 @Collection("users3")
 class Agent(User):

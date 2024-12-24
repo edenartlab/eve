@@ -9,7 +9,7 @@ from pydantic.config import ConfigDict
 from pydantic.json_schema import SkipJsonSchema
 from typing import List, Optional, Dict, Any, Literal, Union
 
-from .mongo import Document, Collection
+from .app.database.mongo import Document, Collection
 from .eden_utils import download_file, image_to_base64, prepare_result, dump_json
 
 
