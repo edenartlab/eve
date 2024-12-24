@@ -730,6 +730,8 @@ def save_test_results(tools, results):
                 else:
                     filename = f"{tool}_{o}.txt" if len(outputs) > 1 else f"{tool}.txt"
                     file_path = os.path.join(results_dir, filename)
+                    if isinstance(output, dict):
+                        output = dump_json(output)
                     with open(file_path, "w") as f:
                         f.write(output)
 

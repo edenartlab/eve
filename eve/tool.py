@@ -39,7 +39,8 @@ OUTPUT_TYPES = Literal[
     "image", 
     "video", 
     "audio", 
-    "lora"
+    "lora",
+    "object"
 ]
 
 BASE_MODELS = Literal[

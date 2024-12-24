@@ -1,6 +1,12 @@
 # from tools import runway, video_concat
 """
 
+scenarios
+- single prompt
+- prompt
+
+
+
 eleven(text, voice) -> voiceover
 musicgen(text) -> music
 mmaudio(text) -> audio

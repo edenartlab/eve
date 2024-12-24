@@ -176,6 +176,7 @@ def apply_edit(
                     if getattr(instance_copy, original_field) is None:
                         setattr(instance_copy, original_field, {})
                     for key, new_value in value.items():
+                        key = int(key) if isinstance(getattr(instance_copy, original_field), list) else key
                         getattr(instance_copy, original_field)[key] = new_value
             
             elif field_name.startswith('edit_'):
@@ -191,6 +192,7 @@ def apply_edit(
                         getattr(instance_copy, original_field)[index] = new_value
                 elif isinstance(value, dict):
                     for key, new_value in value.items():
+                        key = int(key) if isinstance(getattr(instance_copy, original_field), list) else key
                         if isinstance(new_value, BaseModel):
                             current_value = getattr(instance_copy, original_field)[key]
                             nested_updated = apply_edit(current_value, new_value)

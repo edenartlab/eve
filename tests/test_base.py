@@ -104,8 +104,11 @@ def test_apply_edit():
         edit_base_model_field={"string_field": "test14"}
     )
 
+    print("lets apply edit")
+    print(type(t1))
+    print(type(t1_edit))
     t2 = apply_edit(t1, t1_edit)
-
+    print(type(t2))
     t2_expected = TestModel(
         string_field="test6",
         string_list_field=["test1", "test8", "test2"],
@@ -190,3 +193,9 @@ def test_versionable_base_model():
         string_field="test0",
     )
 
+
+
+if __name__ == "__main__":
+    # test_generated_edit_model()
+    test_apply_edit()
+    # test_versionable_base_model()
