@@ -2,17 +2,18 @@ import os
 import yaml
 import json
 import traceback
+from pathlib import Path
 from bson import ObjectId
 from typing import Optional, Literal, Any, Dict, List
+from dotenv import dotenv_values
+from pydantic import SecretStr, Field
+from pydantic.json_schema import SkipJsonSchema
 
 from .thread import Thread
 from .tool import Tool
 from .mongo import Collection, get_collection
 from .user import User, Manna
 
-
-
-from dotenv import load_dotenv
 
 @Collection("users3")
 class Agent(User):
@@ -22,6 +23,7 @@ class Agent(User):
 
     type: Literal["agent"] = "agent"
     owner: ObjectId
+    secrets: Optional[Dict[str, SecretStr]] = Field(None, exclude=True)
 
     # status: Optional[Literal["inactive", "stage", "prod"]] = "stage"
     public: Optional[bool] = False
@@ -31,16 +33,20 @@ class Agent(User):
     description: str
     instructions: str
     models: Optional[Dict[str, ObjectId]] = None
-    tools: Optional[Dict[str, Dict]] = None
-    
     test_args: Optional[List[Dict[str, Any]]] = None
-
-
+    
+    tools: Optional[Dict[str, Dict]] = None
+    tools_cache: SkipJsonSchema[Optional[Dict[str, Tool]]] = Field(None, exclude=True)
+    
     def __init__(self, **data):
         if isinstance(data.get('owner'), str):
             data['owner'] = ObjectId(data['owner'])
         if data.get('models'):
             data['models'] = {k: ObjectId(v) if isinstance(v, str) else v for k, v in data['models'].items()}
+        # Load environment variables into secrets dictionary
+        env_dir = Path(__file__).parent / "agents"
+        env_vars = dotenv_values(f"{str(env_dir)}/{data['username']}/.env")
+        data['secrets'] = {key: SecretStr(value) for key, value in env_vars.items()}            
         super().__init__(**data)
 
     @classmethod
@@ -48,7 +54,6 @@ class Agent(User):
         """
         Convert the schema into the format expected by the model.
         """
-
         test_file = file_path.replace("api.yaml", "test.json")
         with open(test_file, 'r') as f:
             schema["test_args"] = json.load(f)
@@ -75,10 +80,33 @@ class Agent(User):
         kwargs["featureFlags"] = ["freeTools"]  # give agents free tools for now
         super().save(db, {"username": self.username, "type": "agent"}, **kwargs)
         Manna.load(user=self.id, db=db)
-        
+       
     @classmethod
-    def load(cls, username, db):
-        return super().load(username=username, db=db)
+    def from_yaml(cls, file_path, db="STAGE", cache=False):
+        if cache:
+            if file_path not in _agent_cache:
+                _agent_cache[file_path] = super().from_yaml(file_path, db=db)
+            return _agent_cache[file_path]
+        else:
+            return super().from_yaml(file_path, db=db)
+
+    @classmethod
+    def from_mongo(cls, document_id, db="STAGE", cache=False):
+        if cache:
+            if document_id not in _agent_cache:
+                _agent_cache[str(document_id)] = super().from_mongo(document_id, db=db)
+            return _agent_cache[str(document_id)]
+        else:
+            return super().from_mongo(document_id, db=db)
+    
+    @classmethod
+    def load(cls, username, db=None, cache=False):
+        if cache:
+            if username not in _agent_cache:
+                _agent_cache[username] = super().load(username=username, db=db)
+            return _agent_cache[username]
+        else:
+            return super().load(username=username, db=db)
 
     def request_thread(self, key=None, user=None, db="STAGE"):
         thread = Thread(
@@ -90,15 +118,24 @@ class Agent(User):
         thread.save()
         return thread
 
-    def get_tools(self, tools=None, db="STAGE"):
-        return {
-            k: Tool.from_raw_yaml({"parent_tool": k, **v}, db=db) 
-            for k, v in (self.tools or {}).items()
-            if tools is None or k in tools
-        }
+    def get_tools(self, db="STAGE", cache=False):
+        if not self.tools:
+            return {}
+        if cache:
+            self.tools_cache = self.tools_cache or {}
+            for k, v in self.tools.items():
+                if k not in self.tools_cache:
+                    tool = Tool.from_raw_yaml({"parent_tool": k, **v}, db=db)
+                    self.tools_cache[k] = tool
+            return self.tools_cache
+        else:        
+            return {
+                k: Tool.from_raw_yaml({"parent_tool": k, **v}, db=db)
+                for k, v in self.tools.items()
+            }
 
-    def get_tool(self, tool_name, db="STAGE"):
-        return self.get_tools(tools=[tool_name], db=db)[tool_name]
+    def get_tool(self, tool_name, db="STAGE", cache=False):
+        return self.get_tools(db=db, cache=cache)[tool_name]
     
     def get_system_message(self):
         system_message = f"{self.description}\n\n{self.instructions}\n\n{generic_instructions}"
@@ -171,7 +208,8 @@ def get_api_files(root_dir: str = None, include_inactive: bool = False) -> List[
             
     return api_files
 
-
+# Agent cache for fetching commonly used agents
+_agent_cache: Dict[str, Dict[str, Agent]] = {}
 
 generic_instructions = """Follow these additional guidelines:
 - If the tool you are using has the "n_samples" parameter, and the user requests for multiple versions of the same thing, set n_samples to the number of images the user desires for that prompt. If they want N > 1 images that have different prompts, then make N separate tool calls with n_samples=1.

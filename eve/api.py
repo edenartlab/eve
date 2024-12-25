@@ -113,25 +113,6 @@ def serialize_for_json(obj):
     return obj
 
 
-async def fetch_resources(
-    user_id: str, agent_id: str, thread_id: Optional[str], db: str
-):
-    """Fetch user, agent, thread and tools in parallel"""
-    user_task = asyncio.create_task(
-        asyncio.to_thread(User.from_mongo, str(user_id), db)
-    )
-    agent_task = asyncio.create_task(
-        asyncio.to_thread(Agent.from_mongo, str(agent_id), db)
-    )
-    tools_task = asyncio.create_task(asyncio.to_thread(get_tools_from_mongo, db))
-
-    user = await user_task
-    agent = await agent_task
-    tools = await tools_task
-
-    return user, agent, tools
-
-
 @web_app.post("/chat")
 async def handle_chat(
     request: ChatRequest,
@@ -149,20 +130,18 @@ async def handle_chat(
                 logger.error(f"Failed to create Ably channel: {str(e)}")
                 # Continue without the channel - updates will still work via HTTP if configured
 
-        user, agent, tools = await fetch_resources(
-            request.user_id, request.agent_id, request.thread_id, db
-        )
+        user = User.from_mongo(request.user_id, db=db)
+        agent = Agent.from_mongo(request.agent_id, db=db, cache=True)
+        tools = agent.get_tools(db=db, cache=True)
 
         if request.thread_id:
-            thread_task = asyncio.create_task(
-                asyncio.to_thread(Thread.from_mongo, str(request.thread_id), db)
-            )
-            thread = await thread_task
+            thread = Thread.from_mongo(request.thread_id, db=db)
         else:
             thread = agent.request_thread(db=db, user=user.id)
             background_tasks.add_task(async_title_thread, thread, request.user_message)
 
         async def run_prompt():
+
             async for update in async_prompt_thread(
                 db=db,
                 user=user,
