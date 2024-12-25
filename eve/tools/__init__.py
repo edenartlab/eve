@@ -7,6 +7,7 @@ from .media_utils.video_concat.handler import handler as video_concat
 
 from .wallet.send_eth.handler import handler as send_eth
 
+from .media_utils.time_remapping.handler import handler as time_remapping
 from .twitter.get_tweets.handler import handler as get_tweets
 from .twitter.tweet.handler import handler as tweet
 
@@ -27,7 +28,7 @@ handlers = {
     "image_concat": image_concat,
     "image_crop": image_crop,
     "video_concat": video_concat,
-
+    "time_remapping": time_remapping,
     "get_tweets": get_tweets,
     "tweet": tweet,
 

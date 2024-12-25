@@ -1,0 +1,9 @@
+{
+    "video": "https://edenartlab-lfs.s3.us-east-1.amazonaws.com/comfyui/models2/assets/fire-pulse.mp4",
+    "duration": 15.0,
+    "target_fps": 60,
+    "blend_strength": 1.0,
+    "method": "cosine",
+    "loop_seamless": false,
+    "preserve_pitch": false
+}
