@@ -5,6 +5,11 @@ output_type: string
 status: inactive
 visible: false
 parameters:
+  agent:
+    type: string
+    label: Agent
+    description: The name of the agent to use to make the tweet.
+    required: true
   content:
     type: string
     label: Tweet
@@ -13,7 +18,8 @@ parameters:
   images:
     type: array
     label: Images
-    description: A list of image URLs to include in the tweet.
+    description: A list of image or video URLs to include in the tweet.
+    tip: If you want to include a video, you can not include any additional images or other videos.
     items:
       type: string
   
