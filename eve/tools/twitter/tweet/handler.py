@@ -16,12 +16,13 @@ async def handler(args: dict, db: str):
     agent = Agent.load(args["agent"], db=db)
     
     x = X(agent)
-    
+
     tweet = x.post(
         tweet_text=args["content"],
         media_urls=args["images"]
     )
-    
+    print(tweet)
+
     return {
         "output": tweet['data']
     }
