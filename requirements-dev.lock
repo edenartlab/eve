@@ -460,6 +460,7 @@ typing-extensions==4.12.2
     # via anthropic
     # via anyio
     # via elevenlabs
+    # via eth-rlp
     # via eth-typing
     # via fastapi
     # via modal

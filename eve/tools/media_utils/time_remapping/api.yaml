@@ -1,0 +1,67 @@
+name: Time Remapping
+description: Adjusts the timing of videos by interpolating between frames
+tip: Useful for slow motion, speed-up effects, or smoothing animations. Specify either target FPS, total frames, or duration.
+output_type: video
+cost_estimate: 0.1
+status: stage
+visible: false
+parameters:
+  video:
+    type: string
+    description: URL of the video to be time-remapped
+    required: true
+  target_fps:
+    type: integer
+    label: Target FPS
+    description: Desired frames per second for output video
+    tip: Leave empty to keep original FPS. Can be combined with total_frames or duration.
+    minimum: 1
+    maximum: 120
+    default: 24
+  total_frames:
+    type: integer
+    label: Total Frames
+    description: Total number of frames in output video
+    tip: Overrides duration if both are specified. Leave empty to calculate from FPS and duration.
+    minimum: 1
+  duration:
+    type: float
+    label: Duration
+    description: Desired duration of output video in seconds
+    tip: Leave empty to keep original duration. Ignored if total_frames is specified.
+    minimum: 0.1
+  blend_strength:
+    type: float
+    label: Blend Strength
+    description: How much to blend between frames
+    tip: 0 = nearest frame, 1 = full interpolation
+    minimum: 0.0
+    maximum: 1.0
+    default: 1.0
+  method:
+    type: string
+    label: Interpolation Method
+    description: Method used for frame interpolation
+    choices: [linear, cosine, nearest]
+    choices_labels: [Linear, Cosine, Nearest]
+    default: linear
+    tip: Linear is simple, cosine is smooth, nearest repeats frames and has no blending
+  loop_seamless:
+    type: boolean
+    label: Seamless Loop
+    description: Preserve seamless looping sequences
+    tip: When enabled, interpolates between last and first frame
+    default: false
+  preserve_pitch:
+    type: boolean
+    label: Preserve Audio Pitch
+    description: Keep original audio pitch when changing duration
+    tip: When true, maintains pitch but may affect quality on extreme stretching. When false, pitch changes with duration.
+    default: true
+  use_rife:
+    type: boolean
+    label: Use RIFE Interpolation
+    description: Use RIFE AI model for high-quality frame interpolation
+    tip: Higher quality for stretching frames, but slower than traditional methods. Requires additional dependencies.
+    default: true
+
