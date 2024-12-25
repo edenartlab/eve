@@ -37,7 +37,8 @@ tools:
   flux_schnell:
   flux_dev_lora:
   reel:
-  send_eth:
+  tweet:
+  get_tweets:
 
 clients:
   discord:
