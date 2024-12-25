@@ -186,7 +186,7 @@ class UpdateType(str, Enum):
     ASSISTANT_MESSAGE = "assistant_message"
     TOOL_COMPLETE = "tool_complete"
     ERROR = "error"
-    UPDATE_COMPLETE = "update_complete"
+    END_PROMPT = "end_prompt"
 
 
 models = ["claude-3-5-sonnet-20241022", "gpt-4o-mini", "gpt-4o-2024-08-06"]
@@ -346,7 +346,7 @@ async def async_prompt_thread(
             pops = {"active": user_message_id}
             thread.push(pushes, pops)
 
-            # yield update
+            # yield error message
             yield ThreadUpdate(
                 type=UpdateType.ERROR, message=assistant_message, error=str(e)
             )
@@ -415,8 +415,9 @@ async def async_prompt_thread(
 
         if stop:
             print("Stopping prompt thread")
-            yield ThreadUpdate(type=UpdateType.UPDATE_COMPLETE)
             break
+
+    yield ThreadUpdate(type=UpdateType.END_PROMPT)
 
 
 def prompt_thread(

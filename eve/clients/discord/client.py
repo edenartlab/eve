@@ -1,11 +1,12 @@
-import argparse
 import os
 import re
+import asyncio
+import aiohttp
+import argparse
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 from ably import AblyRealtime
-import aiohttp
 
 from eve.clients import common
 from eve.agent import Agent
@@ -13,6 +14,8 @@ from eve.llm import UpdateType
 from eve.user import User
 from eve.eden_utils import prepare_result
 from eve.models import ClientType
+
+EDEN_API_URL = os.getenv("EDEN_API_URL")
 
 
 def replace_mentions_with_usernames(
@@ -53,8 +56,10 @@ class Eden2Cog(commands.Cog):
         # Setup will be done in on_ready
         self.ably_client = None
         self.channel = None
+        
         # Track message IDs
         self.pending_messages = {}
+        self.typing_tasks = {}  # {channel_id: asyncio.Task}
 
     async def setup_ably(self):
         """Initialize Ably client and subscribe to updates"""
@@ -96,22 +101,25 @@ class Eden2Cog(commands.Cog):
                         print(f"Could not fetch original message {message_id}")
 
                 if update_type == UpdateType.START_PROMPT:
-                    pass
+                    await self.start_typing(channel)
 
                 elif update_type == UpdateType.ERROR:
                     error_msg = data.get("error", "Unknown error occurred")
-                    await channel.send(f"Error: {error_msg}", reference=reference)
+                    await self.send_message(channel, f"Error: {error_msg}", reference=reference)
 
                 elif update_type == UpdateType.ASSISTANT_MESSAGE:
                     content = data.get("content")
                     if content:
-                        await channel.send(content, reference=reference)
+                        await self.send_message(channel, content, reference=reference)
 
                 elif update_type == UpdateType.TOOL_COMPLETE:
                     result = data.get("result", {})
                     result["result"] = prepare_result(result["result"], db=self.db)
                     url = result["result"][0]["output"][0]["url"]
-                    await channel.send(url, reference=reference)
+                    await self.send_message(channel,url, reference=reference)
+
+                elif update_type == UpdateType.END_PROMPT:
+                    await self.stop_typing(channel)
 
             except Exception as e:
                 print(f"Error processing update: {e}")
@@ -132,8 +140,6 @@ class Eden2Cog(commands.Cog):
 
     @commands.Cog.listener("on_message")
     async def on_message(self, message: discord.Message) -> None:
-        print("on_message", message)
-        
         if message.author.id == self.bot.user.id:
             return
 
@@ -161,8 +167,7 @@ class Eden2Cog(commands.Cog):
         user = self.known_users[message.author.id]
 
         if common.user_over_rate_limits(user):
-            await reply(
-                message,
+            await message.reply(
                 "I'm sorry, you've hit your rate limit. Please try again a bit later!",
             )
             return
@@ -186,12 +191,6 @@ class Eden2Cog(commands.Cog):
                 message.reference.message_id
             )
             content = f"(Replying to message: {source_message.content[:100]} ...)\n\n{content}"
-
-        ctx = await self.bot.get_context(message)
-        await ctx.channel.trigger_typing()
-
-        # Make API request
-        api_url = os.getenv("EDEN_API_URL")
 
         async with aiohttp.ClientSession() as session:
             request_data = {
@@ -218,13 +217,12 @@ class Eden2Cog(commands.Cog):
             print(f"Sending request: {request_data}")
 
             async with session.post(
-                f"{api_url}/chat",
+                f"{EDEN_API_URL}/chat",
                 json=request_data,
                 headers={"Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}"},
             ) as response:
                 if response.status != 200:
-                    await reply(
-                        message,
+                    await message.reply(
                         "Sorry, something went wrong processing your request.",
                     )
                     return
@@ -233,17 +231,39 @@ class Eden2Cog(commands.Cog):
     async def on_member_join(self, member):
         print(f"{member} has joined the guild id: {member.guild.id}")
 
+    async def send_message(self, channel: discord.TextChannel, content, reference=None, limit=2000):
+        for i in range(0, len(content), limit):
+            chunk = content[i:i + limit]
+            await channel.send(chunk, reference=reference)
 
-async def reply(message, content):
-    content_chunks = [content[i : i + 1980] for i in range(0, len(content), 1980)]
-    for c, chunk in enumerate(content_chunks):
-        await message.reply(chunk) if c == 0 else await message.channel.send(chunk)
+    async def start_typing(self, channel: discord.TextChannel):
+        """
+        Start or resume indefinite typing in a given channel.
+        If a typing task already exists and hasn't completed, do nothing.
+        """
+        existing_task = self.typing_tasks.get(channel.id)
+        if existing_task and not existing_task.done():
+            return
+        async def keep_typing(ch: discord.TextChannel):
+            try:
+                while True:
+                    await ch.trigger_typing()
+                    await asyncio.sleep(5)
+            except asyncio.CancelledError:
+                # typing was stopped
+                pass
 
+        # Create a new typing task and store it
+        self.typing_tasks[channel.id] = asyncio.create_task(keep_typing(channel))
+        print(f"Started indefinite typing in channel: {channel.name} ({channel.id})")
 
-async def send(message, content):
-    content_chunks = [content[i : i + 1980] for i in range(0, len(content), 1980)]
-    for chunk in content_chunks:
-        await message.channel.send(chunk)
+    async def stop_typing(self, channel: discord.TextChannel):
+        """
+        Cancel the indefinite typing task for a given channel, if it exists.
+        """
+        typing_task = self.typing_tasks.pop(channel.id, None)
+        if typing_task and not typing_task.done():
+            typing_task.cancel()
 
 
 class DiscordBot(commands.Bot):
@@ -277,13 +297,12 @@ def start(
     env: str,
     db: str = "STAGE",
 ) -> None:
-    # logger.info("Launching Discord bot...")
     load_dotenv(env)
 
     agent_name = os.getenv("EDEN_AGENT_USERNAME")
     agent = Agent.load(agent_name, db=db)
+    print(f"Launching Discord bot {agent.username}...")
 
-    # logger.info(f"Using agent: {agent.name}")
     bot_token = os.getenv("CLIENT_DISCORD_TOKEN")
     bot = DiscordBot()
     bot.add_cog(Eden2Cog(bot, agent, db=db))
