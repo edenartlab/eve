@@ -5,9 +5,10 @@ output_type: video
 cost_estimate: 0.1
 status: stage
 visible: false
+handler: modal
 parameters:
   video:
-    type: string
+    type: video
     description: URL of the video to be time-remapped
     required: true
   target_fps:
