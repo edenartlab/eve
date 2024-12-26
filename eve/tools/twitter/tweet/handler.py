@@ -21,9 +21,10 @@ async def handler(args: dict, db: str):
         tweet_text=args["content"],
         media_urls=args["images"]
     )
+    print("the tweet")
     print(tweet)
 
     return {
-        "output": tweet['data']
+        "tweet": tweet
     }
     
