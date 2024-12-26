@@ -1,19 +1,17 @@
 import re
 import sentry_sdk
-from pprint import pprint
 import traceback
 import os
 import asyncio
 import openai
 import anthropic
 from enum import Enum
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List, Union, Literal, Tuple, AsyncGenerator
 from bson import ObjectId
 from jinja2 import Template
 from pydantic import BaseModel, Field
 from pydantic.config import ConfigDict
 from instructor.function_calls import openai_schema
-from typing import List, Optional, Dict, Any, Literal, Union
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
 
 from . import sentry_sdk
@@ -23,49 +21,45 @@ from .agent import Agent
 from .thread import UserMessage, AssistantMessage, ToolCall, Thread
 
 
+class UpdateType(str, Enum):
+    START_PROMPT = "start_prompt"
+    ASSISTANT_MESSAGE = "assistant_message"
+    TOOL_COMPLETE = "tool_complete"
+    ERROR = "error"
+    END_PROMPT = "end_prompt"
+    ASSISTANT_TOKEN = "assistant_token"
+
+
+models = ["claude-3-5-sonnet-20241022", "gpt-4o-mini", "gpt-4o-2024-08-06"]
+
+
 async def async_anthropic_prompt(
     messages: List[Union[UserMessage, AssistantMessage]],
-    system_message: Optional[str] = "You are a helpful assistant.",
-    model: str = "claude-3-5-sonnet-20241022",
-    response_model: Optional[type[BaseModel]] = None,
-    tools: Dict[str, Tool] = None,
-    db: str = "STAGE",
+    system_message: Optional[str],
+    model: str,
+    response_model: Optional[type[BaseModel]],
+    tools: Dict[str, Tool],
+    db: str,
 ):
-    if not os.getenv("ANTHROPIC_API_KEY"):
-        raise ValueError("ANTHROPIC_API_KEY env is not set")
-
-    messages_json = [item for msg in messages for item in msg.anthropic_schema()]
-
-    # print("--------------------------------")
-    # pprint(messages_json)
-    # print("--------------------------------")
-
+    anthropic_client = anthropic.AsyncAnthropic()
     prompt = {
         "model": model,
         "max_tokens": 8192,
-        "messages": messages_json,
+        "messages": [item for msg in messages for item in msg.anthropic_schema()],
         "system": system_message,
     }
 
-    anthropic_client = anthropic.AsyncAnthropic()
-
     if tools or response_model:
-        tools = [
-            t.anthropic_schema(exclude_hidden=True) for t in (tools or {}).values()
-        ]
+        tool_schemas = [t.anthropic_schema(exclude_hidden=True) for t in tools.values()]
         if response_model:
-            tools.append(openai_schema(response_model).anthropic_schema)
+            tool_schemas.append(openai_schema(response_model).anthropic_schema)
             prompt["tool_choice"] = {"type": "tool", "name": response_model.__name__}
-        prompt["tools"] = tools
+        prompt["tools"] = tool_schemas
 
-    try:
-        response = await anthropic_client.messages.create(**prompt)
-    except Exception as e:
-        raise Exception(e)
-
+    # Non-streaming call
+    response = await anthropic_client.messages.create(**prompt)
     if response_model:
         return response_model(**response.content[0].input)
-
     else:
         content = ". ".join(
             [r.text for r in response.content if r.type == "text" and r.text]
@@ -76,7 +70,41 @@ async def async_anthropic_prompt(
             if r.type == "tool_use"
         ]
         stop = response.stop_reason != "tool_use"
-        return content, tool_calls, stop
+        return (content, tool_calls, stop)
+
+
+async def async_anthropic_prompt_stream(
+    messages: List[Union[UserMessage, AssistantMessage]],
+    system_message: Optional[str],
+    model: str,
+    response_model: Optional[type[BaseModel]],
+    tools: Dict[str, Tool],
+    db: str,
+) -> AsyncGenerator[Tuple[UpdateType, str], None]:
+    """Yields partial tokens (ASSISTANT_TOKEN, partial_text) for streaming."""
+    anthropic_client = anthropic.AsyncAnthropic()
+    prompt = {
+        "model": model,
+        "max_tokens": 8192,
+        "messages": [item for msg in messages for item in msg.anthropic_schema()],
+        "system": system_message,
+    }
+
+    if tools or response_model:
+        tool_schemas = [t.anthropic_schema(exclude_hidden=True) for t in tools.values()]
+        if response_model:
+            tool_schemas.append(openai_schema(response_model).anthropic_schema)
+            prompt["tool_choice"] = {"type": "tool", "name": response_model.__name__}
+        prompt["tools"] = tool_schemas
+
+    response_stream = anthropic_client.messages.create(stream=True, **prompt)
+    async for chunk in response_stream:
+        if (
+            chunk.type == "content_block_delta"
+            and chunk.delta
+            and hasattr(chunk.delta, "text")
+        ):
+            yield (UpdateType.ASSISTANT_TOKEN, chunk.delta.text)
 
 
 async def async_openai_prompt(
@@ -147,20 +175,72 @@ async def async_openai_prompt(
 )
 async def async_prompt(
     messages: List[Union[UserMessage, AssistantMessage]],
-    system_message: Optional[str] = "You are a helpful assistant.",
-    model: str = "claude-3-5-sonnet-20241022",
+    system_message: Optional[str],
+    model: str,
     response_model: Optional[type[BaseModel]] = None,
     tools: Dict[str, Tool] = {},
     db: str = "STAGE",
-):
+) -> Tuple[str, List[ToolCall], bool]:
+    """
+    Non-streaming LLM call => returns (content, tool_calls, stop).
+    """
     if model.startswith("claude"):
+        # Use the non-stream Anthropics helper
         return await async_anthropic_prompt(
             messages, system_message, model, response_model, tools, db
         )
     else:
+        # Use existing OpenAI path
         return await async_openai_prompt(
             messages, system_message, model, response_model, tools, db
         )
+
+
+@retry(
+    retry=retry_if_exception(
+        lambda e: isinstance(e, (openai.RateLimitError, anthropic.RateLimitError))
+    ),
+    wait=wait_exponential(multiplier=5, max=60),
+    stop=stop_after_attempt(3),
+    reraise=True,
+)
+@retry(
+    retry=retry_if_exception(
+        lambda e: isinstance(
+            e,
+            (
+                openai.APIConnectionError,
+                openai.InternalServerError,
+                anthropic.APIConnectionError,
+                anthropic.InternalServerError,
+            ),
+        )
+    ),
+    wait=wait_exponential(multiplier=2, max=30),
+    stop=stop_after_attempt(3),
+    reraise=True,
+)
+async def async_prompt_stream(
+    messages: List[Union[UserMessage, AssistantMessage]],
+    system_message: Optional[str],
+    model: str,
+    response_model: Optional[type[BaseModel]] = None,
+    tools: Dict[str, Tool] = {},
+    db: str = "STAGE",
+) -> AsyncGenerator[Tuple[UpdateType, str], None]:
+    """
+    Streaming LLM call => yields (UpdateType.ASSISTANT_TOKEN, partial_text).
+    Add a similar function for OpenAI if you need streaming from GPT-based models.
+    """
+    if model.startswith("claude"):
+        # Stream from Anthropics
+        async for chunk in async_anthropic_prompt_stream(
+            messages, system_message, model, response_model, tools, db
+        ):
+            yield chunk
+    else:
+        # NOTE: for streaming with OpenAI, implement a similar function if desired
+        raise NotImplementedError("Streaming not implemented for model: " + model)
 
 
 def anthropic_prompt(messages, system_message, model, response_model=None, tools=None):
@@ -179,17 +259,6 @@ def prompt(messages, system_message, model, response_model=None, tools=None):
     return asyncio.run(
         async_prompt(messages, system_message, model, response_model, tools)
     )
-
-
-class UpdateType(str, Enum):
-    START_PROMPT = "start_prompt"
-    ASSISTANT_MESSAGE = "assistant_message"
-    TOOL_COMPLETE = "tool_complete"
-    ERROR = "error"
-    END_PROMPT = "end_prompt"
-
-
-models = ["claude-3-5-sonnet-20241022", "gpt-4o-mini", "gpt-4o-2024-08-06"]
 
 
 # todo: `msg.error` not `msg.message.error`
@@ -243,6 +312,7 @@ async def async_prompt_thread(
     tools: Dict[str, Tool],
     force_reply: bool = True,
     model: Literal[tuple(models)] = "claude-3-5-sonnet-20241022",
+    stream: bool = False,
 ):
     print("================================================")
     print(user_messages)
@@ -284,7 +354,6 @@ async def async_prompt_thread(
 
     while True:
         try:
-
             messages = thread.get_messages()
 
             # for error tracing
@@ -298,37 +367,48 @@ async def async_prompt_thread(
                 },
             )
 
-            # main call to LLM
-            content, tool_calls, stop = await async_prompt(
-                messages,
-                system_message=system_message,
-                model=model,
-                tools=tools,
-            )
+            if stream:
+                # Use the streaming function
+                prompt_stream = async_prompt_stream(
+                    messages,
+                    system_message=system_message,
+                    model=model,
+                    tools=tools,
+                    db=db,
+                )
+                content_chunks = []
+                async for partial_update in prompt_stream:
+                    if partial_update[0] == UpdateType.ASSISTANT_TOKEN:
+                        yield ThreadUpdate(
+                            type=UpdateType.ASSISTANT_TOKEN,
+                            token=partial_update[1],
+                        )
+                    else:
+                        # If you add more yield types, handle them here
+                        pass
+                # For stopping or final parse, set stop = True to finish
+                stop = True
 
-            # for error tracing
-            sentry_sdk.add_breadcrumb(
-                category="prompt_out",
-                data={"content": content, "tool_calls": tool_calls, "stop": stop},
-            )
-
-            # create assistant message
-            assistant_message = AssistantMessage(
-                content=content or "",
-                tool_calls=tool_calls,
-                reply_to=user_messages[-1].id,
-            )
-
-            # push assistant message to thread and pop user message from actives array
-            pushes = {"messages": assistant_message}
-            pops = {"active": user_message_id} if stop else {}
-            thread.push(pushes, pops)
-            assistant_message = thread.messages[-1]
-
-            # yield update
-            yield ThreadUpdate(
-                type=UpdateType.ASSISTANT_MESSAGE, message=assistant_message
-            )
+            else:
+                # Use the non-streaming function
+                content, tool_calls, stop = await async_prompt(
+                    messages,
+                    system_message=system_message,
+                    model=model,
+                    tools=tools,
+                    db=db,
+                )
+                assistant_message = AssistantMessage(
+                    content=content or "",
+                    tool_calls=tool_calls,
+                    reply_to=user_messages[-1].id,
+                )
+                pushes = {"messages": assistant_message}
+                pops = {"active": user_message_id} if stop else {}
+                thread.push(pushes, pops)
+                yield ThreadUpdate(
+                    type=UpdateType.ASSISTANT_MESSAGE, message=assistant_message
+                )
 
         except Exception as e:
             # capture error
@@ -476,6 +556,7 @@ async def async_title_thread(thread: Thread, *extra_messages: UserMessage):
         sentry_sdk.capture_exception(e)
         traceback.print_exc()
         return
+
 
 def title_thread(thread: Thread, *extra_messages: UserMessage):
     return asyncio.run(async_title_thread(thread, *extra_messages))

@@ -1,7 +1,6 @@
 import os
 import json
 import modal
-import asyncio
 from fastapi import FastAPI, Depends, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,7 +15,7 @@ import aiohttp
 import traceback
 
 from eve import auth
-from eve.tool import Tool, get_tools_from_mongo
+from eve.tool import Tool
 from eve.llm import UpdateType, UserMessage, async_prompt_thread, async_title_thread
 from eve.thread import Thread
 from eve.mongo import serialize_document
@@ -113,35 +112,44 @@ def serialize_for_json(obj):
     return obj
 
 
+async def setup_chat(
+    request: ChatRequest, background_tasks: BackgroundTasks
+) -> tuple[User, Agent, Thread, list[Tool], Optional[AblyRealtime]]:
+    update_channel = None
+    if request.update_config and request.update_config.sub_channel_name:
+        try:
+            update_channel = web_app.state.ably_client.channels.get(
+                str(request.update_config.sub_channel_name)
+            )
+        except Exception as e:
+            logger.error(f"Failed to create Ably channel: {str(e)}")
+
+    user = User.from_mongo(request.user_id, db=db)
+    agent = Agent.from_mongo(request.agent_id, db=db, cache=True)
+    tools = agent.get_tools(db=db, cache=True)
+
+    if request.thread_id:
+        thread = Thread.from_mongo(request.thread_id, db=db)
+    else:
+        thread = agent.request_thread(db=db, user=user.id)
+        background_tasks.add_task(async_title_thread, thread, request.user_message)
+
+    return user, agent, thread, tools, update_channel
+
+
 @web_app.post("/chat")
 async def handle_chat(
     request: ChatRequest,
     background_tasks: BackgroundTasks,
     auth: dict = Depends(auth.authenticate_admin),
 ):
-    update_channel = None
+    print("handle_chat", request)
     try:
-        if request.update_config and request.update_config.sub_channel_name:
-            try:
-                update_channel = web_app.state.ably_client.channels.get(
-                    str(request.update_config.sub_channel_name)
-                )
-            except Exception as e:
-                logger.error(f"Failed to create Ably channel: {str(e)}")
-                # Continue without the channel - updates will still work via HTTP if configured
-
-        user = User.from_mongo(request.user_id, db=db)
-        agent = Agent.from_mongo(request.agent_id, db=db, cache=True)
-        tools = agent.get_tools(db=db, cache=True)
-
-        if request.thread_id:
-            thread = Thread.from_mongo(request.thread_id, db=db)
-        else:
-            thread = agent.request_thread(db=db, user=user.id)
-            background_tasks.add_task(async_title_thread, thread, request.user_message)
+        user, agent, thread, tools, update_channel = await setup_chat(
+            request, background_tasks
+        )
 
         async def run_prompt():
-
             async for update in async_prompt_thread(
                 db=db,
                 user=user,
@@ -151,6 +159,7 @@ async def handle_chat(
                 tools=tools,
                 force_reply=request.force_reply,
                 model="claude-3-5-sonnet-20241022",
+                stream=False,
             ):
                 data = {
                     "type": update.type.value,
@@ -169,7 +178,6 @@ async def handle_chat(
 
                 if request.update_config:
                     if request.update_config.update_endpoint:
-                        # Send update via HTTP POST
                         async with aiohttp.ClientSession() as session:
                             try:
                                 async with session.post(
@@ -188,10 +196,7 @@ async def handle_chat(
                                     f"Error sending update to endpoint: {str(e)}"
                                 )
 
-                    elif (
-                        update_channel
-                    ):  # Only try Ably if we successfully created the channel
-                        # Send update via Ably
+                    elif update_channel:
                         try:
                             await update_channel.publish("update", data)
                         except Exception as e:
@@ -205,45 +210,60 @@ async def handle_chat(
         return {"status": "error", "message": str(e)}
 
 
-@web_app.post("/chat_and_wait")
+@web_app.post("/chat/stream")
 async def stream_chat(
     request: ChatRequest,
-    auth: dict = Depends(auth.authenticate),
+    auth: dict = Depends(auth.authenticate_admin),
 ):
-    user_messages = UserMessage(**request.user_message)
+    try:
+        user, agent, thread, tools, update_channel = await setup_chat(
+            request, BackgroundTasks()
+        )
 
-    async def event_generator():
-        async for update in async_prompt_thread(
-            db=db,
-            user_id=auth.userId,
-            thread_name=request.thread_name,
-            user_messages=user_messages,
-            tools=get_tools_from_mongo(db=db),
-            force_reply=request.force_reply,
-            provider="anthropic",
-        ):
-            if update.type == UpdateType.ASSISTANT_MESSAGE:
-                data = {
-                    "type": str(update.type),
-                    "content": update.message.content,
-                }
-            elif update.type == UpdateType.TOOL_COMPLETE:
-                data = {
-                    "type": str(update.type),
-                    "tool": update.tool_name,
-                    "result": update.result,
-                }
-            else:
-                data = {
-                    "type": "error",
-                    "error": update.error or "Unknown error occurred",
-                }
+        async def event_generator():
+            async for update in async_prompt_thread(
+                db=db,
+                user=user,
+                agent=agent,
+                thread=thread,
+                user_messages=request.user_message,
+                tools=tools,
+                force_reply=request.force_reply,
+                model="claude-3-5-sonnet-20241022",
+                stream=True,
+            ):
+                data = {"type": update.type}
+                if update.type == UpdateType.ASSISTANT_TOKEN:
+                    data["token"] = getattr(update, "token", "")
+                elif update.type == UpdateType.ASSISTANT_MESSAGE:
+                    data["content"] = update.message.content
+                    if update.message.tool_calls:
+                        data["tool_calls"] = [
+                            serialize_for_json(t.model_dump())
+                            for t in update.message.tool_calls
+                        ]
+                elif update.type == UpdateType.TOOL_COMPLETE:
+                    data["tool"] = update.tool_name
+                    data["result"] = serialize_for_json(update.result)
+                elif update.type == UpdateType.ERROR:
+                    data["error"] = update.error or "Unknown error occurred"
 
-            yield f"data: {json.dumps({'event': 'update', 'data': data})}\n\n"
+                yield f"data: {json.dumps({'event': 'update', 'data': data})}\n\n"
 
-        yield f"data: {json.dumps({'event': 'done', 'data': ''})}\n\n"
+            yield f"data: {json.dumps({'event': 'done', 'data': ''})}\n\n"
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+            },
+        )
+
+    except Exception as e:
+        logger.error(f"Error in stream_chat: {str(e)}\n{traceback.format_exc()}")
+        return {"status": "error", "message": str(e)}
 
 
 # Modal app setup
