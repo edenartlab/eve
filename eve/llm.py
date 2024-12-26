@@ -378,6 +378,7 @@ async def async_prompt_thread(
             tool_calls = []
 
             if stream:
+                stop = False  # Initialize stop flag
                 async for update_type, content in async_prompt_stream(
                     messages,
                     system_message=system_message,
@@ -404,15 +405,12 @@ async def async_prompt_thread(
 
                 # Update thread
                 pushes = {"messages": assistant_message}
-                pops = {"active": user_message_id}
-                thread.push(pushes, pops)
+                thread.push(pushes)  # Don't pop from actives yet
 
                 # Emit the complete message
                 yield ThreadUpdate(
                     type=UpdateType.ASSISTANT_MESSAGE, message=assistant_message
                 )
-
-                stop = True
 
             else:
                 # Use the non-streaming function
@@ -436,6 +434,7 @@ async def async_prompt_thread(
                 )
 
             # Handle tool calls
+            tool_results = []
             for t, tool_call in enumerate(assistant_message.tool_calls):
                 try:
                     # get tool
@@ -461,6 +460,7 @@ async def async_prompt_thread(
 
                     # yield update
                     if result["status"] == "completed":
+                        tool_results.append(result)
                         yield ThreadUpdate(
                             type=UpdateType.TOOL_COMPLETE,
                             tool_name=tool_call.tool,
@@ -493,7 +493,11 @@ async def async_prompt_thread(
                         error=str(e),
                     )
 
-            if stop:
+            # If we have tool results, make another LLM call to respond to them
+            if tool_results:
+                # Add tool results to messages and continue
+                continue
+            else:
                 break
 
         except Exception as e:
