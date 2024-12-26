@@ -47,10 +47,13 @@ file_extensions = {
 }
 
 
-def get_root_url(db="STAGE"):
+def get_root_url(db="STAGE", filename=None):
     """Returns the root URL for the specified bucket."""
     bucket_name = s3_buckets[db]
-    return f"https://{bucket_name}.s3.{AWS_REGION_NAME}.amazonaws.com"
+    url = f"https://{bucket_name}.s3.{AWS_REGION_NAME}.amazonaws.com"
+    if filename:
+        url += f"/{filename}"
+    return url
 
 
 def upload_file_from_url(url, name=None, file_type=None, db="STAGE"):

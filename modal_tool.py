@@ -23,9 +23,14 @@ app = modal.App(
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("libmagic1", "ffmpeg", "wget")
-    .pip_install("pyyaml", "elevenlabs", "openai", "httpx", "cryptography", "pymongo", "instructor[anthropic]", "anthropic",
-                 "instructor", "Pillow", "pydub", "sentry_sdk", "pymongo", "runwayml", "google-cloud-aiplatform",
-                 "boto3", "replicate", "python-magic", "python-dotenv", "moviepy")
+    .pip_install(
+        "httpx", "tqdm", "websocket-client", "gitpython", "boto3", "omegaconf",
+        "requests", "Pillow", "fastapi==0.103.1", "python-magic", "replicate", 
+        "python-dotenv", "pyyaml", "instructor==1.2.6", "torch==2.3.1", "torchvision", "packaging",
+        "torchaudio", "pydub", "moviepy==1.0.3", "accelerate", "pymongo", "google-cloud-aiplatform", 
+        "runwayml", "elevenlabs", "sentry-sdk", "blurhash"
+    )
+    .pip_install("web3<7.6.1", "requests_oauthlib")
 )
 
 @app.function(image=image, timeout=3600)

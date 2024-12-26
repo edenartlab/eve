@@ -10,7 +10,7 @@ from typing import Optional
 
 from eve.app.auth import auth
 from eve.tool import Tool, get_tools_from_mongo
-from eve.llm import UpdateType, UserMessage, async_prompt_thread
+from eve.llm import UpdateType, UserMessage, async_prompt_thread, async_title_thread
 from eve.thread import Thread
 from eve.app.database.mongo import serialize_document
 from eve.agent import Agent
@@ -56,43 +56,58 @@ class ChatRequest(BaseModel):
     user_id: str
     agent_id: str
     thread_id: Optional[str] = None
-    user_message: dict
+    update_config: Optional[UpdateConfig] = None
+    force_reply: bool = False
+
+
+def serialize_for_json(obj):
+    """Recursively serialize objects for JSON, handling ObjectId and other special types"""
+    if isinstance(obj, ObjectId):
+        return str(obj)
+    elif isinstance(obj, dict):
+        return {k: serialize_for_json(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [serialize_for_json(item) for item in obj]
+    return obj
+
 
 @web_app.post("/chat")
 async def handle_chat(
     request: ChatRequest,
     background_tasks: BackgroundTasks,
-    _: dict = Depends(auth.authenticate_admin)
+    auth: dict = Depends(auth.authenticate_admin),
 ):
-    user_id = request.user_id
-    agent_id = request.agent_id
-    thread_id = request.thread_id
-    user_message = UserMessage(**request.user_message)
-
-    tools = get_tools_from_mongo(db=db)
-    
-    user = User.from_mongo(str(user_id), db=db)
-    agent = Agent.from_mongo(str(agent_id), db=db)
-
-    if not thread_id:
-        print("creating new thread")
-        thread = agent.request_thread(db=db, user=user.id)
-        print("new thread", thread.id)
-    else:
-        print("loading thread from thread_id", thread_id)
-        thread = Thread.from_mongo(str(thread_id), db=db)
-        print("got thread", thread.id)
-
+    update_channel = None
     try:
+        if request.update_config and request.update_config.sub_channel_name:
+            try:
+                update_channel = web_app.state.ably_client.channels.get(
+                    str(request.update_config.sub_channel_name)
+                )
+            except Exception as e:
+                logger.error(f"Failed to create Ably channel: {str(e)}")
+                # Continue without the channel - updates will still work via HTTP if configured
+
+        user = User.from_mongo(request.user_id, db=db)
+        agent = Agent.from_mongo(request.agent_id, db=db, cache=True)
+        tools = agent.get_tools(db=db, cache=True)
+
+        if request.thread_id:
+            thread = Thread.from_mongo(request.thread_id, db=db)
+        else:
+            thread = agent.request_thread(db=db, user=user.id)
+            background_tasks.add_task(async_title_thread, thread, request.user_message)
+
         async def run_prompt():
-            async for _ in async_prompt_thread(
+
+            async for update in async_prompt_thread(
                 db=db,
                 user=user,
                 agent=agent,
                 thread=thread,
                 user_messages=user_message,
                 tools=tools,
-                force_reply=True,
+                force_reply=request.force_reply,
                 model="claude-3-5-sonnet-20241022",
             ):
                 pass
@@ -120,6 +135,7 @@ async def stream_chat(
             thread_name=request.thread_name,
             user_messages=user_messages,
             tools=get_tools_from_mongo(db=db),
+            force_reply=request.force_reply,
             provider="anthropic",
         ):
             if update.type == UpdateType.ASSISTANT_MESSAGE:

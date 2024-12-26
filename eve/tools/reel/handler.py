@@ -239,11 +239,12 @@ def write_reel(
     Create a short reel based on the prompt."""
 
     class Reel(BaseModel):
-        """A reel is a short film of 30-60 seconds in length. It should be a single coherent scene for a commercial, movie trailer, tiny film, advertisement, or some other short time format."""
+        """A reel is a short film of 30-60 seconds in length. It should be a single coherent scene for a commercial, movie trailer, tiny film, advertisement, or some other short time format. Make sure to conform to the style guide for the music and visual prompts."""
 
         voiceover: str = Field(..., description="The text of the voiceover, if one is not provided by the user.")
-        music_prompt: str = Field(..., description="A prompt describing the music to compose for the reel. Describe instruments, genre, style, mood qualities, emotion, and any other relevant details.")
-        visual_prompt: str = Field(..., description="A prompt a text-to-image model to precisely describe the visual content of the reel. The visual prompt should be structured as a descriptive sentence, precisely describing the visible content of the reel, the aesthetic style, and action.")
+        music_prompt: str = Field(..., description='A prompt describing music for the entire reel. Usually describing format, genre, sub-genre, instruments, moods, BPM, and styles, separated by |. Include specific details by combining musical and emotional terms for moods, using descriptive adjectives for instruments, and selecting BPM settings appropriate to the genre. Follow the provided examples to ensure clarity and comprehensiveness, ensuring each prompt clearly defines the desired audio output. Examples: "Orchestra | Epic cinematic trailer | Instrumentation Strings, Brass, Percussion, and Choir | Dramatic, Inspiring, Heroic | Hollywood Blockbuster | 90 BPM", "Electronic, Synthwave, Retro-Futuristic | Instruments: Analog Synths, Drum Machine, Bass | Moods: Nostalgic, Cool, Rhythmic | 1980s Sci-Fi | 115 BPM"')
+        visual_prompt: str = Field(..., description="A prompt for a text-to-image model to precisely describe the visual content of the reel. The visual prompt should be structured as a descriptive sentence, precisely describing the visible content of the reel, the aesthetic style, visual elements, and action.")
+        visual_style: str = Field(..., description="A short fragment description of the art direction, aesthetic, and style. Focus here not on content, but on genre, mood, medium, abstraction, textural elements, and other aesthetic terms. Aim for 10-15 words")
         # camera_motion: str = Field(..., description="A short description, 2-5 words only, describing the camera motion")
 
 
@@ -354,7 +355,6 @@ async def handler(args: dict, db: str):
     
     duration = 30 # default duration
 
-
     if args.get("use_voiceover") and reel.voiceover:
         voice = args.get("voice") or select_random_voice("A heroic female voice")
         speech_audio = await elevenlabs.handler({
@@ -374,6 +374,9 @@ async def handler(args: dict, db: str):
             amount_silence = new_duration - duration
             silence = AudioSegment.silent(duration=amount_silence * 1000 * 0.5)
             speech_audio = silence + speech_audio + silence
+            # add another 5 seconds of silence
+            silence = AudioSegment.silent(duration=5000)
+            speech_audio = speech_audio + silence
         duration = len(speech_audio) / 1000
 
         audio_url, _ = s3.upload_audio_segment(speech_audio)
@@ -406,8 +409,14 @@ async def handler(args: dict, db: str):
         with open(music_file, 'rb') as f:
             music_audio = AudioSegment.from_file(BytesIO(f.read()))
         #os.remove(temp_file.name)
+        
+        # fadeout music last 3 seconds
+        
         print("MUSIC AUDIO 66", music_audio)
         print("MUSIC AUDIO 66 LENGTH", temp_file.name)
+
+        fade_duration = 5000  # 5 seconds in milliseconds
+        music_audio = music_audio.fade_out(duration=fade_duration)
 
         speech_boost = 5
         if audio:
@@ -470,6 +479,7 @@ async def handler(args: dict, db: str):
     for i in range(num_clips):
         print("FLUX ARGS", i)
         flux_args[i]["prompt"] = visual_prompts[i % len(visual_prompts)]
+        flux_args[i]["prompt"] += ", " + reel.visual_style
         flux_args[i]["seed"] = random.randint(0, 2147483647)
 
     print("FLUX ARGS!!!")
@@ -532,10 +542,10 @@ async def handler(args: dict, db: str):
         final_video_url = final_video['output'][0]['url']
         print("a 5")
         # output_url, _ = s3.upload_file(output)
-        print("a 6")
+        print("a 888")
 
 
-
+    print("this is updating...")    
 
     return {
         "output": final_video_url,

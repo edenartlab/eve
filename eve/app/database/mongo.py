@@ -43,8 +43,12 @@ def Collection(name):
 
 
 class Document(BaseModel):
-    id: Optional[ObjectId] = Field(None, alias="_id") #= Field(default_factory=ObjectId, alias="_id")
-    createdAt: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
+    id: Optional[ObjectId] = Field(
+        None, alias="_id"
+    )
+    createdAt: Optional[datetime] = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
     updatedAt: Optional[datetime] = None
     db: Optional[str] = None
 

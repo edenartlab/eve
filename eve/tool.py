@@ -18,17 +18,17 @@ from .app.schemas.user import User
 from .task import Task
 from .app.database.mongo import Document, Collection, get_collection
 
-# Use TYPE_CHECKING for type annotations
-if TYPE_CHECKING:
-    from .tool import Tool
+# # Use TYPE_CHECKING for type annotations
+# if TYPE_CHECKING:
+#     from .tool import Tool
 
-    ToolType = Tool
-else:
-    ToolType = ForwardRef("Tool")
+#     ToolType = Tool
+# else:
+#     ToolType = ForwardRef("Tool")
 
-# At module level
-_parent_tool_cache: Dict[str, dict] = {}  # Cache for parent tool schemas
-_tool_cache: Dict[str, Dict[str, ToolType]] = {}  # Cache for complete tool sets
+# # At module level
+# _parent_tool_cache: Dict[str, dict] = {}  # Cache for parent tool schemas
+# _tool_cache: Dict[str, Dict[str, ToolType]] = {}  # Cache for complete tool sets
 
 
 OUTPUT_TYPES = Literal[
@@ -101,11 +101,6 @@ class Tool(Document, ABC):
     def _get_schema(cls, key: str, from_yaml: bool = False, db: str = "STAGE") -> dict:
         """Get schema for a tool, with detailed performance logging."""
 
-        # Cache check
-        cache_key = f"{key}:{db}:{from_yaml}"
-        if cache_key in _parent_tool_cache:
-            return _parent_tool_cache[cache_key]
-
         if from_yaml:
             # YAML path
             api_files = get_api_files(include_inactive=True)
@@ -123,8 +118,6 @@ class Tool(Document, ABC):
             # MongoDB path
             collection = get_collection(cls.collection_name, db=db)
             schema = collection.find_one({"key": key})
-
-        _parent_tool_cache[cache_key] = schema
 
         return schema
 
@@ -195,14 +188,7 @@ class Tool(Document, ABC):
                 schema["test_args"] = json.load(f)
 
         return schema
-
-    @classmethod
-    def from_raw_yaml(cls, schema: dict, db="STAGE", from_yaml=True):
-        schema["db"] = db
-        schema = cls.convert_from_yaml(schema)
-        sub_cls = cls.get_sub_class(schema, from_yaml=from_yaml, db=db)
-        return sub_cls.model_validate(schema)
-
+        
     @classmethod
     def convert_from_mongo(cls, schema: dict, db="STAGE") -> dict:
         schema["parameters"] = {
@@ -235,8 +221,38 @@ class Tool(Document, ABC):
         return super().save(db, {"key": self.key}, **kwargs)
 
     @classmethod
-    def load(cls, key, db=None):
-        return super().load(key=key, db=db)
+    def from_raw_yaml(cls, schema: dict, db="STAGE", from_yaml=True):
+        schema["db"] = db
+        schema = cls.convert_from_yaml(schema)
+        sub_cls = cls.get_sub_class(schema, from_yaml=from_yaml, db=db)
+        return sub_cls.model_validate(schema)
+
+    @classmethod
+    def from_yaml(cls, file_path, db="STAGE", cache=False):
+        if cache:
+            if file_path not in _tool_cache:
+                _tool_cache[file_path] = super().from_yaml(file_path, db=db)
+            return _tool_cache[file_path]
+        else:
+            return super().from_yaml(file_path, db=db)
+
+    @classmethod
+    def from_mongo(cls, document_id, db="STAGE", cache=False):
+        if cache:
+            if document_id not in _tool_cache:
+                _tool_cache[str(document_id)] = super().from_mongo(document_id, db=db)
+            return _tool_cache[str(document_id)]
+        else:
+            return super().from_mongo(document_id, db=db)
+    
+    @classmethod
+    def load(cls, key, db=None, cache=False):
+        if cache:
+            if key not in _tool_cache:
+                _tool_cache[key] = super().load(key=key, db=db)
+            return _tool_cache[key]
+        else:
+            return super().load(key=key, db=db)
 
     def _remove_hidden_fields(self, parameters):
         hidden_parameters = [
@@ -469,13 +485,16 @@ class Tool(Document, ABC):
 
 
 def get_tools_from_api_files(
-    root_dir: str = None, tools: List[str] = None, include_inactive: bool = False
+    root_dir: str = None, 
+    tools: List[str] = None, 
+    include_inactive: bool = False,
+    cache: bool = False
 ) -> Dict[str, Tool]:
     """Get all tools inside a directory"""
 
     api_files = get_api_files(root_dir, include_inactive)
     tools = {
-        key: Tool.from_yaml(api_file)
+        key: _tool_cache.get(api_file) or Tool.from_yaml(api_file, cache=cache)
         for key, api_file in api_files.items()
         if tools is None or key in tools
     }
@@ -487,37 +506,26 @@ def get_tools_from_mongo(
     db: str,
     tools: List[str] = None,
     include_inactive: bool = False,
-    prefer_local: bool = True,
+    cache: bool = False,
 ) -> Dict[str, Tool]:
-    """Get all tools from mongo with caching"""
-    cache_key = f"{db}:{','.join(sorted(tools or []))}"
-    if cache_key in _tool_cache:
-        return _tool_cache[cache_key]
-
+    """Get all tools from mongo"""
+    
     tools_collection = get_collection(Tool.collection_name, db=db)
 
     # Batch fetch all tools and their parents
     filter = {"key": {"$in": tools}} if tools else {}
     tool_docs = list(tools_collection.find(filter))
 
-    # Get all parent tool keys
-    parent_keys = {
-        doc.get("parent_tool") for doc in tool_docs if doc.get("parent_tool")
-    }
-
-    # Prefetch all parent tools
-    if parent_keys:
-        parent_docs = list(tools_collection.find({"key": {"$in": list(parent_keys)}}))
-        # Cache parent tools
-        for parent in parent_docs:
-            cache_key = f"{parent['key']}:{db}:False"
-            _parent_tool_cache[cache_key] = parent
-
     found_tools = {}
     for tool in tool_docs:
         try:
-            tool = Tool.convert_from_mongo(tool, db=db)
-            tool = Tool.from_schema(tool, db=db, from_yaml=False)
+            if tool.get("key") in _tool_cache:
+                tool = _tool_cache[tool.get("key")]
+            else:
+                tool = Tool.convert_from_mongo(tool, db=db)
+                tool = Tool.from_schema(tool, db=db, from_yaml=False)
+                if cache:
+                    _tool_cache[tool.key] = tool
             if tool.status != "inactive" and not include_inactive:
                 if tool.key in found_tools:
                     raise ValueError(f"Duplicate tool {tool.key} found.")
@@ -525,7 +533,6 @@ def get_tools_from_mongo(
         except Exception as e:
             print(traceback.format_exc())
 
-    _tool_cache[cache_key] = found_tools
     return found_tools
 
 
@@ -556,3 +563,7 @@ def get_api_files(root_dir: str = None, include_inactive: bool = False) -> List[
                 api_files[key] = os.path.join(os.path.relpath(root), "api.yaml")
 
     return api_files
+
+
+# Tool cache for fetching commonly used tools
+_tool_cache: Dict[str, Dict[str, Tool]] = {}
