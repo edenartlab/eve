@@ -11,7 +11,7 @@ from ably import AblyRealtime
 from eve.clients import common
 from eve.agent import Agent
 from eve.llm import UpdateType
-from eve.user import User
+from eve.app.schemas.user import User
 from eve.eden_utils import prepare_result
 from eve.models import ClientType
 

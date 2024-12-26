@@ -13,7 +13,7 @@ import traceback
 
 from eve.agent import Agent
 from eve.llm import UpdateType
-from eve.user import User
+from eve.app.schemas.user import User
 from eve.eden_utils import prepare_result
 
 logger = logging.getLogger(__name__)

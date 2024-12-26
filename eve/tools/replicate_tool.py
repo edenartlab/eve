@@ -11,10 +11,10 @@ from datetime import datetime, timezone
 from .. import s3
 from .. import eden_utils
 from ..models import Model
-from ..user import User
+from ..app.schemas.user import User
 from ..task import Task, Creation
 from ..tool import Tool
-from ..mongo import get_collection
+from ..app.database.mongo import get_collection
                     
 
 class ReplicateTool(Tool):

@@ -1,6 +1,6 @@
 from eve.llm import prompt_thread, UserMessage, AssistantMessage
 from eve.tool import get_tools_from_mongo
-from eve.auth import get_my_eden_user
+from eve.app.auth.auth import get_my_eden_user
 
 from eve.agent import Agent
 from eve.thread import Thread

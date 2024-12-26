@@ -15,13 +15,17 @@ from pathlib import Path
 import aiohttp
 import traceback
 
-from eve import auth
+from eve.app.auth import auth
 from eve.tool import Tool, get_tools_from_mongo
 from eve.llm import UpdateType, UserMessage, async_prompt_thread, async_title_thread
 from eve.thread import Thread
-from eve.mongo import serialize_document
+from eve.app.database.mongo import serialize_document
 from eve.agent import Agent
-from eve.user import User
+from eve.app.schemas.user import User
+
+from eve.app.routers.v2.taskRoute import router as Task
+from eve.app.routers.v2.creatorRoute import router as GetCreatorMe
+
 
 # Config and logging setup
 logging.basicConfig(level=logging.INFO)
@@ -46,6 +50,8 @@ api_key_header = APIKeyHeader(name="X-Api-Key", auto_error=False)
 bearer_scheme = HTTPBearer(auto_error=False)
 background_tasks: BackgroundTasks = BackgroundTasks()
 
+web_app.include_router(Task, tags=["Create"])
+web_app.include_router(GetCreatorMe, tags=["CreatorMe"])
 
 # Store ably client at app state level
 @web_app.on_event("startup")
@@ -56,26 +62,6 @@ async def startup_event():
 # web_app.post("/create")(task_handler)
 # web_app.post("/chat")(chat_handler)
 # web_app.post("/chat/stream")(chat_stream)
-
-
-class TaskRequest(BaseModel):
-    tool: str
-    args: dict
-    user_id: str
-
-
-async def handle_task(tool: str, user_id: str, args: dict = {}) -> dict:
-    tool = Tool.load(key=tool, db=db)
-    return await tool.async_start_task(
-        requester_id=user_id, user_id=user_id, args=args, db=db
-    )
-
-
-@web_app.post("/create")
-async def task_admin(request: TaskRequest, _: dict = Depends(auth.authenticate_admin)):
-    result = await handle_task(request.tool, request.user_id, request.args)
-    return serialize_document(result.model_dump())
-
 
 # @web_app.post("/create")
 # async def task(request: TaskRequest): #, auth: dict = Depends(auth.authenticate)):

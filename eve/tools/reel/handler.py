@@ -323,7 +323,7 @@ async def handler(args: dict, db: str):
     from ...tools import select_random_voice
     from ...tools.elevenlabs import handler as elevenlabs
     from ...tool import Tool
-    from ...mongo import get_collection
+    from ...app.database.mongo import get_collection
 
     musicgen = Tool.load("musicgen", db=db)
     flux = Tool.load("flux_dev", db=db)
