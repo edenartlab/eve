@@ -21,7 +21,7 @@ userid_header = APIKeyHeader(name="X-User-Id", auto_error=False)
 
 db = os.getenv("DB", "STAGE")
 api_keys = get_collection("apikeys", db=db)
-users = get_collection("users", db="PROD")
+users = get_collection("users", db=db)
 
 EDEN_ADMIN_KEY = os.getenv("EDEN_ADMIN_KEY")
 ABRAHAM_ADMIN_KEY = os.getenv("ABRAHAM_ADMIN_KEY")

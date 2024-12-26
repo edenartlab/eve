@@ -10,8 +10,8 @@ from eve.app.database.mongo import get_collection
 
 # Config setup
 db = os.getenv("DB", "STAGE").upper()
-users = get_collection("users", db="PROD")
-mannas = get_collection("mannas", db="PROD")
+users = get_collection("users", db=db)
+mannas = get_collection("mannas", db=db)
 if db not in ["PROD", "STAGE"]:
     raise Exception(f"Invalid environment: {db}. Must be PROD or STAGE")
 

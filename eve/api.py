@@ -56,7 +56,7 @@ class ChatRequest(BaseModel):
     user_id: str
     agent_id: str
     thread_id: Optional[str] = None
-    update_config: Optional[UpdateConfig] = None
+    update_config: Optional[update_config] = None
     force_reply: bool = False
 
 

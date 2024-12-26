@@ -18,8 +18,8 @@ from pydantic.json_schema import SkipJsonSchema
 
 from .thread import Thread
 from .tool import Tool
-from .mongo import Collection, get_collection
-from .user import User, Manna
+from eve.app.database.mongo import Collection, get_collection
+from eve.app.schemas.user import User, Manna
 
 
 @Collection("users3")
