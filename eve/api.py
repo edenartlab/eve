@@ -234,7 +234,7 @@ async def stream_chat(
             ):
                 data = {"type": update.type}
                 if update.type == UpdateType.ASSISTANT_TOKEN:
-                    data["token"] = getattr(update, "token", "")
+                    data["text"] = update.text
                 elif update.type == UpdateType.ASSISTANT_MESSAGE:
                     data["content"] = update.message.content
                     if update.message.tool_calls:

@@ -28,6 +28,7 @@ class UpdateType(str, Enum):
     ERROR = "error"
     END_PROMPT = "end_prompt"
     ASSISTANT_TOKEN = "assistant_token"
+    TOOL_CALL = "tool_call"
 
 
 models = ["claude-3-5-sonnet-20241022", "gpt-4o-mini", "gpt-4o-2024-08-06"]
@@ -97,14 +98,31 @@ async def async_anthropic_prompt_stream(
             prompt["tool_choice"] = {"type": "tool", "name": response_model.__name__}
         prompt["tools"] = tool_schemas
 
-    response_stream = anthropic_client.messages.create(stream=True, **prompt)
-    async for chunk in response_stream:
-        if (
-            chunk.type == "content_block_delta"
-            and chunk.delta
-            and hasattr(chunk.delta, "text")
-        ):
-            yield (UpdateType.ASSISTANT_TOKEN, chunk.delta.text)
+    tool_calls = []
+
+    async with anthropic_client.messages.stream(**prompt) as stream:
+        async for chunk in stream:
+            print("CHUNK", chunk)
+
+            # Only handle content_block_delta events for text
+            if (
+                chunk.type == "content_block_delta"
+                and chunk.delta
+                and hasattr(chunk.delta, "text")
+                and chunk.delta.text
+            ):
+                yield (UpdateType.ASSISTANT_TOKEN, chunk.delta.text)
+            # Handle tool use
+            elif chunk.type == "content_block_stop" and hasattr(chunk, "content_block"):
+                if chunk.content_block.type == "tool_use":
+                    tool_calls.append(
+                        ToolCall.from_anthropic(chunk.content_block, db=db)
+                    )
+
+    # Return any accumulated tool calls at the end
+    if tool_calls:
+        for tool_call in tool_calls:
+            yield (UpdateType.TOOL_CALL, tool_call)
 
 
 async def async_openai_prompt(
@@ -269,6 +287,7 @@ class ThreadUpdate(BaseModel):
     tool_index: Optional[int] = None
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
+    text: Optional[str] = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -355,38 +374,44 @@ async def async_prompt_thread(
     while True:
         try:
             messages = thread.get_messages()
-
-            # for error tracing
-            sentry_sdk.add_breadcrumb(
-                category="prompt_in",
-                data={
-                    "messages": messages,
-                    "system_message": system_message,
-                    "model": model,
-                    "tools": tools.keys(),
-                },
-            )
+            content_chunks = []
+            tool_calls = []
 
             if stream:
-                # Use the streaming function
-                prompt_stream = async_prompt_stream(
+                async for update_type, content in async_prompt_stream(
                     messages,
                     system_message=system_message,
                     model=model,
                     tools=tools,
                     db=db,
+                ):
+                    if update_type == UpdateType.ASSISTANT_TOKEN:
+                        if content:  # Only append non-empty content
+                            content_chunks.append(content)
+                            yield ThreadUpdate(
+                                type=UpdateType.ASSISTANT_TOKEN, text=content
+                            )
+                    elif update_type == UpdateType.TOOL_CALL:
+                        tool_calls.append(content)
+
+                # Create assistant message from accumulated content
+                content = "".join(content_chunks)
+                assistant_message = AssistantMessage(
+                    content=content,
+                    tool_calls=tool_calls,
+                    reply_to=user_messages[-1].id,
                 )
-                content_chunks = []
-                async for partial_update in prompt_stream:
-                    if partial_update[0] == UpdateType.ASSISTANT_TOKEN:
-                        yield ThreadUpdate(
-                            type=UpdateType.ASSISTANT_TOKEN,
-                            token=partial_update[1],
-                        )
-                    else:
-                        # If you add more yield types, handle them here
-                        pass
-                # For stopping or final parse, set stop = True to finish
+
+                # Update thread
+                pushes = {"messages": assistant_message}
+                pops = {"active": user_message_id}
+                thread.push(pushes, pops)
+
+                # Emit the complete message
+                yield ThreadUpdate(
+                    type=UpdateType.ASSISTANT_MESSAGE, message=assistant_message
+                )
+
                 stop = True
 
             else:
@@ -409,6 +434,67 @@ async def async_prompt_thread(
                 yield ThreadUpdate(
                     type=UpdateType.ASSISTANT_MESSAGE, message=assistant_message
                 )
+
+            # Handle tool calls
+            for t, tool_call in enumerate(assistant_message.tool_calls):
+                try:
+                    # get tool
+                    tool = tools.get(tool_call.tool)
+                    if not tool:
+                        raise Exception(f"Tool {tool_call.tool} not found.")
+
+                    # start task
+                    task = await tool.async_start_task(
+                        user.id, agent.id, tool_call.args, db=db
+                    )
+
+                    # update tool call with task id and status
+                    thread.update_tool_call(
+                        assistant_message.id,
+                        t,
+                        {"task": ObjectId(task.id), "status": "pending"},
+                    )
+
+                    # wait for task to complete
+                    result = await tool.async_wait(task)
+                    thread.update_tool_call(assistant_message.id, t, result)
+
+                    # yield update
+                    if result["status"] == "completed":
+                        yield ThreadUpdate(
+                            type=UpdateType.TOOL_COMPLETE,
+                            tool_name=tool_call.tool,
+                            tool_index=t,
+                            result=result,
+                        )
+                    else:
+                        yield ThreadUpdate(
+                            type=UpdateType.ERROR,
+                            tool_name=tool_call.tool,
+                            tool_index=t,
+                            error=result.get("error"),
+                        )
+
+                except Exception as e:
+                    # capture error
+                    sentry_sdk.capture_exception(e)
+                    traceback.print_exc()
+
+                    # update tool call with status and error
+                    thread.update_tool_call(
+                        assistant_message.id, t, {"status": "failed", "error": str(e)}
+                    )
+
+                    # yield update
+                    yield ThreadUpdate(
+                        type=UpdateType.ERROR,
+                        tool_name=tool_call.tool,
+                        tool_index=t,
+                        error=str(e),
+                    )
+
+            if stop:
+                break
 
         except Exception as e:
             # capture error
@@ -433,68 +519,6 @@ async def async_prompt_thread(
 
             # stop thread
             stop = True
-            break
-
-        # handle tool calls
-        for t, tool_call in enumerate(assistant_message.tool_calls):
-            try:
-                # get tool
-                tool = tools.get(tool_call.tool)
-                if not tool:
-                    raise Exception(f"Tool {tool_call.tool} not found.")
-
-                # start task
-                task = await tool.async_start_task(
-                    user.id, agent.id, tool_call.args, db=db
-                )
-
-                # update tool call with task id and status
-                thread.update_tool_call(
-                    assistant_message.id,
-                    t,
-                    {"task": ObjectId(task.id), "status": "pending"},
-                )
-
-                # wait for task to complete
-                result = await tool.async_wait(task)
-                thread.update_tool_call(assistant_message.id, t, result)
-
-                # yield update
-                if result["status"] == "completed":
-                    yield ThreadUpdate(
-                        type=UpdateType.TOOL_COMPLETE,
-                        tool_name=tool_call.tool,
-                        tool_index=t,
-                        result=result,
-                    )
-                else:
-                    yield ThreadUpdate(
-                        type=UpdateType.ERROR,
-                        tool_name=tool_call.tool,
-                        tool_index=t,
-                        error=result.get("error"),
-                    )
-
-            except Exception as e:
-                # capture error
-                sentry_sdk.capture_exception(e)
-                traceback.print_exc()
-
-                # update tool call with status and error
-                thread.update_tool_call(
-                    assistant_message.id, t, {"status": "failed", "error": str(e)}
-                )
-
-                # yield update
-                yield ThreadUpdate(
-                    type=UpdateType.ERROR,
-                    tool_name=tool_call.tool,
-                    tool_index=t,
-                    error=str(e),
-                )
-
-        if stop:
-            print("Stopping prompt thread")
             break
 
     yield ThreadUpdate(type=UpdateType.END_PROMPT)
