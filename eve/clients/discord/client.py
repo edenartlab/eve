@@ -56,7 +56,7 @@ class Eden2Cog(commands.Cog):
         # Setup will be done in on_ready
         self.ably_client = None
         self.channel = None
-        
+
         # Track message IDs
         self.pending_messages = {}
         self.typing_tasks = {}  # {channel_id: asyncio.Task}
@@ -83,17 +83,27 @@ class Eden2Cog(commands.Cog):
                 print("No discord_channel_id in update_config:", data)
                 return
 
+            # Try to get channel first (for regular channels)
             channel = self.bot.get_channel(int(discord_channel_id))
+
+            # If channel not found, try to get user (for DMs)
             if not channel:
-                print(f"Could not find channel with id {discord_channel_id}")
+                user = self.bot.get_user(int(discord_channel_id))
+                if user:
+                    channel = await user.create_dm()
+
+            if not channel:
+                print(f"Could not find channel or user with id {discord_channel_id}")
                 return
 
-            print(f"Processing update type: {update_type} for channel: {channel.name}")
+            print(
+                f"Processing update type: {update_type} for channel: {channel.name if hasattr(channel, 'name') else 'DM'}"
+            )
 
             try:
                 # Get the original message if message_id is provided
                 reference = None
-                if message_id:
+                if message_id and not isinstance(channel, discord.DMChannel):
                     try:
                         original_message = await channel.fetch_message(int(message_id))
                         reference = original_message.to_reference()
@@ -105,7 +115,9 @@ class Eden2Cog(commands.Cog):
 
                 elif update_type == UpdateType.ERROR:
                     error_msg = data.get("error", "Unknown error occurred")
-                    await self.send_message(channel, f"Error: {error_msg}", reference=reference)
+                    await self.send_message(
+                        channel, f"Error: {error_msg}", reference=reference
+                    )
 
                 elif update_type == UpdateType.ASSISTANT_MESSAGE:
                     content = data.get("content")
@@ -116,7 +128,7 @@ class Eden2Cog(commands.Cog):
                     result = data.get("result", {})
                     result["result"] = prepare_result(result["result"], db=self.db)
                     url = result["result"][0]["output"][0]["url"]
-                    await self.send_message(channel,url, reference=reference)
+                    await self.send_message(channel, url, reference=reference)
 
                 elif update_type == UpdateType.END_PROMPT:
                     await self.stop_typing(channel)
@@ -150,7 +162,7 @@ class Eden2Cog(commands.Cog):
                 return
         else:
             thread_key = f"discord-{message.guild.id}-{message.channel.id}"
-        
+
         # Lookup thread
         if thread_key not in self.known_threads:
             self.known_threads[thread_key] = self.agent.request_thread(
@@ -176,9 +188,9 @@ class Eden2Cog(commands.Cog):
         force_reply = False
         if self.bot.user in message.mentions:
             force_reply = True
-        
+
         content = replace_mentions_with_usernames(message.content, message.mentions)
-            
+
         content = re.sub(
             rf"\b{re.escape(self.bot.user.display_name)}\b",
             self.agent.name,
@@ -207,10 +219,10 @@ class Eden2Cog(commands.Cog):
                 },
                 "update_config": {
                     "sub_channel_name": self.channel_name,
-                    "discord_channel_id": str(message.channel.id),
-                    "message_id": str(
-                        message.id
-                    ),  # Add message ID to update_config
+                    "discord_channel_id": str(
+                        message.author.id if dm else message.channel.id
+                    ),
+                    "message_id": str(message.id),
                 },
             }
 
@@ -231,12 +243,12 @@ class Eden2Cog(commands.Cog):
     async def on_member_join(self, member):
         print(f"{member} has joined the guild id: {member.guild.id}")
 
-    async def send_message(self, channel: discord.TextChannel, content, reference=None, limit=2000):
+    async def send_message(self, channel, content, reference=None, limit=2000):
         for i in range(0, len(content), limit):
-            chunk = content[i:i + limit]
+            chunk = content[i : i + limit]
             await channel.send(chunk, reference=reference)
 
-    async def start_typing(self, channel: discord.TextChannel):
+    async def start_typing(self, channel):
         """
         Start or resume indefinite typing in a given channel.
         If a typing task already exists and hasn't completed, do nothing.
@@ -244,7 +256,8 @@ class Eden2Cog(commands.Cog):
         existing_task = self.typing_tasks.get(channel.id)
         if existing_task and not existing_task.done():
             return
-        async def keep_typing(ch: discord.TextChannel):
+
+        async def keep_typing(ch):
             try:
                 while True:
                     await ch.trigger_typing()
@@ -255,9 +268,10 @@ class Eden2Cog(commands.Cog):
 
         # Create a new typing task and store it
         self.typing_tasks[channel.id] = asyncio.create_task(keep_typing(channel))
-        print(f"Started indefinite typing in channel: {channel.name} ({channel.id})")
+        channel_name = getattr(channel, "name", "DM")
+        print(f"Started indefinite typing in channel: {channel_name} ({channel.id})")
 
-    async def stop_typing(self, channel: discord.TextChannel):
+    async def stop_typing(self, channel):
         """
         Cancel the indefinite typing task for a given channel, if it exists.
         """

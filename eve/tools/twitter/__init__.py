@@ -239,7 +239,9 @@ class X:
 
         if response is not None:
             logging.info("Tweet sent successfully")
-            return {"output": response.json()}
+            response = response.json()
+            assert "data" in response, f"No data in response: {response}"
+            return response["data"]
         else:
             logging.error("Failed to post tweet: None response from _make_request.")
             raise Exception("Failed to post tweet. See logs for details.")

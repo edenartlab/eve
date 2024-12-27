@@ -6,3 +6,5 @@ __pycache__
 .DS_Store
 tests/out
 dist
+logs/
+*.log
