@@ -39,8 +39,8 @@ parameters:
     label: Rank
     description: |-
       LoRA rank. Higher gives model more capacity to learn but might lead to overfitting.
-    default: 16
-    minimum: 4
+    default: 8
+    minimum: 2
     maximum: 64
     step: 1
   learning_rate:
@@ -48,24 +48,15 @@ parameters:
     label: Learning rate
     description: |-
       Learning rate for training. Higher values converge faster but too high might cause overfitting. Low values are more accurate but slower.
-    default: 0.0003
-    minimum: 1.0e-05
-    maximum: 0.001
+    default: 0.5e-04
+    minimum: 0.1e-04
+    maximum: 5.0e-04
     step: 1.0e-05
-  learning_rate_decay:
-    type: float
-    label: Learning rate decay
-    description: |-
-      Learning rate decay for training. Higher values decay faster but too high might cause overfitting. Low values are more accurate but slower.
-    default: 0.0001
-    minimum: 1.0e-05
-    maximum: 0.001
-    step: 1.0e-06
   caption_prefix:
     type: string
     label: Caption prefix
     description: Caption prefix for training.
-    default: TOK
+    default: 
   seed:
     type: integer
     label: Seed
