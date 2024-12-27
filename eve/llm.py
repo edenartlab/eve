@@ -49,9 +49,13 @@ async def async_anthropic_prompt(
         "messages": [item for msg in messages for item in msg.anthropic_schema()],
         "system": system_message,
     }
+    print("PROMPT", prompt)
 
+    print("TOOLS!!", tools)
+    print("RESPONSE MODEL", response_model)
     if tools or response_model:
-        tool_schemas = [t.anthropic_schema(exclude_hidden=True) for t in tools.values()]
+        print("TOOLS :)", tools)
+        tool_schemas = [t.anthropic_schema(exclude_hidden=True) for t in (tools or {}).values()]
         if response_model:
             tool_schemas.append(openai_schema(response_model).anthropic_schema)
             prompt["tool_choice"] = {"type": "tool", "name": response_model.__name__}
@@ -92,7 +96,7 @@ async def async_anthropic_prompt_stream(
     }
 
     if tools or response_model:
-        tool_schemas = [t.anthropic_schema(exclude_hidden=True) for t in tools.values()]
+        tool_schemas = [t.anthropic_schema(exclude_hidden=True) for t in (tools or {}).values()]
         if response_model:
             tool_schemas.append(openai_schema(response_model).anthropic_schema)
             prompt["tool_choice"] = {"type": "tool", "name": response_model.__name__}
@@ -356,7 +360,6 @@ async def async_prompt_thread(
         for msg in user_messages
     )
 
-    print("THE FORCE REPLY", force_reply)
     if agent_mentioned or force_reply:
         pushes["active"] = user_message_id
         thread.push(pushes)
