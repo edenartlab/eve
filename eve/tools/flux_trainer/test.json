@@ -7,8 +7,8 @@
         "https://edenartlab-prod-data.s3.us-east-1.amazonaws.com/3adaf8c70806452c70baffdf807d813f3291bf178cd024ab0742c52c2a65a095.jpg"
     ],
     "name": "Banny",
-    "max_train_steps": 4000,
-    "learning_rate": 0.0002,
-    "lora_rank": 12,
-    "caption_prefix": "cartoon banana"
+    "max_train_steps": 2000,
+    "learning_rate": 0.0005,
+    "lora_rank": 8,
+    "caption_prefix": ""
 }
