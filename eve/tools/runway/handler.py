@@ -1,4 +1,5 @@
 import time
+import runwayml
 from runwayml import RunwayML
 
 """
@@ -11,11 +12,36 @@ Todo:
 async def handler(args: dict, db: str):
     client = RunwayML()
 
-    task = client.image_to_video.create(
-        model='gen3a_turbo',
-        prompt_image=args["prompt_image"],
-        prompt_text=args["prompt_text"][:512]
-    )
+    
+
+    try:
+        task = client.image_to_video.create(
+            model='gen3a_turbo',
+            prompt_image=args["prompt_image"],
+            prompt_text=args["prompt_text"][:512]
+        )
+    except runwayml.APIConnectionError as e:
+        print("The server could not be reached")
+        print(e.__cause__)  # an underlying Exception, likely raised within httpx.
+    except runwayml.RateLimitError as e:
+        print("A 429 status code was received; we should back off a bit.")
+    except runwayml.APIStatusError as e:
+        print("Another non-200-range status code was received")
+        print(e.status_code)
+        print(e.response)
+        """
+        400	BadRequestError
+        401	AuthenticationError
+        403	PermissionDeniedError
+        404	NotFoundError
+        422	UnprocessableEntityError
+        429	RateLimitError
+        >=500	InternalServerError
+        N/A	APIConnectionError
+        """
+
+
+
     task_id = task.id
     print(task_id)
 
@@ -28,7 +54,7 @@ async def handler(args: dict, db: str):
     
     # TODO: callback for running state
 
-    print("task finished", task.status)
+    print("task finished2", task.status)
     print(task)
 
     if task.status == "FAILED":
