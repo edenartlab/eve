@@ -25,6 +25,6 @@ async def handler(args: dict, db: str):
     print(tweet)
 
     return {
-        "tweet": tweet
+        "output": tweet
     }
     
