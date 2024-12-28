@@ -1,8 +1,10 @@
+from pathlib import Path
 import modal
 
 from eve.task import task_handler_func
-from eve.tools import handlers
 from eve import eden_utils
+from eve.tools.tool_handlers import handlers
+
 
 app = modal.App(
     name="handlers3",
@@ -20,17 +22,12 @@ app = modal.App(
     ],   
 )
 
+root_dir = Path(__file__).parent
+
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("libmagic1", "ffmpeg", "wget")
-    .pip_install(
-        "httpx", "tqdm", "websocket-client", "gitpython", "boto3", "omegaconf",
-        "requests", "Pillow", "fastapi==0.103.1", "python-magic", "replicate", 
-        "python-dotenv", "pyyaml", "instructor==1.2.6", "torch==2.3.1", "torchvision", "packaging",
-        "torchaudio", "pydub", "moviepy==1.0.3", "accelerate", "pymongo", "google-cloud-aiplatform", 
-        "runwayml", "elevenlabs", "sentry-sdk", "blurhash"
-    )
-    .pip_install("web3<7.6.1", "requests_oauthlib")
+    .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
 )
 
 @app.function(image=image, timeout=3600)

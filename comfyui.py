@@ -9,11 +9,25 @@ DB=STAGE SKIP_TESTS=1 WORKSPACE=txt2img modal deploy comfyui.py
 DB=STAGE SKIP_TESTS=1 WORKSPACE=video modal deploy comfyui.py
 DB=STAGE SKIP_TESTS=1 WORKSPACE=video2 modal deploy comfyui.py
 DB=STAGE SKIP_TESTS=1 WORKSPACE=video_mochi modal deploy comfyui.py
+
+
+DB=STAGE WORKSPACE=audio modal deploy comfyui.py
+DB=STAGE WORKSPACE=batch_tools modal deploy comfyui.py
+DB=STAGE WORKSPACE=flux modal deploy comfyui.py
+DB=STAGE WORKSPACE=img_tools modal deploy comfyui.py
+DB=STAGE WORKSPACE=mars_exclusive modal deploy comfyui.py
+DB=STAGE WORKSPACE=sd3 modal deploy comfyui.py
+DB=STAGE WORKSPACE=txt2img modal deploy comfyui.py
+DB=STAGE WORKSPACE=video modal deploy comfyui.py
+DB=STAGE WORKSPACE=video2 modal deploy comfyui.py
+DB=STAGE WORKSPACE=video_mochi modal deploy comfyui.py
+
 """
 
 from urllib.error import URLError
 from bson import ObjectId
 from pprint import pprint
+from pathlib import Path
 import os
 import re
 import git
@@ -122,18 +136,14 @@ def download_files():
         if not pathlib.Path(comfy_path).exists():
             raise Exception(f"No file found at {comfy_path}")
 
+root_dir = Path(__file__).parent
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .env({"COMFYUI_PATH": "/root", "COMFYUI_MODEL_PATH": "/root/models"}) 
     .env({"TEST_ALL": os.getenv("TEST_ALL")})
     .apt_install("git", "git-lfs", "libgl1-mesa-glx", "libglib2.0-0", "libmagic1", "ffmpeg", "libegl1")
-    .pip_install(
-        "httpx", "tqdm", "websocket-client", "gitpython", "boto3", "omegaconf",
-        "requests", "Pillow", "fastapi==0.103.1", "python-magic", "replicate", 
-        "python-dotenv", "pyyaml", "instructor==1.2.6", "torch==2.3.1", "torchvision", "packaging",
-        "torchaudio", "pydub", "moviepy==1.0.3", "accelerate", "pymongo", "google-cloud-aiplatform", 
-        "runwayml", "elevenlabs", "sentry-sdk", "blurhash")
+    .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
     .env({"WORKSPACE": workspace_name}) 
     .copy_local_file(f"{root_workflows_folder}/workspaces/{workspace_name}/snapshot.json", "/root/workspace/snapshot.json")
     .copy_local_file(f"{root_workflows_folder}/workspaces/{workspace_name}/downloads.json", "/root/workspace/downloads.json")

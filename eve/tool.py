@@ -18,18 +18,6 @@ from .user import User
 from .task import Task
 from .mongo import Document, Collection, get_collection
 
-# # Use TYPE_CHECKING for type annotations
-# if TYPE_CHECKING:
-#     from .tool import Tool
-
-#     ToolType = Tool
-# else:
-#     ToolType = ForwardRef("Tool")
-
-# # At module level
-# _parent_tool_cache: Dict[str, dict] = {}  # Cache for parent tool schemas
-# _tool_cache: Dict[str, Dict[str, ToolType]] = {}  # Cache for complete tool sets
-
 
 OUTPUT_TYPES = Literal[
     "boolean", 
@@ -98,7 +86,7 @@ class Tool(Document, ABC):
     test_args: Optional[Dict[str, Any]] = None
 
     @classmethod
-    def _get_schema(cls, key: str, from_yaml: bool = False, db: str = "STAGE") -> dict:
+    def _get_schema(cls, key, db, from_yaml=False) -> dict:
         """Get schema for a tool, with detailed performance logging."""
 
         if from_yaml:
@@ -123,7 +111,7 @@ class Tool(Document, ABC):
 
     @classmethod
     def get_sub_class(
-        cls, schema: dict, from_yaml: bool = False, db: str = "STAGE"
+        cls, schema, db, from_yaml=False
     ) -> type:
         from .tools.local_tool import LocalTool
         from .tools.modal_tool import ModalTool
@@ -190,7 +178,7 @@ class Tool(Document, ABC):
         return schema
         
     @classmethod
-    def convert_from_mongo(cls, schema: dict, db="STAGE") -> dict:
+    def convert_from_mongo(cls, schema, db) -> dict:
         schema["parameters"] = {
             p["name"]: {**(p.pop("schema")), **p} for p in schema["parameters"]
         }
@@ -221,7 +209,7 @@ class Tool(Document, ABC):
         return super().save(db, {"key": self.key}, **kwargs)
 
     @classmethod
-    def from_raw_yaml(cls, schema: dict, db="STAGE", from_yaml=True):
+    def from_raw_yaml(cls, schema, db, from_yaml=True):
         schema["db"] = db
         schema = cls.convert_from_yaml(schema)
         sub_cls = cls.get_sub_class(schema, from_yaml=from_yaml, db=db)
@@ -246,7 +234,7 @@ class Tool(Document, ABC):
             return super().from_mongo(document_id, db=db)
     
     @classmethod
-    def load(cls, key, db=None, cache=False):
+    def load(cls, key, db="STAGE", cache=False):
         if cache:
             if key not in _tool_cache:
                 _tool_cache[key] = super().load(key=key, db=db)

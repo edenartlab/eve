@@ -3,8 +3,8 @@ from typing import Dict
 import asyncio
 
 from ..task import Task, task_handler_func
-from ..tools import handlers
 from ..tool import Tool
+from .tool_handlers import handlers
 
 
 class LocalTool(Tool):
@@ -15,7 +15,6 @@ class LocalTool(Tool):
     @Tool.handle_run
     async def async_run(self, args: Dict, db: str):
         result = await handlers[self.parent_tool or self.key](args, db=db)
-        # return eden_utils.upload_result(result, db=db)
         return result
     
     @Tool.handle_start_task

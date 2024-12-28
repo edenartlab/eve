@@ -1,10 +1,8 @@
 import modal
 from typing import Dict
 
-from ..task import Task, task_handler_func
-from ..tools import handlers
+from ..task import Task
 from ..tool import Tool
-from .. import eden_utils
 
 
 class ModalTool(Tool):
@@ -39,5 +37,4 @@ class ModalTool(Tool):
     async def async_cancel(self, task: Task):
         fc = modal.functions.FunctionCall.from_id(task.handler_id)
         await fc.cancel.aio()
-
 
