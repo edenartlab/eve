@@ -47,13 +47,15 @@ file_extensions = {
 }
 
 
-def get_root_url(db="STAGE", filename=None):
+def get_root_url(db):
     """Returns the root URL for the specified bucket."""
     bucket_name = s3_buckets[db]
     url = f"https://{bucket_name}.s3.{AWS_REGION_NAME}.amazonaws.com"
-    if filename:
-        url += f"/{filename}"
     return url
+
+
+def get_full_url(filename, db):
+    return f"{get_root_url(db=db)}/{filename}"
 
 
 def upload_file_from_url(url, name=None, file_type=None, db="STAGE"):
@@ -178,13 +180,7 @@ def upload(data: any, name=None, file_type=None, db="STAGE"):
 
 def copy_file_to_bucket(source_bucket, dest_bucket, source_key, dest_key=None):
     """
-    Efficiently copy a file from one S3 bucket to another using server-side copy.
-    
-    Args:
-        source_bucket (str): Source bucket name
-        dest_bucket (str): Destination bucket name
-        source_key (str): Source file key/path
-        dest_key (str): Destination file key/path (if None, uses source_key)
+    S3 server-side copy of a file from one bucket to another.
     """
     if dest_key is None:
         dest_key = source_key

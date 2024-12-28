@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 db = os.getenv("DB", "STAGE").upper()
 if db not in ["PROD", "STAGE"]:
     raise Exception(f"Invalid environment: {db}. Must be PROD or STAGE")
-app_name = "tools-new" if db == "PROD" else "tools-new-dev"
+app_name = "api-prod" if db == "PROD" else "api-stage"
 
 # FastAPI setup
 web_app = FastAPI()

@@ -35,7 +35,6 @@ class UserData(BaseModel):
 
 def get_my_eden_user(db: str = "STAGE") -> str:
     """Get the user id for the api key in your env file"""
-    api_keys = get_collection("apikeys", db=db)
     api_key = EDEN_API_KEY_PROD if db == "PROD" else EDEN_API_KEY_STAGE
     api_key = api_keys.find_one({"apiKey": api_key.get_secret_value()})
     if not api_key:

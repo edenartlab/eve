@@ -28,9 +28,14 @@ async def handler(args: dict, db: str):
     
     # TODO: callback for running state
 
+    print("task finished", task.status)
+    print(task)
+
     if task.status == "FAILED":
         print("Error", task.failure)
         raise Exception(task.failure)
+    
+    print("task output", task.output)
     
     return {
         "output": task.output[0]

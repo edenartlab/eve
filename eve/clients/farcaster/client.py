@@ -194,7 +194,6 @@ async def process_webhook(
         )
 
         # Make API request
-        api_url = os.getenv("EDEN_API_URL")
         request_data = {
             "user_id": str(user.id),
             "agent_id": str(agent.id),
@@ -210,6 +209,8 @@ async def process_webhook(
             },
         }
 
+        api_url = os.getenv(f"EDEN_API_URL_{db}")
+        
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 f"{api_url}/chat",

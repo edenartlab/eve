@@ -59,7 +59,7 @@ class Task(Document):
         super().__init__(**data)
 
     @classmethod
-    def from_handler_id(self, handler_id: str, db: str):
+    def from_handler_id(self, handler_id, db):
         tasks = self.get_collection(db)
         task = tasks.find_one({"handler_id": handler_id})
         if not task:

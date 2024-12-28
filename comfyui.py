@@ -11,16 +11,16 @@ DB=STAGE SKIP_TESTS=1 WORKSPACE=video2 modal deploy comfyui.py
 DB=STAGE SKIP_TESTS=1 WORKSPACE=video_mochi modal deploy comfyui.py
 
 
-DB=STAGE WORKSPACE=audio modal deploy comfyui.py
-DB=STAGE WORKSPACE=batch_tools modal deploy comfyui.py
-DB=STAGE WORKSPACE=flux modal deploy comfyui.py
-DB=STAGE WORKSPACE=img_tools modal deploy comfyui.py
-DB=STAGE WORKSPACE=mars_exclusive modal deploy comfyui.py
-DB=STAGE WORKSPACE=sd3 modal deploy comfyui.py
-DB=STAGE WORKSPACE=txt2img modal deploy comfyui.py
-DB=STAGE WORKSPACE=video modal deploy comfyui.py
-DB=STAGE WORKSPACE=video2 modal deploy comfyui.py
-DB=STAGE WORKSPACE=video_mochi modal deploy comfyui.py
+DB=PROD WORKSPACE=audio modal deploy comfyui.py
+DB=PROD WORKSPACE=batch_tools modal deploy comfyui.py
+DB=PROD WORKSPACE=flux modal deploy comfyui.py
+DB=PROD WORKSPACE=img_tools modal deploy comfyui.py
+DB=PROD WORKSPACE=mars_exclusive modal deploy comfyui.py
+DB=PROD WORKSPACE=sd3 modal deploy comfyui.py
+DB=PROD WORKSPACE=txt2img modal deploy comfyui.py
+DB=PROD WORKSPACE=video modal deploy comfyui.py
+DB=PROD WORKSPACE=video2 modal deploy comfyui.py
+DB=PROD WORKSPACE=video_mochi modal deploy comfyui.py
 
 """
 
@@ -58,7 +58,7 @@ if not os.getenv("WORKSPACE"):
 
 db = os.getenv("DB", "STAGE").upper()
 workspace_name = os.getenv("WORKSPACE")
-app_name = f"comfyui3-{workspace_name}-{db}"
+app_name = f"comfyui-{workspace_name}-{db}"
 test_workflows = os.getenv("WORKFLOWS")
 root_workflows_folder = "../private_workflows" if os.getenv("PRIVATE") else "../workflows"
 test_all = True if os.getenv("TEST_ALL") else False
@@ -166,7 +166,6 @@ app = modal.App(
         modal.Secret.from_name("s3-credentials"),
         modal.Secret.from_name("mongo-credentials"),
         modal.Secret.from_name("openai"),
-        # modal.Secret.from_name("gcp-credentials"),
     ]
 )
 

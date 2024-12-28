@@ -26,9 +26,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from . import s3
 
 
-def get_full_url(filename, db: str):
-    return f"{s3.get_root_url(db=db)}/{filename}"
-
 def prepare_result(result, db: str, summarize=False):
     if isinstance(result, dict):
         if "error" in result:
@@ -37,7 +34,7 @@ def prepare_result(result, db: str, summarize=False):
             result["mediaAttributes"].pop("blurhash", None)
         if "filename" in result:
             filename = result.pop("filename")
-            url = get_full_url(filename, db)
+            url = s3.get_full_url(filename, db)
             if summarize:
                 return url
             else:

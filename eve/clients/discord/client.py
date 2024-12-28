@@ -15,8 +15,6 @@ from eve.user import User
 from eve.eden_utils import prepare_result
 from eve.models import ClientType
 
-EDEN_API_URL = os.getenv("EDEN_API_URL")
-
 
 def replace_mentions_with_usernames(
     message_content: str,
@@ -228,6 +226,7 @@ class Eden2Cog(commands.Cog):
 
             print(f"Sending request: {request_data}")
 
+            EDEN_API_URL = os.getenv(f"EDEN_API_URL_{self.db}")
             async with session.post(
                 f"{EDEN_API_URL}/chat",
                 json=request_data,

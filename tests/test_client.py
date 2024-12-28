@@ -60,8 +60,8 @@ def test_client():
             time.sleep(2)
             server_url = "http://localhost:8000"
         else:
-            server_url = "https://edenartlab--tools-new-dev-fastapi-app.modal.run"
-            server_url = "http://localhost:8000"
+            server_url = "https://edenartlab--api-stage-fastapi-app-dev.modal.run"
+            # server_url = "http://localhost:8000"
 
         print("server_url", server_url)
         

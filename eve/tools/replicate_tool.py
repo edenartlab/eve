@@ -211,7 +211,7 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
                         save_thumbnails=False, 
                         save_blurhash=False
                     ) if thumbnails else None
-                    url = f"{s3.get_root_url(db=task.db)}/{filename}"
+                    url = s3.get_full_url(filename, db=task.db)
                     model = Model(
                         name=task.args["name"],
                         user=task.user,

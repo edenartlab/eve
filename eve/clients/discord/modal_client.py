@@ -1,10 +1,16 @@
+import os
 import modal
 
 from eve.clients.discord.client import start as discord_start
 
+db = os.getenv("DB", "STAGE").upper()
+if db not in ["PROD", "STAGE"]:
+    raise Exception(f"Invalid environment: {db}. Must be PROD or STAGE")
+app_name = "client-discord-prod" if db == "PROD" else "client-discord-stage"
+
 
 app = modal.App(
-    name="client-discord",
+    name=app_name,
     secrets=[
         modal.Secret.from_name("client-secrets"),
         modal.Secret.from_name("eve-secrets", environment_name="main"),
@@ -13,11 +19,7 @@ app = modal.App(
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    .env(
-        {
-            "DB": "STAGE",
-        }
-    )
+    .env({"DB": db})
     .apt_install("libmagic1", "ffmpeg", "wget")
     .pip_install_from_pyproject("pyproject.toml")
     .pip_install("py-cord>=2.4.1")

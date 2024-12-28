@@ -97,7 +97,7 @@ class User(Document):
         manna.refund(amount)
 
     @classmethod
-    def from_discord(cls, discord_id, discord_username, db="STAGE"):
+    def from_discord(cls, discord_id, discord_username, db):
         discord_id = str(discord_id)
         discord_username = str(discord_username)
         users = get_collection(cls.collection_name, db=db)
@@ -115,7 +115,7 @@ class User(Document):
         return cls(**user, db=db)
 
     @classmethod
-    def from_farcaster(cls, farcaster_id, farcaster_username, db="STAGE"):
+    def from_farcaster(cls, farcaster_id, farcaster_username, db):
         farcaster_id = str(farcaster_id)
         farcaster_username = str(farcaster_username)
         users = get_collection(cls.collection_name, db=db)
@@ -133,7 +133,7 @@ class User(Document):
         return cls(**user, db=db)
 
     @classmethod
-    def from_telegram(cls, telegram_id, telegram_username, db="STAGE"):
+    def from_telegram(cls, telegram_id, telegram_username, db):
         telegram_id = str(telegram_id)
         telegram_username = str(telegram_username)
         users = get_collection(cls.collection_name, db=db)        

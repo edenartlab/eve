@@ -121,7 +121,7 @@ class Tool(Document, ABC):
 
         parent_tool = schema.get("parent_tool")
         if parent_tool:
-            parent_schema = cls._get_schema(parent_tool, from_yaml, db)
+            parent_schema = cls._get_schema(parent_tool, db, from_yaml)
             handler = parent_schema.get("handler")
         else:
             handler = schema.get("handler")
@@ -148,7 +148,7 @@ class Tool(Document, ABC):
 
         parent_tool = schema.get("parent_tool")
         if parent_tool:
-            parent_schema = cls._get_schema(parent_tool, from_yaml=True)
+            parent_schema = cls._get_schema(parent_tool, db=None, from_yaml=True)
             parent_schema["parameter_presets"] = schema.pop("parameters", {})
             parent_parameters = parent_schema.pop("parameters", {})
             for k, v in parent_schema["parameter_presets"].items():

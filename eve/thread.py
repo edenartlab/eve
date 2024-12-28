@@ -247,7 +247,7 @@ class ToolCall(BaseModel):
         pass
 
     @staticmethod
-    def from_openai(tool_call, db="STAGE"):
+    def from_openai(tool_call, db):
         return ToolCall(
             id=tool_call.id,
             tool=tool_call.function.name,
@@ -256,7 +256,7 @@ class ToolCall(BaseModel):
         )
 
     @staticmethod
-    def from_anthropic(tool_call, db="STAGE"):
+    def from_anthropic(tool_call, db):
         return ToolCall(
             id=tool_call.id, tool=tool_call.name, args=tool_call.input, db=db
         )

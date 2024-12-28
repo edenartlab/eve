@@ -320,11 +320,11 @@ from bson.objectid import ObjectId
 
 async def handler(args: dict, db: str):
     
-    from ...tools import select_random_voice
-    from ...tools.elevenlabs import handler as elevenlabs
+    from ...tools.elevenlabs.handler import select_random_voice
     from ...tool import Tool
     from ...mongo import get_collection
 
+    elevenlabs = Tool.load("elevenlabs", db=db)
     musicgen = Tool.load("musicgen", db=db)
     flux = Tool.load("flux_dev", db=db)
     runway = Tool.load("runway", db=db)
@@ -357,7 +357,7 @@ async def handler(args: dict, db: str):
 
     if args.get("use_voiceover") and reel.voiceover:
         voice = args.get("voice") or select_random_voice("A heroic female voice")
-        speech_audio = await elevenlabs.handler({
+        speech_audio = await elevenlabs.async_run({
             "text": reel.voiceover,
             "voice_id": voice
         }, db=db)
@@ -365,8 +365,15 @@ async def handler(args: dict, db: str):
         if speech_audio.get("error"):
             raise Exception(f"Speech generation failed: {speech_audio['error']}")
         
-        with open(speech_audio['output'], 'rb') as f:
-            speech_audio = AudioSegment.from_file(BytesIO(f.read()))
+        speech_audio_url = s3.get_full_url(speech_audio['output'][0]['filename'], db=db)
+        # download to temp file
+
+        response = requests.get(speech_audio_url)
+        speech_audio = BytesIO(response.content)
+        speech_audio = AudioSegment.from_file(speech_audio, format="mp3")
+
+        # with open(speech_audio['output'], 'rb') as f:
+        #     speech_audio = AudioSegment.from_file(BytesIO(f.read()))
         
         duration = len(speech_audio) / 1000
         new_duration = round((duration + 2) / 5) * 5

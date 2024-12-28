@@ -37,7 +37,7 @@ class ComfyUITool(Tool):
     @Tool.handle_run
     async def async_run(self, args: Dict, db: str):
         cls = modal.Cls.lookup(
-            f"comfyui3-{self.workspace}-{db}", 
+            f"comfyui-{self.workspace}-{db}", 
             "ComfyUI", 
             environment_name="main"
         )
@@ -47,7 +47,7 @@ class ComfyUITool(Tool):
     @Tool.handle_start_task
     async def async_start_task(self, task: Task):
         cls = modal.Cls.lookup(
-            f"comfyui3-{self.workspace}-{task.db}", 
+            f"comfyui-{self.workspace}-{task.db}", 
             "ComfyUI",
             environment_name="main"
         )

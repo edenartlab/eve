@@ -9,7 +9,7 @@ class ModalTool(Tool):
     @Tool.handle_run
     async def async_run(self, args: Dict, db: str):
         func = modal.Function.lookup(
-            "handlers3", 
+            "modal_tools", 
             "run", 
             environment_name="main"
         )
@@ -19,7 +19,7 @@ class ModalTool(Tool):
     @Tool.handle_start_task
     async def async_start_task(self, task: Task):
         func = modal.Function.lookup(
-            "handlers3", 
+            "modal_tools", 
             "run_task", 
             environment_name="main"
         )

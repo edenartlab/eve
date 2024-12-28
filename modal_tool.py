@@ -7,7 +7,7 @@ from eve.tools.tool_handlers import handlers
 
 
 app = modal.App(
-    name="handlers3",
+    name="modal_tools",
     secrets=[
         modal.Secret.from_name("s3-credentials"),
         modal.Secret.from_name("mongo-credentials"),
