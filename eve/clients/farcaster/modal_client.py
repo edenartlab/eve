@@ -1,7 +1,5 @@
 import modal
-
 from eve.clients.farcaster.client import create_app
-
 
 app = modal.App(
     name="client-farcaster",

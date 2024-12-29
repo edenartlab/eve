@@ -48,7 +48,6 @@ def create_app(env: str, db: str = "STAGE"):
     load_dotenv(env)
 
     mnemonic = os.environ.get("CLIENT_FARCASTER_MNEMONIC")
-    db = os.environ.get("DB", "STAGE")
     agent_name = os.getenv("EDEN_AGENT_USERNAME")
 
     # Store these in app.state for access in routes
@@ -210,7 +209,7 @@ async def process_webhook(
         }
 
         api_url = os.getenv(f"EDEN_API_URL_{db}")
-        
+
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 f"{api_url}/chat",
