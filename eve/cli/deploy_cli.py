@@ -83,13 +83,13 @@ def create_secrets(agent_key: str, secrets_dict: dict):
     subprocess.run(cmd_parts)
 
 
-def deploy_client(agent_key: str, client_name: str):
+def deploy_client(agent_key: str, client_name: str, db: str):
     client_path = root_dir / f"eve/clients/{client_name}/modal_client.py"
     if client_path.exists():
         try:
             # Create a temporary modified version of the client file
             temp_file = prepare_client_file(str(client_path), agent_key)
-            app_name = f"{agent_key}-client-{client_name}"
+            app_name = f"{agent_key}-client-{client_name}-{db}"
 
             # Deploy using the temporary file
             subprocess.run(
@@ -117,7 +117,7 @@ def deploy_client(agent_key: str, client_name: str):
         )
 
 
-def process_agent(agent_path: Path):
+def process_agent(agent_path: Path, db: str):
     with open(agent_path) as f:
         agent_config = yaml.safe_load(f)
 
@@ -129,21 +129,28 @@ def process_agent(agent_path: Path):
     click.echo(click.style(f"Processing agent: {agent_key}", fg="blue"))
 
     # Create secrets if .env exists
-    env_file = agent_path.parent / ".env"
+    env_file = ".env" if db == "PROD" else ".env.STAGE"
+    env_file = agent_path.parent / env_file
     if env_file.exists():
         click.echo(click.style(f"Creating secrets for: {agent_key}", fg="green"))
         client_secrets = dotenv_values(env_file)
-        create_secrets(agent_key, client_secrets)
+        create_secrets(agent_key, client_secrets, db)
 
     # Deploy each client
     for deployment in agent_config["deployments"]:
         click.echo(click.style(f"Deploying client: {deployment}", fg="green"))
-        deploy_client(agent_key, deployment)
+        deploy_client(agent_key, deployment, db)
 
 
 @click.command()
 @click.argument("agent", nargs=1, required=True)
-def deploy(agent: str):
+@click.option(
+    "--db",
+    type=click.Choice(["PROD", "STAGE"]),
+    default="PROD",
+    help="Database to deploy to",
+)
+def deploy(agent: str, db: str):
     """Deploy Modal agents"""
     try:
         # Ensure Modal environment exists
@@ -152,7 +159,7 @@ def deploy(agent: str):
         agents_dir = root_dir / "eve/agents"
         agent_path = agents_dir / agent / "api.yaml"
         if agent_path.exists():
-            process_agent(agent_path)
+            process_agent(agent_path, db)
         else:
             click.echo(
                 click.style(f"Warning: Agent file not found: {agent_path}", fg="yellow")

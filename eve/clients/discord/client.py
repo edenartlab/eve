@@ -42,6 +42,7 @@ class Eden2Cog(commands.Cog):
         bot: commands.bot,
         agent: Agent,
         db: str = "STAGE",
+        local: bool = False,
     ) -> None:
         self.bot = bot
         self.agent = agent
@@ -49,7 +50,11 @@ class Eden2Cog(commands.Cog):
         self.tools = agent.get_tools(db=self.db)
         self.known_users = {}
         self.known_threads = {}
-        self.channel_name = common.get_ably_channel_name(agent.name, ClientType.DISCORD)
+        if local:
+            self.api_url = "http://localhost:8000"
+        else:
+            self.api_url = os.getenv(f"EDEN_API_URL_{db}")
+        self.channel_name = common.get_ably_channel_name(agent.username, ClientType.DISCORD)
 
         # Setup will be done in on_ready
         self.ably_client = None
@@ -65,8 +70,6 @@ class Eden2Cog(commands.Cog):
         self.channel = self.ably_client.channels.get(self.channel_name)
 
         async def async_callback(message):
-            print(f"Received update in Discord client: {message.data}")
-
             data = message.data
             if not isinstance(data, dict) or "type" not in data:
                 print("Invalid message format:", data)
@@ -78,7 +81,6 @@ class Eden2Cog(commands.Cog):
             message_id = update_config.get("message_id")
 
             if not discord_channel_id:
-                print("No discord_channel_id in update_config:", data)
                 return
 
             # Try to get channel first (for regular channels)
@@ -225,10 +227,8 @@ class Eden2Cog(commands.Cog):
             }
 
             print(f"Sending request: {request_data}")
-
-            EDEN_API_URL = os.getenv(f"EDEN_API_URL_{self.db}")
             async with session.post(
-                f"{EDEN_API_URL}/chat",
+                f"{self.api_url}/chat",
                 json=request_data,
                 headers={"Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}"},
             ) as response:
@@ -309,6 +309,7 @@ class DiscordBot(commands.Bot):
 def start(
     env: str,
     db: str = "STAGE",
+    local: bool = False,
 ) -> None:
     load_dotenv(env)
 
@@ -318,7 +319,7 @@ def start(
 
     bot_token = os.getenv("CLIENT_DISCORD_TOKEN")
     bot = DiscordBot()
-    bot.add_cog(Eden2Cog(bot, agent, db=db))
+    bot.add_cog(Eden2Cog(bot, agent, db=db, local=local))
     bot.run(bot_token)
 
 
@@ -326,8 +327,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="DiscordBot")
     parser.add_argument("--agent", help="Agent username")
     parser.add_argument("--db", help="Database to use", default="STAGE")
-    parser.add_argument(
-        "--env", help="Path to a different .env file not in agent directory"
-    )
+    parser.add_argument("--env", help="Path to a different .env file not in agent directory")
+    parser.add_argument("--local", help="Run locally", action="store_true")
     args = parser.parse_args()
-    start(args.env, args.agent, args.db)
+    start(args.env, args.agent, args.db, args.local)

@@ -37,7 +37,13 @@ from ..clients.farcaster.client import start as start_farcaster
     multiple=True,
     help="Platforms to start",
 )
-def start(agent: str, db: str, env: str, platforms: tuple):
+@click.option(
+    "--local",
+    is_flag=True,
+    default=False,
+    help="Run locally",
+)
+def start(agent: str, db: str, env: str, platforms: tuple, local: bool):
     """Start one or more clients from yaml files"""
     try:
         agent_dir = Path(__file__).parent.parent / "agents" / agent
@@ -76,15 +82,15 @@ def start(agent: str, db: str, env: str, platforms: tuple):
             try:
                 if client_type == ClientType.DISCORD:
                     p = multiprocessing.Process(
-                        target=start_discord, args=(env_path, db)
+                        target=start_discord, args=(env_path, db, local)
                     )
                 elif client_type == ClientType.TELEGRAM:
                     p = multiprocessing.Process(
-                        target=start_telegram, args=(env_path, db)
+                        target=start_telegram, args=(env_path, db, local)
                     )
                 elif client_type == ClientType.FARCASTER:
                     p = multiprocessing.Process(
-                        target=start_farcaster, args=(env_path, db)
+                        target=start_farcaster, args=(env_path, db, local)
                     )
 
                 p.start()
@@ -115,3 +121,39 @@ def start(agent: str, db: str, env: str, platforms: tuple):
         click.echo(click.style("Failed to start clients:", fg="red"))
         click.echo(click.style(f"Error: {str(e)}", fg="red"))
         traceback.print_exc(file=sys.stdout)
+
+
+@click.command()
+@click.option(
+    "--host",
+    default="0.0.0.0",
+    help="Host to bind the server to",
+)
+@click.option(
+    "--port",
+    default=8000,
+    type=int,
+    help="Port to run the server on",
+)
+@click.option(
+    "--reload",
+    is_flag=True,
+    default=False,
+    help="Enable auto-reload on code changes",
+)
+def api(host: str, port: int, reload: bool):
+    """Start the Eve API server"""
+    import uvicorn
+    
+    click.echo(
+        click.style(f"Starting API server on {host}:{port}...", fg="blue")
+    )
+    
+    # Adjusted the import path to look one directory up
+    uvicorn.run(
+        "eve.api:web_app",
+        host=host,
+        port=port,
+        reload=reload,
+        app_dir=str(Path(__file__).parent.parent.parent)
+    )
