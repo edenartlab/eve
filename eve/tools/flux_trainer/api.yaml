@@ -56,7 +56,7 @@ parameters:
       Learning rate for training. Higher values converge faster but too high might cause overfitting. Low values are more accurate but slower.
     default: 0.5e-04
     minimum: 0.1e-04
-    maximum: 5.0e-04
+    maximum: 2.0e-04
     step: 1.0e-05
   caption_prefix:
     type: string
