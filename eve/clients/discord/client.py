@@ -54,7 +54,9 @@ class Eden2Cog(commands.Cog):
             self.api_url = "http://localhost:8000"
         else:
             self.api_url = os.getenv(f"EDEN_API_URL_{db}")
-        self.channel_name = common.get_ably_channel_name(agent.username, ClientType.DISCORD)
+        self.channel_name = common.get_ably_channel_name(
+            agent.username, ClientType.DISCORD
+        )
 
         # Setup will be done in on_ready
         self.ably_client = None
@@ -327,7 +329,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="DiscordBot")
     parser.add_argument("--agent", help="Agent username")
     parser.add_argument("--db", help="Database to use", default="STAGE")
-    parser.add_argument("--env", help="Path to a different .env file not in agent directory")
+    parser.add_argument(
+        "--env", help="Path to a different .env file not in agent directory"
+    )
     parser.add_argument("--local", help="Run locally", action="store_true")
     args = parser.parse_args()
     start(args.env, args.agent, args.db, args.local)

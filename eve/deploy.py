@@ -8,7 +8,7 @@ from typing import Optional, Dict
 from eve.models import ClientType
 
 REPO_URL = "https://github.com/edenartlab/eve.git"
-REPO_BRANCH = "main"
+REPO_BRANCH = "feat/merge-deployer-api"
 DEPLOYMENT_ENV_NAME = "deployments"
 
 

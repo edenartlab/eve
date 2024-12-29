@@ -1,5 +1,4 @@
 import modal
-
 from eve.clients.discord.client import start as discord_start
 
 
