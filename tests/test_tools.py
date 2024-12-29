@@ -2,7 +2,7 @@ import asyncio
 import os
 import json
 from eve.tool import get_tools_from_mongo, get_tools_from_api_files
-from eve.auth import get_my_eden_user
+from eve.app.auth.auth import get_my_eden_user
 
 
 async def async_run_tool(tool, api: bool, db: str, mock: bool):

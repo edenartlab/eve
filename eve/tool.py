@@ -14,9 +14,9 @@ from instructor.function_calls import openai_schema
 from . import sentry_sdk
 from . import eden_utils
 from .base import parse_schema
-from .user import User
+from .app.schemas.user import User
 from .task import Task
-from .mongo import Document, Collection, get_collection
+from .app.database.mongo import Document, Collection, get_collection
 
 # # Use TYPE_CHECKING for type annotations
 # if TYPE_CHECKING:

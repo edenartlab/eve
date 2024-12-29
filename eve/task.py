@@ -5,8 +5,8 @@ from datetime import datetime, timezone
 import asyncio
 import traceback
 
-from .user import User
-from .mongo import Document, Collection
+from .app.schemas.user import User
+from .app.database.mongo import Document, Collection
 from . import eden_utils
 from . import sentry_sdk
 

@@ -21,7 +21,7 @@ from pydantic import Field
 from typing import Dict, Any
 from bson import ObjectId
 
-from eve.mongo import Document, Collection#, VersionableMongoModel
+from eve.app.database.mongo import Document, Collection#, VersionableMongoModel
 from test_base import TestModel, InnerModel
 
 

@@ -21,7 +21,7 @@ from ...clients import common
 from ...llm import UserMessage, async_prompt_thread, UpdateType
 from ...eden_utils import prepare_result
 from ...agent import Agent
-from ...user import User
+from ...app.schemas.user import User
 from ...tool import get_tools_from_mongo
 from ...models import ClientType
 

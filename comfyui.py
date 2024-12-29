@@ -31,7 +31,7 @@ import subprocess
 
 import eve.eden_utils as eden_utils
 from eve.tool import Tool
-from eve.mongo import get_collection
+from eve.app.database.mongo import get_collection
 from eve.task import task_handler_method
 
 GPUs = {
