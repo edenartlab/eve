@@ -15,12 +15,23 @@ import aiohttp
 import traceback
 
 from eve import auth
+from eve.deploy import (
+    DeployCommand,
+    DeployRequest,
+    authenticate_modal_key,
+    check_environment_exists,
+    create_environment,
+    create_modal_secrets,
+    deploy_client,
+    stop_client,
+)
 from eve.tool import Tool
 from eve.llm import UpdateType, UserMessage, async_prompt_thread, async_title_thread
 from eve.thread import Thread
 from eve.mongo import serialize_document
 from eve.agent import Agent
 from eve.user import User
+from eve import deploy
 
 # Config and logging setup
 logging.basicConfig(level=logging.INFO)
@@ -52,33 +63,10 @@ async def startup_event():
     web_app.state.ably_client = AblyRealtime(os.getenv("ABLY_PUBLISHER_KEY"))
 
 
-# web_app.post("/create")(task_handler)
-# web_app.post("/chat")(chat_handler)
-# web_app.post("/chat/stream")(chat_stream)
-
-
 class TaskRequest(BaseModel):
     tool: str
     args: dict
     user_id: str
-
-
-async def handle_task(tool: str, user_id: str, args: dict = {}) -> dict:
-    tool = Tool.load(key=tool, db=db)
-    return await tool.async_start_task(
-        requester_id=user_id, user_id=user_id, args=args, db=db
-    )
-
-
-@web_app.post("/create")
-async def task_admin(request: TaskRequest, _: dict = Depends(auth.authenticate_admin)):
-    result = await handle_task(request.tool, request.user_id, request.args)
-    return serialize_document(result.model_dump())
-
-
-# @web_app.post("/create")
-# async def task(request: TaskRequest): #, auth: dict = Depends(auth.authenticate)):
-#     return await handle_task(request.tool, auth.userId, request.args)
 
 
 class UpdateConfig(BaseModel):
@@ -99,6 +87,13 @@ class ChatRequest(BaseModel):
     thread_id: Optional[str] = None
     update_config: Optional[UpdateConfig] = None
     force_reply: bool = False
+
+
+async def handle_task(tool: str, user_id: str, args: dict = {}) -> dict:
+    tool = Tool.load(key=tool, db=db)
+    return await tool.async_start_task(
+        requester_id=user_id, user_id=user_id, args=args, db=db
+    )
 
 
 def serialize_for_json(obj):
@@ -135,6 +130,12 @@ async def setup_chat(
         background_tasks.add_task(async_title_thread, thread, request.user_message)
 
     return user, agent, thread, tools, update_channel
+
+
+@web_app.post("/create")
+async def task_admin(request: TaskRequest, _: dict = Depends(auth.authenticate_admin)):
+    result = await handle_task(request.tool, request.user_id, request.args)
+    return serialize_document(result.model_dump())
 
 
 @web_app.post("/chat")
@@ -266,6 +267,36 @@ async def stream_chat(
         return {"status": "error", "message": str(e)}
 
 
+@web_app.post("/deployment")
+async def deploy_handler(
+    request: DeployRequest, auth: dict = Depends(auth.authenticate_admin)
+):
+    try:
+        if request.credentials:
+            create_modal_secrets(
+                request.credentials,
+                f"{request.agent_key}-client-secrets",
+            )
+
+        if request.command == DeployCommand.DEPLOY:
+            deploy_client(request.agent_key, request.platform.value)
+            return {
+                "status": "success",
+                "message": f"Deployed {request.platform.value} client",
+            }
+        elif request.command == DeployCommand.STOP:
+            stop_client(request.agent_key, request.platform.value)
+            return {
+                "status": "success",
+                "message": f"Stopped {request.platform.value} client",
+            }
+        else:
+            raise Exception("Invalid command")
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
 # Modal app setup
 app = modal.App(
     name=app_name,
@@ -280,7 +311,7 @@ workflows_dir = root_dir / ".." / "workflows"
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .env({"DB": db, "MODAL_SERVE": os.getenv("MODAL_SERVE")})
-    .apt_install("libmagic1", "ffmpeg", "wget")
+    .apt_install("git", "libmagic1", "ffmpeg", "wget")
     .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
     .copy_local_dir(str(workflows_dir), "/workflows")
 )
@@ -295,4 +326,7 @@ image = (
 )
 @modal.asgi_app()
 def fastapi_app():
+    authenticate_modal_key()
+    if not check_environment_exists(deploy.DEPLOYMENT_ENV_NAME):
+        create_environment(deploy.DEPLOYMENT_ENV_NAME)
     return web_app
