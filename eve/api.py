@@ -302,6 +302,7 @@ app = modal.App(
     name=app_name,
     secrets=[
         modal.Secret.from_name("eve-secrets"),
+        modal.Secret.from_name(f"eve-secrets-{db}"),
     ],
 )
 
