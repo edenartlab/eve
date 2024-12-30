@@ -55,7 +55,7 @@ tools:
         hide_from_agent: true
         hide_from_ui: true
   reel:
-    tip: Make sure to always include Banny in the prompts.
+    tip: Make sure to always include Banny in all of the prompts.
     parameters:
       lora:
         default: 6766760643808b38016c64ce
