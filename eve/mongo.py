@@ -10,18 +10,10 @@ from typing import Optional, List, Dict, Any, Union
 
 
 MONGO_URI = os.getenv("MONGO_URI")
-MONGO_DB_NAME_STAGE = os.getenv("MONGO_DB_NAME_STAGE")
-MONGO_DB_NAME_PROD = os.getenv("MONGO_DB_NAME_PROD")
+MONGO_DB_NAME = os.getenv("MONGO_DB_NAME")
 
-db_names = {
-    "STAGE": MONGO_DB_NAME_STAGE,
-    "PROD": MONGO_DB_NAME_PROD,
-}
-
-if not all([MONGO_URI, MONGO_DB_NAME_STAGE, MONGO_DB_NAME_PROD]):
-    print(
-        "WARNING: MONGO_URI, MONGO_DB_NAME_STAGE, and MONGO_DB_NAME_PROD must be set in the environment"
-    )
+if not all([MONGO_URI, MONGO_DB_NAME]):
+    print("WARNING: MONGO_URI and MONGO_DB_NAME must be set in the environment")
 
 # Global connection pool
 _mongo_client = None
@@ -48,7 +40,7 @@ def get_collection(collection_name: str, db: str):
             server_api=ServerApi("1"),
         )
 
-    _collections[cache_key] = _mongo_client[db_names[db]][collection_name]
+    _collections[cache_key] = _mongo_client[MONGO_DB_NAME][collection_name]
     return _collections[cache_key]
 
 
@@ -61,9 +53,7 @@ def Collection(name):
 
 
 class Document(BaseModel):
-    id: Optional[ObjectId] = Field(
-        None, alias="_id"
-    )
+    id: Optional[ObjectId] = Field(None, alias="_id")
     createdAt: Optional[datetime] = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )

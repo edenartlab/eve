@@ -1,7 +1,6 @@
 import os
 import modal
 from eve.clients.discord.client import start as discord_start
-from eve.clients.common import modal_secrets
 
 db = os.getenv("DB", "STAGE").upper()
 if db not in ["PROD", "STAGE"]:
@@ -9,8 +8,12 @@ if db not in ["PROD", "STAGE"]:
 
 
 app = modal.App(
-    name="client-discord",
-    secrets=modal_secrets(db),
+    name=f"client-discord-{db}",
+    secrets=[
+        modal.Secret.from_name("client-secrets"),
+        modal.Secret.from_name("eve-secrets", environment_name="main"),
+        modal.Secret.from_name(f"eve-secrets-{db}", environment_name="main"),
+    ],
 )
 
 image = (

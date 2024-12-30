@@ -105,11 +105,3 @@ def register_tool_call(user, tool_name):
 def get_ably_channel_name(agent_username: str, client_platform: ClientType):
     env = os.getenv("UPDATE_CHANNEL_ENV", "DEV")
     return f"{agent_username.lower()}_{client_platform.value}_{env}"
-
-
-def modal_secrets(db: str):
-    return [
-        modal.Secret.from_name("client-secrets"),
-        modal.Secret.from_name("eve-secrets", environment_name="main"),
-        modal.Secret.from_name(f"eve-secrets-{db}", environment_name="main"),
-    ]

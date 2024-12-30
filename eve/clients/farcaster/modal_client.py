@@ -1,15 +1,18 @@
 import modal
 import os
 from eve.clients.farcaster.client import create_app
-from eve.clients.common import modal_secrets
 
 db = os.getenv("DB", "STAGE").upper()
 if db not in ["PROD", "STAGE"]:
     raise Exception(f"Invalid environment: {db}. Must be PROD or STAGE")
 
 app = modal.App(
-    name="client-farcaster",
-    secrets=modal_secrets(db),
+    name=f"client-farcaster-{db}",
+    secrets=[
+        modal.Secret.from_name("client-secrets"),
+        modal.Secret.from_name("eve-secrets", environment_name="main"),
+        modal.Secret.from_name(f"eve-secrets-{db}", environment_name="main"),
+    ],
 )
 
 image = (

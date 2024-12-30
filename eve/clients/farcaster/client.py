@@ -208,7 +208,7 @@ async def process_webhook(
             },
         }
 
-        api_url = os.getenv(f"EDEN_API_URL_{db}")
+        api_url = os.getenv("EDEN_API_URL")
 
         async with aiohttp.ClientSession() as session:
             async with session.post(
