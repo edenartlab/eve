@@ -50,13 +50,10 @@ async def async_anthropic_prompt(
         "messages": [item for msg in messages for item in msg.anthropic_schema()],
         "system": system_message,
     }
-    print("PROMPT", prompt)
-
-    print("TOOLS!!", tools)
-    print("RESPONSE MODEL", response_model)
     if tools or response_model:
-        print("TOOLS :)", tools)
-        tool_schemas = [t.anthropic_schema(exclude_hidden=True) for t in (tools or {}).values()]
+        tool_schemas = [
+            t.anthropic_schema(exclude_hidden=True) for t in (tools or {}).values()
+        ]
         if response_model:
             tool_schemas.append(openai_schema(response_model).anthropic_schema)
             prompt["tool_choice"] = {"type": "tool", "name": response_model.__name__}
@@ -97,7 +94,9 @@ async def async_anthropic_prompt_stream(
     }
 
     if tools or response_model:
-        tool_schemas = [t.anthropic_schema(exclude_hidden=True) for t in (tools or {}).values()]
+        tool_schemas = [
+            t.anthropic_schema(exclude_hidden=True) for t in (tools or {}).values()
+        ]
         if response_model:
             tool_schemas.append(openai_schema(response_model).anthropic_schema)
             prompt["tool_choice"] = {"type": "tool", "name": response_model.__name__}
@@ -109,13 +108,13 @@ async def async_anthropic_prompt_stream(
         async for chunk in stream:
             # Handle text deltas
             if (
-                chunk.type == "content_block_delta" 
-                and chunk.delta 
+                chunk.type == "content_block_delta"
+                and chunk.delta
                 and hasattr(chunk.delta, "text")
                 and chunk.delta.text
             ):
                 yield (UpdateType.ASSISTANT_TOKEN, chunk.delta.text)
-                
+
             # Handle tool use
             elif chunk.type == "content_block_stop" and hasattr(chunk, "content_block"):
                 if chunk.content_block.type == "tool_use":
@@ -330,7 +329,6 @@ async def async_think():
     pass
 
 
-
 async def async_prompt_thread(
     db: str,
     user: User,
@@ -399,7 +397,7 @@ async def async_prompt_thread(
                 content_chunks = []
                 tool_calls = []
                 stop = True
-                
+
                 async for update_type, content in async_prompt_stream(
                     messages,
                     system_message=system_message,
@@ -410,7 +408,7 @@ async def async_prompt_thread(
                     # stream an individual token
                     if update_type == UpdateType.ASSISTANT_TOKEN:
                         if not content:  # Skip empty content
-                            continue                        
+                            continue
                         content_chunks.append(content)
                         yield ThreadUpdate(
                             type=UpdateType.ASSISTANT_TOKEN, text=content

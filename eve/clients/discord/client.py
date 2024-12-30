@@ -53,7 +53,7 @@ class Eden2Cog(commands.Cog):
         if local:
             self.api_url = "http://localhost:8000"
         else:
-            self.api_url = os.getenv(f"EDEN_API_URL_{db}")
+            self.api_url = os.getenv(f"EDEN_API_URL")
         self.channel_name = common.get_ably_channel_name(
             agent.username, ClientType.DISCORD
         )

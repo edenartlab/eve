@@ -11,8 +11,7 @@ load_dotenv()
 # Configure API URLs based on environment
 EDEN_API_URL = os.getenv("EDEN_API_URL", "http://localhost:5050")
 EDEN_TOOLS_API_URL = os.getenv("EDEN_TOOLS_API_URL", "http://localhost:8000")
-EDEN_API_KEY_STAGE = os.getenv("EDEN_API_KEY_STAGE")
-EDEN_API_KEY_PROD = os.getenv("EDEN_API_KEY_PROD")
+EDEN_API_KEY = os.getenv("EDEN_API_KEY")
 
 
 @pytest.fixture

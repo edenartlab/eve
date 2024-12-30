@@ -129,12 +129,11 @@ def process_agent(agent_path: Path, db: str):
     click.echo(click.style(f"Processing agent: {agent_key}", fg="blue"))
 
     # Create secrets if .env exists
-    env_file = ".env" if db == "PROD" else ".env.STAGE"
-    env_file = agent_path.parent / env_file
+    env_file = agent_path.parent / ".env"
     if env_file.exists():
         click.echo(click.style(f"Creating secrets for: {agent_key}", fg="green"))
         client_secrets = dotenv_values(env_file)
-        create_secrets(agent_key, client_secrets, db)
+        create_secrets(agent_key, client_secrets)
 
     # Deploy each client
     for deployment in agent_config["deployments"]:
