@@ -1,25 +1,22 @@
+import os
 import modal
 
 from eve.clients.telegram.client import start as telegram_start
+from eve.clients.common import modal_secrets
+db = os.getenv("DB", "STAGE").upper()
+if db not in ["PROD", "STAGE"]:
+    raise Exception(f"Invalid environment: {db}. Must be PROD or STAGE")
 
 app = modal.App(
     name="client-telegram",
-    secrets=[
-        modal.Secret.from_name("client-secrets"),
-        modal.Secret.from_name("eve-secrets", environment_name="main"),
-    ],
+    secrets=modal_secrets(db),
 )
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    .env(
-        {
-            "DB": "STAGE",
-        }
-    )
+    .env({"DB": db})
     .apt_install("libmagic1", "ffmpeg", "wget")
     .pip_install_from_pyproject("pyproject.toml")
-    .pip_install("python-telegram-bot>=21.7")
     .copy_local_dir("../workflows", "/workflows")
 )
 
