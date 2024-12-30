@@ -388,16 +388,16 @@ class ComfyUI:
 
         return user_prompt, lora_prompt
 
-    def _inject_embedding_mentions_flux(self, text, embedding_trigger, caption_prefix):
+    def _inject_embedding_mentions_flux(self, text, embedding_trigger, lora_trigger_text):
         pattern = r'(<{0}>|<{1}>|{0}|{1})'.format(
             re.escape(embedding_trigger),
             re.escape(embedding_trigger.lower())
         )
-        text = re.sub(pattern, caption_prefix, text, flags=re.IGNORECASE)
-        text = re.sub(r'(<concept>)', caption_prefix, text, flags=re.IGNORECASE)
+        text = re.sub(pattern, lora_trigger_text, text, flags=re.IGNORECASE)
+        text = re.sub(r'(<concept>)', lora_trigger_text, text, flags=re.IGNORECASE)
 
-        if caption_prefix not in text: # Make sure the concept is always triggered:
-            text = f"{caption_prefix}, {text}"
+        if lora_trigger_text not in text: # Make sure the concept is always triggered:
+            text = f"{lora_trigger_text}, {text}"
 
         return text
     
@@ -552,7 +552,7 @@ class ComfyUI:
         pprint(args)        
 
         embedding_trigger = None
-        caption_prefix = None
+        lora_trigger_text = None
 
         # download and transport files        
         for key, param in tool.model.model_fields.items():
@@ -582,7 +582,7 @@ class ComfyUI:
                     print("REMOVE LORA")
                     continue
                 
-                models = get_collection("models", db=db)
+                models = get_collection("models3", db=db)
                 lora = models.find_one({"_id": ObjectId(lora_id)})
                 base_model = lora.get("base_model")
                 print("LORA", lora)
@@ -605,10 +605,11 @@ class ComfyUI:
                 elif base_model == "flux-dev":
                     lora_filename = self._transport_lora_flux(lora_url)
                     embedding_trigger = lora.get("args", {}).get("name")
-                    caption_prefix = lora.get("args", {}).get("caption_prefix")
+                    lora_trigger_text = lora.get("lora_trigger_text")
 
                 args[key] = lora_filename
-                print("lora filename", lora_filename)
+                args["use_lora"] = True
+                print("lora filename", lora_filename)    
         
         # inject args
         # comfyui_map = {
@@ -628,8 +629,10 @@ class ComfyUI:
             # if there's a lora, replace mentions with embedding name
             if key == "prompt" and embedding_trigger:
                 lora_strength = args.get("lora_strength", 0.5)
-                if base_model == "flux_dev":
-                    value = self._inject_embedding_mentions_flux(value, embedding_trigger, caption_prefix)
+                if base_model == "flux-dev":
+                    print("INJECTING LORA TRIGGER TEXT", lora_trigger_text)
+                    value = self._inject_embedding_mentions_flux(value, embedding_trigger, lora_trigger_text)
+                    print("INJECTED LORA TRIGGER TEXT", value)
                 elif base_model == "sdxl":  
                     no_token_prompt, value = self._inject_embedding_mentions_sdxl(value, embedding_trigger, embeddings_filename, lora_mode, lora_strength)
                     
