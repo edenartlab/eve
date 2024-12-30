@@ -86,11 +86,11 @@ def start(agent: str, db: str, env: str, platforms: tuple, local: bool):
                     )
                 elif client_type == ClientType.TELEGRAM:
                     p = multiprocessing.Process(
-                        target=start_telegram, args=(env_path, db, local)
+                        target=start_telegram, args=(env_path, db)
                     )
                 elif client_type == ClientType.FARCASTER:
                     p = multiprocessing.Process(
-                        target=start_farcaster, args=(env_path, db, local)
+                        target=start_farcaster, args=(env_path, db)
                     )
 
                 p.start()
@@ -144,16 +144,14 @@ def start(agent: str, db: str, env: str, platforms: tuple, local: bool):
 def api(host: str, port: int, reload: bool):
     """Start the Eve API server"""
     import uvicorn
-    
-    click.echo(
-        click.style(f"Starting API server on {host}:{port}...", fg="blue")
-    )
-    
+
+    click.echo(click.style(f"Starting API server on {host}:{port}...", fg="blue"))
+
     # Adjusted the import path to look one directory up
     uvicorn.run(
         "eve.api:web_app",
         host=host,
         port=port,
         reload=reload,
-        app_dir=str(Path(__file__).parent.parent.parent)
+        app_dir=str(Path(__file__).parent.parent.parent),
     )
