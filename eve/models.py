@@ -19,6 +19,8 @@ class Model(Document):
     args: Dict[str, Any]
     checkpoint: str
     base_model: str
+    lora_trigger_text: Optional[str] = None
+
     # users: SkipJsonSchema[Optional[Collection]] = Field(None, exclude=True)
 
     # def __init__(self, env, **data):
