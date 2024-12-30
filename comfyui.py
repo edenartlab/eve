@@ -77,34 +77,39 @@ def install_custom_nodes():
     snapshot = json.load(open("/root/workspace/snapshot.json", 'r'))
     custom_nodes = snapshot["git_custom_nodes"]
     for url, node in custom_nodes.items():
-        print(f"Installing custom node {url} with hash {hash}")
+        print(f"Installing custom node {url} with hash {node['hash']}") 
         install_custom_node_with_retries(url, node['hash'])
     post_install_commands = snapshot.get("post_install_commands", [])
     for cmd in post_install_commands:
         os.system(cmd)
 
-
 def install_custom_node_with_retries(url, hash, max_retries=3): 
     for attempt in range(max_retries + 1):
         try:
+            print(f"Attempt {attempt + 1}: Installing {url}")
             install_custom_node(url, hash)
+            print(f"Successfully installed {url}")
             return
         except Exception as e:
             if attempt < max_retries:
-                print(f"Attempt {attempt + 1} failed because: {e}. Retrying...")
+                print(f"Attempt {attempt + 1} failed because: {str(e)}")
+                print(f"Exception type: {type(e)}")
+                traceback.print_exc()  # This will print the full stack trace
+                print("Retrying...")
                 time.sleep(5)
             else:
-                print(f"All attempts failed. Error: {e}")
+                print(f"All attempts failed. Final error: {str(e)}")
+                traceback.print_exc()
                 raise
-
+                
 def install_custom_node(url, hash):
     repo_name = url.split("/")[-1].split(".")[0]
     repo_path = f"custom_nodes/{repo_name}"
     if os.path.exists(repo_path):
         return
     repo = git.Repo.clone_from(url, repo_path)
-    repo.submodule_update(recursive=True)    
     repo.git.checkout(hash)
+    repo.submodule_update(recursive=True)    
     for root, _, files in os.walk(repo_path):
         for file in files:
             if file.startswith("requirements") and file.endswith((".txt", ".pip")):
