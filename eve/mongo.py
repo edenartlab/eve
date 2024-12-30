@@ -20,14 +20,10 @@ _mongo_client = None
 _collections = {}
 
 
-def get_collection(collection_name: str, db: str):
-    """Get a MongoDB collection with connection pooling"""
+def get_mongo_client():
+    """Get a MongoDB client with connection pooling"""
     global _mongo_client
-
-    cache_key = f"{db}:{collection_name}"
-    if cache_key in _collections:
-        return _collections[cache_key]
-
+    
     if _mongo_client is None:
         _mongo_client = MongoClient(
             MONGO_URI,
@@ -39,8 +35,17 @@ def get_collection(collection_name: str, db: str):
             retryWrites=True,
             server_api=ServerApi("1"),
         )
+    return _mongo_client
 
-    _collections[cache_key] = _mongo_client[MONGO_DB_NAME][collection_name]
+
+def get_collection(collection_name: str, db: str):
+    """Get a MongoDB collection with connection pooling"""
+    cache_key = f"{db}:{collection_name}"
+    if cache_key in _collections:
+        return _collections[cache_key]
+
+    mongo_client = get_mongo_client()
+    _collections[cache_key] = mongo_client[MONGO_DB_NAME][collection_name]
     return _collections[cache_key]
 
 
