@@ -115,12 +115,19 @@ def install_custom_node(url, hash):
                     subprocess.run(["pip", "install", "-r", requirements_path], check=True)
                 except Exception as e:
                     print(f"Error installing requirements: {e}")
-
+                    
 def download_files():
     downloads = json.load(open("/root/workspace/downloads.json", 'r'))
     for path, url in downloads.items():
         comfy_path = pathlib.Path("/root") / path
         vol_path = pathlib.Path("/data") / path
+        
+        # If target file already exists, skip both download and symlink
+        if comfy_path.is_file():
+            print(f"File already exists at {comfy_path}, skipping")
+            continue
+            
+        # Download file if needed
         if vol_path.is_file():
             print(f"Skipping download, getting {path} from cache")
         else:
@@ -128,11 +135,15 @@ def download_files():
             vol_path.parent.mkdir(parents=True, exist_ok=True)
             eden_utils.download_file(url, vol_path)
             downloads_vol.commit()
+        
+        # Only create symlink if target doesn't exist
         try:
             comfy_path.parent.mkdir(parents=True, exist_ok=True)
-            comfy_path.symlink_to(vol_path)
+            if not comfy_path.exists():
+                comfy_path.symlink_to(vol_path)
         except Exception as e:
             raise Exception(f"Error linking {comfy_path} to {vol_path}: {e}")
+            
         if not pathlib.Path(comfy_path).exists():
             raise Exception(f"No file found at {comfy_path}")
 
