@@ -81,7 +81,7 @@ def upload_media(output, db, save_thumbnails=True, save_blurhash=True):
         except Exception as e:
             print(f"Error encoding blurhash: {e}")
 
-    return {"filename": filename, "mediaAttributes": media_attributes}
+    return {"filename": filename, "mediaAttributes": media_attributes, "file_url": file_url}
 
 
 def get_media_attributes(file_path):
