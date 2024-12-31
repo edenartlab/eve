@@ -105,9 +105,10 @@ class ReplicateTool(Tool):
             lora = parameter.get('type') == 'lora'
             if field in new_args:
                 if lora:
-                    lora_doc = get_collection(Model.collection_name, db=self.db).find_one({"_id": ObjectId(args[field])}) if args[field] else None
+                    loras = get_collection(Model.collection_name, db=self.db)
+                    lora_doc = loras.find_one({"_id": ObjectId(args[field])}) if args[field] else None
                     if lora_doc:
-                        lora_url = lora_doc.get("checkpoint")
+                        lora_url = s3.get_full_url(lora_doc.get("checkpoint"), db=self.db)
                         lora_name = lora_doc.get("name")
                         caption_prefix = lora_doc.get("args", {}).get("caption_prefix")
                         new_args[field] = lora_url

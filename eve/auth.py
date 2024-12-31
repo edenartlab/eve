@@ -19,7 +19,7 @@ bearer_scheme = HTTPBearer(auto_error=False)
 
 db = os.getenv("DB", "STAGE")
 api_keys = get_collection("apikeys", db=db)
-users = get_collection("users2", db=db)
+users = get_collection("users3", db=db)
 
 EDEN_ADMIN_KEY = os.getenv("EDEN_ADMIN_KEY")
 ABRAHAM_ADMIN_KEY = os.getenv("ABRAHAM_ADMIN_KEY")

@@ -396,11 +396,16 @@ async def handler(args: dict, db: str):
     
 
     if args.get("use_music"):
+        print("music_prompt", args.get("music_prompt"))
         music_prompt = args.get("music_prompt") or reel.music_prompt
+        print("music_prompt", music_prompt)
+        print("run")
         music_audio = await musicgen.async_run({
             "prompt": music_prompt,
             "duration": int(duration)
         }, db=db)
+        print("run2")
+        print("music_audio", music_audio)
         # music_audio = {'output': {'mediaAttributes': {'mimeType': 'audio/mpeg', 'duration': 20.052}, 'url': 'https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/430eb06b9a9bd66bece456fd3cd10f8c6d99fb75c1d05a1da6c317247ac171c6.mp3'}, 'status': 'completed'}
 
         if music_audio.get("error"):
@@ -434,9 +439,14 @@ async def handler(args: dict, db: str):
         else:
             audio = music_audio
 
+    print("lfg", audio)
+
     if audio:
+        print("go1")
         audio_url, _ = s3.upload_audio_segment(audio)
+        print("audio_url", audio_url)
     
+    print("go2")
     # get resolution
     orientation = args.get("orientation")
     print("TE ORIENTATION IS", orientation)
