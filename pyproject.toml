@@ -44,7 +44,7 @@ dependencies = [
     "farcaster>=0.7.11",
     "ably>=2.0.7",
     "colorama>=0.4.6",
-    "diffusers>=0.31.0",
+    "diffusers==0.31.0",
     "web3<7.6.1",
     "blurhash>=1.1.4"
 ]
