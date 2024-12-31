@@ -42,6 +42,7 @@ import tarfile
 import pathlib
 import tempfile
 import subprocess
+import traceback
 
 import eve.eden_utils as eden_utils
 from eve.tool import Tool
