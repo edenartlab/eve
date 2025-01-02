@@ -277,9 +277,8 @@ class Tool(Document, ABC):
         cost_formula = re.sub(
             r"(\w+)\s*\?\s*([^:]+)\s*:\s*([^,\s]+)", r"\2 if \1 else \3", cost_formula
         )  # Ternary operator
-
         cost_estimate = eval(cost_formula, args.copy())
-        assert isinstance(cost_estimate, (int, float)), "Cost estimate not a number"
+        assert isinstance(cost_estimate, (int, float)), f"Cost estimate ({cost_estimate}) not a number (formula: {cost_formula})"
         return cost_estimate
 
     def prepare_args(self, args: dict):
