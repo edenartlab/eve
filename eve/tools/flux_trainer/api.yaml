@@ -37,7 +37,7 @@ parameters:
     description: |-
       Number of training steps. Only increase this if you have lots of images (>50) otherwise the model wil overfit and will not look good.
     default: 3000
-    minimum: 500
+    minimum: 50
     maximum: 5000
     step: 10
   lora_rank:
