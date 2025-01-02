@@ -57,6 +57,15 @@ async def handler(args: dict, db: str):
     print("task finished2", task.status)
     print(task)
 
+
+    """
+    
+    task finished2 FAILED
+TaskRetrieveResponse(id='48947b97-c260-492e-b662-bec5aa725ebf', created_at=datetime.datetime(2025, 1, 1, 20, 43, 5, 303000, tzinfo=datetime.timezone.utc), status='FAILED', failure='An unexpected error occurred.', failure_code='INTERNAL.BAD_OUTPUT.CODE01', output=None, progress=None, createdAt='2025-01-01T20:43:05.303Z', failureCode='INTERNAL.BAD_OUTPUT.CODE01')
+Error An unexpected error occurred.
+    
+    """
+
     if task.status == "FAILED":
         print("Error", task.failure)
         raise Exception(task.failure)

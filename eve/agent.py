@@ -44,7 +44,8 @@ class Agent(User):
     name: str
     description: str
     instructions: str
-    models: Optional[Dict[str, ObjectId]] = None
+    # models: Optional[Dict[str, ObjectId]] = None
+    model: Optional[ObjectId] = None
     test_args: Optional[List[Dict[str, Any]]] = None
     
     tools: Optional[Dict[str, Dict]] = None
@@ -53,8 +54,8 @@ class Agent(User):
     def __init__(self, **data):
         if isinstance(data.get('owner'), str):
             data['owner'] = ObjectId(data['owner'])
-        if data.get('models'):
-            data['models'] = {k: ObjectId(v) if isinstance(v, str) else v for k, v in data['models'].items()}
+        # if data.get('models'):
+        #     data['models'] = {k: ObjectId(v) if isinstance(v, str) else v for k, v in data['models'].items()}
         # Load environment variables into secrets dictionary
         env_dir = Path(__file__).parent / "agents"
         env_vars = dotenv_values(f"{str(env_dir)}/{data['username']}/.env")
@@ -104,20 +105,36 @@ class Agent(User):
 
     @classmethod
     def from_mongo(cls, document_id, db="STAGE", cache=False):
+
+        print("the current keys in the agent_cache", _agent_cache.keys())
+
+        print("LOAD AGENT FORM CACH 333E", document_id, db, cache)
         if cache:
+            print("cache is true 22")
             if document_id not in _agent_cache:
-                _agent_cache[str(document_id)] = super().from_mongo(document_id, db=db)
+                print("********** cache go 1 **********")
+                print("document_id", document_id)
+                aaa = super().from_mongo(document_id, db=db)
+                print(aaa.tools)
+                print("********** cache go 2 **********")
+                print("aaa 677", aaa)
+                _agent_cache[str(document_id)] = aaa
             return _agent_cache[str(document_id)]
         else:
             return super().from_mongo(document_id, db=db)
     
     @classmethod
     def load(cls, username, db=None, cache=False):
+        print("LOAD AGENT FORM CACHE", username, db, cache)
         if cache:
             if username not in _agent_cache:
-                _agent_cache[username] = super().load(username=username, db=db)
+                print("cache miss 1")
+                aaa = super().load(username=username, db=db)
+                print("aaa", aaa)
+                _agent_cache[username] = aaa
             return _agent_cache[username]
         else:
+            print("cache miss 2")
             return super().load(username=username, db=db)
 
     def request_thread(self, key=None, user=None, db="STAGE"):
@@ -136,10 +153,16 @@ class Agent(User):
         Sets up the agent's tools based on the tools defined in the schema.
         If a model (lora) is set, hardcode it into the tools.
         """
+        print("&&&&&&&&")
+        print("lets setup tools")
         tools = schema.get("tools")
+        print("tools", tools)
         if tools:
+            print("tools are there")
             schema["tools"] = {k: v or {} for k, v in tools.items()}
         else:
+            print("tools are not there")
+            schema["tools"] = default_presets_flux
             if "model" in schema:
                 model = Model.from_mongo(schema["model"], db=db)
                 if model.base_model == "flux-dev":
@@ -177,21 +200,38 @@ class Agent(User):
                     }
                 elif model.base_model == "sdxl":
                     schema["tools"] = default_presets_sdxl
-                else:
-                    schema["tools"] = default_presets_flux
+                    
+        print("now tools are set")
+        # print(schema["tools"].keys())
+        toollls = schema.get("tools")
+        if toollls:
+            print("toollls are there")
+            print(toollls.keys())
+        print("&&&&&&&&")
         return schema
 
     def get_tools(self, db="STAGE", cache=False):
-        if not self.tools:
-            return {}
+        print("lets get the tools")
+        print("self.tools", self.tools)
+        if not hasattr(self, "tools") or not self.tools:
+            self.tools = {}
+            
+        # if not self.tools:
+        #     print("no tools, return")
+        #     return {}
+        print("cache", cache)
         if cache:
+            print("cache is true")
             self.tools_cache = self.tools_cache or {}
             for k, v in self.tools.items():
+                print("k", k)
                 if k not in self.tools_cache:
                     tool = Tool.from_raw_yaml({"parent_tool": k, **v}, db=db)
                     self.tools_cache[k] = tool
             return self.tools_cache
-        else:        
+        else:
+            print("cache is false")
+            print("self.tools", self.tools)
             return {
                 k: Tool.from_raw_yaml({"parent_tool": k, **v}, db=db)
                 for k, v in self.tools.items()

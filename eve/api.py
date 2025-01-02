@@ -121,7 +121,11 @@ async def setup_chat(
 
     user = User.from_mongo(request.user_id, db=db)
     agent = Agent.from_mongo(request.agent_id, db=db, cache=True)
+    print("set up chat tools for ", user.username, agent.username)
+    print("the agent")
+    print(agent)
     tools = agent.get_tools(db=db, cache=True)
+    print("tools dct", tools)
 
     if request.thread_id:
         thread = Thread.from_mongo(request.thread_id, db=db)
@@ -148,8 +152,13 @@ async def handle_chat(
         user, agent, thread, tools, update_channel = await setup_chat(
             request, background_tasks
         )
+        print("Available tools", tools.keys())
 
         async def run_prompt():
+            print("==== Run Prompt ====")
+            print("db, user, agent", db, user.username, agent.username)
+            print("tools", tools.keys())
+
             async for update in async_prompt_thread(
                 db=db,
                 user=user,

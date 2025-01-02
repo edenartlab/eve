@@ -3,7 +3,7 @@ description: Text-guided, realistic image animation with Runway Gen3a
 tip: |-
   This tool can be used for creating a realistic animation of an image. Specific camera motion can be obtained by putting such directions in the prompt text.
 thumbnail: app/runway-tree-orb-woman2-opt.mp4
-cost_estimate: 10 * int(duration)
+cost_estimate: 10 * duration
 output_type: video
 base_mopel: runway
 status: prod
