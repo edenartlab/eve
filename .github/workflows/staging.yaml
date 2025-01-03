@@ -17,6 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DB: STAGE
+      STAGE: staging
     
     steps:
       - name: Checkout workflows repo
