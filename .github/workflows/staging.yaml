@@ -1,0 +1,48 @@
+name: Deploy to Modal Staging
+
+on:
+  push:
+    branches:
+      - staging
+  pull_request:
+    types: [closed]
+    branches:
+      - staging
+
+jobs:
+  deploy:
+    if: github.event.pull_request.merged == true || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    env:
+      DB: STAGE
+    
+    steps:
+      - name: Checkout main repo
+        uses: actions/checkout@v4
+
+      - name: Checkout workflows repo
+        uses: actions/checkout@v4
+        with:
+          repository: edenartlab/workflows
+          path: workflows
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Rye
+        run: |
+          curl -sSf https://rye-up.com/get | bash
+          echo "$HOME/.rye/shims" >> $GITHUB_PATH
+
+      - name: Install dependencies
+        run: rye sync
+
+      - name: Configure Modal token
+        run: |
+          echo "${{ secrets.MODAL_TOKEN_ID }}" > ~/.modal/token-id
+          echo "${{ secrets.MODAL_TOKEN_SECRET }}" > ~/.modal/token-secret
+
+      - name: Deploy to Modal
+        run: rye run modal deploy ./eve/api.py

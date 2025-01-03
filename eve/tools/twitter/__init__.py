@@ -1,7 +1,6 @@
 import time
 import logging
 import requests
-from dotenv import load_dotenv
 from requests_oauthlib import OAuth1Session
 
 from ...agent import Agent

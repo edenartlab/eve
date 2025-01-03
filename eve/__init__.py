@@ -5,14 +5,19 @@ from pydantic import SecretStr
 import os
 
 home_dir = str(Path.home())
-
-# Load env variables from ~/.eve if it exists
 eve_path = os.path.join(home_dir, ".eve")
-if os.path.exists(eve_path):
-    load_dotenv(eve_path)
-
-# Load env variables from .env file if it exists
 env_path = ".env"
+
+# First try ENV_PATH from environment
+env_path_override = os.getenv("ENV_PATH")
+if env_path_override and os.path.exists(env_path_override):
+    load_dotenv(env_path_override)
+
+# Then try ~/.eve
+if os.path.exists(eve_path):
+    load_dotenv(eve_path, override=True)
+
+# Finally fall back to .env
 if os.path.exists(env_path):
     load_dotenv(env_path, override=True)
 
