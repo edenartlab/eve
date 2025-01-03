@@ -84,6 +84,9 @@ from ... import eden_utils
 
 # from ...tools import load_tool
 # from ... import voice
+from ...tools.elevenlabs.handler import select_random_voice
+from ...tool import Tool
+from ...mongo import get_collection
 
 
 
@@ -320,9 +323,6 @@ from bson.objectid import ObjectId
 
 async def handler(args: dict, db: str):
     
-    from ...tools.elevenlabs.handler import select_random_voice
-    from ...tool import Tool
-    from ...mongo import get_collection
 
     elevenlabs = Tool.load("elevenlabs", db=db)
     musicgen = Tool.load("musicgen", db=db)
