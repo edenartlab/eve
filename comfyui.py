@@ -10,7 +10,6 @@ DB=STAGE SKIP_TESTS=1 WORKSPACE=video modal deploy comfyui.py
 DB=STAGE SKIP_TESTS=1 WORKSPACE=video2 modal deploy comfyui.py
 DB=STAGE SKIP_TESTS=1 WORKSPACE=video_mochi modal deploy comfyui.py
 
-
 DB=PROD WORKSPACE=audio modal deploy comfyui.py
 DB=PROD WORKSPACE=batch_tools modal deploy comfyui.py
 DB=PROD WORKSPACE=flux modal deploy comfyui.py
@@ -237,9 +236,8 @@ downloads_vol = modal.Volume.from_name(
 app = modal.App(
     name=app_name, 
     secrets=[
-        modal.Secret.from_name("s3-credentials"),
-        modal.Secret.from_name("mongo-credentials"),
-        modal.Secret.from_name("openai"),
+        modal.Secret.from_name("eve-secrets"),
+        modal.Secret.from_name(f"eve-secrets-{db}"),
     ]
 )
 
