@@ -122,6 +122,36 @@ def deploy_client(agent_key: str, client_name: str):
         )
 
 
+def get_deployable_agents():
+    """Find all agents that have both .env and deployments configured"""
+    agents_dir = root_dir / "eve" / "agents" / stage
+    deployable = []
+
+    for agent_dir in agents_dir.glob("*"):
+        if not agent_dir.is_dir():
+            continue
+
+        yaml_path = agent_dir / "api.yaml"
+        env_path = agent_dir / ".env"
+
+        if not yaml_path.exists() or not env_path.exists():
+            continue
+
+        try:
+            with open(yaml_path) as f:
+                config = yaml.safe_load(f)
+                if config.get("deployments"):
+                    deployable.append(agent_dir.name)
+        except Exception as e:
+            click.echo(
+                click.style(
+                    f"Error reading config for {agent_dir.name}: {str(e)}", fg="yellow"
+                )
+            )
+
+    return deployable
+
+
 def process_agent(agent_path: Path):
     with open(agent_path) as f:
         agent_config = yaml.safe_load(f)
@@ -147,21 +177,52 @@ def process_agent(agent_path: Path):
 
 
 @click.command()
-@click.argument("agent", nargs=1, required=True)
-def deploy(agent: str):
-    """Deploy Modal agents"""
+@click.argument("agent", nargs=1, required=False)
+@click.option("--all", is_flag=True, help="Deploy all configured agents")
+def deploy(agent: str, all: bool):
+    """Deploy Modal agents. Use --all to deploy all configured agents."""
     try:
         # Ensure Modal environment exists
         ensure_modal_env_exists()
 
-        agents_dir = root_dir / "eve" / "agents" / stage
-        agent_path = agents_dir / agent / "api.yaml"
-        if agent_path.exists():
-            process_agent(agent_path)
-        else:
+        if all:
+            agents = get_deployable_agents()
+            if not agents:
+                click.echo(
+                    click.style(
+                        f"No deployable agents found in {stage} environment",
+                        fg="yellow",
+                    )
+                )
+                return
+
             click.echo(
-                click.style(f"Warning: Agent file not found: {agent_path}", fg="yellow")
+                click.style(
+                    f"Found {len(agents)} deployable agents: {', '.join(agents)}",
+                    fg="green",
+                )
             )
+
+            for agent_name in agents:
+                click.echo(click.style(f"\nProcessing agent: {agent_name}", fg="blue"))
+                agent_path = (
+                    root_dir / "eve" / "agents" / stage / agent_name / "api.yaml"
+                )
+                process_agent(agent_path)
+
+        else:
+            if not agent:
+                raise click.UsageError("Please provide an agent name or use --all")
+
+            agent_path = root_dir / "eve" / "agents" / stage / agent / "api.yaml"
+            if agent_path.exists():
+                process_agent(agent_path)
+            else:
+                click.echo(
+                    click.style(
+                        f"Warning: Agent file not found: {agent_path}", fg="yellow"
+                    )
+                )
 
     except Exception as e:
         click.echo(click.style("Failed to deploy agents:", fg="red"))
