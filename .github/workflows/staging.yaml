@@ -19,13 +19,16 @@ jobs:
       DB: STAGE
     
     steps:
-      - name: Checkout main repo
-        uses: actions/checkout@v4
-
       - name: Checkout workflows repo
         uses: actions/checkout@v4
         with:
           repository: edenartlab/workflows
+          path: workflows
+
+      - name: Checkout main repo
+        uses: actions/checkout@v4
+        with:
+          path: eve
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -36,6 +39,7 @@ jobs:
         uses: eifinger/setup-rye@v4
 
       - name: Install dependencies
+        working-directory: eve
         run: rye sync
 
       - name: Configure Modal token
@@ -44,4 +48,5 @@ jobs:
           echo "${{ secrets.MODAL_TOKEN_SECRET }}" > ~/.modal/token-secret
 
       - name: Deploy to Modal
+        working-directory: eve
         run: rye run modal deploy ./eve/api.py
