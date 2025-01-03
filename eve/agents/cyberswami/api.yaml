@@ -38,6 +38,3 @@ models:
 clients:
   discord:
     enabled: true
-
-deployments:
-  - discord
