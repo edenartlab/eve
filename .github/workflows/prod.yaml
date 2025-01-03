@@ -13,10 +13,18 @@ jobs:
   deploy:
     if: github.event.pull_request.merged == true || github.event_name == 'push'
     runs-on: ubuntu-latest
-    
+    env:
+      DB: PROD
+      
     steps:
-      - name: Checkout code
+      - name: Checkout main repo
         uses: actions/checkout@v4
+
+      - name: Checkout workflows repo
+        uses: actions/checkout@v4
+        with:
+          repository: edenartlab/workflows
+          path: workflows
 
       - name: Set up Python
         uses: actions/setup-python@v5
