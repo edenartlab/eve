@@ -1,0 +1,47 @@
+name: Add sound to video.
+description: Generate audio that matches given video content + prompt.
+tip: |-
+  This tool synthesizes high-quality audio from video content, enabling video-to-audio generation. 
+cost_estimate: 0.5 * duration
+output_type: video
+replicate_model: zsxkib/mmaudio
+thumbnail: app/mmaudio.mp4
+handler: replicate
+parameters:
+  video:
+    type: video
+    description: URL of the base video
+    required: true
+  prompt:
+    type: string
+    label: Prompt
+    description: Text prompt
+    tip: |-
+      Description of the sound you want to generate. Limit the prompt to 10 words at most.
+    required: true
+  duration:
+    type: integer
+    label: Number of seconds
+    description: Max number of seconds of audio to generate
+    tip:  |-
+      How many seconds of audio you want to generate. You can set this to a high number to be safe since the resulting audio will never be longer than the input video.
+    default: 8
+    minimum: 1
+    maximum: 16
+  negative_prompt:
+    type: string
+    label: Negative Prompt
+    default: "music"
+    description: Negative prompt
+    tip: |-
+      Optional mentions of sounds you dont want. (eg music / people talking / ...)
+  seed:
+    type: integer
+    label: Seed
+    description: Set random seed for reproducibility. If blank, will be set to a random value.
+    tip: |-
+      You should only set this if you want to start from/copy the seed of a previous image. Unless one is specified, you should leave this blank!
+    minimum: 0
+    maximum: 2147483647
+    default: random
+
