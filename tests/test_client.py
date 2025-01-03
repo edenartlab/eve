@@ -61,15 +61,15 @@ def test_client():
             server_url = "http://localhost:8000"
         else:
             server_url = "https://edenartlab--api-stage-fastapi-app-dev.modal.run"
-            # server_url = "http://localhost:8000"
+            server_url = "http://localhost:8000"
 
         print("server_url", server_url)
         
         print("\nRunning create test...")
-        # run_create(server_url)
+        run_create(server_url)
 
         print("\nRunning chat test...")
-        run_chat(server_url)
+        # run_chat(server_url)
 
     except KeyboardInterrupt:
         print("\nShutting down...")

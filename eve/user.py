@@ -4,6 +4,7 @@ from typing import Optional, Literal, List
 
 from .mongo import Document, Collection, get_collection, MongoDocumentNotFound
 
+
 @Collection("mannas")
 class Manna(Document):
     user: ObjectId
@@ -11,9 +12,8 @@ class Manna(Document):
     subscriptionBalance: float = 0
 
     @classmethod
-    def load(cls, user: ObjectId | str, db=None):
+    def load(cls, user: ObjectId, db=None):
         try:
-            user = ObjectId(user) if isinstance(user, str) else user
             return super().load(user=user, db=db)
         except MongoDocumentNotFound as e:
             # if mannas not found, check if user exists, and create a new manna document
@@ -39,6 +39,14 @@ class Manna(Document):
         # todo: make it refund to subscription balance first if it spent from there
         self.balance += amount
         self.save()
+
+
+@Collection("transactions")
+class Transaction(Document):
+    manna: ObjectId
+    task: ObjectId
+    amount: float
+    type: Literal["spend", "refund"]
 
 
 @Collection("users3")
@@ -83,18 +91,6 @@ class User(Document):
             raise Exception(
                 f"Insufficient manna balance. Need {amount} but only have {total_balance}"
             )
-
-    def spend_manna(self, amount: float):
-        if amount == 0:
-            return
-        manna = Manna.load(self.id, db=self.db)
-        manna.spend(amount)
-
-    def refund_manna(self, amount: float):
-        if amount == 0:
-            return
-        manna = Manna.load(self.id, db=self.db)
-        manna.refund(amount)
 
     @classmethod
     def from_discord(cls, discord_id, discord_username, db):

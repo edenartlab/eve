@@ -13,12 +13,18 @@ async def handler(args: dict, db: str):
     client = RunwayML()
 
     
+    
 
     try:
+        ratio = "1280:768" if args["ratio"] == "16:9" else "768:1280"
+        
         task = client.image_to_video.create(
             model='gen3a_turbo',
             prompt_image=args["prompt_image"],
-            prompt_text=args["prompt_text"][:512]
+            prompt_text=args["prompt_text"][:512],
+            duration=int(args["duration"]),
+            ratio=ratio,
+            watermark=False
         )
     except runwayml.APIConnectionError as e:
         print("The server could not be reached")

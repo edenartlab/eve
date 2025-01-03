@@ -22,8 +22,8 @@ parameters:
     type: string
     label: Duration
     description: The duration of the video in seconds
-    default: '5'
-    choices: ['5', '10']
+    default: 5
+    choices: [5, 10]
   ratio:
     type: string
     label: Ratio

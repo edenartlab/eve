@@ -171,18 +171,12 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
 
     if status == "failed":
         task.update(status="failed", error=error)
-        n_samples = task.args.get("n_samples", 1)
-        refund_amount = (task.cost or 0) * (n_samples - len(task.result or [])) / n_samples
-        user = User.from_mongo(task.user, db=task.db)
-        user.refund_manna(refund_amount)
+        task.refund_manna()
         return {"status": "failed", "error": error}
     
     elif status == "canceled":
         task.update(status="cancelled")
-        n_samples = task.args.get("n_samples", 1)
-        refund_amount = (task.cost or 0) * (n_samples - len(task.result or [])) / n_samples
-        user = User.from_mongo(task.user, db=task.db)
-        user.refund_manna(refund_amount)
+        task.refund_manna()
         return {"status": "cancelled"}
     
     elif status == "processing":
