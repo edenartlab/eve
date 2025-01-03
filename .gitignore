@@ -8,3 +8,4 @@ tests/out
 dist
 logs/
 *.log
+profiling/

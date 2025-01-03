@@ -13,6 +13,7 @@ from ably import AblyRealtime
 from pathlib import Path
 import aiohttp
 import traceback
+import time
 
 from eve import auth
 from eve.deploy import (
@@ -32,6 +33,7 @@ from eve.mongo import serialize_document
 from eve.agent import Agent
 from eve.user import User
 from eve import deploy
+from eve.profiling import profile_async
 
 # Config and logging setup
 logging.basicConfig(level=logging.INFO)
@@ -107,6 +109,13 @@ def serialize_for_json(obj):
     return obj
 
 
+@web_app.post("/create")
+async def task_admin(request: TaskRequest, _: dict = Depends(auth.authenticate_admin)):
+    result = await handle_task(request.tool, request.user_id, request.args)
+    return serialize_document(result.model_dump())
+
+
+@profile_async
 async def setup_chat(
     request: ChatRequest, background_tasks: BackgroundTasks
 ) -> tuple[User, Agent, Thread, list[Tool], Optional[AblyRealtime]]:
@@ -121,8 +130,8 @@ async def setup_chat(
 
     user = User.from_mongo(request.user_id, db=db)
     agent = Agent.from_mongo(request.agent_id, db=db, cache=True)
-    tools = agent.get_tools(db=db, cache=True)
 
+    tools = agent.get_tools(db=db, cache=True)
     if request.thread_id:
         thread = Thread.from_mongo(request.thread_id, db=db)
     else:
@@ -132,13 +141,8 @@ async def setup_chat(
     return user, agent, thread, tools, update_channel
 
 
-@web_app.post("/create")
-async def task_admin(request: TaskRequest, _: dict = Depends(auth.authenticate_admin)):
-    result = await handle_task(request.tool, request.user_id, request.args)
-    return serialize_document(result.model_dump())
-
-
 @web_app.post("/chat")
+@profile_async
 async def handle_chat(
     request: ChatRequest,
     background_tasks: BackgroundTasks,
@@ -211,6 +215,7 @@ async def handle_chat(
 
 
 @web_app.post("/chat/stream")
+@profile_async
 async def stream_chat(
     request: ChatRequest,
     auth: dict = Depends(auth.authenticate_admin),
