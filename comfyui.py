@@ -164,9 +164,8 @@ downloads_vol = modal.Volume.from_name(
 app = modal.App(
     name=app_name, 
     secrets=[
-        modal.Secret.from_name("s3-credentials"),
-        modal.Secret.from_name("mongo-credentials"),
-        modal.Secret.from_name("openai"),
+        modal.Secret.from_name("eve-secrets"),
+        modal.Secret.from_name(f"eve-secrets-{db}"),
     ]
 )
 
