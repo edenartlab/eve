@@ -142,5 +142,4 @@ clients:
 
 deployments:
   - discord
-  - telegram
 

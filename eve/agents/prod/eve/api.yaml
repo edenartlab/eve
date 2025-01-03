@@ -18,7 +18,6 @@ tools:
   txt2img:
   flux_schnell:
   flux_dev_lora:
-  flux_schnell:
   layer_diffusion:
   remix_flux_schnell:
   flux_inpainting:
@@ -58,6 +57,4 @@ clients:
   #   enabled: true
 
 deployments:
-  # - farcaster
   - discord
-  # - telegram

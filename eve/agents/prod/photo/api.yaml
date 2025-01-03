@@ -31,6 +31,3 @@ clients:
     enabled: true
   local:
     enabled: true
-
-deployments:
-  - discord

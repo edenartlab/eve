@@ -10,7 +10,6 @@ DB=STAGE SKIP_TESTS=1 WORKSPACE=video modal deploy comfyui.py
 DB=STAGE SKIP_TESTS=1 WORKSPACE=video2 modal deploy comfyui.py
 DB=STAGE SKIP_TESTS=1 WORKSPACE=video_mochi modal deploy comfyui.py
 
-
 DB=PROD WORKSPACE=audio modal deploy comfyui.py
 DB=PROD WORKSPACE=batch_tools modal deploy comfyui.py
 DB=PROD WORKSPACE=flux modal deploy comfyui.py
@@ -42,6 +41,7 @@ import tarfile
 import pathlib
 import tempfile
 import subprocess
+import traceback
 
 import eve.eden_utils as eden_utils
 from eve.tool import Tool
@@ -78,24 +78,29 @@ def install_custom_nodes():
     snapshot = json.load(open("/root/workspace/snapshot.json", 'r'))
     custom_nodes = snapshot["git_custom_nodes"]
     for url, node in custom_nodes.items():
-        print(f"Installing custom node {url} with hash {hash}")
+        print(f"Installing custom node {url} with hash {node['hash']}") 
         install_custom_node_with_retries(url, node['hash'])
     post_install_commands = snapshot.get("post_install_commands", [])
     for cmd in post_install_commands:
         os.system(cmd)
 
-
 def install_custom_node_with_retries(url, hash, max_retries=3): 
     for attempt in range(max_retries + 1):
         try:
+            print(f"Attempt {attempt + 1}: Installing {url}")
             install_custom_node(url, hash)
+            print(f"Successfully installed {url}")
             return
         except Exception as e:
             if attempt < max_retries:
-                print(f"Attempt {attempt + 1} failed because: {e}. Retrying...")
+                print(f"Attempt {attempt + 1} failed because: {str(e)}")
+                print(f"Exception type: {type(e)}")
+                traceback.print_exc()  # This will print the full stack trace
+                print("Retrying...")
                 time.sleep(5)
             else:
-                print(f"All attempts failed. Error: {e}")
+                print(f"All attempts failed. Final error: {str(e)}")
+                traceback.print_exc()
                 raise
 
 def install_custom_node(url, hash):
@@ -104,8 +109,8 @@ def install_custom_node(url, hash):
     if os.path.exists(repo_path):
         return
     repo = git.Repo.clone_from(url, repo_path)
-    repo.submodule_update(recursive=True)    
     repo.git.checkout(hash)
+    repo.submodule_update(recursive=True)    
     for root, _, files in os.walk(repo_path):
         for file in files:
             if file.startswith("requirements") and file.endswith((".txt", ".pip")):
@@ -116,26 +121,94 @@ def install_custom_node(url, hash):
                     subprocess.run(["pip", "install", "-r", requirements_path], check=True)
                 except Exception as e:
                     print(f"Error installing requirements: {e}")
+                   
+def create_symlink(source_path, target_path, is_directory=False, force=False):
+    """Create a symlink, ensuring parent directories exist."""
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    if target_path.exists():
+        if force:
+            target_path.unlink()
+        else:
+            return
+    target_path.symlink_to(source_path, target_is_directory=is_directory)
 
-def download_files():
+def clone_repo(repo_url, target_path, force=False):
+    """Clone a git repository to the specified target path."""
+    if target_path.exists():
+        if force:
+            print(f"Removing existing repository at {target_path}")
+            shutil.rmtree(target_path)
+        else:
+            print(f"Repository already exists at {target_path}, skipping clone")
+            return
+            
+    print(f"Cloning repository {repo_url} to {target_path}")
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    try:
+        # Clone directly to the specified target path
+        subprocess.run(['git', 'clone', repo_url, str(target_path)], 
+                     check=True, 
+                     capture_output=True)
+        downloads_vol.commit()
+    except subprocess.CalledProcessError as e:
+        raise Exception(f"Error cloning repository {repo_url}: {e.stderr.decode()}")
+
+def download_file(url, target_path, force=False):
+    """Download a single file to the target path."""
+    if target_path.is_file() and not force:
+        print(f"Skipping download, getting {target_path} from cache")
+        return
+        
+    print(f"Downloading {url} to {target_path}")
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    eden_utils.download_file(url, target_path)
+    downloads_vol.commit()
+
+def handle_repo_download(repo_url, vol_path, comfy_path, force=False):
+    """Handle downloading and linking a git repository."""
+    # Clone directly to the volume path that matches the specified comfy path
+    clone_repo(repo_url, vol_path, force=force)
+    
+    # Create symlink to the exact specified location
+    create_symlink(vol_path, comfy_path, is_directory=True, force=force)
+
+def handle_file_download(url, vol_path, comfy_path, force=False):
+    """Handle downloading and linking a single file."""
+    download_file(url, vol_path, force=force)
+    create_symlink(vol_path, comfy_path, force=force)
+
+def download_files(force_redownload=False):
+    """
+    Main function to process downloads from downloads.json.
+    
+    Args:
+        force_redownload (bool): If True, force redownload and overwrite existing files.
+    """
     downloads = json.load(open("/root/workspace/downloads.json", 'r'))
-    for path, url in downloads.items():
+    
+    for path, source in downloads.items():
         comfy_path = pathlib.Path("/root") / path
         vol_path = pathlib.Path("/data") / path
-        if vol_path.is_file():
-            print(f"Skipping download, getting {path} from cache")
-        else:
-            print(f"Downloading {url} to {vol_path}")
-            vol_path.parent.mkdir(parents=True, exist_ok=True)
-            eden_utils.download_file(url, vol_path)
-            downloads_vol.commit()
+        
+        # Skip if target already exists and force_redownload is False
+        if (comfy_path.is_file() or comfy_path.is_dir()) and not force_redownload:
+            print(f"Path already exists at {comfy_path}, skipping")
+            continue
+        
         try:
-            comfy_path.parent.mkdir(parents=True, exist_ok=True)
-            comfy_path.symlink_to(vol_path)
+            if source.startswith("git clone "):
+                # Extract the repository URL after "git clone "
+                repo_url = source[10:].strip()
+                handle_repo_download(repo_url, vol_path, comfy_path, force=force_redownload)
+            else:
+                handle_file_download(source, vol_path, comfy_path, force=force_redownload)
+                
+            if not comfy_path.exists():
+                raise Exception(f"No file/directory found at {comfy_path}")
+                
         except Exception as e:
-            raise Exception(f"Error linking {comfy_path} to {vol_path}: {e}")
-        if not pathlib.Path(comfy_path).exists():
-            raise Exception(f"No file found at {comfy_path}")
+            raise Exception(f"Error processing {path}: {e}")
 
 root_dir = Path(__file__).parent
 

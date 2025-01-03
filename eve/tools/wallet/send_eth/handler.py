@@ -1,6 +1,5 @@
 import os
 from web3 import Web3
-from dotenv import load_dotenv
 
 
 async def handler(args: dict, db: str):
