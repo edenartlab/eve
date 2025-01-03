@@ -355,7 +355,6 @@ class Tool(Document, ABC):
                 user = User.from_mongo(user_id, db=db)
                 if "freeTools" in (user.featureFlags or []):
                     cost = 0
-                #user.check_manna(cost)
                 requester = User.from_mongo(requester_id, db=db)
                 requester.check_manna(cost)
 
@@ -397,8 +396,7 @@ class Tool(Document, ABC):
                     handler_id = await start_task_function(self, task)
                     task.update(handler_id=handler_id)
 
-                # user.spend_manna(task.cost)
-                requester.spend_manna(task.cost)
+                task.spend_manna()
                 
             except Exception as e:
                 print(traceback.format_exc())
@@ -433,12 +431,7 @@ class Tool(Document, ABC):
 
         async def async_wrapper(self, task: Task):
             await cancel_function(self, task)
-            n_samples = task.args.get("n_samples", 1)
-            refund_amount = (
-                (task.cost or 0) * (n_samples - len(task.result or [])) / n_samples
-            )
-            user = User.from_mongo(task.user, db=task.db)
-            user.refund_manna(refund_amount)
+            task.refund_manna()
             task.update(status="cancelled")
 
         return async_wrapper

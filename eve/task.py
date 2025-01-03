@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import asyncio
 import traceback
 
-from .user import User
+from .user import User, Manna, Transaction
 from .mongo import Document, Collection
 from . import eden_utils
 from . import sentry_sdk
@@ -65,6 +65,30 @@ class Task(Document):
         if not task:
             raise Exception("Task not found")    
         return super().load(self, task["_id"], db)
+
+    def spend_manna(self):
+        if self.cost == 0:
+            return
+        manna = Manna.load(self.requester, db=self.db)
+        manna.spend(self.cost)
+        Transaction(
+            manna=manna.id,
+            task=self.id,
+            amount=self.cost,
+            type="spend",
+        ).save(db=self.db)
+
+    def refund_manna(self, refund_amount):
+        n_samples = self.args.get("n_samples", 1)
+        refund_amount = (self.cost or 0) * (n_samples - len(self.result or [])) / n_samples
+        manna = Manna.load(self.requester, db=self.db)
+        manna.refund(refund_amount)
+        Transaction(
+            manna=manna.id,
+            task=self.id,
+            amount=refund_amount,
+            type="refund",
+        ).save(db=self.db)
 
 
 def task_handler_func(func):
@@ -158,12 +182,8 @@ async def _task_handler(func, *args, **kwargs):
         task_update = {
             "status": "failed",
             "error": str(error),
-        }
-        
-        n_samples = task.args.get("n_samples", 1)
-        refund_amount = (task.cost or 0) * (n_samples - len(task.result or [])) / n_samples
-        user = User.from_mongo(task.user, db=task.db)
-        user.refund_manna(refund_amount)
+        }        
+        task.refund_manna()
         
         return task_update.copy()
 

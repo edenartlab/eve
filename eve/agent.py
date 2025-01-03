@@ -92,7 +92,7 @@ class Agent(User):
         # save user, and create mannas record if it doesn't exist
         kwargs["featureFlags"] = ["freeTools"]  # give agents free tools for now
         super().save(db, {"username": self.username, "type": "agent"}, **kwargs)
-        Manna.load(user=self.id, db=db)
+        Manna.load(user=self.id, db=db)  # create manna record if it doesn't exist
        
     @classmethod
     def from_yaml(cls, file_path, db="STAGE", cache=False):
