@@ -47,6 +47,7 @@ import eve.eden_utils as eden_utils
 from eve.tool import Tool
 from eve.mongo import get_collection
 from eve.task import task_handler_method
+from eve.s3 import get_full_url
 
 GPUs = {
     "A100": modal.gpu.A100(),
@@ -581,14 +582,18 @@ class ComfyUI:
                     args["lora_strength"] = 0
                     print("REMOVE LORA")
                     continue
+
+                print("LORA ID", lora_id)
+                print(type(lora_id))
                 
                 models = get_collection("models3", db=db)
                 lora = models.find_one({"_id": ObjectId(lora_id)})
-                base_model = lora.get("base_model")
-                print("LORA", lora)
+                print("found lora", lora)
+
                 if not lora:
                     raise Exception(f"Lora {lora_id} not found")
 
+                base_model = lora.get("base_model")
                 lora_url = lora.get("checkpoint")
                 #lora_name = lora.get("name")
                 #pretrained_model = lora.get("args").get("sd_model_version")
@@ -598,6 +603,8 @@ class ComfyUI:
                 else:
                     print("LORA URL", lora_url)
 
+                lora_url = get_full_url(lora_url, db=db)
+                print("lora url", lora_url)
                 print("base model", base_model)
 
                 if base_model == "sdxl":
