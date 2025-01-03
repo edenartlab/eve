@@ -1,6 +1,8 @@
 import os
 import time
 
+import modal
+
 from eve.models import ClientType
 
 

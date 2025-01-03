@@ -144,7 +144,6 @@ async def handle_chat(
     background_tasks: BackgroundTasks,
     auth: dict = Depends(auth.authenticate_admin),
 ):
-    print("handle_chat", request)
     try:
         user, agent, thread, tools, update_channel = await setup_chat(
             request, background_tasks
@@ -302,6 +301,7 @@ app = modal.App(
     name=app_name,
     secrets=[
         modal.Secret.from_name("eve-secrets"),
+        modal.Secret.from_name(f"eve-secrets-{db}"),
     ],
 )
 

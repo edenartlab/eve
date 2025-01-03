@@ -1,22 +1,24 @@
 import modal
+import os
 
 from eve.clients.twitter.client import start as twitter_start
 
+db = os.getenv("DB", "STAGE").upper()
+if db not in ["PROD", "STAGE"]:
+    raise Exception(f"Invalid environment: {db}. Must be PROD or STAGE")
+
 app = modal.App(
-    name="client-twitter",
+    name=f"client-twitter-{db}",
     secrets=[
         modal.Secret.from_name("eve-secrets", environment_name="main"),
+        modal.Secret.from_name(f"eve-secrets-{db}", environment_name="main"),
         modal.Secret.from_name("client-secrets"),
     ],
 )
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    .env(
-        {
-            "DB": "STAGE",
-        }
-    )
+    .env({"DB": db})
     .apt_install("libmagic1", "ffmpeg", "wget")
     .pip_install_from_pyproject("pyproject.toml")
     .pip_install("requests-oauthlib>=1.3.1")

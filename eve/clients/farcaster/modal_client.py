@@ -1,17 +1,23 @@
 import modal
+import os
 from eve.clients.farcaster.client import create_app
 
+db = os.getenv("DB", "STAGE").upper()
+if db not in ["PROD", "STAGE"]:
+    raise Exception(f"Invalid environment: {db}. Must be PROD or STAGE")
+
 app = modal.App(
-    name="client-farcaster",
+    name=f"client-farcaster-{db}",
     secrets=[
-        modal.Secret.from_name("eve-secrets", environment_name="main"),
         modal.Secret.from_name("client-secrets"),
+        modal.Secret.from_name("eve-secrets", environment_name="main"),
+        modal.Secret.from_name(f"eve-secrets-{db}", environment_name="main"),
     ],
 )
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    .env({"DB": "STAGE"})
+    .env({"DB": db})
     .apt_install("libmagic1")
     .pip_install_from_pyproject("pyproject.toml")
     .pip_install("farcaster>=0.7.11")

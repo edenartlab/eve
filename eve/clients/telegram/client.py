@@ -230,7 +230,6 @@ class EdenTG:
             if is_replied_to_bot
             else None
         )
-        force_reply = message_type in ["dm", "reply", "mention"]
 
         # Lookup thread
         thread_key = f"telegram-{chat_id}"
@@ -342,7 +341,6 @@ def start(env: str, db: str = "STAGE") -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Eden Telegram Bot")
     parser.add_argument("--env", help="Path to the .env file to load", default=".env")
-    parser.add_argument("--agent", help="Agent username", default="eve")
     parser.add_argument("--db", help="Database to use", default="STAGE")
     args = parser.parse_args()
-    start(args.env, args.agent, args.db)
+    start(args.env, args.db)
