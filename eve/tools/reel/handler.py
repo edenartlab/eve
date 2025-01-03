@@ -531,7 +531,7 @@ async def handler(args: dict, db: str):
         video = await runway.async_run({
             "prompt_image": image,
             "prompt_text": flux_args[i]["prompt"],
-            "duration": str(durations[i]),
+            "duration": durations[i],
             "ratio": "16:9" if orientation == "landscape" else "9:16"
         }, db=db)
         print("video!!", video)

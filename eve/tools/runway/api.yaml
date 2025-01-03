@@ -19,7 +19,7 @@ parameters:
     description: The prompt to guide the animation
     required: true
   duration:
-    type: string
+    type: integer
     label: Duration
     description: The duration of the video in seconds
     default: 5
