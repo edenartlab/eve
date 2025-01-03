@@ -33,9 +33,8 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Rye
-        run: |
-          curl -sSf https://rye.astral.sh/get | bash
+      - name: Install the latest version of rye
+        uses: eifinger/setup-rye@v4
 
       - name: Install dependencies
         run: rye sync
