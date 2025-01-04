@@ -1,0 +1,13 @@
+name: Web Search
+description: Search and extract content from any webpage
+cost_estimate: 1
+output_type: string
+status: prod
+visible: true
+parameters:
+  url:
+    type: string
+    label: URL
+    description: The webpage URL to analyze (must start with http:// or https://)
+    required: true
+    pattern: ^https?://.*
