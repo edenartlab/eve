@@ -9,7 +9,7 @@ Todo:
 """
 
 
-async def handler(args: dict, db: str):
+async def handler(args: dict):
     client = RunwayML()
 
     

@@ -1,4 +1,5 @@
 import modal
+import os
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
 
@@ -35,19 +36,22 @@ class ComfyUITool(Tool):
         return super().convert_from_yaml(schema, file_path)
     
     @Tool.handle_run
-    async def async_run(self, args: Dict, db: str):
+    async def async_run(self, args: Dict):
+        db = os.getenv("DB")
         cls = modal.Cls.lookup(
             f"comfyui-{self.workspace}-{db}", 
             "ComfyUI", 
             environment_name="main"
         )
-        result = await cls().run.remote.aio(self.parent_tool or self.key, args, db)
+        result = await cls().run.remote.aio(self.parent_tool or self.key, args)
         return result
 
     @Tool.handle_start_task
     async def async_start_task(self, task: Task):
+        db = os.getenv("DB")
         cls = modal.Cls.lookup(
-            f"comfyui-{self.workspace}-{task.db}", 
+            # f"comfyui-{self.workspace}-{task.db}", 
+            f"comfyui-{self.workspace}-{db}", 
             "ComfyUI",
             environment_name="main"
         )

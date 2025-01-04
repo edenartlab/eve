@@ -265,13 +265,13 @@ class ComfyUI:
         t2 = time.time()
         self.launch_time = t2 - t1
 
-    def _execute(self, workflow_name: str, args: dict, db: str):
+    def _execute(self, workflow_name: str, args: dict):
         try:
             tool_path = f"/root/workspace/workflows/{workflow_name}"
             tool = Tool.from_yaml(f"{tool_path}/api.yaml")
             workflow = json.load(open(f"{tool_path}/workflow_api.json", 'r'))
             self._validate_comfyui_args(workflow, tool)
-            workflow = self._inject_args_into_workflow(workflow, tool, args, db=db)
+            workflow = self._inject_args_into_workflow(workflow, tool, args)
             prompt_id = self._queue_prompt(workflow)['prompt_id']
             outputs = self._get_outputs(prompt_id)
             output = outputs[str(tool.comfyui_output_node_id)]
@@ -291,14 +291,14 @@ class ComfyUI:
             raise
 
     @modal.method()
-    def run(self, tool_key: str, args: dict, db: str):
-        result = self._execute(tool_key, args, db=db)
-        return eden_utils.upload_result(result, db=db)
+    def run(self, tool_key: str, args: dict):
+        result = self._execute(tool_key, args)
+        return eden_utils.upload_result(result)
 
     @modal.method()
     @task_handler_method
-    async def run_task(self, tool_key: str, args: dict, db: str):
-        return self._execute(tool_key, args, db=db)
+    async def run_task(self, tool_key: str, args: dict):
+        return self._execute(tool_key, args)
         
     @modal.enter()
     def enter(self):
@@ -349,8 +349,8 @@ class ComfyUI:
                 test_name = f"{workflow}_{os.path.basename(test)}"
                 print(f"Running test: {test_name}")
                 t1 = time.time()
-                result = self._execute(workflow, test_args, db="STAGE")
-                result = eden_utils.upload_result(result, db="STAGE")
+                result = self._execute(workflow, test_args)
+                result = eden_utils.upload_result(result)
                 t2 = time.time()       
                 results[test_name] = result
                 results["_performance"][test_name] = t2 - t1
@@ -612,7 +612,7 @@ class ComfyUI:
                 if not all(choice in remap.map.keys() for choice in choices):
                     raise Exception(f"Remap parameter {key} is missing original choices: {choices}")
                                 
-    def _inject_args_into_workflow(self, workflow, tool, args, db="STAGE"):
+    def _inject_args_into_workflow(self, workflow, tool, args):
 
         # Helper function to validate and normalize URLs
         def validate_url(url):
@@ -658,7 +658,7 @@ class ComfyUI:
                 print("LORA ID", lora_id)
                 print(type(lora_id))
                 
-                models = get_collection("models3", db=db)
+                models = get_collection("models3")
                 lora = models.find_one({"_id": ObjectId(lora_id)})
                 print("found lora", lora)
 
@@ -675,7 +675,7 @@ class ComfyUI:
                 else:
                     print("LORA URL", lora_url)
 
-                lora_url = get_full_url(lora_url, db=db)
+                lora_url = get_full_url(lora_url)
                 print("lora url", lora_url)
                 print("base model", base_model)
 

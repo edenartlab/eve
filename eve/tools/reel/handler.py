@@ -62,7 +62,7 @@ media_utils
 """
 
 
-
+from bson.objectid import ObjectId
 import math
 import asyncio
 import tempfile
@@ -309,34 +309,23 @@ def write_visual_prompts(
     
 
 
-# async def go():
-#     speech_audio = await elevenlabs.handler({
-#         "text": "this is a test",
-#         "voice_id": "j6Fbg1nV1BgnjZqPvN1d"
-#     }, db="STAGE")
-#     return speech_audio
 
-# import asyncio
-# asyncio.run(go())
 
-from bson.objectid import ObjectId
 
-async def handler(args: dict, db: str):
-    
-
-    elevenlabs = Tool.load("elevenlabs", db=db)
-    musicgen = Tool.load("musicgen", db=db)
-    flux = Tool.load("flux_dev", db=db)
-    runway = Tool.load("runway", db=db)
-    video_concat = Tool.load("video_concat", db=db)
-    audio_video_combine = Tool.load("audio_video_combine", db=db)
+async def handler(args: dict):
+    elevenlabs = Tool.load("elevenlabs")
+    musicgen = Tool.load("musicgen")
+    flux = Tool.load("flux_dev")
+    runway = Tool.load("runway")
+    video_concat = Tool.load("video_concat")
+    audio_video_combine = Tool.load("audio_video_combine")
 
     instructions = None
 
     use_lora = args.get("use_lora", False)
     if use_lora:
         lora = args.get("lora")
-        loras = get_collection("models", db=db)
+        loras = get_collection("models")
         lora_doc = loras.find_one({"_id": ObjectId(lora)})
         lora_name  = lora_doc.get("name")
         caption_prefix = lora_doc["args"]["caption_prefix"]
@@ -360,12 +349,12 @@ async def handler(args: dict, db: str):
         speech_audio = await elevenlabs.async_run({
             "text": reel.voiceover,
             "voice_id": voice
-        }, db=db)
+        })
 
         if speech_audio.get("error"):
             raise Exception(f"Speech generation failed: {speech_audio['error']}")
         
-        speech_audio_url = s3.get_full_url(speech_audio['output'][0]['filename'], db=db)
+        speech_audio_url = s3.get_full_url(speech_audio['output'][0]['filename'])
         # download to temp file
 
         response = requests.get(speech_audio_url)
@@ -403,7 +392,7 @@ async def handler(args: dict, db: str):
         music_audio = await musicgen.async_run({
             "prompt": music_prompt,
             "duration": int(duration)
-        }, db=db)
+        })
         print("run2")
         print("music_audio", music_audio)
         # music_audio = {'output': {'mediaAttributes': {'mimeType': 'audio/mpeg', 'duration': 20.052}, 'url': 'https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/430eb06b9a9bd66bece456fd3cd10f8c6d99fb75c1d05a1da6c317247ac171c6.mp3'}, 'status': 'completed'}
@@ -411,7 +400,7 @@ async def handler(args: dict, db: str):
         if music_audio.get("error"):
             raise Exception(f"Music generation failed: {music_audio['error']}")
         
-        music_audio = eden_utils.prepare_result(music_audio, db=db)
+        music_audio = eden_utils.prepare_result(music_audio)
         print("MUSIC AUDIO 55", music_audio)
 
         
@@ -504,8 +493,8 @@ async def handler(args: dict, db: str):
 
     images = []
     for i in range(num_clips):
-        image = await flux.async_run(flux_args[i], db=db)
-        image = eden_utils.prepare_result(image, db=db)
+        image = await flux.async_run(flux_args[i])
+        image = eden_utils.prepare_result(image)
         output_url = image['output'][0]["url"]
         images.append(output_url)
     # images =['https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/6af97716cf3a4703877576e07823d5c6492a0355c2c7a55148b8f6a4cc8d97a7.png', 'https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/4bbcee84993883fe767502a29cdbe615e5f16b962de5d92a77e50ca466ef6564.png']
@@ -533,17 +522,17 @@ async def handler(args: dict, db: str):
             "prompt_text": flux_args[i]["prompt"],
             "duration": durations[i],
             "ratio": "16:9" if orientation == "landscape" else "9:16"
-        }, db=db)
+        })
         print("video!!", video)
-        video = eden_utils.prepare_result(video, db=db)
+        video = eden_utils.prepare_result(video)
         print("video", video)
         video = video['output'][0]['url']
         videos.append(video)
 
 
     
-    video = await video_concat.async_run({"videos": videos}, db=db)
-    video = eden_utils.prepare_result(video, db=db)
+    video = await video_concat.async_run({"videos": videos})
+    video = eden_utils.prepare_result(video)
     print("video", video)
     video_url = video['output'][0]['url']
     
@@ -551,10 +540,10 @@ async def handler(args: dict, db: str):
         output = await audio_video_combine.async_run({
             "audio": audio_url,
             "video": video_url
-        }, db=db)
+        })
         print("OUTPTU!")
         print(output)
-        final_video = eden_utils.prepare_result(output, db=db)
+        final_video = eden_utils.prepare_result(output)
         print(final_video)
         final_video_url = final_video['output'][0]['url']
         print("a 5")
@@ -572,301 +561,3 @@ async def handler(args: dict, db: str):
         }
     }
 
-
-async def handler2(args: dict, db: str):
-    # try:
-    if 1:
-
-        vid = voice.select_random_voice("A gruff and intimidating voice") 
-        print("vid", vid)
-
-
-        
-
-        prompt = args.get("prompt")
-        music = args.get("use_music")
-        music_prompt = (args.get("music_prompt") or "").strip()
-        
-        narrator = args.get("use_narrator")
-        narration = (args.get("narration") or "").strip() if narrator else ""
-        narration = narration[:600]
-        if narration: # remove everything after the last space
-            last_space_idx = narration.rindex(" ")
-            narration = narration[:last_space_idx]
-        
-        min_duration = args.get("min_duration")
-        
-        # resolution = args.get("resolution", "none")
-        # width = args.get("width", None)
-        # height = args.get("width", None)
-
-        # print("resolution", resolution)
-        # print("width", width)
-        # print("height", height)
-        
-
-        orientation = args.get("orientation")
-        if orientation == "landscape":
-            width = 1280
-            height = 768
-        else:
-            width = 768
-            height = 1280
-
-        
-        speech_boost = 5
-
-        if not min_duration:
-            raise Exception("min_duration is required")
-
-        print("ALL ARGS ARE", args)
-        
-        characters = extract_characters(prompt)
-
-        if narrator:
-            characters.append(Character(name="narrator", description="The narrator of the reel is a voiceover artist who provides some narration for the reel"))
-        
-        print("characters :: ", characters)
-
-        voices = {
-            c.name: voice.select_random_voice(c.description) 
-            for c in characters
-        }
-
-        story = write_reel(prompt, characters, narration, music, music_prompt)
-
-        print("story", story)
-        
-        duration = min_duration
-
-        print("characters", characters)
-        print("voices", voices)
-        print("story", story)
-
-        metadata = {
-            "reel": story.model_dump(),
-            "characters": [c.model_dump() for c in characters],
-        }
-
-        print("metadata", metadata)
-
-        speech_audio = None
-        music_audio = None
-        print("NEXT")
-        # generate speech
-        print(" ---1-1-1 lets go")
-        print(voices)
-        # print(voices[story.speaker])
-
-        if story.speech:
-            speech_audio = voice.run(
-                text=story.speech,
-                voice_id=voices[story.speaker]
-            )
-            print("generated speech", story.speech)
-            speech_audio = AudioSegment.from_file(BytesIO(speech_audio))
-            silence1 = AudioSegment.silent(duration=2000)
-            silence2 = AudioSegment.silent(duration=3000)
-            speech_audio = silence1 + speech_audio + silence2
-            duration = max(duration, len(speech_audio) / 1000)
-            metadata["speech"], _ = s3.upload_audio_segment(speech_audio)
-            
-        # # generate music
-        if music and story.music_prompt:
-            from eve.tool import Tool
-            musicgen = Tool.load("musicgen", db="STAGE")
-            music = await musicgen.async_run({
-                "prompt": story.music_prompt,
-                "duration": int(duration)
-            }, db=db)
-            print("THE MUSIC IS DONE!")
-            print(music)
-            print("generated music", story.music_prompt)
-            music_bytes = requests.get(music[0]['url']).content
-            music_audio = AudioSegment.from_file(BytesIO(music_bytes))
-            metadata["music"], _ = s3.upload_audio_segment(music_audio)
-
-        # mix audio
-        audio = None
-        if speech_audio and music_audio:
-            diff_db = ratio_to_db(speech_audio.rms / music_audio.rms)
-            music_audio = music_audio + diff_db
-            speech_audio = speech_audio + speech_boost
-            audio = music_audio.overlay(speech_audio)        
-        elif speech_audio:
-            audio = speech_audio
-        elif music_audio:
-            audio = music_audio
-        
-        print("THE AUDIO IS DONE!")
-        print(audio)
-
-
-
-
-        print("MAKE THE VIDEO!")
-        
-        flux_args = {
-            "prompt": story.image_prompt,
-            "width": width,
-            "height": height
-        }        
-        print("flux_args", flux_args)
-        use_lora = args.get("use_lora", False)
-        if use_lora:
-            lora = args.get("lora")
-            lora_strength = args.get("lora_strength")
-            flux_args.update({
-                "use_lora": True,
-                "lora": lora,
-                "lora_strength": lora_strength
-            })
-
-        print("flux_args", flux_args)
-
-
-        num_clips = math.ceil(duration / 10)
-        print("num_clips", num_clips)
-
-        flux_args = [flux_args.copy()] * num_clips
-
-        if num_clips > 1:
-            prompts = prompt_variations(prompt, num_clips)        
-            print("ORIGINAL PROMPT", prompt)
-            print("-----")
-            print("PROMPT VARIATIONS")
-            for p, new_prompt in enumerate(prompts):
-                print(p)
-                print("-----")
-                flux_args[p]["prompt"] = new_prompt
-            
-
-        txt2img = load_tool("../../workflows/workspaces/flux/workflows/flux_dev")
-        images = []
-        for i in range(num_clips):
-            print("i", i)
-            image = await txt2img.async_run(flux_args[i], db=db)
-            print("THE IMAGE IS DONE!")
-            print(image)
-            output_url = image[0]["url"]
-            images.append(output_url)
-
-        print("run runway")
-        runway = load_tool("tools/runway")
-
-        # print("images", images)
-
-        # num_clips = 1
-        # images = ["https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/53bc5b8d715c6b243db787ab2ca15718f983dd80811f470f2a8e9aa4c8f518cc.png"]
-        # orientation = "portrait"
-        # duration = 5
-
-        videos = []
-        dur = 10
-        for i in range(num_clips):
-            if i == num_clips - 1 and duration % 10 < 5:
-                dur = 5
-            print("video", i)
-            video = await runway.async_run({
-                "prompt_image": images[i],
-                "prompt_text": "A panorama of a sand castle", #story.image_prompt,
-                "duration": str(dur),
-                "ratio": "16:9" if orientation == "landscape" else "9:16"
-            }, db=db)
-            print("video is done", i)
-            print(video)
-            videos.append(video[0])
-
-        print("videos", videos)
-
-        # download videos
-        # videos = [eden_utils.get_file_handler(".mp4", v) for v in videos]
-
-        video_concat = load_tool("tools/media_utils/video_concat")
-        video = await video_concat.async_run({"videos": [v["url"] for v in videos]}, db=db)
-        print("video", video)
-        video = video[0]['url']
-
-
-        # txt2vid = load_tool("../workflows/workspaces/video/workflows/txt2vid")
-        # video = await txt2vid.async_run({
-        #     "prompt": story.image_prompt,
-        #     "n_frames": 128,
-        #     "width": width,
-        #     "height": height
-        # }, db=db)
-        print("THE VIDEO IS DONE!")
-        # video = [{'mediaAttributes': {'mimeType': 'video/mp4', 'width': 1280, 'height': 768, 'aspectRatio': 1.6666666666666667, 'duration': 31.6}, 'url': 'https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/75bf55b76a8e4cadbf824b4eee1673a8c41c24f6688a1d5f2f90723c237c4ae6.mp4'}]
-        print(video)
-        # output_url = video[0]["url"]
-        # output_url = video
-        # video = "output.mp4"
-
-        # print("txt2vid", output_url)
-
-        print("a 1")
-        if audio:
-            print("a 2")
-            buffer = BytesIO()
-            print("a 3")
-            audio.export(buffer, format="mp3")
-            print("a 4")
-            # print("URL IS", video[0]["url"])
-            output = eden_utils.make_audiovideo_clip(video, buffer)
-            print(output)
-            print("a 5")
-            # output_url, _ = s3.upload_file(output)
-            print("a 6")
-
-        # print("output_url", output_url)
-        print("metadata", metadata)
-
-        print("LETS GO!!!! ...")
-        # print("output_url", output_url)
-        print("story", story)
-        print("characters", characters)
-        print("images", ["images"])
-        print("videos", ["videos"])
-        print("music", music)
-        zz = {
-            "output": output,
-            "intermediate_outputs": {
-                "story": story.model_dump(),
-                "characters": [c.model_dump() for c in characters],
-                "images": images,
-                "videos": videos,
-                "music": music,
-                # "speech": speech_audio
-            }
-        }
-
-        # zz = {'output': '/var/folders/h_/8038q2513yz414f7j3yqy_580000gn/T/tmpkjf59iem.mp4', 'intermediate_outputs': {'story': {'image_prompt': 'A cinematic asteroid view of Mars hurtling through space and colliding dramatically with Earth, causing an immense explosion.', 'music_prompt': 'Intense orchestral music building to a crescendo, evoking tension and epic disaster.', 'speaker': 'narrator', 'speech': "Witness the catastrophic collision of Mars and Earth, a cosmic dance of destruction, captured with stunning simulation, as the red planet meets our blue world in an inevitable, fiery embrace. Watch as continents crumble and atmospheres collide, forever altering the solar system's story."}, 'characters': [{'name': 'narrator', 'description': 'The narrator of the reel is a voiceover artist who provides some narration for the reel'}], 'images': ['https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/6532b48aa71c98b56a9ab41f63a24c09029527360af26b9e089218de4043e8f8.png', 'https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/e423f8290876ee4694f811bb1716e5d70acdf6ab6b6ea3480357ca5ae6af2f2b.png', 'https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/3892e536589147b729ff8d31ae93457f24361cb01450de707a700ef798828bc8.png'], 'videos': [{'mediaAttributes': {'mimeType': 'video/mp4', 'width': 1280, 'height': 768, 'aspectRatio': 1.6666666666666667, 'duration': 10.54}, 'url': 'https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/5020c31bf1fdf2f590113a75148a021aae38eb809532d2799b9c434f3548f832.mp4'}, {'mediaAttributes': {'mimeType': 'video/mp4', 'width': 1280, 'height': 768, 'aspectRatio': 1.6666666666666667, 'duration': 10.54}, 'url': 'https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/2559354dcfbfe2921e468580e8ed66823f332924191bdeb5f6aed4d3ae4a19ba.mp4'}, {'mediaAttributes': {'mimeType': 'video/mp4', 'width': 1280, 'height': 768, 'aspectRatio': 1.6666666666666667, 'duration': 10.54}, 'url': 'https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/1ddbcdbfaa3c4a8ab218a79cbbf1d95f92cc105b0d5e30fe8c5cd0bc8f00bfa4.mp4'}], 'music': [{'mediaAttributes': {'mimeType': 'audio/mpeg', 'duration': 28.044}, 'url': 'https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/e3b1438800d80293a2cc87a6371cd6947ad9e10bd449b5bfe27e4891dbab9448.mp3'}]}}
-
-        # zz = {'output': 'https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/911d8cbe1775cfa52ddf3900fa2d5e55698de63860eb00a4be246baf5c174912.mp4', 'intermediate_outputs': {'story': {'image_prompt': 'A dramatic simulation showing Mars approaching and colliding with Earth, with both planets breaking apart and creating a cosmic explosion.', 'music_prompt': "213413", 'speaker': "None222", 'speech': "2342"}, 'characters': ["SDFA"], 'images': ['images'], 'videos': ['videos'], 'music': "ddd"}}
-
-        # zz = {
-        #     'output': 'https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/911d8cbe1775cfa52ddf3900fa2d5e55698de63860eb00a4be246baf5c174912.mp4',
-        #     'intermediate_outputs': {
-        #         'story': {'image_prompt': 'A dramatic simulation showing Mars approaching and colliding with Earth, with both planets breaking apart and creating a cosmic explosion.'}
-        #     }
-        # }
-
-        print("zz", zz)
-
-        from pprint import pprint
-        pprint(zz)
-
-        return zz
-
-
-    # except asyncio.CancelledError as e:
-    #     print("asyncio CancelledError")
-    #     print(e)
-    # except Exception as e:
-    #     print("normal error")
-    #     print(e)
-        
-
-# import eve.eden_utils
-# zz = {'output': '/Users/gene/Eden/dev/eve/97468b465a993c272b8d12990095027ec67f86ddfea6093c36be8925503d41a4.mp4', 'intermediate_outputs': {'story': {'image_prompt': 'A cinematic asteroid view of Mars hurtling through space and colliding dramatically with Earth, causing an immense explosion.', 'music_prompt': 'Intense orchestral music building to a crescendo, evoking tension and epic disaster.', 'speaker': 'narrator', 'speech': "Witness the catastrophic collision of Mars and Earth, a cosmic dance of destruction, captured with stunning simulation, as the red planet meets our blue world in an inevitable, fiery embrace. Watch as continents crumble and atmospheres collide, forever altering the solar system's story."}, 'characters': [{'name': 'narrator', 'description': 'The narrator of the reel is a voiceover artist who provides some narration for the reel'}], 'images': ['https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/6532b48aa71c98b56a9ab41f63a24c09029527360af26b9e089218de4043e8f8.png', 'https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/e423f8290876ee4694f811bb1716e5d70acdf6ab6b6ea3480357ca5ae6af2f2b.png', 'https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/3892e536589147b729ff8d31ae93457f24361cb01450de707a700ef798828bc8.png'], 'videos': [{'mediaAttributes': {'mimeType': 'video/mp4', 'width': 1280, 'height': 768, 'aspectRatio': 1.6666666666666667, 'duration': 10.54}, 'url': 'https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/5020c31bf1fdf2f590113a75148a021aae38eb809532d2799b9c434f3548f832.mp4'}, {'mediaAttributes': {'mimeType': 'video/mp4', 'width': 1280, 'height': 768, 'aspectRatio': 1.6666666666666667, 'duration': 10.54}, 'url': 'https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/2559354dcfbfe2921e468580e8ed66823f332924191bdeb5f6aed4d3ae4a19ba.mp4'}, {'mediaAttributes': {'mimeType': 'video/mp4', 'width': 1280, 'height': 768, 'aspectRatio': 1.6666666666666667, 'duration': 10.54}, 'url': 'https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/1ddbcdbfaa3c4a8ab218a79cbbf1d95f92cc105b0d5e30fe8c5cd0bc8f00bfa4.mp4'}], 'music': [{'mediaAttributes': {'mimeType': 'audio/mpeg', 'duration': 28.044}, 'url': 'https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/e3b1438800d80293a2cc87a6371cd6947ad9e10bd449b5bfe27e4891dbab9448.mp3'}]}}
-# eve.eden_utils.upload_result(zz, "STAGE")

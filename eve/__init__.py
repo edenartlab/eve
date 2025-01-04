@@ -13,6 +13,12 @@ EDEN_API_KEY = None
 def load_env(db):
     global EDEN_API_KEY
 
+    db = db.upper()
+    if db not in ["STAGE", "PROD"]:
+        raise ValueError(f"Invalid database: {db}")
+    
+    os.environ["DB"] = db
+
     # First try ~/.eve
     stage = db == "STAGE"
     env_file = ".env.STAGE" if stage else ".env"
@@ -40,5 +46,5 @@ def load_env(db):
         print("WARNING: EDEN_API_KEY is not set")
 
 
-db = os.getenv("DB", "").upper()
+db = os.getenv("DB", "STAGE")
 load_env(db)

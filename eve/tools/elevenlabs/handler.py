@@ -11,7 +11,7 @@ from ... import eden_utils
 eleven = ElevenLabs()
 
 
-async def handler(args: dict, db: str):
+async def handler(args: dict):
     # print("args", args)
     args["stability"] = args.get("stability", 0.5)
     args["similarity_boost"] = args.get("similarity_boost", 0.75)

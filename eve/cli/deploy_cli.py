@@ -9,12 +9,10 @@ from dotenv import dotenv_values
 import tempfile
 import shutil
 
+from .. import load_env
+
 root_dir = Path(__file__).parent.parent.parent
 ENV_NAME = "deployments"
-# db = os.getenv("DB", "STAGE").upper()
-# if db not in ["PROD", "STAGE"]:
-#     raise Exception(f"Invalid environment: {db}. Must be PROD or STAGE")
-# env = "stage" if db == "STAGE" else "prod"
 
 
 def ensure_modal_env_exists():
@@ -190,7 +188,7 @@ def deploy(agent: str, all: bool, db: str):
     try:
         # Ensure Modal environment exists
         ensure_modal_env_exists()
-
+        load_env(db)
         env = "stage" if db == "STAGE" else "prod"
 
         if all:

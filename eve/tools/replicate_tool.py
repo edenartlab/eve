@@ -24,7 +24,7 @@ class ReplicateTool(Tool):
     output_handler: str = "normal"
     
     @Tool.handle_run
-    async def async_run(self, args: Dict, db: str):
+    async def async_run(self, args: Dict):
         check_replicate_api_token()
         if self.version:
             args = self._format_args_for_replicate(args)
@@ -45,7 +45,7 @@ class ReplicateTool(Tool):
             result = {
                 "output": replicate.run(replicate_model, input=args)
             }
-        result = eden_utils.upload_result(result, db=db)
+        result = eden_utils.upload_result(result)
         return result
 
     @Tool.handle_start_task
@@ -99,7 +99,6 @@ class ReplicateTool(Tool):
         new_args = args.copy()
         new_args = {k: v for k, v in new_args.items() if v is not None}
         for field in self.model.model_fields.keys():
-            print("---", field)
             parameter = self.parameters[field]
             is_array = parameter.get('type') == 'array'
             is_number = parameter.get('type') in ['integer', 'float']
@@ -108,14 +107,10 @@ class ReplicateTool(Tool):
             
             if field in new_args:
                 if lora:
-                    loras = get_collection(Model.collection_name, db=self.db)
+                    loras = get_collection(Model.collection_name)
                     lora_doc = loras.find_one({"_id": ObjectId(args[field])}) if args[field] else None
                     if lora_doc:
-                        print("LORA DOC :)", lora_doc)
-                        print(self.db, lora_doc.get("checkpoint"))
-                        print("---")
-                        lora_url = s3.get_full_url(lora_doc.get("checkpoint"), db=self.db)
-                        print("LORA UR AT ENDL", lora_url)
+                        lora_url = s3.get_full_url(lora_doc.get("checkpoint"))
                         lora_name = lora_doc.get("name")
                         lora_trigger_text = lora_doc.get("lora_trigger_text")
                         new_args[field] = lora_url
@@ -197,10 +192,10 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
         if output_handler in ["eden", "trainer"]:
             thumbnails = output[-1]["thumbnails"]
             output = output[-1]["files"]
-            output = eden_utils.upload_result(output, db=task.db, save_thumbnails=True, save_blurhash=True)
+            output = eden_utils.upload_result(output, save_thumbnails=True, save_blurhash=True)
             result = [{"output": [out]} for out in output]
         else:
-            output = eden_utils.upload_result(output, db=task.db, save_thumbnails=True, save_blurhash=True)
+            output = eden_utils.upload_result(output, save_thumbnails=True, save_blurhash=True)
             result = [{"output": [out]} for out in output]
 
         for r, res in enumerate(result):
@@ -209,11 +204,10 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
                     filename = output["filename"]
                     thumbnail = eden_utils.upload_media(
                         thumbnails[0], 
-                        db=task.db, 
                         save_thumbnails=False, 
                         save_blurhash=False
                     ) if thumbnails else None
-                    url = s3.get_full_url(filename, db=task.db)
+                    url = s3.get_full_url(filename)
                     model = Model(
                         name=task.args["name"],
                         user=task.user,
@@ -238,7 +232,7 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
                         mediaAttributes=output["mediaAttributes"],
                         name=name
                     )
-                    creation.save(db=task.db)
+                    creation.save()
                     result[r]["output"][o]["creation"] = creation.id
         
         run_time = (datetime.now(timezone.utc) - task.createdAt).total_seconds()

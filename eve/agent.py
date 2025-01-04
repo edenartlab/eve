@@ -79,67 +79,53 @@ class Agent(User):
         return schema
 
     @classmethod
-    def convert_from_mongo(cls, schema: dict, db="STAGE") -> dict:
-        schema = cls._setup_tools(schema, db=db)
+    def convert_from_mongo(cls, schema: dict) -> dict:
+        schema = cls._setup_tools(schema)
         return schema
 
-    def save(self, db=None, **kwargs):
+    def save(self, **kwargs):
         # do not overwrite any username if it already exists
-        users = get_collection(User.collection_name, db=db)
+        users = get_collection(User.collection_name)
         if users.find_one({"username": self.username, "type": "user"}):
             raise ValueError(f"Username {self.username} already taken")
 
         # save user, and create mannas record if it doesn't exist
         kwargs["featureFlags"] = ["freeTools"]  # give agents free tools for now
-        super().save(db, {"username": self.username, "type": "agent"}, **kwargs)
-        Manna.load(user=self.id, db=db)  # create manna record if it doesn't exist
+        super().save(
+            upsert_filter={"username": self.username, "type": "agent"}, 
+            **kwargs
+        )
+        Manna.load(user=self.id)  # create manna record if it doesn't exist
        
     @classmethod
-    def from_yaml(cls, file_path, db="STAGE", cache=False):
+    def from_yaml(cls, file_path, cache=False):
         if cache:
             if file_path not in _agent_cache:
-                _agent_cache[file_path] = super().from_yaml(file_path, db=db)
+                _agent_cache[file_path] = super().from_yaml(file_path)
             return _agent_cache[file_path]
         else:
-            return super().from_yaml(file_path, db=db)
+            return super().from_yaml(file_path)
 
     @classmethod
-    def from_mongo(cls, document_id, db="STAGE", cache=False):
-
-        print("the current keys in the agent_cache", _agent_cache.keys())
-
-        print("LOAD AGENT FORM CACH 333E", document_id, db, cache)
+    def from_mongo(cls, document_id, cache=False):
         if cache:
-            print("cache is true 22")
             if document_id not in _agent_cache:
-                print("********** cache go 1 **********")
-                print("document_id", document_id)
-                aaa = super().from_mongo(document_id, db=db)
-                print(aaa.tools)
-                print("********** cache go 2 **********")
-                print("aaa 677", aaa)
-                _agent_cache[str(document_id)] = aaa
+                _agent_cache[str(document_id)] = super().from_mongo(document_id)
             return _agent_cache[str(document_id)]
         else:
-            return super().from_mongo(document_id, db=db)
+            return super().from_mongo(document_id)
     
     @classmethod
-    def load(cls, username, db=None, cache=False):
-        print("LOAD AGENT FORM CACHE", username, db, cache)
+    def load(cls, username, cache=False):
         if cache:
             if username not in _agent_cache:
-                print("cache miss 1")
-                aaa = super().load(username=username, db=db)
-                print("aaa", aaa)
-                _agent_cache[username] = aaa
+                _agent_cache[username] = super().load(username=username)
             return _agent_cache[username]
         else:
-            print("cache miss 2")
-            return super().load(username=username, db=db)
+            return super().load(username=username)
 
-    def request_thread(self, key=None, user=None, db="STAGE"):
+    def request_thread(self, key=None, user=None):
         thread = Thread(
-            db=db,
             key=key,
             agent=self.id,
             user=user,
@@ -148,23 +134,18 @@ class Agent(User):
         return thread
 
     @classmethod
-    def _setup_tools(cls, schema: dict, db="STAGE") -> dict:
+    def _setup_tools(cls, schema: dict) -> dict:
         """
         Sets up the agent's tools based on the tools defined in the schema.
         If a model (lora) is set, hardcode it into the tools.
         """
-        print("&&&&&&&&")
-        print("lets setup tools")
         tools = schema.get("tools")
-        print("tools", tools)
         if tools:
-            print("tools are there")
             schema["tools"] = {k: v or {} for k, v in tools.items()}
         else:
-            print("tools are not there")
             schema["tools"] = default_presets_flux
             if "model" in schema:
-                model = Model.from_mongo(schema["model"], db=db)
+                model = Model.from_mongo(schema["model"])
                 if model.base_model == "flux-dev":
                     schema["tools"] = default_presets_flux
                     schema["tools"]["flux_dev_lora"] = {
@@ -200,45 +181,28 @@ class Agent(User):
                     }
                 elif model.base_model == "sdxl":
                     schema["tools"] = default_presets_sdxl
-                    
-        print("now tools are set")
-        # print(schema["tools"].keys())
-        toollls = schema.get("tools")
-        if toollls:
-            print("toollls are there")
-            print(toollls.keys())
-        print("&&&&&&&&")
+
         return schema
 
-    def get_tools(self, db="STAGE", cache=False):
-        print("lets get the tools")
-        print("self.tools", self.tools)
+    def get_tools(self,cache=False):
         if not hasattr(self, "tools") or not self.tools:
             self.tools = {}
             
-        # if not self.tools:
-        #     print("no tools, return")
-        #     return {}
-        print("cache", cache)
         if cache:
-            print("cache is true")
             self.tools_cache = self.tools_cache or {}
             for k, v in self.tools.items():
-                print("k", k)
                 if k not in self.tools_cache:
-                    tool = Tool.from_raw_yaml({"parent_tool": k, **v}, db=db)
+                    tool = Tool.from_raw_yaml({"parent_tool": k, **v})
                     self.tools_cache[k] = tool
             return self.tools_cache
         else:
-            print("cache is false")
-            print("self.tools", self.tools)
             return {
-                k: Tool.from_raw_yaml({"parent_tool": k, **v}, db=db)
+                k: Tool.from_raw_yaml({"parent_tool": k, **v})
                 for k, v in self.tools.items()
             }
 
-    def get_tool(self, tool_name, db="STAGE", cache=False):
-        return self.get_tools(db=db, cache=cache)[tool_name]
+    def get_tool(self, tool_name, cache=False):
+        return self.get_tools(cache=cache)[tool_name]
     
 
 def get_agents_from_api_files(root_dir: str = None, agents: List[str] = None, include_inactive: bool = False) -> Dict[str, Agent]:
@@ -259,16 +223,16 @@ def get_agents_from_api_files(root_dir: str = None, agents: List[str] = None, in
     return agents
 
 
-def get_agents_from_mongo(db: str, agents: List[str] = None, include_inactive: bool = False) -> Dict[str, Agent]:
+def get_agents_from_mongo(agents: List[str] = None, include_inactive: bool = False) -> Dict[str, Agent]:
     """Get all agents from mongo"""
     
     filter = {"key": {"$in": agents}} if agents else {}
     agents = {}
-    agents_collection = get_collection(Agent.collection_name, db=db)
+    agents_collection = get_collection(Agent.collection_name)
     for agent in agents_collection.find(filter):
         try:
-            agent = Agent.convert_from_mongo(agent, db=db)
-            agent = Agent.from_schema(agent, db=db)
+            agent = Agent.convert_from_mongo(agent)
+            agent = Agent.from_schema(agent)
             if agent.status != "inactive" and not include_inactive:
                 if agent.key in agents:
                     raise ValueError(f"Duplicate agent {agent.key} found.")
@@ -281,6 +245,8 @@ def get_agents_from_mongo(db: str, agents: List[str] = None, include_inactive: b
 
 def get_api_files(root_dir: str = None, include_inactive: bool = False) -> List[str]:
     """Get all agent directories inside a directory"""
+
+    env = os.getenv("DB")
     
     if root_dir:
         root_dirs = [root_dir]
@@ -288,7 +254,7 @@ def get_api_files(root_dir: str = None, include_inactive: bool = False) -> List[
         eve_root = os.path.dirname(os.path.abspath(__file__))
         root_dirs = [
             os.path.join(eve_root, agents_dir) 
-            for agents_dir in ["agents"]
+            for agents_dir in [f"agents/{env}"]
         ]
 
     api_files = {}

@@ -17,7 +17,6 @@ clerk = Clerk(bearer_auth=os.getenv("CLERK_SECRET_KEY"))
 api_key_header = APIKeyHeader(name="X-Api-Key", auto_error=False)
 bearer_scheme = HTTPBearer(auto_error=False)
 
-db = os.getenv("DB", "STAGE")
 EDEN_ADMIN_KEY = os.getenv("EDEN_ADMIN_KEY")
 ABRAHAM_ADMIN_KEY = os.getenv("ABRAHAM_ADMIN_KEY")
 ISSUER_URL = os.getenv("CLERK_ISSUER_URL")
@@ -30,14 +29,14 @@ _users = None
 def get_api_keys():
     global _api_keys
     if _api_keys is None:
-        _api_keys = get_collection("apikeys", db=db)
+        _api_keys = get_collection("apikeys")
     return _api_keys
 
 
 def get_users():
     global _users
     if _users is None:
-        _users = get_collection("users2", db=db)
+        _users = get_collection("users3")
     return _users
 
 
@@ -48,13 +47,13 @@ class UserData(BaseModel):
     isAdmin: bool = False
 
 
-def get_my_eden_user(db: str = "STAGE") -> str:
+def get_my_eden_user() -> str:
     """Get the user id for the api key in your env file"""
     api_key = EDEN_API_KEY
     api_key = get_api_keys().find_one({"apiKey": api_key.get_secret_value()})
     if not api_key:
         raise HTTPException(status_code=401, detail="API key not found")
-    user = User.from_mongo(api_key["user"], db=db)
+    user = User.from_mongo(api_key["user"])
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
     return user

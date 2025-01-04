@@ -41,7 +41,6 @@ async def async_anthropic_prompt(
     model: str,
     response_model: Optional[type[BaseModel]],
     tools: Dict[str, Tool],
-    db: str,
 ):
     anthropic_client = anthropic.AsyncAnthropic()
     prompt = {
@@ -68,7 +67,7 @@ async def async_anthropic_prompt(
             [r.text for r in response.content if r.type == "text" and r.text]
         )
         tool_calls = [
-            ToolCall.from_anthropic(r, db=db)
+            ToolCall.from_anthropic(r)
             for r in response.content
             if r.type == "tool_use"
         ]
@@ -82,7 +81,6 @@ async def async_anthropic_prompt_stream(
     model: str,
     response_model: Optional[type[BaseModel]],
     tools: Dict[str, Tool],
-    db: str,
 ) -> AsyncGenerator[Tuple[UpdateType, str], None]:
     """Yields partial tokens (ASSISTANT_TOKEN, partial_text) for streaming."""
     anthropic_client = anthropic.AsyncAnthropic()
@@ -119,7 +117,7 @@ async def async_anthropic_prompt_stream(
             elif chunk.type == "content_block_stop" and hasattr(chunk, "content_block"):
                 if chunk.content_block.type == "tool_use":
                     tool_calls.append(
-                        ToolCall.from_anthropic(chunk.content_block, db=db)
+                        ToolCall.from_anthropic(chunk.content_block)
                     )
 
             # Stop reason
@@ -138,7 +136,6 @@ async def async_openai_prompt(
     model: str = "gpt-4o-mini",  # "gpt-4o-2024-08-06",
     response_model: Optional[type[BaseModel]] = None,
     tools: Dict[str, Tool] = {},
-    db: str = "STAGE",
 ):
     if not os.getenv("OPENAI_API_KEY"):
         raise ValueError("OPENAI_API_KEY env is not set")
@@ -167,7 +164,7 @@ async def async_openai_prompt(
         response = response.choices[0]
         content = response.message.content or ""
         tool_calls = [
-            ToolCall.from_openai(t, db=db) for t in response.message.tool_calls or []
+            ToolCall.from_openai(t) for t in response.message.tool_calls or []
         ]
         stop = response.finish_reason == "stop"
 
@@ -204,7 +201,6 @@ async def async_prompt(
     model: str,
     response_model: Optional[type[BaseModel]] = None,
     tools: Dict[str, Tool] = {},
-    db: str = "STAGE",
 ) -> Tuple[str, List[ToolCall], bool]:
     """
     Non-streaming LLM call => returns (content, tool_calls, stop).
@@ -212,12 +208,12 @@ async def async_prompt(
     if model.startswith("claude"):
         # Use the non-stream Anthropics helper
         return await async_anthropic_prompt(
-            messages, system_message, model, response_model, tools, db
+            messages, system_message, model, response_model, tools
         )
     else:
         # Use existing OpenAI path
         return await async_openai_prompt(
-            messages, system_message, model, response_model, tools, db
+            messages, system_message, model, response_model, tools
         )
 
 
@@ -251,7 +247,6 @@ async def async_prompt_stream(
     model: str,
     response_model: Optional[type[BaseModel]] = None,
     tools: Dict[str, Tool] = {},
-    db: str = "STAGE",
 ) -> AsyncGenerator[Tuple[UpdateType, str], None]:
     """
     Streaming LLM call => yields (UpdateType.ASSISTANT_TOKEN, partial_text).
@@ -260,7 +255,7 @@ async def async_prompt_stream(
     if model.startswith("claude"):
         # Stream from Anthropics
         async for chunk in async_anthropic_prompt_stream(
-            messages, system_message, model, response_model, tools, db
+            messages, system_message, model, response_model, tools
         ):
             yield chunk
     else:
@@ -330,7 +325,6 @@ async def async_think():
 
 
 async def async_prompt_thread(
-    db: str,
     user: User,
     agent: Agent,
     thread: Thread,
@@ -342,8 +336,6 @@ async def async_prompt_thread(
 ):
     print("================================================")
     print(user_messages)
-    print("\n\n\n\n\n\n\n\n", db)
-    print(thread.db, thread.id)
     print("================================================")
 
     user_messages = (
@@ -405,7 +397,6 @@ async def async_prompt_thread(
                     system_message=system_message,
                     model=model,
                     tools=tools,
-                    db=db,
                 ):
                     # stream an individual token
                     if update_type == UpdateType.ASSISTANT_TOKEN:
@@ -433,7 +424,6 @@ async def async_prompt_thread(
                     system_message=system_message,
                     model=model,
                     tools=tools,
-                    db=db,
                 )
 
             # for error tracing
@@ -495,7 +485,7 @@ async def async_prompt_thread(
 
                 # start task
                 task = await tool.async_start_task(
-                    user.id, agent.id, tool_call.args, db=db
+                    user.id, agent.id, tool_call.args
                 )
 
                 # update tool call with task id and status
@@ -551,7 +541,6 @@ async def async_prompt_thread(
 
 
 def prompt_thread(
-    db: str,
     user: User,
     agent: Agent,
     thread: Thread,
@@ -561,7 +550,7 @@ def prompt_thread(
     model: Literal[tuple(models)] = "claude-3-5-sonnet-20241022",
 ):
     async_gen = async_prompt_thread(
-        db, user, agent, thread, user_messages, tools, force_reply, model
+        user, agent, thread, user_messages, tools, force_reply, model
     )
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)

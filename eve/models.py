@@ -63,7 +63,7 @@ class Model(Document):
             if doc.get("slug")
         ]
         new_version = max(versions or [0]) + 1
-        users = get_collection("users3", db=self.db)
+        users = get_collection("users3")
         username = users.find_one({"_id": self.user})["username"]
         # username = self.users.find_one({"_id": self.user})["username"]
         self.slug = f"{username}/{name}/v{new_version}"

@@ -26,22 +26,20 @@ from ..auth import get_my_eden_user
 #     return clean_message, attachments
 
 
-async def async_chat(db, agent_name, new_thread=True, debug=False):
-    db = db.upper()
-
+async def async_chat(agent_name, new_thread=True, debug=False):
     if not debug:
         logging.getLogger("httpx").setLevel(logging.WARNING)
         logging.getLogger("anthropic").setLevel(logging.WARNING)
 
-    user = get_my_eden_user(db=db)
-    agent = Agent.load(agent_name, db=db)
+    user = get_my_eden_user()
+    agent = Agent.load(agent_name)
 
     key = f"cli_{str(agent.name)}_{str(user.id)}"
     if not new_thread:
         key += f"_{int(time.time())}"
 
-    thread = agent.request_thread(key=key, db=db)
-    tools = agent.get_tools(db=db)
+    thread = agent.request_thread(key=key)
+    tools = agent.get_tools()
 
     chat_string = f"Chat with {agent.name}".center(36)
     console = Console()
@@ -78,7 +76,6 @@ async def async_chat(db, agent_name, new_thread=True, debug=False):
                         sys.stdout = devnull
 
                     async for update in async_prompt_thread(
-                        db=db,
                         user=user,
                         agent=agent,
                         thread=thread,
@@ -99,7 +96,7 @@ async def async_chat(db, agent_name, new_thread=True, debug=False):
                             )
                             print()
                         elif update.type == UpdateType.TOOL_COMPLETE:
-                            result = prepare_result(update.result.get("result"), db=db)
+                            result = prepare_result(update.result.get("result"))
                             console.print(
                                 "[bold cyan]🔧 [dim]" + update.tool_name + "[/dim]"
                             )
@@ -154,7 +151,7 @@ def chat(db: str, thread: str, agent: str, debug: bool):
     load_env(db)
 
     try:
-        asyncio.run(async_chat(db, agent, thread, debug))
+        asyncio.run(async_chat(agent, thread, debug))
     except Exception as e:
         click.echo(click.style(f"Failed to chat with {agent}:", fg="red"))
         click.echo(click.style(f"Error: {str(e)}", fg="red"))

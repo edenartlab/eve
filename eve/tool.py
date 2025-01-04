@@ -86,7 +86,7 @@ class Tool(Document, ABC):
     test_args: Optional[Dict[str, Any]] = None
 
     @classmethod
-    def _get_schema(cls, key, db, from_yaml=False) -> dict:
+    def _get_schema(cls, key, from_yaml=False) -> dict:
         """Get schema for a tool, with detailed performance logging."""
 
         if from_yaml:
@@ -104,14 +104,16 @@ class Tool(Document, ABC):
                 schema["workspace"] = schema.get("workspace") or api_file.split("/")[-4]
         else:
             # MongoDB path
-            collection = get_collection(cls.collection_name, db=db)
+            collection = get_collection(cls.collection_name)
             schema = collection.find_one({"key": key})
 
         return schema
 
     @classmethod
     def get_sub_class(
-        cls, schema, db, from_yaml=False
+        cls, 
+        schema, 
+        from_yaml=False
     ) -> type:
         from .tools.local_tool import LocalTool
         from .tools.modal_tool import ModalTool
@@ -121,7 +123,7 @@ class Tool(Document, ABC):
 
         parent_tool = schema.get("parent_tool")
         if parent_tool:
-            parent_schema = cls._get_schema(parent_tool, db, from_yaml)
+            parent_schema = cls._get_schema(parent_tool, from_yaml)
             handler = parent_schema.get("handler")
         else:
             handler = schema.get("handler")
@@ -148,7 +150,7 @@ class Tool(Document, ABC):
 
         parent_tool = schema.get("parent_tool")
         if parent_tool:
-            parent_schema = cls._get_schema(parent_tool, db=None, from_yaml=True)
+            parent_schema = cls._get_schema(parent_tool, from_yaml=True)
             parent_schema["parameter_presets"] = schema.pop("parameters", {})
             parent_parameters = parent_schema.pop("parameters", {})
             for k, v in parent_schema["parameter_presets"].items():
@@ -178,7 +180,7 @@ class Tool(Document, ABC):
         return schema
         
     @classmethod
-    def convert_from_mongo(cls, schema, db) -> dict:
+    def convert_from_mongo(cls, schema) -> dict:
         schema["parameters"] = {
             p["name"]: {**(p.pop("schema")), **p} for p in schema["parameters"]
         }
@@ -205,42 +207,41 @@ class Tool(Document, ABC):
 
         return schema
 
-    def save(self, db=None, **kwargs):
-        return super().save(db, {"key": self.key}, **kwargs)
+    def save(self, **kwargs):
+        return super().save({"key": self.key}, **kwargs)
 
     @classmethod
-    def from_raw_yaml(cls, schema, db, from_yaml=True):
-        schema["db"] = db
+    def from_raw_yaml(cls, schema, from_yaml=True):
         schema = cls.convert_from_yaml(schema)
-        sub_cls = cls.get_sub_class(schema, from_yaml=from_yaml, db=db)
+        sub_cls = cls.get_sub_class(schema, from_yaml=from_yaml)
         return sub_cls.model_validate(schema)
 
     @classmethod
-    def from_yaml(cls, file_path, db="STAGE", cache=False):
+    def from_yaml(cls, file_path, cache=False):
         if cache:
             if file_path not in _tool_cache:
-                _tool_cache[file_path] = super().from_yaml(file_path, db=db)
+                _tool_cache[file_path] = super().from_yaml(file_path)
             return _tool_cache[file_path]
         else:
-            return super().from_yaml(file_path, db=db)
+            return super().from_yaml(file_path)
 
     @classmethod
-    def from_mongo(cls, document_id, db="STAGE", cache=False):
+    def from_mongo(cls, document_id, cache=False):
         if cache:
             if document_id not in _tool_cache:
-                _tool_cache[str(document_id)] = super().from_mongo(document_id, db=db)
+                _tool_cache[str(document_id)] = super().from_mongo(document_id)
             return _tool_cache[str(document_id)]
         else:
-            return super().from_mongo(document_id, db=db)
+            return super().from_mongo(document_id)
     
     @classmethod
-    def load(cls, key, db="STAGE", cache=False):
+    def load(cls, key, cache=False):
         if cache:
             if key not in _tool_cache:
-                _tool_cache[key] = super().load(key=key, db=db)
+                _tool_cache[key] = super().load(key=key)
             return _tool_cache[key]
         else:
-            return super().load(key=key, db=db)
+            return super().load(key=key)
 
     def _remove_hidden_fields(self, parameters):
         hidden_parameters = [
@@ -311,21 +312,21 @@ class Tool(Document, ABC):
     def handle_run(run_function):
         """Wrapper for calling a tool directly and waiting for the result"""
 
-        async def async_wrapper(self, args: Dict, db: str, mock: bool = False):
+        async def async_wrapper(self, args: Dict, mock: bool = False):
             try:
                 args = self.prepare_args(args)
                 sentry_sdk.add_breadcrumb(category="handle_run", data=args)
                 if mock:
                     result = {"output": eden_utils.mock_image(args)}
                 else:
-                    result = await run_function(self, args, db)
+                    result = await run_function(self, args)
                 result["output"] = (
                     result["output"]
                     if isinstance(result["output"], list)
                     else [result["output"]]
                 )
                 sentry_sdk.add_breadcrumb(category="handle_run", data=result)
-                result = eden_utils.upload_result(result, db)
+                result = eden_utils.upload_result(result)
                 sentry_sdk.add_breadcrumb(category="handle_run", data=result)
                 result["status"] = "completed"
             except Exception as e:
@@ -344,7 +345,6 @@ class Tool(Document, ABC):
             requester_id: str,
             user_id: str,
             args: Dict,
-            db: str,
             mock: bool = False,
         ):
             try:
@@ -352,10 +352,10 @@ class Tool(Document, ABC):
                 args = self.prepare_args(args)
                 sentry_sdk.add_breadcrumb(category="handle_start_task", data=args)                
                 cost = self.calculate_cost(args)
-                user = User.from_mongo(user_id, db=db)
+                user = User.from_mongo(user_id)
                 if "freeTools" in (user.featureFlags or []):
                     cost = 0
-                requester = User.from_mongo(requester_id, db=db)
+                requester = User.from_mongo(requester_id)
                 requester.check_manna(cost)
 
             except Exception as e:
@@ -373,7 +373,7 @@ class Tool(Document, ABC):
                 mock=mock,
                 cost=cost,
             )
-            task.save(db=db)
+            task.save()
             sentry_sdk.add_breadcrumb(category="handle_start_task", data=task.model_dump())
 
             # start task
@@ -381,7 +381,7 @@ class Tool(Document, ABC):
                 if mock:
                     handler_id = eden_utils.random_string()
                     output = {"output": eden_utils.mock_image(args)}
-                    result = eden_utils.upload_result(output, db=db)
+                    result = eden_utils.upload_result(output)
                     task.update(
                         handler_id=handler_id,
                         status="completed",
@@ -452,13 +452,13 @@ class Tool(Document, ABC):
     async def async_cancel(self):
         pass
 
-    def run(self, args: Dict, db: str, mock: bool = False):
-        return asyncio.run(self.async_run(args, db, mock))
+    def run(self, args: Dict, mock: bool = False):
+        return asyncio.run(self.async_run(args, mock))
 
     def start_task(
-        self, requester_id: str, user_id: str, args: Dict, db: str, mock: bool = False
+        self, requester_id: str, user_id: str, args: Dict, mock: bool = False
     ):
-        return asyncio.run(self.async_start_task(requester_id, user_id, args, db, mock))
+        return asyncio.run(self.async_start_task(requester_id, user_id, args, mock))
 
     def wait(self, task: Task):
         return asyncio.run(self.async_wait(task))
@@ -486,14 +486,13 @@ def get_tools_from_api_files(
 
 
 def get_tools_from_mongo(
-    db: str,
     tools: List[str] = None,
     include_inactive: bool = False,
     cache: bool = False,
 ) -> Dict[str, Tool]:
     """Get all tools from mongo"""
     
-    tools_collection = get_collection(Tool.collection_name, db=db)
+    tools_collection = get_collection(Tool.collection_name)
 
     # Batch fetch all tools and their parents
     filter = {"key": {"$in": tools}} if tools else {}
@@ -505,8 +504,8 @@ def get_tools_from_mongo(
             if tool.get("key") in _tool_cache:
                 tool = _tool_cache[tool.get("key")]
             else:
-                tool = Tool.convert_from_mongo(tool, db=db)
-                tool = Tool.from_schema(tool, db=db, from_yaml=False)
+                tool = Tool.convert_from_mongo(tool)
+                tool = Tool.from_schema(tool, from_yaml=False)
                 if cache:
                     _tool_cache[tool.key] = tool
             if tool.status != "inactive" and not include_inactive:

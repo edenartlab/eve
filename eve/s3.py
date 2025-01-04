@@ -14,15 +14,10 @@ from PIL import Image
 AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
 AWS_REGION_NAME = os.getenv("AWS_REGION_NAME")
-AWS_BUCKET_NAME = os.getenv("AWS_BUCKET_NAME")
 
-
-if not all(
-    [AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION_NAME, AWS_BUCKET_NAME]
-):
-    # raise ValueError("AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION_NAME, AWS_BUCKET_NAME must be set in the environment")
+if not all([AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION_NAME]):
     print(
-        "WARNING: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION_NAME, and AWS_BUCKET_NAME must be set in the environment"
+        "WARNING: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and AWS_REGION_NAME must be set in the environment"
     )
 
 s3 = boto3.client(
@@ -47,25 +42,23 @@ file_extensions = {
 }
 
 
-def get_root_url(db):
+def get_root_url():
     """Returns the root URL for the specified bucket."""
-    print("GET !!! BUCKET", AWS_BUCKET_NAME)
-
+    AWS_BUCKET_NAME = os.getenv("AWS_BUCKET_NAME")
     url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com"
     return url
 
 
-def get_full_url(filename, db):
-    print("GET !!! FULL URL", filename, db)
-    print("FDULL URL:", f"{get_root_url(db=db)}/{filename}")
-    return f"{get_root_url(db=db)}/{filename}"
+def get_full_url(filename):
+    return f"{get_root_url()}/{filename}"
 
 
-def upload_file_from_url(url, name=None, file_type=None, db="STAGE"):
+def upload_file_from_url(url, name=None, file_type=None):
     """Uploads a file to an S3 bucket by downloading it to a temporary file and uploading it to S3."""
 
+    AWS_BUCKET_NAME = os.getenv("AWS_BUCKET_NAME")
     if f"{AWS_BUCKET_NAME}.s3." in url and ".amazonaws.com" in url:
-        # print(f"File is already uploaded at {url}")
+        # file is already uploaded
         filename = url.split("/")[-1].split(".")[0]
         return url, filename
 
@@ -76,25 +69,25 @@ def upload_file_from_url(url, name=None, file_type=None, db="STAGE"):
                 tmp_file.write(chunk)
             tmp_file.flush()
             tmp_file.seek(0)
-            return upload_file(tmp_file.name, name, file_type, db)
+            return upload_file(tmp_file.name, name, file_type)
 
 
-def upload_file(file_path, name=None, file_type=None, db="STAGE"):
+def upload_file(file_path, name=None, file_type=None):
     """Uploads a file to an S3 bucket and returns the file URL."""
 
     if file_path.endswith(".safetensors"):
         file_type = ".safetensors"
 
     if file_path.startswith("http://") or file_path.startswith("https://"):
-        return upload_file_from_url(file_path, name, file_type, db)
+        return upload_file_from_url(file_path, name, file_type)
 
     with open(file_path, "rb") as file:
         buffer = file.read()
 
-    return upload_buffer(buffer, name, file_type, db)
+    return upload_buffer(buffer, name, file_type)
 
 
-def upload_buffer(buffer, name=None, file_type=None, db="STAGE"):
+def upload_buffer(buffer, name=None, file_type=None):
     """Uploads a buffer to an S3 bucket and returns the file URL."""
 
     assert (
@@ -153,7 +146,7 @@ def upload_buffer(buffer, name=None, file_type=None, db="STAGE"):
     # Upload file to S3
     filename = f"{name}{file_type}"
     file_bytes = io.BytesIO(buffer)
-    bucket_name = AWS_BUCKET_NAME
+    bucket_name = os.getenv("AWS_BUCKET_NAME")
     file_url = f"https://{bucket_name}.s3.amazonaws.com/{filename}"
 
     # if file doesn't exist, upload it
@@ -174,29 +167,29 @@ def upload_buffer(buffer, name=None, file_type=None, db="STAGE"):
     return file_url, name
 
 
-def upload_PIL_image(image: Image.Image, name=None, file_type=None, db="STAGE"):
+def upload_PIL_image(image: Image.Image, name=None, file_type=None):
     format = file_type.split(".")[-1] or "webp"
     buffer = io.BytesIO()
     image.save(buffer, format=format)
-    return upload_buffer(buffer, name, file_type, db)
+    return upload_buffer(buffer, name, file_type)
 
 
-def upload_audio_segment(audio: AudioSegment, db="STAGE"):
+def upload_audio_segment(audio: AudioSegment):
     buffer = io.BytesIO()
     audio.export(buffer, format="mp3")
-    output = upload_buffer(buffer, db=db)
+    output = upload_buffer(buffer)
     return output
 
 
-def upload(data: any, name=None, file_type=None, db="STAGE"):
+def upload(data: any, name=None, file_type=None):
     if isinstance(data, Image.Image):
-        return upload_PIL_image(data, name, file_type, db)
+        return upload_PIL_image(data, name, file_type)
     elif isinstance(data, AudioSegment):
-        return upload_audio_segment(data, db)
+        return upload_audio_segment(data)
     elif isinstance(data, bytes):
-        return upload_buffer(data, name, file_type, db)
+        return upload_buffer(data, name, file_type)
     else:
-        return upload_file(data, name, file_type, db)
+        return upload_file(data, name, file_type)
 
 
 def copy_file_to_bucket(source_bucket, dest_bucket, source_key, dest_key=None):

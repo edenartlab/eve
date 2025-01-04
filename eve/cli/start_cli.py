@@ -5,6 +5,7 @@ import traceback
 import multiprocessing
 from pathlib import Path
 
+from .. import load_env
 from ..models import ClientType
 from ..clients.discord.client import start as start_discord
 from ..clients.telegram.client import start as start_telegram
@@ -46,19 +47,11 @@ from ..clients.farcaster.client import start as start_farcaster
 def start(agent: str, db: str, platforms: tuple, local: bool):
     """Start one or more clients from yaml files"""
     try:
-        db = db.upper()
+        load_env(db)
+
         agent_dir = Path(__file__).parent.parent / "agents" / db.lower() / agent
         env_path = agent_dir / ".env"
         yaml_path = agent_dir / "api.yaml"
-
-        print("ENV PATH", env_path)
-        print("YAML PATH", yaml_path)
-
-        
-        # env_path = env or env_path
-
-        print("ENV PATH", env_path)
-        print("YAML PATH", yaml_path)
 
         clients_to_start = {}
 
@@ -75,8 +68,6 @@ def start(agent: str, db: str, platforms: tuple, local: bool):
                     if settings.get("enabled", False):
                         clients_to_start[ClientType(client_type)] = yaml_path
 
-        print("CLIENTS TO START", clients_to_start)
-
         if not clients_to_start:
             click.echo(click.style("No enabled clients found in yaml files", fg="red"))
             return
@@ -88,21 +79,18 @@ def start(agent: str, db: str, platforms: tuple, local: bool):
         # Start discord and telegram first, local client last
         processes = []
         for client_type, yaml_path in clients_to_start.items():
-            print("CLIENT TYPE", client_type)
-            print("YAML PATH", yaml_path)
             try:
-                print("stat discord", env_path, db, local)
                 if client_type == ClientType.DISCORD:
                     p = multiprocessing.Process(
-                        target=start_discord, args=(env_path, db, local)
+                        target=start_discord, args=(env_path, local)
                     )
                 elif client_type == ClientType.TELEGRAM:
                     p = multiprocessing.Process(
-                        target=start_telegram, args=(env_path, db)
+                        target=start_telegram, args=(env_path, local)
                     )
                 elif client_type == ClientType.FARCASTER:
                     p = multiprocessing.Process(
-                        target=start_farcaster, args=(env_path, db)
+                        target=start_farcaster, args=(env_path, local)
                     )
 
                 p.start()
@@ -164,8 +152,7 @@ def api(host: str, port: int, reload: bool, db: str):
     import uvicorn
     import os
 
-    # Set the DB environment variable
-    os.environ["DB"] = db.upper()
+    load_env(db)
     
     click.echo(click.style(f"Starting API server on {host}:{port} with DB={db}...", fg="blue"))
 

@@ -8,12 +8,13 @@ from discord.ext import commands
 from dotenv import load_dotenv
 from ably import AblyRealtime
 
-from eve.clients import common
-from eve.agent import Agent
-from eve.llm import UpdateType
-from eve.user import User
-from eve.eden_utils import prepare_result
-from eve.models import ClientType
+from ... import load_env
+from ...clients import common
+from ...agent import Agent
+from ...llm import UpdateType
+from ...user import User
+from ...eden_utils import prepare_result
+from ...models import ClientType
 
 
 def replace_mentions_with_usernames(
@@ -41,13 +42,11 @@ class Eden2Cog(commands.Cog):
         self,
         bot: commands.bot,
         agent: Agent,
-        db: str = "STAGE",
         local: bool = False,
     ) -> None:
         self.bot = bot
         self.agent = agent
-        self.db = db
-        self.tools = agent.get_tools(db=self.db)
+        self.tools = agent.get_tools()
         self.known_users = {}
         self.known_threads = {}
         if local:
@@ -128,7 +127,7 @@ class Eden2Cog(commands.Cog):
 
                 elif update_type == UpdateType.TOOL_COMPLETE:
                     result = data.get("result", {})
-                    result["result"] = prepare_result(result["result"], db=self.db)
+                    result["result"] = prepare_result(result["result"])
                     url = result["result"][0]["output"][0]["url"]
                     await self.send_message(channel, url, reference=reference)
 
@@ -168,15 +167,15 @@ class Eden2Cog(commands.Cog):
         # Lookup thread
         if thread_key not in self.known_threads:
             self.known_threads[thread_key] = self.agent.request_thread(
-                key=thread_key,
-                db=self.db,
+                key=thread_key
             )
         thread = self.known_threads[thread_key]
 
         # Lookup user
         if message.author.id not in self.known_users:
             self.known_users[message.author.id] = User.from_discord(
-                message.author.id, message.author.name, db=self.db
+                message.author.id,
+                message.author.name
             )
         user = self.known_users[message.author.id]
 
@@ -310,23 +309,17 @@ class DiscordBot(commands.Bot):
 
 def start(
     env: str,
-    db: str = "STAGE",
     local: bool = False,
 ) -> None:
     load_dotenv(env)
 
-    print("ENV", env)
-    print("DB", db)
-    print("LOCAL", local)
-    print(os.getenv("EDEN_AGENT_USERNAME"))
-    print("one..")
     agent_name = os.getenv("EDEN_AGENT_USERNAME")
-    agent = Agent.load(agent_name, db=db)
+    agent = Agent.load(agent_name)
     print(f"Launching Discord bot {agent.username}...")
 
     bot_token = os.getenv("CLIENT_DISCORD_TOKEN")
     bot = DiscordBot()
-    bot.add_cog(Eden2Cog(bot, agent, db=db, local=local))
+    bot.add_cog(Eden2Cog(bot, agent, local=local))
     bot.run(bot_token)
 
 
@@ -339,4 +332,6 @@ if __name__ == "__main__":
     )
     parser.add_argument("--local", help="Run locally", action="store_true")
     args = parser.parse_args()
-    start(args.env, args.agent, args.db, args.local)
+    
+    load_env(args.db)
+    start(args.env, args.agent, args.local)

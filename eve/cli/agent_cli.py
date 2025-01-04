@@ -1,6 +1,7 @@
 import click
 import traceback
 from ..agent import Agent, get_api_files
+from .. import load_env
 
 api_agents_order = ["eve", "abraham", "banny"]
 
@@ -21,7 +22,8 @@ def agent():
 @click.argument("names", nargs=-1, required=False)
 def update(db: str, names: tuple):
     """Upload agents to mongo"""
-    db = db.upper()
+    
+    load_env(db)
     
     api_files = get_api_files(include_inactive=True)
     agents_order = {agent: index for index, agent in enumerate(api_agents_order)}
@@ -40,7 +42,7 @@ def update(db: str, names: tuple):
         try:
             order = agents_order.get(key, len(api_agents_order))
             agent = Agent.from_yaml(api_file)
-            agent.save(db=db, order=order)
+            agent.save(order=order)
             click.echo( 
                 click.style(f"Updated agent {db}:{key} (order={order})", fg="green")
             )

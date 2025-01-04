@@ -10,13 +10,13 @@ from eve.tool import get_tools_from_mongo
 from eve.auth import get_my_eden_user
 
 db = "STAGE"
-user = get_my_eden_user(db=db)
+user = get_my_eden_user()
 thread_name_think = "test_soc23_think"
 thread_name_act = "test_soc23_act"
 tools = get_tools_from_mongo(db=db)
 
-thread_think = Thread.from_name(name=thread_name_think, user=user.id, db=db)
-thread_act = Thread.from_name(name=thread_name_act, user=user.id, db=db)
+thread_think = Thread.from_name(name=thread_name_think, user=user.id)
+thread_act = Thread.from_name(name=thread_name_act, user=user.id)
 
 thread_act.push("messages", UserMessage(content="I am your inner voice, guiding you as you attempt to creare digital art for me to critique. As you create art, I will give you feedback and instruct you on ways to improve your work. Please refrain from restating what I tell you or being verbose. Just make the art, tell me concisely what you are doing, and show me the results."))
 
@@ -47,7 +47,7 @@ def convert_assistant_messages(messages: List[AssistantMessage]):
 
 
 
-# def prompt_thread2(db, user_id, thread_name, user_message, tools):
+# def prompt_thread2(user_id, thread_name, user_message, tools):
 #     async def run():
         
 #         return all_messages
@@ -62,7 +62,7 @@ async def main():
     
     while True:
         think_messages = []
-        async for message in async_prompt_thread(db, user_id, thread_name_think, input_message, {}):
+        async for message in async_prompt_thread(user_id, thread_name_think, input_message, {}):
             print_message(message, name="Eve 1")
             think_messages.append(message)
         
