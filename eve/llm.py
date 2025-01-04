@@ -342,6 +342,8 @@ async def async_prompt_thread(
 ):
     print("================================================")
     print(user_messages)
+    print("\n\n\n\n\n\n\n\n", db)
+    print(thread.db, thread.id)
     print("================================================")
 
     user_messages = (

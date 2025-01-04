@@ -11,10 +11,10 @@ import shutil
 
 root_dir = Path(__file__).parent.parent.parent
 ENV_NAME = "deployments"
-db = os.getenv("DB", "STAGE").upper()
-if db not in ["PROD", "STAGE"]:
-    raise Exception(f"Invalid environment: {db}. Must be PROD or STAGE")
-stage = "staging" if db == "STAGE" else "prod"
+# db = os.getenv("DB", "STAGE").upper()
+# if db not in ["PROD", "STAGE"]:
+#     raise Exception(f"Invalid environment: {db}. Must be PROD or STAGE")
+# env = "stage" if db == "STAGE" else "prod"
 
 
 def ensure_modal_env_exists():
@@ -36,7 +36,7 @@ def ensure_modal_env_exists():
         )
 
 
-def prepare_client_file(file_path: str, agent_key: str) -> str:
+def prepare_client_file(file_path: str, agent_key: str, env: str) -> str:
     """Create a temporary copy of the client file with modifications"""
     with open(file_path, "r") as f:
         content = f.read()
@@ -48,7 +48,7 @@ def prepare_client_file(file_path: str, agent_key: str) -> str:
     # Replace the static secret name with the dynamic one
     modified_content = content.replace(
         'modal.Secret.from_name("client-secrets")',
-        f'modal.Secret.from_name("{agent_key}-client-secrets-{stage}")',
+        f'modal.Secret.from_name("{agent_key}-client-secrets-{env}")',
     )
 
     # Fix pyproject.toml path to use absolute path
@@ -66,7 +66,7 @@ def prepare_client_file(file_path: str, agent_key: str) -> str:
     return str(temp_file)
 
 
-def create_secrets(agent_key: str, secrets_dict: dict):
+def create_secrets(agent_key: str, secrets_dict: dict, env: str):
     if not secrets_dict:
         click.echo(click.style(f"No secrets found for {agent_key}", fg="yellow"))
         return
@@ -77,7 +77,7 @@ def create_secrets(agent_key: str, secrets_dict: dict):
         "modal",
         "secret",
         "create",
-        f"{agent_key}-client-secrets-{stage}",
+        f"{agent_key}-client-secrets-{env}",
     ]
     for key, value in secrets_dict.items():
         if value is not None:
@@ -88,13 +88,13 @@ def create_secrets(agent_key: str, secrets_dict: dict):
     subprocess.run(cmd_parts)
 
 
-def deploy_client(agent_key: str, client_name: str):
+def deploy_client(agent_key: str, client_name: str, env: str):
     client_path = root_dir / f"eve/clients/{client_name}/modal_client.py"
     if client_path.exists():
         try:
             # Create a temporary modified version of the client file
-            temp_file = prepare_client_file(str(client_path), agent_key)
-            app_name = f"{agent_key}-client-{client_name}-{stage}"
+            temp_file = prepare_client_file(str(client_path), agent_key, env)
+            app_name = f"{agent_key}-client-{client_name}-{env}"
 
             # Deploy using the temporary file
             subprocess.run(
@@ -122,9 +122,9 @@ def deploy_client(agent_key: str, client_name: str):
         )
 
 
-def get_deployable_agents():
+def get_deployable_agents(env: str):
     """Find all agents that have both .env and deployments configured"""
-    agents_dir = root_dir / "eve" / "agents" / stage
+    agents_dir = root_dir / "eve" / "agents" / env
     deployable = []
 
     for agent_dir in agents_dir.glob("*"):
@@ -152,7 +152,7 @@ def get_deployable_agents():
     return deployable
 
 
-def process_agent(agent_path: Path):
+def process_agent(agent_path: Path, env: str):
     with open(agent_path) as f:
         agent_config = yaml.safe_load(f)
 
@@ -168,29 +168,37 @@ def process_agent(agent_path: Path):
     if env_file.exists():
         click.echo(click.style(f"Creating secrets for: {agent_key}", fg="green"))
         client_secrets = dotenv_values(env_file)
-        create_secrets(agent_key, client_secrets)
+        create_secrets(agent_key, client_secrets, env)
 
     # Deploy each client
     for deployment in agent_config["deployments"]:
         click.echo(click.style(f"Deploying client: {deployment}", fg="green"))
-        deploy_client(agent_key, deployment)
+        deploy_client(agent_key, deployment, env)
 
 
 @click.command()
 @click.argument("agent", nargs=1, required=False)
 @click.option("--all", is_flag=True, help="Deploy all configured agents")
-def deploy(agent: str, all: bool):
+@click.option(
+    "--db",
+    type=click.Choice(["STAGE", "PROD"], case_sensitive=False),
+    default="STAGE",
+    help="DB to save against",
+)
+def deploy(agent: str, all: bool, db: str):
     """Deploy Modal agents. Use --all to deploy all configured agents."""
     try:
         # Ensure Modal environment exists
         ensure_modal_env_exists()
 
+        env = "stage" if db == "STAGE" else "prod"
+
         if all:
-            agents = get_deployable_agents()
+            agents = get_deployable_agents(env)
             if not agents:
                 click.echo(
                     click.style(
-                        f"No deployable agents found in {stage} environment",
+                        f"No deployable agents found in {env} environment",
                         fg="yellow",
                     )
                 )
@@ -206,17 +214,17 @@ def deploy(agent: str, all: bool):
             for agent_name in agents:
                 click.echo(click.style(f"\nProcessing agent: {agent_name}", fg="blue"))
                 agent_path = (
-                    root_dir / "eve" / "agents" / stage / agent_name / "api.yaml"
+                    root_dir / "eve" / "agents" / env / agent_name / "api.yaml"
                 )
-                process_agent(agent_path)
+                process_agent(agent_path, env)
 
         else:
             if not agent:
                 raise click.UsageError("Please provide an agent name or use --all")
 
-            agent_path = root_dir / "eve" / "agents" / stage / agent / "api.yaml"
+            agent_path = root_dir / "eve" / "agents" / env / agent / "api.yaml"
             if agent_path.exists():
-                process_agent(agent_path)
+                process_agent(agent_path, env)
             else:
                 click.echo(
                     click.style(

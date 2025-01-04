@@ -9,12 +9,6 @@ from bson import ObjectId
 from typing import Optional, List, Dict, Any, Union
 
 
-MONGO_URI = os.getenv("MONGO_URI")
-MONGO_DB_NAME = os.getenv("MONGO_DB_NAME")
-
-if not all([MONGO_URI, MONGO_DB_NAME]):
-    print("WARNING: MONGO_URI and MONGO_DB_NAME must be set in the environment")
-
 # Global connection pool
 _mongo_client = None
 _collections = {}
@@ -23,6 +17,8 @@ _collections = {}
 def get_mongo_client():
     """Get a MongoDB client with connection pooling"""
     global _mongo_client
+
+    MONGO_URI = os.getenv("MONGO_URI")
     
     if _mongo_client is None:
         _mongo_client = MongoClient(
@@ -44,6 +40,7 @@ def get_collection(collection_name: str, db: str):
     if cache_key in _collections:
         return _collections[cache_key]
 
+    MONGO_DB_NAME = os.getenv("MONGO_DB_NAME")
     mongo_client = get_mongo_client()
     _collections[cache_key] = mongo_client[MONGO_DB_NAME][collection_name]
     return _collections[cache_key]

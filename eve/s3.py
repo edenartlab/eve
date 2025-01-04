@@ -16,6 +16,7 @@ AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
 AWS_REGION_NAME = os.getenv("AWS_REGION_NAME")
 AWS_BUCKET_NAME = os.getenv("AWS_BUCKET_NAME")
 
+
 if not all(
     [AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION_NAME, AWS_BUCKET_NAME]
 ):
@@ -48,11 +49,15 @@ file_extensions = {
 
 def get_root_url(db):
     """Returns the root URL for the specified bucket."""
+    print("GET !!! BUCKET", AWS_BUCKET_NAME)
+
     url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com"
     return url
 
 
 def get_full_url(filename, db):
+    print("GET !!! FULL URL", filename, db)
+    print("FDULL URL:", f"{get_root_url(db=db)}/{filename}")
     return f"{get_root_url(db=db)}/{filename}"
 
 

@@ -19,11 +19,11 @@ from ..clients.farcaster.client import start as start_farcaster
     default="STAGE",
     help="DB to save against",
 )
-@click.option(
-    "--env",
-    type=click.Path(exists=True, resolve_path=True),
-    help="Path to environment file",
-)
+# @click.option(
+#     "--env",
+#     type=click.Path(exists=True, resolve_path=True),
+#     help="Path to environment file",
+# )
 @click.option(
     "--platforms",
     type=click.Choice(
@@ -43,15 +43,22 @@ from ..clients.farcaster.client import start as start_farcaster
     default=False,
     help="Run locally",
 )
-def start(agent: str, db: str, env: str, platforms: tuple, local: bool):
+def start(agent: str, db: str, platforms: tuple, local: bool):
     """Start one or more clients from yaml files"""
     try:
-        agent_dir = Path(__file__).parent.parent / "agents" / agent
+        db = db.upper()
+        agent_dir = Path(__file__).parent.parent / "agents" / db.lower() / agent
         env_path = agent_dir / ".env"
         yaml_path = agent_dir / "api.yaml"
 
-        db = db.upper()
-        env_path = env or env_path
+        print("ENV PATH", env_path)
+        print("YAML PATH", yaml_path)
+
+        
+        # env_path = env or env_path
+
+        print("ENV PATH", env_path)
+        print("YAML PATH", yaml_path)
 
         clients_to_start = {}
 
@@ -68,6 +75,8 @@ def start(agent: str, db: str, env: str, platforms: tuple, local: bool):
                     if settings.get("enabled", False):
                         clients_to_start[ClientType(client_type)] = yaml_path
 
+        print("CLIENTS TO START", clients_to_start)
+
         if not clients_to_start:
             click.echo(click.style("No enabled clients found in yaml files", fg="red"))
             return
@@ -79,7 +88,10 @@ def start(agent: str, db: str, env: str, platforms: tuple, local: bool):
         # Start discord and telegram first, local client last
         processes = []
         for client_type, yaml_path in clients_to_start.items():
+            print("CLIENT TYPE", client_type)
+            print("YAML PATH", yaml_path)
             try:
+                print("stat discord", env_path, db, local)
                 if client_type == ClientType.DISCORD:
                     p = multiprocessing.Process(
                         target=start_discord, args=(env_path, db, local)
@@ -141,11 +153,21 @@ def start(agent: str, db: str, env: str, platforms: tuple, local: bool):
     default=False,
     help="Enable auto-reload on code changes",
 )
-def api(host: str, port: int, reload: bool):
+@click.option(
+    "--db",
+    type=click.Choice(["STAGE", "PROD"], case_sensitive=False),
+    default="STAGE",
+    help="DB to save against",
+)
+def api(host: str, port: int, reload: bool, db: str):
     """Start the Eve API server"""
     import uvicorn
+    import os
 
-    click.echo(click.style(f"Starting API server on {host}:{port}...", fg="blue"))
+    # Set the DB environment variable
+    os.environ["DB"] = db.upper()
+    
+    click.echo(click.style(f"Starting API server on {host}:{port} with DB={db}...", fg="blue"))
 
     # Adjusted the import path to look one directory up
     uvicorn.run(

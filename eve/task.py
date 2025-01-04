@@ -78,7 +78,7 @@ class Task(Document):
             type="spend",
         ).save(db=self.db)
 
-    def refund_manna(self, refund_amount):
+    def refund_manna(self):
         n_samples = self.args.get("n_samples", 1)
         refund_amount = (self.cost or 0) * (n_samples - len(self.result or [])) / n_samples
         manna = Manna.load(self.requester, db=self.db)

@@ -10,11 +10,11 @@ import traceback
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
+from .. import load_env
 from ..llm import async_prompt_thread, UserMessage, UpdateType
 from ..eden_utils import prepare_result, dump_json
 from ..agent import Agent
 from ..auth import get_my_eden_user
-
 
 # def preprocess_message(message):
 #     metadata_pattern = r"\{.*?\}"
@@ -43,12 +43,6 @@ async def async_chat(db, agent_name, new_thread=True, debug=False):
     thread = agent.request_thread(key=key, db=db)
     tools = agent.get_tools(db=db)
 
-    print("THE TOOLS ARE", tools.keys())
-    from ..eden_utils import dump_json
-    from pprint import pprint
-    pprint(tools)
-
-
     chat_string = f"Chat with {agent.name}".center(36)
     console = Console()
     console.print("\n[bold blue]╭────────────────────────────────────╮")
@@ -61,13 +55,7 @@ async def async_chat(db, agent_name, new_thread=True, debug=False):
             console.print("[bold yellow]You [dim]→[/dim] ", end="")
             message_input = input("\033[93m")
 
-            # if message_input.lower() == "escape":
-            #     console.print("\n[dim]Goodbye! 👋[/dim]\n")
-            #     break
-
             print()
-
-            # content, attachments = preprocess_message(message_input)
 
             metadata_pattern = r"\{.*?\}"
             attachments_pattern = r"\[.*?\]"
@@ -75,7 +63,6 @@ async def async_chat(db, agent_name, new_thread=True, debug=False):
             attachments = json.loads(attachments_match.group(0)) if attachments_match else []
             content = re.sub(metadata_pattern, "", message_input)
             content = re.sub(attachments_pattern, "", content).strip()
-
 
             with Progress(
                 SpinnerColumn(),
@@ -163,6 +150,8 @@ async def async_chat(db, agent_name, new_thread=True, debug=False):
 @click.argument("agent", required=True, default="eve")
 def chat(db: str, thread: str, agent: str, debug: bool):
     """Chat with an agent"""
+
+    load_env(db)
 
     try:
         asyncio.run(async_chat(db, agent, thread, debug))

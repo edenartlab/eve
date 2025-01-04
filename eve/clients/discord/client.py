@@ -315,6 +315,11 @@ def start(
 ) -> None:
     load_dotenv(env)
 
+    print("ENV", env)
+    print("DB", db)
+    print("LOCAL", local)
+    print(os.getenv("EDEN_AGENT_USERNAME"))
+    print("one..")
     agent_name = os.getenv("EDEN_AGENT_USERNAME")
     agent = Agent.load(agent_name, db=db)
     print(f"Launching Discord bot {agent.username}...")

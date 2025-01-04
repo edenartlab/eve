@@ -121,11 +121,7 @@ async def setup_chat(
 
     user = User.from_mongo(request.user_id, db=db)
     agent = Agent.from_mongo(request.agent_id, db=db, cache=True)
-    print("set up chat tools for ", user.username, agent.username)
-    print("the agent")
-    print(agent)
     tools = agent.get_tools(db=db, cache=True)
-    print("tools dct", tools)
 
     if request.thread_id:
         thread = Thread.from_mongo(request.thread_id, db=db)

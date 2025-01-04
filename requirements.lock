@@ -78,6 +78,8 @@ cytoolz==1.0.1
     # via eth-utils
 decorator==4.4.2
     # via moviepy
+diffusers==0.31.0
+    # via eve
 distro==1.9.0
     # via anthropic
     # via openai
@@ -125,9 +127,14 @@ farcaster==0.7.11
 fastapi==0.115.6
     # via eve
     # via modal
+filelock==3.16.1
+    # via diffusers
+    # via huggingface-hub
 frozenlist==1.5.0
     # via aiohttp
     # via aiosignal
+fsspec==2024.12.0
+    # via huggingface-hub
 gitdb==4.0.11
     # via gitpython
 gitpython==3.1.43
@@ -200,6 +207,8 @@ httpx==0.27.2
     # via python-telegram-bot
     # via replicate
     # via runwayml
+huggingface-hub==0.27.0
+    # via diffusers
 hyperframe==6.0.1
     # via h2
 idna==3.10
@@ -211,6 +220,8 @@ imageio==2.36.1
     # via moviepy
 imageio-ffmpeg==0.5.1
     # via moviepy
+importlib-metadata==8.5.0
+    # via diffusers
 instructor==1.7.0
     # via eve
 jinja2==3.1.4
@@ -253,6 +264,7 @@ multidict==6.1.0
 mypy-extensions==1.0.0
     # via typing-inspect
 numpy==2.2.0
+    # via diffusers
     # via eve
     # via imageio
     # via moviepy
@@ -265,11 +277,13 @@ openai==1.57.2
 packaging==24.2
     # via google-cloud-aiplatform
     # via google-cloud-bigquery
+    # via huggingface-hub
     # via replicate
 parsimonious==0.9.0
     # via eth-abi
     # via farcaster
 pillow==11.0.0
+    # via diffusers
     # via eve
     # via imageio
 proglog==0.1.10
@@ -347,20 +361,24 @@ pyunormalize==16.0.0
     # via web3
 pyyaml==6.0.2
     # via eve
+    # via huggingface-hub
 referencing==0.35.1
     # via jsonschema
     # via jsonschema-specifications
 regex==2024.11.6
+    # via diffusers
     # via parsimonious
 replicate==0.22.0
     # via eve
 requests==2.32.3
+    # via diffusers
     # via elevenlabs
     # via eve
     # via farcaster
     # via google-api-core
     # via google-cloud-bigquery
     # via google-cloud-storage
+    # via huggingface-hub
     # via instructor
     # via moviepy
     # via requests-oauthlib
@@ -383,6 +401,8 @@ runwayml==2.1.4
     # via eve
 s3transfer==0.10.4
     # via boto3
+safetensors==0.5.0
+    # via diffusers
 sentry-sdk==2.19.2
     # via eve
 setuptools==75.6.0
@@ -417,6 +437,7 @@ toolz==1.0.0
     # via cytoolz
 tqdm==4.67.1
     # via eve
+    # via huggingface-hub
     # via moviepy
     # via openai
     # via proglog
@@ -431,9 +452,9 @@ typing-extensions==4.12.2
     # via anthropic
     # via anyio
     # via elevenlabs
-    # via eth-rlp
     # via eth-typing
     # via fastapi
+    # via huggingface-hub
     # via modal
     # via openai
     # via pydantic
@@ -462,3 +483,5 @@ websockets==12.0
     # via web3
 yarl==1.18.3
     # via aiohttp
+zipp==3.21.0
+    # via importlib-metadata
