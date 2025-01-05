@@ -719,7 +719,7 @@ class ComfyUI:
 
             # if there's a lora, replace mentions with embedding name
             if key == "prompt":
-                if "flux" in base_model:
+                if base_model == "flux-dev":
                     for lora_key in ["lora", "lora2"]:
                         if args.get(f"use_{lora_key}", False):
                             lora_strength = args.get(f"{lora_key}_strength", 0.7)
