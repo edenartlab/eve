@@ -142,7 +142,7 @@ async def task_admin(
     _: dict = Depends(auth.authenticate_admin)
 ):
     result = await handle_task(request.tool, request.user_id, request.args)
-    return serialize_document(result.model_dump())
+    return serialize_document(result.model_dump(by_alias=True))
 
 
 async def handle_cancel(task_id: str, user_id: str):
