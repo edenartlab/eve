@@ -1,0 +1,17 @@
+name: Weather
+description: Get the weather for a given location
+cost_estimate: 1
+output_type: string
+status: prod
+visible: true
+parameters:
+  lat:
+    type: float
+    label: Latitude
+    description: The latitude of the location to get the weather for
+    required: true
+  lon:
+    type: float
+    label: Longitude
+    description: The longitude of the location to get the weather for
+    required: true
