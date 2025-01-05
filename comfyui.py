@@ -65,6 +65,14 @@ root_workflows_folder = "../private_workflows" if os.getenv("PRIVATE") else "../
 test_all = True if os.getenv("TEST_ALL") else False
 skip_tests = os.getenv("SKIP_TESTS")
 
+print("========================================")
+print(f"db: {db}")
+print(f"workspace: {workspace_name}")
+print(f"test_workflows: {test_workflows}")
+print(f"test_all: {test_all}")
+print(f"skip_tests: {skip_tests}")
+print("========================================")
+
 def install_comfyui():
     snapshot = json.load(open("/root/workspace/snapshot.json", 'r'))
     comfyui_commit_sha = snapshot["comfyui"]
@@ -218,6 +226,7 @@ image = (
     .env({"TEST_ALL": os.getenv("TEST_ALL")})
     .apt_install("git", "git-lfs", "libgl1-mesa-glx", "libglib2.0-0", "libmagic1", "ffmpeg", "libegl1")
     .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
+    .pip_install("diffusers==0.31.0")
     .env({"WORKSPACE": workspace_name}) 
     .copy_local_file(f"{root_workflows_folder}/workspaces/{workspace_name}/snapshot.json", "/root/workspace/snapshot.json")
     .copy_local_file(f"{root_workflows_folder}/workspaces/{workspace_name}/downloads.json", "/root/workspace/downloads.json")
@@ -328,6 +337,9 @@ class ComfyUI:
             if not all([w in workflow_names for w in test_workflows]):
                 raise Exception(f"One or more invalid workflows found: {', '.join(test_workflows)}")
             workflow_names = test_workflows
+            print(f"===> Running tests for subset of workflows: {' | '.join(workflow_names)}")
+        else:
+            print(f"===> Running tests for all workflows: {' | '.join(workflow_names)}")
 
         if not workflow_names:
             raise Exception("No workflows found!")
@@ -338,7 +350,7 @@ class ComfyUI:
                 tests = glob.glob(f"/root/workspace/workflows/{workflow}/test*.json")
             else:
                 tests = [f"/root/workspace/workflows/{workflow}/test.json"]
-            print("Running tests: ", tests)
+            print(f"Running tests for {workflow}: ", tests)
             for test in tests:
                 tool = Tool.from_yaml(f"/root/workspace/workflows/{workflow}/api.yaml")
                 if tool.status == "inactive":
