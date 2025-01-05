@@ -629,7 +629,7 @@ class ComfyUI:
                     raise Exception(f"Remap parameter {key} is missing original choices: {choices}")
                                 
     def _inject_args_into_workflow(self, workflow, tool, args):
-
+        base_model = "unknown"
         # Helper function to validate and normalize URLs
         def validate_url(url):
             if not isinstance(url, str):
@@ -719,7 +719,7 @@ class ComfyUI:
 
             # if there's a lora, replace mentions with embedding name
             if key == "prompt":
-                if base_model == "flux-dev":
+                if "flux" in base_model:
                     for lora_key in ["lora", "lora2"]:
                         if args.get(f"use_{lora_key}", False):
                             lora_strength = args.get(f"{lora_key}_strength", 0.7)
