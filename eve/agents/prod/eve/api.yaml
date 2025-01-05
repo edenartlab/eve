@@ -44,6 +44,8 @@ tools:
   lora_trainer:
   flux_trainer:
   news:
+  websearch:
+  weather:
   stable_audio:
   musicgen:
   audio_split_stems:

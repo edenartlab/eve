@@ -88,10 +88,10 @@ class Tool(Document, ABC):
     @classmethod
     def _get_schema(cls, key, from_yaml=False) -> dict:
         """Get schema for a tool, with detailed performance logging."""
-
+        
         if from_yaml:
             # YAML path
-            api_files = get_api_files(include_inactive=True)
+            api_files = get_api_files()
 
             if key not in api_files:
                 raise ValueError(f"Tool {key} not found")
@@ -123,7 +123,7 @@ class Tool(Document, ABC):
 
         parent_tool = schema.get("parent_tool")
         if parent_tool:
-            parent_schema = cls._get_schema(parent_tool, from_yaml)
+            parent_schema = cls._get_schema(parent_tool, from_yaml=from_yaml)
             handler = parent_schema.get("handler")
         else:
             handler = schema.get("handler")
@@ -475,12 +475,15 @@ def get_tools_from_api_files(
 ) -> Dict[str, Tool]:
     """Get all tools inside a directory"""
 
-    api_files = get_api_files(root_dir, include_inactive)
+    api_files = get_api_files(root_dir)
     tools = {
         key: _tool_cache.get(api_file) or Tool.from_yaml(api_file, cache=cache)
         for key, api_file in api_files.items()
         if tools is None or key in tools
     }
+
+    if not include_inactive:
+        tools = {k: v for k, v in tools.items() if v.status != "inactive"}
 
     return tools
 
@@ -518,8 +521,8 @@ def get_tools_from_mongo(
     return found_tools
 
 
-def get_api_files(root_dir: str = None, include_inactive: bool = False) -> List[str]:
-    """Get all tool directories inside a directory"""
+def get_api_files(root_dir: str = None) -> List[str]:
+    """Get all api.yaml files inside a directory"""
 
     if root_dir:
         root_dirs = [root_dir]
@@ -535,17 +538,9 @@ def get_api_files(root_dir: str = None, include_inactive: bool = False) -> List[
         for root, _, files in os.walk(root_dir):
             if "api.yaml" in files and "test.json" in files:
                 api_file = os.path.join(root, "api.yaml")
-                with open(api_file, "r") as f:
-                    schema = yaml.safe_load(f)
-                if schema.get("status") == "inactive" and not include_inactive:
-                    continue
-                key = schema.get("key", os.path.relpath(root).split("/")[-1])
-                if key in api_files:
-                    raise ValueError(f"Duplicate tool {key} found.")
-                api_files[key] = os.path.join(os.path.relpath(root), "api.yaml")
+                api_files[os.path.relpath(root).split("/")[-1]] = api_file
 
     return api_files
-
 
 # Tool cache for fetching commonly used tools
 _tool_cache: Dict[str, Dict[str, Tool]] = {}

@@ -75,7 +75,7 @@ def update(db: str, names: tuple):
     
     load_env(db)
 
-    api_files = get_api_files(include_inactive=True)
+    api_files = get_api_files()
     tools_order = {t: index for index, t in enumerate(api_tools_order)}
 
     if names:

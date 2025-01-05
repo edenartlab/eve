@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 import modal
 
@@ -5,21 +6,17 @@ from eve.task import task_handler_func
 from eve import eden_utils
 from eve.tools.tool_handlers import handlers
 
+db = os.getenv("DB", "STAGE").upper()
+if db not in ["PROD", "STAGE"]:
+    raise Exception(f"Invalid environment: {db}. Must be PROD or STAGE")
+app_name = "modal-tools-prod" if db == "PROD" else "modal-tools-stage"
 
 app = modal.App(
-    name="modal_tools",
+    name=app_name,
     secrets=[
-        modal.Secret.from_name("s3-credentials"),
-        modal.Secret.from_name("mongo-credentials"),
-        modal.Secret.from_name("replicate"),
-        modal.Secret.from_name("openai"),
-        modal.Secret.from_name("anthropic"),
-        modal.Secret.from_name("elevenlabs"),
-        modal.Secret.from_name("hedra"),
-        modal.Secret.from_name("newsapi"),
-        modal.Secret.from_name("runway"),
-        modal.Secret.from_name("sentry"),
-    ],   
+        modal.Secret.from_name("eve-secrets"),
+        modal.Secret.from_name(f"eve-secrets-{db}"),
+    ],
 )
 
 root_dir = Path(__file__).parent

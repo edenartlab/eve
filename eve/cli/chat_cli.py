@@ -16,15 +16,6 @@ from ..eden_utils import prepare_result, dump_json
 from ..agent import Agent
 from ..auth import get_my_eden_user
 
-# def preprocess_message(message):
-#     metadata_pattern = r"\{.*?\}"
-#     attachments_pattern = r"\[.*?\]"
-#     attachments_match = re.search(attachments_pattern, message)
-#     attachments = json.loads(attachments_match.group(0)) if attachments_match else []
-#     clean_message = re.sub(metadata_pattern, "", message)
-#     clean_message = re.sub(attachments_pattern, "", clean_message).strip()
-#     return clean_message, attachments
-
 
 async def async_chat(agent_name, new_thread=True, debug=False):
     if not debug:

@@ -3,8 +3,6 @@ import argparse
 import re
 from ably import AblyRealtime
 import aiohttp
-
-# import logging
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.constants import ChatAction
@@ -16,12 +14,14 @@ from telegram.ext import (
     filters,
     Application,
 )
+import asyncio
 
+from ... import load_env
 from ...clients import common
-from ...llm import UpdateType
-from ...eden_utils import prepare_result
 from ...agent import Agent
+from ...llm import UpdateType
 from ...user import User
+from ...eden_utils import prepare_result
 from ...models import ClientType
 
 
@@ -94,7 +94,10 @@ def replace_bot_mentions(message_text: str, bot_username: str, replacement: str)
 
 
 async def send_response(
-    message_type: str, chat_id: int, response: list, context: ContextTypes.DEFAULT_TYPE
+    message_type: str, 
+    chat_id: int, 
+    response: list, 
+    context: ContextTypes.DEFAULT_TYPE
 ):
     """
     Send messages, photos, or videos based on the type of response.
@@ -115,13 +118,21 @@ async def send_response(
 
 
 class EdenTG:
-    def __init__(self, token: str, agent: Agent, db: str = "STAGE"):
+    def __init__(
+        self, 
+        token: str, 
+        agent: Agent, 
+        local: bool = False
+    ):
         self.token = token
         self.agent = agent
-        self.db = db
-        self.tools = agent.get_tools()  # get_tools_from_mongo(db=self.db)
+        self.tools = agent.get_tools()
         self.known_users = {}
         self.known_threads = {}
+        if local:
+            self.api_url = "http://localhost:8000"
+        else:
+            self.api_url = os.getenv(f"EDEN_API_URL")
         self.channel_name = common.get_ably_channel_name(
             agent.name, ClientType.TELEGRAM
         )
@@ -129,6 +140,8 @@ class EdenTG:
         # Don't initialize Ably here - we'll do it in setup_ably
         self.ably_client = None
         self.channel = None
+        
+        self.typing_tasks = {}
 
     async def initialize(self, application):
         """Initialize the bot including Ably setup"""
@@ -143,6 +156,15 @@ class EdenTG:
         """Cleanup when the instance is destroyed"""
         if hasattr(self, "ably_client") and self.ably_client:
             self.ably_client.close()
+
+    async def _typing_loop(self, chat_id: int, application: Application):
+        """Keep sending typing action until stopped"""
+        try:
+            while True:
+                await application.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+                await asyncio.sleep(5)  # Telegram typing status expires after ~5 seconds
+        except asyncio.CancelledError:
+            pass
 
     async def setup_ably(self, application):
         """Initialize Ably client and subscribe to updates"""
@@ -166,7 +188,11 @@ class EdenTG:
             print(f"Processing update type: {update_type} for chat: {telegram_chat_id}")
 
             if update_type == UpdateType.START_PROMPT:
-                pass
+                # Start continuous typing
+                if telegram_chat_id not in self.typing_tasks:
+                    self.typing_tasks[telegram_chat_id] = asyncio.create_task(
+                        self._typing_loop(telegram_chat_id, application)
+                    )
 
             elif update_type == UpdateType.ERROR:
                 error_msg = data.get("error", "Unknown error occurred")
@@ -182,10 +208,10 @@ class EdenTG:
                     )
 
             elif update_type == UpdateType.TOOL_COMPLETE:
+                print(f"Tool complete: {data}")
                 result = data.get("result", {})
-                result["result"] = prepare_result(result["result"], db=self.db)
+                result["result"] = prepare_result(result["result"])
                 url = result["result"][0]["output"][0]["url"]
-
                 # Determine if it's a video or image
                 video_extensions = (".mp4", ".avi", ".mov", ".mkv", ".webm")
                 if any(url.lower().endswith(ext) for ext in video_extensions):
@@ -197,6 +223,12 @@ class EdenTG:
                         chat_id=telegram_chat_id, photo=url
                     )
 
+            elif update_type == UpdateType.END_PROMPT:
+                # Stop typing
+                if telegram_chat_id in self.typing_tasks:
+                    self.typing_tasks[telegram_chat_id].cancel()
+                    del self.typing_tasks[telegram_chat_id]
+
         # Subscribe using the async callback
         await self.channel.subscribe(async_callback)
         print(f"Subscribed to Ably channel: {self.channel_name}")
@@ -205,7 +237,7 @@ class EdenTG:
         """
         Handler for the /start command.
         """
-        await update.message.reply_text("Hello! I am your asynchronous bot.")
+        await update.message.reply_text(f"Hello! I am {self.agent.name}.")
 
     async def echo(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
@@ -231,19 +263,23 @@ class EdenTG:
             else None
         )
 
+        force_reply = False
+        if is_bot_mentioned or is_replied_to_bot or is_direct_message:
+            force_reply = True
+
         # Lookup thread
         thread_key = f"telegram-{chat_id}"
         if thread_key not in self.known_threads:
             self.known_threads[thread_key] = self.agent.request_thread(
-                key=thread_key,
-                db=self.db,
+                key=thread_key
             )
         thread = self.known_threads[thread_key]
 
         # Lookup user
         if user_id not in self.known_users:
             self.known_users[user_id] = User.from_telegram(
-                user_id, username, db=self.db
+                user_id, 
+                username
             )
         user = self.known_users[user_id]
 
@@ -270,14 +306,13 @@ class EdenTG:
                 message_text, me_bot.username, self.agent.name
             )
 
-        await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
-
         # Make API request
         api_url = os.getenv("EDEN_API_URL")
         request_data = {
             "user_id": str(user.id),
             "agent_id": str(self.agent.id),
             "thread_id": str(thread.id),
+            "force_reply": force_reply,
             "user_message": {
                 "content": cleaned_text,
                 "name": username,
@@ -309,19 +344,22 @@ class EdenTG:
                     return
 
 
-def start(env: str, db: str = "STAGE") -> None:
+def start(
+    env: str, 
+    local: bool = False
+) -> None:
     print("Starting Telegram client...")
     load_dotenv(env)
 
     agent_name = os.getenv("EDEN_AGENT_USERNAME")
-    agent = Agent.load(agent_name, db=db)
+    agent = Agent.load(agent_name)
 
     bot_token = os.getenv("CLIENT_TELEGRAM_TOKEN")
     if not bot_token:
         raise ValueError("CLIENT_TELEGRAM_TOKEN not found in environment variables")
 
     application = ApplicationBuilder().token(bot_token).build()
-    bot = EdenTG(bot_token, agent, db=db)
+    bot = EdenTG(bot_token, agent, local=local)
 
     # Setup handlers
     application.add_handler(CommandHandler("start", bot.start))
@@ -341,6 +379,6 @@ def start(env: str, db: str = "STAGE") -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Eden Telegram Bot")
     parser.add_argument("--env", help="Path to the .env file to load", default=".env")
-    parser.add_argument("--db", help="Database to use", default="STAGE")
+    parser.add_argument("--local", help="Run locally", action="store_true")
     args = parser.parse_args()
-    start(args.env, args.db)
+    start(args.env, args.local)
