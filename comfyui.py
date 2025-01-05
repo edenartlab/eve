@@ -337,9 +337,9 @@ class ComfyUI:
             if not all([w in workflow_names for w in test_workflows]):
                 raise Exception(f"One or more invalid workflows found: {', '.join(test_workflows)}")
             workflow_names = test_workflows
-            print(f"===> Running tests for subset of workflows: {' | '.join(workflow_names)}")
+            print(f"====> Running tests for subset of workflows: {' | '.join(workflow_names)}")
         else:
-            print(f"===> Running tests for all workflows: {' | '.join(workflow_names)}")
+            print(f"====> Running tests for all workflows: {' | '.join(workflow_names)}")
 
         if not workflow_names:
             raise Exception("No workflows found!")
@@ -474,20 +474,22 @@ class ComfyUI:
                 lora_prompt = f"{reference}, {lora_prompt}"
 
         return user_prompt, lora_prompt
-
+    
     def _inject_embedding_mentions_flux(self, text, embedding_trigger, lora_trigger_text):
-        pattern = r'(<{0}>|<{1}>|{0}|{1})'.format(
-            re.escape(embedding_trigger),
-            re.escape(embedding_trigger.lower())
-        )
-        text = re.sub(pattern, lora_trigger_text, text, flags=re.IGNORECASE)
-        text = re.sub(r'(<concept>)', lora_trigger_text, text, flags=re.IGNORECASE)
+        if not embedding_trigger:  # Handles both None and empty string
+            text = re.sub(r'(<concept>)', lora_trigger_text, text, flags=re.IGNORECASE)
+        else:
+            pattern = r'(<{0}>|<{1}>|{0}|{1})'.format(
+                re.escape(embedding_trigger),
+                re.escape(embedding_trigger.lower())
+            )
+            text = re.sub(pattern, lora_trigger_text, text, flags=re.IGNORECASE)
+            text = re.sub(r'(<concept>)', lora_trigger_text, text, flags=re.IGNORECASE)
 
-        if lora_trigger_text not in text: # Make sure the concept is always triggered:
+        if lora_trigger_text not in text:
             text = f"{lora_trigger_text}, {text}"
 
         return text
-    
 
     def _transport_lora_flux(self, lora_url: str):
         loras_folder = "/root/models/loras"
@@ -641,7 +643,6 @@ class ComfyUI:
 
         embedding_triggers = {"lora": None, "lora2": None}
         lora_trigger_texts = {"lora": None, "lora2": None}
-        lora_filenames = {"lora": None, "lora2": None}
 
         # download and transport files        
         for key, param in tool.model.model_fields.items():
@@ -668,7 +669,7 @@ class ComfyUI:
                 
                 if not lora_id:
                     args[key] = None
-                    args[f"{key}_strength"] = 0  # Only disable the specific LoRA's strength
+                    args[f"{key}_strength"] = 0
                     print(f"DISABLING {key}")
                     continue
                 
@@ -679,7 +680,7 @@ class ComfyUI:
                 #print("found lora:\n", lora)
 
                 if not lora:
-                    raise Exception(f"Lora {lora_id} not found")
+                    raise Exception(f"Lora {key} with id: {lora_id} not found!")
 
                 base_model = lora.get("base_model")
                 lora_url = lora.get("checkpoint")
@@ -701,11 +702,8 @@ class ComfyUI:
                     lora_filename = self._transport_lora_flux(lora_url)
                     embedding_triggers[key] = lora.get("args", {}).get("name")
                     lora_trigger_texts[key] = lora.get("lora_trigger_text")
-                    lora_filenames[key] = lora_filename
 
                 args[key] = lora_filename
-                args["use_lora"] = True if key == "lora" else args.get("use_lora", False)
-                args["use_lora2"] = True if key == "lora2" else args.get("use_lora2", False)
 
         for key, comfyui in tool.comfyui_map.items():
             
@@ -719,15 +717,15 @@ class ComfyUI:
             # if there's a lora, replace mentions with embedding name
             if key == "prompt":
                 if "flux" in base_model:
-                    for lora_key in ["lora", "lora2"]: # Apply both LoRAs if present
-                        if embedding_triggers[lora_key]:
+                    for lora_key in ["lora", "lora2"]:
+                        if args.get(f"use_{lora_key}", False):
                             lora_strength = args.get(f"{lora_key}_strength", 0.7)
                             value = self._inject_embedding_mentions_flux(
                                 value,
                                 embedding_triggers[lora_key],
                                 lora_trigger_texts[lora_key]
                             )
-                            print(f"INJECTED {lora_key} TRIGGER TEXT", value)
+                            print(f"====> INJECTED {lora_key} TRIGGER TEXT", value)
                 elif base_model == "sdxl":  
                     if embedding_trigger:
                         lora_strength = args.get("lora_strength", 0.7)
@@ -739,7 +737,7 @@ class ComfyUI:
                                 print("Updating no_token_prompt for SDXL: ", no_token_prompt)
                                 workflow[str(no_token_mapping.node_id)][no_token_mapping.field][no_token_mapping.subfield] = no_token_prompt
 
-                print("prompt updated:", value)
+                print("====> Final updated prompt for workflow: ", value)
 
             if comfyui.preprocessing is not None:
                 if comfyui.preprocessing == "csv":
