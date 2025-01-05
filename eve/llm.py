@@ -534,7 +534,6 @@ async def async_prompt_thread(
                 )
 
         if stop:
-            print("Stopping prompt thread")
             break
 
     yield ThreadUpdate(type=UpdateType.END_PROMPT)
