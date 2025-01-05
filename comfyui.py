@@ -10,7 +10,6 @@ DB=STAGE SKIP_TESTS=1 WORKSPACE=video modal deploy comfyui.py
 DB=STAGE SKIP_TESTS=1 WORKSPACE=video2 modal deploy comfyui.py
 DB=STAGE SKIP_TESTS=1 WORKSPACE=video_mochi modal deploy comfyui.py
 
-
 DB=PROD WORKSPACE=audio modal deploy comfyui.py
 DB=PROD WORKSPACE=batch_tools modal deploy comfyui.py
 DB=PROD WORKSPACE=flux modal deploy comfyui.py
@@ -48,6 +47,7 @@ import eve.eden_utils as eden_utils
 from eve.tool import Tool
 from eve.mongo import get_collection
 from eve.task import task_handler_method
+from eve.s3 import get_full_url
 
 GPUs = {
     "A100": modal.gpu.A100(),
@@ -237,9 +237,8 @@ downloads_vol = modal.Volume.from_name(
 app = modal.App(
     name=app_name, 
     secrets=[
-        modal.Secret.from_name("s3-credentials"),
-        modal.Secret.from_name("mongo-credentials"),
-        modal.Secret.from_name("openai"),
+        modal.Secret.from_name("eve-secrets"),
+        modal.Secret.from_name(f"eve-secrets-{db}"),
     ]
 )
 
@@ -266,13 +265,13 @@ class ComfyUI:
         t2 = time.time()
         self.launch_time = t2 - t1
 
-    def _execute(self, workflow_name: str, args: dict, db: str):
+    def _execute(self, workflow_name: str, args: dict):
         try:
             tool_path = f"/root/workspace/workflows/{workflow_name}"
             tool = Tool.from_yaml(f"{tool_path}/api.yaml")
             workflow = json.load(open(f"{tool_path}/workflow_api.json", 'r'))
             self._validate_comfyui_args(workflow, tool)
-            workflow = self._inject_args_into_workflow(workflow, tool, args, db=db)
+            workflow = self._inject_args_into_workflow(workflow, tool, args)
             prompt_id = self._queue_prompt(workflow)['prompt_id']
             outputs = self._get_outputs(prompt_id)
             output = outputs[str(tool.comfyui_output_node_id)]
@@ -292,14 +291,14 @@ class ComfyUI:
             raise
 
     @modal.method()
-    def run(self, tool_key: str, args: dict, db: str):
-        result = self._execute(tool_key, args, db=db)
-        return eden_utils.upload_result(result, db=db)
+    def run(self, tool_key: str, args: dict):
+        result = self._execute(tool_key, args)
+        return eden_utils.upload_result(result)
 
     @modal.method()
     @task_handler_method
-    async def run_task(self, tool_key: str, args: dict, db: str):
-        return self._execute(tool_key, args, db=db)
+    async def run_task(self, tool_key: str, args: dict):
+        return self._execute(tool_key, args)
         
     @modal.enter()
     def enter(self):
@@ -350,8 +349,8 @@ class ComfyUI:
                 test_name = f"{workflow}_{os.path.basename(test)}"
                 print(f"Running test: {test_name}")
                 t1 = time.time()
-                result = self._execute(workflow, test_args, db="STAGE")
-                result = eden_utils.upload_result(result, db="STAGE")
+                result = self._execute(workflow, test_args)
+                result = eden_utils.upload_result(result)
                 t2 = time.time()       
                 results[test_name] = result
                 results["_performance"][test_name] = t2 - t1
@@ -462,16 +461,16 @@ class ComfyUI:
 
         return user_prompt, lora_prompt
 
-    def _inject_embedding_mentions_flux(self, text, embedding_trigger, caption_prefix):
+    def _inject_embedding_mentions_flux(self, text, embedding_trigger, lora_trigger_text):
         pattern = r'(<{0}>|<{1}>|{0}|{1})'.format(
             re.escape(embedding_trigger),
             re.escape(embedding_trigger.lower())
         )
-        text = re.sub(pattern, caption_prefix, text, flags=re.IGNORECASE)
-        text = re.sub(r'(<concept>)', caption_prefix, text, flags=re.IGNORECASE)
+        text = re.sub(pattern, lora_trigger_text, text, flags=re.IGNORECASE)
+        text = re.sub(r'(<concept>)', lora_trigger_text, text, flags=re.IGNORECASE)
 
-        if caption_prefix not in text: # Make sure the concept is always triggered:
-            text = f"{caption_prefix}, {text}"
+        if lora_trigger_text not in text: # Make sure the concept is always triggered:
+            text = f"{lora_trigger_text}, {text}"
 
         return text
     
@@ -613,7 +612,7 @@ class ComfyUI:
                 if not all(choice in remap.map.keys() for choice in choices):
                     raise Exception(f"Remap parameter {key} is missing original choices: {choices}")
                                 
-    def _inject_args_into_workflow(self, workflow, tool, args, db="STAGE"):
+    def _inject_args_into_workflow(self, workflow, tool, args):
 
         # Helper function to validate and normalize URLs
         def validate_url(url):
@@ -626,7 +625,7 @@ class ComfyUI:
         pprint(args)        
 
         embedding_trigger = None
-        caption_prefix = None
+        lora_trigger_text = None
 
         # download and transport files        
         for key, param in tool.model.model_fields.items():
@@ -655,14 +654,18 @@ class ComfyUI:
                     args["lora_strength"] = 0
                     print("REMOVE LORA")
                     continue
+
+                print("LORA ID", lora_id)
+                print(type(lora_id))
                 
-                models = get_collection("models", db=db)
+                models = get_collection("models3")
                 lora = models.find_one({"_id": ObjectId(lora_id)})
-                base_model = lora.get("base_model")
-                print("LORA", lora)
+                print("found lora", lora)
+
                 if not lora:
                     raise Exception(f"Lora {lora_id} not found")
 
+                base_model = lora.get("base_model")
                 lora_url = lora.get("checkpoint")
                 #lora_name = lora.get("name")
                 #pretrained_model = lora.get("args").get("sd_model_version")
@@ -672,6 +675,8 @@ class ComfyUI:
                 else:
                     print("LORA URL", lora_url)
 
+                lora_url = get_full_url(lora_url)
+                print("lora url", lora_url)
                 print("base model", base_model)
 
                 if base_model == "sdxl":
@@ -679,10 +684,11 @@ class ComfyUI:
                 elif base_model == "flux-dev":
                     lora_filename = self._transport_lora_flux(lora_url)
                     embedding_trigger = lora.get("args", {}).get("name")
-                    caption_prefix = lora.get("args", {}).get("caption_prefix")
+                    lora_trigger_text = lora.get("lora_trigger_text")
 
                 args[key] = lora_filename
-                print("lora filename", lora_filename)
+                args["use_lora"] = True
+                print("lora filename", lora_filename)    
         
         # inject args
         # comfyui_map = {
@@ -702,8 +708,10 @@ class ComfyUI:
             # if there's a lora, replace mentions with embedding name
             if key == "prompt" and embedding_trigger:
                 lora_strength = args.get("lora_strength", 0.5)
-                if base_model == "flux_dev":
-                    value = self._inject_embedding_mentions_flux(value, embedding_trigger, caption_prefix)
+                if base_model == "flux-dev":
+                    print("INJECTING LORA TRIGGER TEXT", lora_trigger_text)
+                    value = self._inject_embedding_mentions_flux(value, embedding_trigger, lora_trigger_text)
+                    print("INJECTED LORA TRIGGER TEXT", value)
                 elif base_model == "sdxl":  
                     no_token_prompt, value = self._inject_embedding_mentions_sdxl(value, embedding_trigger, embeddings_filename, lora_mode, lora_strength)
                     

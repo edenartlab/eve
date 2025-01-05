@@ -13,6 +13,18 @@ from .thread import Thread
 from .tool import Tool
 from .mongo import Collection, get_collection
 from .user import User, Manna
+from .models import Model
+
+default_presets_flux = {
+    "flux_dev_lora": {},
+    "runway": {},
+    "reel": {},
+}
+default_presets_sdxl = {
+    "txt2img": {},
+    "runway": {},
+    "reel": {},
+}
 
 
 @Collection("users3")
@@ -32,7 +44,8 @@ class Agent(User):
     name: str
     description: str
     instructions: str
-    models: Optional[Dict[str, ObjectId]] = None
+    # models: Optional[Dict[str, ObjectId]] = None
+    model: Optional[ObjectId] = None
     test_args: Optional[List[Dict[str, Any]]] = None
     
     tools: Optional[Dict[str, Dict]] = None
@@ -41,8 +54,8 @@ class Agent(User):
     def __init__(self, **data):
         if isinstance(data.get('owner'), str):
             data['owner'] = ObjectId(data['owner'])
-        if data.get('models'):
-            data['models'] = {k: ObjectId(v) if isinstance(v, str) else v for k, v in data['models'].items()}
+        # if data.get('models'):
+        #     data['models'] = {k: ObjectId(v) if isinstance(v, str) else v for k, v in data['models'].items()}
         # Load environment variables into secrets dictionary
         env_dir = Path(__file__).parent / "agents"
         env_vars = dotenv_values(f"{str(env_dir)}/{data['username']}/.env")
@@ -61,56 +74,58 @@ class Agent(User):
         owner = schema.get('owner')
         schema["owner"] = ObjectId(owner) if isinstance(owner, str) else owner
         schema["username"] = schema.get("username") or file_path.split("/")[-2]
-        schema["tools"] = {k: v or {} for k, v in schema.get("tools", {}).items()}
+        schema = cls._setup_tools(schema)
 
         return schema
-    
+
     @classmethod
-    def convert_from_mongo(cls, schema: dict, db="STAGE") -> dict:
-        schema["tools"] = {k: v or {} for k, v in schema.get("tools", {}).items()}
+    def convert_from_mongo(cls, schema: dict) -> dict:
+        schema = cls._setup_tools(schema)
         return schema
 
-    def save(self, db=None, **kwargs):
+    def save(self, **kwargs):
         # do not overwrite any username if it already exists
-        users = get_collection(User.collection_name, db=db)
+        users = get_collection(User.collection_name)
         if users.find_one({"username": self.username, "type": "user"}):
             raise ValueError(f"Username {self.username} already taken")
 
         # save user, and create mannas record if it doesn't exist
         kwargs["featureFlags"] = ["freeTools"]  # give agents free tools for now
-        super().save(db, {"username": self.username, "type": "agent"}, **kwargs)
-        Manna.load(user=self.id, db=db)
+        super().save(
+            upsert_filter={"username": self.username, "type": "agent"}, 
+            **kwargs
+        )
+        Manna.load(user=self.id)  # create manna record if it doesn't exist
        
     @classmethod
-    def from_yaml(cls, file_path, db="STAGE", cache=False):
+    def from_yaml(cls, file_path, cache=False):
         if cache:
             if file_path not in _agent_cache:
-                _agent_cache[file_path] = super().from_yaml(file_path, db=db)
+                _agent_cache[file_path] = super().from_yaml(file_path)
             return _agent_cache[file_path]
         else:
-            return super().from_yaml(file_path, db=db)
+            return super().from_yaml(file_path)
 
     @classmethod
-    def from_mongo(cls, document_id, db="STAGE", cache=False):
+    def from_mongo(cls, document_id, cache=False):
         if cache:
             if document_id not in _agent_cache:
-                _agent_cache[str(document_id)] = super().from_mongo(document_id, db=db)
+                _agent_cache[str(document_id)] = super().from_mongo(document_id)
             return _agent_cache[str(document_id)]
         else:
-            return super().from_mongo(document_id, db=db)
+            return super().from_mongo(document_id)
     
     @classmethod
-    def load(cls, username, db=None, cache=False):
+    def load(cls, username, cache=False):
         if cache:
             if username not in _agent_cache:
-                _agent_cache[username] = super().load(username=username, db=db)
+                _agent_cache[username] = super().load(username=username)
             return _agent_cache[username]
         else:
-            return super().load(username=username, db=db)
+            return super().load(username=username)
 
-    def request_thread(self, key=None, user=None, db="STAGE"):
+    def request_thread(self, key=None, user=None):
         thread = Thread(
-            db=db,
             key=key,
             agent=self.id,
             user=user,
@@ -118,29 +133,77 @@ class Agent(User):
         thread.save()
         return thread
 
-    def get_tools(self, db="STAGE", cache=False):
-        if not self.tools:
-            return {}
+    @classmethod
+    def _setup_tools(cls, schema: dict) -> dict:
+        """
+        Sets up the agent's tools based on the tools defined in the schema.
+        If a model (lora) is set, hardcode it into the tools.
+        """
+        tools = schema.get("tools")
+        if tools:
+            schema["tools"] = {k: v or {} for k, v in tools.items()}
+        else:
+            schema["tools"] = default_presets_flux
+            if "model" in schema:
+                model = Model.from_mongo(schema["model"])
+                if model.base_model == "flux-dev":
+                    schema["tools"] = default_presets_flux
+                    schema["tools"]["flux_dev_lora"] = {
+                        "name": f"Generate {model.name}",
+                        "description": f"Generate an image of {model.name}",
+                        "parameters": {
+                            "prompt": {
+                                "description": f"The text prompt. Always mention {model.name}."
+                            },
+                            "lora": {
+                                "default": str(model.id),
+                                "hide_from_agent": True,
+                            },
+                            "lora_strength": {
+                                "default": 1.0,
+                                "hide_from_agent": True,
+                            }
+                        }
+                    }
+                    schema["tools"]["reel"] = {
+                        "name": f"Generate {model.name}",
+                        "tip": f"Make sure to always include {model.name} in all of the prompts.",
+                        "parameters": {
+                            "lora": {
+                                "default": str(model.id),
+                                "hide_from_agent": True,
+                            },
+                            "lora_strength": {
+                                "default": 1.0,
+                                "hide_from_agent": True,
+                            }
+                        }
+                    }
+                elif model.base_model == "sdxl":
+                    schema["tools"] = default_presets_sdxl
+
+        return schema
+
+    def get_tools(self,cache=False):
+        if not hasattr(self, "tools") or not self.tools:
+            self.tools = {}
+            
         if cache:
             self.tools_cache = self.tools_cache or {}
             for k, v in self.tools.items():
                 if k not in self.tools_cache:
-                    tool = Tool.from_raw_yaml({"parent_tool": k, **v}, db=db)
+                    tool = Tool.from_raw_yaml({"parent_tool": k, **v})
                     self.tools_cache[k] = tool
             return self.tools_cache
-        else:        
+        else:
             return {
-                k: Tool.from_raw_yaml({"parent_tool": k, **v}, db=db)
+                k: Tool.from_raw_yaml({"parent_tool": k, **v})
                 for k, v in self.tools.items()
             }
 
-    def get_tool(self, tool_name, db="STAGE", cache=False):
-        return self.get_tools(db=db, cache=cache)[tool_name]
+    def get_tool(self, tool_name, cache=False):
+        return self.get_tools(cache=cache)[tool_name]
     
-    def get_system_message(self):
-        system_message = f"{self.description}\n\n{self.instructions}\n\n{generic_instructions}"
-        return system_message
-
 
 def get_agents_from_api_files(root_dir: str = None, agents: List[str] = None, include_inactive: bool = False) -> Dict[str, Agent]:
     """Get all agents inside a directory"""
@@ -160,16 +223,16 @@ def get_agents_from_api_files(root_dir: str = None, agents: List[str] = None, in
     return agents
 
 
-def get_agents_from_mongo(db: str, agents: List[str] = None, include_inactive: bool = False) -> Dict[str, Agent]:
+def get_agents_from_mongo(agents: List[str] = None, include_inactive: bool = False) -> Dict[str, Agent]:
     """Get all agents from mongo"""
     
     filter = {"key": {"$in": agents}} if agents else {}
     agents = {}
-    agents_collection = get_collection(Agent.collection_name, db=db)
+    agents_collection = get_collection(Agent.collection_name)
     for agent in agents_collection.find(filter):
         try:
-            agent = Agent.convert_from_mongo(agent, db=db)
-            agent = Agent.from_schema(agent, db=db)
+            agent = Agent.convert_from_mongo(agent)
+            agent = Agent.from_schema(agent)
             if agent.status != "inactive" and not include_inactive:
                 if agent.key in agents:
                     raise ValueError(f"Duplicate agent {agent.key} found.")
@@ -182,6 +245,8 @@ def get_agents_from_mongo(db: str, agents: List[str] = None, include_inactive: b
 
 def get_api_files(root_dir: str = None, include_inactive: bool = False) -> List[str]:
     """Get all agent directories inside a directory"""
+
+    env = os.getenv("DB")
     
     if root_dir:
         root_dirs = [root_dir]
@@ -189,7 +254,7 @@ def get_api_files(root_dir: str = None, include_inactive: bool = False) -> List[
         eve_root = os.path.dirname(os.path.abspath(__file__))
         root_dirs = [
             os.path.join(eve_root, agents_dir) 
-            for agents_dir in ["agents"]
+            for agents_dir in [f"agents/{env}"]
         ]
 
     api_files = {}
@@ -210,11 +275,3 @@ def get_api_files(root_dir: str = None, include_inactive: bool = False) -> List[
 
 # Agent cache for fetching commonly used agents
 _agent_cache: Dict[str, Dict[str, Agent]] = {}
-
-generic_instructions = """Follow these additional guidelines:
-- If the tool you are using has the "n_samples" parameter, and the user requests for multiple versions of the same thing, set n_samples to the number of images the user desires for that prompt. If they want N > 1 images that have different prompts, then make N separate tool calls with n_samples=1.
-- When a lora is set, absolutely make sure to include "<concept>" in the prompt to refer to object or person represented by the lora.
-- If you get an error using a tool because the user requested an invalid parameter, or omitted a required parameter, ask the user for clarification before trying again. Do *not* try to guess what the user meant.
-- If you get an error using a tool because **YOU** made a mistake, do not apologize for the oversight or explain what *you* did wrong, just fix your mistake, and automatically retry the task.
-- When returning the final results to the user, do not include *any* text except a markdown link to the image(s) and/or video(s) with the prompt as the text and the media url as the link. DO NOT include any other text, such as the name of the tool used, a summary of the results, the other args, or any other explanations. Just [prompt](url).
-- When doing multi-step tasks, present your intermediate results in each message before moving onto the next tool use. For example, if you are asked to create an image and then animate it, make sure to return the image (including the url) to the user (as markdown, like above)."""

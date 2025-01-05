@@ -1,5 +1,4 @@
 import click
-
 from .tool_cli import tool
 from .agent_cli import agent
 from .chat_cli import chat

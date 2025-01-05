@@ -7,9 +7,9 @@ from eve.thread import Thread
 
 # todo: since prompt_thread handles exceptions, this won't actually fail if there are errors
 def test_prompting():
-    user = get_my_eden_user(db="STAGE")
+    user = get_my_eden_user()
 
-    agent = Agent.load("eve", db="STAGE")
+    agent = Agent.load("eve")
     tools = agent.get_tools()
     thread = agent.request_thread()
 
@@ -20,7 +20,6 @@ def test_prompting():
     ]
 
     for msg in prompt_thread(
-        db="STAGE",
         user=user,
         agent=agent,
         thread=thread,
@@ -32,7 +31,7 @@ def test_prompting():
 
 
 def test_prompting2():
-    user = get_my_eden_user(db="STAGE")
+    user = get_my_eden_user()
 
     messages = [
         UserMessage(name="jim", content="i have an apple."),
@@ -41,12 +40,11 @@ def test_prompting2():
         UserMessage(name="kate", content="what is my name?"),
     ]
 
-    agent = Agent.load("eve", db="STAGE")
+    agent = Agent.load("eve")
     tools = agent.get_tools()
     thread = agent.request_thread()
 
     for msg in prompt_thread(
-        db="STAGE",
         user=user,
         agent=agent,
         thread=thread,

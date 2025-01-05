@@ -7,13 +7,13 @@ from ..tool import Tool
 
 class ModalTool(Tool):
     @Tool.handle_run
-    async def async_run(self, args: Dict, db: str):
+    async def async_run(self, args: Dict):
         func = modal.Function.lookup(
             "modal_tools", 
             "run", 
             environment_name="main"
         )
-        result = await func.remote.aio(tool_key=self.parent_tool or self.key, args=args, db=db)
+        result = await func.remote.aio(tool_key=self.parent_tool or self.key, args=args)
         return result
 
     @Tool.handle_start_task

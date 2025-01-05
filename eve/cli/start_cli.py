@@ -5,6 +5,7 @@ import traceback
 import multiprocessing
 from pathlib import Path
 
+from .. import load_env
 from ..models import ClientType
 from ..clients.discord.client import start as start_discord
 from ..clients.telegram.client import start as start_telegram
@@ -19,11 +20,11 @@ from ..clients.farcaster.client import start as start_farcaster
     default="STAGE",
     help="DB to save against",
 )
-@click.option(
-    "--env",
-    type=click.Path(exists=True, resolve_path=True),
-    help="Path to environment file",
-)
+# @click.option(
+#     "--env",
+#     type=click.Path(exists=True, resolve_path=True),
+#     help="Path to environment file",
+# )
 @click.option(
     "--platforms",
     type=click.Choice(
@@ -43,15 +44,14 @@ from ..clients.farcaster.client import start as start_farcaster
     default=False,
     help="Run locally",
 )
-def start(agent: str, db: str, env: str, platforms: tuple, local: bool):
+def start(agent: str, db: str, platforms: tuple, local: bool):
     """Start one or more clients from yaml files"""
     try:
-        agent_dir = Path(__file__).parent.parent / "agents" / agent
+        load_env(db)
+
+        agent_dir = Path(__file__).parent.parent / "agents" / db.lower() / agent
         env_path = agent_dir / ".env"
         yaml_path = agent_dir / "api.yaml"
-
-        db = db.upper()
-        env_path = env or env_path
 
         clients_to_start = {}
 
@@ -82,15 +82,15 @@ def start(agent: str, db: str, env: str, platforms: tuple, local: bool):
             try:
                 if client_type == ClientType.DISCORD:
                     p = multiprocessing.Process(
-                        target=start_discord, args=(env_path, db, local)
+                        target=start_discord, args=(env_path, local)
                     )
                 elif client_type == ClientType.TELEGRAM:
                     p = multiprocessing.Process(
-                        target=start_telegram, args=(env_path, db)
+                        target=start_telegram, args=(env_path, local)
                     )
                 elif client_type == ClientType.FARCASTER:
                     p = multiprocessing.Process(
-                        target=start_farcaster, args=(env_path, db)
+                        target=start_farcaster, args=(env_path, local)
                     )
 
                 p.start()
@@ -141,11 +141,20 @@ def start(agent: str, db: str, env: str, platforms: tuple, local: bool):
     default=False,
     help="Enable auto-reload on code changes",
 )
-def api(host: str, port: int, reload: bool):
+@click.option(
+    "--db",
+    type=click.Choice(["STAGE", "PROD"], case_sensitive=False),
+    default="STAGE",
+    help="DB to save against",
+)
+def api(host: str, port: int, reload: bool, db: str):
     """Start the Eve API server"""
     import uvicorn
+    import os
 
-    click.echo(click.style(f"Starting API server on {host}:{port}...", fg="blue"))
+    load_env(db)
+    
+    click.echo(click.style(f"Starting API server on {host}:{port} with DB={db}...", fg="blue"))
 
     # Adjusted the import path to look one directory up
     uvicorn.run(

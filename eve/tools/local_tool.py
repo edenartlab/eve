@@ -13,8 +13,8 @@ class LocalTool(Tool):
         self._tasks = {}
 
     @Tool.handle_run
-    async def async_run(self, args: Dict, db: str):
-        result = await handlers[self.parent_tool or self.key](args, db=db)
+    async def async_run(self, args: Dict):
+        result = await handlers[self.parent_tool or self.key](args)
         return result
     
     @Tool.handle_start_task
@@ -49,5 +49,5 @@ class LocalTool(Tool):
         
 
 @task_handler_func
-async def run_task(tool_key: str, args: dict, db: str):
-    return await handlers[tool_key](args, db=db)
+async def run_task(tool_key: str, args: dict):
+    return await handlers[tool_key](args)

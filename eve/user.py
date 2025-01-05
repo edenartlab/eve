@@ -4,6 +4,7 @@ from typing import Optional, Literal, List
 
 from .mongo import Document, Collection, get_collection, MongoDocumentNotFound
 
+
 @Collection("mannas")
 class Manna(Document):
     user: ObjectId
@@ -11,16 +12,15 @@ class Manna(Document):
     subscriptionBalance: float = 0
 
     @classmethod
-    def load(cls, user: ObjectId | str, db=None):
+    def load(cls, user: ObjectId):
         try:
-            user = ObjectId(user) if isinstance(user, str) else user
-            return super().load(user=user, db=db)
+            return super().load(user=user)
         except MongoDocumentNotFound as e:
             # if mannas not found, check if user exists, and create a new manna document
-            user = User.from_mongo(user, db=db)
+            user = User.from_mongo(user)
             if not user:
                 raise Exception(f"User {user} not found")
-            manna = Manna(user=user.id, db=db)
+            manna = Manna(user=user.id)
             manna.save()
             return manna
         except Exception as e:
@@ -39,6 +39,14 @@ class Manna(Document):
         # todo: make it refund to subscription balance first if it spent from there
         self.balance += amount
         self.save()
+
+
+@Collection("transactions")
+class Transaction(Document):
+    manna: ObjectId
+    task: ObjectId
+    amount: float
+    type: Literal["spend", "refund"]
 
 
 @Collection("users3")
@@ -77,82 +85,67 @@ class User(Document):
     farcasterUsername: Optional[str] = None
 
     def check_manna(self, amount: float):
-        manna = Manna.load(self.id, db=self.db)
+        manna = Manna.load(self.id)
         total_balance = manna.balance + manna.subscriptionBalance
         if total_balance < amount:
             raise Exception(
                 f"Insufficient manna balance. Need {amount} but only have {total_balance}"
             )
 
-    def spend_manna(self, amount: float):
-        if amount == 0:
-            return
-        manna = Manna.load(self.id, db=self.db)
-        manna.spend(amount)
-
-    def refund_manna(self, amount: float):
-        if amount == 0:
-            return
-        manna = Manna.load(self.id, db=self.db)
-        manna.refund(amount)
-
     @classmethod
-    def from_discord(cls, discord_id, discord_username, db):
+    def from_discord(cls, discord_id, discord_username):
         discord_id = str(discord_id)
         discord_username = str(discord_username)
-        users = get_collection(cls.collection_name, db=db)
+        users = get_collection(cls.collection_name)
         user = users.find_one({"discordId": discord_id})
         if not user:
-            username = cls._get_unique_username(f"discord_{discord_username}", db=db)
+            username = cls._get_unique_username(f"discord_{discord_username}")
             new_user = cls(
-                db=db,
                 discordId=discord_id,
                 discordUsername=discord_username,
                 username=username,
             )
             new_user.save()
             return new_user
-        return cls(**user, db=db)
+        return cls(**user)
 
     @classmethod
-    def from_farcaster(cls, farcaster_id, farcaster_username, db):
+    def from_farcaster(cls, farcaster_id, farcaster_username):
         farcaster_id = str(farcaster_id)
         farcaster_username = str(farcaster_username)
-        users = get_collection(cls.collection_name, db=db)
+        users = get_collection(cls.collection_name)
         user = users.find_one({"farcasterId": farcaster_id})
         if not user:
-            username = cls._get_unique_username(f"farcaster_{farcaster_username}", db=db)
+            username = cls._get_unique_username(f"farcaster_{farcaster_username}")
             new_user = cls(
-                db=db,
                 farcasterId=farcaster_id,
                 farcasterUsername=farcaster_username,
                 username=username,
             )
             new_user.save()
             return new_user
-        return cls(**user, db=db)
+        return cls(**user)
 
     @classmethod
-    def from_telegram(cls, telegram_id, telegram_username, db):
+    def from_telegram(cls, telegram_id, telegram_username):
         telegram_id = str(telegram_id)
         telegram_username = str(telegram_username)
-        users = get_collection(cls.collection_name, db=db)        
+        users = get_collection(cls.collection_name)
         user = users.find_one({"telegramId": telegram_id})
         if not user:
-            username = cls._get_unique_username(f"telegram_{telegram_username}", db=db)
+            username = cls._get_unique_username(f"telegram_{telegram_username}")
             new_user = cls(
-                db=db,
                 telegramId=telegram_id,
                 telegramUsername=telegram_username,
                 username=username,
             )
             new_user.save()
             return new_user
-        return cls(**user, db=db)
+        return cls(**user)
 
     @classmethod
-    def _get_unique_username(cls, base_username, db):
-        users = get_collection(cls.collection_name, db=db)
+    def _get_unique_username(cls, base_username):
+        users = get_collection(cls.collection_name)
         username = base_username
         counter = 2
         while users.find_one({"username": username}):

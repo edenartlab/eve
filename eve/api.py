@@ -90,9 +90,9 @@ class ChatRequest(BaseModel):
 
 
 async def handle_task(tool: str, user_id: str, args: dict = {}) -> dict:
-    tool = Tool.load(key=tool, db=db)
+    tool = Tool.load(key=tool)
     return await tool.async_start_task(
-        requester_id=user_id, user_id=user_id, args=args, db=db
+        requester_id=user_id, user_id=user_id, args=args
     )
 
 
@@ -119,14 +119,14 @@ async def setup_chat(
         except Exception as e:
             logger.error(f"Failed to create Ably channel: {str(e)}")
 
-    user = User.from_mongo(request.user_id, db=db)
-    agent = Agent.from_mongo(request.agent_id, db=db, cache=True)
-    tools = agent.get_tools(db=db, cache=True)
+    user = User.from_mongo(request.user_id)
+    agent = Agent.from_mongo(request.agent_id, cache=True)
+    tools = agent.get_tools(cache=True)
 
     if request.thread_id:
-        thread = Thread.from_mongo(request.thread_id, db=db)
+        thread = Thread.from_mongo(request.thread_id)
     else:
-        thread = agent.request_thread(db=db, user=user.id)
+        thread = agent.request_thread(user=user.id)
         background_tasks.add_task(async_title_thread, thread, request.user_message)
 
     return user, agent, thread, tools, update_channel
@@ -150,8 +150,8 @@ async def handle_chat(
         )
 
         async def run_prompt():
+            
             async for update in async_prompt_thread(
-                db=db,
                 user=user,
                 agent=agent,
                 thread=thread,
@@ -222,7 +222,6 @@ async def stream_chat(
 
         async def event_generator():
             async for update in async_prompt_thread(
-                db=db,
                 user=user,
                 agent=agent,
                 thread=thread,
