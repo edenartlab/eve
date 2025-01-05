@@ -58,8 +58,9 @@ class Agent(User):
         #     data['models'] = {k: ObjectId(v) if isinstance(v, str) else v for k, v in data['models'].items()}
         # Load environment variables into secrets dictionary
         env_dir = Path(__file__).parent / "agents"
-        env_vars = dotenv_values(f"{str(env_dir)}/{data['username']}/.env")
-        data['secrets'] = {key: SecretStr(value) for key, value in env_vars.items()}            
+        db = os.getenv("DB")
+        env_vars = dotenv_values(f"{str(env_dir)}/{db.lower()}/{data['username']}/.env")
+        data['secrets'] = {key: SecretStr(value) for key, value in env_vars.items()}
         super().__init__(**data)
 
     @classmethod

@@ -63,7 +63,7 @@ class Eden2Cog(commands.Cog):
         self.channel = None
 
         # Track message IDs
-        self.pending_messages = {}
+        # self.pending_messages = {}
         self.typing_tasks = {}  # {channel_id: asyncio.Task}
 
     async def setup_ably(self):
@@ -139,7 +139,7 @@ class Eden2Cog(commands.Cog):
             except Exception as e:
                 print(f"Error processing update: {e}")
                 traceback.print_exc()
-                
+
         await self.channel.subscribe(async_callback)
         print(f"Subscribed to Ably channel: {self.channel_name}")
 
