@@ -338,6 +338,7 @@ image = (
     .env({"DB": db, "MODAL_SERVE": os.getenv("MODAL_SERVE")})
     .apt_install("git", "libmagic1", "ffmpeg", "wget")
     .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
+    .run_commands(["playwright install"])
     .copy_local_dir(str(workflows_dir), "/workflows")
 )
 

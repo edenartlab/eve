@@ -49,7 +49,7 @@ def test_client():
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE
             )
-            time.sleep(3)
+            time.sleep(5)
             server_url = "http://localhost:8000"
 
         print("server_url", server_url)

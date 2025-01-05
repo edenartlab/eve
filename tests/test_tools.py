@@ -22,7 +22,7 @@ async def async_run_all_tools(
 ):
     """Test multiple tools with their test args"""
     # Get tools from either yaml files or mongo
-    tool_dict = get_tools_from_api_files(tools=tools, include_inactive=True) if yaml else get_tools_from_mongo(tools=tools)
+    tool_dict = get_tools_from_api_files(tools=tools) if yaml else get_tools_from_mongo(tools=tools)
     
     # Create and run tasks
     tasks = [async_run_tool(tool, api, mock) for tool in tool_dict.values()]

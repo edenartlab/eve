@@ -220,26 +220,7 @@ class Agent(User):
             collection = get_collection(cls.collection_name)
             db_agent = collection.find_one({"_id": agent_id})
             if db_agent and db_agent.get("updatedAt") != _agent_cache[cache_key].updatedAt:
-                print("reload", cache_key)
                 _agent_cache[cache_key].reload()
-
-
-def get_agents_from_api_files(root_dir: str = None, agents: List[str] = None, include_inactive: bool = False) -> Dict[str, Agent]:
-    """Get all agents inside a directory"""
-    
-    api_files = get_api_files(root_dir, include_inactive)
-    
-    all_agents = {
-        key: Agent.from_yaml(api_file) 
-        for key, api_file in api_files.items()
-    }
-
-    if agents:
-        agents = {k: v for k, v in all_agents.items() if k in agents}
-    else:
-        agents = all_agents
-
-    return agents
 
 
 def get_agents_from_mongo(agents: List[str] = None, include_inactive: bool = False) -> Dict[str, Agent]:
@@ -262,10 +243,11 @@ def get_agents_from_mongo(agents: List[str] = None, include_inactive: bool = Fal
 
     return agents
 
-def get_api_files(root_dir: str = None, include_inactive: bool = False) -> List[str]:
+
+def get_api_files(root_dir: str = None) -> List[str]:
     """Get all agent directories inside a directory"""
 
-    env = os.getenv("DB")
+    db = os.getenv("DB").lower()
     
     if root_dir:
         root_dirs = [root_dir]
@@ -273,22 +255,16 @@ def get_api_files(root_dir: str = None, include_inactive: bool = False) -> List[
         eve_root = os.path.dirname(os.path.abspath(__file__))
         root_dirs = [
             os.path.join(eve_root, agents_dir) 
-            for agents_dir in [f"agents/{env}"]
+            for agents_dir in [f"agents/{db}"]
         ]
 
     api_files = {}
     for root_dir in root_dirs:
         for root, _, files in os.walk(root_dir):
             if "api.yaml" in files and "test.json" in files:
-                api_file = os.path.join(root, "api.yaml")
-                with open(api_file, 'r') as f:
-                    schema = yaml.safe_load(f)
-                if schema.get("status") == "inactive" and not include_inactive:
-                    continue
-                key = schema.get("key", os.path.relpath(root).split("/")[-1])
-                if key in api_files:
-                    raise ValueError(f"Duplicate agent {key} found.")
-                api_files[key] = os.path.join(os.path.relpath(root), "api.yaml")
+                api_path = os.path.join(root, "api.yaml")
+                key = os.path.relpath(root).split("/")[-1]
+                api_files[key] = api_path
             
     return api_files
 

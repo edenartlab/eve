@@ -25,7 +25,7 @@ def update(db: str, names: tuple):
     
     load_env(db)
     
-    api_files = get_api_files(include_inactive=True)
+    api_files = get_api_files()
     agents_order = {agent: index for index, agent in enumerate(api_agents_order)}
 
     if names:
