@@ -3,7 +3,7 @@ import subprocess
 # from ... import eden_utils
 
 
-async def handler(args: dict, db: str):
+async def handler(args: dict):
     from .... import eden_utils
     
     video_url = args.get("video")

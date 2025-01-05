@@ -4,6 +4,7 @@ import asyncio
 import aiohttp
 import argparse
 import discord
+import traceback
 from discord.ext import commands
 from dotenv import load_dotenv
 from ably import AblyRealtime
@@ -62,7 +63,7 @@ class Eden2Cog(commands.Cog):
         self.channel = None
 
         # Track message IDs
-        self.pending_messages = {}
+        # self.pending_messages = {}
         self.typing_tasks = {}  # {channel_id: asyncio.Task}
 
     async def setup_ably(self):
@@ -108,8 +109,9 @@ class Eden2Cog(commands.Cog):
                     try:
                         original_message = await channel.fetch_message(int(message_id))
                         reference = original_message.to_reference()
-                    except:
+                    except Exception as e:
                         print(f"Could not fetch original message {message_id}")
+                        traceback.print_exc()
 
                 if update_type == UpdateType.START_PROMPT:
                     await self.start_typing(channel)
@@ -136,6 +138,7 @@ class Eden2Cog(commands.Cog):
 
             except Exception as e:
                 print(f"Error processing update: {e}")
+                traceback.print_exc()
 
         await self.channel.subscribe(async_callback)
         print(f"Subscribed to Ably channel: {self.channel_name}")

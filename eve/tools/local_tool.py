@@ -14,6 +14,7 @@ class LocalTool(Tool):
 
     @Tool.handle_run
     async def async_run(self, args: Dict):
+        print("running", self.parent_tool or self.key, args)
         result = await handlers[self.parent_tool or self.key](args)
         return result
     

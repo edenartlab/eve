@@ -1,4 +1,5 @@
 import modal
+import os
 from typing import Dict
 
 from ..task import Task
@@ -8,8 +9,9 @@ from ..tool import Tool
 class ModalTool(Tool):
     @Tool.handle_run
     async def async_run(self, args: Dict):
+        db = os.getenv("DB", "STAGE").upper()
         func = modal.Function.lookup(
-            "modal_tools", 
+            f"modal-tools-{db}", 
             "run", 
             environment_name="main"
         )
@@ -18,8 +20,9 @@ class ModalTool(Tool):
 
     @Tool.handle_start_task
     async def async_start_task(self, task: Task):
+        db = os.getenv("DB", "STAGE").upper()
         func = modal.Function.lookup(
-            "modal_tools", 
+            f"modal-tools-{db}", 
             "run_task", 
             environment_name="main"
         )

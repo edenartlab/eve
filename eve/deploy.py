@@ -91,7 +91,7 @@ def modify_client_file(file_path: str, agent_key: str) -> None:
     # Replace the static secret name with the dynamic one
     modified_content = content.replace(
         'modal.Secret.from_name("client-secrets")',
-        f'modal.Secret.from_name("{agent_key}-client-secrets")',
+        f'modal.Secret.from_name("{agent_key}-secrets")',
     )
 
     # Fix pyproject.toml path to use absolute path
@@ -123,13 +123,13 @@ def deploy_client(agent_key: str, client_name: str):
             raise Exception(f"Client modal file not found: {client_path}")
 
 
-def stop_client(agent_key: str, client_name: str):
+def stop_client(agent_key: str, client_name: str, db: str):
     subprocess.run(
         [
             "modal",
             "app",
             "stop",
-            f"{agent_key}-client-{client_name}",
+            f"{agent_key}-{client_name}-{db}",
             "-e",
             DEPLOYMENT_ENV_NAME,
         ],

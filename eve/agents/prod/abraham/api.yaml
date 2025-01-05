@@ -45,3 +45,7 @@ clients:
     enabled: true
   telegram:
     enabled: true
+
+deployments:
+  - discord
+  - telegram

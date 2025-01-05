@@ -46,7 +46,7 @@ def prepare_client_file(file_path: str, agent_key: str, env: str) -> str:
     # Replace the static secret name with the dynamic one
     modified_content = content.replace(
         'modal.Secret.from_name("client-secrets")',
-        f'modal.Secret.from_name("{agent_key}-client-secrets-{env}")',
+        f'modal.Secret.from_name("{agent_key}-secrets-{env}")',
     )
 
     # Fix pyproject.toml path to use absolute path
@@ -75,7 +75,7 @@ def create_secrets(agent_key: str, secrets_dict: dict, env: str):
         "modal",
         "secret",
         "create",
-        f"{agent_key}-client-secrets-{env}",
+        f"{agent_key}-secrets-{env}",
     ]
     for key, value in secrets_dict.items():
         if value is not None:
@@ -92,7 +92,7 @@ def deploy_client(agent_key: str, client_name: str, env: str):
         try:
             # Create a temporary modified version of the client file
             temp_file = prepare_client_file(str(client_path), agent_key, env)
-            app_name = f"{agent_key}-client-{client_name}-{env}"
+            app_name = f"{agent_key}-{client_name}-{env}"
 
             # Deploy using the temporary file
             subprocess.run(
