@@ -14,7 +14,7 @@ async def safe_evaluate(page, script: str, default_value: Any) -> Tuple[Any, str
     except Exception as e:
         return default_value, str(e)
 
-async def handler(args: dict, env: str = None) -> Dict[str, str]:
+async def handler(args: dict) -> Dict[str, str]:
     """
     Handler function for the websearch tool that scrapes content from specified URLs.
     
@@ -28,9 +28,7 @@ async def handler(args: dict, env: str = None) -> Dict[str, str]:
     Returns:
         Dict[str, str]: Dictionary containing the scraped content and any errors
     """
-    url = args.get('url')
-    if not url:
-        raise ValueError("URL parameter is required")
+    url = args["url"]
         
     # Get configurable limits from args with defaults
     max_links = int(args.get('max_links', 15))
@@ -147,8 +145,7 @@ async def handler(args: dict, env: str = None) -> Dict[str, str]:
             await browser.close()
             
             # Format output with error reporting
-            output = f"""
-# Page Analysis: {url}
+            output = f"""# Page Analysis: {url}
 
 ## Title
 {page_content['title']}

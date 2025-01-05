@@ -7,6 +7,7 @@ from .media_utils.video_concat.handler import handler as video_concat
 
 from .wallet.send_eth.handler import handler as send_eth
 from .websearch.handler import handler as websearch
+from .weather.handler import handler as weather
 
 from .media_utils.time_remapping.handler import handler as time_remapping
 from .twitter.get_tweets.handler import handler as get_tweets
@@ -41,4 +42,5 @@ handlers = {
     "memegen": memegen,
     "websearch": websearch,
     "send_eth": send_eth,
+    "weather": weather,
 }
