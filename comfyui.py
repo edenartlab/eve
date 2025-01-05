@@ -701,7 +701,10 @@ class ComfyUI:
                 elif base_model == "flux-dev":
                     lora_filename = self._transport_lora_flux(lora_url)
                     embedding_triggers[key] = lora.get("args", {}).get("name")
-                    lora_trigger_texts[key] = lora.get("lora_trigger_text")
+                    try:
+                        lora_trigger_texts[key] = lora.get("lora_trigger_text")
+                    except: # old flux LoRA's:
+                        lora_trigger_texts[key] = lora.get("args", {}).get("caption_prefix")
 
                 args[key] = lora_filename
 
