@@ -162,14 +162,15 @@ class ToolCall(BaseModel):
 
         if self.status == "completed":
             result["result"] = prepare_result(self.result)
-            outputs = [
-                o.get("url")
+            file_outputs = [
+                o["url"]
                 for r in result.get("result", [])
                 for o in r.get("output", [])
+                if isinstance(o, dict) and o.get("url")
             ]
-            outputs = [
+            file_outputs = [
                 o
-                for o in outputs
+                for o in file_outputs
                 if o and o.endswith((".jpg", ".png", ".webp", ".mp4", ".webm"))
             ]
             try:
@@ -184,7 +185,7 @@ class ToolCall(BaseModel):
                         os.path.join("/tmp/eden_file_cache/", url.split("/")[-1]),
                         overwrite=False,
                     )
-                    for url in outputs
+                    for url in file_outputs
                 ]
 
                 if schema == "anthropic":
