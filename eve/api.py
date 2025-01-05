@@ -31,6 +31,7 @@ from eve.thread import Thread
 from eve.mongo import serialize_document
 from eve.agent import Agent
 from eve.user import User
+from eve.task import Task
 from eve import deploy
 
 # Config and logging setup
@@ -68,6 +69,9 @@ class TaskRequest(BaseModel):
     args: dict
     user_id: str
 
+class CancelRequest(BaseModel):
+    task_id: str
+    user_id: str
 
 class UpdateConfig(BaseModel):
     sub_channel_name: Optional[str] = None
@@ -133,10 +137,32 @@ async def setup_chat(
 
 
 @web_app.post("/create")
-async def task_admin(request: TaskRequest, _: dict = Depends(auth.authenticate_admin)):
+async def task_admin(
+    request: TaskRequest, 
+    _: dict = Depends(auth.authenticate_admin)
+):
     result = await handle_task(request.tool, request.user_id, request.args)
     return serialize_document(result.model_dump())
 
+
+async def handle_cancel(task_id: str, user_id: str):
+    task = Task.from_mongo(task_id)
+    assert str(task.user) == user_id, "Task user does not match user_id"
+    if task.status in ["completed", "failed", "cancelled"]:
+        return {"status": task.status}
+    tool = Tool.load(key=task.tool)
+    tool.cancel(task)
+    return {"status": task.status}
+    
+
+@web_app.post("/cancel")
+async def cancel(
+    request: CancelRequest, 
+    _: dict = Depends(auth.authenticate_admin)
+):
+    result = await handle_cancel(request.task_id, request.user_id)
+    return result
+    
 
 @web_app.post("/chat")
 async def handle_chat(
@@ -273,7 +299,7 @@ async def deploy_handler(
         if request.credentials:
             create_modal_secrets(
                 request.credentials,
-                f"{request.agent_key}-client-secrets",
+                f"{request.agent_key}-secrets",
             )
 
         if request.command == DeployCommand.DEPLOY:
@@ -283,7 +309,7 @@ async def deploy_handler(
                 "message": f"Deployed {request.platform.value} client",
             }
         elif request.command == DeployCommand.STOP:
-            stop_client(request.agent_key, request.platform.value)
+            stop_client(request.agent_key, request.platform.value, db)
             return {
                 "status": "success",
                 "message": f"Stopped {request.platform.value} client",
