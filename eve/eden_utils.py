@@ -26,7 +26,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from . import s3
 
 
-def prepare_result(result, db: str, summarize=False):
+def prepare_result(result, summarize=False):
     if isinstance(result, dict):
         if "error" in result:
             return result
@@ -34,31 +34,31 @@ def prepare_result(result, db: str, summarize=False):
             result["mediaAttributes"].pop("blurhash", None)
         if "filename" in result:
             filename = result.pop("filename")
-            url = s3.get_full_url(filename, db)
+            url = s3.get_full_url(filename)
             if summarize:
                 return url
             else:
                 result["url"] = url
-        return {k: prepare_result(v, db, summarize) for k, v in result.items()}
+        return {k: prepare_result(v, summarize) for k, v in result.items()}
     elif isinstance(result, list):
-        return [prepare_result(item, db, summarize) for item in result]
+        return [prepare_result(item, summarize) for item in result]
     else:
         return result
 
 
-def upload_result(result, db: str, save_thumbnails=False, save_blurhash=False):
+def upload_result(result, save_thumbnails=False, save_blurhash=False):
     if isinstance(result, dict):
-        return {k: upload_result(v, db, save_thumbnails=save_thumbnails, save_blurhash=save_blurhash) for k, v in result.items()}
+        return {k: upload_result(v, save_thumbnails=save_thumbnails, save_blurhash=save_blurhash) for k, v in result.items()}
     elif isinstance(result, list):
-        return [upload_result(item, db, save_thumbnails=save_thumbnails, save_blurhash=save_blurhash) for item in result]
+        return [upload_result(item, save_thumbnails=save_thumbnails, save_blurhash=save_blurhash) for item in result]
     elif isinstance(result, str) and is_file(result):
-        return upload_media(result, db, save_thumbnails=save_thumbnails, save_blurhash=save_blurhash)
+        return upload_media(result, save_thumbnails=save_thumbnails, save_blurhash=save_blurhash)
     else:
         return result
 
 
-def upload_media(output, db, save_thumbnails=True, save_blurhash=True):
-    file_url, sha = s3.upload_file(output, db=db)
+def upload_media(output, save_thumbnails=True, save_blurhash=True):
+    file_url, sha = s3.upload_file(output)
     filename = file_url.split("/")[-1]
 
     media_attributes, thumbnail = get_media_attributes(output)
@@ -70,8 +70,8 @@ def upload_media(output, db, save_thumbnails=True, save_blurhash=True):
                 (width, 2560), Image.Resampling.LANCZOS
             ) if width < thumbnail.width else thumbnail
             img_bytes = PIL_to_bytes(img)
-            s3.upload_buffer(img_bytes, name=f"{sha}_{width}", file_type=".webp", db=db)
-            s3.upload_buffer(img_bytes, name=f"{sha}_{width}", file_type=".jpg", db=db)
+            s3.upload_buffer(img_bytes, name=f"{sha}_{width}", file_type=".webp")
+            s3.upload_buffer(img_bytes, name=f"{sha}_{width}", file_type=".jpg")
 
     if save_blurhash and thumbnail:
         try:
@@ -81,7 +81,7 @@ def upload_media(output, db, save_thumbnails=True, save_blurhash=True):
         except Exception as e:
             print(f"Error encoding blurhash: {e}")
 
-    return {"filename": filename, "mediaAttributes": media_attributes, "file_url": file_url}
+    return {"filename": filename, "mediaAttributes": media_attributes}
 
 
 def get_media_attributes(file_path):
@@ -193,7 +193,7 @@ def mock_image(args):
     draw.text((5, 5), wrapped_text, fill="black", font=font)
     image = image.resize((512, 512), Image.LANCZOS)
     buffer = PIL_to_bytes(image)
-    url, _ = s3.upload_buffer(buffer, db="STAGE")
+    url, _ = s3.upload_buffer(buffer)
     return url
 
 

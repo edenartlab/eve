@@ -9,16 +9,22 @@ Todo:
 """
 
 
-async def handler(args: dict, db: str):
+async def handler(args: dict):
     client = RunwayML()
 
     
+    
 
     try:
+        ratio = "1280:768" if args["ratio"] == "16:9" else "768:1280"
+        
         task = client.image_to_video.create(
             model='gen3a_turbo',
             prompt_image=args["prompt_image"],
-            prompt_text=args["prompt_text"][:512]
+            prompt_text=args["prompt_text"][:512],
+            duration=int(args["duration"]),
+            ratio=ratio,
+            watermark=False
         )
     except runwayml.APIConnectionError as e:
         print("The server could not be reached")
@@ -56,6 +62,15 @@ async def handler(args: dict, db: str):
 
     print("task finished2", task.status)
     print(task)
+
+
+    """
+    
+    task finished2 FAILED
+TaskRetrieveResponse(id='48947b97-c260-492e-b662-bec5aa725ebf', created_at=datetime.datetime(2025, 1, 1, 20, 43, 5, 303000, tzinfo=datetime.timezone.utc), status='FAILED', failure='An unexpected error occurred.', failure_code='INTERNAL.BAD_OUTPUT.CODE01', output=None, progress=None, createdAt='2025-01-01T20:43:05.303Z', failureCode='INTERNAL.BAD_OUTPUT.CODE01')
+Error An unexpected error occurred.
+    
+    """
 
     if task.status == "FAILED":
         print("Error", task.failure)

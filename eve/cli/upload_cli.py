@@ -1,5 +1,6 @@
 import click
 from ..s3 import upload_file
+from .. import load_env
 
 @click.command()
 @click.option(
@@ -11,11 +12,12 @@ from ..s3 import upload_file
 @click.argument("files", nargs=-1, required=False)
 def upload(db: str, files: tuple):
     """Upload agents to mongo"""
-    db = db.upper()
+    
+    load_env(db)
     
     for file in files:
         try:
-            result = upload_file(file, db=db)
+            result = upload_file(file)
             url = result[0]
             click.echo(
                 click.style(

@@ -1,6 +1,8 @@
 import time
 import logging
 import requests
+from datetime import datetime, timedelta
+from dotenv import load_dotenv
 from requests_oauthlib import OAuth1Session
 
 from ...agent import Agent
@@ -19,6 +21,9 @@ class X:
 
         self.last_processed_id = None
         self.oauth = self._init_oauth_session()
+
+        print("GET BEARER TOKEN")
+        print(self.bearer_token)
 
     def _init_oauth_session(self):
         """Initializes OAuth1 session."""
@@ -68,6 +73,21 @@ class X:
             params=params
         )
         return response.json() if response else {}
+
+
+    def fetch_followings(self):
+        """Fetches the latest followings of the user."""
+        response = self._make_request(
+            'post',
+            f"https://api.twitter.com/2/users/{self.user_id}/following",
+            headers={"Authorization": f"Bearer {self.bearer_token}"},
+            params={}
+        )
+        return response.json() if response else {}
+    
+
+
+
 
     def get_newest_tweet(self, data):
         """Gets the newest tweet from the data."""
@@ -244,3 +264,156 @@ class X:
         else:
             logging.error("Failed to post tweet: None response from _make_request.")
             raise Exception("Failed to post tweet. See logs for details.")
+
+
+
+
+
+
+    def get_following222(self, usernames):
+        """Fetches the list of accounts each specified username is following."""
+        following_data = {}
+
+        for username in usernames:
+            response = self._make_request(
+                'get',
+                f"https://api.twitter.com/2/users/by/username/{username}",
+                headers={"Authorization": f"Bearer {self.bearer_token}"}
+            )
+
+            if not response:
+                logging.error(f"Failed to fetch user info for {username}.")
+                following_data[username] = []
+                continue
+
+            user_id = response.json().get("data", {}).get("id")
+
+            if not user_id:
+                logging.error(f"User ID not found for {username}.")
+                following_data[username] = []
+                continue
+
+            follows_response = self._make_request(
+                'get',
+                f"https://api.twitter.com/2/users/{user_id}/following",
+                headers={"Authorization": f"Bearer {self.bearer_token}"},
+                params={"max_results": 1000}  # Adjust as needed for pagination.
+            )
+
+            if follows_response:
+                following_data[username] = [
+                    follow.get("username") for follow in follows_response.json().get("data", [])
+                ]
+            else:
+                following_data[username] = []
+
+        return following_data
+
+    def get_recent_tweets(self, usernames, timeframe_minutes=60):
+        """Fetches tweets from the given users within the specified timeframe."""
+        recent_tweets = {}
+        time_threshold = datetime.utcnow() - timedelta(minutes=timeframe_minutes)
+
+        for username in usernames:
+            response = self._make_request(
+                'get',
+                f"https://api.twitter.com/2/users/by/username/{username}",
+                headers={"Authorization": f"Bearer {self.bearer_token}"}
+            )
+
+            if not response:
+                logging.error(f"Failed to fetch user info for {username}.")
+                recent_tweets[username] = []
+                continue
+
+            user_id = response.json().get("data", {}).get("id")
+
+            if not user_id:
+                logging.error(f"User ID not found for {username}.")
+                recent_tweets[username] = []
+                continue
+
+            tweets_response = self._make_request(
+                'get',
+                f"https://api.twitter.com/2/users/{user_id}/tweets",
+                headers={"Authorization": f"Bearer {self.bearer_token}"},
+                params={"max_results": 100, "tweet.fields": "created_at"}
+            )
+
+            if not tweets_response:
+                logging.error(f"Failed to fetch tweets for {username}.")
+                recent_tweets[username] = []
+                continue
+
+            tweets = tweets_response.json().get("data", [])
+            recent_tweets[username] = [
+                tweet for tweet in tweets
+                if datetime.strptime(tweet["created_at"], "%Y-%m-%dT%H:%M:%S.%fZ") >= time_threshold
+            ]
+
+        return recent_tweets
+
+
+
+
+
+
+    def get_all_followings(self, user_ids, max_results=1000):
+        """
+        Retrieves all followings for each user in user_ids using the Twitter v2 endpoint.
+        Returns a dict mapping user_id -> list_of_following_users.
+
+        Note: Each user requires its own call. If a user has a large following list, 
+              we will paginate until we've retrieved them all, using 'next_token'.
+        """
+        url_template = "https://api.twitter.com/2/users/{}/following"
+        headers = {
+            "Authorization": f"Bearer {self.bearer_token}",
+            "User-Agent": "v2UserFollowingLookupPython"
+        }
+
+        all_followings = {}
+
+        for user_id in user_ids:
+            followings = []
+            pagination_token = None
+
+            while True:
+                params = {
+                    "max_results": max_results
+                }
+                if pagination_token:
+                    params["pagination_token"] = pagination_token
+
+                # Use _make_request but set oauth=False to use Bearer token
+                # (the v2 'following' endpoint typically uses Bearer token).
+                response = self._make_request(
+                    "post",
+                    url_template.format(user_id),
+                    oauth=False,
+                    headers=headers,
+                    params=params
+                )
+
+                if not response:
+                    logging.error(f"Error fetching followings for user {user_id}")
+                    break
+
+                data = response.json()
+                # If Twitter returns an error structure, log it
+                if "errors" in data:
+                    logging.error(f"Error fetching followings for user {user_id}: {data}")
+                    break
+
+                followings_page = data.get("data", [])
+                followings.extend(followings_page)
+
+                meta = data.get("meta", {})
+                pagination_token = meta.get("next_token")
+                if not pagination_token:
+                    break
+
+            # Store all followings for this user
+            all_followings[user_id] = followings
+
+        return all_followings

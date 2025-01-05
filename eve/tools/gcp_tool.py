@@ -14,7 +14,7 @@ class GCPTool(Tool):
     gpu: str
     
     @Tool.handle_run
-    async def async_run(self, args: Dict, db: str):
+    async def async_run(self, args: Dict):
         raise NotImplementedError("Not implemented yet, need a GCP Task ID")
         
     @Tool.handle_start_task
@@ -25,7 +25,6 @@ class GCPTool(Tool):
             gpu=self.gpu,
             gpu_count=1,
             task_id=str(task.id),
-            db=task.db
         )
         return handler_id
     
@@ -81,9 +80,9 @@ def submit_job(
     machine_type,
     gpu,
     gpu_count,
-    task_id, 
-    db
+    task_id
 ):
+    db = os.getenv("DB")
     aiplatform = get_ai_platform_client()
     job_name = f"flux-{task_id}"
     job = aiplatform.CustomJob(

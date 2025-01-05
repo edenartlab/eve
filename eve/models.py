@@ -19,6 +19,8 @@ class Model(Document):
     args: Dict[str, Any]
     checkpoint: str
     base_model: str
+    lora_trigger_text: Optional[str] = None
+
     # users: SkipJsonSchema[Optional[Collection]] = Field(None, exclude=True)
 
     # def __init__(self, env, **data):
@@ -61,7 +63,7 @@ class Model(Document):
             if doc.get("slug")
         ]
         new_version = max(versions or [0]) + 1
-        users = get_collection("users3", db=self.db)
+        users = get_collection("users3")
         username = users.find_one({"_id": self.user})["username"]
         # username = self.users.find_one({"_id": self.user})["username"]
         self.slug = f"{username}/{name}/v{new_version}"

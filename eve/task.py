@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import asyncio
 import traceback
 
-from .user import User
+from .user import User, Manna, Transaction
 from .mongo import Document, Collection
 from . import eden_utils
 from . import sentry_sdk
@@ -59,12 +59,36 @@ class Task(Document):
         super().__init__(**data)
 
     @classmethod
-    def from_handler_id(self, handler_id, db):
-        tasks = self.get_collection(db)
+    def from_handler_id(self, handler_id):
+        tasks = self.get_collection()
         task = tasks.find_one({"handler_id": handler_id})
         if not task:
             raise Exception("Task not found")    
-        return super().load(self, task["_id"], db)
+        return super().load(self, task["_id"])
+
+    def spend_manna(self):
+        if self.cost == 0:
+            return
+        manna = Manna.load(self.requester)
+        manna.spend(self.cost)
+        Transaction(
+            manna=manna.id,
+            task=self.id,
+            amount=self.cost,
+            type="spend",
+        ).save()
+
+    def refund_manna(self):
+        n_samples = self.args.get("n_samples", 1)
+        refund_amount = (self.cost or 0) * (n_samples - len(self.result or [])) / n_samples
+        manna = Manna.load(self.requester)
+        manna.refund(refund_amount)
+        Transaction(
+            manna=manna.id,
+            task=self.id,
+            amount=refund_amount,
+            type="refund",
+        ).save()
 
 
 def task_handler_func(func):
@@ -108,13 +132,13 @@ async def _task_handler(func, *args, **kwargs):
                 task_args["seed"] = task_args["seed"] + i
 
             # Run both functions concurrently
-            main_task = func(*args[:-1], task.parent_tool or task.tool, task_args, task.db)
+            main_task = func(*args[:-1], task.parent_tool or task.tool, task_args)
             preprocess_task = _preprocess_task(task)
             result, preprocess_result = await asyncio.gather(main_task, preprocess_task)
 
             if output_type in ["image", "video", "audio", "lora"]:
                 result["output"] = result["output"] if isinstance(result["output"], list) else [result["output"]]
-                result = eden_utils.upload_result(result, db=task.db, save_thumbnails=True, save_blurhash=True)
+                result = eden_utils.upload_result(result, save_thumbnails=True, save_blurhash=True)
 
                 for output in result["output"]:
                     name = preprocess_result.get("name") or task_args.get("prompt") or args.get("text_input")
@@ -131,7 +155,7 @@ async def _task_handler(func, *args, **kwargs):
                         mediaAttributes=output['mediaAttributes'],
                         name=name
                     )
-                    new_creation.save(db=task.db)
+                    new_creation.save()
                     output["creation"] = new_creation.id
 
             results.extend([result])
@@ -158,12 +182,8 @@ async def _task_handler(func, *args, **kwargs):
         task_update = {
             "status": "failed",
             "error": str(error),
-        }
-        
-        n_samples = task.args.get("n_samples", 1)
-        refund_amount = (task.cost or 0) * (n_samples - len(task.result or [])) / n_samples
-        user = User.from_mongo(task.user, db=task.db)
-        user.refund_manna(refund_amount)
+        }        
+        task.refund_manna()
         
         return task_update.copy()
 

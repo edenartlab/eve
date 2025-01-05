@@ -3,8 +3,8 @@ from ....agent import Agent
 from .. import X
 
 
-async def handler(args: dict, db: str):
-    agent = Agent.load(args["agent"], db=db)
+async def handler(args: dict):
+    agent = Agent.load(args["agent"])
     
     x = X(agent)
 

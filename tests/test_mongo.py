@@ -1,6 +1,6 @@
 """
 Todo:
-VersionableMongoModel.load(t1.id, collection_name="stories", db="STAGE")
+VersionableMongoModel.load(t1.id, collection_name="stories")
 -> schema = recreate_base_model(document['schema'])
 * this works but strong typing is not working. 
 
@@ -38,7 +38,6 @@ def test_mongo_document():
         user: ObjectId
 
     t = MongoModelTest(
-        db="STAGE", 
         num=2,
         args={"foo": "bar"}, 
         user=ObjectId("666666663333366666666666")
@@ -46,10 +45,9 @@ def test_mongo_document():
 
     t.save()
 
-    t2 = MongoModelTest.from_mongo(t.id, db="STAGE")
+    t2 = MongoModelTest.from_mongo(t.id)
 
     assert t2 == MongoModelTest(
-        db="STAGE", 
         num=2, 
         args={"foo": "bar"}, 
         user=ObjectId("666666663333366666666666"), 
@@ -61,11 +59,11 @@ def test_mongo_document():
     # t2.update(invalid_arg="this is ignored", num=7, args={"foo": "hello world"})
     t2.update(num=7, args={"foo": "hello world"})
 
-    t3 = MongoModelTest.from_mongo(t2.id, db="STAGE")
+    t3 = MongoModelTest.from_mongo(t2.id)
 
     assert t.id == t2.id == t3.id
 
-    assert t3 == MongoModelTest(db="STAGE", num=7, args={"foo": "hello world"}, user=ObjectId("666666663333366666666666"), id=t2.id, createdAt=t3.createdAt, updatedAt=t3.updatedAt)
+    assert t3 == MongoModelTest(num=7, args={"foo": "hello world"}, user=ObjectId("666666663333366666666666"), id=t2.id, createdAt=t3.createdAt, updatedAt=t3.updatedAt)
 
 
 
@@ -85,7 +83,6 @@ def _test_versionable_base_model():
             base_model_field=InnerModel(string_field="test5", number_field=7)
         ),
         collection_name="stories",
-        db="STAGE"
     )
 
     t1.save()
@@ -118,7 +115,7 @@ def _test_versionable_base_model():
 
     print("T2 a")
     print(t1.id)
-    t2 = VersionableMongoModel.load(t1.id, collection_name="stories", db="STAGE")
+    t2 = VersionableMongoModel.load(t1.id, collection_name="stories")
     print(t2)
     print("T2 b")
 
@@ -143,7 +140,7 @@ def _test_versionable_base_model():
     # t2.save()
 
     # print("T3 a")
-    # t3 = VersionableMongoModel.load(t1.id, collection_name="stories", db="STAGE")
+    # t3 = VersionableMongoModel.load(t1.id, collection_name="stories")
     # print(t3)
     # print("T3 b")
 
@@ -166,7 +163,7 @@ def _test_versionable_base_model():
 
     # t3.save()
 
-    # t4 = VersionableMongoModel.load(t1.id, collection_name="stories", db="STAGE")
+    # t4 = VersionableMongoModel.load(t1.id, collection_name="stories")
 
     # assert t4.current.model_dump() == t3_expected.model_dump()
 

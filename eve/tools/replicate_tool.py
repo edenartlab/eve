@@ -24,10 +24,10 @@ class ReplicateTool(Tool):
     output_handler: str = "normal"
     
     @Tool.handle_run
-    async def async_run(self, args: Dict, db: str):
+    async def async_run(self, args: Dict):
         check_replicate_api_token()
-        args = self._format_args_for_replicate(args)
         if self.version:
+            args = self._format_args_for_replicate(args)
             prediction = await self._create_prediction(args, webhook=False)        
             prediction.wait()
             if self.output_handler == "eden":
@@ -41,10 +41,11 @@ class ReplicateTool(Tool):
                 result = {"output": prediction.output}
         else:
             replicate_model = self._get_replicate_model(args)
+            args = self._format_args_for_replicate(args)
             result = {
                 "output": replicate.run(replicate_model, input=args)
             }
-        result = eden_utils.upload_result(result, db=db)
+        result = eden_utils.upload_result(result)
         return result
 
     @Tool.handle_start_task
@@ -103,29 +104,32 @@ class ReplicateTool(Tool):
             is_number = parameter.get('type') in ['integer', 'float']
             alias = parameter.get('alias')
             lora = parameter.get('type') == 'lora'
+            
             if field in new_args:
                 if lora:
-                    lora_doc = get_collection(Model.collection_name, db=self.db).find_one({"_id": ObjectId(args[field])}) if args[field] else None
+                    loras = get_collection(Model.collection_name)
+                    lora_doc = loras.find_one({"_id": ObjectId(args[field])}) if args[field] else None
                     if lora_doc:
-                        lora_url = lora_doc.get("checkpoint")
+                        lora_url = s3.get_full_url(lora_doc.get("checkpoint"))
                         lora_name = lora_doc.get("name")
-                        caption_prefix = lora_doc.get("args", {}).get("caption_prefix")
+                        lora_trigger_text = lora_doc.get("lora_trigger_text")
                         new_args[field] = lora_url
                         if "prompt" in new_args:
                             pattern = re.compile(re.escape(lora_name), re.IGNORECASE)
-                            new_args["prompt"] = pattern.sub(caption_prefix, new_args['prompt'])
+                            new_args["prompt"] = pattern.sub(lora_trigger_text, new_args['prompt'])
                 if is_number:
                     new_args[field] = float(args[field])
                 elif is_array:
                     new_args[field] = "|".join([str(p) for p in args[field]])
                 if alias:
                     new_args[alias] = new_args.pop(field)
+
         return new_args
 
     def _get_replicate_model(self, args: dict):
         """Use default model or a substitute model conditional on an arg"""
         replicate_model = self.replicate_model
-        
+
         if self.replicate_model_substitutions:
             for cond, model in self.replicate_model_substitutions.items():
                 if args.get(cond):
@@ -135,11 +139,10 @@ class ReplicateTool(Tool):
 
     async def _create_prediction(self, args: dict, webhook=True):
         replicate_model = self._get_replicate_model(args)
-        user, model = replicate_model.split('/', 1)
-        
+        user, model = replicate_model.split('/', 1)        
         webhook_url = get_webhook_url() if webhook else None
         webhook_events_filter = ["start", "completed"] if webhook else None
-
+        
         if self.version == "deployment":
             deployment = await replicate.deployments.async_get(f"{user}/{model}")
             prediction = await deployment.predictions.async_create(
@@ -170,18 +173,12 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
 
     if status == "failed":
         task.update(status="failed", error=error)
-        n_samples = task.args.get("n_samples", 1)
-        refund_amount = (task.cost or 0) * (n_samples - len(task.result or [])) / n_samples
-        user = User.from_mongo(task.user, db=task.db)
-        user.refund_manna(refund_amount)
+        task.refund_manna()
         return {"status": "failed", "error": error}
     
     elif status == "canceled":
         task.update(status="cancelled")
-        n_samples = task.args.get("n_samples", 1)
-        refund_amount = (task.cost or 0) * (n_samples - len(task.result or [])) / n_samples
-        user = User.from_mongo(task.user, db=task.db)
-        user.refund_manna(refund_amount)
+        task.refund_manna()
         return {"status": "cancelled"}
     
     elif status == "processing":
@@ -195,10 +192,10 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
         if output_handler in ["eden", "trainer"]:
             thumbnails = output[-1]["thumbnails"]
             output = output[-1]["files"]
-            output = eden_utils.upload_result(output, db=task.db, save_thumbnails=True, save_blurhash=True)
+            output = eden_utils.upload_result(output, save_thumbnails=True, save_blurhash=True)
             result = [{"output": [out]} for out in output]
         else:
-            output = eden_utils.upload_result(output, db=task.db, save_thumbnails=True, save_blurhash=True)
+            output = eden_utils.upload_result(output, save_thumbnails=True, save_blurhash=True)
             result = [{"output": [out]} for out in output]
 
         for r, res in enumerate(result):
@@ -207,11 +204,10 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
                     filename = output["filename"]
                     thumbnail = eden_utils.upload_media(
                         thumbnails[0], 
-                        db=task.db, 
                         save_thumbnails=False, 
                         save_blurhash=False
                     ) if thumbnails else None
-                    url = s3.get_full_url(filename, db=task.db)
+                    url = s3.get_full_url(filename)
                     model = Model(
                         name=task.args["name"],
                         user=task.user,
@@ -236,7 +232,7 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
                         mediaAttributes=output["mediaAttributes"],
                         name=name
                     )
-                    creation.save(db=task.db)
+                    creation.save()
                     result[r]["output"][o]["creation"] = creation.id
         
         run_time = (datetime.now(timezone.utc) - task.createdAt).total_seconds()

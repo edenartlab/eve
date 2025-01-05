@@ -1,5 +1,5 @@
 name: Banny
-owner: 6544502e4cd811f27c430b56
+owner: 6526f38042a1043421aa28e6
 userImage: https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/405024ab0572704cad07a0d7c22158ef443d2d988490e4f1a538e235d321a9c9.png
 featureFlags:
   - freeTools
@@ -55,7 +55,7 @@ tools:
         hide_from_agent: true
         hide_from_ui: true
   reel:
-    tip: Make sure to always include Banny in the prompts.
+    tip: Make sure to always include Banny in all of the prompts.
     parameters:
       lora:
         default: 6766760643808b38016c64ce

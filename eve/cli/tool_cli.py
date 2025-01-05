@@ -3,6 +3,7 @@ import random
 import asyncio
 import traceback
 
+from .. import load_env
 from ..eden_utils import save_test_results, prepare_result, dump_json, CLICK_COLORS
 from ..auth import get_my_eden_user
 from ..tool import Tool, get_tools_from_mongo, get_tools_from_api_files, get_api_files
@@ -71,7 +72,9 @@ def tool():
 @click.argument("names", nargs=-1, required=False)
 def update(db: str, names: tuple):
     """Upload tools to mongo"""
-    db = db.upper()
+    
+    load_env(db)
+
     api_files = get_api_files(include_inactive=True)
     tools_order = {t: index for index, t in enumerate(api_tools_order)}
 
@@ -88,8 +91,8 @@ def update(db: str, names: tuple):
     for key, api_file in api_files.items():
         try:
             order = tools_order.get(key, len(api_tools_order))
-            tool2 = Tool.from_yaml(api_file)
-            tool2.save(db=db, order=order)
+            tool_ = Tool.from_yaml(api_file)
+            tool_.save(order=order)
             click.echo(
                 click.style(f"Updated tool {db}:{key} (order={order})", fg="green")
             )
@@ -122,8 +125,9 @@ def update(db: str, names: tuple):
 def run(ctx, tool: str, db: str):
     """Create with a tool. Args are passed as --key=value or --key value"""
     
-    db = db.upper()
-    tool = Tool.load(key=tool, db=db)
+    load_env(db)
+
+    tool = Tool.load(key=tool)
 
     # Parse args
     args = dict()
@@ -143,7 +147,7 @@ def run(ctx, tool: str, db: str):
                 args[key] = True
         i += 1
             
-    result = tool.run(args, db=db)
+    result = tool.run(args)
     color = random.choice(CLICK_COLORS)
     if result.get("error"):
         click.echo(
@@ -154,7 +158,7 @@ def run(ctx, tool: str, db: str):
             )
         )
     else:
-        result = prepare_result(result, db=db)
+        result = prepare_result(result)
         click.echo(
             click.style(f"\nResult for {tool.key}: {dump_json(result)}", fg=color)
         )
@@ -185,27 +189,33 @@ def run(ctx, tool: str, db: str):
 @click.option("--mock", is_flag=True, default=False, help="Mock test results")
 @click.argument("tools", nargs=-1, required=False)
 def test(
-    tools: tuple, yaml: bool, db: str, api: bool, parallel: bool, save: bool, mock: bool
+    tools: tuple, 
+    yaml: bool, 
+    db: str, 
+    api: bool, 
+    parallel: bool, 
+    save: bool, 
+    mock: bool
 ):
     """Test multiple tools with their test args"""
 
-    db = db.upper()
+    load_env(db)
 
-    async def async_test_tool(tool, api, db):
+    async def async_test_tool(tool, api):
         color = random.choice(CLICK_COLORS)
         click.echo(click.style(f"\n\nTesting {tool.key}:", fg=color, bold=True))
         click.echo(click.style(f"Args: {dump_json(tool.test_args)}", fg=color))
 
         if api:
-            user = get_my_eden_user(db=db)
+            user = get_my_eden_user()
 
             # decorate this
             task = await tool.async_start_task(
-                user.id, user.id, tool.test_args, db=db, mock=mock
+                user.id, user.id, tool.test_args, mock=mock
             )
             result = await tool.async_wait(task)
         else:
-            result = await tool.async_run(tool.test_args, db=db, mock=mock)
+            result = await tool.async_run(tool.test_args, mock=mock)
 
         if isinstance(result, dict) and result.get("error"):
             click.echo(
@@ -216,15 +226,15 @@ def test(
                 )
             )
         else:
-            result = prepare_result(result, db=db)
+            result = prepare_result(result)
             click.echo(
                 click.style(f"\nResult for {tool.key}: {dump_json(result)}", fg=color)
             )
 
         return result
 
-    async def async_run_tests(tools, api, db, parallel):
-        tasks = [async_test_tool(tool, api, db) for tool in tools.values()]
+    async def async_run_tests(tools, api, parallel):
+        tasks = [async_test_tool(tool, api) for tool in tools.values()]
         if parallel:
             results = await asyncio.gather(*tasks)
         else:
@@ -234,7 +244,7 @@ def test(
     if yaml:
         all_tools = get_tools_from_api_files(tools=tools)
     else:
-        all_tools = get_tools_from_mongo(db=db, tools=tools)
+        all_tools = get_tools_from_mongo(tools=tools)
 
     if not tools:
         confirm = click.confirm(
@@ -250,7 +260,7 @@ def test(
         if not confirm:
             all_tools.pop("flux_trainer")
 
-    results = asyncio.run(async_run_tests(all_tools, api, db, parallel))
+    results = asyncio.run(async_run_tests(all_tools, api, parallel))
 
     if save and results:
         save_test_results(all_tools, results)

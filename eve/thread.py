@@ -147,7 +147,6 @@ class ToolCall(BaseModel):
     tool: str
     args: Dict[str, Any]
 
-    db: SkipJsonSchema[str]
     task: Optional[ObjectId] = None
     status: Optional[
         Literal["pending", "running", "completed", "failed", "cancelled"]
@@ -162,7 +161,7 @@ class ToolCall(BaseModel):
         result = {"status": self.status}
 
         if self.status == "completed":
-            result["result"] = prepare_result(self.result, db=self.db)
+            result["result"] = prepare_result(self.result)
             outputs = [
                 o.get("url")
                 for r in result.get("result", [])
@@ -247,18 +246,17 @@ class ToolCall(BaseModel):
         pass
 
     @staticmethod
-    def from_openai(tool_call, db):
+    def from_openai(tool_call):
         return ToolCall(
             id=tool_call.id,
             tool=tool_call.function.name,
             args=json.loads(tool_call.function.arguments),
-            db=db,
         )
 
     @staticmethod
-    def from_anthropic(tool_call, db):
+    def from_anthropic(tool_call):
         return ToolCall(
-            id=tool_call.id, tool=tool_call.name, args=tool_call.input, db=db
+            id=tool_call.id, tool=tool_call.name, args=tool_call.input
         )
 
     def openai_call_schema(self):
@@ -282,7 +280,8 @@ class ToolCall(BaseModel):
             "type": "tool_result",
             "tool_use_id": self.id,
             "content": self.get_result(
-                schema="anthropic", truncate_images=truncate_images
+                schema="anthropic", 
+                truncate_images=truncate_images
             ),
         }
 
@@ -291,7 +290,8 @@ class ToolCall(BaseModel):
             "role": "tool",
             "name": self.tool,
             "content": self.get_result(
-                schema="openai", truncate_images=truncate_images
+                schema="openai", 
+                truncate_images=truncate_images
             ),
             "tool_call_id": self.id,
         }
@@ -361,20 +361,21 @@ class Thread(Document):
     active: List[ObjectId] = Field(default_factory=list)
 
     @classmethod
-    def load(cls, key, agent=None, user=None, create_if_missing=False, db="STAGE"):
+    def load(cls, key, agent=None, user=None, create_if_missing=False):
         filter = {"key": key}
         if agent:
             filter["agent"] = agent
         if user:
             filter["user"] = user        
-        thread = cls.get_collection(db).find_one(filter)
+        thread = cls.get_collection().find_one(filter)
         if thread:
-            thread = Thread(db=db, **thread)
+            thread = Thread(**thread)
         else:
             if create_if_missing:
-                thread = cls(db=db, key=key, agent=agent, user=user)
+                thread = cls(key=key, agent=agent, user=user)
                 thread.save()
             else:
+                db = os.getenv("DB")
                 raise Exception(f"Thread {key} with agent {agent} not found in {cls.collection_name}:{db}")        
         return thread
 
