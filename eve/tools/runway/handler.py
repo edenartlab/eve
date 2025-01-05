@@ -1,6 +1,6 @@
-import time
+import asyncio
 import runwayml
-from runwayml import RunwayML
+from runwayml import AsyncRunwayML
 
 """
 Todo:
@@ -10,15 +10,12 @@ Todo:
 
 
 async def handler(args: dict):
-    client = RunwayML()
-
-    
-    
+    client = AsyncRunwayML()
 
     try:
         ratio = "1280:768" if args["ratio"] == "16:9" else "768:1280"
         
-        task = client.image_to_video.create(
+        task = await client.image_to_video.create(
             model='gen3a_turbo',
             prompt_image=args["prompt_image"],
             prompt_text=args["prompt_text"][:512],
@@ -51,12 +48,14 @@ async def handler(args: dict):
     task_id = task.id
     print(task_id)
 
-    time.sleep(10)
-    task = client.tasks.retrieve(task_id)
+    # time.sleep(10)
+    await asyncio.sleep(10)
+    task = await client.tasks.retrieve(task_id)
     while task.status not in ['SUCCEEDED', 'FAILED']:
         print("status", task.status)
-        time.sleep(10) 
-        task = client.tasks.retrieve(task_id)
+        # time.sleep(10) 
+        await asyncio.sleep(10)
+        task = await client.tasks.retrieve(task_id)
     
     # TODO: callback for running state
 
