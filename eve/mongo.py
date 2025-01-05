@@ -151,22 +151,27 @@ class Document(BaseModel):
         """
         Save the current state of the model to the database.
         """
+        self.updatedAt = datetime.now(timezone.utc)
         schema = self.model_dump(by_alias=True)
         self.model_validate(schema)
         schema = self.convert_to_mongo(schema)
         schema.update(kwargs)
-        self.updatedAt = datetime.now(timezone.utc)
-
+        
         filter = upsert_filter or {"_id": self.id or ObjectId()}
         collection = self.get_collection()
+
         if self.id or filter:
             if filter:
                 schema.pop("_id", None)
-            result = collection.find_one_and_replace(
+            created_at = schema.pop("createdAt", None)
+            result = collection.find_one_and_update(
                 filter,
-                schema,
+                {
+                    "$set": schema,
+                    "$setOnInsert": {"createdAt": created_at},
+                },
                 upsert=True,
-                return_document=True,  # Returns the document after changes
+                return_document=True,
             )
             self.id = result["_id"]
         else:

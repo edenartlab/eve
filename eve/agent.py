@@ -1,10 +1,11 @@
 import os
 import yaml
+import time
 import json
 import traceback
 from pathlib import Path
 from bson import ObjectId
-from typing import Optional, Literal, Any, Dict, List
+from typing import Optional, Literal, Any, Dict, List, ClassVar
 from dotenv import dotenv_values
 from pydantic import SecretStr, Field
 from pydantic.json_schema import SkipJsonSchema
@@ -14,6 +15,8 @@ from .tool import Tool
 from .mongo import Collection, get_collection
 from .user import User, Manna
 from .models import Model
+
+CHECK_INTERVAL = 30  # how often to check cached agents for updates
 
 default_presets_flux = {
     "flux_dev_lora": {},
@@ -44,25 +47,23 @@ class Agent(User):
     name: str
     description: str
     instructions: str
-    # models: Optional[Dict[str, ObjectId]] = None
     model: Optional[ObjectId] = None
     test_args: Optional[List[Dict[str, Any]]] = None
     
     tools: Optional[Dict[str, Dict]] = None
     tools_cache: SkipJsonSchema[Optional[Dict[str, Tool]]] = Field(None, exclude=True)
-    
+    last_check: ClassVar[Dict[str, float]] = {}  # seconds
+
     def __init__(self, **data):
         if isinstance(data.get('owner'), str):
             data['owner'] = ObjectId(data['owner'])
-        # if data.get('models'):
-        #     data['models'] = {k: ObjectId(v) if isinstance(v, str) else v for k, v in data['models'].items()}
         # Load environment variables into secrets dictionary
-        env_dir = Path(__file__).parent / "agents"
         db = os.getenv("DB")
+        env_dir = Path(__file__).parent / "agents"
         env_vars = dotenv_values(f"{str(env_dir)}/{db.lower()}/{data['username']}/.env")
         data['secrets'] = {key: SecretStr(value) for key, value in env_vars.items()}
         super().__init__(**data)
-
+            
     @classmethod
     def convert_from_yaml(cls, schema: dict, file_path: str = None) -> dict:
         """
@@ -110,9 +111,11 @@ class Agent(User):
     @classmethod
     def from_mongo(cls, document_id, cache=False):
         if cache:
-            if document_id not in _agent_cache:
-                _agent_cache[str(document_id)] = super().from_mongo(document_id)
-            return _agent_cache[str(document_id)]
+            id = str(document_id)
+            if id not in _agent_cache:
+                _agent_cache[id] = super().from_mongo(document_id)
+            cls._check_for_updates(id, document_id)
+            return _agent_cache[id]
         else:
             return super().from_mongo(document_id)
     
@@ -121,6 +124,7 @@ class Agent(User):
         if cache:
             if username not in _agent_cache:
                 _agent_cache[username] = super().load(username=username)
+            cls._check_for_updates(username, _agent_cache[username].id)
             return _agent_cache[username]
         else:
             return super().load(username=username)
@@ -185,7 +189,7 @@ class Agent(User):
 
         return schema
 
-    def get_tools(self,cache=False):
+    def get_tools(self, cache=False):
         if not hasattr(self, "tools") or not self.tools:
             self.tools = {}
             
@@ -205,6 +209,20 @@ class Agent(User):
     def get_tool(self, tool_name, cache=False):
         return self.get_tools(cache=cache)[tool_name]
     
+    @classmethod
+    def _check_for_updates(cls, cache_key: str, agent_id: ObjectId):
+        """Check if agent needs to be updated based on updatedAt field"""
+        current_time = time.time()
+        last_check = cls.last_check.get(cache_key, 0)
+
+        if current_time - last_check >= CHECK_INTERVAL:
+            cls.last_check[cache_key] = current_time
+            collection = get_collection(cls.collection_name)
+            db_agent = collection.find_one({"_id": agent_id})
+            if db_agent and db_agent.get("updatedAt") != _agent_cache[cache_key].updatedAt:
+                print("reload", cache_key)
+                _agent_cache[cache_key].reload()
+
 
 def get_agents_from_api_files(root_dir: str = None, agents: List[str] = None, include_inactive: bool = False) -> Dict[str, Agent]:
     """Get all agents inside a directory"""
