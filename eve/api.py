@@ -8,8 +8,13 @@ from ably import AblyRealtime
 from pathlib import Path
 
 from eve import auth
-from eve.api.handlers import handle_cancel, handle_deploy, handle_stream_chat
-from eve.api.requests import CancelRequest, ChatRequest, TaskRequest
+from eve.api.handlers import (
+    handle_cancel,
+    handle_deploy,
+    handle_schedule,
+    handle_stream_chat,
+)
+from eve.api.requests import CancelRequest, ChatRequest, ScheduleRequest, TaskRequest
 from eve.deploy import (
     DeployRequest,
     authenticate_modal_key,
@@ -64,7 +69,7 @@ async def handle_chat(
     background_tasks: BackgroundTasks,
     _: dict = Depends(auth.authenticate_admin),
 ):
-    return await handle_chat(request, background_tasks)
+    return await handle_chat(request, background_tasks, web_app.state.ably_client)
 
 
 @web_app.post("/chat/stream")
@@ -81,6 +86,13 @@ async def deploy_handler(
     request: DeployRequest, _: dict = Depends(auth.authenticate_admin)
 ):
     return await handle_deploy(request)
+
+
+@web_app.post("/schedule")
+async def schedule_handler(
+    request: ScheduleRequest, _: dict = Depends(auth.authenticate_admin)
+):
+    return await handle_schedule(request)
 
 
 # Modal app setup

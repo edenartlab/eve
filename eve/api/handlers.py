@@ -2,11 +2,17 @@ import json
 import logging
 import os
 import traceback
-import aiohttp
 from fastapi import BackgroundTasks
 from fastapi.responses import StreamingResponse
-from eve.api.requests import CancelRequest, ChatRequest, TaskRequest
-from eve.api.utils import serialize_for_json, setup_chat
+from ably import AblyRealtime
+
+from eve.api.requests import CancelRequest, ChatRequest, ScheduleRequest, TaskRequest
+from eve.api.helpers import (
+    emit_update,
+    get_update_channel,
+    serialize_for_json,
+    setup_chat,
+)
 from eve.deploy import (
     DeployCommand,
     DeployRequest,
@@ -20,10 +26,14 @@ from eve.task import Task
 from eve.tool import Tool
 
 logger = logging.getLogger(__name__)
+db = os.getenv("DB", "STAGE").upper()
 
 
 async def handle_task(request: TaskRequest):
-    result = await handle_task(request.tool, request.user_id, request.args)
+    tool = Tool.load(key=request.tool)
+    result = await tool.async_start_task(
+        requester_id=request.user_id, user_id=request.user_id, args=request.args
+    )
     return serialize_document(result.model_dump(by_alias=True))
 
 
@@ -37,10 +47,15 @@ async def handle_cancel(request: CancelRequest):
     return {"status": task.status}
 
 
-async def handle_chat(request: ChatRequest, background_tasks: BackgroundTasks):
+async def handle_chat(
+    request: ChatRequest, background_tasks: BackgroundTasks, ably_client: AblyRealtime
+):
     try:
-        user, agent, thread, tools, update_channel = await setup_chat(
-            request, background_tasks
+        user, agent, thread, tools = await setup_chat(request, background_tasks)
+        update_channel = (
+            await get_update_channel(request.update_config, ably_client)
+            if request.update_config and request.update_config.sub_channel_name
+            else None
         )
 
         async def run_prompt():
@@ -69,31 +84,7 @@ async def handle_chat(request: ChatRequest, background_tasks: BackgroundTasks):
                 elif update.type == UpdateType.ERROR:
                     data["error"] = update.error if hasattr(update, "error") else None
 
-                if request.update_config:
-                    if request.update_config.update_endpoint:
-                        async with aiohttp.ClientSession() as session:
-                            try:
-                                async with session.post(
-                                    request.update_config.update_endpoint,
-                                    json=data,
-                                    headers={
-                                        "Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}"
-                                    },
-                                ) as response:
-                                    if response.status != 200:
-                                        logger.error(
-                                            f"Failed to send update to endpoint: {await response.text()}"
-                                        )
-                            except Exception as e:
-                                logger.error(
-                                    f"Error sending update to endpoint: {str(e)}"
-                                )
-
-                    elif update_channel:
-                        try:
-                            await update_channel.publish("update", data)
-                        except Exception as e:
-                            logger.error(f"Failed to publish to Ably: {str(e)}")
+                await emit_update(request.update_config, update_channel, data)
 
         background_tasks.add_task(run_prompt)
         return {"status": "success", "thread_id": str(thread.id)}
@@ -105,9 +96,7 @@ async def handle_chat(request: ChatRequest, background_tasks: BackgroundTasks):
 
 async def handle_stream_chat(request: ChatRequest, background_tasks: BackgroundTasks):
     try:
-        user, agent, thread, tools, update_channel = await setup_chat(
-            request, background_tasks
-        )
+        user, agent, thread, tools = await setup_chat(request, background_tasks)
 
         async def event_generator():
             async for update in async_prompt_thread(
@@ -159,7 +148,7 @@ async def handle_deploy(request: DeployRequest):
         if request.credentials:
             create_modal_secrets(
                 request.credentials,
-                f"{request.agent_key}-secrets",
+                f"{request.agent_key}-secrets-{db}",
             )
 
         if request.command == DeployCommand.DEPLOY:
@@ -179,3 +168,12 @@ async def handle_deploy(request: DeployRequest):
 
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
+
+async def handle_schedule(request: ScheduleRequest):
+    # TODO: Gene, translate natural language instruction into modal-compatible cron? Are we doing this?
+
+    # Schedule the modal cron
+
+    # If successful, save cron to db
+    pass

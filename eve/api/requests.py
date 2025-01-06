@@ -33,3 +33,9 @@ class ChatRequest(BaseModel):
     thread_id: Optional[str] = None
     update_config: Optional[UpdateConfig] = None
     force_reply: bool = False
+
+
+class ScheduleRequest(BaseModel):
+    agent_id: str
+    user_id: str
+    instruction: str
