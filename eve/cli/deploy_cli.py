@@ -1,4 +1,3 @@
-import os
 import sys
 import yaml
 import click
@@ -6,13 +5,13 @@ import traceback
 import subprocess
 from pathlib import Path
 from dotenv import dotenv_values
-import tempfile
 import shutil
+
+from eve.deploy import DEPLOYMENT_ENV_NAME, prepare_client_file
 
 from .. import load_env
 
 root_dir = Path(__file__).parent.parent.parent
-ENV_NAME = "deployments"
 
 
 def ensure_modal_env_exists():
@@ -25,43 +24,21 @@ def ensure_modal_env_exists():
     )
 
     # Check if our environment exists
-    if ENV_NAME not in result.stdout:
-        click.echo(click.style(f"Creating Modal environment: {ENV_NAME}", fg="green"))
-        subprocess.run(["rye", "run", "modal", "environment", "create", ENV_NAME])
+    if DEPLOYMENT_ENV_NAME not in result.stdout:
+        click.echo(
+            click.style(
+                f"Creating Modal environment: {DEPLOYMENT_ENV_NAME}", fg="green"
+            )
+        )
+        subprocess.run(
+            ["rye", "run", "modal", "environment", "create", DEPLOYMENT_ENV_NAME]
+        )
     else:
         click.echo(
-            click.style(f"Using existing Modal environment: {ENV_NAME}", fg="blue")
+            click.style(
+                f"Using existing Modal environment: {DEPLOYMENT_ENV_NAME}", fg="blue"
+            )
         )
-
-
-def prepare_client_file(file_path: str, agent_key: str, env: str) -> str:
-    """Create a temporary copy of the client file with modifications"""
-    with open(file_path, "r") as f:
-        content = f.read()
-
-    # Get the repo root directory
-    repo_root = root_dir.absolute()
-    pyproject_path = repo_root / "pyproject.toml"
-
-    # Replace the static secret name with the dynamic one
-    modified_content = content.replace(
-        'modal.Secret.from_name("client-secrets")',
-        f'modal.Secret.from_name("{agent_key}-secrets-{env}")',
-    )
-
-    # Fix pyproject.toml path to use absolute path
-    modified_content = modified_content.replace(
-        '.pip_install_from_pyproject("pyproject.toml")',
-        f'.pip_install_from_pyproject("{pyproject_path}")',
-    )
-
-    # Create a temporary file with the modified content
-    temp_dir = tempfile.mkdtemp()
-    temp_file = Path(temp_dir) / "modal_client.py"
-    with open(temp_file, "w") as f:
-        f.write(modified_content)
-
-    return str(temp_file)
 
 
 def create_secrets(agent_key: str, secrets_dict: dict, env: str):
@@ -81,7 +58,7 @@ def create_secrets(agent_key: str, secrets_dict: dict, env: str):
         if value is not None:
             value = str(value).strip().strip("'\"")
             cmd_parts.append(f"{key}={value}")
-    cmd_parts.extend(["-e", ENV_NAME, "--force"])
+    cmd_parts.extend(["-e", DEPLOYMENT_ENV_NAME, "--force"])
 
     subprocess.run(cmd_parts)
 
@@ -105,7 +82,7 @@ def deploy_client(agent_key: str, client_name: str, env: str):
                     app_name,
                     temp_file,
                     "-e",
-                    ENV_NAME,
+                    DEPLOYMENT_ENV_NAME,
                 ]
             )
         finally:
@@ -211,10 +188,8 @@ def deploy(agent: str, all: bool, db: str):
 
             for agent_name in agents:
                 click.echo(click.style(f"\nProcessing agent: {agent_name}", fg="blue"))
-                agent_path = (
-                    root_dir / "eve" / "agents" / env / agent_name / "api.yaml"
-                )
-                process_agent(agent_path, env)
+                agent_path = root_dir / "eve" / "agents" / env / agent_name / "api.yaml"
+                process_agent(agent_path)
 
         else:
             if not agent:
