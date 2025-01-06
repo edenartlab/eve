@@ -126,7 +126,7 @@ def start(agent: str, db: str, platforms: tuple, local: bool):
 @click.command()
 @click.option(
     "--host",
-    default="0.0.0.0",
+    default="127.0.0.1",
     help="Host to bind the server to",
 )
 @click.option(
@@ -138,7 +138,7 @@ def start(agent: str, db: str, platforms: tuple, local: bool):
 @click.option(
     "--reload",
     is_flag=True,
-    default=False,
+    default=True,
     help="Enable auto-reload on code changes",
 )
 @click.option(
@@ -150,15 +150,16 @@ def start(agent: str, db: str, platforms: tuple, local: bool):
 def api(host: str, port: int, reload: bool, db: str):
     """Start the Eve API server"""
     import uvicorn
-    import os
 
     load_env(db)
-    
-    click.echo(click.style(f"Starting API server on {host}:{port} with DB={db}...", fg="blue"))
+
+    click.echo(
+        click.style(f"Starting API server on {host}:{port} with DB={db}...", fg="blue")
+    )
 
     # Adjusted the import path to look one directory up
     uvicorn.run(
-        "eve.api:web_app",
+        "eve.api.api:app",
         host=host,
         port=port,
         reload=reload,

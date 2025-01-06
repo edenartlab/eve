@@ -16,7 +16,7 @@ def load_env(db):
     db = db.upper()
     if db not in ["STAGE", "PROD"]:
         raise ValueError(f"Invalid database: {db}")
-    
+
     os.environ["DB"] = db
 
     # First try ~/.eve

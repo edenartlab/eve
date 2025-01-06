@@ -1,6 +1,8 @@
-from typing import Optional
+from typing import Dict, Optional
 from pydantic import BaseModel, ConfigDict
 
+from eve.deploy import DeployCommand
+from eve.models import ClientType
 from eve.thread import UserMessage
 
 
@@ -39,3 +41,10 @@ class ScheduleRequest(BaseModel):
     agent_id: str
     user_id: str
     instruction: str
+
+
+class DeployRequest(BaseModel):
+    agent_key: str
+    platform: ClientType
+    command: DeployCommand
+    credentials: Optional[Dict[str, str]] = None

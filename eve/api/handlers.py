@@ -6,7 +6,13 @@ from fastapi import BackgroundTasks
 from fastapi.responses import StreamingResponse
 from ably import AblyRealtime
 
-from eve.api.requests import CancelRequest, ChatRequest, ScheduleRequest, TaskRequest
+from eve.api.requests import (
+    CancelRequest,
+    ChatRequest,
+    DeployRequest,
+    ScheduleRequest,
+    TaskRequest,
+)
 from eve.api.helpers import (
     emit_update,
     get_update_channel,
@@ -15,7 +21,6 @@ from eve.api.helpers import (
 )
 from eve.deploy import (
     DeployCommand,
-    DeployRequest,
     create_modal_secrets,
     deploy_client,
     stop_client,
@@ -29,7 +34,7 @@ logger = logging.getLogger(__name__)
 db = os.getenv("DB", "STAGE").upper()
 
 
-async def handle_task(request: TaskRequest):
+async def handle_create(request: TaskRequest):
     tool = Tool.load(key=request.tool)
     result = await tool.async_start_task(
         requester_id=request.user_id, user_id=request.user_id, args=request.args
@@ -143,7 +148,7 @@ async def handle_stream_chat(request: ChatRequest, background_tasks: BackgroundT
         return {"status": "error", "message": str(e)}
 
 
-async def handle_deploy(request: DeployRequest):
+async def handle_deployment(request: DeployRequest):
     try:
         if request.credentials:
             create_modal_secrets(
@@ -173,7 +178,7 @@ async def handle_deploy(request: DeployRequest):
 async def handle_schedule(request: ScheduleRequest):
     # TODO: Gene, translate natural language instruction into modal-compatible cron? Are we doing this?
 
-    # Schedule the modal cron
+    # Prepare the modal cron
 
     # If successful, save cron to db
     pass
