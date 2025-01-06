@@ -51,6 +51,7 @@ HANDLERS = Literal[
     "local", 
     "modal", 
     "comfyui", 
+    "comfyui_legacy",
     "replicate", 
     "gcp"
 ]
@@ -100,7 +101,7 @@ class Tool(Document, ABC):
             with open(api_file, "r") as f:
                 schema = yaml.safe_load(f)
 
-            if schema.get("handler") == "comfyui":
+            if schema.get("handler") in ["comfyui", "comfyui_legacy"]:
                 schema["workspace"] = schema.get("workspace") or api_file.split("/")[-4]
         else:
             # MongoDB path
@@ -117,7 +118,7 @@ class Tool(Document, ABC):
     ) -> type:
         from .tools.local_tool import LocalTool
         from .tools.modal_tool import ModalTool
-        from .tools.comfyui_tool import ComfyUITool
+        from .tools.comfyui_tool import ComfyUITool, ComfyUIToolLegacy
         from .tools.replicate_tool import ReplicateTool
         from .tools.gcp_tool import GCPTool
 
@@ -132,6 +133,7 @@ class Tool(Document, ABC):
             "local": LocalTool,
             "modal": ModalTool,
             "comfyui": ComfyUITool,
+            "comfyui_legacy": ComfyUIToolLegacy, # private/legacy workflows
             "replicate": ReplicateTool,
             "gcp": GCPTool,
             None: LocalTool,
@@ -530,7 +532,7 @@ def get_api_files(root_dir: str = None) -> List[str]:
         eve_root = os.path.dirname(os.path.abspath(__file__))
         root_dirs = [
             os.path.join(eve_root, tools_dir)
-            for tools_dir in ["tools", "../../workflows"]
+            for tools_dir in ["tools", "../../workflows", "../../private_workflows"]
         ]
 
     api_files = {}
