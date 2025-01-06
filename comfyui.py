@@ -629,7 +629,7 @@ class ComfyUI:
                     raise Exception(f"Remap parameter {key} is missing original choices: {choices}")
                                 
     def _inject_args_into_workflow(self, workflow, tool, args):
-
+        base_model = "unknown"
         # Helper function to validate and normalize URLs
         def validate_url(url):
             if not isinstance(url, str):
