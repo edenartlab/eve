@@ -10,6 +10,7 @@ from eve.models import ClientType
 REPO_URL = "https://github.com/edenartlab/eve.git"
 REPO_BRANCH = "main"
 DEPLOYMENT_ENV_NAME = "deployments"
+db = os.getenv("DB")
 
 
 class DeployCommand(str, Enum):
@@ -123,7 +124,7 @@ def deploy_client(agent_key: str, client_name: str):
             raise Exception(f"Client modal file not found: {client_path}")
 
 
-def stop_client(agent_key: str, client_name: str, db: str):
+def stop_client(agent_key: str, client_name: str):
     subprocess.run(
         [
             "modal",
