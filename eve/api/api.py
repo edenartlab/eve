@@ -159,8 +159,8 @@ app = modal.App(
     ],
 )
 
-root_dir = Path(__file__).parent.parent
-workflows_dir = root_dir / ".." / ".." / "workflows"
+root_dir = Path(__file__).parent.parent.parent
+workflows_dir = root_dir / ".." / "workflows"
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
