@@ -189,7 +189,7 @@ def deploy(agent: str, all: bool, db: str):
             for agent_name in agents:
                 click.echo(click.style(f"\nProcessing agent: {agent_name}", fg="blue"))
                 agent_path = root_dir / "eve" / "agents" / env / agent_name / "api.yaml"
-                process_agent(agent_path)
+                process_agent(agent_path, env)
 
         else:
             if not agent:
