@@ -37,6 +37,7 @@ from eve.tool import Tool
 
 logger = logging.getLogger(__name__)
 db = os.getenv("DB", "STAGE").upper()
+env = "prod" if db == "PROD" else "stage"
 
 
 async def handle_create(request: TaskRequest):
@@ -76,7 +77,7 @@ async def handle_chat(
                 user_messages=request.user_message,
                 tools=tools,
                 force_reply=request.force_reply,
-                model="claude-3-5-sonnet-20241022",
+                model=request.model,
                 stream=False,
             ):
                 data = {
@@ -116,7 +117,7 @@ async def handle_stream_chat(request: ChatRequest, background_tasks: BackgroundT
                 user_messages=request.user_message,
                 tools=tools,
                 force_reply=request.force_reply,
-                model="claude-3-5-sonnet-20241022",
+                model=request.model,
                 stream=True,
             ):
                 data = {"type": update.type}
@@ -158,9 +159,9 @@ async def handle_deployment_create(request: CreateDeploymentRequest):
         if request.credentials:
             create_modal_secrets(
                 request.credentials,
-                f"{request.agent_key}-secrets-{db}",
+                f"{request.agent_key}-secrets-{env}",
             )
-            deploy_client(request.agent_key, request.platform.value)
+            deploy_client(request.agent_key, request.platform.value, env)
             return {
                 "status": "success",
                 "message": f"Deployed {request.platform.value} client",

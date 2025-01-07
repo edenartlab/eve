@@ -1,10 +1,9 @@
 import os
 import time
 
-import modal
-
 from eve.models import ClientType
 
+db = os.getenv("DB", "STAGE")
 
 HOUR_IMAGE_LIMIT = 50
 HOUR_VIDEO_LIMIT = 10
@@ -105,3 +104,8 @@ def register_tool_call(user, tool_name):
 def get_ably_channel_name(agent_username: str, client_platform: ClientType):
     env = os.getenv("UPDATE_CHANNEL_ENV", "DEV")
     return f"{agent_username.lower()}_{client_platform.value}_{env}"
+
+
+def get_eden_creation_url(creation_id: str):
+    root_url = "beta.eden.art" if db == "PROD" else "staging2.app.eden.art"
+    return f"https://{root_url}/creations/{creation_id}"

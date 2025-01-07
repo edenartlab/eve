@@ -56,14 +56,15 @@ def serialize_for_json(obj):
 async def emit_update(
     update_config: UpdateConfig, update_channel: AblyRealtime, data: dict
 ):
-    if update_config and update_config.update_endpoint:
-        raise ValueError("update_endpoint and sub_channel_name cannot be used together")
-    elif update_config.update_endpoint:
-        await emit_http_update(update_config, data)
-    elif update_config.sub_channel_name:
-        await emit_channel_update(update_channel, data)
-    else:
-        raise ValueError("One of update_endpoint or sub_channel_name must be provided")
+    if update_config:
+        if update_config.update_endpoint and update_config.sub_channel_name:
+            raise ValueError(
+                "update_endpoint and sub_channel_name cannot be used together"
+            )
+        elif update_config.update_endpoint:
+            await emit_http_update(update_config, data)
+        elif update_config.sub_channel_name:
+            await emit_channel_update(update_channel, data)
 
 
 async def emit_http_update(update_config: UpdateConfig, data: dict):

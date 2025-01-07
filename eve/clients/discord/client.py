@@ -130,8 +130,27 @@ class Eden2Cog(commands.Cog):
                 elif update_type == UpdateType.TOOL_COMPLETE:
                     result = data.get("result", {})
                     result["result"] = prepare_result(result["result"])
-                    url = result["result"][0]["output"][0]["url"]
-                    await self.send_message(channel, url, reference=reference)
+                    output = result["result"][0]["output"][0]
+                    url = output["url"]
+
+                    # Get creation ID from the output
+                    creation_id = str(output.get("creation"))
+
+                    if creation_id:
+                        eden_url = common.get_eden_creation_url(creation_id)
+                        view = discord.ui.View()
+                        view.add_item(
+                            discord.ui.Button(
+                                label="View on Eden",
+                                url=eden_url,
+                                style=discord.ButtonStyle.link,
+                            )
+                        )
+                        await self.send_message(
+                            channel, url, reference=reference, view=view
+                        )
+                    else:
+                        await self.send_message(channel, url, reference=reference)
 
                 elif update_type == UpdateType.END_PROMPT:
                     await self.stop_typing(channel)
@@ -243,10 +262,12 @@ class Eden2Cog(commands.Cog):
     async def on_member_join(self, member):
         print(f"{member} has joined the guild id: {member.guild.id}")
 
-    async def send_message(self, channel, content, reference=None, limit=2000):
+    async def send_message(
+        self, channel, content, reference=None, limit=2000, view=None
+    ):
         for i in range(0, len(content), limit):
             chunk = content[i : i + limit]
-            await channel.send(chunk, reference=reference)
+            await channel.send(chunk, reference=reference, view=view)
 
     async def start_typing(self, channel):
         """

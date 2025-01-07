@@ -9,7 +9,6 @@ REPO_URL = "https://github.com/edenartlab/eve.git"
 REPO_BRANCH = "main"
 DEPLOYMENT_ENV_NAME = "deployments"
 db = os.getenv("DB", "STAGE").upper()
-env = "prod" if db == "PROD" else "stage"
 
 
 def authenticate_modal_key() -> bool:
@@ -65,19 +64,19 @@ def clone_repo(temp_dir: str):
     )
 
 
-def prepare_client_file(file_path: str, agent_key: str) -> None:
+def prepare_client_file(file_path: str, agent_key: str, env: str) -> None:
     """Modify the client file to use correct secret name and fix pyproject path"""
     with open(file_path, "r") as f:
         content = f.read()
 
     # Get the repo root directory (three levels up from the client file)
-    repo_root = Path(__file__).parent.parent.parent
+    repo_root = Path(__file__).parent.parent
     pyproject_path = repo_root / "pyproject.toml"
 
     # Replace the static secret name with the dynamic one
     modified_content = content.replace(
         'modal.Secret.from_name("client-secrets")',
-        f'modal.Secret.from_name("{agent_key}-secrets-{db}")',
+        f'modal.Secret.from_name("{agent_key}-secrets-{env}")',
     )
 
     # Fix pyproject.toml path to use absolute path
@@ -94,7 +93,7 @@ def prepare_client_file(file_path: str, agent_key: str) -> None:
     return str(temp_file)
 
 
-def deploy_client(agent_key: str, client_name: str):
+def deploy_client(agent_key: str, client_name: str, env: str):
     with tempfile.TemporaryDirectory() as temp_dir:
         # Clone the repo
         clone_repo(temp_dir)
@@ -105,9 +104,20 @@ def deploy_client(agent_key: str, client_name: str):
         )
         if os.path.exists(client_path):
             # Modify the client file to use the correct secret name
-            prepare_client_file(client_path, agent_key)
+            temp_file = prepare_client_file(client_path, agent_key, env)
+            app_name = f"{agent_key}-{client_name}-{env}"
+
             subprocess.run(
-                ["modal", "deploy", client_path, "-e", DEPLOYMENT_ENV_NAME], check=True
+                [
+                    "modal",
+                    "deploy",
+                    "--name",
+                    app_name,
+                    temp_file,
+                    "-e",
+                    DEPLOYMENT_ENV_NAME,
+                ],
+                check=True,
             )
         else:
             raise Exception(f"Client modal file not found: {client_path}")
@@ -119,7 +129,7 @@ def stop_client(agent_key: str, client_name: str):
             "modal",
             "app",
             "stop",
-            f"{agent_key}-{client_name}-{db}",
+            f"{agent_key}-{client_name}-{db.lower()}",
             "-e",
             DEPLOYMENT_ENV_NAME,
         ],
