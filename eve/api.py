@@ -15,13 +15,23 @@ from eve.api.handlers import (
     handle_cancel,
     handle_chat,
     handle_create,
-    handle_deployment,
-    handle_schedule,
+    handle_deployment_create,
+    handle_deployment_delete,
+    handle_schedule_create,
+    handle_schedule_delete,
     handle_stream_chat,
+    handle_trigger_create,
+    handle_trigger_delete,
 )
 from eve.api.requests import (
     CancelRequest,
     ChatRequest,
+    CreateDeploymentRequest,
+    CreateScheduleRequest,
+    CreateTriggerRequest,
+    DeleteDeploymentRequest,
+    DeleteScheduleRequest,
+    DeleteTriggerRequest,
     ScheduleRequest,
     TaskRequest,
     DeployRequest,
@@ -115,18 +125,32 @@ async def stream_chat(
     return await handle_stream_chat(request, background_tasks)
 
 
-@web_app.post("/deployment")
-async def deployment(
-    request: DeployRequest, _: dict = Depends(auth.authenticate_admin)
+@web_app.post("/deployments/create")
+async def deployment_create(
+    request: CreateDeploymentRequest, _: dict = Depends(auth.authenticate_admin)
 ):
-    return await handle_deployment(request)
+    return await handle_deployment_create(request)
 
 
-@web_app.post("/schedule")
-async def schedule(
-    request: ScheduleRequest, _: dict = Depends(auth.authenticate_admin)
+@web_app.post("/deployments/delete")
+async def deployment_delete(
+    request: DeleteDeploymentRequest, _: dict = Depends(auth.authenticate_admin)
 ):
-    return await handle_schedule(request)
+    return await handle_deployment_delete(request)
+
+
+@web_app.post("/triggers/create")
+async def trigger_create(
+    request: CreateTriggerRequest, _: dict = Depends(auth.authenticate_admin)
+):
+    return await handle_trigger_create(request, scheduler, web_app.state.ably_client)
+
+
+@web_app.post("/trigger/delete")
+async def trigger_delete(
+    request: DeleteTriggerRequest, _: dict = Depends(auth.authenticate_admin)
+):
+    return await handle_trigger_delete(request, scheduler)
 
 
 # Modal app setup

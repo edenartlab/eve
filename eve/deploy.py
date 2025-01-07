@@ -2,7 +2,6 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
-from enum import Enum
 from typing import Dict
 
 
@@ -11,11 +10,6 @@ REPO_BRANCH = "main"
 DEPLOYMENT_ENV_NAME = "deployments"
 db = os.getenv("DB", "STAGE").upper()
 env = "prod" if db == "PROD" else "stage"
-
-
-class DeployCommand(str, Enum):
-    DEPLOY = "deploy"
-    STOP = "stop"
 
 
 def authenticate_modal_key() -> bool:

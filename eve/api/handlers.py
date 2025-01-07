@@ -4,6 +4,7 @@ import os
 import time
 import traceback
 import asyncio
+from bson import ObjectId
 from fastapi import BackgroundTasks
 from fastapi.responses import StreamingResponse
 from ably import AblyRealtime
@@ -13,8 +14,10 @@ from apscheduler.triggers.cron import CronTrigger
 from eve.api.requests import (
     CancelRequest,
     ChatRequest,
-    DeployRequest,
-    ScheduleRequest,
+    CreateDeploymentRequest,
+    CreateTriggerRequest,
+    DeleteDeploymentRequest,
+    DeleteTriggerRequest,
     TaskRequest,
 )
 from eve.api.helpers import (
@@ -23,8 +26,8 @@ from eve.api.helpers import (
     serialize_for_json,
     setup_chat,
 )
+from eve.trigger import Cron, Trigger
 from eve.deploy import (
-    DeployCommand,
     create_modal_secrets,
     deploy_client,
     stop_client,
@@ -153,35 +156,35 @@ async def handle_stream_chat(request: ChatRequest, background_tasks: BackgroundT
         return {"status": "error", "message": str(e)}
 
 
-async def handle_deployment(request: DeployRequest):
+async def handle_deployment_create(request: CreateDeploymentRequest):
     try:
         if request.credentials:
             create_modal_secrets(
                 request.credentials,
                 f"{request.agent_key}-secrets-{db}",
             )
-
-        if request.command == DeployCommand.DEPLOY:
             deploy_client(request.agent_key, request.platform.value)
             return {
                 "status": "success",
                 "message": f"Deployed {request.platform.value} client",
             }
-        elif request.command == DeployCommand.STOP:
-            stop_client(request.agent_key, request.platform.value)
-            return {
-                "status": "success",
-                "message": f"Stopped {request.platform.value} client",
-            }
-        else:
-            raise Exception("Invalid command")
-
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
 
-async def handle_schedule(
-    request: ScheduleRequest,
+async def handle_deployment_delete(request: DeleteDeploymentRequest):
+    try:
+        stop_client(request.agent_key, request.platform.value)
+        return {
+            "status": "success",
+            "message": f"Stopped {request.platform.value} client",
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+async def handle_trigger_create(
+    request: CreateTriggerRequest,
     scheduler: BackgroundScheduler,
     ably_client: AblyRealtime,
 ):
@@ -204,7 +207,7 @@ async def handle_schedule(
                     user_id=request.user_id,
                     agent_id=request.agent_id,
                     user_message=UserMessage(
-                        content=request.message_content,
+                        content=request.message,
                     ),
                     update_config=request.update_config,
                     force_reply=True,
@@ -233,20 +236,45 @@ async def handle_schedule(
             finally:
                 loop.close()
 
+        trigger_id = f"{request.user_id}_{request.agent_id}_{time.time()}"
         job = scheduler.add_job(
             run_scheduled_task,
             trigger=trigger,
-            id=f"{request.user_id}_{request.agent_id}_{time.time()}",
+            id=trigger_id,
             misfire_grace_time=None,
             coalesce=True,
         )
 
+        trigger = Trigger(
+            trigger_id=trigger_id,
+            user=ObjectId(request.user_id),
+            agent=ObjectId(request.agent_id),
+            schedule=request.schedule.to_cron_dict(),
+            message=request.message,
+            update_config=request.update_config.model_dump()
+            if request.update_config
+            else {},
+        )
+        trigger.save()
+
         return {
-            "status": "success",
+            "id": str(trigger.id),
             "job_id": job.id,
             "next_run_time": str(job.next_run_time),
         }
 
     except Exception as e:
         logger.error(f"Error scheduling task: {str(e)}\n{traceback.format_exc()}")
+        return {"status": "error", "message": str(e)}
+
+
+async def handle_trigger_delete(
+    request: DeleteTriggerRequest, scheduler: BackgroundScheduler
+):
+    try:
+        cron = Cron.from_mongo(request.id)
+        scheduler.remove_job(cron.job_id)
+        cron.delete()
+        return {"status": "success", "message": f"Deleted job {request.job_id}"}
+    except Exception as e:
         return {"status": "error", "message": str(e)}

@@ -2,7 +2,6 @@ from typing import Dict, Optional
 from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
 
-from eve.deploy import DeployCommand
 from eve.models import ClientType
 from eve.thread import UserMessage
 
@@ -64,16 +63,24 @@ class CronSchedule(BaseModel):
         return {k: v for k, v in self.model_dump().items() if v is not None}
 
 
-class ScheduleRequest(BaseModel):
+class CreateTriggerRequest(BaseModel):
     agent_id: str
     user_id: str
-    message_content: str
+    message: str
     schedule: CronSchedule
     update_config: Optional[UpdateConfig] = None
 
 
-class DeployRequest(BaseModel):
+class DeleteTriggerRequest(BaseModel):
+    id: str
+
+
+class CreateDeploymentRequest(BaseModel):
     agent_key: str
     platform: ClientType
-    command: DeployCommand
     credentials: Optional[Dict[str, str]] = None
+
+
+class DeleteDeploymentRequest(BaseModel):
+    agent_key: str
+    platform: ClientType
