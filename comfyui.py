@@ -63,15 +63,28 @@ app_name = f"comfyui-{workspace_name}-{db}"
 test_workflows = os.getenv("WORKFLOWS")
 root_workflows_folder = "../private_workflows" if os.getenv("PRIVATE") else "../workflows"
 test_all = True if os.getenv("TEST_ALL") else False
+specific_test = os.getenv("SPECIFIC_TEST") if os.getenv("SPECIFIC_TEST") else ""
 skip_tests = os.getenv("SKIP_TESTS")
+
+# Run a bunch of checks to verify input args:
+if test_all and specific_test:
+    print(f"WARNING: can't have both TEST_ALL and SPECIFIC_TEST at the same time...")
+    print(f"Running TEST_ALL instead")
+    specific_test = ""
 
 print("========================================")
 print(f"db: {db}")
 print(f"workspace: {workspace_name}")
 print(f"test_workflows: {test_workflows}")
 print(f"test_all: {test_all}")
+print(f"specific_test: {specific_test}")
 print(f"skip_tests: {skip_tests}")
 print("========================================")
+
+if not test_workflows and workspace_name and not test_all:
+    print("\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+    print("!!!! WARNING: You are deploying a workspace without TEST_ALL !!!!")
+    print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n")
 
 def install_comfyui():
     snapshot = json.load(open("/root/workspace/snapshot.json", 'r'))
@@ -224,6 +237,7 @@ image = (
     modal.Image.debian_slim(python_version="3.11")
     .env({"COMFYUI_PATH": "/root", "COMFYUI_MODEL_PATH": "/root/models"}) 
     .env({"TEST_ALL": os.getenv("TEST_ALL")})
+    .env({"SPECIFIC_TEST": os.getenv("SPECIFIC_TEST")})
     .apt_install("git", "git-lfs", "libgl1-mesa-glx", "libglib2.0-0", "libmagic1", "ffmpeg", "libegl1")
     .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
     .pip_install("diffusers==0.31.0")
@@ -319,10 +333,11 @@ class ComfyUI:
             
     @modal.build()
     def test_workflows(self):
-        print(" ==== TESTING WORKFLOWS ====")
         if os.getenv("SKIP_TESTS"):
             print("Skipping tests")
             return
+            
+        print(" ==== TESTING WORKFLOWS ====")
         
         t1 = time.time()
         self._start()
@@ -348,8 +363,11 @@ class ComfyUI:
             test_all = os.getenv("TEST_ALL", False)
             if test_all:
                 tests = glob.glob(f"/root/workspace/workflows/{workflow}/test*.json")
+            elif specific_test:
+                tests = [f"/root/workspace/workflows/{workflow}/{specific_test}"]
             else:
                 tests = [f"/root/workspace/workflows/{workflow}/test.json"]
+            print("\n\n-----------------------------------------------------------")
             print(f"====> Running tests for {workflow}: ", tests)
             for test in tests:
                 tool = Tool.from_yaml(f"/root/workspace/workflows/{workflow}/api.yaml")

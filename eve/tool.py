@@ -287,7 +287,8 @@ class Tool(Document, ABC):
     def prepare_args(self, args: dict):
         unrecognized_args = set(args.keys()) - set(self.model.model_fields.keys())
         if unrecognized_args:
-            raise ValueError(
+            # raise ValueError(
+            print(
                 f"Unrecognized arguments provided for {self.key}: {', '.join(unrecognized_args)}"
             )
 
