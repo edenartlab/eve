@@ -9,7 +9,7 @@ from ably import AblyRealtime
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from eve.api.requests import ChatRequest, UpdateConfig
+from eve.api.api_requests import ChatRequest, UpdateConfig
 from eve.thread import UserMessage
 
 logger = logging.getLogger(__name__)

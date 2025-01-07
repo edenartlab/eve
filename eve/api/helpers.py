@@ -13,7 +13,7 @@ from eve.user import User
 from eve.agent import Agent
 from eve.thread import Thread
 from eve.llm import async_title_thread
-from eve.api.requests import ChatRequest, UpdateConfig
+from eve.api.api_requests import ChatRequest, UpdateConfig
 from eve.trigger import Trigger
 from eve.mongo import get_collection
 

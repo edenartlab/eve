@@ -1,6 +1,5 @@
 import os
 import io
-import os
 import boto3
 import hashlib
 import mimetypes

@@ -22,7 +22,7 @@ from eve.api.handlers import (
     handle_trigger_delete,
 )
 from eve.api.helpers import load_existing_triggers
-from eve.api.requests import (
+from eve.api.api_requests import (
     CancelRequest,
     ChatRequest,
     CreateDeploymentRequest,

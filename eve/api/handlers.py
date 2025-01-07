@@ -9,7 +9,7 @@ from fastapi.responses import StreamingResponse
 from ably import AblyRealtime
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from eve.api.requests import (
+from eve.api.api_requests import (
     CancelRequest,
     ChatRequest,
     CreateDeploymentRequest,
