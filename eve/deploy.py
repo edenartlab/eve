@@ -6,7 +6,7 @@ from typing import Dict
 
 
 REPO_URL = "https://github.com/edenartlab/eve.git"
-REPO_BRANCH = "main"
+REPO_BRANCH = "staging"
 DEPLOYMENT_ENV_NAME = "deployments"
 db = os.getenv("DB", "STAGE").upper()
 
@@ -78,10 +78,6 @@ def prepare_client_file(file_path: str, agent_key: str, env: str) -> None:
         'modal.Secret.from_name("client-secrets")',
         f'modal.Secret.from_name("{agent_key}-secrets-{env}")',
     )
-    modified_content = modified_content.replace(
-        'modal.Secret.from_name("eve-secrets-{db}")',
-        f'modal.Secret.from_name("eve-secrets-{db}")',
-    )
     print(f"Modified content: {modified_content}")
 
     # Fix pyproject.toml path to use absolute path
@@ -111,7 +107,16 @@ def deploy_client(agent_key: str, client_name: str, env: str):
             # Modify the client file to use the correct secret name
             prepare_client_file(client_path, agent_key, env)
             subprocess.run(
-                ["modal", "deploy", client_path, "-e", DEPLOYMENT_ENV_NAME], check=True
+                [
+                    "modal",
+                    "deploy",
+                    "--name",
+                    f"{agent_key}-{client_name}-{env}",
+                    client_path,
+                    "-e",
+                    DEPLOYMENT_ENV_NAME,
+                ],
+                check=True,
             )
         else:
             raise Exception(f"Client modal file not found: {client_path}")
