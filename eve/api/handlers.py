@@ -77,7 +77,7 @@ async def handle_chat(
                 user_messages=request.user_message,
                 tools=tools,
                 force_reply=request.force_reply,
-                model="claude-3-5-sonnet-20241022",
+                model=request.model,
                 stream=False,
             ):
                 data = {
@@ -117,7 +117,7 @@ async def handle_stream_chat(request: ChatRequest, background_tasks: BackgroundT
                 user_messages=request.user_message,
                 tools=tools,
                 force_reply=request.force_reply,
-                model="claude-3-5-sonnet-20241022",
+                model=request.model,
                 stream=True,
             ):
                 data = {"type": update.type}

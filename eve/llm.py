@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from pydantic.config import ConfigDict
 from instructor.function_calls import openai_schema
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
+import json
 
 from . import sentry_sdk
 from .tool import Tool
@@ -33,6 +34,7 @@ class UpdateType(str, Enum):
 
 
 models = ["claude-3-5-sonnet-20241022", "gpt-4o-mini", "gpt-4o-2024-08-06"]
+DEFAULT_MODEL = "claude-3-5-sonnet-20241022"
 
 
 async def async_anthropic_prompt(
@@ -67,9 +69,7 @@ async def async_anthropic_prompt(
             [r.text for r in response.content if r.type == "text" and r.text]
         )
         tool_calls = [
-            ToolCall.from_anthropic(r)
-            for r in response.content
-            if r.type == "tool_use"
+            ToolCall.from_anthropic(r) for r in response.content if r.type == "tool_use"
         ]
         stop = response.stop_reason == "end_turn"
         return (content, tool_calls, stop)
@@ -116,9 +116,7 @@ async def async_anthropic_prompt_stream(
             # Handle tool use
             elif chunk.type == "content_block_stop" and hasattr(chunk, "content_block"):
                 if chunk.content_block.type == "tool_use":
-                    tool_calls.append(
-                        ToolCall.from_anthropic(chunk.content_block)
-                    )
+                    tool_calls.append(ToolCall.from_anthropic(chunk.content_block))
 
             # Stop reason
             elif chunk.type == "message_delta" and hasattr(chunk.delta, "stop_reason"):
@@ -169,6 +167,80 @@ async def async_openai_prompt(
         stop = response.finish_reason == "stop"
 
         return content, tool_calls, stop
+
+
+async def async_openai_prompt_stream(
+    messages: List[Union[UserMessage, AssistantMessage]],
+    system_message: Optional[str],
+    model: str,
+    response_model: Optional[type[BaseModel]],
+    tools: Dict[str, Tool],
+) -> AsyncGenerator[Tuple[UpdateType, str], None]:
+    """Yields partial tokens (ASSISTANT_TOKEN, partial_text) for streaming."""
+    if not os.getenv("OPENAI_API_KEY"):
+        raise ValueError("OPENAI_API_KEY env is not set")
+
+    messages_json = [item for msg in messages for item in msg.openai_schema()]
+    if system_message:
+        messages_json = [{"role": "system", "content": system_message}] + messages_json
+
+    openai_client = openai.AsyncOpenAI()
+    tools_schema = (
+        [t.openai_schema(exclude_hidden=True) for t in tools.values()]
+        if tools
+        else None
+    )
+
+    if response_model:
+        # Response models not supported in streaming mode for OpenAI
+        raise NotImplementedError(
+            "Response models not supported in streaming mode for OpenAI"
+        )
+
+    stream = await openai_client.chat.completions.create(
+        model=model, messages=messages_json, tools=tools_schema, stream=True
+    )
+
+    tool_calls = []
+    current_tool_call = None
+
+    async for chunk in stream:
+        delta = chunk.choices[0].delta
+
+        # Handle text content
+        if delta.content:
+            yield (UpdateType.ASSISTANT_TOKEN, delta.content)
+
+        # Handle tool calls
+        if delta.tool_calls:
+            for tool_call in delta.tool_calls:
+                if tool_call.index is not None:
+                    # Ensure we have a list long enough
+                    while len(tool_calls) <= tool_call.index:
+                        tool_calls.append(None)
+
+                    if tool_calls[tool_call.index] is None:
+                        tool_calls[tool_call.index] = ToolCall(
+                            tool=tool_call.function.name, args={}
+                        )
+
+                    if tool_call.function.arguments:
+                        current_args = tool_calls[tool_call.index].args
+                        # Merge new arguments with existing ones
+                        try:
+                            new_args = json.loads(tool_call.function.arguments)
+                            current_args.update(new_args)
+                        except json.JSONDecodeError:
+                            pass
+
+        # Handle finish reason
+        if chunk.choices[0].finish_reason:
+            yield (UpdateType.ASSISTANT_STOP, chunk.choices[0].finish_reason)
+
+    # Yield any accumulated tool calls at the end
+    for tool_call in tool_calls:
+        if tool_call:
+            yield (UpdateType.TOOL_CALL, tool_call)
 
 
 @retry(
@@ -253,14 +325,15 @@ async def async_prompt_stream(
     Add a similar function for OpenAI if you need streaming from GPT-based models.
     """
     if model.startswith("claude"):
-        # Stream from Anthropics
         async for chunk in async_anthropic_prompt_stream(
             messages, system_message, model, response_model, tools
         ):
             yield chunk
     else:
-        # NOTE: for streaming with OpenAI, implement a similar function if desired
-        raise NotImplementedError("Streaming not implemented for model: " + model)
+        async for chunk in async_openai_prompt_stream(
+            messages, system_message, model, response_model, tools
+        ):
+            yield chunk
 
 
 def anthropic_prompt(messages, system_message, model, response_model=None, tools=None):
@@ -331,9 +404,11 @@ async def async_prompt_thread(
     user_messages: Union[UserMessage, List[UserMessage]],
     tools: Dict[str, Tool],
     force_reply: bool = True,
-    model: Literal[tuple(models)] = "claude-3-5-sonnet-20241022",
+    model: Literal[tuple(models)] = None,
     stream: bool = False,
 ):
+    if not model:
+        model = DEFAULT_MODEL
     print("================================================")
     print(user_messages)
     print("================================================")
@@ -398,6 +473,8 @@ async def async_prompt_thread(
                     model=model,
                     tools=tools,
                 ):
+                    print("UPDATE TYPE", update_type)
+                    print("CONTENT", content)
                     # stream an individual token
                     if update_type == UpdateType.ASSISTANT_TOKEN:
                         if not content:  # Skip empty content
@@ -413,7 +490,7 @@ async def async_prompt_thread(
 
                     # detect stop call
                     elif update_type == UpdateType.ASSISTANT_STOP:
-                        stop = content == "end_turn"
+                        stop = content == "end_turn" or content == "stop"
 
                 # Create assistant message from accumulated content
                 content = "".join(content_chunks)
@@ -431,6 +508,8 @@ async def async_prompt_thread(
                 category="prompt_out",
                 data={"content": content, "tool_calls": tool_calls, "stop": stop},
             )
+
+            print("CONTENT", content)
 
             # create assistant message
             assistant_message = AssistantMessage(
@@ -484,9 +563,7 @@ async def async_prompt_thread(
                     raise Exception(f"Tool {tool_call.tool} not found.")
 
                 # start task
-                task = await tool.async_start_task(
-                    user.id, agent.id, tool_call.args
-                )
+                task = await tool.async_start_task(user.id, agent.id, tool_call.args)
 
                 # update tool call with task id and status
                 thread.update_tool_call(
