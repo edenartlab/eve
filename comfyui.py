@@ -66,6 +66,7 @@ test_all = True if os.getenv("TEST_ALL") else False
 specific_test = os.getenv("SPECIFIC_TEST") if os.getenv("SPECIFIC_TEST") else ""
 skip_tests = os.getenv("SKIP_TESTS")
 
+# Run a bunch of checks to verify input args:
 if test_all and specific_test:
     print(f"WARNING: can't have both TEST_ALL and SPECIFIC_TEST at the same time...")
     print(f"Running TEST_ALL instead")
@@ -79,6 +80,11 @@ print(f"test_all: {test_all}")
 print(f"specific_test: {specific_test}")
 print(f"skip_tests: {skip_tests}")
 print("========================================")
+
+if not test_workflows and workspace_name and not test_all:
+    print("\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+    print("!!!! WARNING: You are deploying a workspace without TEST_ALL !!!!")
+    print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n")
 
 def install_comfyui():
     snapshot = json.load(open("/root/workspace/snapshot.json", 'r'))
@@ -361,6 +367,7 @@ class ComfyUI:
                 tests = [f"/root/workspace/workflows/{workflow}/{specific_test}"]
             else:
                 tests = [f"/root/workspace/workflows/{workflow}/test.json"]
+            print("\n\n-----------------------------------------------------------")
             print(f"====> Running tests for {workflow}: ", tests)
             for test in tests:
                 tool = Tool.from_yaml(f"/root/workspace/workflows/{workflow}/api.yaml")
