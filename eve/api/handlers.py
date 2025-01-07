@@ -3,13 +3,11 @@ import logging
 import os
 import time
 import traceback
-import asyncio
 from bson import ObjectId
 from fastapi import BackgroundTasks
 from fastapi.responses import StreamingResponse
 from ably import AblyRealtime
 from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
 
 from eve.api.requests import (
     CancelRequest,
@@ -26,7 +24,7 @@ from eve.api.helpers import (
     serialize_for_json,
     setup_chat,
 )
-from eve.trigger import Cron, Trigger
+from eve.trigger import Trigger
 from eve.deploy import (
     create_modal_secrets,
     deploy_client,
@@ -36,7 +34,6 @@ from eve.llm import UpdateType, async_prompt_thread
 from eve.mongo import serialize_document
 from eve.task import Task
 from eve.tool import Tool
-from eve.thread import UserMessage
 
 logger = logging.getLogger(__name__)
 db = os.getenv("DB", "STAGE").upper()
@@ -189,60 +186,20 @@ async def handle_trigger_create(
     ably_client: AblyRealtime,
 ):
     try:
-        trigger = CronTrigger(**request.schedule.to_cron_dict())
+        from eve.trigger import create_chat_trigger
 
-        def run_scheduled_task():
-            logger.info(f"Running scheduled chat for user {request.user_id}")
+        trigger_id = f"{request.user_id}_{request.agent_id}_{int(time.time())}"
 
-            # Create new event loop for this thread
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
-            try:
-                # Create new background tasks for this run
-                background_tasks = BackgroundTasks()
-
-                # Create the chat request
-                chat_request = ChatRequest(
-                    user_id=request.user_id,
-                    agent_id=request.agent_id,
-                    user_message=UserMessage(
-                        content=request.message,
-                    ),
-                    update_config=request.update_config,
-                    force_reply=True,
-                )
-
-                # Run the async chat handler and its background tasks
-                result = loop.run_until_complete(
-                    handle_chat(
-                        request=chat_request,
-                        background_tasks=background_tasks,
-                        ably_client=ably_client,
-                    )
-                )
-
-                # Execute any background tasks that were created
-                loop.run_until_complete(background_tasks())
-
-                logger.info(
-                    f"Completed scheduled chat for user {request.user_id}: {result}"
-                )
-
-            except Exception as e:
-                logger.error(
-                    f"Error in scheduled chat: {str(e)}\n{traceback.format_exc()}"
-                )
-            finally:
-                loop.close()
-
-        trigger_id = f"{request.user_id}_{request.agent_id}_{time.time()}"
-        job = scheduler.add_job(
-            run_scheduled_task,
-            trigger=trigger,
-            id=trigger_id,
-            misfire_grace_time=None,
-            coalesce=True,
+        job = await create_chat_trigger(
+            user_id=request.user_id,
+            agent_id=request.agent_id,
+            message=request.message,
+            schedule=request.schedule.to_cron_dict(),
+            update_config=request.update_config,
+            scheduler=scheduler,
+            ably_client=ably_client,
+            trigger_id=trigger_id,
+            handle_chat_fn=handle_chat,
         )
 
         trigger = Trigger(
@@ -272,9 +229,9 @@ async def handle_trigger_delete(
     request: DeleteTriggerRequest, scheduler: BackgroundScheduler
 ):
     try:
-        cron = Cron.from_mongo(request.id)
-        scheduler.remove_job(cron.job_id)
-        cron.delete()
-        return {"status": "success", "message": f"Deleted job {request.job_id}"}
+        trigger = Trigger.from_mongo(request.id)
+        scheduler.remove_job(trigger.trigger_id)
+        trigger.delete()
+        return {"status": "success", "message": f"Deleted job {trigger.trigger_id}"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
