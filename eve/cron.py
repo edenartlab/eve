@@ -10,7 +10,6 @@ if db not in ["PROD", "STAGE"]:
     raise Exception(f"Invalid environment: {db}. Must be PROD or STAGE")
 API_URL = os.getenv("EDEN_API_URL")
 
-
 app = modal.App(
     name=f"[AGENT_USERNAME]-cron-[CRON_ID]-{db}",
     secrets=[

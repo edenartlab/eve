@@ -1,4 +1,3 @@
-from contextlib import asynccontextmanager
 import os
 import modal
 from fastapi import FastAPI, Depends, BackgroundTasks
@@ -42,23 +41,8 @@ if db not in ["PROD", "STAGE"]:
 app_name = "api-prod" if db == "PROD" else "api-stage"
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Setup
-    scheduler = BackgroundScheduler()
-    scheduler.start()
-    app.state.scheduler = scheduler
-    app.state.ably_client = AblyRealtime(os.getenv("ABLY_PUBLISHER_KEY"))
-    yield
-    # Cleanup
-    if hasattr(app.state, "ably_client"):
-        app.state.ably_client.close()
-    if hasattr(app.state, "scheduler"):
-        app.state.scheduler.shutdown()
-
-
 # FastAPI setup
-web_app = FastAPI(lifespan=lifespan)
+web_app = FastAPI()
 web_app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -66,6 +50,25 @@ web_app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@web_app.on_event("startup")
+async def startup_event():
+    # Setup
+    scheduler = BackgroundScheduler()
+    scheduler.start()
+    web_app.state.scheduler = scheduler
+    web_app.state.ably_client = AblyRealtime(os.getenv("ABLY_PUBLISHER_KEY"))
+
+
+@web_app.on_event("shutdown")
+async def shutdown_event():
+    # Cleanup
+    if hasattr(web_app.state, "ably_client"):
+        web_app.state.ably_client.close()
+    if hasattr(web_app.state, "scheduler"):
+        web_app.state.scheduler.shutdown()
+
 
 api_key_header = APIKeyHeader(name="X-Api-Key", auto_error=False)
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -110,12 +113,10 @@ async def deployment(
 @web_app.post("/schedule")
 async def schedule(
     request: ScheduleRequest,
-    background_tasks: BackgroundTasks,
     _: dict = Depends(auth.authenticate_admin),
 ):
     return await handle_schedule(
         request=request,
-        background_tasks=background_tasks,
         scheduler=web_app.state.scheduler,
         ably_client=web_app.state.ably_client,
     )

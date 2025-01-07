@@ -1,7 +1,9 @@
 import json
 import logging
 import os
+import time
 import traceback
+import asyncio
 from fastapi import BackgroundTasks
 from fastapi.responses import StreamingResponse
 from ably import AblyRealtime
@@ -180,40 +182,61 @@ async def handle_deployment(request: DeployRequest):
 
 async def handle_schedule(
     request: ScheduleRequest,
-    background_tasks: BackgroundTasks,
     scheduler: BackgroundScheduler,
     ably_client: AblyRealtime,
 ):
     try:
-        # Create the cron trigger using the validated schedule
         trigger = CronTrigger(**request.schedule.to_cron_dict())
 
-        # Create a function that will create a new thread and call handle_chat
-        async def run_scheduled_chat():
-            # Create a new ChatRequest for each scheduled run
-            chat_request = ChatRequest(
-                user_id=request.user_id,
-                agent_id=request.agent_id,
-                user_message=UserMessage(
-                    content=request.message_content,
-                ),
-                update_config=request.update_config,
-                force_reply=True,  # Force reply since this is automated
-            )
+        def run_scheduled_task():
+            logger.info(f"Running scheduled chat for user {request.user_id}")
 
-            # Call handle_chat with the new request
-            await handle_chat(
-                request=chat_request,
-                background_tasks=background_tasks,
-                ably_client=ably_client,
-            )
+            # Create new event loop for this thread
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
 
-        # Add job to scheduler
+            try:
+                # Create new background tasks for this run
+                background_tasks = BackgroundTasks()
+
+                # Create the chat request
+                chat_request = ChatRequest(
+                    user_id=request.user_id,
+                    agent_id=request.agent_id,
+                    user_message=UserMessage(
+                        content=request.message_content,
+                    ),
+                    update_config=request.update_config,
+                    force_reply=True,
+                )
+
+                # Run the async chat handler and its background tasks
+                result = loop.run_until_complete(
+                    handle_chat(
+                        request=chat_request,
+                        background_tasks=background_tasks,
+                        ably_client=ably_client,
+                    )
+                )
+
+                # Execute any background tasks that were created
+                loop.run_until_complete(background_tasks())
+
+                logger.info(
+                    f"Completed scheduled chat for user {request.user_id}: {result}"
+                )
+
+            except Exception as e:
+                logger.error(
+                    f"Error in scheduled chat: {str(e)}\n{traceback.format_exc()}"
+                )
+            finally:
+                loop.close()
+
         job = scheduler.add_job(
-            run_scheduled_chat,
+            run_scheduled_task,
             trigger=trigger,
-            id=f"{request.user_id}_{request.tool_id}",
-            # Mark as async job
+            id=f"{request.user_id}_{request.agent_id}_{time.time()}",
             misfire_grace_time=None,
             coalesce=True,
         )

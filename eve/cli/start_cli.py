@@ -157,9 +157,8 @@ def api(host: str, port: int, reload: bool, db: str):
         click.style(f"Starting API server on {host}:{port} with DB={db}...", fg="blue")
     )
 
-    # Adjusted the import path to look one directory up
     uvicorn.run(
-        "eve.api.api:app",
+        "eve.api.api:web_app",
         host=host,
         port=port,
         reload=reload,

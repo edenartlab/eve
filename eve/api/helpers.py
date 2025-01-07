@@ -25,28 +25,16 @@ async def get_update_channel(
 
 async def setup_chat(
     request: ChatRequest, background_tasks: BackgroundTasks
-) -> tuple[User, Agent, Thread, list[Tool], Optional[AblyRealtime]]:
-    user_task = User.from_mongo(request.user_id)
-    agent_task = Agent.from_mongo(request.agent_id, cache=True)
+) -> tuple[User, Agent, Thread, list[Tool]]:
+    user = User.from_mongo(request.user_id)
+    agent = Agent.from_mongo(request.agent_id, cache=True)
+    tools = agent.get_tools(cache=True)
 
-    agent = await agent_task
-    tools_task = agent.get_tools(cache=True)
-
-    thread_task = None
     if request.thread_id:
-        thread_task = Thread.from_mongo(request.thread_id)
+        thread = Thread.from_mongo(request.thread_id)
     else:
-        user = await user_task
         thread = agent.request_thread(user=user.id)
         background_tasks.add_task(async_title_thread, thread, request.user_message)
-        thread_task = thread
-
-    # Wait for all tasks to complete
-    user, thread, tools = await asyncio.gather(
-        user_task,
-        thread_task,
-        tools_task,
-    )
 
     return user, agent, thread, tools
 

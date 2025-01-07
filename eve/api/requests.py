@@ -1,12 +1,10 @@
-from dataclasses import Field
 from typing import Dict, Optional
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+from datetime import datetime
 
 from eve.deploy import DeployCommand
 from eve.models import ClientType
 from eve.thread import UserMessage
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
 
 class TaskRequest(BaseModel):
