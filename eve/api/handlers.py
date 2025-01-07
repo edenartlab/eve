@@ -5,6 +5,8 @@ import traceback
 from fastapi import BackgroundTasks
 from fastapi.responses import StreamingResponse
 from ably import AblyRealtime
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 
 from eve.api.requests import (
     CancelRequest,
@@ -29,6 +31,7 @@ from eve.llm import UpdateType, async_prompt_thread
 from eve.mongo import serialize_document
 from eve.task import Task
 from eve.tool import Tool
+from eve.thread import UserMessage
 
 logger = logging.getLogger(__name__)
 db = os.getenv("DB", "STAGE").upper()
@@ -175,10 +178,52 @@ async def handle_deployment(request: DeployRequest):
         return {"status": "error", "message": str(e)}
 
 
-async def handle_schedule(request: ScheduleRequest):
-    # TODO: Gene, translate natural language instruction into modal-compatible cron? Are we doing this?
+async def handle_schedule(
+    request: ScheduleRequest,
+    background_tasks: BackgroundTasks,
+    scheduler: BackgroundScheduler,
+    ably_client: AblyRealtime,
+):
+    try:
+        # Create the cron trigger using the validated schedule
+        trigger = CronTrigger(**request.schedule.to_cron_dict())
 
-    # Prepare the modal cron
+        # Create a function that will create a new thread and call handle_chat
+        async def run_scheduled_chat():
+            # Create a new ChatRequest for each scheduled run
+            chat_request = ChatRequest(
+                user_id=request.user_id,
+                agent_id=request.agent_id,
+                user_message=UserMessage(
+                    content=request.message_content,
+                ),
+                update_config=request.update_config,
+                force_reply=True,  # Force reply since this is automated
+            )
 
-    # If successful, save cron to db
-    pass
+            # Call handle_chat with the new request
+            await handle_chat(
+                request=chat_request,
+                background_tasks=background_tasks,
+                ably_client=ably_client,
+            )
+
+        # Add job to scheduler
+        job = scheduler.add_job(
+            run_scheduled_chat,
+            trigger=trigger,
+            id=f"{request.user_id}_{request.tool_id}",
+            # Mark as async job
+            misfire_grace_time=None,
+            coalesce=True,
+        )
+
+        return {
+            "status": "success",
+            "job_id": job.id,
+            "next_run_time": str(job.next_run_time),
+        }
+
+    except Exception as e:
+        logger.error(f"Error scheduling task: {str(e)}\n{traceback.format_exc()}")
+        return {"status": "error", "message": str(e)}

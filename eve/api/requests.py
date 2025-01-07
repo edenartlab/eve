@@ -1,9 +1,12 @@
+from dataclasses import Field
 from typing import Dict, Optional
 from pydantic import BaseModel, ConfigDict
 
 from eve.deploy import DeployCommand
 from eve.models import ClientType
 from eve.thread import UserMessage
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 
 class TaskRequest(BaseModel):
@@ -37,10 +40,38 @@ class ChatRequest(BaseModel):
     force_reply: bool = False
 
 
+class CronSchedule(BaseModel):
+    year: Optional[int | str] = Field(None, description="4-digit year")
+    month: Optional[int | str] = Field(None, description="month (1-12)")
+    day: Optional[int | str] = Field(None, description="day of month (1-31)")
+    week: Optional[int | str] = Field(None, description="ISO week (1-53)")
+    day_of_week: Optional[int | str] = Field(
+        None,
+        description="number or name of weekday (0-6 or mon,tue,wed,thu,fri,sat,sun)",
+    )
+    hour: Optional[int | str] = Field(None, description="hour (0-23)")
+    minute: Optional[int | str] = Field(None, description="minute (0-59)")
+    second: Optional[int | str] = Field(None, description="second (0-59)")
+    start_date: Optional[datetime] = Field(
+        None, description="earliest possible date/time to trigger on (inclusive)"
+    )
+    end_date: Optional[datetime] = Field(
+        None, description="latest possible date/time to trigger on (inclusive)"
+    )
+    timezone: Optional[str] = Field(
+        None, description="time zone to use for the date/time calculations"
+    )
+
+    def to_cron_dict(self) -> dict:
+        return {k: v for k, v in self.model_dump().items() if v is not None}
+
+
 class ScheduleRequest(BaseModel):
     agent_id: str
     user_id: str
-    instruction: str
+    message_content: str
+    schedule: CronSchedule
+    update_config: Optional[UpdateConfig] = None
 
 
 class DeployRequest(BaseModel):

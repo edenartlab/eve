@@ -45,11 +45,16 @@ app_name = "api-prod" if db == "PROD" else "api-stage"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Setup
+    scheduler = BackgroundScheduler()
+    scheduler.start()
+    app.state.scheduler = scheduler
     app.state.ably_client = AblyRealtime(os.getenv("ABLY_PUBLISHER_KEY"))
     yield
     # Cleanup
     if hasattr(app.state, "ably_client"):
         app.state.ably_client.close()
+    if hasattr(app.state, "scheduler"):
+        app.state.scheduler.shutdown()
 
 
 # FastAPI setup
@@ -61,8 +66,6 @@ web_app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-scheduler = BackgroundScheduler()
-scheduler.start()
 
 api_key_header = APIKeyHeader(name="X-Api-Key", auto_error=False)
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -106,9 +109,16 @@ async def deployment(
 
 @web_app.post("/schedule")
 async def schedule(
-    request: ScheduleRequest, _: dict = Depends(auth.authenticate_admin)
+    request: ScheduleRequest,
+    background_tasks: BackgroundTasks,
+    _: dict = Depends(auth.authenticate_admin),
 ):
-    return await handle_schedule(request)
+    return await handle_schedule(
+        request=request,
+        background_tasks=background_tasks,
+        scheduler=web_app.state.scheduler,
+        ably_client=web_app.state.ably_client,
+    )
 
 
 # Modal app setup
