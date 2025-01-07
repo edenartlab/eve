@@ -509,8 +509,6 @@ async def async_prompt_thread(
                 data={"content": content, "tool_calls": tool_calls, "stop": stop},
             )
 
-            print("CONTENT", content)
-
             # create assistant message
             assistant_message = AssistantMessage(
                 content=content or "",
