@@ -3,7 +3,6 @@ import os
 from bson import ObjectId
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
-import asyncio
 
 from ..mongo import get_collection
 from ..tool import Tool
@@ -132,6 +131,8 @@ def convert_tasks2_to_tasks3():
         with tasks2.watch(pipeline) as stream:
             for change in stream:
                 task_id = change["documentKey"]["_id"]
+                if "updateDescription" not in change:
+                    continue
                 update = change["updateDescription"]["updatedFields"]
                 task = Task.from_mongo(task_id)
                 task.reload()
