@@ -6,7 +6,7 @@ from typing import Dict
 
 
 REPO_URL = "https://github.com/edenartlab/eve.git"
-REPO_BRANCH = "staging"
+REPO_BRANCH = "main"
 DEPLOYMENT_ENV_NAME = "deployments"
 db = os.getenv("DB", "STAGE").upper()
 
@@ -78,7 +78,6 @@ def prepare_client_file(file_path: str, agent_key: str, env: str) -> None:
         'modal.Secret.from_name("client-secrets")',
         f'modal.Secret.from_name("{agent_key}-secrets-{env}")',
     )
-    print(f"Modified content: {modified_content}")
 
     # Fix pyproject.toml path to use absolute path
     modified_content = modified_content.replace(
@@ -105,14 +104,16 @@ def deploy_client(agent_key: str, client_name: str, env: str):
         )
         if os.path.exists(client_path):
             # Modify the client file to use the correct secret name
-            prepare_client_file(client_path, agent_key, env)
+            temp_file = prepare_client_file(client_path, agent_key, env)
+            app_name = f"{agent_key}-{client_name}-{env}"
+
             subprocess.run(
                 [
                     "modal",
                     "deploy",
                     "--name",
-                    f"{agent_key}-{client_name}-{env}",
-                    client_path,
+                    app_name,
+                    temp_file,
                     "-e",
                     DEPLOYMENT_ENV_NAME,
                 ],
@@ -128,7 +129,7 @@ def stop_client(agent_key: str, client_name: str):
             "modal",
             "app",
             "stop",
-            f"{agent_key}-{client_name}-{db}",
+            f"{agent_key}-{client_name}-{db.lower()}",
             "-e",
             DEPLOYMENT_ENV_NAME,
         ],
