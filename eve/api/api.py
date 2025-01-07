@@ -113,10 +113,12 @@ async def deployment(
 @web_app.post("/schedule")
 async def schedule(
     request: ScheduleRequest,
+    background_tasks: BackgroundTasks,
     _: dict = Depends(auth.authenticate_admin),
 ):
     return await handle_schedule(
         request=request,
+        background_tasks=background_tasks,
         scheduler=web_app.state.scheduler,
         ably_client=web_app.state.ably_client,
     )

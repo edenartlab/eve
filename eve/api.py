@@ -1,13 +1,14 @@
+import logging
 import os
 import threading
 import modal
 from fastapi import FastAPI, Depends, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader, HTTPBearer
-import logging
 from ably import AblyRealtime
 from apscheduler.schedulers.background import BackgroundScheduler
 from pathlib import Path
+from contextlib import asynccontextmanager
 
 from eve import auth
 from eve.api.handlers import (
@@ -33,17 +34,44 @@ from eve.deploy import (
 from eve import deploy
 from eve.tools.comfyui_tool import convert_tasks2_to_tasks3
 
-# Config and logging setup
+
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logging.getLogger("ably").setLevel(logging.WARNING)
+
 
 db = os.getenv("DB", "STAGE").upper()
 if db not in ["PROD", "STAGE"]:
     raise Exception(f"Invalid environment: {db}. Must be PROD or STAGE")
 app_name = "api-prod" if db == "PROD" else "api-stage"
 
+
 # FastAPI setup
-web_app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    watch_thread = threading.Thread(target=convert_tasks2_to_tasks3, daemon=True)
+    watch_thread.start()
+    app.state.watch_thread = watch_thread
+
+    app.state.ably_client = AblyRealtime(
+        os.getenv("ABLY_PUBLISHER_KEY"),
+        options={
+            "heartbeat_interval": 15000,
+            "connection_state_ttl": 60000,
+            "disconnected_retry_timeout": 15000,
+        },
+    )
+    yield
+    # Shutdown
+    if hasattr(app.state, "watch_thread"):
+        app.state.watch_thread.join(timeout=5)
+    if hasattr(app.state, "scheduler"):
+        app.state.scheduler.shutdown(wait=True)
+    if hasattr(app.state, "ably_client"):
+        await app.state.ably_client.close()
+
+
+web_app = FastAPI(lifespan=lifespan)
 web_app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -57,13 +85,6 @@ scheduler.start()
 api_key_header = APIKeyHeader(name="X-Api-Key", auto_error=False)
 bearer_scheme = HTTPBearer(auto_error=False)
 background_tasks: BackgroundTasks = BackgroundTasks()
-
-
-@web_app.on_event("startup")
-async def startup_event():
-    watch_thread = threading.Thread(target=convert_tasks2_to_tasks3, daemon=True)
-    watch_thread.start()
-    web_app.state.ably_client = AblyRealtime(os.getenv("ABLY_PUBLISHER_KEY"))
 
 
 @web_app.post("/create")
