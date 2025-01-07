@@ -1,6 +1,7 @@
 import os
 import json
 import modal
+import threading
 from fastapi import FastAPI, Depends, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -32,6 +33,7 @@ from eve.mongo import serialize_document
 from eve.agent import Agent
 from eve.user import User
 from eve.task import Task
+from eve.tools.comfyui_tool import convert_tasks2_to_tasks3
 from eve import deploy
 
 # Config and logging setup
@@ -62,7 +64,9 @@ background_tasks: BackgroundTasks = BackgroundTasks()
 @web_app.on_event("startup")
 async def startup_event():
     web_app.state.ably_client = AblyRealtime(os.getenv("ABLY_PUBLISHER_KEY"))
-
+    watch_thread = threading.Thread(target=convert_tasks2_to_tasks3, daemon=True)
+    watch_thread.start()
+    logger.info("Started tasks2 watch thread.")
 
 class TaskRequest(BaseModel):
     tool: str
@@ -141,6 +145,7 @@ async def task_admin(
     request: TaskRequest, 
     _: dict = Depends(auth.authenticate_admin)
 ):
+    print("===== this is the request", request)
     result = await handle_task(request.tool, request.user_id, request.args)
     return serialize_document(result.model_dump(by_alias=True))
 

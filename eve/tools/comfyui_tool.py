@@ -3,6 +3,7 @@ import os
 from bson import ObjectId
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
+import asyncio
 
 from ..mongo import get_collection
 from ..tool import Tool
@@ -89,7 +90,6 @@ class ComfyUIToolLegacy(ComfyUITool):
             env=db
         )
         result = {"output": result}
-        print(result)
         return result
 
     @Tool.handle_start_task
@@ -114,23 +114,31 @@ class ComfyUIToolLegacy(ComfyUITool):
             env=db
         )
         return job.object_id
-    
-    @Tool.handle_wait
-    async def async_wait(self, task: Task):
-        # hack to accommodate legacy comfyui tasks
-        # 1) get completed task from tasks2 collection
-        # 2) copy over canonical test
-        # 3) return new task
-        fc = modal.functions.FunctionCall.from_id(task.handler_id)
-        await fc.get.aio()
-        task.reload()
 
+
+def convert_tasks2_to_tasks3():
+    """
+    This is hack to retrofit legacy ComfyUI tasks in tasks2 collection to new tasks3 records
+    """
+    pipeline = [
+        {
+            "$match": {
+                "operationType": {"$in": ["insert", "update", "replace"]}
+            }
+        }
+    ]
+    try:
         tasks2 = get_collection("tasks2")
-        task2 = tasks2.find_one({"_id": task.id})
-        task.update(
-            status=task2["status"],
-            error=task2["error"],
-            result=task2["result"]
-        )
-
-        return task.model_dump(include={"status", "error", "result"})
+        with tasks2.watch(pipeline) as stream:
+            for change in stream:
+                task_id = change["documentKey"]["_id"]
+                update = change["updateDescription"]["updatedFields"]
+                task = Task.from_mongo(task_id)
+                task.reload()
+                task.update(
+                    status=update.get("status", task.status),
+                    error=update.get("error", task.error),
+                    result=update.get("result", task.result)
+                )
+    except Exception as e:
+        print(f"Error in watch_tasks2 thread: {e}")
