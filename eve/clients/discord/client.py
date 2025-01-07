@@ -53,7 +53,7 @@ class Eden2Cog(commands.Cog):
         if local:
             self.api_url = "http://localhost:8000"
         else:
-            self.api_url = os.getenv(f"EDEN_API_URL")
+            self.api_url = os.getenv("EDEN_API_URL")
         self.channel_name = common.get_ably_channel_name(
             agent.username, ClientType.DISCORD
         )
@@ -169,16 +169,13 @@ class Eden2Cog(commands.Cog):
 
         # Lookup thread
         if thread_key not in self.known_threads:
-            self.known_threads[thread_key] = self.agent.request_thread(
-                key=thread_key
-            )
+            self.known_threads[thread_key] = self.agent.request_thread(key=thread_key)
         thread = self.known_threads[thread_key]
 
         # Lookup user
         if message.author.id not in self.known_users:
             self.known_users[message.author.id] = User.from_discord(
-                message.author.id,
-                message.author.name
+                message.author.id, message.author.name
             )
         user = self.known_users[message.author.id]
 
@@ -335,6 +332,6 @@ if __name__ == "__main__":
     )
     parser.add_argument("--local", help="Run locally", action="store_true")
     args = parser.parse_args()
-    
+
     load_env(args.db)
     start(args.env, args.agent, args.local)

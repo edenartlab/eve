@@ -1,5 +1,4 @@
 import os
-import yaml
 import time
 import json
 import traceback
