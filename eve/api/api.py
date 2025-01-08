@@ -18,6 +18,8 @@ from eve.api.helpers import load_existing_triggers
 from eve.postprocessing import (
     generate_lora_thumbnails,
     cancel_stuck_tasks,
+    download_nsfw_models,
+    run_nsfw_detection
 )
 from eve.api.handlers import (
     handle_create,
@@ -202,10 +204,17 @@ image = (
     .env({"DB": db, "MODAL_SERVE": os.getenv("MODAL_SERVE")})
     .apt_install("git", "libmagic1", "ffmpeg", "wget")
     .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
+    .pip_install(
+        "numpy<2.0",
+        "torch==2.0.1",
+        "torchvision",
+        "transformers",
+        "Pillow"
+    )
     .run_commands(["playwright install"])
+    .run_function(download_nsfw_models)
     .copy_local_dir(str(workflows_dir), "/workflows")
 )
-
 
 @app.function(
     image=image,
@@ -235,7 +244,11 @@ async def postprocessing():
         print(f"Error cancelling stuck tasks: {e}")
 
     try:
+        await run_nsfw_detection()
+    except Exception as e:
+        print(f"Error running nsfw detection: {e}")
+
+    try:
         await generate_lora_thumbnails()
     except Exception as e:
         print(f"Error generating lora thumbnails: {e}")
-
