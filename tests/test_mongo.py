@@ -15,8 +15,6 @@ it gets {'base_model_field': FieldInfo(annotation=Union[Any, NoneType], required
 
 """
 
-
-
 from pydantic import Field
 from typing import Dict, Any
 from bson import ObjectId

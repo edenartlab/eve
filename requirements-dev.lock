@@ -387,7 +387,7 @@ referencing==0.35.1
     # via jsonschema-specifications
 regex==2024.11.6
     # via parsimonious
-replicate==0.22.0
+replicate==1.0.4
     # via eve
 requests==2.32.3
     # via elevenlabs

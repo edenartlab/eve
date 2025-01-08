@@ -1,6 +1,7 @@
 import os
 import re
 import asyncio
+import tempfile            
 import random
 import replicate
 from bson import ObjectId
@@ -45,6 +46,7 @@ class ReplicateTool(Tool):
             result = {
                 "output": replicate.run(replicate_model, input=args)
             }
+            
         result = eden_utils.upload_result(result)
         return result
 
@@ -162,7 +164,7 @@ class ReplicateTool(Tool):
         return prediction
 
 def get_webhook_url():
-    env = "tools" if os.getenv("ENV") == "PROD" else "tools-dev"
+    env = "api-prod" if os.getenv("ENV") == "PROD" else "api-stage"
     dev = "-dev" if os.getenv("ENV") == "STAGE" and os.getenv("MODAL_SERVE") == "1" else ""
     webhook_url = f"https://edenartlab--{env}-fastapi-app{dev}.modal.run/update"
     return webhook_url
@@ -170,6 +172,14 @@ def get_webhook_url():
 
 def replicate_update_task(task: Task, status, error, output, output_handler):
     output = output if isinstance(output, list) else [output]
+
+    if output and isinstance(output[0], replicate.helpers.FileOutput):
+        output_files = []
+        for out in output:
+            with tempfile.NamedTemporaryFile(suffix='.webp', delete=False) as temp_file:
+                temp_file.write(out.read())
+            output_files.append(temp_file.name)
+        output = output_files
 
     if status == "failed":
         task.update(status="failed", error=error)
@@ -182,13 +192,14 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
         return {"status": "cancelled"}
     
     elif status == "processing":
-        task.performance["waitTime"] = (datetime.now(timezone.utc) - task.createdAt).total_seconds()
+        task.performance["waitTime"] = (
+            datetime.now(timezone.utc) - task.createdAt.replace(tzinfo=timezone.utc)
+        ).total_seconds()
         task.status = "running"
         task.save()
         return {"status": "running"}
     
     elif status == "succeeded":
-        
         if output_handler in ["eden", "trainer"]:
             thumbnails = output[-1]["thumbnails"]
             output = output[-1]["files"]
@@ -197,7 +208,7 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
         else:
             output = eden_utils.upload_result(output, save_thumbnails=True, save_blurhash=True)
             result = [{"output": [out]} for out in output]
-
+        
         for r, res in enumerate(result):
             for o, output in enumerate(res["output"]):
                 if output_handler == "trainer":
@@ -235,10 +246,13 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
                     creation.save()
                     result[r]["output"][o]["creation"] = creation.id
         
-        run_time = (datetime.now(timezone.utc) - task.createdAt).total_seconds()
+        run_time = (
+            datetime.now(timezone.utc) - task.createdAt.replace(tzinfo=timezone.utc)
+        ).total_seconds()
         if task.performance.get("waitTime"):
             run_time -= task.performance["waitTime"]
         task.performance["runTime"] = run_time
+        
         result = result if isinstance(result, list) else [result]
         task.status = "completed"
         task.result = result

@@ -21,11 +21,8 @@ def run_create(server_url):
         }
     }
     response = requests.post(server_url+"/create", json=request, headers=headers)
-    print("GO!!!")
-    print(response)
     print("Status Code:", response.status_code)
     print(json.dumps(response.json(), indent=2))
-    print("done...")
 
 
 def run_chat(server_url):
@@ -60,7 +57,7 @@ def test_client():
         run_create(server_url)
 
         print("\nRunning chat test...")
-        # run_chat(server_url)
+        run_chat(server_url)
 
     except KeyboardInterrupt:
         print("\nShutting down...")

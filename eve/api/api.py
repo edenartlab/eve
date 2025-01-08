@@ -1,8 +1,11 @@
 import logging
 import os
 import threading
+import json
 import modal
-from fastapi import FastAPI, Depends, BackgroundTasks
+import replicate
+from fastapi import FastAPI, Depends, BackgroundTasks, Request
+from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader, HTTPBearer
 from ably import AblyRealtime
@@ -11,17 +14,18 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 
 from eve import auth
+from eve.api.helpers import load_existing_triggers
 from eve.api.handlers import (
-    handle_cancel,
-    handle_chat,
     handle_create,
+    handle_cancel,
+    handle_replicate_webhook,
+    handle_chat,
     handle_deployment_create,
     handle_deployment_delete,
     handle_stream_chat,
     handle_trigger_create,
     handle_trigger_delete,
 )
-from eve.api.helpers import load_existing_triggers
 from eve.api.api_requests import (
     CancelRequest,
     ChatRequest,
@@ -36,11 +40,8 @@ from eve.deploy import (
     check_environment_exists,
     create_environment,
 )
-from eve import deploy
 from eve.tools.comfyui_tool import convert_tasks2_to_tasks3
-
-
-logging.basicConfig(level=logging.INFO)
+from eve import deploy
 
 
 db = os.getenv("DB", "STAGE").upper()
@@ -48,6 +49,8 @@ if db not in ["PROD", "STAGE"]:
     raise Exception(f"Invalid environment: {db}. Must be PROD or STAGE")
 app_name = "api-prod" if db == "PROD" else "api-stage"
 
+
+logging.basicConfig(level=logging.INFO)
 logging.getLogger("ably").setLevel(logging.INFO if db != "PROD" else logging.WARNING)
 
 
@@ -102,6 +105,34 @@ async def create(request: TaskRequest, _: dict = Depends(auth.authenticate_admin
 @web_app.post("/cancel")
 async def cancel(request: CancelRequest, _: dict = Depends(auth.authenticate_admin)):
     return await handle_cancel(request)
+
+
+@web_app.post("/update")
+async def replicate_webhook(request: Request):
+    # Get raw body for signature verification
+    body = await request.body()
+    print(body)
+    
+    # Parse JSON body
+    try:
+        data = json.loads(body)
+    except json.JSONDecodeError:
+        return {"status": "error", "message": "Invalid JSON body"}
+
+    # todo: validate webhook signature
+    try:
+        # headers = dict(request.headers)
+        # secret = replicate.webhooks.default.secret()
+        # replicate.webhooks.validate(
+        #     body=body,  # Pass raw body for signature verification
+        #     headers=headers,
+        #     secret=secret
+        # )
+        pass
+    except Exception as e:
+        return {"status": "error", "message": f"Invalid webhook signature: {str(e)}"}
+
+    return await handle_replicate_webhook(data)
 
 
 @web_app.post("/chat")

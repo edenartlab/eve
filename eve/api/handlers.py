@@ -3,8 +3,9 @@ import logging
 import os
 import time
 import traceback
+import replicate
 from bson import ObjectId
-from fastapi import BackgroundTasks
+from fastapi import BackgroundTasks, Request
 from fastapi.responses import StreamingResponse
 from ably import AblyRealtime
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -24,12 +25,13 @@ from eve.api.helpers import (
     serialize_for_json,
     setup_chat,
 )
-from eve.trigger import Trigger
 from eve.deploy import (
     create_modal_secrets,
     deploy_client,
     stop_client,
 )
+from eve.tools.replicate_tool import replicate_update_task
+from eve.trigger import Trigger
 from eve.llm import UpdateType, async_prompt_thread
 from eve.mongo import serialize_document
 from eve.task import Task
@@ -58,11 +60,33 @@ async def handle_cancel(request: CancelRequest):
     return {"status": task.status}
 
 
+async def handle_replicate_webhook(body: dict):
+    # Todo: Replicate validation
+    print(body)
+    print(type(body))
+    # verify the request
+    
+    print("validated")
+
+    task = Task.from_handler_id(body["id"])
+    tool = Tool.load(task.tool)
+    _ = replicate_update_task(
+        task,
+        body["status"], 
+        body["error"], 
+        body["output"], 
+        tool.output_handler
+    )
+
+
 async def handle_chat(
-    request: ChatRequest, background_tasks: BackgroundTasks, ably_client: AblyRealtime
+    request: ChatRequest, 
+    background_tasks: BackgroundTasks, 
+    ably_client: AblyRealtime
 ):
     try:
         user, agent, thread, tools = await setup_chat(request, background_tasks)
+
         update_channel = (
             await get_update_channel(request.update_config, ably_client)
             if request.update_config and request.update_config.sub_channel_name

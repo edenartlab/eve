@@ -353,6 +353,7 @@ class Tool(Document, ABC):
             try:
                 # validate args and user manna balance
                 args = self.prepare_args(args)
+                print("args", args)
                 sentry_sdk.add_breadcrumb(category="handle_start_task", data=args)                
                 cost = self.calculate_cost(args)
                 user = User.from_mongo(user_id)

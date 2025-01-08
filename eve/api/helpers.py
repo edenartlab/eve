@@ -54,7 +54,9 @@ def serialize_for_json(obj):
 
 
 async def emit_update(
-    update_config: UpdateConfig, update_channel: AblyRealtime, data: dict
+    update_config: UpdateConfig, 
+    update_channel: AblyRealtime, 
+    data: dict
 ):
     if update_config:
         if update_config.update_endpoint and update_config.sub_channel_name:
@@ -83,7 +85,10 @@ async def emit_http_update(update_config: UpdateConfig, data: dict):
             logger.error(f"Error sending update to endpoint: {str(e)}")
 
 
-async def emit_channel_update(update_channel: AblyRealtime, data: dict):
+async def emit_channel_update(
+    update_channel: AblyRealtime, 
+    data: dict
+):
     try:
         await update_channel.publish("update", data)
     except Exception as e:
@@ -91,10 +96,12 @@ async def emit_channel_update(update_channel: AblyRealtime, data: dict):
 
 
 async def load_existing_triggers(
-    scheduler: BackgroundScheduler, ably_client: AblyRealtime, handle_chat_fn
+    scheduler: BackgroundScheduler, 
+    ably_client: AblyRealtime, 
+    handle_chat_fn
 ):
     """Load all existing triggers from the database and add them to the scheduler"""
-    from eve.trigger import create_chat_trigger
+    from ..trigger import create_chat_trigger
 
     triggers_collection = get_collection(Trigger.collection_name)
 
@@ -109,9 +116,7 @@ async def load_existing_triggers(
                 agent_id=str(trigger.agent),
                 message=trigger.message,
                 schedule=trigger.schedule,
-                update_config=UpdateConfig(**trigger.update_config)
-                if trigger.update_config
-                else None,
+                update_config=UpdateConfig(**trigger.update_config) if trigger.update_config else None,
                 scheduler=scheduler,
                 ably_client=ably_client,
                 trigger_id=trigger.trigger_id,

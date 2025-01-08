@@ -13,6 +13,7 @@ import requests
 import tempfile
 import blurhash
 import subprocess
+import replicate
 import numpy as np
 from bson import ObjectId
 from datetime import datetime
@@ -51,7 +52,8 @@ def upload_result(result, save_thumbnails=False, save_blurhash=False):
         return {k: upload_result(v, save_thumbnails=save_thumbnails, save_blurhash=save_blurhash) for k, v in result.items()}
     elif isinstance(result, list):
         return [upload_result(item, save_thumbnails=save_thumbnails, save_blurhash=save_blurhash) for item in result]
-    elif isinstance(result, str) and is_file(result):
+    elif is_file(result):
+        print("#$%#$%#$%#$%%#$#$%")
         return upload_media(result, save_thumbnails=save_thumbnails, save_blurhash=save_blurhash)
     else:
         return result
@@ -84,20 +86,26 @@ def upload_media(output, save_thumbnails=True, save_blurhash=True):
     return {"filename": filename, "mediaAttributes": media_attributes}
 
 
-def get_media_attributes(file_path):
-    is_url = file_path.startswith("http://") or file_path.startswith("https://")
-    if is_url:
-        temp_file = tempfile.NamedTemporaryFile(delete=False)
-        file_path = download_file(file_path, temp_file.name, overwrite=True)
+def get_media_attributes(file):
+    if isinstance(file, replicate.helpers.FileOutput):
+        is_url = False
+        file_content = file.read()
+        mime_type = magic.from_buffer(file_content, mime=True)
+        file = BytesIO(file_content)
+    else:
+        is_url = file.startswith("http://") or file.startswith("https://")
+        if is_url:
+            temp_file = tempfile.NamedTemporaryFile(delete=False)
+            file = download_file(file, temp_file.name, overwrite=True)
+        mime_type = magic.from_file(file, mime=True)
 
     thumbnail = None
-    mime_type = magic.from_file(file_path, mime=True)
     media_attributes = {
         "mimeType": mime_type,
     }
 
     if "image" in mime_type:
-        image = Image.open(file_path)
+        image = Image.open(file)
         thumbnail = image.copy()
         width, height = thumbnail.size
         media_attributes.update(
@@ -105,7 +113,7 @@ def get_media_attributes(file_path):
         )
 
     elif "video" in mime_type:
-        video = VideoFileClip(file_path)
+        video = VideoFileClip(file)
         thumbnail = Image.fromarray(video.get_frame(0).astype("uint8"), "RGB")
         width, height = thumbnail.size
         media_attributes.update(
@@ -119,10 +127,10 @@ def get_media_attributes(file_path):
         video.close()
 
     elif "audio" in mime_type:
-        media_attributes.update({"duration": get_media_duration(file_path)})
+        media_attributes.update({"duration": get_media_duration(file)})
 
     if is_url:
-        os.remove(file_path)
+        os.remove(file)
 
     return media_attributes, thumbnail
 
@@ -663,8 +671,12 @@ def concat_sentences(*sentences):
 
 
 def is_file(value):
-    return os.path.isfile(value) or value.startswith(("http://", "https://"))
-
+    return isinstance(value, replicate.helpers.FileOutput) \
+        or (isinstance(value, str) and (
+            os.path.isfile(value) \
+            or value.startswith(("http://", "https://")) 
+        ))
+        
 
 def get_human_readable_error(error_list):
     errors = [f"{error['loc'][0]}: {error['msg']}" for error in error_list]

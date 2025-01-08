@@ -208,10 +208,11 @@ def test(
 
         if api:
             user = get_my_eden_user()
-
-            # decorate this
             task = await tool.async_start_task(
-                user.id, user.id, tool.test_args, mock=mock
+                requester=user.id, 
+                user=user.id, 
+                args=tool.test_args, 
+                mock=mock
             )
             result = await tool.async_wait(task)
         else:
