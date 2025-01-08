@@ -194,7 +194,7 @@ async def generate_prompts(lora_mode: str = None):
 
     except Exception as e:
         print("failed to sample new prompts, falling back to old prompts")
-        prompts = random.sample(ALL_PROMPTS, 4)
+        prompts = random.sample(sampled_prompts, 4)
 
     return prompts
 
