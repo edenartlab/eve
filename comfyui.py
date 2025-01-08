@@ -367,9 +367,9 @@ class ComfyUI:
                 tests = [f"/root/workspace/workflows/{workflow}/{specific_test}"]
             else:
                 tests = [f"/root/workspace/workflows/{workflow}/test.json"]
-            print("\n\n-----------------------------------------------------------")
             print(f"====> Running tests for {workflow}: ", tests)
-            for test in tests:
+            for i, test in enumerate(tests):
+                print(f"\n\n\n------------------ Running test {i+1} of {len(tests)} ------------------")
                 tool = Tool.from_yaml(f"/root/workspace/workflows/{workflow}/api.yaml")
                 if tool.status == "inactive":
                     print(f"{workflow} is inactive, skipping test")
@@ -698,7 +698,7 @@ class ComfyUI:
                 #print("found lora:\n", lora)
 
                 if not lora:
-                    raise Exception(f"Lora {key} with id: {lora_id} not found!")
+                    raise Exception(f"Lora {key} with id: {lora_id} not found in DB {db}!")
 
                 base_model = lora.get("base_model")
                 lora_url = lora.get("checkpoint")
