@@ -29,7 +29,7 @@ parameters:
     label: Input image
     description: Input image. Aspect ratio will match this.
   prompt_strength:
-    type: number
+    type: float
     label: Prompt strength
     description: Prompt strength when using img2img. 1.0 corresponds to full destruction of information in image
     default: 0.8
@@ -86,7 +86,7 @@ parameters:
     minimum: 1
     maximum: 50
   guidance:
-    type: number
+    type: float
     label: Guidance scale
     description: How strictly to follow the prompt
     hide_from_ui: true
