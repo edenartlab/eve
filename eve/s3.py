@@ -73,15 +73,15 @@ def upload_file(file, name=None, file_type=None):
         file_bytes = io.BytesIO(file)
         return upload_buffer(file_bytes, name, file_type)
     
-    if file.endswith(".safetensors"):
-        file_type = ".safetensors"
+    elif isinstance(file, str):
+        if file.endswith(".safetensors"):
+            file_type = ".safetensors"
 
+        if file.startswith("http://") or file.startswith("https://"):
+            return upload_file_from_url(file, name, file_type)
 
-    if file.startswith("http://") or file.startswith("https://"):
-        return upload_file_from_url(file, name, file_type)
-
-    with open(file, "rb") as file:
-        buffer = file.read()
+        with open(file, "rb") as file:
+            buffer = file.read()
 
     return upload_buffer(buffer, name, file_type)
 

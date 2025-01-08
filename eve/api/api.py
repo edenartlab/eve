@@ -2,8 +2,8 @@ import logging
 import os
 import threading
 import json
+import asyncio
 import modal
-import replicate
 from fastapi import FastAPI, Depends, BackgroundTasks, Request
 from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,6 +15,10 @@ from contextlib import asynccontextmanager
 
 from eve import auth
 from eve.api.helpers import load_existing_triggers
+from eve.postprocessing import (
+    generate_lora_thumbnails,
+    cancel_stuck_tasks,
+)
 from eve.api.handlers import (
     handle_create,
     handle_cancel,
@@ -216,3 +220,20 @@ def fastapi_app():
     if not check_environment_exists(deploy.DEPLOYMENT_ENV_NAME):
         create_environment(deploy.DEPLOYMENT_ENV_NAME)
     return web_app
+
+
+@app.function(
+    image=image, 
+    schedule=modal.Period(minutes=15)
+)
+async def postprocessing():
+    try:
+        await cancel_stuck_tasks()
+    except Exception as e:
+        print(f"Error cancelling stuck tasks: {e}")
+
+    try:
+        await generate_lora_thumbnails()
+    except Exception as e:
+        print(f"Error generating lora thumbnails: {e}")
+
