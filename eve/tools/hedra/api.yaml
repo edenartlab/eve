@@ -4,7 +4,7 @@ tip: |-
   This tool can be used for creating a talking head
 cost_estimate: 200
 output_type: video
-status: prod
+status: stage
 visible: false
 parameters:
   image:
