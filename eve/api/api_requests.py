@@ -13,7 +13,7 @@ class TaskRequest(BaseModel):
 
 
 class CancelRequest(BaseModel):
-    task_id: str
+    taskId: str
     user: str
 
 
