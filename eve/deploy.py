@@ -1,27 +1,14 @@
 import os
+from pathlib import Path
 import subprocess
 import tempfile
-from enum import Enum
-from pydantic import BaseModel
-from typing import Optional, Dict
+from typing import Dict
 
-from eve.models import ClientType
 
 REPO_URL = "https://github.com/edenartlab/eve.git"
 REPO_BRANCH = "main"
 DEPLOYMENT_ENV_NAME = "deployments"
-
-
-class DeployCommand(str, Enum):
-    DEPLOY = "deploy"
-    STOP = "stop"
-
-
-class DeployRequest(BaseModel):
-    agent_key: str
-    platform: ClientType
-    command: DeployCommand
-    credentials: Optional[Dict[str, str]] = None
+db = os.getenv("DB", "STAGE").upper()
 
 
 def authenticate_modal_key() -> bool:
@@ -77,21 +64,19 @@ def clone_repo(temp_dir: str):
     )
 
 
-def modify_client_file(file_path: str, agent_key: str) -> None:
+def prepare_client_file(file_path: str, agent_key: str, env: str) -> None:
     """Modify the client file to use correct secret name and fix pyproject path"""
     with open(file_path, "r") as f:
         content = f.read()
 
     # Get the repo root directory (three levels up from the client file)
-    repo_root = os.path.dirname(
-        os.path.dirname(os.path.dirname(os.path.dirname(file_path)))
-    )
-    pyproject_path = os.path.join(repo_root, "pyproject.toml")
+    repo_root = Path(__file__).parent.parent
+    pyproject_path = repo_root / "pyproject.toml"
 
     # Replace the static secret name with the dynamic one
     modified_content = content.replace(
         'modal.Secret.from_name("client-secrets")',
-        f'modal.Secret.from_name("{agent_key}-secrets")',
+        f'modal.Secret.from_name("{agent_key}-secrets-{env}")',
     )
 
     # Fix pyproject.toml path to use absolute path
@@ -100,11 +85,15 @@ def modify_client_file(file_path: str, agent_key: str) -> None:
         f'.pip_install_from_pyproject("{pyproject_path}")',
     )
 
-    with open(file_path, "w") as f:
+    temp_dir = tempfile.mkdtemp()
+    temp_file = Path(temp_dir) / "modal_client.py"
+    with open(temp_file, "w") as f:
         f.write(modified_content)
 
+    return str(temp_file)
 
-def deploy_client(agent_key: str, client_name: str):
+
+def deploy_client(agent_key: str, client_name: str, env: str):
     with tempfile.TemporaryDirectory() as temp_dir:
         # Clone the repo
         clone_repo(temp_dir)
@@ -115,21 +104,32 @@ def deploy_client(agent_key: str, client_name: str):
         )
         if os.path.exists(client_path):
             # Modify the client file to use the correct secret name
-            modify_client_file(client_path, agent_key)
+            temp_file = prepare_client_file(client_path, agent_key, env)
+            app_name = f"{agent_key}-{client_name}-{env}"
+
             subprocess.run(
-                ["modal", "deploy", client_path, "-e", DEPLOYMENT_ENV_NAME], check=True
+                [
+                    "modal",
+                    "deploy",
+                    "--name",
+                    app_name,
+                    temp_file,
+                    "-e",
+                    DEPLOYMENT_ENV_NAME,
+                ],
+                check=True,
             )
         else:
             raise Exception(f"Client modal file not found: {client_path}")
 
 
-def stop_client(agent_key: str, client_name: str, db: str):
+def stop_client(agent_key: str, client_name: str):
     subprocess.run(
         [
             "modal",
             "app",
             "stop",
-            f"{agent_key}-{client_name}-{db}",
+            f"{agent_key}-{client_name}-{db.lower()}",
             "-e",
             DEPLOYMENT_ENV_NAME,
         ],

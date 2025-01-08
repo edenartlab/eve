@@ -1,12 +1,10 @@
 import os
 import json
 import magic
-import copy
 from bson import ObjectId
 from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 from pydantic.config import ConfigDict
-from pydantic.json_schema import SkipJsonSchema
 from typing import List, Optional, Dict, Any, Literal, Union
 
 from .mongo import Document, Collection

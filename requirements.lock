@@ -34,6 +34,8 @@ anyio==4.7.0
     # via runwayml
     # via starlette
     # via watchfiles
+apscheduler==3.11.0
+    # via eve
 attrs==24.2.0
     # via aiohttp
     # via jsonschema
@@ -357,7 +359,7 @@ referencing==0.35.1
     # via jsonschema-specifications
 regex==2024.11.6
     # via parsimonious
-replicate==0.22.0
+replicate==1.0.4
     # via eve
 requests==2.32.3
     # via elevenlabs
@@ -451,6 +453,8 @@ typing-extensions==4.12.2
     # via web3
 typing-inspect==0.9.0
     # via clerk-backend-api
+tzlocal==5.2
+    # via apscheduler
 urllib3==2.2.3
     # via botocore
     # via requests

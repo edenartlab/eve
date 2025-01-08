@@ -1,3 +1,4 @@
+import logging
 import sentry_sdk
 from dotenv import load_dotenv
 from pathlib import Path
@@ -6,8 +7,11 @@ import os
 
 home_dir = str(Path.home())
 
-
 EDEN_API_KEY = None
+
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
 
 
 def load_env(db):
@@ -16,7 +20,7 @@ def load_env(db):
     db = db.upper()
     if db not in ["STAGE", "PROD"]:
         raise ValueError(f"Invalid database: {db}")
-    
+
     os.environ["DB"] = db
 
     # First try ~/.eve
@@ -37,7 +41,10 @@ def load_env(db):
 
     # start sentry
     sentry_dsn = os.getenv("SENTRY_DSN")
-    sentry_sdk.init(dsn=sentry_dsn, traces_sample_rate=1.0, profiles_sample_rate=1.0)
+    if sentry_dsn:
+        sentry_sdk.init(
+            dsn=sentry_dsn, traces_sample_rate=1.0, profiles_sample_rate=1.0
+        )
 
     # load api keys
     EDEN_API_KEY = SecretStr(os.getenv("EDEN_API_KEY", ""))

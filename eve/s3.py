@@ -1,12 +1,12 @@
 import os
 import io
-import os
 import boto3
 import hashlib
 import mimetypes
 import magic
 import requests
 import tempfile
+import replicate
 from pydub import AudioSegment
 from typing import Iterator
 from PIL import Image
@@ -65,17 +65,23 @@ def upload_file_from_url(url, name=None, file_type=None):
             return upload_file(tmp_file.name, name, file_type)
 
 
-def upload_file(file_path, name=None, file_type=None):
+def upload_file(file, name=None, file_type=None):
     """Uploads a file to an S3 bucket and returns the file URL."""
 
-    if file_path.endswith(".safetensors"):
-        file_type = ".safetensors"
+    if isinstance(file, replicate.helpers.FileOutput):
+        file = file.read()
+        file_bytes = io.BytesIO(file)
+        return upload_buffer(file_bytes, name, file_type)
+    
+    elif isinstance(file, str):
+        if file.endswith(".safetensors"):
+            file_type = ".safetensors"
 
-    if file_path.startswith("http://") or file_path.startswith("https://"):
-        return upload_file_from_url(file_path, name, file_type)
+        if file.startswith("http://") or file.startswith("https://"):
+            return upload_file_from_url(file, name, file_type)
 
-    with open(file_path, "rb") as file:
-        buffer = file.read()
+        with open(file, "rb") as file:
+            buffer = file.read()
 
     return upload_buffer(buffer, name, file_type)
 

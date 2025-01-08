@@ -59,12 +59,12 @@ class Task(Document):
         super().__init__(**data)
 
     @classmethod
-    def from_handler_id(self, handler_id):
-        tasks = self.get_collection()
+    def from_handler_id(cls, handler_id):
+        tasks = cls.get_collection()
         task = tasks.find_one({"handler_id": handler_id})
         if not task:
             raise Exception("Task not found")    
-        return super().load(self, task["_id"])
+        return cls.from_mongo(task["_id"])
 
     def spend_manna(self):
         if self.cost == 0:
@@ -89,7 +89,6 @@ class Task(Document):
             amount=refund_amount,
             type="refund",
         ).save()
-
 
 def task_handler_func(func):
     @wraps(func)

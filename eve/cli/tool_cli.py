@@ -113,6 +113,45 @@ def update(db: str, names: tuple):
     )
 
 
+@tool.command()
+@click.option(
+    "--db",
+    type=click.Choice(["STAGE", "PROD"], case_sensitive=False),
+    default="STAGE",
+    help="DB to save against",
+)
+@click.argument("names", nargs=-1, required=True)
+def remove(db: str, names: tuple):
+    """Upload tools to mongo"""
+    
+    load_env(db)
+
+    confirm = click.confirm(
+        f"Are you sure you want to remove {len(names)} following tools from {db}?", default=False
+    )
+    if not confirm:
+        return
+
+    deleted = 0
+    for key in names:
+        try:
+            tool = Tool.load(key=key)
+            tool.delete()
+            click.echo(
+                click.style(f"Deleted tool {db}:{key})", fg="red")
+            )
+            deleted += 1
+        except Exception as e:
+            traceback.print_exc()
+            click.echo(click.style(f"Failed to delete tool {db}:{key}: {e}", fg="red"))
+
+    click.echo(
+        click.style(
+            f"Deleted {deleted} of {len(names)} tools", fg="red", bold=True
+        )
+    )
+
+
 @tool.command(context_settings=dict(ignore_unknown_options=True, allow_extra_args=True))
 @click.option(
     "--db",
@@ -208,10 +247,11 @@ def test(
 
         if api:
             user = get_my_eden_user()
-
-            # decorate this
             task = await tool.async_start_task(
-                user.id, user.id, tool.test_args, mock=mock
+                requester_id=user.id, 
+                user_id=user.id, 
+                args=tool.test_args, 
+                mock=mock
             )
             result = await tool.async_wait(task)
         else:

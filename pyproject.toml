@@ -27,7 +27,7 @@ dependencies = [
     "python-dotenv>=1.0.1",
     "python-magic>=0.4.27",
     "pyyaml>=6.0.2",
-    "replicate==0.22.0",
+    "replicate>=1.0.4",
     "requests>=2.32.3",
     "runwayml>=2.1.0",
     "sentry-sdk>=2.18.0",
@@ -46,6 +46,7 @@ dependencies = [
     "colorama>=0.4.6",
     "web3<7.6.1",
     "playwright<1.49",
+    "apscheduler>=3.11.0",
 ]
 
 [build-system]

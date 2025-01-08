@@ -66,6 +66,7 @@ test_all = True if os.getenv("TEST_ALL") else False
 specific_test = os.getenv("SPECIFIC_TEST") if os.getenv("SPECIFIC_TEST") else ""
 skip_tests = os.getenv("SKIP_TESTS")
 
+# Run a bunch of checks to verify input args:
 if test_all and specific_test:
     print(f"WARNING: can't have both TEST_ALL and SPECIFIC_TEST at the same time...")
     print(f"Running TEST_ALL instead")
@@ -79,6 +80,11 @@ print(f"test_all: {test_all}")
 print(f"specific_test: {specific_test}")
 print(f"skip_tests: {skip_tests}")
 print("========================================")
+
+if not test_workflows and workspace_name and not test_all:
+    print("\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+    print("!!!! WARNING: You are deploying a workspace without TEST_ALL !!!!")
+    print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n")
 
 def install_comfyui():
     snapshot = json.load(open("/root/workspace/snapshot.json", 'r'))
@@ -362,7 +368,8 @@ class ComfyUI:
             else:
                 tests = [f"/root/workspace/workflows/{workflow}/test.json"]
             print(f"====> Running tests for {workflow}: ", tests)
-            for test in tests:
+            for i, test in enumerate(tests):
+                print(f"\n\n\n------------------ Running test {i+1} of {len(tests)} ------------------")
                 tool = Tool.from_yaml(f"/root/workspace/workflows/{workflow}/api.yaml")
                 if tool.status == "inactive":
                     print(f"{workflow} is inactive, skipping test")
@@ -691,7 +698,7 @@ class ComfyUI:
                 #print("found lora:\n", lora)
 
                 if not lora:
-                    raise Exception(f"Lora {key} with id: {lora_id} not found!")
+                    raise Exception(f"Lora {key} with id: {lora_id} not found in DB {db}!")
 
                 base_model = lora.get("base_model")
                 lora_url = lora.get("checkpoint")
