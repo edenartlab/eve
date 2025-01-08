@@ -224,6 +224,7 @@ def fastapi_app():
 
 @app.function(
     image=image, 
+    concurrency_limit=1,
     schedule=modal.Period(minutes=15),
     timeout=3600
 )
