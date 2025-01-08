@@ -3,6 +3,7 @@ import json
 import time
 import subprocess
 import requests
+import eve
 
 
 EDEN_ADMIN_KEY = os.getenv("EDEN_ADMIN_KEY")
@@ -25,6 +26,16 @@ def run_create(server_url):
     print(json.dumps(response.json(), indent=2))
 
 
+def run_cancel(server_url):
+    request = {
+        "task_id": "677e42808907491410146243",
+        "user_id": "65284b18f8bbb9bff13ebe65",
+    }
+    response = requests.post(server_url+"/cancel", json=request, headers=headers)
+    print("Status Code:", response.status_code)
+    print(json.dumps(response.json(), indent=2))
+
+
 def run_chat(server_url):
     request = {
         "user_id": "65284b18f8bbb9bff13ebe65",
@@ -38,8 +49,7 @@ def run_chat(server_url):
     print(json.dumps(response.json(), indent=2))
 
 
-def test_client():
-    server_url = None  
+def test_client(server_url):
     try:
         if not server_url:
             print("Starting server...")
@@ -59,6 +69,8 @@ def test_client():
         print("\nRunning chat test...")
         run_chat(server_url)
 
+        run_cancel(server_url)
+
     except KeyboardInterrupt:
         print("\nShutting down...")
     except Exception as e:
@@ -70,4 +82,7 @@ def test_client():
 
 
 if __name__ == "__main__":
-    test_client()
+    server_url = None  
+    server_url = "http://localhost:8000"
+    server_url = os.getenv("EDEN_API_URL")
+    test_client(server_url)

@@ -56,18 +56,11 @@ async def handle_cancel(request: CancelRequest):
     if task.status in ["completed", "failed", "cancelled"]:
         return {"status": task.status}
     tool = Tool.load(key=task.tool)
-    tool.cancel(task)
+    await tool.async_cancel(task)
     return {"status": task.status}
 
 
 async def handle_replicate_webhook(body: dict):
-    # Todo: Replicate validation
-    print(body)
-    print(type(body))
-    # verify the request
-    
-    print("validated")
-
     task = Task.from_handler_id(body["id"])
     tool = Tool.load(task.tool)
     _ = replicate_update_task(

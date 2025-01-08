@@ -53,7 +53,6 @@ def upload_result(result, save_thumbnails=False, save_blurhash=False):
     elif isinstance(result, list):
         return [upload_result(item, save_thumbnails=save_thumbnails, save_blurhash=save_blurhash) for item in result]
     elif is_file(result):
-        print("#$%#$%#$%#$%%#$#$%")
         return upload_media(result, save_thumbnails=save_thumbnails, save_blurhash=save_blurhash)
     else:
         return result

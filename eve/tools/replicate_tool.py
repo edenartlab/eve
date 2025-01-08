@@ -91,11 +91,8 @@ class ReplicateTool(Tool):
 
     @Tool.handle_cancel
     async def async_cancel(self, task: Task):
-        try:
-            prediction = replicate.predictions.get(task.handler_id)
-            prediction.cancel()
-        except Exception as e:
-            print("Replicate cancel error, probably task is timed out or already finished", e)
+        prediction = replicate.predictions.get(task.handler_id)
+        prediction.cancel()
 
     def _format_args_for_replicate(self, args: dict):
         new_args = args.copy()

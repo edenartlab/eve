@@ -90,7 +90,6 @@ class Task(Document):
             type="refund",
         ).save()
 
-
 def task_handler_func(func):
     @wraps(func)
     async def wrapper(task: Task):

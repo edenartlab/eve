@@ -353,7 +353,6 @@ class Tool(Document, ABC):
             try:
                 # validate args and user manna balance
                 args = self.prepare_args(args)
-                print("args", args)
                 sentry_sdk.add_breadcrumb(category="handle_start_task", data=args)                
                 cost = self.calculate_cost(args)
                 user = User.from_mongo(user_id)
@@ -433,11 +432,18 @@ class Tool(Document, ABC):
     def handle_cancel(cancel_function):
         """Wrapper for cancelling a task"""
 
-        async def async_wrapper(self, task: Task):
-            await cancel_function(self, task)
-            task.refund_manna()
-            task.update(status="cancelled")
-
+        async def async_wrapper(self, task: Task, force: bool = False):
+            try:
+                await cancel_function(self, task)
+            except Exception as e:
+                sentry_sdk.capture_exception(f"Error cancelling task: {e}")
+                traceback.print_exc()
+            finally:
+                task.refund_manna()
+                if force:
+                    task.update(status="failed", error="Timed out")
+                else:
+                    task.update(status="cancelled")
         return async_wrapper
 
     @abstractmethod
@@ -467,8 +473,8 @@ class Tool(Document, ABC):
     def wait(self, task: Task):
         return asyncio.run(self.async_wait(task))
 
-    def cancel(self, task: Task):
-        return asyncio.run(self.async_cancel(task))
+    def cancel(self, task: Task, force: bool = False):
+        return asyncio.run(self.async_cancel(task, force))
 
 
 def get_tools_from_api_files(
