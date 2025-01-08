@@ -20,6 +20,7 @@ class Model(Document):
     checkpoint: str
     base_model: str
     lora_trigger_text: Optional[str] = None
+    lora_model: Optional[str] = None
 
     # users: SkipJsonSchema[Optional[Collection]] = Field(None, exclude=True)
 

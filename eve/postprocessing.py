@@ -68,7 +68,8 @@ async def generate_lora_thumbnails():
 
         try:
             tool = Tool.load(key="flux_dev_lora")
-            prompts = await generate_prompts()
+            lora_mode = model.get("lora_mode")
+            prompts = await generate_prompts(lora_mode)
             thumbnails = [] 
             
             for prompt in prompts:
@@ -145,21 +146,36 @@ async def generate_lora_thumbnails():
             traceback.print_exc()
 
 
-async def generate_prompts():
-    sampled_prompts = random.sample(ALL_PROMPTS, 16)
-    prompt_examples = [{"prompts": sampled_prompts[i:i+4]} for i in range(0, 16, 4)]
-
+async def generate_prompts(lora_mode: str = None):
+    if lora_mode == "face":
+        sampled_prompts = random.sample(FACE_PROMPTS, 16)
+    elif lora_mode == "object":
+        sampled_prompts = random.sample(OBJECT_PROMPTS, 16)
+    elif lora_mode == "style":
+        sampled_prompts = random.sample(STYLE_PROMPTS, 16)
+    else:
+        sampled_prompts = random.sample(ALL_PROMPTS, 16)
+    
     class Prompts(BaseModel):
         """Exactly FOUR prompts for image generation models about <Concept>"""
         prompts: List[str] = Field(..., description="A list of 4 image prompts about <Concept>")
 
         model_config = ConfigDict(
             json_schema_extra={
-                "examples": prompt_examples
+                "examples": [
+                    {"prompts": sampled_prompts[i:i+4]} for i in range(0, 16, 4)
+                ]
             }
         )
 
     prompt = """Come up with exactly FOUR (4, no more, no less) detailed and visually rich prompts about <Concept>. These will go to image generation models to be generated. Prompts must contain the word <Concept> at least once, including the angle brackets."""
+
+    if lora_mode == "face":
+        prompt += " The concept refers to a specific person."
+    elif lora_mode == "object":
+        prompt += " The concept refers to a specific object or thing."
+    elif lora_mode == "style":
+        prompt += " The concept refers to a specific style or aesthetic."
 
     try:
         client = instructor.from_openai(openai.AsyncOpenAI())
@@ -256,7 +272,3 @@ STYLE_PROMPTS = [
 ]
 
 ALL_PROMPTS = FACE_PROMPTS + OBJECT_PROMPTS + STYLE_PROMPTS
-
-
-# if __name__ == "__main__":
-#     asyncio.run(generate_lora_thumbnails())
