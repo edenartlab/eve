@@ -8,6 +8,7 @@ from fastapi import BackgroundTasks
 from ably import AblyRealtime
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+import sentry_sdk
 
 from eve.api.api_requests import ChatRequest, UpdateConfig
 from eve.thread import UserMessage
@@ -72,16 +73,38 @@ async def create_chat_trigger(
             logger.info(f"Completed scheduled chat for trigger {trigger_id}: {result}")
 
         except Exception as e:
-            logger.error(f"Error in scheduled chat: {str(e)}")
+            error_msg = "Sorry, there was an error in your scheduled chat."
+            logger.error(error_msg, exc_info=True)
+            sentry_sdk.capture_exception(e)
+            try:
+                if update_config and update_config.sub_channel_name:
+                    channel = ably_client.channels.get(
+                        str(update_config.sub_channel_name)
+                    )
+                    loop.run_until_complete(
+                        channel.publish("update", {"type": "error", "error": error_msg})
+                    )
+            except Exception as notify_error:
+                logger.error(
+                    f"Failed to notify about trigger error: {str(notify_error)}",
+                    exc_info=True,
+                )
+                sentry_sdk.capture_exception(notify_error)
         finally:
             loop.close()
 
-    job = scheduler.add_job(
-        run_scheduled_task,
-        trigger=CronTrigger(**schedule),
-        id=trigger_id,
-        misfire_grace_time=None,
-        coalesce=True,
-    )
+    try:
+        job = scheduler.add_job(
+            run_scheduled_task,
+            trigger=CronTrigger(**schedule),
+            id=trigger_id,
+            misfire_grace_time=None,
+            coalesce=True,
+        )
+        return job
 
-    return job
+    except Exception as e:
+        error_msg = f"Failed to create trigger job {trigger_id}: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        sentry_sdk.capture_exception(e)
+        raise
