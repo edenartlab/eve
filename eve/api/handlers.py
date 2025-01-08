@@ -53,7 +53,7 @@ async def handle_create(request: TaskRequest):
 @handle_errors
 async def handle_cancel(request: CancelRequest):
     task = Task.from_mongo(request.task_id)
-    if str(task.user) != request.user_id:
+    if str(task.user) != request.user:
         raise APIError(
             "Unauthorized: Task user does not match user_id", status_code=403
         )

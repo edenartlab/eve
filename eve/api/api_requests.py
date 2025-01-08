@@ -14,7 +14,7 @@ class TaskRequest(BaseModel):
 
 class CancelRequest(BaseModel):
     task_id: str
-    user_id: str
+    user: str
 
 
 class UpdateConfig(BaseModel):

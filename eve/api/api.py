@@ -224,7 +224,8 @@ def fastapi_app():
 
 @app.function(
     image=image, 
-    schedule=modal.Period(minutes=15)
+    schedule=modal.Period(minutes=15),
+    timeout=3600
 )
 async def postprocessing():
     try:
