@@ -114,7 +114,8 @@ class ReplicateTool(Tool):
                         lora_trigger_text = lora_doc.get("lora_trigger_text")
                         new_args[field] = lora_url
                         if "prompt" in new_args:
-                            pattern = re.compile(re.escape(lora_name), re.IGNORECASE)
+                            name_pattern = f"(\\b{re.escape(lora_name)}\\b|<{re.escape(lora_name)}>|\\<concept\\>)"
+                            pattern = re.compile(name_pattern, re.IGNORECASE)
                             new_args["prompt"] = pattern.sub(lora_trigger_text, new_args['prompt'])
                 if is_number:
                     new_args[field] = float(args[field])
