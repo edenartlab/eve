@@ -217,6 +217,7 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
                         save_blurhash=False
                     ) if thumbnails else None
                     url = s3.get_full_url(filename)
+                    checkpoint_filename = url.split("/")[-1]
                     model = Model(
                         name=task.args["name"],
                         user=task.user,
@@ -224,7 +225,7 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
                         task=task.id,
                         thumbnail=thumbnail.get("filename"),
                         args=task.args,
-                        checkpoint=url, 
+                        checkpoint=checkpoint_filename, 
                         base_model="sdxl",
                     )
                     model.save(upsert_filter={"task": ObjectId(task.id)})  # upsert_filter prevents duplicates
