@@ -152,7 +152,7 @@ class Eden2Cog(commands.Cog):
                         result = data.get("result", {})
                         result["result"] = prepare_result(result["result"])
                         output = result["result"][0]["output"][0]
-                        url = output["url"]
+                        url = output.get("url")
 
                         # Get creation ID from the output
                         creation_id = str(output.get("creation"))
@@ -170,7 +170,7 @@ class Eden2Cog(commands.Cog):
                             await self.send_message(
                                 channel, url, reference=reference, view=view
                             )
-                        else:
+                        elif url:
                             await self.send_message(channel, url, reference=reference)
 
                     elif update_type == UpdateType.END_PROMPT:

@@ -21,6 +21,7 @@ image = (
     .env({"DB": db})
     .apt_install("libmagic1", "ffmpeg", "wget")
     .pip_install_from_pyproject("pyproject.toml")
+    .run_commands(["playwright install"])
     .copy_local_dir("../workflows", "/workflows")
 )
 

@@ -41,9 +41,13 @@ def load_env(db):
 
     # start sentry
     sentry_dsn = os.getenv("SENTRY_DSN")
+    sentry_env = "production" if db == "PROD" else "staging"
     if sentry_dsn:
         sentry_sdk.init(
-            dsn=sentry_dsn, traces_sample_rate=1.0, profiles_sample_rate=1.0
+            dsn=sentry_dsn,
+            traces_sample_rate=1.0,
+            profiles_sample_rate=1.0,
+            environment=sentry_env,
         )
 
     # load api keys
