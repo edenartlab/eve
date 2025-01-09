@@ -140,7 +140,8 @@ async def _task_handler(func, *args, **kwargs):
                 result = eden_utils.upload_result(result, save_thumbnails=True, save_blurhash=True)
 
                 for output in result["output"]:
-                    name = preprocess_result.get("name") or task_args.get("prompt") or args.get("text_input")
+                    # name = preprocess_result.get("name") or task_args.get("prompt") or args.get("text_input")
+                    name = task_args.get("prompt") or args.get("text_input")
                     if not name:
                         name = args.get("interpolation_prompts") or args.get("interpolation_texts")
                         if name:

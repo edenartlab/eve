@@ -246,7 +246,7 @@ def write_reel(
 
         voiceover: str = Field(..., description="The text of the voiceover, if one is not provided by the user.")
         music_prompt: str = Field(..., description='A prompt describing music for the entire reel. Usually describing format, genre, sub-genre, instruments, moods, BPM, and styles, separated by |. Include specific details by combining musical and emotional terms for moods, using descriptive adjectives for instruments, and selecting BPM settings appropriate to the genre. Follow the provided examples to ensure clarity and comprehensiveness, ensuring each prompt clearly defines the desired audio output. Examples: "Orchestra | Epic cinematic trailer | Instrumentation Strings, Brass, Percussion, and Choir | Dramatic, Inspiring, Heroic | Hollywood Blockbuster | 90 BPM", "Electronic, Synthwave, Retro-Futuristic | Instruments: Analog Synths, Drum Machine, Bass | Moods: Nostalgic, Cool, Rhythmic | 1980s Sci-Fi | 115 BPM"')
-        visual_prompt: str = Field(..., description="A prompt for a text-to-image model to precisely describe the visual content of the reel. The visual prompt should be structured as a descriptive sentence, precisely describing the visible content of the reel, the aesthetic style, visual elements, and action.")
+        visual_prompt: str = Field(..., description='A prompt for a text-to-image model to precisely describe the visual content of the reel. The visual prompt should be structured as a descriptive sentence, precisely describing the visible content of the reel, the aesthetic style, visual elements, and action. Try to enhance or embellish prompts. For example, if the user requests "A mermaid smoking a cigar", you would make it much longer and more intricate and detailed, like "A dried-out crusty old mermaid, wrinkled and weathered skin, tangled and brittle seaweed-like hair, smoking a smoldering cigarette underwater with tiny bubbles rising, jagged and cracked tail with faded iridescent scales, adorned with a tarnished coral crown, holding a rusted trident, faint sunlight beams coming through." If the user provides a lot of detail, just stay faithful to their wishes.')
         visual_style: str = Field(..., description="A short fragment description of the art direction, aesthetic, and style. Focus here not on content, but on genre, mood, medium, abstraction, textural elements, and other aesthetic terms. Aim for 10-15 words")
         # camera_motion: str = Field(..., description="A short description, 2-5 words only, describing the camera motion")
 
@@ -325,12 +325,12 @@ async def handler(args: dict):
     use_lora = args.get("use_lora", False)
     if use_lora:
         lora = args.get("lora")
-        loras = get_collection("models")
+        loras = get_collection("models3")
         lora_doc = loras.find_one({"_id": ObjectId(lora)})
         lora_name  = lora_doc.get("name")
-        caption_prefix = lora_doc["args"]["caption_prefix"]
+        lora_trigger_text = lora_doc.get("lora_trigger_text")
         lora_strength = args.get("lora_strength")
-        instructions = f'In the visual prompts, *all* mentions of {lora_name} should be replaced with "{caption_prefix}". So for example, instead of "A photo of {lora_name} on the beach", always write "A photo of {caption_prefix} on the beach".'
+        instructions = f'In the visual prompts, *all* mentions of {lora_name} should be replaced with "{lora_trigger_text}". So for example, instead of "A photo of {lora_name} on the beach", always write "A photo of {lora_trigger_text} on the beach".'
         
     reel = write_reel(
         prompt=args.get("prompt"),

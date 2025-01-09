@@ -46,10 +46,58 @@ def cancel_stuck_tasks():
             tool.cancel(task, force=True)
 
         except Exception as e:
-            print("Error canceling task", e)
+            print(f"Error canceling task {str(task.id)} {task.tool}", e)
             task.update(status="failed", error="Tool not found")
             sentry_sdk.capture_exception(e)
             traceback.print_exc()
+
+
+def download_nsfw_models():
+    from transformers import AutoModelForImageClassification, ViTImageProcessor
+    AutoModelForImageClassification.from_pretrained("Falconsai/nsfw_image_detection")
+    ViTImageProcessor.from_pretrained("Falconsai/nsfw_image_detection")
+
+
+async def run_nsfw_detection():
+    import torch
+    from PIL import Image
+    from transformers import AutoModelForImageClassification, ViTImageProcessor
+
+    model = AutoModelForImageClassification.from_pretrained(
+        "Falconsai/nsfw_image_detection",
+        cache_dir="model-cache",
+    )
+    processor = ViTImageProcessor.from_pretrained("Falconsai/nsfw_image_detection")
+
+    image_paths = [
+        "https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/62946527441201f82e0e3d667fda480e176e9940a2e04f4e54c5230665dfc6f6.jpg",
+        "https://edenartlab-prod-data.s3.us-east-1.amazonaws.com/bb88e857586a358ce3f02f92911588207fbddeabff62a3d6a479517a646f053c.jpg"
+    ]
+
+    images = [
+        Image.open(eden_utils.download_file(url, f"{i}.jpg")).convert('RGB') 
+        for i, url in enumerate(image_paths)
+    ]
+        
+    with torch.no_grad():
+        inputs = processor(images=images, return_tensors="pt")
+        outputs = model(**inputs)
+        logits = outputs.logits
+    
+    print(logits)
+    predicted_labels = logits.argmax(-1).tolist()
+    print(predicted_labels)
+    output = [model.config.id2label[predicted_label] for predicted_label in predicted_labels]
+    print(output)
+    
+    # Sort image paths based on safe logit values
+    first_logits = logits[:, 0].tolist()
+    sorted_pairs = sorted(zip(image_paths, first_logits), key=lambda x: x[1], reverse=True)
+    sorted_image_paths = [pair[0] for pair in sorted_pairs]
+    
+    print("\nImage paths sorted by first logit value (highest to lowest):")
+    for i, path in enumerate(sorted_image_paths):
+        print(f"{i+1}. {path} (logit: {sorted_pairs[i][1]:.4f})")
 
 
 async def generate_lora_thumbnails():
@@ -68,7 +116,8 @@ async def generate_lora_thumbnails():
 
         try:
             tool = Tool.load(key="flux_dev_lora")
-            prompts = await generate_prompts()
+            lora_mode = model.get("lora_mode")
+            prompts = await generate_prompts(lora_mode)
             thumbnails = [] 
             
             for prompt in prompts:
@@ -145,21 +194,36 @@ async def generate_lora_thumbnails():
             traceback.print_exc()
 
 
-async def generate_prompts():
-    sampled_prompts = random.sample(ALL_PROMPTS, 16)
-    prompt_examples = [{"prompts": sampled_prompts[i:i+4]} for i in range(0, 16, 4)]
-
+async def generate_prompts(lora_mode: str = None):
+    if lora_mode == "face":
+        sampled_prompts = random.sample(FACE_PROMPTS, 16)
+    elif lora_mode == "object":
+        sampled_prompts = random.sample(OBJECT_PROMPTS, 16)
+    elif lora_mode == "style":
+        sampled_prompts = random.sample(STYLE_PROMPTS, 16)
+    else:
+        sampled_prompts = random.sample(ALL_PROMPTS, 16)
+    
     class Prompts(BaseModel):
         """Exactly FOUR prompts for image generation models about <Concept>"""
         prompts: List[str] = Field(..., description="A list of 4 image prompts about <Concept>")
 
         model_config = ConfigDict(
             json_schema_extra={
-                "examples": prompt_examples
+                "examples": [
+                    {"prompts": sampled_prompts[i:i+4]} for i in range(0, 16, 4)
+                ]
             }
         )
 
     prompt = """Come up with exactly FOUR (4, no more, no less) detailed and visually rich prompts about <Concept>. These will go to image generation models to be generated. Prompts must contain the word <Concept> at least once, including the angle brackets."""
+
+    if lora_mode == "face":
+        prompt += " The concept refers to a specific person."
+    elif lora_mode == "object":
+        prompt += " The concept refers to a specific object or thing."
+    elif lora_mode == "style":
+        prompt += " The concept refers to a specific style or aesthetic."
 
     try:
         client = instructor.from_openai(openai.AsyncOpenAI())
@@ -178,7 +242,7 @@ async def generate_prompts():
 
     except Exception as e:
         print("failed to sample new prompts, falling back to old prompts")
-        prompts = random.sample(ALL_PROMPTS, 4)
+        prompts = random.sample(sampled_prompts, 4)
 
     return prompts
 
@@ -256,7 +320,3 @@ STYLE_PROMPTS = [
 ]
 
 ALL_PROMPTS = FACE_PROMPTS + OBJECT_PROMPTS + STYLE_PROMPTS
-
-
-# if __name__ == "__main__":
-#     asyncio.run(generate_lora_thumbnails())

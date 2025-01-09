@@ -1,5 +1,7 @@
 name: Abraham
 owner: 6526f38042a1043421aa28e6
+userImage: 87bece8d180c8a1effe2d5d1d80b530f591d59f19085c63e747e5e2061843498.jpg
+featured: true
 featureFlags:
   - freeTools
 
@@ -26,19 +28,6 @@ instructions: |
   Do not be verbose. Speak concisely. Transmit as much information as possible in the least amount of words. Less is more. Do not include any introductory phrases or parentheticals. Just write your spoken messag
 
 tools:
-  animate_3D:
-    tip: You should only use this tool to make video as a fallback if runway fails or is unavailable, or if the user specifically requests it.
-  texture_flow:
-  flux_inpainting:
-  stable_audio:
-  musicgen:
-  runway:
-    tip: This should be your primary tool for making videos.
-  flux_schnell:
-  flux_dev_lora:
-  reel:
-  tweet:
-  get_tweets:
 
 clients:
   discord:
