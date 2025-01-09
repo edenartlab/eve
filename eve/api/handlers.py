@@ -3,7 +3,7 @@ import logging
 import os
 import time
 from bson import ObjectId
-from fastapi import BackgroundTasks, Request
+from fastapi import BackgroundTasks
 from fastapi.responses import StreamingResponse
 from ably import AblyRealtime
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -20,9 +20,9 @@ from eve.api.api_requests import (
 )
 from eve.api.helpers import (
     emit_update,
-    get_update_channel,
     serialize_for_json,
     setup_chat,
+    AblyConnectionPool,
 )
 from eve.deploy import (
     create_modal_secrets,
@@ -70,25 +70,15 @@ async def handle_replicate_webhook(body: dict):
     task = Task.from_handler_id(body["id"])
     tool = Tool.load(task.tool)
     _ = replicate_update_task(
-        task,
-        body["status"], 
-        body["error"], 
-        body["output"], 
-        tool.output_handler
+        task, body["status"], body["error"], body["output"], tool.output_handler
     )
 
 
 async def handle_chat(
-    request: ChatRequest, 
-    background_tasks: BackgroundTasks, 
-    ably_client: AblyRealtime
+    request: ChatRequest,
+    background_tasks: BackgroundTasks,
 ):
     user, agent, thread, tools = await setup_chat(request, background_tasks)
-    update_channel = (
-        await get_update_channel(request.update_config, ably_client)
-        if request.update_config and request.update_config.sub_channel_name
-        else None
-    )
 
     async def run_prompt():
         try:
@@ -117,12 +107,11 @@ async def handle_chat(
                 elif update.type == UpdateType.ERROR:
                     data["error"] = update.error if hasattr(update, "error") else None
 
-                await emit_update(request.update_config, update_channel, data)
+                await emit_update(request.update_config, data)
         except Exception as e:
             logger.error("Error in run_prompt", exc_info=True)
             await emit_update(
                 request.update_config,
-                update_channel,
                 {"type": "error", "error": str(e)},
             )
 
@@ -202,7 +191,6 @@ async def handle_deployment_delete(request: DeleteDeploymentRequest):
 async def handle_trigger_create(
     request: CreateTriggerRequest,
     scheduler: BackgroundScheduler,
-    ably_client: AblyRealtime,
 ):
     from eve.trigger import create_chat_trigger
 
@@ -215,7 +203,6 @@ async def handle_trigger_create(
         schedule=request.schedule.to_cron_dict(),
         update_config=request.update_config,
         scheduler=scheduler,
-        ably_client=ably_client,
         trigger_id=trigger_id,
         handle_chat_fn=handle_chat,
     )
