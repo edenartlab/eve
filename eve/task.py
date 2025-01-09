@@ -133,6 +133,8 @@ async def _task_handler(func, *args, **kwargs):
             # Run both functions concurrently
             main_task = func(*args[:-1], task.parent_tool or task.tool, task_args)
             preprocess_task = _preprocess_task(task)
+
+            # preprocess_task is just a stub. it will allow us to parallelize pre-processing tasks that dont want to hold up the main task
             result, preprocess_result = await asyncio.gather(main_task, preprocess_task)
 
             if output_type in ["image", "video", "audio", "lora"]:
@@ -141,9 +143,9 @@ async def _task_handler(func, *args, **kwargs):
 
                 for output in result["output"]:
                     # name = preprocess_result.get("name") or task_args.get("prompt") or args.get("text_input")
-                    name = task_args.get("prompt") or args.get("text_input")
+                    name = task_args.get("prompt") or task_args.get("text_input")
                     if not name:
-                        name = args.get("interpolation_prompts") or args.get("interpolation_texts")
+                        name = task_args.get("interpolation_prompts") or task_args.get("interpolation_texts")
                         if name:
                             name = " to ".join(name)
                     new_creation = Creation(
