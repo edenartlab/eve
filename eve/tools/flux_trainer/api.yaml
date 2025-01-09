@@ -22,7 +22,7 @@ parameters:
     items:
       type: image
     label: Images
-    description: Images to train LoRA with
+    description: Images to train LoRA with (Use at least 5 imgs, 10-20 is even better)
     required: true
     min_length: 1
   mode:
