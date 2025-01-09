@@ -14,6 +14,29 @@ logging.basicConfig(
 )
 
 
+def setup_sentry():
+    sentry_dsn = os.getenv("SENTRY_DSN")
+    if not sentry_dsn:
+        return
+
+    sentry_env = "production" if db == "PROD" else "staging"
+    if db == "PROD":
+        traces_sample_rate = 0.1
+        profiles_sample_rate = 0.05
+
+    else:
+        traces_sample_rate = 1.0
+        profiles_sample_rate = 1.0
+
+    if sentry_dsn:
+        sentry_sdk.init(
+            dsn=sentry_dsn,
+            traces_sample_rate=traces_sample_rate,
+            profiles_sample_rate=profiles_sample_rate,
+            environment=sentry_env,
+        )
+
+
 def load_env(db):
     global EDEN_API_KEY
 
@@ -40,15 +63,7 @@ def load_env(db):
         load_dotenv(env_file, override=True)
 
     # start sentry
-    sentry_dsn = os.getenv("SENTRY_DSN")
-    sentry_env = "production" if db == "PROD" else "staging"
-    if sentry_dsn:
-        sentry_sdk.init(
-            dsn=sentry_dsn,
-            traces_sample_rate=1.0,
-            profiles_sample_rate=1.0,
-            environment=sentry_env,
-        )
+    setup_sentry()
 
     # load api keys
     EDEN_API_KEY = SecretStr(os.getenv("EDEN_API_KEY", ""))
