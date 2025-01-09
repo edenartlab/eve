@@ -2,24 +2,20 @@ import logging
 import os
 import threading
 import json
-import asyncio
 import modal
 from fastapi import FastAPI, Depends, BackgroundTasks, Request
-from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader, HTTPBearer
-from ably import AblyRealtime
 from apscheduler.schedulers.background import BackgroundScheduler
 from pathlib import Path
 from contextlib import asynccontextmanager
 
 from eve import auth
-from eve.api.helpers import load_existing_triggers
 from eve.postprocessing import (
     generate_lora_thumbnails,
     cancel_stuck_tasks,
     download_nsfw_models,
-    run_nsfw_detection
+    run_nsfw_detection,
 )
 from eve.api.handlers import (
     handle_create,
@@ -63,28 +59,17 @@ logging.getLogger("ably").setLevel(logging.INFO if db != "PROD" else logging.WAR
 # FastAPI setup
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    from eve.api.handlers import handle_chat
-
-    # Startup
     watch_thread = threading.Thread(target=convert_tasks2_to_tasks3, daemon=True)
     watch_thread.start()
     app.state.watch_thread = watch_thread
 
-    app.state.ably_client = AblyRealtime(
-        key=os.getenv("ABLY_PUBLISHER_KEY"),
-    )
-
-    # Load existing triggers
-    await load_existing_triggers(scheduler, app.state.ably_client, handle_chat)
-
-    yield
-    # Shutdown
-    if hasattr(app.state, "watch_thread"):
-        app.state.watch_thread.join(timeout=5)
-    if hasattr(app.state, "scheduler"):
-        app.state.scheduler.shutdown(wait=True)
-    if hasattr(app.state, "ably_client"):
-        await app.state.ably_client.close()
+    try:
+        yield
+    finally:
+        if hasattr(app.state, "watch_thread"):
+            app.state.watch_thread.join(timeout=5)
+        if hasattr(app.state, "scheduler"):
+            app.state.scheduler.shutdown(wait=True)
 
 
 web_app = FastAPI(lifespan=lifespan)
@@ -118,7 +103,7 @@ async def replicate_webhook(request: Request):
     # Get raw body for signature verification
     body = await request.body()
     print(body)
-    
+
     # Parse JSON body
     try:
         data = json.loads(body)
@@ -147,7 +132,7 @@ async def chat(
     background_tasks: BackgroundTasks,
     _: dict = Depends(auth.authenticate_admin),
 ):
-    return await handle_chat(request, background_tasks, web_app.state.ably_client)
+    return await handle_chat(request, background_tasks)
 
 
 @web_app.post("/chat/stream")
@@ -177,7 +162,7 @@ async def deployment_delete(
 async def trigger_create(
     request: CreateTriggerRequest, _: dict = Depends(auth.authenticate_admin)
 ):
-    return await handle_trigger_create(request, scheduler, web_app.state.ably_client)
+    return await handle_trigger_create(request, scheduler)
 
 
 @web_app.post("/triggers/delete")
@@ -204,17 +189,12 @@ image = (
     .env({"DB": db, "MODAL_SERVE": os.getenv("MODAL_SERVE")})
     .apt_install("git", "libmagic1", "ffmpeg", "wget")
     .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
-    .pip_install(
-        "numpy<2.0",
-        "torch==2.0.1",
-        "torchvision",
-        "transformers",
-        "Pillow"
-    )
+    .pip_install("numpy<2.0", "torch==2.0.1", "torchvision", "transformers", "Pillow")
     .run_commands(["playwright install"])
     .run_function(download_nsfw_models)
     .copy_local_dir(str(workflows_dir), "/workflows")
 )
+
 
 @app.function(
     image=image,
@@ -232,10 +212,7 @@ def fastapi_app():
 
 
 @app.function(
-    image=image, 
-    concurrency_limit=1,
-    schedule=modal.Period(minutes=15),
-    timeout=3600
+    image=image, concurrency_limit=1, schedule=modal.Period(minutes=15), timeout=3600
 )
 async def postprocessing():
     try:
