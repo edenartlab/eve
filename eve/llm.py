@@ -17,6 +17,7 @@ import json
 
 from . import sentry_sdk
 from .tool import Tool
+from .task import Creation
 from .user import User
 from .agent import Agent
 from .thread import UserMessage, AssistantMessage, ToolCall, Thread
@@ -574,8 +575,26 @@ async def async_prompt_thread(
                 result = await tool.async_wait(task)
                 thread.update_tool_call(assistant_message.id, t, result)
 
-                # yield update
+                # task completed
                 if result["status"] == "completed":
+                    
+                    # make a Creation
+                    name = task.args.get("prompt") or task.args.get("text_input")
+                    filename = result.get("output", [{}])[0].get("filename")
+                    media_attributes = result.get("output", [{}])[0].get("mediaAttributes")
+                    if filename and media_attributes:
+                        new_creation = Creation(
+                            user=task.user,
+                            requester=task.requester,
+                            task=task.id,
+                            tool=task.tool,
+                            filename=filename,
+                            mediaAttributes=media_attributes,
+                            name=name
+                        )
+                        new_creation.save()
+
+                    # yield update
                     yield ThreadUpdate(
                         type=UpdateType.TOOL_COMPLETE,
                         tool_name=tool_call.tool,
@@ -583,6 +602,7 @@ async def async_prompt_thread(
                         result=result,
                     )
                 else:
+                    # yield error
                     yield ThreadUpdate(
                         type=UpdateType.ERROR,
                         tool_name=tool_call.tool,
