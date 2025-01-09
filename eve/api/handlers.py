@@ -5,7 +5,6 @@ import time
 from bson import ObjectId
 from fastapi import BackgroundTasks
 from fastapi.responses import StreamingResponse
-from ably import AblyRealtime
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from eve.api.errors import handle_errors, APIError
@@ -22,7 +21,6 @@ from eve.api.helpers import (
     emit_update,
     serialize_for_json,
     setup_chat,
-    AblyConnectionPool,
 )
 from eve.deploy import (
     create_modal_secrets,
