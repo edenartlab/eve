@@ -55,46 +55,6 @@ def serialize_for_json(obj):
     return obj
 
 
-# Connection pool with TTL
-class AblyConnectionPool:
-    def __init__(self, client: AblyRest, ttl_seconds: int = 30):
-        self.client = client
-        self.ttl = ttl_seconds
-        self.last_used = 0
-        self._cleanup_task = None
-        self._lock = asyncio.Lock()
-
-    @asynccontextmanager
-    async def get_connection(self):
-        async with self._lock:
-            if not self.client.connection.state == "connected":
-                self.client.connect()
-                while not self.client.connection.state == "connected":
-                    await asyncio.sleep(0.1)
-
-                if not self._cleanup_task:
-                    self._cleanup_task = asyncio.create_task(self._cleanup_loop())
-            self.last_used = asyncio.get_event_loop().time()
-
-        try:
-            yield self.client
-        except Exception as e:
-            logger.error(f"Error with Ably connection: {str(e)}")
-            await self.client.close()
-            raise
-
-    async def _cleanup_loop(self):
-        while True:
-            await asyncio.sleep(5)  # Check every 5 seconds
-            current_time = asyncio.get_event_loop().time()
-            if current_time - self.last_used > self.ttl:
-                async with self._lock:
-                    if current_time - self.last_used > self.ttl:
-                        await self.client.close()
-                        self._cleanup_task = None
-                        break
-
-
 async def emit_update(update_config: UpdateConfig, data: dict):
     if not update_config:
         return
