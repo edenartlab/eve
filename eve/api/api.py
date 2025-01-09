@@ -2,19 +2,15 @@ import logging
 import os
 import threading
 import json
-import asyncio
 import modal
 from fastapi import FastAPI, Depends, BackgroundTasks, Request
-from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader, HTTPBearer
-from ably import AblyRealtime
 from apscheduler.schedulers.background import BackgroundScheduler
 from pathlib import Path
 from contextlib import asynccontextmanager
 
 from eve import auth
-from eve.api.helpers import load_existing_triggers, AblyConnectionPool
 from eve.postprocessing import (
     generate_lora_thumbnails,
     cancel_stuck_tasks,

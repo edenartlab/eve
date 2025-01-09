@@ -16,6 +16,9 @@ logging.basicConfig(
 
 def setup_sentry():
     sentry_dsn = os.getenv("SENTRY_DSN")
+    if not sentry_dsn:
+        return
+
     sentry_env = "production" if db == "PROD" else "staging"
     if db == "PROD":
         traces_sample_rate = 0.1
