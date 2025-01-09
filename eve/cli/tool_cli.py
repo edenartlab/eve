@@ -298,7 +298,7 @@ def test(
             "Include flux_trainer test? This will take a long time.", default=False
         )
         if not confirm:
-            all_tools.pop("flux_trainer")
+            all_tools.pop("flux_trainer", None)
 
     results = asyncio.run(async_run_tests(all_tools, api, parallel))
 

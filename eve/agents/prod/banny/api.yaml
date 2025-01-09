@@ -1,6 +1,8 @@
 name: Banny
 owner: 6526f38042a1043421aa28e6
-userImage: https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/405024ab0572704cad07a0d7c22158ef443d2d988490e4f1a538e235d321a9c9.png
+model: 6766760643808b38016c64ce
+userImage: 405024ab0572704cad07a0d7c22158ef443d2d988490e4f1a538e235d321a9c9.png
+featured: true
 featureFlags:
   - freeTools
 
@@ -30,41 +32,6 @@ instructions: |
 start_with_all_tools: true
 
 tools:
-  animate_3D:
-  texture_flow:
-  face_styler:
-  upscaler:
-  txt2img:
-  flux_inpainting:
-  remix_flux_schnell:
-  stable_audio:
-  musicgen:
-  runway:
-  flux_dev_lora:
-    name: Generate Banny (High quality)
-    description: Generate an image of Banny where quality is favored over speed.
-    parameters:
-      prompt:
-        description: The text prompt. Always mention Banny.
-      lora:
-        default: 6766760643808b38016c64ce
-        hide_from_agent: true
-        hide_from_ui: true
-      lora_strength:
-        default: 0.9
-        hide_from_agent: true
-        hide_from_ui: true
-  reel:
-    tip: Make sure to always include Banny in all of the prompts.
-    parameters:
-      lora:
-        default: 6766760643808b38016c64ce
-        hide_from_agent: true
-        hide_from_ui: true
-      lora_strength:
-        default: 1.0
-        hide_from_agent: true
-        hide_from_ui: true
 
 clients:
   discord:

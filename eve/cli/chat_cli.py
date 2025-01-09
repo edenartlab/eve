@@ -82,7 +82,7 @@ async def async_chat(agent_name, new_thread=True, debug=False):
                         progress.update(task)
                         if update.type == UpdateType.ASSISTANT_MESSAGE:
                             console.print(
-                                "[bold green]Eve [dim]→[/dim] [green]"
+                                f"[bold green]{agent.name} [dim]→[/dim] [green]"
                                 + update.message.content
                             )
                             print()

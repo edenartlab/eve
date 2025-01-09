@@ -1,6 +1,7 @@
 name: Eve
 owner: 6526f38042a1043421aa28e6
 userImage: https://edenartlab-stage-data.s3.amazonaws.com/d158dc1e5c62479489c1c3d119dd211bd56ba86a127359f7476990ec9e081cba.jpg
+featured: true
 featureFlags:
   - freeTools
 

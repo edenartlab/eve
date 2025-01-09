@@ -149,14 +149,14 @@ class Tool(Document, ABC):
         """
 
         key = schema.get("key") or schema.get("parent_tool") or file_path.split("/")[-2]
-
         parent_tool = schema.get("parent_tool")
         if parent_tool:
             parent_schema = cls._get_schema(parent_tool, from_yaml=True)
             parent_schema["parameter_presets"] = schema.pop("parameters", {})
             parent_parameters = parent_schema.pop("parameters", {})
             for k, v in parent_schema["parameter_presets"].items():
-                parent_parameters[k].update(v)
+                if k in parent_parameters:
+                    parent_parameters[k].update(v)
             schema.pop("workspace", None)  # we want the parent workspace
             parent_schema.update(schema)
             parent_schema["parameters"] = parent_parameters
