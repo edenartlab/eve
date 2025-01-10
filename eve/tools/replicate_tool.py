@@ -162,8 +162,8 @@ class ReplicateTool(Tool):
         return prediction
 
 def get_webhook_url():
-    env = "api-prod" if os.getenv("ENV") == "PROD" else "api-stage"
-    dev = "-dev" if os.getenv("ENV") == "STAGE" and os.getenv("MODAL_SERVE") == "1" else ""
+    env = "api-prod" if os.getenv("DB") == "PROD" else "api-stage"
+    dev = "-dev" if os.getenv("DB") == "STAGE" and os.getenv("MODAL_SERVE") == "1" else ""
     webhook_url = f"https://edenartlab--{env}-fastapi-app{dev}.modal.run/update"
     return webhook_url
 
@@ -230,6 +230,13 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
                     )
                     model.save(upsert_filter={"task": ObjectId(task.id)})  # upsert_filter prevents duplicates
                     output["model"] = model.id
+ 
+                    # This is a hack to support legacy models for private endpoints.
+                    # Change filename to url and copy record to the old models collection
+                    if str(task.user) == os.getenv("LEGACY_USER_ID"):
+                        model_copy = model.model_dump(by_alias=True)
+                        model_copy["checkpoint"] = s3.get_full_url(model_copy["checkpoint"])
+                        get_collection("models").insert_one(model_copy)
                 
                 else:
                     name = task.args.get("prompt")
