@@ -267,6 +267,11 @@ class EdenTG:
         if is_bot_mentioned or is_replied_to_bot or is_direct_message:
             force_reply = True
 
+        if is_direct_message:
+            # print author
+            force_reply = False # No DMs
+            return
+
         # Lookup thread
         thread_key = f"telegram-{chat_id}"
         if thread_key not in self.known_threads:
