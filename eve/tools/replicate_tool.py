@@ -162,8 +162,8 @@ class ReplicateTool(Tool):
         return prediction
 
 def get_webhook_url():
-    env = "api-prod" if os.getenv("DB") == "PROD" else "api-web3-stage"
-    dev = "-dev" if os.getenv("DB") == "STAGE" and os.getenv("MODAL_SERVE") == "1" else ""
+    env = "api-web3-prod" if os.getenv("DB") == "PROD" else "api-web3-stage"
+    dev = "-dev" if os.getenv("DB") == "WEB#-STAGE" and os.getenv("MODAL_SERVE") == "1" else ""
     webhook_url = f"https://edenartlab--{env}-fastapi-app{dev}.modal.run/update"
     return webhook_url
 
