@@ -1,4 +1,4 @@
-name: Deploy to Modal Production
+name: Deploy to Modal Web3-Production
 
 on:
   push:
