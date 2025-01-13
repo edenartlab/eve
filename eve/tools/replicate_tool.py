@@ -168,7 +168,8 @@ def get_webhook_url():
     "WEB3-PROD": "api-web3-prod",
     "WEB3-STAGE": "api-web3-stage"
     }.get(os.getenv("DB"), "api-web3-stage")
-    dev = "-dev" if os.getenv("DB") == "WEB3-STAGE" and os.getenv("MODAL_SERVE") == "1" else ""
+    dev = "-dev" if os.getenv("DB") in ["WEB3-STAGE", "STAGE"] and os.getenv("MODAL_SERVE") == "1" else ""
+
     webhook_url = f"https://edenartlab--{env}-fastapi-app{dev}.modal.run/update"
     return webhook_url
 
