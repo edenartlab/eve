@@ -79,7 +79,7 @@ def upload_media(output, save_thumbnails=True, save_blurhash=True):
         try:
             img = thumbnail.copy()
             img.thumbnail((100, 100), Image.LANCZOS)
-            media_attributes["blurhash"] = blurhash.encode(np.array(thumbnail), 4, 4)
+            media_attributes["blurhash"] = blurhash.encode(np.array(img), 4, 4)
         except Exception as e:
             print(f"Error encoding blurhash: {e}")
 
