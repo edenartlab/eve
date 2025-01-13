@@ -14,7 +14,7 @@ jobs:
     if: github.ref == 'refs/heads/staging' && (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true))
     runs-on: ubuntu-latest
     env:
-      DB: STAGE
+      DB: WEB3-STAGE
     
     steps:
       - name: Checkout workflows repo
