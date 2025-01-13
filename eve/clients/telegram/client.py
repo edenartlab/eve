@@ -307,7 +307,6 @@ class EdenTG:
             )
 
         # Make API request
-        api_url = os.getenv("EDEN_API_URL")
         request_data = {
             "user_id": str(user.id),
             "agent_id": str(self.agent.id),
@@ -325,13 +324,13 @@ class EdenTG:
         }
 
         async with aiohttp.ClientSession() as session:
-            print(f"Sending request to {api_url}/chat")
+            print(f"Sending request to {self.api_url}/chat")
             async with session.post(
-                f"{api_url}/chat",
+                f"{self.api_url}/chat",
                 json=request_data,
                 headers={"Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}"},
             ) as response:
-                print(f"Response from {api_url}/chat: {response.status}")
+                print(f"Response from {self.api_url}/chat: {response.status}")
                 # json
                 print(await response.json())
                 if response.status != 200:
