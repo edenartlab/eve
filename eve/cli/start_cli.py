@@ -20,11 +20,6 @@ from ..clients.farcaster.client import start as start_farcaster
     default="STAGE",
     help="DB to save against",
 )
-# @click.option(
-#     "--env",
-#     type=click.Path(exists=True, resolve_path=True),
-#     help="Path to environment file",
-# )
 @click.option(
     "--platforms",
     type=click.Choice(

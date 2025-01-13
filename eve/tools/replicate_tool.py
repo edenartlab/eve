@@ -1,20 +1,19 @@
 import os
 import re
+import modal
 import asyncio
-import tempfile            
-import random
+import tempfile
 import replicate
 from bson import ObjectId
 from pydantic import Field
-from typing import Dict, Optional, List
+from typing import Dict, Optional
 from datetime import datetime, timezone
 
 from .. import s3
 from .. import eden_utils
-from ..models import Model
-from ..user import User
-from ..task import Task, Creation
 from ..tool import Tool
+from ..models import Model
+from ..task import Task, Creation
 from ..mongo import get_collection
                     
 
@@ -53,23 +52,30 @@ class ReplicateTool(Tool):
     @Tool.handle_start_task
     async def async_start_task(self, task: Task, webhook: bool = True):
         check_replicate_api_token()
-        args = self.prepare_args(task.args)
-        args = self._format_args_for_replicate(args)
         if self.version:
+            # Default: spawn Replicate task and await it in async_wait
+            args = self.prepare_args(task.args)
+            args = self._format_args_for_replicate(args)
             prediction = await self._create_prediction(args, webhook=webhook)
             return prediction.id
         else:
             # Replicate doesn't allow spawning tasks for models without a public version ID.
-            # So just get run and finish task immediately
-            replicate_model = self._get_replicate_model(task.args)
-            output = replicate.run(replicate_model, input=args)
-            replicate_update_task(task, "succeeded", None, output, "normal")
-            handler_id = eden_utils.random_string(28)  # make up a fake Replicate id
-            return handler_id
-
+            # So we spawn a remote task on Modal which awaits the Replicate task
+            db = os.getenv("DB", "STAGE").upper()
+            func = modal.Function.lookup(
+                f"remote-replicate-{db}", 
+                "run_task", 
+                environment_name="main"
+            )
+            job = func.spawn(task)
+            return job.object_id
+    
     @Tool.handle_wait
     async def async_wait(self, task: Task):
         if self.version is None:
+            fc = modal.functions.FunctionCall.from_id(task.handler_id)
+            await fc.get.aio()
+            task.reload()
             return task.model_dump(include={"status", "error", "result"})
         else:
             prediction = await replicate.predictions.async_get(task.handler_id)
@@ -236,6 +242,7 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
                     if str(task.user) == os.getenv("LEGACY_USER_ID"):
                         model_copy = model.model_dump(by_alias=True)
                         model_copy["checkpoint"] = s3.get_full_url(model_copy["checkpoint"])
+                        model_copy["slug"] = f"legacy/{str(model_copy['_id'])}"
                         get_collection("models").insert_one(model_copy)
                 
                 else:

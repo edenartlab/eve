@@ -36,7 +36,6 @@ from eve.tool import Tool
 
 logger = logging.getLogger(__name__)
 db = os.getenv("DB", "STAGE").upper()
-env = "prod" if db == "PROD" else "stage"
 
 
 @handle_errors
@@ -173,9 +172,9 @@ async def handle_deployment_create(request: CreateDeploymentRequest):
 
     create_modal_secrets(
         request.credentials,
-        f"{request.agent_key}-secrets-{env}",
+        f"{request.agent_key}-secrets-{db.lower()}",
     )
-    deploy_client(request.agent_key, request.platform.value, env)
+    deploy_client(request.agent_key, request.platform.value, db.lower())
     return {"message": f"Deployed {request.platform.value} client"}
 
 
