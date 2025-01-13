@@ -41,7 +41,7 @@ def load_env(db):
     global EDEN_API_KEY
 
     db = db.upper()
-    if db not in ["STAGE", "PROD"]:
+    if db not in ["STAGE", "PROD", "WEB3-STAGE", "WEB3-PROD"]:
         raise ValueError(f"Invalid database: {db}")
 
     os.environ["DB"] = db
