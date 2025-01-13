@@ -10,7 +10,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from pathlib import Path
 from contextlib import asynccontextmanager
 
-from eve import auth
+from eve import auth, db
 from eve.postprocessing import (
     generate_lora_thumbnails,
     cancel_stuck_tasks,
@@ -46,12 +46,7 @@ from eve.tools.comfyui_tool import convert_tasks2_to_tasks3
 from eve import deploy
 
 
-db = os.getenv("DB", "STAGE").upper()
-if db not in ["PROD", "STAGE"]:
-    raise Exception(f"Invalid environment: {db}. Must be PROD or STAGE")
-app_name = "api-prod" if db == "PROD" else "api-stage"
-
-
+app_name = f"api-{db.lower()}"
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("ably").setLevel(logging.INFO if db != "PROD" else logging.WARNING)
 

@@ -7,9 +7,7 @@ from eve import eden_utils
 from eve.tools.tool_handlers import handlers
 
 db = os.getenv("DB", "STAGE").upper()
-if db not in ["PROD", "STAGE"]:
-    raise Exception(f"Invalid environment: {db}. Must be PROD or STAGE")
-app_name = "modal-tools-prod" if db == "PROD" else "modal-tools-stage"
+app_name = f"modal-tools-{db.lower()}"
 
 app = modal.App(
     name=app_name,

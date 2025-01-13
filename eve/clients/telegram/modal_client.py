@@ -1,11 +1,8 @@
 import os
 import modal
 
+from eve import db
 from eve.clients.telegram.client import start as telegram_start
-
-db = os.getenv("DB", "STAGE").upper()
-if db not in ["PROD", "STAGE"]:
-    raise Exception(f"Invalid environment: {db}. Must be PROD or STAGE")
 
 app = modal.App(
     name=f"client-telegram-{db}",

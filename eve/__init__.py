@@ -89,5 +89,9 @@ def verify_env():
         print("WARNING: MONGO_URI must be set in the environment")
 
 
-db = os.getenv("DB", "STAGE")
+db = os.getenv("DB", "STAGE").upper()
+
+if db not in ["STAGE", "PROD", "WEB3-STAGE", "WEB3-PROD"]:
+    raise Exception(f"Invalid environment: {db}. Must be STAGE, PROD, WEB3-STAGE, or WEB3-PROD")
+
 load_env(db)
