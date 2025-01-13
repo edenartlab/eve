@@ -1,4 +1,4 @@
-name: Deploy to Modal Staging
+name: Deploy to Modal Web3-Staging
 
 on:
   push:
