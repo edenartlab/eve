@@ -268,6 +268,7 @@ class Tool(Document, ABC):
         schema = openai_schema(self.model).openai_schema
         if exclude_hidden:
             self._remove_hidden_fields(schema["parameters"])
+        schema["description"] = schema["description"][:1024]  # OpenAI tool description limit
         return {"type": "function", "function": schema}
 
     def calculate_cost(self, args):
