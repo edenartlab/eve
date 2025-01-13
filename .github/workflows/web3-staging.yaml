@@ -3,11 +3,11 @@ name: Deploy to Modal Web3-Staging
 on:
   push:
     branches:
-      - web3-staging
+      - staging
   pull_request:
     types: [closed]
     branches:
-      - web3-staging
+      - staging
 
 jobs:
   deploy:
