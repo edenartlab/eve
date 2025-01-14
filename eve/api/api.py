@@ -259,11 +259,11 @@ async def postprocessing():
         print(f"Error cancelling stuck tasks: {e}")
         sentry_sdk.capture_exception(e)
 
-    try:
-        await run_nsfw_detection()
-    except Exception as e:
-        print(f"Error running nsfw detection: {e}")
-        sentry_sdk.capture_exception(e)
+    # try:
+    #     await run_nsfw_detection()
+    # except Exception as e:
+    #     print(f"Error running nsfw detection: {e}")
+    #     sentry_sdk.capture_exception(e)
 
     try:
         await generate_lora_thumbnails()
