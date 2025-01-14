@@ -253,20 +253,20 @@ async def postprocessing():
         scope.set_tag("component", "postprocessing")
         scope.set_context("function", {"name": "postprocessing"})
 
-        try:
-            await cancel_stuck_tasks()
-        except Exception as e:
-            print(f"Error cancelling stuck tasks: {e}")
-            sentry_sdk.capture_exception(e)
+    try:
+        await cancel_stuck_tasks()
+    except Exception as e:
+        print(f"Error cancelling stuck tasks: {e}")
+        sentry_sdk.capture_exception(e)
 
-        try:
-            await run_nsfw_detection()
-        except Exception as e:
-            print(f"Error running nsfw detection: {e}")
-            sentry_sdk.capture_exception(e)
+    try:
+        await run_nsfw_detection()
+    except Exception as e:
+        print(f"Error running nsfw detection: {e}")
+        sentry_sdk.capture_exception(e)
 
-        try:
-            await generate_lora_thumbnails()
-        except Exception as e:
-            print(f"Error generating lora thumbnails: {e}")
-            sentry_sdk.capture_exception(e)
+    try:
+        await generate_lora_thumbnails()
+    except Exception as e:
+        print(f"Error generating lora thumbnails: {e}")
+        sentry_sdk.capture_exception(e)
