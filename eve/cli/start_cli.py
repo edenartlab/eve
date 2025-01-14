@@ -16,7 +16,7 @@ from ..clients.farcaster.client import start as start_farcaster
 @click.argument("agent", nargs=1, required=True)
 @click.option(
     "--db",
-    type=click.Choice(["STAGE", "PROD"], case_sensitive=False),
+    type=click.Choice(["STAGE", "PROD", "WEB3-STAGE", "WEB3-PROD"], case_sensitive=False),
     default="STAGE",
     help="DB to save against",
 )
@@ -138,7 +138,7 @@ def start(agent: str, db: str, platforms: tuple, local: bool):
 )
 @click.option(
     "--db",
-    type=click.Choice(["STAGE", "PROD"], case_sensitive=False),
+    type=click.Choice(["STAGE", "PROD", "WEB3-STAGE", "WEB3-PROD"], case_sensitive=False),
     default="STAGE",
     help="DB to save against",
 )
