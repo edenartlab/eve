@@ -2,6 +2,7 @@ import logging
 import os
 import threading
 import json
+from fastapi.responses import JSONResponse
 import modal
 from fastapi import FastAPI, Depends, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,6 +10,8 @@ from fastapi.security import APIKeyHeader, HTTPBearer
 from apscheduler.schedulers.background import BackgroundScheduler
 from pathlib import Path
 from contextlib import asynccontextmanager
+from starlette.middleware.base import BaseHTTPMiddleware
+import sentry_sdk
 
 from eve import auth, db
 from eve.postprocessing import (
@@ -67,7 +70,34 @@ async def lifespan(app: FastAPI):
             app.state.scheduler.shutdown(wait=True)
 
 
+class SentryContextMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        with sentry_sdk.configure_scope() as scope:
+            scope.set_tag("package", "eve-api")
+
+            # Extract client context from headers
+            client_platform = request.headers.get("X-Client-Platform")
+            client_agent = request.headers.get("X-Client-Agent")
+
+            if client_platform:
+                scope.set_tag("client_platform", client_platform)
+            if client_agent:
+                scope.set_tag("client_agent", client_agent)
+
+            scope.set_context(
+                "api",
+                {
+                    "endpoint": request.url.path,
+                    "modal_serve": os.getenv("MODAL_SERVE"),
+                    "client_platform": client_platform,
+                    "client_agent": client_agent,
+                },
+            )
+        return await call_next(request)
+
+
 web_app = FastAPI(lifespan=lifespan)
+web_app.add_middleware(SentryContextMiddleware)
 web_app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -167,6 +197,15 @@ async def trigger_delete(
     return await handle_trigger_delete(request, scheduler)
 
 
+@web_app.exception_handler(Exception)
+async def catch_all_exception_handler(request, exc):
+    sentry_sdk.capture_exception(exc)
+    return JSONResponse(
+        status_code=500,
+        content={"message": str(exc)},
+    )
+
+
 # Modal app setup
 app = modal.App(
     name=app_name,
@@ -222,17 +261,24 @@ def fastapi_app():
     image=image, concurrency_limit=1, schedule=modal.Period(minutes=15), timeout=3600
 )
 async def postprocessing():
+    with sentry_sdk.configure_scope() as scope:
+        scope.set_tag("component", "postprocessing")
+        scope.set_context("function", {"name": "postprocessing"})
+
     try:
         await cancel_stuck_tasks()
     except Exception as e:
         print(f"Error cancelling stuck tasks: {e}")
+        sentry_sdk.capture_exception(e)
 
-    try:
-        await run_nsfw_detection()
-    except Exception as e:
-        print(f"Error running nsfw detection: {e}")
+    # try:
+    #     await run_nsfw_detection()
+    # except Exception as e:
+    #     print(f"Error running nsfw detection: {e}")
+    #     sentry_sdk.capture_exception(e)
 
     try:
         await generate_lora_thumbnails()
     except Exception as e:
         print(f"Error generating lora thumbnails: {e}")
+        sentry_sdk.capture_exception(e)

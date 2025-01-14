@@ -40,6 +40,7 @@ def replace_mentions_with_usernames(
     return message_content.strip()
 
 
+@common.client_context("discord")
 class Eden2Cog(commands.Cog):
     def __init__(
         self,
@@ -285,7 +286,11 @@ class Eden2Cog(commands.Cog):
                 async with session.post(
                     f"{self.api_url}/chat",
                     json=request_data,
-                    headers={"Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}"},
+                    headers={
+                        "Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}",
+                        "X-Client-Platform": "discord",
+                        "X-Client-Agent": self.agent.username,
+                    },
                 ) as response:
                     if response.status != 200:
                         error_msg = await response.text()
@@ -394,12 +399,17 @@ def start(
 
         agent_name = os.getenv("EDEN_AGENT_USERNAME")
         agent = Agent.load(agent_name)
-        logger.info(f"Launching Discord bot {agent.username}...")
+        with sentry_sdk.configure_scope() as scope:
+            scope.set_tag("package", "eve-clients")
+            scope.set_tag("client_platform", "discord")
+            scope.set_tag("client_agent", agent_name)
+            scope.set_context("discord", {"agent": agent_name, "local": local})
+            logger.info(f"Launching Discord bot {agent.username}...")
 
-        bot_token = os.getenv("CLIENT_DISCORD_TOKEN")
-        bot = DiscordBot()
-        bot.add_cog(Eden2Cog(bot, agent, local=local))
-        bot.run(bot_token)
+            bot_token = os.getenv("CLIENT_DISCORD_TOKEN")
+            bot = DiscordBot()
+            bot.add_cog(Eden2Cog(bot, agent, local=local))
+            bot.run(bot_token)
     except Exception as e:
         logger.error("Failed to start Discord bot", exc_info=True)
         sentry_sdk.capture_exception(e)

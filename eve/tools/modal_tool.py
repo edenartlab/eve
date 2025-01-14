@@ -3,9 +3,9 @@ import os
 from typing import Dict
 
 from ..task import Task
-from ..tool import Tool
+from ..tool import Tool, tool_context
 
-
+@tool_context("modal")
 class ModalTool(Tool):
     @Tool.handle_run
     async def async_run(self, args: Dict):

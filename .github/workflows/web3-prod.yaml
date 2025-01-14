@@ -1,17 +1,12 @@
-name: Deploy to Modal Web3-Production
+name: Deploy to Modal Production
 
 on:
   push:
     branches:
-      - main
-  pull_request:
-    types: [closed]
-    branches:
-      - main
+      - web3-prod
 
 jobs:
-  deploy:
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true))
+  deploy-prod:
     runs-on: ubuntu-latest
     env:
       DB: WEB3-PROD

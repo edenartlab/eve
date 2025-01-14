@@ -1,8 +1,8 @@
-name: LoRA trainer
-description: Finetune a model on top of base Stable Diffusion
+name: Classic SDXL LoRA trainer
+description: Train an SDXL LoRA model with your images
 tip: |-
   This will create a LoRA model from a base Stable Diffusion which captures and integrates the style, human face, or object represented in the training data.
-thumbnail: app/LoRA-trainer-SDXL_opt.jpg
+thumbnail: app/sdxl_trainer.jpg
 cost_estimate: 0.15 * max_train_steps
 base_model: sdxl
 output_type: lora
@@ -13,21 +13,21 @@ output_handler: trainer
 parameters:
   name:
     type: string
-    label: Name
-    description: Name of the LoRA
+    label: Model Name
+    description: Name of the LoRA (this will also be your trigger word)
     required: true
   lora_training_urls:
     type: array
     items:
       type: image
-    label: Images
-    description: Images to train LoRA with
+    label: Your training images
+    description: Images to train your visual model. (Use at least 5 imgs, 10-20 is even better.)
     required: true
     min_length: 1
   concept_mode:
     type: string
-    label: Concept
-    description: Type of LoRA
+    label: Training Mode
+    description: Type of model to train
     choices: [face, object, style]
     required: true
     default: style
@@ -39,13 +39,15 @@ parameters:
       Almost always, we want to train and SDXL LoRa. Only when we want to make animatediff animations do we need an sd15 lora.
     choices: [sdxl, sd15]
     default: sdxl
+    hide_from_agent: true
+    hide_from_ui: true
   max_train_steps:
     type: integer
     label: Training steps
     description: |-
       Number of training steps. Only increase this if you have lots of images (>50) otherwise the model wil overfit and will not look good.
     tip: |-
-      This should be left at the default 300 when SDXL is the base model, unless the user *specifically* instructs you otherwise. If the base model is SD15, then you should *change* this to 800, again unless the user specifically requests something else.
+      This should be left at the default 300, unless the user *specifically* instructs you otherwise. If the base model is SD15, then you should *change* this to 800, again unless the user specifically requests something else.
     default: 300
     minimum: 100
     maximum: 1200
@@ -53,6 +55,8 @@ parameters:
   resolution:
     type: integer
     label: Resolution
+    hide_from_agent: true
+    hide_from_ui: true
     description: |-
       Resolution your images will be resized to for training (512 is great and your generations will still look perfect when rendering at eg 1024)
     tip: |-

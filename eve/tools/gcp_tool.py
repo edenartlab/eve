@@ -4,10 +4,10 @@ from typing import Dict
 from google.oauth2 import service_account
 from google.cloud import aiplatform
 
-from ..tool import Tool
+from ..tool import Tool, tool_context
 from ..task import Task
 
-
+@tool_context("gcp")
 class GCPTool(Tool):
     gcr_image_uri: str
     machine_type: str

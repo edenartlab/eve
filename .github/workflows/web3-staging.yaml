@@ -1,17 +1,12 @@
-name: Deploy to Modal Web3-Staging
+name: Deploy to Modal Staging
 
 on:
   push:
     branches:
-      - staging
-  pull_request:
-    types: [closed]
-    branches:
-      - staging
+      - web3-staging
 
 jobs:
-  deploy:
-    if: github.ref == 'refs/heads/staging' && (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true))
+  deploy-stage:
     runs-on: ubuntu-latest
     env:
       DB: WEB3-STAGE
