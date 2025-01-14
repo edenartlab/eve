@@ -3,13 +3,13 @@ name: Deploy to Modal Production
 on:
   push:
     branches:
-      - main
+      - web3-prod
 
 jobs:
   deploy-prod:
     runs-on: ubuntu-latest
     env:
-      DB: PROD
+      DB: WEB3-PROD
     
     steps:
       - name: Checkout workflows repo

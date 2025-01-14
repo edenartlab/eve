@@ -1,10 +1,8 @@
 import modal
 import os
+from eve import db
 from eve.clients.farcaster.client import create_app
 
-db = os.getenv("DB", "STAGE").upper()
-if db not in ["PROD", "STAGE"]:
-    raise Exception(f"Invalid environment: {db}. Must be PROD or STAGE")
 
 app = modal.App(
     name=f"client-farcaster-{db}",

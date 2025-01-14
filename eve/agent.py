@@ -41,7 +41,7 @@ default_presets_flux = {
         "tip": "This should be your primary tool for making videos or animations. Only use the other video tools if specifically asked to or asked to make VJing material."
     },
     "reel": {
-        "tip": "This is a tool for making short films with vocals, music, and several video cuts. This can be used to make commercials, films, music videos, and other kinds of shortform content. But it takes a while to make, around 5 minutes."
+        "tip": "This is a tool for making short films with vocals, music, and several video cuts. This can be used to make commercials, films, music videos, and other kinds of shortform content. But it takes a while to run, around 5 minutes."
     },
     "news": {},
     "websearch": {},
@@ -141,7 +141,6 @@ class Agent(User):
             id = str(document_id)
             if id not in _agent_cache:
                 _agent_cache[id] = super().from_mongo(document_id)
-            cls._check_for_updates(id, document_id)
             return _agent_cache[id]
         else:
             return super().from_mongo(document_id)
@@ -151,7 +150,6 @@ class Agent(User):
         if cache:
             if username not in _agent_cache:
                 _agent_cache[username] = super().load(username=username)
-            cls._check_for_updates(username, _agent_cache[username].id)
             return _agent_cache[username]
         else:
             return super().load(username=username)
@@ -240,32 +238,6 @@ class Agent(User):
 
     def get_tool(self, tool_name, cache=False):
         return self.get_tools(cache=cache)[tool_name]
-    
-    @classmethod
-    def _check_for_updates(cls, cache_key: str, agent_id: ObjectId):
-        """Check if agent needs to be updated based on updatedAt field"""
-        current_time = time.time()
-        print("\n\nthe current time is", current_time)
-        last_check = cls.last_check.get(cache_key, 0)
-        print("the last check was", last_check)
-
-        print("check for updates", current_time - last_check)
-
-        if current_time - last_check >= CHECK_INTERVAL:
-            print("updating")
-            cls.last_check[cache_key] = current_time
-            collection = get_collection(cls.collection_name)
-            db_agent = collection.find_one({"_id": agent_id})
-            print("---- db agent")
-            print(db_agent)
-            if db_agent:
-                print(db_agent.get("updatedAt"))
-            print("---- agent cache")
-            if _agent_cache.get(cache_key):
-                print(_agent_cache[cache_key].updatedAt)
-                if db_agent and db_agent.get("updatedAt") != _agent_cache[cache_key].updatedAt:
-                    _agent_cache[cache_key].reload()
-
 
 def get_agents_from_mongo(agents: List[str] = None, include_inactive: bool = False) -> Dict[str, Agent]:
     """Get all agents from mongo"""

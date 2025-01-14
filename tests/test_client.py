@@ -16,9 +16,13 @@ headers = {
 def run_create(server_url):
     request = {
         "user_id": "65284b18f8bbb9bff13ebe65",
+        # "tool": "runway",
         "tool": "flux_schnell",
         "args": {
             "prompt": "a picture of a kangaroo roller skating in venice beach",
+            "n_samples": 4,
+            # "prompt_image": "https://edenartlab-prod-data.s3.us-east-1.amazonaws.com/bb88e857586a358ce3f02f92911588207fbddeabff62a3d6a479517a646f053c.jpg",
+            # "prompt_text": "scifi anime scene zoom out",
         }
     }
     response = requests.post(server_url+"/create", json=request, headers=headers)
@@ -67,9 +71,9 @@ def test_client(server_url):
         run_create(server_url)
 
         print("\nRunning chat test...")
-        run_chat(server_url)
+#        run_chat(server_url)
 
-        run_cancel(server_url)
+ #       run_cancel(server_url)
 
     except KeyboardInterrupt:
         print("\nShutting down...")
@@ -84,5 +88,5 @@ def test_client(server_url):
 if __name__ == "__main__":
     server_url = None  
     server_url = "http://localhost:8000"
-    server_url = os.getenv("EDEN_API_URL")
+    # server_url = os.getenv("EDEN_API_URL")
     test_client(server_url)

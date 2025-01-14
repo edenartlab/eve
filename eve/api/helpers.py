@@ -4,10 +4,11 @@ from typing import Optional
 import aiohttp
 from bson import ObjectId
 from fastapi import BackgroundTasks
-from ably import AblyRealtime
+from ably import AblyRest
 from apscheduler.schedulers.background import BackgroundScheduler
 import traceback
 
+from eve.api.errors import APIError
 from eve.tool import Tool
 from eve.user import User
 from eve.agent import Agent
@@ -21,20 +22,33 @@ logger = logging.getLogger(__name__)
 
 
 async def get_update_channel(
-    update_config: UpdateConfig, ably_client: AblyRealtime
-) -> Optional[AblyRealtime]:
+    update_config: UpdateConfig, ably_client: AblyRest
+) -> Optional[AblyRest]:
     return ably_client.channels.get(str(update_config.sub_channel_name))
 
 
 async def setup_chat(
     request: ChatRequest, background_tasks: BackgroundTasks
 ) -> tuple[User, Agent, Thread, list[Tool]]:
-    user = User.from_mongo(request.user_id)
-    agent = Agent.from_mongo(request.agent_id, cache=True)
+    try:
+        user = User.from_mongo(request.user_id)
+    except Exception as e:
+        raise APIError(f"Invalid user_id: {request.user_id}", status_code=400) from e
+
+    try:
+        agent = Agent.from_mongo(request.agent_id, cache=True)
+    except Exception as e:
+        raise APIError(f"Invalid agent_id: {request.agent_id}", status_code=400) from e
+
     tools = agent.get_tools(cache=True)
 
     if request.thread_id:
-        thread = Thread.from_mongo(request.thread_id)
+        try:
+            thread = Thread.from_mongo(request.thread_id)
+        except Exception as e:
+            raise APIError(
+                f"Invalid thread_id: {request.thread_id}", status_code=400
+            ) from e
     else:
         thread = agent.request_thread(user=user.id)
         background_tasks.add_task(async_title_thread, thread, request.user_message)
@@ -53,20 +67,19 @@ def serialize_for_json(obj):
     return obj
 
 
-async def emit_update(
-    update_config: UpdateConfig, 
-    update_channel: AblyRealtime, 
-    data: dict
-):
-    if update_config:
-        if update_config.update_endpoint and update_config.sub_channel_name:
-            raise ValueError(
-                "update_endpoint and sub_channel_name cannot be used together"
-            )
-        elif update_config.update_endpoint:
-            await emit_http_update(update_config, data)
-        elif update_config.sub_channel_name:
-            await emit_channel_update(update_channel, data)
+async def emit_update(update_config: UpdateConfig, data: dict):
+    if not update_config:
+        return
+
+    if update_config.update_endpoint:
+        await emit_http_update(update_config, data)
+    elif update_config.sub_channel_name:
+        try:
+            client = AblyRest(os.getenv("ABLY_PUBLISHER_KEY"))
+            channel = client.channels.get(update_config.sub_channel_name)
+            await channel.publish(update_config.sub_channel_name, data)
+        except Exception as e:
+            logger.error(f"Failed to publish to Ably: {str(e)}")
 
 
 async def emit_http_update(update_config: UpdateConfig, data: dict):
@@ -85,20 +98,8 @@ async def emit_http_update(update_config: UpdateConfig, data: dict):
             logger.error(f"Error sending update to endpoint: {str(e)}")
 
 
-async def emit_channel_update(
-    update_channel: AblyRealtime, 
-    data: dict
-):
-    try:
-        await update_channel.publish("update", data)
-    except Exception as e:
-        logger.error(f"Failed to publish to Ably: {str(e)}")
-
-
 async def load_existing_triggers(
-    scheduler: BackgroundScheduler, 
-    ably_client: AblyRealtime, 
-    handle_chat_fn
+    scheduler: BackgroundScheduler, ably_client: AblyRest, handle_chat_fn
 ):
     """Load all existing triggers from the database and add them to the scheduler"""
     from ..trigger import create_chat_trigger
@@ -116,7 +117,9 @@ async def load_existing_triggers(
                 agent_id=str(trigger.agent),
                 message=trigger.message,
                 schedule=trigger.schedule,
-                update_config=UpdateConfig(**trigger.update_config) if trigger.update_config else None,
+                update_config=UpdateConfig(**trigger.update_config)
+                if trigger.update_config
+                else None,
                 scheduler=scheduler,
                 ably_client=ably_client,
                 trigger_id=trigger.trigger_id,

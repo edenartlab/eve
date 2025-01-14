@@ -1,4 +1,5 @@
 import os
+from typing import Optional
 from fastapi.security import APIKeyHeader, HTTPBearer, HTTPAuthorizationCredentials
 from fastapi import WebSocket, HTTPException, Depends, status
 from clerk_backend_api import Clerk
@@ -152,8 +153,12 @@ async def authenticate_ws(websocket: WebSocket):
 
 
 def authenticate_admin(
-    token: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    token: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
 ):
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized"
+        )
     if token.credentials != EDEN_ADMIN_KEY:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized"
@@ -161,7 +166,7 @@ def authenticate_admin(
 
 
 def authenticate_admin_api_key(
-    api_key: str = Depends(api_key_header),
+    api_key: Optional[str] = Depends(api_key_header),
 ):
     """Authenticate admin users by checking their API key's admin status"""
     if not api_key:

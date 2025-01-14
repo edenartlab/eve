@@ -2,24 +2,23 @@ import logging
 import os
 import threading
 import json
-import asyncio
+from fastapi.responses import JSONResponse
 import modal
 from fastapi import FastAPI, Depends, BackgroundTasks, Request
-from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader, HTTPBearer
-from ably import AblyRealtime
 from apscheduler.schedulers.background import BackgroundScheduler
 from pathlib import Path
 from contextlib import asynccontextmanager
+from starlette.middleware.base import BaseHTTPMiddleware
+import sentry_sdk
 
-from eve import auth
-from eve.api.helpers import load_existing_triggers
+from eve import auth, db
 from eve.postprocessing import (
     generate_lora_thumbnails,
     cancel_stuck_tasks,
     download_nsfw_models,
-    run_nsfw_detection
+    run_nsfw_detection,
 )
 from eve.api.handlers import (
     handle_create,
@@ -50,12 +49,7 @@ from eve.tools.comfyui_tool import convert_tasks2_to_tasks3
 from eve import deploy
 
 
-db = os.getenv("DB", "STAGE").upper()
-if db not in ["PROD", "STAGE"]:
-    raise Exception(f"Invalid environment: {db}. Must be PROD or STAGE")
-app_name = "api-prod" if db == "PROD" else "api-stage"
-
-
+app_name = f"api-{db.lower()}"
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("ably").setLevel(logging.INFO if db != "PROD" else logging.WARNING)
 
@@ -63,31 +57,47 @@ logging.getLogger("ably").setLevel(logging.INFO if db != "PROD" else logging.WAR
 # FastAPI setup
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    from eve.api.handlers import handle_chat
-
-    # Startup
     watch_thread = threading.Thread(target=convert_tasks2_to_tasks3, daemon=True)
     watch_thread.start()
     app.state.watch_thread = watch_thread
 
-    app.state.ably_client = AblyRealtime(
-        key=os.getenv("ABLY_PUBLISHER_KEY"),
-    )
+    try:
+        yield
+    finally:
+        if hasattr(app.state, "watch_thread"):
+            app.state.watch_thread.join(timeout=5)
+        if hasattr(app.state, "scheduler"):
+            app.state.scheduler.shutdown(wait=True)
 
-    # Load existing triggers
-    await load_existing_triggers(scheduler, app.state.ably_client, handle_chat)
 
-    yield
-    # Shutdown
-    if hasattr(app.state, "watch_thread"):
-        app.state.watch_thread.join(timeout=5)
-    if hasattr(app.state, "scheduler"):
-        app.state.scheduler.shutdown(wait=True)
-    if hasattr(app.state, "ably_client"):
-        await app.state.ably_client.close()
+class SentryContextMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        with sentry_sdk.configure_scope() as scope:
+            scope.set_tag("package", "eve-api")
+
+            # Extract client context from headers
+            client_platform = request.headers.get("X-Client-Platform")
+            client_agent = request.headers.get("X-Client-Agent")
+
+            if client_platform:
+                scope.set_tag("client_platform", client_platform)
+            if client_agent:
+                scope.set_tag("client_agent", client_agent)
+
+            scope.set_context(
+                "api",
+                {
+                    "endpoint": request.url.path,
+                    "modal_serve": os.getenv("MODAL_SERVE"),
+                    "client_platform": client_platform,
+                    "client_agent": client_agent,
+                },
+            )
+        return await call_next(request)
 
 
 web_app = FastAPI(lifespan=lifespan)
+web_app.add_middleware(SentryContextMiddleware)
 web_app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -118,7 +128,7 @@ async def replicate_webhook(request: Request):
     # Get raw body for signature verification
     body = await request.body()
     print(body)
-    
+
     # Parse JSON body
     try:
         data = json.loads(body)
@@ -147,7 +157,7 @@ async def chat(
     background_tasks: BackgroundTasks,
     _: dict = Depends(auth.authenticate_admin),
 ):
-    return await handle_chat(request, background_tasks, web_app.state.ably_client)
+    return await handle_chat(request, background_tasks)
 
 
 @web_app.post("/chat/stream")
@@ -177,7 +187,7 @@ async def deployment_delete(
 async def trigger_create(
     request: CreateTriggerRequest, _: dict = Depends(auth.authenticate_admin)
 ):
-    return await handle_trigger_create(request, scheduler, web_app.state.ably_client)
+    return await handle_trigger_create(request, scheduler)
 
 
 @web_app.post("/triggers/delete")
@@ -185,6 +195,15 @@ async def trigger_delete(
     request: DeleteTriggerRequest, _: dict = Depends(auth.authenticate_admin)
 ):
     return await handle_trigger_delete(request, scheduler)
+
+
+@web_app.exception_handler(Exception)
+async def catch_all_exception_handler(request, exc):
+    sentry_sdk.capture_exception(exc)
+    return JSONResponse(
+        status_code=500,
+        content={"message": str(exc)},
+    )
 
 
 # Modal app setup
@@ -204,17 +223,12 @@ image = (
     .env({"DB": db, "MODAL_SERVE": os.getenv("MODAL_SERVE")})
     .apt_install("git", "libmagic1", "ffmpeg", "wget")
     .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
-    .pip_install(
-        "numpy<2.0",
-        "torch==2.0.1",
-        "torchvision",
-        "transformers",
-        "Pillow"
-    )
+    .pip_install("numpy<2.0", "torch==2.0.1", "torchvision", "transformers", "Pillow")
     .run_commands(["playwright install"])
     .run_function(download_nsfw_models)
     .copy_local_dir(str(workflows_dir), "/workflows")
 )
+
 
 @app.function(
     image=image,
@@ -232,23 +246,27 @@ def fastapi_app():
 
 
 @app.function(
-    image=image, 
-    concurrency_limit=1,
-    schedule=modal.Period(minutes=15),
-    timeout=3600
+    image=image, concurrency_limit=1, schedule=modal.Period(minutes=15), timeout=3600
 )
 async def postprocessing():
-    try:
-        await cancel_stuck_tasks()
-    except Exception as e:
-        print(f"Error cancelling stuck tasks: {e}")
+    with sentry_sdk.configure_scope() as scope:
+        scope.set_tag("component", "postprocessing")
+        scope.set_context("function", {"name": "postprocessing"})
 
-    try:
-        await run_nsfw_detection()
-    except Exception as e:
-        print(f"Error running nsfw detection: {e}")
+        try:
+            await cancel_stuck_tasks()
+        except Exception as e:
+            print(f"Error cancelling stuck tasks: {e}")
+            sentry_sdk.capture_exception(e)
 
-    try:
-        await generate_lora_thumbnails()
-    except Exception as e:
-        print(f"Error generating lora thumbnails: {e}")
+        try:
+            await run_nsfw_detection()
+        except Exception as e:
+            print(f"Error running nsfw detection: {e}")
+            sentry_sdk.capture_exception(e)
+
+        try:
+            await generate_lora_thumbnails()
+        except Exception as e:
+            print(f"Error generating lora thumbnails: {e}")
+            sentry_sdk.capture_exception(e)

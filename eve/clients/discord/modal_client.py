@@ -1,10 +1,7 @@
 import os
 import modal
+from eve import db
 from eve.clients.discord.client import start as discord_start
-
-db = os.getenv("DB", "STAGE").upper()
-if db not in ["PROD", "STAGE"]:
-    raise Exception(f"Invalid environment: {db}. Must be PROD or STAGE")
 
 
 app = modal.App(
