@@ -400,7 +400,9 @@ def start(
         agent_name = os.getenv("EDEN_AGENT_USERNAME")
         agent = Agent.load(agent_name)
         with sentry_sdk.configure_scope() as scope:
-            scope.set_tag("client", "discord")
+            scope.set_tag("package", "eve-clients")
+            scope.set_tag("client_platform", "discord")
+            scope.set_tag("client_agent", agent_name)
             scope.set_context("discord", {"agent": agent_name, "local": local})
             logger.info(f"Launching Discord bot {agent.username}...")
 
