@@ -351,12 +351,6 @@ def start(env: str, local: bool = False) -> None:
     agent_name = os.getenv("EDEN_AGENT_USERNAME")
     agent = Agent.load(agent_name)
 
-    with sentry_sdk.configure_scope() as scope:
-        scope.set_tag("package", "eve-clients")
-        scope.set_tag("client_platform", "telegram")
-        scope.set_tag("client_agent", agent_name)
-        scope.set_context("telegram", {"agent": agent_name, "local": local})
-
     bot_token = os.getenv("CLIENT_TELEGRAM_TOKEN")
     if not bot_token:
         raise ValueError("CLIENT_TELEGRAM_TOKEN not found in environment variables")

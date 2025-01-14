@@ -399,17 +399,13 @@ def start(
 
         agent_name = os.getenv("EDEN_AGENT_USERNAME")
         agent = Agent.load(agent_name)
-        with sentry_sdk.configure_scope() as scope:
-            scope.set_tag("package", "eve-clients")
-            scope.set_tag("client_platform", "discord")
-            scope.set_tag("client_agent", agent_name)
-            scope.set_context("discord", {"agent": agent_name, "local": local})
-            logger.info(f"Launching Discord bot {agent.username}...")
 
-            bot_token = os.getenv("CLIENT_DISCORD_TOKEN")
-            bot = DiscordBot()
-            bot.add_cog(Eden2Cog(bot, agent, local=local))
-            bot.run(bot_token)
+        logger.info(f"Launching Discord bot {agent.username}...")
+
+        bot_token = os.getenv("CLIENT_DISCORD_TOKEN")
+        bot = DiscordBot()
+        bot.add_cog(Eden2Cog(bot, agent, local=local))
+        bot.run(bot_token)
     except Exception as e:
         logger.error("Failed to start Discord bot", exc_info=True)
         sentry_sdk.capture_exception(e)

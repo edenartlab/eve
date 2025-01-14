@@ -18,7 +18,6 @@ from eve.postprocessing import (
     generate_lora_thumbnails,
     cancel_stuck_tasks,
     download_nsfw_models,
-    run_nsfw_detection,
 )
 from eve.api.handlers import (
     handle_create,
@@ -261,10 +260,6 @@ def fastapi_app():
     image=image, concurrency_limit=1, schedule=modal.Period(minutes=15), timeout=3600
 )
 async def postprocessing():
-    with sentry_sdk.configure_scope() as scope:
-        scope.set_tag("component", "postprocessing")
-        scope.set_context("function", {"name": "postprocessing"})
-
     try:
         await cancel_stuck_tasks()
     except Exception as e:
