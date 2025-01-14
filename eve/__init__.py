@@ -17,24 +17,23 @@ logging.basicConfig(
 def setup_sentry():
     sentry_dsn = os.getenv("SENTRY_DSN")
     if not sentry_dsn:
+        print("No Sentry DSN found, skipping Sentry setup")
         return
 
+    print(f"Setting up sentry for {db}")
+    # Determine environment
     sentry_env = "production" if db == "PROD" else "staging"
-    if db == "PROD":
-        traces_sample_rate = 0.1
-        profiles_sample_rate = 0.05
 
-    else:
-        traces_sample_rate = 1.0
-        profiles_sample_rate = 1.0
+    # Set sampling rates
+    traces_sample_rate = 0.1 if db == "PROD" else 1.0
+    profiles_sample_rate = 0.05 if db == "PROD" else 1.0
 
-    if sentry_dsn:
-        sentry_sdk.init(
-            dsn=sentry_dsn,
-            traces_sample_rate=traces_sample_rate,
-            profiles_sample_rate=profiles_sample_rate,
-            environment=sentry_env,
-        )
+    sentry_sdk.init(
+        dsn=sentry_dsn,
+        traces_sample_rate=traces_sample_rate,
+        profiles_sample_rate=profiles_sample_rate,
+        environment=sentry_env,
+    )
 
 
 def load_env(db):
@@ -92,6 +91,8 @@ def verify_env():
 db = os.getenv("DB", "STAGE").upper()
 
 if db not in ["STAGE", "PROD", "WEB3-STAGE", "WEB3-PROD"]:
-    raise Exception(f"Invalid environment: {db}. Must be STAGE, PROD, WEB3-STAGE, or WEB3-PROD")
+    raise Exception(
+        f"Invalid environment: {db}. Must be STAGE, PROD, WEB3-STAGE, or WEB3-PROD"
+    )
 
 load_env(db)

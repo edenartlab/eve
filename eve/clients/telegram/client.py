@@ -4,6 +4,7 @@ import re
 from ably import AblyRealtime
 import aiohttp
 from dotenv import load_dotenv
+import sentry_sdk
 from telegram import Update
 from telegram.constants import ChatAction
 from telegram.ext import (
@@ -16,7 +17,6 @@ from telegram.ext import (
 )
 import asyncio
 
-from ... import load_env
 from ...clients import common
 from ...agent import Agent
 from ...llm import UpdateType
@@ -94,10 +94,7 @@ def replace_bot_mentions(message_text: str, bot_username: str, replacement: str)
 
 
 async def send_response(
-    message_type: str, 
-    chat_id: int, 
-    response: list, 
-    context: ContextTypes.DEFAULT_TYPE
+    message_type: str, chat_id: int, response: list, context: ContextTypes.DEFAULT_TYPE
 ):
     """
     Send messages, photos, or videos based on the type of response.
@@ -117,13 +114,9 @@ async def send_response(
             await context.bot.send_message(chat_id=chat_id, text=item)
 
 
+@common.client_context("telegram")
 class EdenTG:
-    def __init__(
-        self, 
-        token: str, 
-        agent: Agent, 
-        local: bool = False
-    ):
+    def __init__(self, token: str, agent: Agent, local: bool = False):
         self.token = token
         self.agent = agent
         self.tools = agent.get_tools()
@@ -132,7 +125,7 @@ class EdenTG:
         if local:
             self.api_url = "http://localhost:8000"
         else:
-            self.api_url = os.getenv(f"EDEN_API_URL")
+            self.api_url = os.getenv("EDEN_API_URL")
         self.channel_name = common.get_ably_channel_name(
             agent.name, ClientType.TELEGRAM
         )
@@ -140,7 +133,7 @@ class EdenTG:
         # Don't initialize Ably here - we'll do it in setup_ably
         self.ably_client = None
         self.channel = None
-        
+
         self.typing_tasks = {}
 
     async def initialize(self, application):
@@ -161,8 +154,12 @@ class EdenTG:
         """Keep sending typing action until stopped"""
         try:
             while True:
-                await application.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
-                await asyncio.sleep(5)  # Telegram typing status expires after ~5 seconds
+                await application.bot.send_chat_action(
+                    chat_id=chat_id, action=ChatAction.TYPING
+                )
+                await asyncio.sleep(
+                    5
+                )  # Telegram typing status expires after ~5 seconds
         except asyncio.CancelledError:
             pass
 
@@ -269,23 +266,18 @@ class EdenTG:
 
         if is_direct_message:
             # print author
-            force_reply = False # No DMs
+            force_reply = False  # No DMs
             return
 
         # Lookup thread
         thread_key = f"telegram-{chat_id}"
         if thread_key not in self.known_threads:
-            self.known_threads[thread_key] = self.agent.request_thread(
-                key=thread_key
-            )
+            self.known_threads[thread_key] = self.agent.request_thread(key=thread_key)
         thread = self.known_threads[thread_key]
 
         # Lookup user
         if user_id not in self.known_users:
-            self.known_users[user_id] = User.from_telegram(
-                user_id, 
-                username
-            )
+            self.known_users[user_id] = User.from_telegram(user_id, username)
         user = self.known_users[user_id]
 
         # Check if user rate limits
@@ -333,7 +325,11 @@ class EdenTG:
             async with session.post(
                 f"{self.api_url}/chat",
                 json=request_data,
-                headers={"Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}"},
+                headers={
+                    "Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}",
+                    "X-Client-Platform": "telegram",
+                    "X-Client-Agent": self.agent.username,
+                },
             ) as response:
                 print(f"Response from {self.api_url}/chat: {response.status}")
                 # json
@@ -348,15 +344,18 @@ class EdenTG:
                     return
 
 
-def start(
-    env: str, 
-    local: bool = False
-) -> None:
+def start(env: str, local: bool = False) -> None:
     print("Starting Telegram client...")
     load_dotenv(env)
 
     agent_name = os.getenv("EDEN_AGENT_USERNAME")
     agent = Agent.load(agent_name)
+
+    with sentry_sdk.configure_scope() as scope:
+        scope.set_tag("package", "eve-clients")
+        scope.set_tag("client_platform", "telegram")
+        scope.set_tag("client_agent", agent_name)
+        scope.set_context("telegram", {"agent": agent_name, "local": local})
 
     bot_token = os.getenv("CLIENT_TELEGRAM_TOKEN")
     if not bot_token:

@@ -214,7 +214,11 @@ async def process_webhook(
             async with session.post(
                 f"{api_url}/chat",
                 json=request_data,
-                headers={"Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}"},
+                headers={
+                    "Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}",
+                    "X-Client-Platform": "farcaster",
+                    "X-Client-Agent": agent.username,
+                },
             ) as response:
                 if response.status != 200:
                     raise Exception("Failed to process request")

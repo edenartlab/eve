@@ -20,14 +20,7 @@ from .mongo import Document, Collection, get_collection
 
 
 OUTPUT_TYPES = Literal[
-    "boolean", 
-    "string", 
-    "integer", 
-    "float", 
-    "image", 
-    "video", 
-    "audio", 
-    "lora"
+    "boolean", "string", "integer", "float", "image", "video", "audio", "lora"
 ]
 
 BASE_MODELS = Literal[
@@ -44,17 +37,10 @@ BASE_MODELS = Literal[
     "runway",
     "mmaudio",
     "librosa",
-    "musicgen"
+    "musicgen",
 ]
 
-HANDLERS = Literal[
-    "local", 
-    "modal", 
-    "comfyui", 
-    "comfyui_legacy",
-    "replicate", 
-    "gcp"
-]
+HANDLERS = Literal["local", "modal", "comfyui", "comfyui_legacy", "replicate", "gcp"]
 
 
 @Collection("tools3")
@@ -89,7 +75,7 @@ class Tool(Document, ABC):
     @classmethod
     def _get_schema(cls, key, from_yaml=False) -> dict:
         """Get schema for a tool, with detailed performance logging."""
-        
+
         if from_yaml:
             # YAML path
             api_files = get_api_files()
@@ -111,11 +97,7 @@ class Tool(Document, ABC):
         return schema
 
     @classmethod
-    def get_sub_class(
-        cls, 
-        schema, 
-        from_yaml=False
-    ) -> type:
+    def get_sub_class(cls, schema, from_yaml=False) -> type:
         from .tools.local_tool import LocalTool
         from .tools.modal_tool import ModalTool
         from .tools.comfyui_tool import ComfyUITool, ComfyUIToolLegacy
@@ -133,7 +115,7 @@ class Tool(Document, ABC):
             "local": LocalTool,
             "modal": ModalTool,
             "comfyui": ComfyUITool,
-            "comfyui_legacy": ComfyUIToolLegacy, # private/legacy workflows
+            "comfyui_legacy": ComfyUIToolLegacy,  # private/legacy workflows
             "replicate": ReplicateTool,
             "gcp": GCPTool,
             None: LocalTool,
@@ -180,7 +162,7 @@ class Tool(Document, ABC):
                 schema["test_args"] = json.load(f)
 
         return schema
-        
+
     @classmethod
     def convert_from_mongo(cls, schema) -> dict:
         schema["parameters"] = {
@@ -235,7 +217,7 @@ class Tool(Document, ABC):
             return _tool_cache[str(document_id)]
         else:
             return super().from_mongo(document_id)
-    
+
     @classmethod
     def load(cls, key, cache=False):
         if cache:
@@ -268,7 +250,9 @@ class Tool(Document, ABC):
         schema = openai_schema(self.model).openai_schema
         if exclude_hidden:
             self._remove_hidden_fields(schema["parameters"])
-        schema["description"] = schema["description"][:1024]  # OpenAI tool description limit
+        schema["description"] = schema["description"][
+            :1024
+        ]  # OpenAI tool description limit
         return {"type": "function", "function": schema}
 
     def calculate_cost(self, args):
@@ -282,7 +266,9 @@ class Tool(Document, ABC):
             r"(\w+)\s*\?\s*([^:]+)\s*:\s*([^,\s]+)", r"\2 if \1 else \3", cost_formula
         )  # Ternary operator
         cost_estimate = eval(cost_formula, args.copy())
-        assert isinstance(cost_estimate, (int, float)), f"Cost estimate ({cost_estimate}) not a number (formula: {cost_formula})"
+        assert isinstance(
+            cost_estimate, (int, float)
+        ), f"Cost estimate ({cost_estimate}) not a number (formula: {cost_formula})"
         return cost_estimate
 
     def prepare_args(self, args: dict):
@@ -354,7 +340,7 @@ class Tool(Document, ABC):
             try:
                 # validate args and user manna balance
                 args = self.prepare_args(args)
-                sentry_sdk.add_breadcrumb(category="handle_start_task", data=args)                
+                sentry_sdk.add_breadcrumb(category="handle_start_task", data=args)
                 cost = self.calculate_cost(args)
                 user = User.from_mongo(user_id)
                 if "freeTools" in (user.featureFlags or []):
@@ -378,7 +364,9 @@ class Tool(Document, ABC):
                 cost=cost,
             )
             task.save()
-            sentry_sdk.add_breadcrumb(category="handle_start_task", data=task.model_dump())
+            sentry_sdk.add_breadcrumb(
+                category="handle_start_task", data=task.model_dump()
+            )
 
             # start task
             try:
@@ -401,7 +389,7 @@ class Tool(Document, ABC):
                     task.update(handler_id=handler_id)
 
                 task.spend_manna()
-                
+
             except Exception as e:
                 print(traceback.format_exc())
                 task.update(status="failed", error=str(e))
@@ -445,6 +433,7 @@ class Tool(Document, ABC):
                     task.update(status="failed", error="Timed out")
                 else:
                     task.update(status="cancelled")
+
         return async_wrapper
 
     @abstractmethod
@@ -479,10 +468,10 @@ class Tool(Document, ABC):
 
 
 def get_tools_from_api_files(
-    root_dir: str = None, 
-    tools: List[str] = None, 
+    root_dir: str = None,
+    tools: List[str] = None,
     include_inactive: bool = False,
-    cache: bool = False
+    cache: bool = False,
 ) -> Dict[str, Tool]:
     """Get all tools inside a directory"""
 
@@ -505,7 +494,7 @@ def get_tools_from_mongo(
     cache: bool = False,
 ) -> Dict[str, Tool]:
     """Get all tools from mongo"""
-    
+
     tools_collection = get_collection(Tool.collection_name)
 
     # Batch fetch all tools and their parents
@@ -552,6 +541,25 @@ def get_api_files(root_dir: str = None) -> List[str]:
                 api_files[os.path.relpath(root).split("/")[-1]] = api_file
 
     return api_files
+
+
+def tool_context(tool_type):
+    def decorator(cls):
+        for name, method in cls.__dict__.items():
+            if asyncio.iscoroutinefunction(method):
+
+                async def wrapped_method(self, *args, __method=method, **kwargs):
+                    with sentry_sdk.configure_scope() as scope:
+                        scope.set_tag("package", "eve-tools")
+                        scope.set_tag("tool_type", tool_type)
+                        scope.set_tag("tool_name", self.key)
+                    return await __method(self, *args, **kwargs)
+
+                setattr(cls, name, wrapped_method)
+        return cls
+
+    return decorator
+
 
 # Tool cache for fetching commonly used tools
 _tool_cache: Dict[str, Dict[str, Tool]] = {}

@@ -1,7 +1,9 @@
 import os
 import time
+import asyncio
 
 from eve.models import ClientType
+from .. import sentry_sdk
 
 db = os.getenv("DB", "STAGE")
 
@@ -51,6 +53,25 @@ DISCORD_DM_WHITELIST = [
 
 hour_timestamps = {}
 day_timestamps = {}
+
+
+def client_context(client_platform: str):
+    """Decorator to add client context to Sentry for all async methods"""
+
+    def decorator(cls):
+        for name, method in cls.__dict__.items():
+            if asyncio.iscoroutinefunction(method):
+
+                async def wrapped_method(self, *args, __method=method, **kwargs):
+                    with sentry_sdk.configure_scope() as scope:
+                        scope.set_tag("client_platform", client_platform)
+                        scope.set_tag("client_agent", self.agent.username)
+                    return await __method(self, *args, **kwargs)
+
+                setattr(cls, name, wrapped_method)
+        return cls
+
+    return decorator
 
 
 def user_over_rate_limits(user):
