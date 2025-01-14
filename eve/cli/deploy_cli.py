@@ -156,7 +156,7 @@ def process_agent(agent_path: Path, env: str):
 @click.option("--all", is_flag=True, help="Deploy all configured agents")
 @click.option(
     "--db",
-    type=click.Choice(["STAGE", "PROD"], case_sensitive=False),
+    type=click.Choice(["STAGE", "PROD", "WEB3-STAGE", "WEB3-PROD"], case_sensitive=False),
     default="STAGE",
     help="DB to save against",
 )
@@ -166,8 +166,15 @@ def deploy(agent: str, all: bool, db: str):
         # Ensure Modal environment exists
         ensure_modal_env_exists()
         load_env(db)
-        env = "stage" if db == "STAGE" else "prod"
-
+        
+        env_map = {
+            "STAGE": "stage",
+            "PROD": "prod",
+            "WEB3-STAGE": "web3-stage",
+            "WEB3-PROD": "web3-prod"
+        }
+        env = env_map.get(db, "stage")
+        
         if all:
             agents = get_deployable_agents(env)
             if not agents:

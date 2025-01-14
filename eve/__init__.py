@@ -47,9 +47,22 @@ def load_env(db):
     os.environ["DB"] = db
 
     # First try ~/.eve
-    stage = db == "STAGE"
-    env_file = ".env.STAGE" if stage else ".env"
-    eve_file = ".eve.STAGE" if stage else ".eve"
+    env_file = (
+        ".env.STAGE" if db == "STAGE" else
+        ".env.PROD" if db == "PROD" else
+        ".env.WEB3-STAGE" if db == "WEB3-STAGE" else
+        ".env.WEB3-PROD" if db == "WEB3-PROD" else
+        ".env.STAGE"
+    )
+
+    eve_file = (
+        ".eve.STAGE" if db == "STAGE" else
+        ".eve.PROD" if db == "PROD" else
+        ".eve.WEB3-STAGE" if db == "WEB3-STAGE" else
+        ".eve.WEB3-PROD" if db == "WEB3-PROD" else
+        ".eve.STAGE"
+    )
+
     eve_path = os.path.join(home_dir, eve_file)
 
     if os.path.exists(eve_path):

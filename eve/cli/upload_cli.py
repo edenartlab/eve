@@ -5,7 +5,7 @@ from .. import load_env
 @click.command()
 @click.option(
     "--db",
-    type=click.Choice(["STAGE", "PROD"], case_sensitive=False),
+    type=click.Choice(["STAGE", "PROD", "WEB3-STAGE", "WEB3-PROD"], case_sensitive=False),
     default="STAGE",
     help="DB to save against",
 )

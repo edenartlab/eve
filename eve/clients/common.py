@@ -107,5 +107,15 @@ def get_ably_channel_name(agent_username: str, client_platform: ClientType):
 
 
 def get_eden_creation_url(creation_id: str):
-    root_url = "beta.eden.art" if db == "PROD" else "staging2.app.eden.art"
+    if db == "PROD":
+        root_url = "beta.eden.art"
+    elif db == "STAGE":
+        root_url = "staging2.app.eden.art"
+    elif db == "WEB3-PROD":
+        root_url = "web3.eden.art"
+    elif db == "WEB3-STAGE":
+        root_url = "staging.web3.eden.art"
+    else:
+        root_url = "staging2.app.eden.art"
+        
     return f"https://{root_url}/creations/{creation_id}"

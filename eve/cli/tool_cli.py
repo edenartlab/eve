@@ -65,7 +65,7 @@ def tool():
 @tool.command()
 @click.option(
     "--db",
-    type=click.Choice(["STAGE", "PROD"], case_sensitive=False),
+    type=click.Choice(["STAGE", "PROD", "WEB3-STAGE", "WEB3-PROD"], case_sensitive=False),
     default="STAGE",
     help="DB to save against",
 )
@@ -116,7 +116,7 @@ def update(db: str, names: tuple):
 @tool.command()
 @click.option(
     "--db",
-    type=click.Choice(["STAGE", "PROD"], case_sensitive=False),
+    type=click.Choice(["STAGE", "PROD", "WEB3-STAGE", "WEB3-PROD"], case_sensitive=False),
     default="STAGE",
     help="DB to save against",
 )
@@ -155,7 +155,7 @@ def remove(db: str, names: tuple):
 @tool.command(context_settings=dict(ignore_unknown_options=True, allow_extra_args=True))
 @click.option(
     "--db",
-    type=click.Choice(["STAGE", "PROD"], case_sensitive=False),
+    type=click.Choice(["STAGE", "PROD", "WEB3-STAGE", "WEB3-PROD"], case_sensitive=False),
     default="STAGE",
     help="DB to load tools from if from mongo",
 )
@@ -214,7 +214,7 @@ def run(ctx, tool: str, db: str):
 )
 @click.option(
     "--db",
-    type=click.Choice(["STAGE", "PROD"], case_sensitive=False),
+    type=click.Choice(["STAGE", "PROD", "WEB3-STAGE", "WEB3-PROD"], case_sensitive=False),
     default="STAGE",
     help="DB to load tools from if from mongo",
 )
