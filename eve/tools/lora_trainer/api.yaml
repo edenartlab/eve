@@ -2,7 +2,7 @@ name: Classic SDXL LoRA trainer
 description: Train an SDXL LoRA model with your images
 tip: |-
   This will create a LoRA model from a base Stable Diffusion which captures and integrates the style, human face, or object represented in the training data.
-thumbnail: app/LoRA-trainer-SDXL_opt.jpg
+thumbnail: app/sdxl_trainer.jpg
 cost_estimate: 0.15 * max_train_steps
 base_model: sdxl
 output_type: lora
