@@ -4,6 +4,7 @@ import re
 from ably import AblyRealtime
 import aiohttp
 from dotenv import load_dotenv
+import sentry_sdk
 from telegram import Update
 from telegram.constants import ChatAction
 from telegram.ext import (
@@ -349,6 +350,10 @@ def start(env: str, local: bool = False) -> None:
 
     agent_name = os.getenv("EDEN_AGENT_USERNAME")
     agent = Agent.load(agent_name)
+
+    with sentry_sdk.configure_scope() as scope:
+        scope.set_tag("client_platform", "telegram")
+        scope.set_tag("client_agent", agent_name)
 
     bot_token = os.getenv("CLIENT_TELEGRAM_TOKEN")
     if not bot_token:
