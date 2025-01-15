@@ -36,7 +36,7 @@ async def setup_chat(
         raise APIError(f"Invalid user_id: {request.user_id}", status_code=400) from e
 
     try:
-        agent = Agent.from_mongo(request.agent_id, cache=True)
+        agent = Agent.from_mongo(request.agent_id, cache=False)
     except Exception as e:
         raise APIError(f"Invalid agent_id: {request.agent_id}", status_code=400) from e
 
