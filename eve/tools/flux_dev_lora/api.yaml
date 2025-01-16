@@ -91,9 +91,9 @@ parameters:
     description: How strictly to follow the prompt
     hide_from_ui: true
     hide_from_agent: true
-    default: 3.5
-    minimum: 0
-    maximum: 10
+    default: 2.5
+    minimum: 1.0
+    maximum: 4.0
   lora:
     type: lora
     label: LoRA
@@ -102,8 +102,8 @@ parameters:
   lora_strength:
     type: float
     label: LoRA strength
-    description: Strength of the LoRA model (lower values may increase prompt adherence at the expense of resemblance to the LoRA subject/style). Ideally stay within 0.7-1.0
-    default: 0.9
+    description: Strength of the LoRA model (lower values may increase prompt adherence at the expense of resemblance to the LoRA subject/style). Ideally stay within 0.7-0.9
+    default: 0.85
     minimum: 0
     maximum: 1.5
     alias: lora_scale
