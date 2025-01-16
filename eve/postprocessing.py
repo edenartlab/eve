@@ -19,7 +19,7 @@ from eve.mongo import get_collection
 from eve.models import Model
 
 
-def cancel_stuck_tasks():
+async def cancel_stuck_tasks():
     tasks = get_collection(Task.collection_name)
 
     expired_tasks = tasks.find({
@@ -43,7 +43,7 @@ def cancel_stuck_tasks():
 
         try:    
             tool = Tool.load(key=task.tool)
-            tool.cancel(task, force=True)
+            await tool.async_cancel(task, force=True)
 
         except Exception as e:
             print(f"Error canceling task {str(task.id)} {task.tool}", e)

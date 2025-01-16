@@ -18,7 +18,6 @@ from eve.postprocessing import (
     generate_lora_thumbnails,
     cancel_stuck_tasks,
     download_nsfw_models,
-    run_nsfw_detection,
 )
 from eve.api.handlers import (
     handle_create,
@@ -221,14 +220,26 @@ workflows_dir = root_dir / ".." / "workflows"
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .env({"DB": db, "MODAL_SERVE": os.getenv("MODAL_SERVE")})
-    .apt_install("git", "libmagic1", "ffmpeg", "wget")
+    .apt_install(
+        "git",
+        "libmagic1",
+        "ffmpeg",
+        "wget",
+        # Add Playwright dependencies
+        "libnss3",
+        "libnspr4",
+        "libatk1.0-0",
+        "libatk-bridge2.0-0",
+        "libcups2",
+        "libatspi2.0-0",
+        "libxcomposite1",
+    )
     .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
     .pip_install("numpy<2.0", "torch==2.0.1", "torchvision", "transformers", "Pillow")
     .run_commands(["playwright install"])
     .run_function(download_nsfw_models)
     .copy_local_dir(str(workflows_dir), "/workflows")
 )
-
 
 @app.function(
     image=image,
@@ -249,21 +260,17 @@ def fastapi_app():
     image=image, concurrency_limit=1, schedule=modal.Period(minutes=15), timeout=3600
 )
 async def postprocessing():
-    with sentry_sdk.configure_scope() as scope:
-        scope.set_tag("component", "postprocessing")
-        scope.set_context("function", {"name": "postprocessing"})
-
     try:
         await cancel_stuck_tasks()
     except Exception as e:
         print(f"Error cancelling stuck tasks: {e}")
         sentry_sdk.capture_exception(e)
 
-    try:
-        await run_nsfw_detection()
-    except Exception as e:
-        print(f"Error running nsfw detection: {e}")
-        sentry_sdk.capture_exception(e)
+    # try:
+    #     await run_nsfw_detection()
+    # except Exception as e:
+    #     print(f"Error running nsfw detection: {e}")
+    #     sentry_sdk.capture_exception(e)
 
     try:
         await generate_lora_thumbnails()

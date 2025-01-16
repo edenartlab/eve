@@ -24,6 +24,7 @@ image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("libmagic1", "ffmpeg", "wget")
     .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
+    .run_commands(["playwright install"])
     .env({"DB": db})
 )
 
