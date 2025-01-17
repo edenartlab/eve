@@ -102,10 +102,10 @@ parameters:
   lora_strength:
     type: float
     label: LoRA strength
-    description: Strength of the LoRA model (lower values may increase prompt adherence at the expense of resemblance to the LoRA subject/style). Ideally stay within 0.7-0.9
+    description: Strength of the LoRA model (lower values may increase prompt adherence at the expense of resemblance to the LoRA subject/style). Ideally stay within 0.7-1.0
     default: 0.85
     minimum: 0
-    maximum: 1.5
+    maximum: 1.2
     alias: lora_scale
   n_samples:
     type: integer
