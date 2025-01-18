@@ -36,7 +36,7 @@ async def cancel_stuck_tasks():
         ]
     }).sort('createdAt', 1)
 
-    for task in expired_tasks:
+    async for task in expired_tasks:
         print(f"Cancelling expired task {task['_id']}")
         
         task = Task.from_schema(task)
