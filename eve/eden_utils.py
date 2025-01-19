@@ -16,8 +16,8 @@ import blurhash
 import subprocess
 import replicate
 import psutil
-import torch
 import shutil
+import subprocess
 import numpy as np
 from bson import ObjectId
 from datetime import datetime
@@ -29,21 +29,24 @@ from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from . import s3
-
 def log_memory_info():
     """
-    Log basic GPU, RAM, and disk usage percentages.
+    Log basic GPU, RAM, and disk usage percentages using nvidia-smi for GPU metrics.
     """
+    import psutil
+    import shutil
+    import subprocess
     
     print("\n=== Memory Usage ===")
     
-    # GPU VRAM
-    if torch.cuda.is_available():
-        gpu = torch.cuda.get_device_properties(0)
-        memory_allocated = torch.cuda.memory_allocated(0)
-        total_memory = gpu.total_memory
-        gpu_percent = (memory_allocated / total_memory) * 100
-        print(f"GPU Memory: {gpu_percent:.1f}% of {total_memory / (1024**3):.1f}GB")
+    # GPU VRAM using nvidia-smi
+    try:
+        result = subprocess.check_output(['nvidia-smi', '--query-gpu=memory.total,memory.used', '--format=csv,nounits,noheader'])
+        total_mem, used_mem = map(int, result.decode('utf-8').strip().split(','))
+        gpu_percent = (used_mem / total_mem) * 100
+        print(f"GPU Memory: {gpu_percent:.1f}% of {total_mem/1024:.1f}GB")
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        print("GPU info not available")
     
     # System RAM
     ram = psutil.virtual_memory()
@@ -54,6 +57,7 @@ def log_memory_info():
     disk_percent = (usage.used / usage.total) * 100
     print(f"Disk Usage: {disk_percent:.1f}% of {usage.total / (1024**3):.1f}GB")
     print("==================\n")
+    
 
 def prepare_result(result, summarize=False):
     if isinstance(result, dict):

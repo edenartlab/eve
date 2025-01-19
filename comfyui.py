@@ -240,7 +240,7 @@ image = (
     .env({"SPECIFIC_TEST": os.getenv("SPECIFIC_TEST")})
     .apt_install("git", "git-lfs", "libgl1-mesa-glx", "libglib2.0-0", "libmagic1", "ffmpeg", "libegl1")
     .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
-    .pip_install("diffusers==0.31.0")
+    .pip_install("diffusers==0.31.0", "psutil")
     .env({"WORKSPACE": workspace_name}) 
     .copy_local_file(f"{root_workflows_folder}/workspaces/{workspace_name}/snapshot.json", "/root/workspace/snapshot.json")
     .copy_local_file(f"{root_workflows_folder}/workspaces/{workspace_name}/downloads.json", "/root/workspace/downloads.json")
@@ -290,6 +290,8 @@ class ComfyUI:
 
     def _execute(self, workflow_name: str, args: dict):
         try:
+            print("\n----------->  Starting new task execution: ", workflow_name)
+            eden_utils.log_memory_info()
             tool_path = f"/root/workspace/workflows/{workflow_name}"
             tool = Tool.from_yaml(f"{tool_path}/api.yaml")
             workflow = json.load(open(f"{tool_path}/workflow_api.json", 'r'))
@@ -414,13 +416,79 @@ class ComfyUI:
         with urllib.request.urlopen("http://{}/history/{}".format(self.server_address, prompt_id)) as response:
             return json.loads(response.read())
 
-    def _get_outputs(self, prompt_id):        
+    def _get_history(self, prompt_id):
+        """
+        Get history for a specific prompt ID.
+        
+        Args:
+            prompt_id: The ID of the prompt to check
+            
+        Returns:
+            dict: The history data for the prompt
+            
+        Raises:
+            urllib.error.URLError: If there's a connection error
+            json.JSONDecodeError: If the response isn't valid JSON
+            Exception: For other unexpected errors
+        """
+        try:
+            url = f"http://{self.server_address}/history/{prompt_id}"
+            print(f"Fetching history from: {url}")
+            
+            with urllib.request.urlopen(url) as response:
+                if response.status != 200:
+                    print(f"Warning: Unexpected status code {response.status}")
+                
+                response_data = response.read()
+                try:
+                    history_data = json.loads(response_data)
+                    print(f"Response structure: {list(history_data.keys()) if isinstance(history_data, dict) else 'Not a dictionary'}")
+                    
+                    if not history_data:
+                        print(f"Warning: Empty history data received for prompt {prompt_id}")
+                        return {}
+                        
+                    if prompt_id not in history_data:
+                        print(f"Prompt {prompt_id} not found in history data")
+                        return {}
+                        
+                    # Log the prompt status if available
+                    prompt_data = history_data[prompt_id]
+                    if isinstance(prompt_data, dict) and 'status' in prompt_data:
+                        status = prompt_data['status']
+                        print(f"Prompt status: {status.get('status_str', 'unknown')}")
+                        
+                        # Check for any execution messages
+                        if 'messages' in status:
+                            for msg_type, msg_data in status['messages']:
+                                print(f"Message [{msg_type}]: {msg_data}")
+                    
+                    return history_data
+                    
+                except json.JSONDecodeError as e:
+                    print(f"Error decoding JSON response: {e}")
+                    print(f"Raw response data: {response_data[:200]}...")  # Print first 200 chars
+                    raise
+                    
+        except urllib.error.URLError as e:
+            print(f"Connection error while fetching history: {e}")
+            if hasattr(e, 'reason'):
+                print(f"Failure reason: {e.reason}")
+            raise
+            
+        except Exception as e:
+            print(f"Unexpected error in _get_history: {str(e)}")
+            print(f"Error type: {type(e).__name__}")
+            raise
+
+    def _get_outputs(self, prompt_id, poll_interval=1):        
         while True:
             outputs = {}
             history = self._get_history(prompt_id)
-            if prompt_id not in history:
-                time.sleep(1)
+            if not history or not history.get(prompt_id):
+                time.sleep(poll_interval)
                 continue
+            
             history = history[prompt_id]                        
             status = history["status"]
             status_str = status.get("status_str")
