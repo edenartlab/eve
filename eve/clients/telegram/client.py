@@ -16,7 +16,6 @@ from telegram.ext import (
 )
 import asyncio
 
-from ... import load_env
 from ...clients import common
 from ...agent import Agent
 from ...llm import UpdateType
@@ -94,10 +93,7 @@ def replace_bot_mentions(message_text: str, bot_username: str, replacement: str)
 
 
 async def send_response(
-    message_type: str, 
-    chat_id: int, 
-    response: list, 
-    context: ContextTypes.DEFAULT_TYPE
+    message_type: str, chat_id: int, response: list, context: ContextTypes.DEFAULT_TYPE
 ):
     """
     Send messages, photos, or videos based on the type of response.
@@ -118,12 +114,7 @@ async def send_response(
 
 
 class EdenTG:
-    def __init__(
-        self, 
-        token: str, 
-        agent: Agent, 
-        local: bool = False
-    ):
+    def __init__(self, token: str, agent: Agent, local: bool = False):
         self.token = token
         self.agent = agent
         self.tools = agent.get_tools()
@@ -140,7 +131,7 @@ class EdenTG:
         # Don't initialize Ably here - we'll do it in setup_ably
         self.ably_client = None
         self.channel = None
-        
+
         self.typing_tasks = {}
 
     async def initialize(self, application):
@@ -161,8 +152,12 @@ class EdenTG:
         """Keep sending typing action until stopped"""
         try:
             while True:
-                await application.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
-                await asyncio.sleep(5)  # Telegram typing status expires after ~5 seconds
+                await application.bot.send_chat_action(
+                    chat_id=chat_id, action=ChatAction.TYPING
+                )
+                await asyncio.sleep(
+                    5
+                )  # Telegram typing status expires after ~5 seconds
         except asyncio.CancelledError:
             pass
 
@@ -211,17 +206,20 @@ class EdenTG:
                 print(f"Tool complete: {data}")
                 result = data.get("result", {})
                 result["result"] = prepare_result(result["result"])
-                url = result["result"][0]["output"][0]["url"]
-                # Determine if it's a video or image
-                video_extensions = (".mp4", ".avi", ".mov", ".mkv", ".webm")
-                if any(url.lower().endswith(ext) for ext in video_extensions):
-                    await application.bot.send_video(
-                        chat_id=telegram_chat_id, video=url
-                    )
-                else:
-                    await application.bot.send_photo(
-                        chat_id=telegram_chat_id, photo=url
-                    )
+                outputs = result["result"][0]["output"]
+                urls = [output["url"] for output in outputs[:4]]  # Get up to 4 URLs
+
+                # Send each URL as appropriate media type
+                for url in urls:
+                    video_extensions = (".mp4", ".avi", ".mov", ".mkv", ".webm")
+                    if any(url.lower().endswith(ext) for ext in video_extensions):
+                        await application.bot.send_video(
+                            chat_id=telegram_chat_id, video=url
+                        )
+                    else:
+                        await application.bot.send_photo(
+                            chat_id=telegram_chat_id, photo=url
+                        )
 
             elif update_type == UpdateType.END_PROMPT:
                 # Stop typing
@@ -270,17 +268,12 @@ class EdenTG:
         # Lookup thread
         thread_key = f"telegram-{chat_id}"
         if thread_key not in self.known_threads:
-            self.known_threads[thread_key] = self.agent.request_thread(
-                key=thread_key
-            )
+            self.known_threads[thread_key] = self.agent.request_thread(key=thread_key)
         thread = self.known_threads[thread_key]
 
         # Lookup user
         if user_id not in self.known_users:
-            self.known_users[user_id] = User.from_telegram(
-                user_id, 
-                username
-            )
+            self.known_users[user_id] = User.from_telegram(user_id, username)
         user = self.known_users[user_id]
 
         # Check if user rate limits
@@ -344,10 +337,7 @@ class EdenTG:
                     return
 
 
-def start(
-    env: str, 
-    local: bool = False
-) -> None:
+def start(env: str, local: bool = False) -> None:
     print("Starting Telegram client...")
     load_dotenv(env)
 

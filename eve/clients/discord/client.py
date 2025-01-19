@@ -18,6 +18,7 @@ from ...eden_utils import prepare_result
 from ...models import ClientType
 
 logger = logging.getLogger(__name__)
+ALLOWLISTED_CHANNELS = os.getenv("ALLOWLISTED_CHANNELS", "").split(",")
 
 
 def replace_mentions_with_usernames(
@@ -151,11 +152,13 @@ class Eden2Cog(commands.Cog):
                     elif update_type == UpdateType.TOOL_COMPLETE:
                         result = data.get("result", {})
                         result["result"] = prepare_result(result["result"])
-                        output = result["result"][0]["output"][0]
-                        url = output["url"]
+                        outputs = result["result"][0]["output"]
+                        urls = [
+                            output["url"] for output in outputs[:4]
+                        ]  # Get up to 4 URLs
 
-                        # Get creation ID from the output
-                        creation_id = str(output.get("creation"))
+                        # Get creation ID from the first output
+                        creation_id = str(outputs[0].get("creation"))
 
                         if creation_id:
                             eden_url = common.get_eden_creation_url(creation_id)
@@ -168,10 +171,12 @@ class Eden2Cog(commands.Cog):
                                 )
                             )
                             await self.send_message(
-                                channel, url, reference=reference, view=view
+                                channel, "\n".join(urls), reference=reference, view=view
                             )
                         else:
-                            await self.send_message(channel, url, reference=reference)
+                            await self.send_message(
+                                channel, "\n".join(urls), reference=reference
+                            )
 
                     elif update_type == UpdateType.END_PROMPT:
                         await self.stop_typing(channel)
@@ -209,6 +214,9 @@ class Eden2Cog(commands.Cog):
     @commands.Cog.listener("on_message")
     async def on_message(self, message: discord.Message) -> None:
         try:
+            if ALLOWLISTED_CHANNELS and message.channel.id not in ALLOWLISTED_CHANNELS:
+                return
+
             if message.author.id == self.bot.user.id:
                 return
 
