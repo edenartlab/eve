@@ -22,26 +22,35 @@ from eve.models import Model
 async def cancel_stuck_tasks():
     tasks = get_collection(Task.collection_name)
 
-    expired_tasks = tasks.find({
-        'status': {'$nin': ['completed', 'failed']},
-        '$or': [
-            {
-                'tool': {'$nin': ['flux_trainer']},
-                'createdAt': {'$lt': datetime.now(timezone.utc) - timedelta(hours=3)}
-            },
-            {
-                'tool': {'$in': ['flux_trainer']},
-                'createdAt': {'$lt': datetime.now(timezone.utc) - timedelta(hours=12)}
-            }
-        ]
-    }).sort('createdAt', 1)
+    expired_tasks = tasks.find(
+        {
+            "status": {"$nin": ["completed", "failed"]},
+            "$or": [
+                {
+                    "tool": {"$nin": ["flux_trainer"]},
+                    "createdAt": {
+                        "$lt": datetime.now(timezone.utc) - timedelta(hours=3)
+                    },
+                },
+                {
+                    "tool": {"$in": ["flux_trainer"]},
+                    "createdAt": {
+                        "$lt": datetime.now(timezone.utc) - timedelta(hours=12)
+                    },
+                },
+            ],
+        }
+    ).sort("createdAt", 1)
 
-    async for task in expired_tasks:
+    # Convert cursor to list since we can't async iterate directly
+    expired_tasks_list = list(expired_tasks)
+
+    for task in expired_tasks_list:
         print(f"Cancelling expired task {task['_id']}")
-        
+
         task = Task.from_schema(task)
 
-        try:    
+        try:
             tool = Tool.load(key=task.tool)
             await tool.async_cancel(task, force=True)
 
@@ -54,6 +63,7 @@ async def cancel_stuck_tasks():
 
 def download_nsfw_models():
     from transformers import AutoModelForImageClassification, ViTImageProcessor
+
     AutoModelForImageClassification.from_pretrained("Falconsai/nsfw_image_detection")
     ViTImageProcessor.from_pretrained("Falconsai/nsfw_image_detection")
 
@@ -71,30 +81,34 @@ async def run_nsfw_detection():
 
     image_paths = [
         "https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/62946527441201f82e0e3d667fda480e176e9940a2e04f4e54c5230665dfc6f6.jpg",
-        "https://edenartlab-prod-data.s3.us-east-1.amazonaws.com/bb88e857586a358ce3f02f92911588207fbddeabff62a3d6a479517a646f053c.jpg"
+        "https://edenartlab-prod-data.s3.us-east-1.amazonaws.com/bb88e857586a358ce3f02f92911588207fbddeabff62a3d6a479517a646f053c.jpg",
     ]
 
     images = [
-        Image.open(eden_utils.download_file(url, f"{i}.jpg")).convert('RGB') 
+        Image.open(eden_utils.download_file(url, f"{i}.jpg")).convert("RGB")
         for i, url in enumerate(image_paths)
     ]
-        
+
     with torch.no_grad():
         inputs = processor(images=images, return_tensors="pt")
         outputs = model(**inputs)
         logits = outputs.logits
-    
+
     print(logits)
     predicted_labels = logits.argmax(-1).tolist()
     print(predicted_labels)
-    output = [model.config.id2label[predicted_label] for predicted_label in predicted_labels]
+    output = [
+        model.config.id2label[predicted_label] for predicted_label in predicted_labels
+    ]
     print(output)
-    
+
     # Sort image paths based on safe logit values
     first_logits = logits[:, 0].tolist()
-    sorted_pairs = sorted(zip(image_paths, first_logits), key=lambda x: x[1], reverse=True)
+    sorted_pairs = sorted(
+        zip(image_paths, first_logits), key=lambda x: x[1], reverse=True
+    )
     sorted_image_paths = [pair[0] for pair in sorted_pairs]
-    
+
     print("\nImage paths sorted by first logit value (highest to lowest):")
     for i, path in enumerate(sorted_image_paths):
         print(f"{i+1}. {path} (logit: {sorted_pairs[i][1]:.4f})")
@@ -104,13 +118,20 @@ async def generate_lora_thumbnails():
     tasks = get_collection(Task.collection_name)
     models = get_collection(Model.collection_name)
 
-    models_with_no_thumbnails = models.find({
-        "base_model": "flux-dev",
-        "thumbnail": {"$in": [None, "61ccedc87dd9689b2714daebbd851a37b6f74cd5dc3a16dc0b8267a8b535db04.jpg"]}
-    }).sort('createdAt', 1)
+    models_with_no_thumbnails = models.find(
+        {
+            "base_model": "flux-dev",
+            "thumbnail": {
+                "$in": [
+                    None,
+                    "61ccedc87dd9689b2714daebbd851a37b6f74cd5dc3a16dc0b8267a8b535db04.jpg",
+                ]
+            },
+        }
+    ).sort("createdAt", 1)
 
     # models_with_no_thumbnails = list(models_with_no_thumbnails)
-    
+
     for model in models_with_no_thumbnails:
         print(f"Making thumbnails for model {model['_id']}")
 
@@ -118,18 +139,20 @@ async def generate_lora_thumbnails():
             tool = Tool.load(key="flux_dev_lora")
             lora_mode = model.get("lora_mode")
             prompts = await generate_prompts(lora_mode)
-            thumbnails = [] 
-            
+            thumbnails = []
+
             for prompt in prompts:
                 print(f"Generating thumbnail: {prompt}")
 
                 async def generate_thumbnail():
-                    result = await tool.async_run({
-                        "prompt": prompt,
-                        "lora": str(model["_id"]),
-                        "lora_strength": 1.0,
-                        "aspect_ratio": "1:1",
-                    })
+                    result = await tool.async_run(
+                        {
+                            "prompt": prompt,
+                            "lora": str(model["_id"]),
+                            "lora_strength": 1.0,
+                            "aspect_ratio": "1:1",
+                        }
+                    )
                     result = eden_utils.prepare_result(result)
                     output = result.get("output")
                     if output:
@@ -151,7 +174,7 @@ async def generate_lora_thumbnails():
 
             # Create blank canvas for 2x2 grid
             dim = thumbnails[0].size[0]  # All images are same size
-            grid = Image.new('RGB', (dim * 2, dim * 2))
+            grid = Image.new("RGB", (dim * 2, dim * 2))
 
             # Paste images into grid
             grid.paste(thumbnails[0], (0, 0))
@@ -159,32 +182,28 @@ async def generate_lora_thumbnails():
             grid.paste(thumbnails[2], (0, dim))
             grid.paste(thumbnails[3], (dim, dim))
             grid = grid.resize((2048, 2048), Image.Resampling.LANCZOS)
-            
-            
+
             with tempfile.NamedTemporaryFile(suffix=".jpg", delete=True) as f:
                 grid.save(f.name)
-                output = eden_utils.upload_result(f.name, save_thumbnails=True, save_blurhash=True)
-            
+                output = eden_utils.upload_result(
+                    f.name, save_thumbnails=True, save_blurhash=True
+                )
+
             thumbnail = output.get("filename")
             print("final", thumbnail)
 
             if thumbnail:
                 task_id = ObjectId(model["task"])
                 models.update_one(
-                    {"_id": model["_id"]},
-                    {"$set": {"thumbnail": thumbnail}}
+                    {"_id": model["_id"]}, {"$set": {"thumbnail": thumbnail}}
                 )
                 tasks.update_one(
                     {
                         "_id": task_id,
-                        'status': 'completed',
-                        'tool': "flux_trainer",
+                        "status": "completed",
+                        "tool": "flux_trainer",
                     },
-                    {
-                        "$set": {
-                            "result.0.output.0.thumbnail": thumbnail
-                        }
-                    }
+                    {"$set": {"result.0.output.0.thumbnail": thumbnail}},
                 )
                 print(f"updated task {task_id}")
 
@@ -203,15 +222,18 @@ async def generate_prompts(lora_mode: str = None):
         sampled_prompts = random.sample(STYLE_PROMPTS, 16)
     else:
         sampled_prompts = random.sample(ALL_PROMPTS, 16)
-    
+
     class Prompts(BaseModel):
         """Exactly FOUR prompts for image generation models about <Concept>"""
-        prompts: List[str] = Field(..., description="A list of 4 image prompts about <Concept>")
+
+        prompts: List[str] = Field(
+            ..., description="A list of 4 image prompts about <Concept>"
+        )
 
         model_config = ConfigDict(
             json_schema_extra={
                 "examples": [
-                    {"prompts": sampled_prompts[i:i+4]} for i in range(0, 16, 4)
+                    {"prompts": sampled_prompts[i : i + 4]} for i in range(0, 16, 4)
                 ]
             }
         )
@@ -231,10 +253,7 @@ async def generate_prompts(lora_mode: str = None):
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": "You are an artist."},
-                {
-                    "role": "user",
-                    "content": prompt
-                },
+                {"role": "user", "content": prompt},
             ],
             response_model=Prompts,
         )
@@ -268,7 +287,7 @@ FACE_PROMPTS = [
     "<Concept> as a dried-out crusty old mermaid, wrinkled and weathered skin, tangled and brittle seaweed-like hair, smoking a smoldering cigarette underwater with tiny bubbles rising, jagged and cracked tail with faded iridescent scales, adorned with a tarnished coral crown, holding a rusted trident, surrounded by murky greenish water, faint sunlight beams filtering through, floating remnants of debris and sea creatures bowing in the background, regal yet decrepit presence, eerie and otherworldly atmosphere, dark fantasy aesthetic, hyperdetailed, cinematic composition",
     "a hyper-realistic glamour portrait of <Concept> as an old wizard wearing fancy robes and a pointy hat",
     "<Concept> as a simpsons character cartoon simpsons style illustration in the style of the simpsons",
-    "<Concept> as a southpark character, a simplistic, cutout animation style with basic geometric shapes, using primary colors, giving the impression of crudely drawn paper cutouts"
+    "<Concept> as a southpark character, a simplistic, cutout animation style with basic geometric shapes, using primary colors, giving the impression of crudely drawn paper cutouts",
 ]
 
 OBJECT_PROMPTS = [
@@ -292,7 +311,7 @@ OBJECT_PROMPTS = [
     "TOK as a dried-out crusty old mermaid, wrinkled and weathered skin, tangled and brittle seaweed-like hair, smoking a smoldering cigarette underwater with tiny bubbles rising, jagged and cracked tail with faded iridescent scales, adorned with a tarnished coral crown, holding a rusted trident, surrounded by murky greenish water, faint sunlight beams filtering through, floating remnants of debris and sea creatures bowing in the background, regal yet decrepit presence, eerie and otherworldly atmosphere, dark fantasy aesthetic, hyperdetailed, cinematic composition",
     "a hyper-realistic glamour portrait of TOK as an old wizard wearing fancy robes and a pointy hat",
     "TOK as a simpsons character cartoon simpsons style illustration in the style of the simpsons",
-    "TOK as a southpark character, a simplistic, cutout animation style with basic geometric shapes, using primary colors, giving the impression of crudely drawn paper cutouts"
+    "TOK as a southpark character, a simplistic, cutout animation style with basic geometric shapes, using primary colors, giving the impression of crudely drawn paper cutouts",
 ]
 
 STYLE_PROMPTS = [
@@ -316,7 +335,7 @@ STYLE_PROMPTS = [
     "A hidden underwater city with domed buildings made of coral and glass, illuminated by bioluminescent sea life, with rays of sunlight piercing through the deep blue ocean above, <Concept>",
     "An ancient temple suspended in the air, surrounded by swirling clouds, its walls inscribed with glowing hieroglyphs, and a golden beam of light connecting it to the earth below, <Concept>",
     "A sprawling digital network visualized as a glowing forest, with data flowing like streams of light between luminescent, crystalline trees, and holographic animals darting through the landscape, <Concept>",
-    "A cosmic coliseum where the stars form the walls, with rings of orbiting planets circling above, and the arena floor a swirling nebula of colors and energy, <Concept>"
+    "A cosmic coliseum where the stars form the walls, with rings of orbiting planets circling above, and the arena floor a swirling nebula of colors and energy, <Concept>",
 ]
 
 ALL_PROMPTS = FACE_PROMPTS + OBJECT_PROMPTS + STYLE_PROMPTS

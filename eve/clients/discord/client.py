@@ -18,7 +18,11 @@ from ...eden_utils import prepare_result
 from ...models import ClientType
 
 logger = logging.getLogger(__name__)
-ALLOWLISTED_CHANNELS = os.getenv("ALLOWLISTED_CHANNELS", "").split(",")
+ALLOWLISTED_CHANNELS = (
+    os.getenv("ALLOWLISTED_CHANNELS").split(",")
+    if os.getenv("ALLOWLISTED_CHANNELS")
+    else None
+)
 
 
 def replace_mentions_with_usernames(
@@ -215,8 +219,12 @@ class Eden2Cog(commands.Cog):
     @commands.Cog.listener("on_message")
     async def on_message(self, message: discord.Message) -> None:
         try:
+            print(message.channel.id)
+            print("ALLOWLISTED_CHANNELS", ALLOWLISTED_CHANNELS)
             if ALLOWLISTED_CHANNELS and message.channel.id not in ALLOWLISTED_CHANNELS:
                 return
+            
+            
 
             if message.author.id == self.bot.user.id:
                 return
