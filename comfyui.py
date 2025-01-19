@@ -546,7 +546,8 @@ class ComfyUI:
     
     def _inject_embedding_mentions_flux(self, text, embedding_trigger, lora_trigger_text):
         if not embedding_trigger:  # Handles both None and empty string
-            text = re.sub(r'(<concept>)', lora_trigger_text, text, flags=re.IGNORECASE)
+            if lora_trigger_text:
+                text = re.sub(r'(<concept>)', lora_trigger_text, text, flags=re.IGNORECASE)
         else:
             pattern = r'(<{0}>|<{1}>|{0}|{1})'.format(
                 re.escape(embedding_trigger),
@@ -555,8 +556,9 @@ class ComfyUI:
             text = re.sub(pattern, lora_trigger_text, text, flags=re.IGNORECASE)
             text = re.sub(r'(<concept>)', lora_trigger_text, text, flags=re.IGNORECASE)
 
-        if lora_trigger_text not in text:
-            text = f"{lora_trigger_text}, {text}"
+        if lora_trigger_text:
+            if lora_trigger_text not in text:
+                text = f"{lora_trigger_text}, {text}"
 
         return text
 
