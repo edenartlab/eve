@@ -138,10 +138,12 @@ def create_app(env: str, db: str = "STAGE"):
                 if payload.result:
                     result = payload.result
                     result["result"] = prepare_result(result["result"], db=app.state.db)
-                    url = result["result"][0]["output"][0]["url"]
+                    urls = [
+                        output["url"] for output in result["result"][0]["output"][:4]
+                    ]  # Get up to 4 URLs
                     app.state.client.post_cast(
                         text="",
-                        embeds=[url],
+                        embeds=urls,
                         parent={"hash": cast_hash, "fid": author_fid},
                     )
 

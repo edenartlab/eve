@@ -208,17 +208,20 @@ class EdenTG:
                 print(f"Tool complete: {data}")
                 result = data.get("result", {})
                 result["result"] = prepare_result(result["result"])
-                url = result["result"][0]["output"][0]["url"]
-                # Determine if it's a video or image
-                video_extensions = (".mp4", ".avi", ".mov", ".mkv", ".webm")
-                if any(url.lower().endswith(ext) for ext in video_extensions):
-                    await application.bot.send_video(
-                        chat_id=telegram_chat_id, video=url
-                    )
-                else:
-                    await application.bot.send_photo(
-                        chat_id=telegram_chat_id, photo=url
-                    )
+                outputs = result["result"][0]["output"]
+                urls = [output["url"] for output in outputs[:4]]  # Get up to 4 URLs
+
+                # Send each URL as appropriate media type
+                for url in urls:
+                    video_extensions = (".mp4", ".avi", ".mov", ".mkv", ".webm")
+                    if any(url.lower().endswith(ext) for ext in video_extensions):
+                        await application.bot.send_video(
+                            chat_id=telegram_chat_id, video=url
+                        )
+                    else:
+                        await application.bot.send_photo(
+                            chat_id=telegram_chat_id, photo=url
+                        )
 
             elif update_type == UpdateType.END_PROMPT:
                 # Stop typing
