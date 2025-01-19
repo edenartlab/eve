@@ -433,7 +433,6 @@ class ComfyUI:
         """
         try:
             url = f"http://{self.server_address}/history/{prompt_id}"
-            print(f"Fetching history from: {url}")
             
             with urllib.request.urlopen(url) as response:
                 if response.status != 200:
@@ -442,30 +441,14 @@ class ComfyUI:
                 response_data = response.read()
                 try:
                     history_data = json.loads(response_data)
-                    print(f"Response structure: {list(history_data.keys()) if isinstance(history_data, dict) else 'Not a dictionary'}")
                     
-                    if not history_data:
-                        print(f"Warning: Empty history data received for prompt {prompt_id}")
+                    if not history_data or (prompt_id not in history_data):
                         return {}
-                        
-                    if prompt_id not in history_data:
-                        print(f"Prompt {prompt_id} not found in history data")
-                        return {}
-                        
-                    # Log the prompt status if available
-                    prompt_data = history_data[prompt_id]
-                    if isinstance(prompt_data, dict) and 'status' in prompt_data:
-                        status = prompt_data['status']
-                        print(f"Prompt status: {status.get('status_str', 'unknown')}")
-                        
-                        # Check for any execution messages
-                        if 'messages' in status:
-                            for msg_type, msg_data in status['messages']:
-                                print(f"Message [{msg_type}]: {msg_data}")
                     
                     return history_data
                     
                 except json.JSONDecodeError as e:
+                    print(f"Failed to decode JSON response from {url}")
                     print(f"Error decoding JSON response: {e}")
                     print(f"Raw response data: {response_data[:200]}...")  # Print first 200 chars
                     raise
