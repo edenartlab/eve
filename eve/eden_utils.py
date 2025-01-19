@@ -15,6 +15,9 @@ import tempfile
 import blurhash
 import subprocess
 import replicate
+import psutil
+import torch
+import shutil
 import numpy as np
 from bson import ObjectId
 from datetime import datetime
@@ -27,6 +30,30 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from . import s3
 
+def log_memory_info():
+    """
+    Log basic GPU, RAM, and disk usage percentages.
+    """
+    
+    print("\n=== Memory Usage ===")
+    
+    # GPU VRAM
+    if torch.cuda.is_available():
+        gpu = torch.cuda.get_device_properties(0)
+        memory_allocated = torch.cuda.memory_allocated(0)
+        total_memory = gpu.total_memory
+        gpu_percent = (memory_allocated / total_memory) * 100
+        print(f"GPU Memory: {gpu_percent:.1f}% of {total_memory / (1024**3):.1f}GB")
+    
+    # System RAM
+    ram = psutil.virtual_memory()
+    print(f"RAM Usage: {ram.percent}% of {ram.total / (1024**3):.1f}GB")
+    
+    # Disk usage (root directory)
+    usage = shutil.disk_usage("/root")
+    disk_percent = (usage.used / usage.total) * 100
+    print(f"Disk Usage: {disk_percent:.1f}% of {usage.total / (1024**3):.1f}GB")
+    print("==================\n")
 
 def prepare_result(result, summarize=False):
     if isinstance(result, dict):
