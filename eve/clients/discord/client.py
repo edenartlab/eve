@@ -41,6 +41,7 @@ def replace_mentions_with_usernames(
     return message_content.strip()
 
 
+@common.client_context("discord")
 class Eden2Cog(commands.Cog):
     def __init__(
         self,
@@ -293,7 +294,11 @@ class Eden2Cog(commands.Cog):
                 async with session.post(
                     f"{self.api_url}/chat",
                     json=request_data,
-                    headers={"Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}"},
+                    headers={
+                        "Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}",
+                        "X-Client-Platform": "discord",
+                        "X-Client-Agent": self.agent.username,
+                    },
                 ) as response:
                     if response.status != 200:
                         error_msg = await response.text()
@@ -402,6 +407,7 @@ def start(
 
         agent_name = os.getenv("EDEN_AGENT_USERNAME")
         agent = Agent.load(agent_name)
+
         logger.info(f"Launching Discord bot {agent.username}...")
 
         bot_token = os.getenv("CLIENT_DISCORD_TOKEN")

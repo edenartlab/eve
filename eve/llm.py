@@ -410,6 +410,7 @@ async def async_prompt_thread(
 ):
     if not model:
         model = DEFAULT_MODEL
+    
     print("================================================")
     print(user_messages)
     print("================================================")
@@ -474,8 +475,6 @@ async def async_prompt_thread(
                     model=model,
                     tools=tools,
                 ):
-                    print("UPDATE TYPE", update_type)
-                    print("CONTENT", content)
                     # stream an individual token
                     if update_type == UpdateType.ASSISTANT_TOKEN:
                         if not content:  # Skip empty content
@@ -546,7 +545,9 @@ async def async_prompt_thread(
 
             # yield error message
             yield ThreadUpdate(
-                type=UpdateType.ERROR, message=assistant_message, error=str(e)
+                type=UpdateType.ERROR, 
+                message=assistant_message, 
+                error=str(e)
             )
 
             # stop thread

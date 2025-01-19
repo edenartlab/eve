@@ -4,6 +4,7 @@ import re
 from ably import AblyRealtime
 import aiohttp
 from dotenv import load_dotenv
+import sentry_sdk
 from telegram import Update
 from telegram.constants import ChatAction
 from telegram.ext import (
@@ -113,6 +114,7 @@ async def send_response(
             await context.bot.send_message(chat_id=chat_id, text=item)
 
 
+@common.client_context("telegram")
 class EdenTG:
     def __init__(self, token: str, agent: Agent, local: bool = False):
         self.token = token
@@ -123,7 +125,7 @@ class EdenTG:
         if local:
             self.api_url = "http://localhost:8000"
         else:
-            self.api_url = os.getenv(f"EDEN_API_URL")
+            self.api_url = os.getenv("EDEN_API_URL")
         self.channel_name = common.get_ably_channel_name(
             agent.name, ClientType.TELEGRAM
         )
@@ -265,6 +267,11 @@ class EdenTG:
         if is_bot_mentioned or is_replied_to_bot or is_direct_message:
             force_reply = True
 
+        if is_direct_message:
+            # print author
+            force_reply = False  # No DMs
+            return
+
         # Lookup thread
         thread_key = f"telegram-{chat_id}"
         if thread_key not in self.known_threads:
@@ -300,7 +307,6 @@ class EdenTG:
             )
 
         # Make API request
-        api_url = os.getenv("EDEN_API_URL")
         request_data = {
             "user_id": str(user.id),
             "agent_id": str(self.agent.id),
@@ -318,13 +324,17 @@ class EdenTG:
         }
 
         async with aiohttp.ClientSession() as session:
-            print(f"Sending request to {api_url}/chat")
+            print(f"Sending request to {self.api_url}/chat")
             async with session.post(
-                f"{api_url}/chat",
+                f"{self.api_url}/chat",
                 json=request_data,
-                headers={"Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}"},
+                headers={
+                    "Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}",
+                    "X-Client-Platform": "telegram",
+                    "X-Client-Agent": self.agent.username,
+                },
             ) as response:
-                print(f"Response from {api_url}/chat: {response.status}")
+                print(f"Response from {self.api_url}/chat: {response.status}")
                 # json
                 print(await response.json())
                 if response.status != 200:

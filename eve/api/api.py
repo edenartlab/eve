@@ -2,6 +2,7 @@ import logging
 import os
 import threading
 import json
+from fastapi.responses import JSONResponse
 import modal
 from fastapi import FastAPI, Depends, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,13 +10,14 @@ from fastapi.security import APIKeyHeader, HTTPBearer
 from apscheduler.schedulers.background import BackgroundScheduler
 from pathlib import Path
 from contextlib import asynccontextmanager
+from starlette.middleware.base import BaseHTTPMiddleware
+import sentry_sdk
 
-from eve import auth
+from eve import auth, db
 from eve.postprocessing import (
     generate_lora_thumbnails,
     cancel_stuck_tasks,
     download_nsfw_models,
-    run_nsfw_detection,
 )
 from eve.api.handlers import (
     handle_create,
@@ -46,12 +48,7 @@ from eve.tools.comfyui_tool import convert_tasks2_to_tasks3
 from eve import deploy
 
 
-db = os.getenv("DB", "STAGE").upper()
-if db not in ["PROD", "STAGE"]:
-    raise Exception(f"Invalid environment: {db}. Must be PROD or STAGE")
-app_name = "api-prod" if db == "PROD" else "api-stage"
-
-
+app_name = f"api-{db.lower()}"
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("ably").setLevel(logging.INFO if db != "PROD" else logging.WARNING)
 
@@ -72,7 +69,34 @@ async def lifespan(app: FastAPI):
             app.state.scheduler.shutdown(wait=True)
 
 
+class SentryContextMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        with sentry_sdk.configure_scope() as scope:
+            scope.set_tag("package", "eve-api")
+
+            # Extract client context from headers
+            client_platform = request.headers.get("X-Client-Platform")
+            client_agent = request.headers.get("X-Client-Agent")
+
+            if client_platform:
+                scope.set_tag("client_platform", client_platform)
+            if client_agent:
+                scope.set_tag("client_agent", client_agent)
+
+            scope.set_context(
+                "api",
+                {
+                    "endpoint": request.url.path,
+                    "modal_serve": os.getenv("MODAL_SERVE"),
+                    "client_platform": client_platform,
+                    "client_agent": client_agent,
+                },
+            )
+        return await call_next(request)
+
+
 web_app = FastAPI(lifespan=lifespan)
+web_app.add_middleware(SentryContextMiddleware)
 web_app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -172,6 +196,15 @@ async def trigger_delete(
     return await handle_trigger_delete(request, scheduler)
 
 
+@web_app.exception_handler(Exception)
+async def catch_all_exception_handler(request, exc):
+    sentry_sdk.capture_exception(exc)
+    return JSONResponse(
+        status_code=500,
+        content={"message": str(exc)},
+    )
+
+
 # Modal app setup
 app = modal.App(
     name=app_name,
@@ -187,14 +220,26 @@ workflows_dir = root_dir / ".." / "workflows"
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .env({"DB": db, "MODAL_SERVE": os.getenv("MODAL_SERVE")})
-    .apt_install("git", "libmagic1", "ffmpeg", "wget")
+    .apt_install(
+        "git",
+        "libmagic1",
+        "ffmpeg",
+        "wget",
+        # Add Playwright dependencies
+        "libnss3",
+        "libnspr4",
+        "libatk1.0-0",
+        "libatk-bridge2.0-0",
+        "libcups2",
+        "libatspi2.0-0",
+        "libxcomposite1",
+    )
     .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
     .pip_install("numpy<2.0", "torch==2.0.1", "torchvision", "transformers", "Pillow")
     .run_commands(["playwright install"])
     .run_function(download_nsfw_models)
     .copy_local_dir(str(workflows_dir), "/workflows")
 )
-
 
 @app.function(
     image=image,
@@ -219,13 +264,16 @@ async def postprocessing():
         await cancel_stuck_tasks()
     except Exception as e:
         print(f"Error cancelling stuck tasks: {e}")
+        sentry_sdk.capture_exception(e)
 
-    try:
-        await run_nsfw_detection()
-    except Exception as e:
-        print(f"Error running nsfw detection: {e}")
+    # try:
+    #     await run_nsfw_detection()
+    # except Exception as e:
+    #     print(f"Error running nsfw detection: {e}")
+    #     sentry_sdk.capture_exception(e)
 
     try:
         await generate_lora_thumbnails()
     except Exception as e:
         print(f"Error generating lora thumbnails: {e}")
+        sentry_sdk.capture_exception(e)

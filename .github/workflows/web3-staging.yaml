@@ -1,15 +1,15 @@
-name: Deploy to Modal Production
+name: Deploy to Modal Staging
 
 on:
   push:
     branches:
-      - main
+      - web3-staging
 
 jobs:
-  deploy-prod:
+  deploy-stage:
     runs-on: ubuntu-latest
     env:
-      DB: PROD
+      DB: WEB3-STAGE
     
     steps:
       - name: Checkout workflows repo

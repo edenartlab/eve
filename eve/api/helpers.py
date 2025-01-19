@@ -7,9 +7,8 @@ from fastapi import BackgroundTasks
 from ably import AblyRest
 from apscheduler.schedulers.background import BackgroundScheduler
 import traceback
-import asyncio
-from contextlib import asynccontextmanager
 
+from eve.api.errors import APIError
 from eve.tool import Tool
 from eve.user import User
 from eve.agent import Agent
@@ -31,12 +30,25 @@ async def get_update_channel(
 async def setup_chat(
     request: ChatRequest, background_tasks: BackgroundTasks
 ) -> tuple[User, Agent, Thread, list[Tool]]:
-    user = User.from_mongo(request.user_id)
-    agent = Agent.from_mongo(request.agent_id, cache=True)
+    try:
+        user = User.from_mongo(request.user_id)
+    except Exception as e:
+        raise APIError(f"Invalid user_id: {request.user_id}", status_code=400) from e
+
+    try:
+        agent = Agent.from_mongo(request.agent_id, cache=False)
+    except Exception as e:
+        raise APIError(f"Invalid agent_id: {request.agent_id}", status_code=400) from e
+
     tools = agent.get_tools(cache=True)
 
     if request.thread_id:
-        thread = Thread.from_mongo(request.thread_id)
+        try:
+            thread = Thread.from_mongo(request.thread_id)
+        except Exception as e:
+            raise APIError(
+                f"Invalid thread_id: {request.thread_id}", status_code=400
+            ) from e
     else:
         thread = agent.request_thread(user=user.id)
         background_tasks.add_task(async_title_thread, thread, request.user_message)

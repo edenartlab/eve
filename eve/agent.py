@@ -1,5 +1,4 @@
 import os
-import time
 import json
 import traceback
 from pathlib import Path
@@ -15,7 +14,7 @@ from .mongo import Collection, get_collection
 from .user import User, Manna
 from .models import Model
 
-CHECK_INTERVAL = 30  # how often to check cached agents for updates
+CHECK_INTERVAL = 30
 
 
 default_presets_flux = {
@@ -30,9 +29,7 @@ default_presets_flux = {
     "video_FX": {
         "tip": "Only use this tool if asked to make subtle or targeted variations on an existing video"
     },
-    "texture_flow": {
-        "tip": "Just use this tool if asked to make VJing material."
-    },
+    "texture_flow": {"tip": "Just use this tool if asked to make VJing material."},
     "outpaint": {},
     "remix_flux_schnell": {},
     "stable_audio": {},
@@ -41,16 +38,16 @@ default_presets_flux = {
         "tip": "This should be your primary tool for making videos or animations. Only use the other video tools if specifically asked to or asked to make VJing material."
     },
     "reel": {
-        "tip": "This is a tool for making short films with vocals, music, and several video cuts. This can be used to make commercials, films, music videos, and other kinds of shortform content. But it takes a while to make, around 5 minutes."
+        "tip": "This is a tool for making short films with vocals, music, and several video cuts. This can be used to make commercials, films, music videos, and other kinds of shortform content. But it takes a while to run, around 5 minutes."
     },
     "news": {},
     "websearch": {},
     "audio_video_combine": {
         "tip": "This and video_concat can merge a video track with an audio track, so it's good for compositing/mixing or manually creating reels."
     },
-    "video_concat": {}
+    "video_concat": {},
 }
-                                                              
+
 
 @Collection("users3")
 class Agent(User):
@@ -72,35 +69,35 @@ class Agent(User):
     instructions: str
     model: Optional[ObjectId] = None
     test_args: Optional[List[Dict[str, Any]]] = None
-    
+
     tools: Optional[Dict[str, Dict]] = None
     tools_cache: SkipJsonSchema[Optional[Dict[str, Tool]]] = Field(None, exclude=True)
     last_check: ClassVar[Dict[str, float]] = {}  # seconds
 
     def __init__(self, **data):
-        if isinstance(data.get('owner'), str):
-            data['owner'] = ObjectId(data['owner'])
-        if isinstance(data.get('owner'), str):
-            data['model'] = ObjectId(data['model'])
+        if isinstance(data.get("owner"), str):
+            data["owner"] = ObjectId(data["owner"])
+        if isinstance(data.get("owner"), str):
+            data["model"] = ObjectId(data["model"])
         # Load environment variables into secrets dictionary
         db = os.getenv("DB")
         env_dir = Path(__file__).parent / "agents"
         env_vars = dotenv_values(f"{str(env_dir)}/{db.lower()}/{data['username']}/.env")
-        data['secrets'] = {key: SecretStr(value) for key, value in env_vars.items()}
+        data["secrets"] = {key: SecretStr(value) for key, value in env_vars.items()}
         super().__init__(**data)
-            
+
     @classmethod
     def convert_from_yaml(cls, schema: dict, file_path: str = None) -> dict:
         """
         Convert the schema into the format expected by the model.
         """
         test_file = file_path.replace("api.yaml", "test.json")
-        with open(test_file, 'r') as f:
+        with open(test_file, "r") as f:
             schema["test_args"] = json.load(f)
 
-        owner = schema.get('owner')
+        owner = schema.get("owner")
         schema["owner"] = ObjectId(owner) if isinstance(owner, str) else owner
-        model = schema.get('model')
+        model = schema.get("model")
         schema["model"] = ObjectId(model) if isinstance(model, str) else model
         schema["username"] = schema.get("username") or file_path.split("/")[-2]
         schema = cls._setup_tools(schema)
@@ -121,40 +118,21 @@ class Agent(User):
         # save user, and create mannas record if it doesn't exist
         kwargs["featureFlags"] = ["freeTools"]  # give agents free tools for now
         super().save(
-            upsert_filter={"username": self.username, "type": "agent"}, 
-            **kwargs
+            upsert_filter={"username": self.username, "type": "agent"}, **kwargs
         )
         Manna.load(user=self.id)  # create manna record if it doesn't exist
-       
+
     @classmethod
     def from_yaml(cls, file_path, cache=False):
-        if cache:
-            if file_path not in _agent_cache:
-                _agent_cache[file_path] = super().from_yaml(file_path)
-            return _agent_cache[file_path]
-        else:
-            return super().from_yaml(file_path)
+        return super().from_yaml(file_path)
 
     @classmethod
     def from_mongo(cls, document_id, cache=False):
-        if cache:
-            id = str(document_id)
-            if id not in _agent_cache:
-                _agent_cache[id] = super().from_mongo(document_id)
-            cls._check_for_updates(id, document_id)
-            return _agent_cache[id]
-        else:
-            return super().from_mongo(document_id)
-    
+        return super().from_mongo(document_id)
+
     @classmethod
     def load(cls, username, cache=False):
-        if cache:
-            if username not in _agent_cache:
-                _agent_cache[username] = super().load(username=username)
-            cls._check_for_updates(username, _agent_cache[username].id)
-            return _agent_cache[username]
-        else:
-            return super().load(username=username)
+        return super().load(username=username)
 
     def request_thread(self, key=None, user=None):
         thread = Thread(
@@ -195,8 +173,8 @@ class Agent(User):
                             "lora_strength": {
                                 "default": 1.0,
                                 "hide_from_agent": True,
-                            }
-                        }
+                            },
+                        },
                     }
                     schema["tools"]["reel"] = {
                         "tip": f"If you want to depict {model.name} in the image, make sure to include {model.name} in the prompt.",
@@ -212,8 +190,8 @@ class Agent(User):
                             "lora_strength": {
                                 "default": 1.0,
                                 "hide_from_agent": True,
-                            }
-                        }
+                            },
+                        },
                     }
                 elif model.base_model == "sdxl":
                     # schema["tools"] = default_presets_sdxl
@@ -224,7 +202,7 @@ class Agent(User):
     def get_tools(self, cache=False):
         if not hasattr(self, "tools") or not self.tools:
             self.tools = {}
-            
+
         if cache:
             self.tools_cache = self.tools_cache or {}
             for k, v in self.tools.items():
@@ -240,36 +218,13 @@ class Agent(User):
 
     def get_tool(self, tool_name, cache=False):
         return self.get_tools(cache=cache)[tool_name]
-    
-    @classmethod
-    def _check_for_updates(cls, cache_key: str, agent_id: ObjectId):
-        """Check if agent needs to be updated based on updatedAt field"""
-        current_time = time.time()
-        print("\n\nthe current time is", current_time)
-        last_check = cls.last_check.get(cache_key, 0)
-        print("the last check was", last_check)
-
-        print("check for updates", current_time - last_check)
-
-        if current_time - last_check >= CHECK_INTERVAL:
-            print("updating")
-            cls.last_check[cache_key] = current_time
-            collection = get_collection(cls.collection_name)
-            db_agent = collection.find_one({"_id": agent_id})
-            print("---- db agent")
-            print(db_agent)
-            if db_agent:
-                print(db_agent.get("updatedAt"))
-            print("---- agent cache")
-            if _agent_cache.get(cache_key):
-                print(_agent_cache[cache_key].updatedAt)
-                if db_agent and db_agent.get("updatedAt") != _agent_cache[cache_key].updatedAt:
-                    _agent_cache[cache_key].reload()
 
 
-def get_agents_from_mongo(agents: List[str] = None, include_inactive: bool = False) -> Dict[str, Agent]:
+def get_agents_from_mongo(
+    agents: List[str] = None, include_inactive: bool = False
+) -> Dict[str, Agent]:
     """Get all agents from mongo"""
-    
+
     filter = {"key": {"$in": agents}} if agents else {}
     agents = {}
     agents_collection = get_collection(Agent.collection_name)
@@ -292,14 +247,13 @@ def get_api_files(root_dir: str = None) -> List[str]:
     """Get all agent directories inside a directory"""
 
     db = os.getenv("DB").lower()
-    
+
     if root_dir:
         root_dirs = [root_dir]
     else:
         eve_root = os.path.dirname(os.path.abspath(__file__))
         root_dirs = [
-            os.path.join(eve_root, agents_dir) 
-            for agents_dir in [f"agents/{db}"]
+            os.path.join(eve_root, agents_dir) for agents_dir in [f"agents/{db}"]
         ]
 
     api_files = {}
@@ -309,8 +263,5 @@ def get_api_files(root_dir: str = None) -> List[str]:
                 api_path = os.path.join(root, "api.yaml")
                 key = os.path.relpath(root).split("/")[-1]
                 api_files[key] = api_path
-            
-    return api_files
 
-# Agent cache for fetching commonly used agents
-_agent_cache: Dict[str, Dict[str, Agent]] = {}
+    return api_files

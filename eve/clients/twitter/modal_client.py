@@ -1,11 +1,9 @@
 import modal
 import os
 
+from eve import db
 from eve.clients.twitter.client import start as twitter_start
 
-db = os.getenv("DB", "STAGE").upper()
-if db not in ["PROD", "STAGE"]:
-    raise Exception(f"Invalid environment: {db}. Must be PROD or STAGE")
 
 app = modal.App(
     name=f"client-twitter-{db}",
@@ -24,7 +22,6 @@ image = (
     .pip_install("requests-oauthlib>=1.3.1")
     .copy_local_dir("../workflows", "/workflows")
 )
-
 
 @app.function(
     image=image,

@@ -1,8 +1,8 @@
-name: Flux LoRA trainer
-description: Finetune a model on top of Flux-dev
+name: Agent model trainer (FLUX LoRA)
+description: Train a visual model with your images
 tip: |-
   This will create a LoRA model from a base Flux-dev which captures and integrates the style, human face, or object represented in the training data.
-thumbnail: app/LoRA-trainer-flux-dev_opt.jpg
+thumbnail: app/flux_trainer_opt.jpg
 cost_estimate: 0.15 * max_train_steps
 base_model: flux-dev
 output_type: lora
@@ -14,21 +14,21 @@ machine_type: a2-highgpu-1g
 parameters:
   name:
     type: string
-    label: Name
-    description: Name of the LoRA
+    label: Model/Agent Name
+    description: Name of your trained model/agent. Does not have to be unique. Used to 'trigger' your model in prompts.
     required: true
   lora_training_urls:
     type: array
     items:
       type: image
-    label: Images
-    description: Images to train LoRA with
+    label: Your training images
+    description: Images to train your visual model. (Use at least 5 imgs, 10-20 is even better.)
     required: true
     min_length: 1
   mode:
     type: string
     label: Training Mode
-    description: Type of LoRA
+    description: Type of model to train (leave 'auto' if you're not sure).
     choices: [auto, face, object, style]
     default: auto
   max_train_steps:
@@ -37,14 +37,14 @@ parameters:
     description: |-
       Number of training steps. Only increase this if you have lots of images (>50) otherwise the model wil overfit and will not look good.
     default: 3000
-    minimum: 50
+    minimum: 1000
     maximum: 5000
-    step: 10
+    step: 50
   lora_rank:
     type: integer
     label: Rank
     description: |-
-      LoRA rank. Higher gives model more capacity to learn but might lead to overfitting.
+      LoRA rank. Higher gives the model more capacity to learn but might lead to overfitting. 8 is almost always perfect.
     default: 8
     minimum: 2
     maximum: 32
@@ -53,15 +53,15 @@ parameters:
     type: float
     label: Learning rate
     description: |-
-      Learning rate for training. Higher values converge faster but too high might cause overfitting. Low values are more accurate but slower.
+      Learning rate for training. Higher values converge faster but too high might cause overfitting. Low values are more accurate but take more training steps.
     default: 0.5e-04
     minimum: 0.1e-04
     maximum: 2.0e-04
     step: 1.0e-05
   caption_prefix:
     type: string
-    label: Trigger Text
-    description: Custom trigger text (leave this empty unless you know what you're doing).
+    label: Custom Trigger Text
+    description: Custom text to visually describe and trigger your model (leave this empty unless you know what you're doing!)
     required: false
   seed:
     type: integer
