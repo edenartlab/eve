@@ -150,14 +150,19 @@ class Agent(User):
         If a model (lora) is set, hardcode it into the tools.
         """
         tools = schema.get("tools")
+
+        # if tools are defined, use those
         if tools:
             schema["tools"] = {k: v or {} for k, v in tools.items()}
+        
+        # if no tools are defined, use the default presets
         else:
-            schema["tools"] = default_presets_flux
+            schema["tools"] = default_presets_flux.copy()
+
+            # if a model is set, remove flux_schnell and replace it with flux_dev_lora
             if schema.get("model"):
                 model = Model.from_mongo(schema["model"])
                 if model.base_model == "flux-dev":
-                    schema["tools"] = default_presets_flux
                     schema["tools"].pop("flux_schnell", None)
                     schema["tools"]["flux_dev_lora"] = {
                         "description": f"This is your primary and default tool for making images. The other flux tools are only used for inpainting, remixing, and variations. In particular, this will generate an image of {model.name}",
@@ -194,7 +199,7 @@ class Agent(User):
                         },
                     }
                 elif model.base_model == "sdxl":
-                    # schema["tools"] = default_presets_sdxl
+                    # schema["tools"] = default_presets_sdxl.copy()
                     pass
 
         return schema
