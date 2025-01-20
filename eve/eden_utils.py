@@ -15,6 +15,9 @@ import tempfile
 import blurhash
 import subprocess
 import replicate
+import psutil
+import shutil
+import subprocess
 import numpy as np
 from bson import ObjectId
 from datetime import datetime
@@ -26,7 +29,35 @@ from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from . import s3
-
+def log_memory_info():
+    """
+    Log basic GPU, RAM, and disk usage percentages using nvidia-smi for GPU metrics.
+    """
+    import psutil
+    import shutil
+    import subprocess
+    
+    print("\n=== Memory Usage ===")
+    
+    # GPU VRAM using nvidia-smi
+    try:
+        result = subprocess.check_output(['nvidia-smi', '--query-gpu=memory.total,memory.used', '--format=csv,nounits,noheader'])
+        total_mem, used_mem = map(int, result.decode('utf-8').strip().split(','))
+        gpu_percent = (used_mem / total_mem) * 100
+        print(f"GPU Memory: {gpu_percent:.1f}% of {total_mem/1024:.1f}GB")
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        print("GPU info not available")
+    
+    # System RAM
+    ram = psutil.virtual_memory()
+    print(f"RAM Usage: {ram.percent}% of {ram.total / (1024**3):.1f}GB")
+    
+    # Disk usage (root directory)
+    usage = shutil.disk_usage("/root")
+    disk_percent = (usage.used / usage.total) * 100
+    print(f"Disk Usage: {disk_percent:.1f}% of {usage.total / (1024**3):.1f}GB")
+    print("==================\n")
+    
 
 def prepare_result(result, summarize=False):
     if isinstance(result, dict):

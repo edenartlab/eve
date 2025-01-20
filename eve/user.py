@@ -1,5 +1,4 @@
 from bson import ObjectId
-from pydantic import Field
 from typing import Optional, Literal, List
 
 from .mongo import Document, Collection, get_collection, MongoDocumentNotFound

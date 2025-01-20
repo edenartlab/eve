@@ -297,6 +297,8 @@ protobuf==5.29.1
     # via modal
     # via proto-plus
     # via web3
+psutil==6.0.0
+    # via eve
 py-cord==2.6.1
     # via eve
 pyasn1==0.6.1
