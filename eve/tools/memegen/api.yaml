@@ -3,6 +3,7 @@ description: Make memes
 output_type: image
 cost_estimate: 10
 status: stage
+visible: false
 parameters:
   prompt:
     type: string
