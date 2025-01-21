@@ -7,7 +7,7 @@ from pydantic import ConfigDict
 import instructor
 from ...eden_utils import download_file
 
-async def handler(args: dict, db: str):   
+async def handler(args: dict):   
     # print("args", args)
 
 
