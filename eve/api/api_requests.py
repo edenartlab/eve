@@ -22,6 +22,7 @@ class UpdateConfig(BaseModel):
     update_endpoint: Optional[str] = None
     discord_channel_id: Optional[str] = None
     telegram_chat_id: Optional[str] = None
+    telegram_message_id: Optional[str] = None
     cast_hash: Optional[str] = None
     author_fid: Optional[int] = None
     message_id: Optional[str] = None

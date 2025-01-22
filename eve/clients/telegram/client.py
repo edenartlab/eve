@@ -4,7 +4,6 @@ import re
 from ably import AblyRealtime
 import aiohttp
 from dotenv import load_dotenv
-import sentry_sdk
 from telegram import Update
 from telegram.constants import ChatAction
 from telegram.ext import (
@@ -177,6 +176,7 @@ class EdenTG:
             update_type = data["type"]
             update_config = data.get("update_config", {})
             telegram_chat_id = update_config.get("telegram_chat_id")
+            telegram_message_id = update_config.get("telegram_message_id")
 
             if not telegram_chat_id:
                 print("No telegram_chat_id in update_config:", data)
@@ -201,7 +201,9 @@ class EdenTG:
                 content = data.get("content")
                 if content:
                     await application.bot.send_message(
-                        chat_id=telegram_chat_id, text=content
+                        chat_id=telegram_chat_id,
+                        text=content,
+                        reply_to_message_id=telegram_message_id,
                     )
 
             elif update_type == UpdateType.TOOL_COMPLETE:
@@ -216,11 +218,15 @@ class EdenTG:
                     video_extensions = (".mp4", ".avi", ".mov", ".mkv", ".webm")
                     if any(url.lower().endswith(ext) for ext in video_extensions):
                         await application.bot.send_video(
-                            chat_id=telegram_chat_id, video=url
+                            chat_id=telegram_chat_id,
+                            video=url,
+                            reply_to_message_id=telegram_message_id,
                         )
                     else:
                         await application.bot.send_photo(
-                            chat_id=telegram_chat_id, photo=url
+                            chat_id=telegram_chat_id,
+                            photo=url,
+                            reply_to_message_id=telegram_message_id,
                         )
 
             elif update_type == UpdateType.END_PROMPT:
@@ -320,6 +326,7 @@ class EdenTG:
             "update_config": {
                 "sub_channel_name": self.channel_name,
                 "telegram_chat_id": str(chat_id),
+                "telegram_message_id": str(update.message.message_id),
             },
         }
 
