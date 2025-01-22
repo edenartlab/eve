@@ -121,6 +121,7 @@ async def _task_handler(func, *args, **kwargs):
     )
     
     results = []
+    task_update = {}
     n_samples = task.args.get("n_samples", 1)
     output_type = task.output_type
 
