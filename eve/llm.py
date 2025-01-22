@@ -554,10 +554,6 @@ async def async_prompt_thread(
 
         # handle tool calls
         for t, tool_call in enumerate(assistant_message.tool_calls):
-            print("================================================")
-            print(t)
-            print(tool_call)
-            print("================================================")
             try:
                 # get tool
                 tool = tools.get(tool_call.tool)
