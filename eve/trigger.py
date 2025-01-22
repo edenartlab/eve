@@ -40,7 +40,6 @@ async def create_chat_trigger(
     schedule: dict,
     update_config: Optional[UpdateConfig],
     scheduler: BackgroundScheduler,
-    ably_client: AblyRealtime,
     trigger_id: str,
     handle_chat_fn,
 ):
@@ -66,7 +65,6 @@ async def create_chat_trigger(
                 handle_chat_fn(
                     request=chat_request,
                     background_tasks=background_tasks,
-                    ably_client=ably_client,
                 )
             )
             loop.run_until_complete(background_tasks())
@@ -76,20 +74,6 @@ async def create_chat_trigger(
             error_msg = "Sorry, there was an error in your scheduled chat."
             logger.error(error_msg, exc_info=True)
             sentry_sdk.capture_exception(e)
-            try:
-                if update_config and update_config.sub_channel_name:
-                    channel = ably_client.channels.get(
-                        str(update_config.sub_channel_name)
-                    )
-                    loop.run_until_complete(
-                        channel.publish("update", {"type": "error", "error": error_msg})
-                    )
-            except Exception as notify_error:
-                logger.error(
-                    f"Failed to notify about trigger error: {str(notify_error)}",
-                    exc_info=True,
-                )
-                sentry_sdk.capture_exception(notify_error)
         finally:
             loop.close()
 

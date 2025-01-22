@@ -156,7 +156,7 @@ class Document(BaseModel):
         self.model_validate(schema)
         schema = self.convert_to_mongo(schema)
         schema.update(kwargs)
-        
+
         filter = upsert_filter or {"_id": self.id or ObjectId()}
         collection = self.get_collection()
 
@@ -347,11 +347,7 @@ def serialize_document(obj):
 class MongoDocumentNotFound(Exception):
     """Exception raised when a document is not found in MongoDB."""
 
-    def __init__(
-        self, collection_name: str, 
-        document_id: str = None, 
-        **kwargs
-    ):
+    def __init__(self, collection_name: str, document_id: str = None, **kwargs):
         db = os.getenv("DB")
         if document_id:
             self.message = f"Document with id {document_id} not found in collection {collection_name}, db: {db}"

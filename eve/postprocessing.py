@@ -45,6 +45,8 @@ async def cancel_stuck_tasks():
     # Convert cursor to list since we can't async iterate directly
     expired_tasks_list = list(expired_tasks)
 
+    print("Cancelling expired tasks", expired_tasks_list)
+
     for task in expired_tasks_list:
         print(f"Cancelling expired task {task['_id']}")
 
@@ -136,60 +138,74 @@ async def generate_lora_thumbnails():
         print(f"Making thumbnails for model {model['_id']}")
 
         try:
-            tool = Tool.load(key="flux_dev_lora")
-            lora_mode = model.get("lora_mode")
-            prompts = await generate_prompts(lora_mode)
-            thumbnails = []
+            # Flux-dev - generate thumbnail and upload
+            if model.get("base_model") == "flux-dev":
+                tool = Tool.load(key="flux_dev_lora")
+                lora_mode = model.get("lora_mode")
+                prompts = await generate_prompts(lora_mode)
+                thumbnails = []
 
-            for prompt in prompts:
-                print(f"Generating thumbnail: {prompt}")
+                for prompt in prompts:
+                    print(f"Generating thumbnail: {prompt}")
 
-                async def generate_thumbnail():
-                    result = await tool.async_run(
-                        {
-                            "prompt": prompt,
-                            "lora": str(model["_id"]),
-                            "lora_strength": 1.0,
-                            "aspect_ratio": "1:1",
-                        }
+                    async def generate_thumbnail():
+                        result = await tool.async_run(
+                            {
+                                "prompt": prompt,
+                                "lora": str(model["_id"]),
+                                "lora_strength": 1.0,
+                                "aspect_ratio": "1:1",
+                            }
+                        )
+                        result = eden_utils.prepare_result(result)
+                        output = result.get("output")
+                        if output:
+                            url = output[0].get("url")
+                            response = requests.get(url)
+                            img = Image.open(BytesIO(response.content))
+                            return img
+
+                    thumbnail = await eden_utils.async_exponential_backoff(
+                        generate_thumbnail,
+                        max_attempts=3,
+                        initial_delay=1,
                     )
-                    result = eden_utils.prepare_result(result)
-                    output = result.get("output")
-                    if output:
-                        url = output[0].get("url")
-                        response = requests.get(url)
-                        img = Image.open(BytesIO(response.content))
-                        return img
+                    thumbnails.append(thumbnail)
 
-                thumbnail = await eden_utils.async_exponential_backoff(
-                    generate_thumbnail,
-                    max_attempts=3,
-                    initial_delay=1,
-                )
-                thumbnails.append(thumbnail)
+                assert len(thumbnails) == 4, f"Expected 4 thumbnails, got {len(thumbnails)}"
 
-            assert len(thumbnails) == 4, f"Expected 4 thumbnails, got {len(thumbnails)}"
+                print("Thumbnails", thumbnails)
 
-            print("Thumbnails", thumbnails)
+                # Create blank canvas for 2x2 grid
+                dim = thumbnails[0].size[0]  # All images are same size
+                grid = Image.new("RGB", (dim * 2, dim * 2))
 
-            # Create blank canvas for 2x2 grid
-            dim = thumbnails[0].size[0]  # All images are same size
-            grid = Image.new("RGB", (dim * 2, dim * 2))
+                # Paste images into grid
+                grid.paste(thumbnails[0], (0, 0))
+                grid.paste(thumbnails[1], (dim, 0))
+                grid.paste(thumbnails[2], (0, dim))
+                grid.paste(thumbnails[3], (dim, dim))
+                grid = grid.resize((2048, 2048), Image.Resampling.LANCZOS)
 
-            # Paste images into grid
-            grid.paste(thumbnails[0], (0, 0))
-            grid.paste(thumbnails[1], (dim, 0))
-            grid.paste(thumbnails[2], (0, dim))
-            grid.paste(thumbnails[3], (dim, dim))
-            grid = grid.resize((2048, 2048), Image.Resampling.LANCZOS)
+                with tempfile.NamedTemporaryFile(suffix=".jpg", delete=True) as f:
+                    grid.save(f.name)
+                    output = eden_utils.upload_result(
+                        f.name, 
+                        save_thumbnails=True, 
+                        save_blurhash=True
+                    )
 
-            with tempfile.NamedTemporaryFile(suffix=".jpg", delete=True) as f:
-                grid.save(f.name)
+                thumbnail = output.get("filename")
+
+            # SDXL - just reupload existing thumbnail
+            else:
                 output = eden_utils.upload_result(
-                    f.name, save_thumbnails=True, save_blurhash=True
+                    model.get("thumbnail"), 
+                    save_thumbnails=True, 
+                    save_blurhash=True
                 )
-
-            thumbnail = output.get("filename")
+                thumbnail = output.get("filename")
+            
             print("final", thumbnail)
 
             if thumbnail:

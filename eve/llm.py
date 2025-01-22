@@ -410,7 +410,7 @@ async def async_prompt_thread(
 ):
     if not model:
         model = DEFAULT_MODEL
-    
+
     print("================================================")
     print(user_messages)
     print("================================================")
@@ -545,9 +545,7 @@ async def async_prompt_thread(
 
             # yield error message
             yield ThreadUpdate(
-                type=UpdateType.ERROR, 
-                message=assistant_message, 
-                error=str(e)
+                type=UpdateType.ERROR, message=assistant_message, error=str(e)
             )
 
             # stop thread
@@ -578,11 +576,12 @@ async def async_prompt_thread(
 
                 # task completed
                 if result["status"] == "completed":
-                    
                     # make a Creation
                     name = task.args.get("prompt") or task.args.get("text_input")
                     filename = result.get("output", [{}])[0].get("filename")
-                    media_attributes = result.get("output", [{}])[0].get("mediaAttributes")
+                    media_attributes = result.get("output", [{}])[0].get(
+                        "mediaAttributes"
+                    )
                     if filename and media_attributes:
                         new_creation = Creation(
                             user=task.user,
@@ -591,7 +590,7 @@ async def async_prompt_thread(
                             tool=task.tool,
                             filename=filename,
                             mediaAttributes=media_attributes,
-                            name=name
+                            name=name,
                         )
                         new_creation.save()
 

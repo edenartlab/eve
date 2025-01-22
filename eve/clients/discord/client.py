@@ -219,13 +219,9 @@ class Eden2Cog(commands.Cog):
     @commands.Cog.listener("on_message")
     async def on_message(self, message: discord.Message) -> None:
         try:
-            print(message.channel.id)
-            print("ALLOWLISTED_CHANNELS", ALLOWLISTED_CHANNELS)
             if ALLOWLISTED_CHANNELS and message.channel.id not in ALLOWLISTED_CHANNELS:
                 return
             
-            
-
             if message.author.id == self.bot.user.id:
                 return
 
