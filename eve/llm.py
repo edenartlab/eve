@@ -405,6 +405,7 @@ async def async_prompt_thread(
     user_messages: Union[UserMessage, List[UserMessage]],
     tools: Dict[str, Tool],
     force_reply: bool = True,
+    dont_reply: bool = False,
     model: Literal[tuple(models)] = None,
     stream: bool = False,
 ):
@@ -414,7 +415,7 @@ async def async_prompt_thread(
     print("================================================")
     print(user_messages)
     print("================================================")
-
+    
     user_messages = (
         user_messages if isinstance(user_messages, List) else [user_messages]
     )
@@ -433,6 +434,10 @@ async def async_prompt_thread(
         re.search(rf"\b{re.escape(agent.name.lower())}\b", (msg.content or "").lower())
         for msg in user_messages
     )
+
+    if dont_reply:
+        thread.push(pushes)
+        return
 
     if agent_mentioned or force_reply:
         pushes["active"] = user_message_id

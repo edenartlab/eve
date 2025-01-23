@@ -221,9 +221,12 @@ class Eden2Cog(commands.Cog):
         try:
             if ALLOWLISTED_CHANNELS and message.channel.id not in ALLOWLISTED_CHANNELS:
                 return
-            
+
             if message.author.id == self.bot.user.id:
                 return
+
+            # Add check for bot messages
+            dont_reply = message.author.bot
 
             dm = message.channel.type == discord.ChannelType.private
             if dm:
@@ -232,6 +235,10 @@ class Eden2Cog(commands.Cog):
                     return
             else:
                 thread_key = f"discord-{message.guild.id}-{message.channel.id}"
+
+            # Stop typing if dont_reply is true
+            # if dont_reply:
+            #     await self.stop_typing(message.channel)
 
             # Lookup thread
             if thread_key not in self.known_threads:
@@ -278,6 +285,7 @@ class Eden2Cog(commands.Cog):
                     "agent_id": str(self.agent.id),
                     "thread_id": str(thread.id),
                     "force_reply": force_reply,
+                    "dont_reply": dont_reply,
                     "user_message": {
                         "content": content,
                         "name": message.author.name,
