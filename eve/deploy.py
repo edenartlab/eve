@@ -1,14 +1,49 @@
+from enum import Enum
 import os
 from pathlib import Path
 import subprocess
 import tempfile
 from typing import Dict
 
+from bson import ObjectId
+
+from eve.mongo import Collection, Document, get_collection
+
 
 REPO_URL = "https://github.com/edenartlab/eve.git"
 REPO_BRANCH = "main"
 DEPLOYMENT_ENV_NAME = "deployments"
 db = os.getenv("DB", "STAGE").upper()
+
+
+class ClientType(Enum):
+    DISCORD = "discord"
+    TELEGRAM = "telegram"
+    FARCASTER = "farcaster"
+
+
+@Collection("deployments")
+class Deployment(Document):
+    agent: ObjectId
+    platform: str  # Store the string value instead of enum
+
+    def __init__(self, **data):
+        # Convert ClientType enum to string if needed
+        if isinstance(data.get("platform"), ClientType):
+            data["platform"] = data["platform"].value
+        super().__init__(**data)
+
+    @classmethod
+    def ensure_indexes(cls):
+        """Ensure indexes exist"""
+        collection = cls.get_collection()
+        collection.create_index([("agent", 1), ("platform", 1)], unique=True)
+
+    @classmethod
+    def find(cls, query):
+        """Find all deployments matching the query"""
+        collection = get_collection(cls.collection_name)
+        return [cls(**doc) for doc in collection.find(query)]
 
 
 def authenticate_modal_key() -> bool:

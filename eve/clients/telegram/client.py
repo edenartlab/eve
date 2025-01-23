@@ -21,7 +21,7 @@ from ...agent import Agent
 from ...llm import UpdateType
 from ...user import User
 from ...eden_utils import prepare_result
-from ...models import ClientType
+from ...deploy import ClientType
 
 
 async def handler_mention_type(update: Update, context: ContextTypes.DEFAULT_TYPE):

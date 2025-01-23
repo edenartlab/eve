@@ -7,7 +7,7 @@ import asyncio
 import traceback
 from abc import ABC, abstractmethod
 from pydantic import BaseModel, create_model, ValidationError
-from typing import Optional, List, Dict, Any, Type, Literal, TYPE_CHECKING, ForwardRef
+from typing import Optional, List, Dict, Any, Type, Literal
 from datetime import datetime, timezone
 from instructor.function_calls import openai_schema
 
