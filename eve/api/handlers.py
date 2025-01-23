@@ -86,6 +86,7 @@ async def handle_chat(
                 user_messages=request.user_message,
                 tools=tools,
                 force_reply=request.force_reply,
+                dont_reply=request.dont_reply,
                 model=request.model,
                 stream=False,
             ):
@@ -129,6 +130,7 @@ async def handle_stream_chat(request: ChatRequest, background_tasks: BackgroundT
                 user_messages=request.user_message,
                 tools=tools,
                 force_reply=request.force_reply,
+                dont_reply=request.dont_reply,
                 model=request.model,
                 stream=True,
             ):
