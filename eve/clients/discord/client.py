@@ -15,7 +15,7 @@ from ...agent import Agent
 from ...llm import UpdateType
 from ...user import User
 from ...eden_utils import prepare_result
-from ...models import ClientType
+from ...deploy import ClientType
 
 logger = logging.getLogger(__name__)
 ALLOWLISTED_CHANNELS = (

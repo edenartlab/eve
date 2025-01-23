@@ -2,7 +2,7 @@ from typing import Dict, Optional
 from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
 
-from eve.models import ClientType
+from eve.deploy import ClientType
 from eve.thread import UserMessage
 
 

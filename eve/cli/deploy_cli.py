@@ -6,7 +6,7 @@ from pathlib import Path
 from dotenv import dotenv_values
 import shutil
 
-from eve.deploy import DEPLOYMENT_ENV_NAME, prepare_client_file
+from eve.deploy import DEPLOYMENT_ENV_NAME, prepare_client_file, Deployment, ClientType
 from eve.agent import Agent
 from .. import load_env
 
@@ -62,6 +62,10 @@ def deploy(agent: str, platform: str, db: str):
             click.echo(click.style(f"Agent not found in DB: {agent}", fg="yellow"))
             return
 
+        # Create/update deployment record
+        deployment = Deployment(agent=agent_obj.id, platform=platform)
+        deployment.save(upsert_filter={"agent": agent_obj.id, "platform": platform})
+
         # Deploy the specified client
         client_path = root_dir / f"eve/clients/{platform}/modal_client.py"
         if client_path.exists():
@@ -94,6 +98,97 @@ def deploy(agent: str, platform: str, db: str):
 
     except Exception as e:
         click.echo(click.style("Failed to deploy client:", fg="red"))
+        click.echo(click.style(f"Error: {str(e)}", fg="red"))
+        traceback.print_exc(file=sys.stdout)
+
+
+@click.command()
+@click.argument("agent", nargs=1, required=False)
+@click.option(
+    "--platform",
+    type=click.Choice([t.value for t in ClientType], case_sensitive=False),
+    help="Platform to redeploy (all platforms if not specified)",
+)
+@click.option(
+    "--db",
+    type=click.Choice(["STAGE", "PROD"], case_sensitive=False),
+    default="STAGE",
+    help="DB to save against",
+)
+def redeploy(agent: str | None, platform: str | None, db: str):
+    """Redeploy Modal clients. If agent is not specified, redeploys all agents."""
+    try:
+        ensure_modal_env_exists()
+        load_env(db)
+        env = "stage" if db == "STAGE" else "prod"
+
+        # Build query based on agent and platform
+        query = {}
+        if agent:
+            # Get agent info from DB
+            agent_obj = Agent.load(agent)
+            if not agent_obj:
+                click.echo(click.style(f"Agent not found in DB: {agent}", fg="yellow"))
+                return
+            query["agent"] = agent_obj.id
+        if platform:
+            query["platform"] = platform
+
+        # Get all matching deployments
+        deployments = Deployment.find(query)
+        if not deployments:
+            click.echo(
+                click.style("No deployments found matching criteria", fg="yellow")
+            )
+            return
+
+        click.echo(click.style(f"Found {len(deployments)} deployments", fg="blue"))
+
+        # Deploy each client
+        for deployment in deployments:
+            # Get agent info for this deployment
+            agent_obj = Agent.from_mongo(deployment.agent)
+            agent_name = agent_obj.username
+            platform = deployment.platform
+
+            click.echo(
+                click.style(
+                    f"Redeploying {platform} client for {agent_name}...", fg="blue"
+                )
+            )
+
+            client_path = root_dir / f"eve/clients/{platform}/modal_client.py"
+            if client_path.exists():
+                try:
+                    temp_file = prepare_client_file(str(client_path), agent_name, env)
+                    app_name = f"{agent_name}-{platform}-{env}"
+
+                    subprocess.run(
+                        [
+                            "rye",
+                            "run",
+                            "modal",
+                            "deploy",
+                            "--name",
+                            app_name,
+                            temp_file,
+                            "-e",
+                            DEPLOYMENT_ENV_NAME,
+                        ]
+                    )
+                finally:
+                    if temp_file:
+                        shutil.rmtree(Path(temp_file).parent)
+            else:
+                click.echo(
+                    click.style(
+                        f"Warning: Client modal file not found: {client_path}",
+                        fg="yellow",
+                    )
+                )
+
+    except Exception as e:
+        click.echo(click.style("Failed to redeploy clients:", fg="red"))
         click.echo(click.style(f"Error: {str(e)}", fg="red"))
         traceback.print_exc(file=sys.stdout)
 

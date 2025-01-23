@@ -5,7 +5,7 @@ import multiprocessing
 from pathlib import Path
 
 from .. import load_env
-from ..models import ClientType
+from ..deploy import ClientType
 from ..agent import Agent
 from ..clients.discord.client import start as start_discord
 from ..clients.telegram.client import start as start_telegram
@@ -27,7 +27,6 @@ from ..clients.farcaster.client import start as start_farcaster
             ClientType.DISCORD.value,
             ClientType.TELEGRAM.value,
             ClientType.FARCASTER.value,
-            ClientType.LOCAL.value,
         ]
     ),
     multiple=True,

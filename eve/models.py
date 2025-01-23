@@ -1,6 +1,5 @@
-from enum import Enum
 from bson import ObjectId
-from typing import Dict, Any, Optional, List, Literal
+from typing import Dict, Any, Optional
 
 # from .mongo import MongoModel, get_collection
 from .mongo import Document, Collection, get_collection
@@ -77,9 +76,3 @@ class Model(Document):
     #     # self._make_slug()
     #     super().update(**kwargs)
 
-
-class ClientType(Enum):
-    LOCAL = "local"
-    DISCORD = "discord"
-    TELEGRAM = "telegram"
-    FARCASTER = "farcaster"
