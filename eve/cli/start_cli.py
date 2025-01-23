@@ -1,5 +1,4 @@
 import sys
-import yaml
 import click
 import traceback
 import multiprocessing
@@ -7,6 +6,7 @@ from pathlib import Path
 
 from .. import load_env
 from ..models import ClientType
+from ..agent import Agent
 from ..clients.discord.client import start as start_discord
 from ..clients.telegram.client import start as start_telegram
 from ..clients.farcaster.client import start as start_farcaster
@@ -31,6 +31,7 @@ from ..clients.farcaster.client import start as start_farcaster
         ]
     ),
     multiple=True,
+    required=True,
     help="Platforms to start",
 )
 @click.option(
@@ -40,32 +41,25 @@ from ..clients.farcaster.client import start as start_farcaster
     help="Run locally",
 )
 def start(agent: str, db: str, platforms: tuple, local: bool):
-    """Start one or more clients from yaml files"""
+    """Start one or more clients from database configuration"""
     try:
         load_env(db)
+        env = db.lower()
 
-        agent_dir = Path(__file__).parent.parent / "agents" / db.lower() / agent
-        env_path = agent_dir / ".env"
-        yaml_path = agent_dir / "api.yaml"
+        # Get agent from DB
+        agent_obj = Agent.load(agent)
+        if not agent_obj:
+            click.echo(click.style(f"Agent not found in DB: {agent}", fg="red"))
+            return
+
+        env_path = Path(__file__).parent.parent / "agents" / env / agent / ".env"
+        if not env_path.exists():
+            click.echo(click.style(f"No .env file found at {env_path}", fg="yellow"))
+            return
 
         clients_to_start = {}
-
-        if platforms:
-            clients_to_start = {
-                ClientType(platform): yaml_path for platform in platforms
-            }
-        else:
-            with open(yaml_path) as f:
-                config = yaml.safe_load(f)
-
-            if "clients" in config:
-                for client_type, settings in config["clients"].items():
-                    if settings.get("enabled", False):
-                        clients_to_start[ClientType(client_type)] = yaml_path
-
-        if not clients_to_start:
-            click.echo(click.style("No enabled clients found in yaml files", fg="red"))
-            return
+        for platform in platforms:
+            clients_to_start[ClientType(platform)] = True
 
         click.echo(
             click.style(f"Starting {len(clients_to_start)} clients...", fg="blue")
@@ -73,7 +67,7 @@ def start(agent: str, db: str, platforms: tuple, local: bool):
 
         # Start discord and telegram first, local client last
         processes = []
-        for client_type, yaml_path in clients_to_start.items():
+        for client_type in clients_to_start:
             try:
                 if client_type == ClientType.DISCORD:
                     p = multiprocessing.Process(
