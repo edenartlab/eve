@@ -40,6 +40,16 @@ def ensure_modal_env_exists():
         )
 
 
+def update_agent_from_env(agent_obj: Agent, env_file: Path) -> None:
+    """Update agent object with values from .env file"""
+    if env_file.exists():
+        env_vars = dotenv_values(env_file)
+        if "DISCORD_CHANNEL_ALLOWLIST" in env_vars:
+            channels = env_vars["DISCORD_CHANNEL_ALLOWLIST"].split(",")
+            agent_obj.discord_channel_allowlist = channels
+            agent_obj.save()
+
+
 @click.command()
 @click.argument("agent", nargs=1, required=True)
 @click.argument("platform", nargs=1, required=True)
@@ -95,6 +105,9 @@ def deploy(agent: str, platform: str, db: str):
                     f"Warning: Client modal file not found: {client_path}", fg="yellow"
                 )
             )
+
+        env_file = root_dir / "eve" / "agents" / env / agent / ".env"
+        update_agent_from_env(agent_obj, env_file)
 
     except Exception as e:
         click.echo(click.style("Failed to deploy client:", fg="red"))
@@ -186,6 +199,9 @@ def redeploy(agent: str | None, platform: str | None, db: str):
                         fg="yellow",
                     )
                 )
+
+            env_file = root_dir / "eve" / "agents" / env / agent_name / ".env"
+            update_agent_from_env(agent_obj, env_file)
 
     except Exception as e:
         click.echo(click.style("Failed to redeploy clients:", fg="red"))
