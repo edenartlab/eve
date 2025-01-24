@@ -18,23 +18,17 @@ tools:
   txt2img:
   flux_schnell:
   flux_dev_lora:
-  layer_diffusion:
   remix_flux_schnell:
   flux_inpainting:
   outpaint:
   face_styler:
   upscaler:
   background_removal:
-  storydiffusion:
-  HelloMeme_image:
-  HelloMeme_video:
   flux_redux:
   background_removal_video:
   animate_3D:
   txt2vid:
   vid2vid_sdxl:
-  img2vid:
-  video_upscaler:
   video_FX:
   frame_interpolation:
   reel:
@@ -46,6 +40,7 @@ tools:
   news:
   websearch:
   stable_audio:
+  mmaudio:
   musicgen:
   audio_split_stems:
 
