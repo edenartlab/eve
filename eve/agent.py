@@ -74,6 +74,8 @@ class Agent(User):
     tools_cache: SkipJsonSchema[Optional[Dict[str, Tool]]] = Field(None, exclude=True)
     last_check: ClassVar[Dict[str, float]] = {}  # seconds
 
+    discord_channel_allowlist: Optional[List[str]] = None
+
     def __init__(self, **data):
         if isinstance(data.get("owner"), str):
             data["owner"] = ObjectId(data["owner"])
@@ -154,7 +156,7 @@ class Agent(User):
         # if tools are defined, use those
         if tools:
             schema["tools"] = {k: v or {} for k, v in tools.items()}
-        
+
         # if no tools are defined, use the default presets
         else:
             schema["tools"] = default_presets_flux.copy()
