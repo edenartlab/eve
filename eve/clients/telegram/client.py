@@ -118,6 +118,32 @@ class EdenTG:
     def __init__(self, token: str, agent: Agent, local: bool = False):
         self.token = token
         self.agent = agent
+
+        # Parse allowlist into tuples of (group_id, topic_id)
+        self.telegram_topic_allowlist = []
+        self.telegram_group_allowlist = []
+
+        if agent.telegram_topic_allowlist:
+            for entry in agent.telegram_topic_allowlist:
+                try:
+                    if "/" in entry:  # Topic format: "group_id/topic_id"
+                        group_id, topic_id = entry.split("/")
+                        # Convert link format ID to internal format
+                        internal_group_id = -int(f"100{group_id}")
+
+                        # Special case: if topic_id is "1", this is the main channel
+                        if topic_id == "1":
+                            self.telegram_group_allowlist.append(internal_group_id)
+                        else:
+                            self.telegram_topic_allowlist.append(
+                                (internal_group_id, int(topic_id))
+                            )
+                    else:  # Group format: "group_id"
+                        # Convert link format ID to internal format
+                        self.telegram_group_allowlist.append(int(entry))
+                except ValueError:
+                    raise ValueError(f"Invalid format in telegram allowlist: {entry}")
+
         self.tools = agent.get_tools()
         self.known_users = {}
         self.known_threads = {}
@@ -249,9 +275,30 @@ class EdenTG:
         """
         Handle incoming messages and process bot mentions or direct messages.
         """
+        message = update.message
+        if not message:
+            return
+
+        chat_id = message.chat_id
+        message_thread_id = message.message_thread_id
+
+        # Always allow DMs (private chats)
+        if message.chat.type == "private":
+            pass
+        # For messages in topics
+        elif message_thread_id:
+            # If we have an allowlist, check if this group/topic combination is allowed
+            if (chat_id, message_thread_id) not in self.telegram_topic_allowlist:
+                return  # Silently ignore messages from non-allowlisted topics
+        # For messages in regular groups or main channel
+        else:
+            # If the group isn't explicitly allowlisted, ignore it
+            if chat_id not in self.telegram_group_allowlist:
+                return  # Silently ignore messages from non-allowlisted groups
+
         (
             chat_id,
-            _,
+            chat_type,
             is_direct_message,
             is_bot_mentioned,
             is_replied_to_bot,
@@ -278,8 +325,13 @@ class EdenTG:
             force_reply = False  # No DMs
             return
 
-        # Lookup thread
-        thread_key = f"telegram-{chat_id}"
+        # Update thread key to include both group and topic IDs if present
+        thread_key = (
+            f"telegram-{chat_id}-topic-{message_thread_id}"
+            if message_thread_id
+            else f"telegram-{chat_id}"
+        )
+
         if thread_key not in self.known_threads:
             self.known_threads[thread_key] = self.agent.request_thread(key=thread_key)
         thread = self.known_threads[thread_key]
@@ -301,11 +353,11 @@ class EdenTG:
         me_bot = await context.bot.get_me()
 
         # Process text or photo messages
-        message_text = update.message.text or ""
+        message_text = message.text or ""
         attachments = []
         cleaned_text = message_text
-        if update.message.photo:
-            photo_url = (await update.message.photo[-1].get_file()).file_path
+        if message.photo:
+            photo_url = (await message.photo[-1].get_file()).file_path
             attachments.append(photo_url)
         else:
             cleaned_text = replace_bot_mentions(
@@ -326,7 +378,7 @@ class EdenTG:
             "update_config": {
                 "sub_channel_name": self.channel_name,
                 "telegram_chat_id": str(chat_id),
-                "telegram_message_id": str(update.message.message_id),
+                "telegram_message_id": str(message.message_id),
             },
         }
 

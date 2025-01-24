@@ -88,6 +88,7 @@ class DeploymentSecrets(BaseModel):
 
 class AgentDeploymentConfig(BaseModel):
     discord_channel_allowlist: Optional[List[str]] = None
+    telegram_topic_allowlist: Optional[List[str]] = None
 
 
 class ConfigureDeploymentRequest(BaseModel):
