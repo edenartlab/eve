@@ -16,6 +16,7 @@ from eve.api.api_requests import (
     DeleteDeploymentRequest,
     DeleteTriggerRequest,
     TaskRequest,
+    ConfigureDeploymentRequest,
 )
 from eve.api.helpers import (
     emit_update,
@@ -33,6 +34,8 @@ from eve.llm import UpdateType, async_prompt_thread
 from eve.mongo import serialize_document
 from eve.task import Task
 from eve.tool import Tool
+from eve.agent import Agent
+from eve.deploy import Deployment
 
 logger = logging.getLogger(__name__)
 db = os.getenv("DB", "STAGE").upper()
@@ -168,22 +171,73 @@ async def handle_stream_chat(request: ChatRequest, background_tasks: BackgroundT
 
 
 @handle_errors
-async def handle_deployment_create(request: CreateDeploymentRequest):
-    if not request.credentials:
-        raise APIError("Credentials are required", status_code=400)
+async def handle_deployment_configure(request: ConfigureDeploymentRequest):
+    agent = Agent.load(request.agent_username)
+    if not agent:
+        raise APIError(f"Agent not found: {request.agent_username}", status_code=404)
 
-    create_modal_secrets(
-        request.credentials,
-        f"{request.agent_key}-secrets-{db.lower()}",
+    env = db.lower()
+
+    # Update secrets if provided
+    if request.secrets:
+        secrets_dict = request.secrets.model_dump(exclude_none=True)
+        print("SECRETS", secrets_dict)
+        if secrets_dict:
+            create_modal_secrets(
+                secrets_dict,
+                f"{request.agent_username}-secrets-{env}",
+            )
+
+    # Update agent config if provided
+    if request.deployment_config:
+        config_dict = request.deployment_config.model_dump(exclude_none=True)
+        if config_dict:
+            for key, value in config_dict.items():
+                setattr(agent, key, value)
+            agent.save()
+
+    return {"message": "Deployment configuration updated"}
+
+
+@handle_errors
+async def handle_deployment_create(request: CreateDeploymentRequest):
+    agent = Agent.load(request.agent_username)
+    if not agent:
+        raise APIError(f"Agent not found: {request.agent_username}", status_code=404)
+
+    # Create/update deployment record
+    deployment = Deployment(agent=agent.id, platform=request.platform)
+    deployment.save(
+        upsert_filter={"agent": agent.id, "platform": request.platform.value}
     )
-    deploy_client(request.agent_key, request.platform.value, db.lower())
+
+    # Deploy the Modal container with optional repo branch
+    deploy_client(
+        request.agent_username,
+        request.platform.value,
+        db.lower(),
+        repo_branch=request.repo_branch,
+    )
+
     return {"message": f"Deployed {request.platform.value} client"}
 
 
 @handle_errors
 async def handle_deployment_delete(request: DeleteDeploymentRequest):
-    stop_client(request.agent_key, request.platform.value)
-    return {"message": f"Stopped {request.platform.value} client"}
+    agent = Agent.load(request.agent_username)
+    if not agent:
+        raise APIError(f"Agent not found: {request.agent_username}", status_code=404)
+
+    try:
+        # Stop the Modal container
+        stop_client(request.agent_username, request.platform.value)
+
+        # Delete deployment record
+        Deployment.delete_deployment(agent.id, request.platform.value)
+
+        return {"message": f"Stopped {request.platform.value} client"}
+    except Exception as e:
+        raise APIError(f"Failed to stop client: {str(e)}", status_code=500)
 
 
 @handle_errors

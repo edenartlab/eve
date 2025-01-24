@@ -11,9 +11,9 @@ from eve.mongo import Collection, Document, get_collection
 
 
 REPO_URL = "https://github.com/edenartlab/eve.git"
-REPO_BRANCH = "main"
 DEPLOYMENT_ENV_NAME = "deployments"
 db = os.getenv("DB", "STAGE").upper()
+REPO_BRANCH = "main" if db == "PROD" else "staging"
 
 
 class ClientType(Enum):
@@ -44,6 +44,12 @@ class Deployment(Document):
         """Find all deployments matching the query"""
         collection = get_collection(cls.collection_name)
         return [cls(**doc) for doc in collection.find(query)]
+
+    @classmethod
+    def delete_deployment(cls, agent_id: ObjectId, platform: str):
+        """Delete a deployment record"""
+        collection = get_collection(cls.collection_name)
+        collection.delete_one({"agent": agent_id, "platform": platform})
 
 
 def authenticate_modal_key() -> bool:
@@ -91,10 +97,11 @@ def create_modal_secrets(secrets_dict: Dict[str, str], group_name: str):
     subprocess.run(cmd_parts)
 
 
-def clone_repo(temp_dir: str):
+def clone_repo(temp_dir: str, branch: str = None):
     """Clone the eve repository to a temporary directory"""
+    branch = branch or REPO_BRANCH
     subprocess.run(
-        ["git", "clone", "-b", REPO_BRANCH, "--single-branch", REPO_URL, temp_dir],
+        ["git", "clone", "-b", branch, "--single-branch", REPO_URL, temp_dir],
         check=True,
     )
 
@@ -128,10 +135,12 @@ def prepare_client_file(file_path: str, agent_key: str, env: str) -> None:
     return str(temp_file)
 
 
-def deploy_client(agent_key: str, client_name: str, env: str):
+def deploy_client(agent_key: str, client_name: str, env: str, repo_branch: str = None):
+    """Deploy a Modal client for an agent."""
     with tempfile.TemporaryDirectory() as temp_dir:
-        # Clone the repo
-        clone_repo(temp_dir)
+        # Clone the repo using provided branch or default
+        branch = repo_branch or REPO_BRANCH
+        clone_repo(temp_dir, branch)
 
         # Check for client file in the cloned repo
         client_path = os.path.join(
@@ -159,7 +168,8 @@ def deploy_client(agent_key: str, client_name: str, env: str):
 
 
 def stop_client(agent_key: str, client_name: str):
-    subprocess.run(
+    """Stop a Modal client. Raises an exception if the stop fails."""
+    result = subprocess.run(
         [
             "modal",
             "app",
@@ -168,5 +178,8 @@ def stop_client(agent_key: str, client_name: str):
             "-e",
             DEPLOYMENT_ENV_NAME,
         ],
-        check=True,
+        capture_output=True,
+        text=True,
     )
+    if result.returncode != 0:
+        raise Exception(f"Failed to stop client: {result.stderr}")
