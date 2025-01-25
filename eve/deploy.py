@@ -90,6 +90,7 @@ def create_modal_secrets(secrets_dict: Dict[str, str], group_name: str):
     cmd_parts = ["modal", "secret", "create", group_name]
     for key, value in secrets_dict.items():
         if value is not None:
+            key = key.upper()
             value = str(value).strip().strip("'\"")
             cmd_parts.append(f"{key}={value}")
     cmd_parts.extend(["-e", DEPLOYMENT_ENV_NAME, "--force"])
