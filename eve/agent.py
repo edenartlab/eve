@@ -75,6 +75,7 @@ class Agent(User):
     last_check: ClassVar[Dict[str, float]] = {}  # seconds
 
     discord_channel_allowlist: Optional[List[str]] = None
+    telegram_topic_allowlist: Optional[List[str]] = None
 
     def __init__(self, **data):
         if isinstance(data.get("owner"), str):

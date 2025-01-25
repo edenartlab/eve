@@ -24,7 +24,7 @@ def get_mongo_client():
             maxPoolSize=50,
             minPoolSize=10,
             maxIdleTimeMS=60000,
-            connectTimeoutMS=2000,
+            connectTimeoutMS=5000,
             serverSelectionTimeoutMS=3000,
             retryWrites=True,
             server_api=ServerApi("1"),

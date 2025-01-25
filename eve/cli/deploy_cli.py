@@ -146,14 +146,15 @@ def configure(agent: str, db: str):
                     "CLIENT_FARCASTER_NEYNAR_WEBHOOK_SECRET"
                 ),
             }
-            print("SECRETS", secrets)
 
             # Extract config
             config = {}
             if "DISCORD_CHANNEL_ALLOWLIST" in env_vars:
                 channels = env_vars["DISCORD_CHANNEL_ALLOWLIST"].split(",")
                 config["discord_channel_allowlist"] = channels
-            print("CONFIG", config)
+            if "TELEGRAM_TOPIC_ALLOWLIST" in env_vars:
+                topics = env_vars["TELEGRAM_TOPIC_ALLOWLIST"].split(",")
+                config["telegram_topic_allowlist"] = topics
 
             # Send configuration request
             api_request(
