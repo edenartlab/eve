@@ -430,6 +430,7 @@ class Tool(Document, ABC):
             finally:
                 task.refund_manna()
                 if force:
+                    # Forced cancellation from the server due to stuck task
                     task.update(status="failed", error="Timed out")
                 else:
                     task.update(status="cancelled")

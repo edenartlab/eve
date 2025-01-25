@@ -311,6 +311,11 @@ class ComfyUI:
                 } 
             print(result)
             return result
+        except modal.exception.InputCancellation:
+            print("Modal Task Cancelled")
+            print("Interrupting ComfyUI")
+            self._interrupt()
+            print("ComfyUI interrupted")
         except Exception as error:
             print("ComfyUI pipeline error: ", error)
             raise
@@ -416,6 +421,15 @@ class ComfyUI:
         with urllib.request.urlopen("http://{}/history/{}".format(self.server_address, prompt_id)) as response:
             return json.loads(response.read())
 
+    def _interrupt(self):
+        try:
+            with urllib.request.urlopen(f"http://{self.server_address}/interrupt") as response:
+                if response.status != 200:
+                    raise Exception(f"Failed to interrupt ComfyUI: {response.status}")
+        except Exception as e:
+            print(f"Error interrupting ComfyUI: {e}")
+            raise
+    
     def _get_history(self, prompt_id):
         """
         Get history for a specific prompt ID.
