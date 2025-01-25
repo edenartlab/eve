@@ -388,14 +388,30 @@ This is a description of {{ name }}.
 </System Instructions>"""
 
 
-async def async_think():
-    # - think (gpt3)
-    # - choose tools
-    # - choose knowledge
-    # - which tools to make available
-    # - decide to reply
-    # - make intentions
-    pass
+async def async_think(
+    thread: Thread,
+    user_messages: Union[UserMessage, List[UserMessage]],
+    reply_criteria: str,
+):
+    class ShouldReply(BaseModel):
+        """
+        True if you want to send a message, False if you don't. Use the reply criteria to determine if you should reply.
+        """
+        reply: bool = Field(..., description="Whether or not to reply, given the criteria")
+
+    messages = [
+        UserMessage(content=f"<Instructions>Your goal is to decide whether or not to reply to the user, given the desired criteria. You should only consider the user's LAST message, although context is useful.</Instructions>\n<Reply_Criteria>{reply_criteria}</Reply_Criteria>"),
+    ]
+    messages.extend(thread.get_messages(5))
+    messages.extend(user_messages)
+
+    result = await async_prompt(
+        messages,
+        system_message="You are a helpful assistant who decides whether or not to reply to the last message.",
+        model="gpt-4o-mini",
+        response_model=ShouldReply,
+    )
+    return result.reply
 
 
 async def async_prompt_thread(
@@ -430,32 +446,44 @@ async def async_prompt_thread(
 
     pushes = {"messages": user_messages}
 
+    # If dont_reply is set, just push messages and return immediately
+    if dont_reply:
+        thread.push(pushes)
+        return
+
+    # Determine if agent should reply based on mention or conditions
     agent_mentioned = any(
         re.search(rf"\b{re.escape(agent.name.lower())}\b", (msg.content or "").lower())
         for msg in user_messages
     )
 
-    if dont_reply:
-        thread.push(pushes)
-        return
+    # Reply if any of the following are true:
+    # - force_reply is set
+    # - the agent is mentioned in the user's message
+    # - the agent has a reply_condition set and the user's message matches the criteria
+    should_reply = (
+        force_reply or 
+        agent_mentioned or 
+        (agent.reply_criteria and await async_think(
+            thread=thread,
+            user_messages=user_messages,
+            reply_criteria=agent.reply_criteria,
+        ))
+    )
 
-    if agent_mentioned or force_reply:
+    if should_reply:
         pushes["active"] = user_message_id
-        thread.push(pushes)
-    else:
-        thread.push(pushes)
+    
+    thread.push(pushes)
+    
+    if not should_reply:
         return
-
-    # think = True
-    # if think:
-    #     thought = await async_think(thread.messages, tools)
-    #     if not speak, pop active
 
     yield ThreadUpdate(type=UpdateType.START_PROMPT)
 
     while True:
         try:
-            messages = thread.get_messages()
+            messages = thread.get_messages(15)
 
             # for error tracing
             sentry_sdk.add_breadcrumb(

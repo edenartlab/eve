@@ -67,6 +67,8 @@ class Agent(User):
     name: str
     description: str
     instructions: str
+    mute: Optional[bool] = False
+    reply_criteria: Optional[str] = None
     model: Optional[ObjectId] = None
     test_args: Optional[List[Dict[str, Any]]] = None
 

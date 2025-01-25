@@ -229,7 +229,7 @@ class ToolCall(BaseModel):
                     result = dump_json(result)
 
             except Exception as e:
-                print("Error injecting image results:", e)
+                print("Warning: Can not inject image results:", e)
                 result = dump_json(result)
 
         elif self.status == "failed":
@@ -390,9 +390,9 @@ class Thread(Document):
         }
         self.set_against_filter(updates, filter={"messages.id": message_id})
 
-    def get_messages(self, filters=None):
+    def get_messages(self, last_n=15):
         # filter by time, number, or prompt
         # if reply to inside messages, mark it
         # if reply to by old message, include context leading up to it
         # self.reload()
-        return self.messages[-15:]
+        return self.messages[-last_n:]

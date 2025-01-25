@@ -225,7 +225,7 @@ class EdenTG:
 
             elif update_type == UpdateType.ASSISTANT_MESSAGE:
                 content = data.get("content")
-                if content:
+                if content and not self.agent.mute:
                     await application.bot.send_message(
                         chat_id=telegram_chat_id,
                         text=content,
@@ -275,6 +275,7 @@ class EdenTG:
         """
         Handle incoming messages and process bot mentions or direct messages.
         """
+
         message = update.message
         if not message:
             return
@@ -285,11 +286,13 @@ class EdenTG:
         # Always allow DMs (private chats)
         if message.chat.type == "private":
             pass
+
         # For messages in topics
         elif message_thread_id:
             # If we have an allowlist, check if this group/topic combination is allowed
             if (chat_id, message_thread_id) not in self.telegram_topic_allowlist:
                 return  # Silently ignore messages from non-allowlisted topics
+
         # For messages in regular groups or main channel
         else:
             # If the group isn't explicitly allowlisted, ignore it
