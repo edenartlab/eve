@@ -29,6 +29,7 @@ from eve.api.handlers import (
     handle_stream_chat,
     handle_trigger_create,
     handle_trigger_delete,
+    handle_deployment_configure,
 )
 from eve.api.api_requests import (
     CancelRequest,
@@ -38,6 +39,7 @@ from eve.api.api_requests import (
     DeleteDeploymentRequest,
     DeleteTriggerRequest,
     TaskRequest,
+    ConfigureDeploymentRequest,
 )
 from eve.deploy import (
     authenticate_modal_key,
@@ -168,6 +170,13 @@ async def stream_chat(
     return await handle_stream_chat(request, background_tasks)
 
 
+@web_app.post("/deployments/configure")
+async def deployment_configure(
+    request: ConfigureDeploymentRequest, _: dict = Depends(auth.authenticate_admin)
+):
+    return await handle_deployment_configure(request)
+
+
 @web_app.post("/deployments/create")
 async def deployment_create(
     request: CreateDeploymentRequest, _: dict = Depends(auth.authenticate_admin)
@@ -240,6 +249,7 @@ image = (
     .run_function(download_nsfw_models)
     .copy_local_dir(str(workflows_dir), "/workflows")
 )
+
 
 @app.function(
     image=image,

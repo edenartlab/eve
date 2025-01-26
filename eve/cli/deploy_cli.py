@@ -1,215 +1,209 @@
 import sys
-import yaml
 import click
 import traceback
-import subprocess
+import requests
 from pathlib import Path
 from dotenv import dotenv_values
-import shutil
+import os
 
-from eve.deploy import DEPLOYMENT_ENV_NAME, prepare_client_file
-
+from eve.deploy import ClientType
 from .. import load_env
 
 root_dir = Path(__file__).parent.parent.parent
 
 
-def ensure_modal_env_exists():
-    """Create the Modal environment if it doesn't exist"""
-    # List existing environments
-    result = subprocess.run(
-        ["rye", "run", "modal", "environment", "list"],
-        capture_output=True,
-        text=True,
+def get_api_url():
+    api_url = os.getenv("EDEN_API_URL", "http://localhost:8000").rstrip("/")
+    return api_url
+
+
+def api_request(method, endpoint, json=None):
+    """Make an API request with error handling"""
+    api_url = get_api_url()
+    api_key = os.getenv("EDEN_ADMIN_KEY")
+
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+    response = requests.request(
+        method, f"{api_url}{endpoint}", headers=headers, json=json
     )
 
-    # Check if our environment exists
-    if DEPLOYMENT_ENV_NAME not in result.stdout:
-        click.echo(
-            click.style(
-                f"Creating Modal environment: {DEPLOYMENT_ENV_NAME}", fg="green"
-            )
-        )
-        subprocess.run(
-            ["rye", "run", "modal", "environment", "create", DEPLOYMENT_ENV_NAME]
-        )
-    else:
-        click.echo(
-            click.style(
-                f"Using existing Modal environment: {DEPLOYMENT_ENV_NAME}", fg="blue"
-            )
-        )
-
-
-def create_secrets(agent_key: str, secrets_dict: dict, env: str):
-    if not secrets_dict:
-        click.echo(click.style(f"No secrets found for {agent_key}", fg="yellow"))
-        return
-
-    cmd_parts = [
-        "rye",
-        "run",
-        "modal",
-        "secret",
-        "create",
-        f"{agent_key}-secrets-{env}",
-    ]
-    for key, value in secrets_dict.items():
-        if value is not None:
-            value = str(value).strip().strip("'\"")
-            cmd_parts.append(f"{key}={value}")
-    cmd_parts.extend(["-e", DEPLOYMENT_ENV_NAME, "--force"])
-
-    subprocess.run(cmd_parts)
-
-
-def deploy_client(agent_key: str, client_name: str, env: str):
-    client_path = root_dir / f"eve/clients/{client_name}/modal_client.py"
-    if client_path.exists():
-        try:
-            # Create a temporary modified version of the client file
-            temp_file = prepare_client_file(str(client_path), agent_key, env)
-            app_name = f"{agent_key}-{client_name}-{env}"
-
-            # Deploy using the temporary file
-            subprocess.run(
-                [
-                    "rye",
-                    "run",
-                    "modal",
-                    "deploy",
-                    "--name",
-                    app_name,
-                    temp_file,
-                    "-e",
-                    DEPLOYMENT_ENV_NAME,
-                ]
-            )
-        finally:
-            # Clean up temporary directory
-            if temp_file:
-                shutil.rmtree(Path(temp_file).parent)
-    else:
-        click.echo(
-            click.style(
-                f"Warning: Client modal file not found: {client_path}", fg="yellow"
-            )
-        )
-
-
-def get_deployable_agents(env: str):
-    """Find all agents that have both .env and deployments configured"""
-    agents_dir = root_dir / "eve" / "agents" / env
-    deployable = []
-
-    for agent_dir in agents_dir.glob("*"):
-        if not agent_dir.is_dir():
-            continue
-
-        yaml_path = agent_dir / "api.yaml"
-        env_path = agent_dir / ".env"
-
-        if not yaml_path.exists() or not env_path.exists():
-            continue
-
-        try:
-            with open(yaml_path) as f:
-                config = yaml.safe_load(f)
-                if config.get("deployments"):
-                    deployable.append(agent_dir.name)
-        except Exception as e:
-            click.echo(
-                click.style(
-                    f"Error reading config for {agent_dir.name}: {str(e)}", fg="yellow"
-                )
-            )
-
-    return deployable
-
-
-def process_agent(agent_path: Path, env: str):
-    with open(agent_path) as f:
-        agent_config = yaml.safe_load(f)
-
-    if not agent_config.get("deployments"):
-        click.echo(click.style(f"No deployments found in {agent_path}", fg="yellow"))
-        return
-
-    agent_key = agent_path.parent.name
-    click.echo(click.style(f"Processing agent: {agent_key}", fg="blue"))
-
-    # Create secrets if .env exists
-    env_file = agent_path.parent / ".env"
-    if env_file.exists():
-        click.echo(click.style(f"Creating secrets for: {agent_key}", fg="green"))
-        client_secrets = dotenv_values(env_file)
-        create_secrets(agent_key, client_secrets, env)
-
-    # Deploy each client
-    for deployment in agent_config["deployments"]:
-        click.echo(click.style(f"Deploying client: {deployment}", fg="green"))
-        deploy_client(agent_key, deployment, env)
+    response.raise_for_status()
+    return response.json()
 
 
 @click.command()
-@click.argument("agent", nargs=1, required=False)
-@click.option("--all", is_flag=True, help="Deploy all configured agents")
+@click.argument("agent", nargs=1, required=True)
+@click.argument("platform", nargs=1, required=True)
 @click.option(
     "--db",
     type=click.Choice(["STAGE", "PROD"], case_sensitive=False),
     default="STAGE",
     help="DB to save against",
 )
-def deploy(agent: str, all: bool, db: str):
-    """Deploy Modal agents. Use --all to deploy all configured agents."""
+def deploy(agent: str, platform: str, db: str):
+    """Deploy a Modal client for an agent."""
     try:
-        # Ensure Modal environment exists
-        ensure_modal_env_exists()
         load_env(db)
-        env = "stage" if db == "STAGE" else "prod"
 
-        if all:
-            agents = get_deployable_agents(env)
-            if not agents:
-                click.echo(
-                    click.style(
-                        f"No deployable agents found in {env} environment",
-                        fg="yellow",
-                    )
-                )
-                return
+        api_request(
+            "POST",
+            "/deployments/create",
+            {"agent_username": agent, "platform": platform},
+        )
 
-            click.echo(
-                click.style(
-                    f"Found {len(agents)} deployable agents: {', '.join(agents)}",
-                    fg="green",
-                )
+        click.echo(
+            click.style(
+                f"Successfully deployed {platform} client for {agent}", fg="green"
             )
-
-            for agent_name in agents:
-                click.echo(click.style(f"\nProcessing agent: {agent_name}", fg="blue"))
-                agent_path = root_dir / "eve" / "agents" / env / agent_name / "api.yaml"
-                process_agent(agent_path, env)
-
-        else:
-            if not agent:
-                raise click.UsageError("Please provide an agent name or use --all")
-
-            agent_path = root_dir / "eve" / "agents" / env / agent / "api.yaml"
-            if agent_path.exists():
-                process_agent(agent_path, env)
-            else:
-                click.echo(
-                    click.style(
-                        f"Warning: Agent file not found: {agent_path}", fg="yellow"
-                    )
-                )
+        )
 
     except Exception as e:
-        click.echo(click.style("Failed to deploy agents:", fg="red"))
+        click.echo(click.style("Failed to deploy client:", fg="red"))
         click.echo(click.style(f"Error: {str(e)}", fg="red"))
         traceback.print_exc(file=sys.stdout)
 
 
-if __name__ == "__main__":
-    deploy()
+# @click.command()
+# @click.argument("agent", nargs=1, required=False)
+# @click.option(
+#     "--platform",
+#     type=click.Choice([t.value for t in ClientType], case_sensitive=False),
+#     help="Platform to redeploy (all platforms if not specified)",
+# )
+# @click.option(
+#     "--db",
+#     type=click.Choice(["STAGE", "PROD"], case_sensitive=False),
+#     default="STAGE",
+#     help="DB to save against",
+# )
+# def redeploy(agent: str | None, platform: str | None, db: str):
+#     """Redeploy Modal clients. If agent is not specified, redeploys all agents."""
+#     try:
+#         load_env(db)
+
+#         if agent:
+#             if platform:
+#                 api_request(
+#                     "POST",
+#                     "/deployments/create",
+#                     {"agent_username": agent, "platform": platform},
+#                 )
+#             else:
+#                 # Deploy all platforms for this agent
+#                 for p in ClientType:
+#                     try:
+#                         api_request(
+#                             "POST",
+#                             "/deployments/create",
+#                             {"agent_username": agent, "platform": p.value},
+#                         )
+#                     except requests.exceptions.HTTPError as e:
+#                         if (
+#                             e.response.status_code != 404
+#                         ):  # Ignore if deployment doesn't exist
+#                             raise
+
+#         click.echo(click.style("Successfully redeployed clients", fg="green"))
+
+#     except Exception as e:
+#         click.echo(click.style("Failed to redeploy clients:", fg="red"))
+#         click.echo(click.style(f"Error: {str(e)}", fg="red"))
+#         traceback.print_exc(file=sys.stdout)
+
+
+@click.command()
+@click.argument("agent", nargs=1, required=True)
+@click.option(
+    "--db",
+    type=click.Choice(["STAGE", "PROD"], case_sensitive=False),
+    default="STAGE",
+    help="DB to save against",
+)
+def configure(agent: str, db: str):
+    """Configure agent deployment from .env file (both secrets and config)."""
+    try:
+        load_env(db)
+        env = "stage" if db == "STAGE" else "prod"
+
+        env_file = root_dir / "eve" / "agents" / env / agent / ".env"
+        if env_file.exists():
+            env_vars = dotenv_values(env_file)
+
+            if not env_vars:
+                click.echo(
+                    click.style(f"No configuration found for {agent}", fg="yellow")
+                )
+                return
+
+            # Extract secrets
+            secrets = {
+                "eden_api_key": env_vars.get("EDEN_API_KEY"),
+                "client_discord_token": env_vars.get("CLIENT_DISCORD_TOKEN"),
+                "client_telegram_token": env_vars.get("CLIENT_TELEGRAM_TOKEN"),
+                "client_farcaster_mnemonic": env_vars.get("CLIENT_FARCASTER_MNEMONIC"),
+                "client_farcaster_neynar_webhook_secret": env_vars.get(
+                    "CLIENT_FARCASTER_NEYNAR_WEBHOOK_SECRET"
+                ),
+            }
+
+            # Extract config
+            config = {}
+            if "DISCORD_CHANNEL_ALLOWLIST" in env_vars:
+                channels = env_vars["DISCORD_CHANNEL_ALLOWLIST"].split(",")
+                config["discord_channel_allowlist"] = channels
+            if "TELEGRAM_TOPIC_ALLOWLIST" in env_vars:
+                topics = env_vars["TELEGRAM_TOPIC_ALLOWLIST"].split(",")
+                config["telegram_topic_allowlist"] = topics
+
+            # Send configuration request
+            api_request(
+                "POST",
+                "/deployments/configure",
+                {
+                    "agent_username": agent,
+                    "secrets": {k: v for k, v in secrets.items() if v is not None},
+                    "deployment_config": config if config else None,
+                },
+            )
+
+            click.echo(click.style("Successfully configured deployment", fg="green"))
+        else:
+            click.echo(click.style(f"No .env file found at {env_file}", fg="yellow"))
+
+    except Exception as e:
+        click.echo(click.style("Failed to configure deployment:", fg="red"))
+        click.echo(click.style(f"Error: {str(e)}", fg="red"))
+        traceback.print_exc(file=sys.stdout)
+
+
+@click.command()
+@click.argument("agent", nargs=1, required=True)
+@click.argument("platform", nargs=1, required=True)
+@click.option(
+    "--db",
+    type=click.Choice(["STAGE", "PROD"], case_sensitive=False),
+    default="STAGE",
+    help="DB to save against",
+)
+def stop(agent: str, platform: str, db: str):
+    """Stop a Modal client for an agent."""
+    try:
+        load_env(db)
+
+        api_request(
+            "POST",
+            "/deployments/delete",
+            {"agent_username": agent, "platform": platform},
+        )
+
+        click.echo(
+            click.style(
+                f"Successfully stopped {platform} client for {agent}", fg="green"
+            )
+        )
+
+    except Exception as e:
+        click.echo(click.style("Failed to stop client:", fg="red"))
+        click.echo(click.style(f"Error: {str(e)}", fg="red"))
+        traceback.print_exc(file=sys.stdout)

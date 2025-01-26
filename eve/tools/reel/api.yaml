@@ -1,5 +1,5 @@
 name: Reel
-description: Generate a short reel-sized film
+description: Generate a short reel-sized film from just content descriptions.
 cost_estimate: 20
 output_type: video
 base_model: flux-dev

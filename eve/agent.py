@@ -65,12 +65,17 @@ class Agent(User):
     name: str
     description: str
     instructions: str
+    mute: Optional[bool] = False
+    reply_criteria: Optional[str] = None
     model: Optional[ObjectId] = None
     test_args: Optional[List[Dict[str, Any]]] = None
 
     tools: Optional[Dict[str, Dict]] = None
     tools_cache: SkipJsonSchema[Optional[Dict[str, Tool]]] = Field(None, exclude=True)
     last_check: ClassVar[Dict[str, float]] = {}  # seconds
+
+    discord_channel_allowlist: Optional[List[str]] = None
+    telegram_topic_allowlist: Optional[List[str]] = None
 
     def __init__(self, **data):
         if isinstance(data.get("owner"), str):
@@ -152,7 +157,7 @@ class Agent(User):
         # if tools are defined, use those
         if tools:
             schema["tools"] = {k: v or {} for k, v in tools.items()}
-        
+
         # if no tools are defined, use the default presets
         else:
             schema["tools"] = default_presets_flux.copy()
