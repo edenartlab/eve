@@ -203,6 +203,7 @@ class EdenTG:
             update_config = data.get("update_config", {})
             telegram_chat_id = update_config.get("telegram_chat_id")
             telegram_message_id = update_config.get("telegram_message_id")
+            telegram_thread_id = update_config.get("telegram_thread_id")
 
             if not telegram_chat_id:
                 print("No telegram_chat_id in update_config:", data)
@@ -230,6 +231,7 @@ class EdenTG:
                         chat_id=telegram_chat_id,
                         text=content,
                         reply_to_message_id=telegram_message_id,
+                        message_thread_id=telegram_thread_id,
                     )
 
             elif update_type == UpdateType.TOOL_COMPLETE:
@@ -247,12 +249,14 @@ class EdenTG:
                             chat_id=telegram_chat_id,
                             video=url,
                             reply_to_message_id=telegram_message_id,
+                            message_thread_id=telegram_thread_id,
                         )
                     else:
                         await application.bot.send_photo(
                             chat_id=telegram_chat_id,
                             photo=url,
                             reply_to_message_id=telegram_message_id,
+                            message_thread_id=telegram_thread_id,
                         )
 
             elif update_type == UpdateType.END_PROMPT:
@@ -382,6 +386,9 @@ class EdenTG:
                 "sub_channel_name": self.channel_name,
                 "telegram_chat_id": str(chat_id),
                 "telegram_message_id": str(message.message_id),
+                "telegram_thread_id": str(message_thread_id)
+                if message_thread_id
+                else None,
             },
         }
 

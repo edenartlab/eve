@@ -23,6 +23,7 @@ class UpdateConfig(BaseModel):
     discord_channel_id: Optional[str] = None
     telegram_chat_id: Optional[str] = None
     telegram_message_id: Optional[str] = None
+    telegram_thread_id: Optional[str] = None
     cast_hash: Optional[str] = None
     author_fid: Optional[int] = None
     message_id: Optional[str] = None
