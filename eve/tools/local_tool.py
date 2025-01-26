@@ -6,7 +6,6 @@ from ..task import Task, task_handler_func
 from ..tool import Tool, tool_context
 from .tool_handlers import handlers
 
-
 @tool_context("local")
 class LocalTool(Tool):
     def __init__(self, *args, **kwargs):

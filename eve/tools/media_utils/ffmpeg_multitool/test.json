@@ -1,0 +1,10 @@
+{   "task_instruction": "Create a video that crops the images to a square, shows each image for 2 seconds and then adds the audio",
+    "images": [
+        "https://storage.googleapis.com/public-assets-xander/A_workbox/init_imgs/img_00019.jpg",
+        "https://storage.googleapis.com/public-assets-xander/A_workbox/init_imgs/img_00021.jpg",
+        "https://storage.googleapis.com/public-assets-xander/A_workbox/init_imgs/img_00024.jpg",
+        "https://storage.googleapis.com/public-assets-xander/A_workbox/init_imgs/img_00025.jpg"
+    ],
+    "video1": "https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/4923a1895da41b30e95aa1f59e44125bd01310b9e8f7a20ab460a15ee5221b31.mp4",
+    "audio1": "https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/ec4ad5ecade85da38e40523d9c2f93576aa99f312fe6f61aeef53757ee63e925.mp3"
+}

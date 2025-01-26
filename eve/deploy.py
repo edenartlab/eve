@@ -90,6 +90,7 @@ def create_modal_secrets(secrets_dict: Dict[str, str], group_name: str):
     cmd_parts = ["modal", "secret", "create", group_name]
     for key, value in secrets_dict.items():
         if value is not None:
+            key = key.upper()
             value = str(value).strip().strip("'\"")
             cmd_parts.append(f"{key}={value}")
     cmd_parts.extend(["-e", DEPLOYMENT_ENV_NAME, "--force"])
@@ -107,12 +108,12 @@ def clone_repo(temp_dir: str, branch: str = None):
 
 
 def prepare_client_file(file_path: str, agent_key: str, env: str) -> None:
-    """Modify the client file to use correct secret name and fix pyproject path"""
+    """Modify the client file to use correct secret name"""
     with open(file_path, "r") as f:
         content = f.read()
 
-    # Get the repo root directory (three levels up from the client file)
-    repo_root = Path(__file__).parent.parent
+    repo_root = Path(file_path).parent.parent.parent.parent
+    print("REPO ROOT", repo_root)
     pyproject_path = repo_root / "pyproject.toml"
 
     # Replace the static secret name with the dynamic one
@@ -121,7 +122,7 @@ def prepare_client_file(file_path: str, agent_key: str, env: str) -> None:
         f'modal.Secret.from_name("{agent_key}-secrets-{env}")',
     )
 
-    # Fix pyproject.toml path to use absolute path
+    # Fix pyproject.toml path to use absolute path from cloned repo
     modified_content = modified_content.replace(
         '.pip_install_from_pyproject("pyproject.toml")',
         f'.pip_install_from_pyproject("{pyproject_path}")',
