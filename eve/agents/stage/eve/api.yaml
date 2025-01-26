@@ -46,6 +46,8 @@ tools:
   news:
   websearch:
   stable_audio:
+  mmaudio:
+  ffmpeg_multitool:
   musicgen:
   audio_split_stems:
 

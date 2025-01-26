@@ -27,9 +27,9 @@ default_presets_flux = {
         "tip": "Only use this tool if asked to restyle an existing video with a style image"
     },
     "video_FX": {
-        "tip": "Only use this tool if asked to make subtle or targeted variations on an existing video"
+        "tip": "Only use this tool if asked to add subtle or targeted effects on top of an existing video"
     },
-    "texture_flow": {"tip": "Just use this tool if asked to make VJing material."},
+    "texture_flow": {"tip": "Just use this tool if asked to make abstract, morphing animations for eg VJing material."},
     "outpaint": {},
     "remix_flux_schnell": {},
     "stable_audio": {},
@@ -42,10 +42,8 @@ default_presets_flux = {
     },
     "news": {},
     "websearch": {},
-    "audio_video_combine": {
-        "tip": "This and video_concat can merge a video track with an audio track, so it's good for compositing/mixing or manually creating reels."
-    },
-    "video_concat": {},
+    "ffmpeg_multitool": {},
+    "mmaudio": {}
 }
 
 
