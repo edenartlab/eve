@@ -35,7 +35,6 @@ tools:
   reel:
   texture_flow:
   runway:
-  mochi_preview:
   lora_trainer:
   flux_trainer:
   news:
@@ -43,6 +42,7 @@ tools:
   weather:
   stable_audio:
   mmaudio:
+  ffmpeg_multitool:
   musicgen:
   audio_split_stems:
 
