@@ -181,7 +181,7 @@ async def handle_deployment_configure(request: ConfigureDeploymentRequest):
     # Update secrets if provided
     if request.secrets:
         secrets_dict = request.secrets.model_dump(exclude_none=True)
-        print("SECRETS", secrets_dict)
+        secrets_dict["EDEN_AGENT_USERNAME"] = request.agent_username
         if secrets_dict:
             create_modal_secrets(
                 secrets_dict,
