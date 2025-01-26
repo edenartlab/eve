@@ -4,6 +4,7 @@ from .media_utils.audio_video_combine.handler import handler as audio_video_comb
 from .media_utils.image_concat.handler import handler as image_concat
 from .media_utils.image_crop.handler import handler as image_crop
 from .media_utils.video_concat.handler import handler as video_concat
+from .media_utils.ffmpeg_multitool.handler import handler as ffmpeg_multitool
 
 from .wallet.send_eth.handler import handler as send_eth
 from .websearch.handler import handler as websearch
@@ -29,6 +30,7 @@ handlers = {
     "image_concat": image_concat,
     "image_crop": image_crop,
     "video_concat": video_concat,
+    "ffmpeg_multitool": ffmpeg_multitool,
     "time_remapping": time_remapping,
     "get_tweets": get_tweets,
     "tweet": tweet,
