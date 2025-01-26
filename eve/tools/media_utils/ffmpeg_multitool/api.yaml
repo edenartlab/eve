@@ -2,6 +2,7 @@ name: ffmpeg multi-tool
 description: A generic tool that can combine / edit / convert image, video and audio files using ffmpeg. The output of this tool is always a single video!
 tip: |-
   This tool executes a single linux terminal (typically ffmpeg) command that runs on (some of) the provided media inputs. 
+  The input can contain 0-100 images, 0-5 videos and 0-5 audio files.
   For complex tasks it is recommended to consider chaining multiple, sequential calls to the ffmpeg multi-tool to avoid overly complex operations with a single ffmpeg call as this often leads to errors.
   Consider if the task can be easily achieved with a single ffmpeg command or if it requires multiple steps.
 cost_estimate: 1
