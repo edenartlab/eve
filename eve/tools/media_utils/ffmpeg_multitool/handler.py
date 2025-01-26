@@ -79,8 +79,14 @@ class MediaFiles(BaseModel):
     images: List[str] = Field(default_factory=list)
     video1: Optional[str] = None
     video2: Optional[str] = None
+    video3: Optional[str] = None
+    video4: Optional[str] = None
+    video5: Optional[str] = None
     audio1: Optional[str] = None
     audio2: Optional[str] = None
+    audio3: Optional[str] = None
+    audio4: Optional[str] = None
+    audio5: Optional[str] = None
 
     def has_media(self) -> bool:
         """Check if at least one media file is provided"""
@@ -88,8 +94,14 @@ class MediaFiles(BaseModel):
             self.images,
             self.video1,
             self.video2,
+            self.video3,
+            self.video4,
+            self.video5,
             self.audio1,
-            self.audio2
+            self.audio2,
+            self.audio3,
+            self.audio4,
+            self.audio5
         ])
 
     def to_context_string(self) -> str:
@@ -104,7 +116,10 @@ class MediaFiles(BaseModel):
         
         video_info = {
             "Video 1": self.video1,
-            "Video 2": self.video2
+            "Video 2": self.video2,
+            "Video 3": self.video3,
+            "Video 4": self.video4,
+            "Video 5": self.video5
         }
         
         for video_type, path in video_info.items():
@@ -120,7 +135,10 @@ class MediaFiles(BaseModel):
         
         audio_info = {
             "Audio 1": self.audio1,
-            "Audio 2": self.audio2
+            "Audio 2": self.audio2,
+            "Audio 3": self.audio3,
+            "Audio 4": self.audio4,
+            "Audio 5": self.audio5
         }
         
         for audio_type, path in audio_info.items():
@@ -265,7 +283,8 @@ def validate_and_prepare_media(args: Dict[str, Any], tmp_dir: Optional[str] = No
                 raise FFmpegError(f"Failed to download image {image_url}: {str(e)}", "")
 
         media_handlers = {}
-        for media_type in ["video1", "video2", "audio1", "audio2"]:
+        for media_type in ["video1", "video2", "video3", "video4", "video5", 
+                          "audio1", "audio2", "audio3", "audio4", "audio5"]:
             if url := args.get(media_type):
                 try:
                     extension = Path(url).suffix.lstrip('.')
