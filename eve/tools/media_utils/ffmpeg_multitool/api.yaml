@@ -6,7 +6,7 @@ tip: |-
 cost_estimate: 1
 output_type: video
 status: stage
-visible: false
+active: true
 parameters:
   task_instruction:
     type: string
