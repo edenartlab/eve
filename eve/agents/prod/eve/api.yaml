@@ -25,11 +25,13 @@ tools:
   face_styler:
   upscaler:
   background_removal:
+  HelloMeme_image:
+  HelloMeme_video:
   flux_redux:
-  background_removal_video:
   animate_3D:
   txt2vid:
   vid2vid_sdxl:
+  video_upscaler:
   video_FX:
   frame_interpolation:
   reel:
