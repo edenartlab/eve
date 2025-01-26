@@ -18,7 +18,6 @@ tools:
   txt2img:
   flux_schnell:
   flux_dev_lora:
-  layer_diffusion:
   remix_flux_schnell:
   flux_inpainting:
   outpaint:
