@@ -1,6 +1,7 @@
 import anthropic
 import json
 import shutil
+import subprocess
 import os
 import uuid
 from pathlib import Path
@@ -23,6 +24,56 @@ class FFmpegResponse(BaseModel):
     command: str = Field(..., description="The complete FFmpeg command to execute")
     output_path: str = Field(..., description="The output filepath for the resulting file")
 
+
+def probe_media(filepath: str) -> dict:
+    """Get media file information using ffprobe"""
+    try:
+        process = subprocess.run([
+            'ffprobe',
+            '-v', 'quiet',
+            '-print_format', 'json',
+            '-show_format',
+            '-show_streams',
+            filepath
+        ], capture_output=True, text=True)
+        
+        if process.returncode != 0:
+            return {}
+            
+        probe_data = json.loads(process.stdout)
+        
+        info = {}
+        # Get video/image stream info
+        video_stream = next(
+            (s for s in probe_data.get('streams', []) 
+             if s['codec_type'] in ['video', 'image']),
+            {}
+        )
+        if video_stream:
+            info['width'] = int(video_stream.get('width', 0))
+            info['height'] = int(video_stream.get('height', 0))
+            # Calculate fps for videos
+            if 'r_frame_rate' in video_stream:
+                num, den = map(int, video_stream['r_frame_rate'].split('/'))
+                info['fps'] = round(num / den, 2)
+        
+        # Get audio stream info
+        audio_stream = next(
+            (s for s in probe_data.get('streams', [])
+             if s['codec_type'] == 'audio'),
+            {}
+        )
+        if audio_stream:
+            info['samplerate'] = int(audio_stream.get('sample_rate', 0))
+        
+        # Get duration from format info
+        if 'format' in probe_data:
+            info['duration'] = round(float(probe_data['format'].get('duration', 0)), 2)
+            
+        return info
+    except Exception:
+        return {}
+
 class MediaFiles(BaseModel):
     """Model for organizing and validating media inputs"""
     images: List[str] = Field(default_factory=list)
@@ -42,24 +93,44 @@ class MediaFiles(BaseModel):
         ])
 
     def to_context_string(self) -> str:
-        """Convert media files to readable format for prompt"""
+        """Convert media files to readable format for prompt including technical details"""
         media_items = []
         
         for i, img_path in enumerate(self.images, 1):
-            media_items.append(f"- Image {i}: {img_path}")
+            img_info = probe_media(img_path)
+            width = img_info.get('width', 'unknown')
+            height = img_info.get('height', 'unknown')
+            media_items.append(f"- Image {i}: {img_path} ({width}x{height})")
         
-        media_map = {
+        video_info = {
             "Video 1": self.video1,
-            "Video 2": self.video2,
+            "Video 2": self.video2
+        }
+        
+        for video_type, path in video_info.items():
+            if path:
+                v_info = probe_media(path)
+                width = v_info.get('width', 'unknown')
+                height = v_info.get('height', 'unknown')
+                fps = v_info.get('fps', 'unknown')
+                duration = v_info.get('duration', 'unknown')
+                media_items.append(
+                    f"- {video_type}: {path} ({width}x{height}, {fps}fps, {duration}s)"
+                )
+        
+        audio_info = {
             "Audio 1": self.audio1,
             "Audio 2": self.audio2
         }
         
-        media_items.extend(
-            f"- {media_type}: {path}"
-            for media_type, path in media_map.items()
-            if path
-        )
+        for audio_type, path in audio_info.items():
+            if path:
+                a_info = probe_media(path)
+                duration = a_info.get('duration', 'unknown')
+                samplerate = a_info.get('samplerate', 'unknown')
+                media_items.append(
+                    f"- {audio_type}: {path} ({duration}s, {samplerate}Hz)"
+                )
                 
         return "Available media files:\n" + "\n".join(media_items)
 
