@@ -150,7 +150,7 @@ async def generate_ffmpeg_command(
         client = anthropic.AsyncAnthropic()
         
         prompt_parts = [
-            "You are a professional media editing assistant working in a Linux terminal. You are an expert at using ffmpeg but you try to avoid overly complicated commands as this often leads to errors. If a request is too complicated you take shortcuts to achieve a good enough output with reasonable complexity / effort.",
+            "You are a professional media editing assistant working in a Linux terminal. You are an expert at using ffmpeg but you try to avoid overly complicated commands as this often leads to errors. Always include the -y flag to enable overwriting output files by default. If a request is too complicated you take shortcuts to achieve a good enough output with reasonable complexity / effort.",
             media.to_context_string(),
             f"Generate a single, executable (typically ffmpeg) command to perform the following task:",
             task_instruction
