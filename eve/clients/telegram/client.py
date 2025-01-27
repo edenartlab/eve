@@ -175,16 +175,18 @@ class EdenTG:
         if hasattr(self, "ably_client") and self.ably_client:
             self.ably_client.close()
 
-    async def _typing_loop(self, chat_id: int, application: Application):
+    async def _typing_loop(
+        self, chat_id: int, thread_id: int, application: Application
+    ):
         """Keep sending typing action until stopped"""
         try:
             while True:
                 await application.bot.send_chat_action(
-                    chat_id=chat_id, action=ChatAction.TYPING
+                    chat_id=chat_id,
+                    action=ChatAction.TYPING,
+                    message_thread_id=thread_id,
                 )
-                await asyncio.sleep(
-                    5
-                )  # Telegram typing status expires after ~5 seconds
+                await asyncio.sleep(5)
         except asyncio.CancelledError:
             pass
 
@@ -213,9 +215,14 @@ class EdenTG:
 
             if update_type == UpdateType.START_PROMPT:
                 # Start continuous typing
-                if telegram_chat_id not in self.typing_tasks:
-                    self.typing_tasks[telegram_chat_id] = asyncio.create_task(
-                        self._typing_loop(telegram_chat_id, application)
+                chat_key = f"{telegram_chat_id}_{telegram_thread_id}"
+                if chat_key not in self.typing_tasks:
+                    self.typing_tasks[chat_key] = asyncio.create_task(
+                        self._typing_loop(
+                            int(telegram_chat_id),
+                            int(telegram_thread_id) if telegram_thread_id else None,
+                            application,
+                        )
                     )
 
             elif update_type == UpdateType.ERROR:
@@ -261,9 +268,10 @@ class EdenTG:
 
             elif update_type == UpdateType.END_PROMPT:
                 # Stop typing
-                if telegram_chat_id in self.typing_tasks:
-                    self.typing_tasks[telegram_chat_id].cancel()
-                    del self.typing_tasks[telegram_chat_id]
+                chat_key = f"{telegram_chat_id}_{telegram_thread_id}"
+                if chat_key in self.typing_tasks:
+                    self.typing_tasks[chat_key].cancel()
+                    del self.typing_tasks[chat_key]
 
         # Subscribe using the async callback
         await self.channel.subscribe(async_callback)
