@@ -50,9 +50,11 @@ class Eden2Cog(commands.Cog):
     ) -> None:
         self.bot = bot
         self.agent = agent
-        self.discord_channel_allowlist = [
-            int(channel) for channel in agent.discord_channel_allowlist
-        ]
+        self.discord_channel_allowlist = (
+            [int(channel) for channel in agent.discord_channel_allowlist]
+            if agent.discord_channel_allowlist
+            else None
+        )
         self.tools = agent.get_tools()
         self.known_users = {}
         self.known_threads = {}
