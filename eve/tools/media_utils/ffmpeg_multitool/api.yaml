@@ -7,7 +7,7 @@ tip: |-
   Consider if the task can be easily achieved with a single ffmpeg command or if it requires multiple steps.
 cost_estimate: 1
 output_type: video
-status: stage
+status: prod
 active: true
 parameters:
   task_instruction:
