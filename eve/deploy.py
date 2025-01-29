@@ -113,7 +113,6 @@ def prepare_client_file(file_path: str, agent_key: str, env: str) -> None:
         content = f.read()
 
     repo_root = Path(file_path).parent.parent.parent.parent
-    print("REPO ROOT", repo_root)
     pyproject_path = repo_root / "pyproject.toml"
 
     # Replace the static secret name with the dynamic one

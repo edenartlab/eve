@@ -123,12 +123,12 @@ class EdenTG:
         self.telegram_topic_allowlist = []
         self.telegram_group_allowlist = []
 
+        # Only parse allowlist if it exists
         if agent.telegram_topic_allowlist:
             for entry in agent.telegram_topic_allowlist:
                 try:
                     if "/" in entry:  # Topic format: "group_id/topic_id"
                         group_id, topic_id = entry.split("/")
-                        # Convert link format ID to internal format
                         internal_group_id = -int(f"100{group_id}")
 
                         # Special case: if topic_id is "1", this is the main channel
@@ -139,7 +139,6 @@ class EdenTG:
                                 (internal_group_id, int(topic_id))
                             )
                     else:  # Group format: "group_id"
-                        # Convert link format ID to internal format
                         self.telegram_group_allowlist.append(int(entry))
                 except ValueError:
                     raise ValueError(f"Invalid format in telegram allowlist: {entry}")
@@ -298,17 +297,21 @@ class EdenTG:
         # Always allow DMs (private chats)
         if message.chat.type == "private":
             pass
-
         # For messages in topics
         elif message_thread_id:
-            # If we have an allowlist, check if this group/topic combination is allowed
-            if (chat_id, message_thread_id) not in self.telegram_topic_allowlist:
+            # Only check allowlist if it exists
+            if (
+                self.telegram_topic_allowlist
+                and (chat_id, message_thread_id) not in self.telegram_topic_allowlist
+            ):
                 return  # Silently ignore messages from non-allowlisted topics
-
         # For messages in regular groups or main channel
         else:
-            # If the group isn't explicitly allowlisted, ignore it
-            if chat_id not in self.telegram_group_allowlist:
+            # Only check allowlist if it exists
+            if (
+                self.telegram_group_allowlist
+                and chat_id not in self.telegram_group_allowlist
+            ):
                 return  # Silently ignore messages from non-allowlisted groups
 
         (
@@ -422,6 +425,15 @@ class EdenTG:
                         context,
                     )
                     return
+
+    async def send_typing(self, chat_id: int, message_thread_id: int = None):
+        """Send typing indicator to Telegram."""
+        try:
+            await self.bot.send_chat_action(
+                chat_id=chat_id, action="typing", message_thread_id=message_thread_id
+            )
+        except Exception as e:
+            print(f"Error sending typing indicator: {e}")
 
 
 def start(env: str, local: bool = False) -> None:
