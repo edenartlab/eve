@@ -48,6 +48,7 @@ from eve.deploy import (
 )
 from eve.tools.comfyui_tool import convert_tasks2_to_tasks3
 from eve import deploy
+from eve.tool import Tool
 
 
 app_name = f"api-{db.lower()}"
@@ -58,6 +59,7 @@ logging.getLogger("ably").setLevel(logging.INFO if db != "PROD" else logging.WAR
 # FastAPI setup
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    Tool.init_handler_cache()
     watch_thread = threading.Thread(target=convert_tasks2_to_tasks3, daemon=True)
     watch_thread.start()
     app.state.watch_thread = watch_thread
@@ -287,3 +289,9 @@ async def postprocessing():
     except Exception as e:
         print(f"Error generating lora thumbnails: {e}")
         sentry_sdk.capture_exception(e)
+
+
+@web_app.on_event("startup")
+async def startup():
+    Tool.init_handler_cache()
+    # ... rest of startup code
