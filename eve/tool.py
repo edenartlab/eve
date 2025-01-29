@@ -11,6 +11,8 @@ from typing import Optional, List, Dict, Any, Type, Literal
 from datetime import datetime, timezone
 from instructor.function_calls import openai_schema
 
+from eve.api.rate_limiter import RateLimit
+
 from . import sentry_sdk
 from . import eden_utils
 from .base import parse_schema
@@ -71,6 +73,7 @@ class Tool(Document, ABC):
     parameter_presets: Optional[Dict[str, Any]] = None
     gpu: Optional[str] = None
     test_args: Optional[Dict[str, Any]] = None
+    rate_limits: Optional[Dict[str, RateLimit]] = None
 
     @classmethod
     def _get_schema(cls, key, from_yaml=False) -> dict:

@@ -36,14 +36,23 @@ from eve.task import Task
 from eve.tool import Tool
 from eve.agent import Agent
 from eve.deploy import Deployment
+from eve.user import User
+from eve.api.rate_limiter import RateLimiter
 
 logger = logging.getLogger(__name__)
 db = os.getenv("DB", "STAGE").upper()
+
+USE_RATE_LIMITS = os.getenv("USE_RATE_LIMITS", "false").lower() == "true"
 
 
 @handle_errors
 async def handle_create(request: TaskRequest):
     tool = Tool.load(key=request.tool)
+    user = User.from_mongo(request.user_id)
+
+    if USE_RATE_LIMITS:
+        await RateLimiter().check_create_rate_limit(user, tool)
+
     result = await tool.async_start_task(
         requester_id=request.user_id, user_id=request.user_id, args=request.args
     )
