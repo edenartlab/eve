@@ -21,6 +21,9 @@ from .task import Creation
 from .user import User
 from .agent import Agent
 from .thread import UserMessage, AssistantMessage, ToolCall, Thread
+from .api.rate_limiter import RateLimiter
+
+USE_RATE_LIMITS = os.getenv("USE_RATE_LIMITS", "false").lower() == "true"
 
 
 class UpdateType(str, Enum):
@@ -397,10 +400,15 @@ async def async_think(
         """
         True if you want to send a message, False if you don't. Use the reply criteria to determine if you should reply.
         """
-        reply: bool = Field(..., description="Whether or not to reply, given the criteria")
+
+        reply: bool = Field(
+            ..., description="Whether or not to reply, given the criteria"
+        )
 
     messages = [
-        UserMessage(content=f"<Instructions>Your goal is to decide whether or not to reply to the user, given the desired criteria. You should only consider the user's LAST message, although context is useful.</Instructions>\n<Reply_Criteria>{reply_criteria}</Reply_Criteria>"),
+        UserMessage(
+            content=f"<Instructions>Your goal is to decide whether or not to reply to the user, given the desired criteria. You should only consider the user's LAST message, although context is useful.</Instructions>\n<Reply_Criteria>{reply_criteria}</Reply_Criteria>"
+        ),
     ]
     messages.extend(thread.get_messages(5))
     messages.extend(user_messages)
@@ -425,13 +433,16 @@ async def async_prompt_thread(
     model: Literal[tuple(models)] = None,
     stream: bool = False,
 ):
+    if USE_RATE_LIMITS:
+        await RateLimiter.check_chat_rate_limit(user.id, None)
+
     if not model:
         model = DEFAULT_MODEL
 
     print("================================================")
     print(user_messages)
     print("================================================")
-    
+
     user_messages = (
         user_messages if isinstance(user_messages, List) else [user_messages]
     )
@@ -462,20 +473,23 @@ async def async_prompt_thread(
     # - the agent is mentioned in the user's message
     # - the agent has a reply_condition set and the user's message matches the criteria
     should_reply = (
-        force_reply or 
-        agent_mentioned or 
-        (agent.reply_criteria and await async_think(
-            thread=thread,
-            user_messages=user_messages,
-            reply_criteria=agent.reply_criteria,
-        ))
+        force_reply
+        or agent_mentioned
+        or (
+            agent.reply_criteria
+            and await async_think(
+                thread=thread,
+                user_messages=user_messages,
+                reply_criteria=agent.reply_criteria,
+            )
+        )
     )
 
     if should_reply:
         pushes["active"] = user_message_id
-    
+
     thread.push(pushes)
-    
+
     if not should_reply:
         return
 
