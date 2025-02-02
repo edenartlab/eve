@@ -17,7 +17,7 @@ from .base import parse_schema
 from .user import User
 from .task import Task
 from .mongo import Document, Collection, get_collection
-
+from sentry_sdk import trace
 
 OUTPUT_TYPES = Literal[
     "boolean", "string", "integer", "float", "image", "video", "audio", "lora"
@@ -41,6 +41,11 @@ BASE_MODELS = Literal[
 ]
 
 HANDLERS = Literal["local", "modal", "comfyui", "comfyui_legacy", "replicate", "gcp"]
+
+
+class RateLimit(BaseModel):
+    period: int
+    count: int
 
 
 @Collection("tools3")
@@ -71,8 +76,10 @@ class Tool(Document, ABC):
     parameter_presets: Optional[Dict[str, Any]] = None
     gpu: Optional[str] = None
     test_args: Optional[Dict[str, Any]] = None
+    rate_limits: Optional[Dict[str, RateLimit]] = None
 
     @classmethod
+    @trace
     def _get_schema(cls, key, from_yaml=False) -> dict:
         """Get schema for a tool, with detailed performance logging."""
 
@@ -97,32 +104,49 @@ class Tool(Document, ABC):
         return schema
 
     @classmethod
+    @trace
     def get_sub_class(cls, schema, from_yaml=False) -> type:
-        from .tools.local_tool import LocalTool
-        from .tools.modal_tool import ModalTool
-        from .tools.comfyui_tool import ComfyUITool, ComfyUIToolLegacy
-        from .tools.replicate_tool import ReplicateTool
-        from .tools.gcp_tool import GCPTool
-
+        """Lazy load tool classes only when needed"""
+        handler = schema.get("handler")
         parent_tool = schema.get("parent_tool")
+
         if parent_tool:
-            parent_schema = cls._get_schema(parent_tool, from_yaml=from_yaml)
-            handler = parent_schema.get("handler")
-        else:
-            handler = schema.get("handler")
+            if parent_tool not in _handler_cache:
+                collection = get_collection(cls.collection_name)
+                parent = collection.find_one({"key": parent_tool}, {"handler": 1})
+                _handler_cache[parent_tool] = parent.get("handler") if parent else None
+            handler = _handler_cache[parent_tool]
 
-        handler_map = {
-            "local": LocalTool,
-            "modal": ModalTool,
-            "comfyui": ComfyUITool,
-            "comfyui_legacy": ComfyUIToolLegacy,  # private/legacy workflows
-            "replicate": ReplicateTool,
-            "gcp": GCPTool,
-            None: LocalTool,
-        }
+        # Lazy load the tool class if we haven't seen this handler before
+        if handler not in _tool_classes:
+            if handler == "local":
+                from .tools.local_tool import LocalTool
 
-        tool_class = handler_map.get(handler, Tool)
-        return tool_class
+                _tool_classes[handler] = LocalTool
+            elif handler == "modal":
+                from .tools.modal_tool import ModalTool
+
+                _tool_classes[handler] = ModalTool
+            elif handler == "comfyui":
+                from .tools.comfyui_tool import ComfyUITool
+
+                _tool_classes[handler] = ComfyUITool
+            elif handler == "comfyui_legacy":
+                from .tools.comfyui_tool import ComfyUIToolLegacy
+
+                _tool_classes[handler] = ComfyUIToolLegacy
+            elif handler == "replicate":
+                from .tools.replicate_tool import ReplicateTool
+
+                _tool_classes[handler] = ReplicateTool
+            elif handler == "gcp":
+                from .tools.gcp_tool import GCPTool
+
+                _tool_classes[handler] = GCPTool
+            else:
+                _tool_classes[handler] = Tool
+
+        return _tool_classes[handler]
 
     @classmethod
     def convert_from_yaml(cls, schema: dict, file_path: str = None) -> dict:
@@ -219,6 +243,7 @@ class Tool(Document, ABC):
             return super().from_mongo(document_id)
 
     @classmethod
+    @trace
     def load(cls, key, cache=False):
         if cache:
             if key not in _tool_cache:
@@ -327,6 +352,7 @@ class Tool(Document, ABC):
 
         return async_wrapper
 
+    @trace
     def handle_start_task(start_task_function):
         """Wrapper for starting a task process and returning a task"""
 
@@ -467,6 +493,20 @@ class Tool(Document, ABC):
     def cancel(self, task: Task, force: bool = False):
         return asyncio.run(self.async_cancel(task, force))
 
+    @classmethod
+    @trace
+    def init_handler_cache(cls):
+        """Pre-warm the handler cache with all parent-child relationships"""
+        global _handler_cache
+
+        collection = get_collection(cls.collection_name)
+
+        # Get ALL tools and their handlers in one query
+        tools = collection.find({}, {"key": 1, "handler": 1})
+
+        # Build cache for all tools
+        _handler_cache.update({tool["key"]: tool.get("handler") for tool in tools})
+
 
 def get_tools_from_api_files(
     root_dir: str = None,
@@ -522,6 +562,7 @@ def get_tools_from_mongo(
     return found_tools
 
 
+@trace
 def get_api_files(root_dir: str = None) -> List[str]:
     """Get all api.yaml files inside a directory"""
 
@@ -564,3 +605,9 @@ def tool_context(tool_type):
 
 # Tool cache for fetching commonly used tools
 _tool_cache: Dict[str, Dict[str, Tool]] = {}
+
+# Move cache to module level
+_handler_cache = {}
+
+# Cache for lazy loading tool classes
+_tool_classes = {}

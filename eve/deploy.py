@@ -101,6 +101,7 @@ def create_modal_secrets(secrets_dict: Dict[str, str], group_name: str):
 def clone_repo(temp_dir: str, branch: str = None):
     """Clone the eve repository to a temporary directory"""
     branch = branch or REPO_BRANCH
+    print(f"Cloning repo {REPO_URL} to {temp_dir} on branch {branch}")
     subprocess.run(
         ["git", "clone", "-b", branch, "--single-branch", REPO_URL, temp_dir],
         check=True,
@@ -113,7 +114,6 @@ def prepare_client_file(file_path: str, agent_key: str, env: str) -> None:
         content = f.read()
 
     repo_root = Path(file_path).parent.parent.parent.parent
-    print("REPO ROOT", repo_root)
     pyproject_path = repo_root / "pyproject.toml"
 
     # Replace the static secret name with the dynamic one
@@ -127,6 +127,8 @@ def prepare_client_file(file_path: str, agent_key: str, env: str) -> None:
         '.pip_install_from_pyproject("pyproject.toml")',
         f'.pip_install_from_pyproject("{pyproject_path}")',
     )
+
+    print(modified_content)
 
     temp_dir = tempfile.mkdtemp()
     temp_file = Path(temp_dir) / "modal_client.py"

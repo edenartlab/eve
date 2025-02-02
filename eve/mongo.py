@@ -7,6 +7,7 @@ from pymongo.server_api import ServerApi
 from datetime import datetime, timezone
 from bson import ObjectId
 from typing import Optional, List, Dict, Any, Union
+from sentry_sdk import trace
 
 
 # Global connection pool
@@ -14,6 +15,7 @@ _mongo_client = None
 _collections = {}
 
 
+@trace
 def get_mongo_client():
     """Get a MongoDB client with connection pooling"""
     global _mongo_client
@@ -32,6 +34,7 @@ def get_mongo_client():
     return _mongo_client
 
 
+@trace
 def get_collection(collection_name: str):
     """Get a MongoDB collection with connection pooling"""
     db = os.getenv("DB")
@@ -45,7 +48,9 @@ def get_collection(collection_name: str):
     return _collections[cache_key]
 
 
+@trace
 def Collection(name):
+    @trace
     def wrapper(cls):
         cls.collection_name = name
         return cls
@@ -70,14 +75,14 @@ class Document(BaseModel):
     )
 
     @classmethod
+    @trace
     def get_collection(cls):
-        """
-        Override this method to provide the correct collection for the model.
-        """
+        """Override this method to provide the correct collection for the model."""
         collection_name = getattr(cls, "collection_name", cls.__name__.lower())
         return get_collection(collection_name)
 
     @classmethod
+    @trace
     def from_schema(cls, schema: dict, from_yaml=True):
         """Load a document from a schema."""
         sub_cls = cls.get_sub_class(schema, from_yaml=from_yaml)
@@ -85,10 +90,9 @@ class Document(BaseModel):
         return result
 
     @classmethod
+    @trace
     def from_yaml(cls, file_path: str):
-        """
-        Load a document from a YAML file.
-        """
+        """Load a document from a YAML file."""
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"File {file_path} not found")
         with open(file_path, "r") as file:
@@ -98,10 +102,9 @@ class Document(BaseModel):
         return cls.from_schema(schema, from_yaml=True)
 
     @classmethod
+    @trace
     def from_mongo(cls, document_id: ObjectId):
-        """
-        Load the document from the database and return an instance of the model.
-        """
+        """Load the document from the database and return an instance of the model."""
         document_id = (
             document_id if isinstance(document_id, ObjectId) else ObjectId(document_id)
         )
@@ -116,10 +119,9 @@ class Document(BaseModel):
         return cls.from_schema(schema, from_yaml=False)
 
     @classmethod
+    @trace
     def load(cls, **kwargs):
-        """
-        Load the document from the database and return an instance of the model.
-        """
+        """Load the document from the database and return an instance of the model."""
         schema = cls.get_collection().find_one(kwargs)
         if not schema:
             raise MongoDocumentNotFound(cls.collection_name, **kwargs)
@@ -128,29 +130,33 @@ class Document(BaseModel):
         return cls.from_schema(schema, from_yaml=False)
 
     @classmethod
+    @trace
     def get_sub_class(cls, schema: dict = None, from_yaml=True) -> type:
         return cls
 
     @classmethod
+    @trace
     def convert_from_mongo(cls, schema: dict, **kwargs) -> dict:
         return schema
 
     @classmethod
+    @trace
     def convert_from_yaml(cls, schema: dict, **kwargs) -> dict:
         return schema
 
     @classmethod
+    @trace
     def convert_to_mongo(cls, schema: dict, **kwargs) -> dict:
         return schema
 
     @classmethod
+    @trace
     def convert_to_yaml(cls, schema: dict, **kwargs) -> dict:
         return schema
 
+    @trace
     def save(self, upsert_filter=None, **kwargs):
-        """
-        Save the current state of the model to the database.
-        """
+        """Save the current state of the model to the database."""
         self.updatedAt = datetime.now(timezone.utc)
         schema = self.model_dump(by_alias=True)
         self.model_validate(schema)
@@ -181,6 +187,7 @@ class Document(BaseModel):
             self.id = schema["_id"]
 
     @classmethod
+    @trace
     def save_many(cls, documents: List[BaseModel]):
         collection = cls.get_collection()
         for d in range(len(documents)):
@@ -196,10 +203,9 @@ class Document(BaseModel):
             )
         collection.insert_many(documents)
 
+    @trace
     def update(self, **kwargs):
-        """
-        Perform granular updates on specific fields.
-        """
+        """Perform granular updates on specific fields."""
         collection = self.get_collection()
         update_result = collection.update_one(
             {"_id": self.id}, {"$set": kwargs, "$currentDate": {"updatedAt": True}}
@@ -208,10 +214,9 @@ class Document(BaseModel):
             for key, value in kwargs.items():
                 setattr(self, key, value)
 
+    @trace
     def set_against_filter(self, updates: Dict = None, filter: Optional[Dict] = None):
-        """
-        Perform granular updates on specific fields, given an optional filter.
-        """
+        """Perform granular updates on specific fields, given an optional filter."""
         collection = self.get_collection()
         update_result = collection.update_one(
             {"_id": self.id, **filter},
@@ -220,12 +225,11 @@ class Document(BaseModel):
         if update_result.modified_count > 0:
             self.updatedAt = datetime.now(timezone.utc)
 
+    @trace
     def push(
         self, pushes: Dict[str, Union[Any, List[Any]]] = {}, pulls: Dict[str, Any] = {}
     ):
-        """
-        Push or pull values granularly to array fields in document.
-        """
+        """Push or pull values granularly to array fields in document."""
         push_ops, pull_ops = {}, {}
         for field_name, value in pushes.items():
             values_to_push = value if isinstance(value, list) else [value]
@@ -275,10 +279,9 @@ class Document(BaseModel):
         if update_result.modified_count > 0:
             self.updatedAt = datetime.now(timezone.utc)
 
+    @trace
     def update_nested_field(self, field_name: str, index: int, sub_field: str, value):
-        """
-        Update a specific field within an array of dictionaries, both in MongoDB and in the local instance.
-        """
+        """Update a specific field within an array of dictionaries."""
         # Create a copy of the current instance and update the nested field for validation
         updated_data = self.model_copy()
         if hasattr(updated_data, field_name) and isinstance(
@@ -314,24 +317,23 @@ class Document(BaseModel):
                     field_list[index][sub_field] = value
                     self.updatedAt = datetime.now(timezone.utc)
 
+    @trace
     def reload(self):
-        """
-        Reload the current document from the database to ensure the instance is up-to-date.
-        """
+        """Reload the current document from the database."""
         updated_instance = self.from_mongo(self.id)
         if updated_instance:
             # Use model_dump to get the data while maintaining type information
             for key, value in updated_instance.model_dump().items():
                 setattr(self, key, value)
 
+    @trace
     def delete(self):
-        """
-        Delete the document from the database.
-        """
+        """Delete the document from the database."""
         collection = self.get_collection()
         collection.delete_one({"_id": self.id})
 
 
+@trace
 def serialize_document(obj):
     if isinstance(obj, ObjectId):
         return str(obj)

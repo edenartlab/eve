@@ -293,7 +293,7 @@ class Eden2Cog(commands.Cog):
                         "content": content,
                         "name": message.author.name,
                         "attachments": [
-                            attachment.url for attachment in message.attachments
+                            attachment.proxy_url for attachment in message.attachments
                         ],
                     },
                     "update_config": {

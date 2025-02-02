@@ -41,6 +41,8 @@ attrs==24.2.0
     # via jsonschema
     # via referencing
     # via sigtools
+beanie==1.22.6
+    # via eve
 bitarray==3.0.0
     # via eth-account
 blurhash==1.1.4
@@ -69,6 +71,7 @@ ckzg==1.0.2
 clerk-backend-api==1.4.1
     # via eve
 click==8.1.7
+    # via beanie
     # via eve
     # via modal
     # via typer
@@ -234,6 +237,8 @@ jsonschema==4.23.0
     # via web3
 jsonschema-specifications==2024.10.1
     # via jsonschema
+lazy-model==0.2.0
+    # via beanie
 lru-dict==1.2.0
     # via web3
 markdown-it-py==3.0.0
@@ -245,6 +250,9 @@ mdurl==0.1.2
 methoddispatch==3.0.2
     # via ably
 modal==0.67.41
+    # via eve
+motor==3.3.1
+    # via beanie
     # via eve
 moviepy==1.0.3
     # via eve
@@ -313,6 +321,7 @@ pycryptodome==3.21.0
     # via eth-keyfile
 pydantic==2.9.2
     # via anthropic
+    # via beanie
     # via clerk-backend-api
     # via elevenlabs
     # via eve
@@ -320,6 +329,7 @@ pydantic==2.9.2
     # via fastapi
     # via google-cloud-aiplatform
     # via instructor
+    # via lazy-model
     # via openai
     # via replicate
     # via runwayml
@@ -341,6 +351,7 @@ pyjwt==2.10.1
     # via eve
 pymongo==4.6.1
     # via eve
+    # via motor
 python-dateutil==2.9.0.post0
     # via botocore
     # via clerk-backend-api
@@ -421,6 +432,7 @@ tenacity==9.0.0
     # via eve
     # via instructor
 toml==0.10.2
+    # via beanie
     # via modal
 toolz==1.0.0
     # via cytoolz
