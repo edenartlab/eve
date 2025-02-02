@@ -123,7 +123,7 @@ def register_tool_call(user, tool_name):
 
 
 def get_ably_channel_name(agent_username: str, client_platform: ClientType):
-    env = os.getenv("UPDATE_CHANNEL_ENV", "DEV")
+    env = os.getenv("UPDATE_CHANNEL_ENV", os.getenv("DB", "STAGE"))
     return f"{agent_username.lower().replace(' ', '_')}_{client_platform.value}_{env}"
 
 

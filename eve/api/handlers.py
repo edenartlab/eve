@@ -40,13 +40,20 @@ from eve.deploy import Deployment
 logger = logging.getLogger(__name__)
 db = os.getenv("DB", "STAGE").upper()
 
+USE_RATE_LIMITS = os.getenv("USE_RATE_LIMITS", "false").lower() == "true"
+
 
 @handle_errors
 async def handle_create(request: TaskRequest):
     tool = Tool.load(key=request.tool)
+
+    # if USE_RATE_LIMITS:
+    #     await RateLimiter().check_create_rate_limit(user, tool)
+
     result = await tool.async_start_task(
         requester_id=request.user_id, user_id=request.user_id, args=request.args
     )
+
     return serialize_document(result.model_dump(by_alias=True))
 
 

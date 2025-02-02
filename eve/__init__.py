@@ -20,19 +20,27 @@ def setup_sentry():
         print("No Sentry DSN found, skipping Sentry setup")
         return
 
-    print(f"Setting up sentry for {db}")
     # Determine environment
-    sentry_env = "production" if db == "PROD" else "staging"
+    sentry_env = os.getenv("SENTRY_ENV", "production" if db == "PROD" else "staging")
+    print(f"Setting up sentry for {sentry_env}")
 
     # Set sampling rates
-    traces_sample_rate = 0.1 if db == "PROD" else 1.0
-    profiles_sample_rate = 0.05 if db == "PROD" else 1.0
+    traces_sample_rate = 1.0 if os.getenv("SENTRY_ENV") else 0.01
+    profiles_sample_rate = 1.0 if os.getenv("SENTRY_ENV") else 0.01
+    print(f"Traces sample rate: {traces_sample_rate}")
+    print(f"Profiles sample rate: {profiles_sample_rate}")
 
     sentry_sdk.init(
         dsn=sentry_dsn,
         traces_sample_rate=traces_sample_rate,
         profiles_sample_rate=profiles_sample_rate,
         environment=sentry_env,
+        debug=True if os.getenv("SENTRY_ENV") == "jmill-dev" else False,
+        _experiments={
+            "continuous_profiling_auto_start": True
+            if os.getenv("SENTRY_ENV")
+            else False,
+        },
     )
 
 

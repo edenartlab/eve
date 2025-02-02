@@ -4,6 +4,8 @@ from bson import ObjectId
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
 
+from sentry_sdk import trace
+
 from ..mongo import get_collection
 from ..tool import Tool, tool_context
 from ..task import Task
@@ -53,6 +55,7 @@ class ComfyUITool(Tool):
         return result
 
     @Tool.handle_start_task
+    @trace
     async def async_start_task(self, task: Task):
         db = os.getenv("DB")
         cls = modal.Cls.lookup(
