@@ -14,6 +14,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 import sentry_sdk
 
 from eve import auth, db
+from eve.api.jobs import handle_twitter_mentions
 from eve.postprocessing import (
     generate_lora_thumbnails,
     cancel_stuck_tasks,
@@ -291,7 +292,11 @@ async def postprocessing():
         sentry_sdk.capture_exception(e)
 
 
-@web_app.on_event("startup")
-async def startup():
-    Tool.init_handler_cache()
-    # ... rest of startup code
+@app.function(
+    image=image,
+    schedule=modal.Period(minutes=15),
+    timeout=3600,
+)
+async def fetch_twitter_mentions():
+    """Fetch and handle Twitter mentions for all agents"""
+    await handle_twitter_mentions()

@@ -20,12 +20,13 @@ class ClientType(Enum):
     DISCORD = "discord"
     TELEGRAM = "telegram"
     FARCASTER = "farcaster"
+    TWITTER = "twitter"
 
 
 @Collection("deployments")
 class Deployment(Document):
     agent: ObjectId
-    platform: str  # Store the string value instead of enum
+    platform: str
 
     def __init__(self, **data):
         # Convert ClientType enum to string if needed
