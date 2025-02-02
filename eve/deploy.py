@@ -127,6 +127,8 @@ def prepare_client_file(file_path: str, agent_key: str, env: str) -> None:
         f'.pip_install_from_pyproject("{pyproject_path}")',
     )
 
+    print(modified_content)
+
     temp_dir = tempfile.mkdtemp()
     temp_file = Path(temp_dir) / "modal_client.py"
     with open(temp_file, "w") as f:
