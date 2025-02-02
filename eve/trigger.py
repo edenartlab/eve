@@ -56,7 +56,7 @@ async def create_chat_trigger(
             chat_request = ChatRequest(
                 user_id=user_id,
                 agent_id=agent_id,
-                user_message=UserMessage(content=message),
+                user_message=UserMessage(content=message, hidden=True),
                 update_config=update_config,
                 force_reply=True,
             )

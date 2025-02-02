@@ -446,7 +446,7 @@ async def async_prompt_thread(
         print("================================================")
         print(user_messages)
         print("================================================")
-
+        
         if isinstance(user_messages, UserMessage):
             user_messages = [user_messages]
 
@@ -468,7 +468,7 @@ async def async_prompt_thread(
         if dont_reply:
             thread.push(pushes)
             return
-
+        
         # Determine if agent should reply based on mention or conditions
         agent_mentioned = any(
             re.search(
@@ -699,10 +699,11 @@ def prompt_thread(
     user_messages: Union[UserMessage, List[UserMessage]],
     tools: Dict[str, Tool],
     force_reply: bool = False,
+    dont_reply: bool = False,
     model: Literal[tuple(models)] = "claude-3-5-sonnet-20241022",
 ):
     async_gen = async_prompt_thread(
-        user, agent, thread, user_messages, tools, force_reply, model
+        user, agent, thread, user_messages, tools, force_reply, dont_reply, model
     )
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)

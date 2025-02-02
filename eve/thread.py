@@ -16,6 +16,7 @@ class ChatMessage(BaseModel):
     createdAt: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     role: Literal["user", "assistant"]
     reply_to: Optional[ObjectId] = None
+    hidden: Optional[bool] = False  # hides message (e.g. triggers / special system instructions) from llm
     reactions: Optional[Dict[str, List[ObjectId]]] = {}
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -395,4 +396,12 @@ class Thread(Document):
         # if reply to inside messages, mark it
         # if reply to by old message, include context leading up to it
         # self.reload()
-        return self.messages[-last_n:]
+        messages = self.messages[-last_n:]
+        messages = [m for m in messages if not m.hidden]
+        messagesh = [m for m in messages if m.hidden]
+        print("HIDDEN MESSAGES ARE!!!")
+        print(messagesh)
+        print("THE MESSAGES ARE 1!!!")
+        print(messages)
+        print("THE MESSAGES ARE 2!!!")
+        return messages
