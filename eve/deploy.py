@@ -101,6 +101,7 @@ def create_modal_secrets(secrets_dict: Dict[str, str], group_name: str):
 def clone_repo(temp_dir: str, branch: str = None):
     """Clone the eve repository to a temporary directory"""
     branch = branch or REPO_BRANCH
+    print(f"Cloning repo {REPO_URL} to {temp_dir} on branch {branch}")
     subprocess.run(
         ["git", "clone", "-b", branch, "--single-branch", REPO_URL, temp_dir],
         check=True,
