@@ -423,7 +423,17 @@ async def async_think(
     return result.reply
 
 
+def sentry_transaction(op: str, name: str):
+    def decorator(func):
+        async def wrapper(*args, **kwargs):
+            with start_transaction(op=op, name=name):
+                return await func(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
 @trace
+@sentry_transaction(op="llm.prompt", name="async_prompt_thread")
 async def async_prompt_thread(
     user: User,
     agent: Agent,
@@ -435,261 +445,261 @@ async def async_prompt_thread(
     model: Literal[tuple(models)] = None,
     stream: bool = False,
 ):
-    # Start a new transaction for background tasks
-    with start_transaction(op="llm.prompt", name="async_prompt_thread"):
-        if USE_RATE_LIMITS:
-            await RateLimiter.check_chat_rate_limit(user.id, None)
+    if USE_RATE_LIMITS:
+        await RateLimiter.check_chat_rate_limit(user.id, None)
 
-        if not model:
-            model = DEFAULT_MODEL
+    if not model:
+        model = DEFAULT_MODEL
 
-        print("================================================")
-        print(user_messages)
-        print("================================================")
-        
-        if isinstance(user_messages, UserMessage):
-            user_messages = [user_messages]
+    print("================================================")
+    print(user_messages)
+    print("hidden?")
+    print(user_messages[-1].hidden)
+    print("================================================")
+    
+    if isinstance(user_messages, UserMessage):
+        user_messages = [user_messages]
 
-        user_messages = (
-            user_messages if isinstance(user_messages, List) else [user_messages]
-        )
-        user_message_id = user_messages[-1].id
+    user_messages = (
+        user_messages if isinstance(user_messages, List) else [user_messages]
+    )
+    user_message_id = user_messages[-1].id
 
-        system_message = Template(template).render(
-            name=agent.name,
-            description=agent.description,
-            instructions=agent.instructions,
-            system_instructions=system_instructions,
-        )
+    system_message = Template(template).render(
+        name=agent.name,
+        description=agent.description,
+        instructions=agent.instructions,
+        system_instructions=system_instructions,
+    )
 
-        pushes = {"messages": user_messages}
+    pushes = {"messages": user_messages}
 
-        # If dont_reply is set, just push messages and return immediately
-        if dont_reply:
-            thread.push(pushes)
-            return
-        
-        # Determine if agent should reply based on mention or conditions
-        agent_mentioned = any(
-            re.search(
-                rf"\b{re.escape(agent.name.lower())}\b", (msg.content or "").lower()
-            )
-            for msg in user_messages
-        )
-
-        # Reply if any of the following are true:
-        # - force_reply is set
-        # - the agent is mentioned in the user's message
-        # - the agent has a reply_condition set and the user's message matches the criteria
-        should_reply = (
-            force_reply
-            or agent_mentioned
-            or (
-                agent.reply_criteria
-                and await async_think(
-                    thread=thread,
-                    user_messages=user_messages,
-                    reply_criteria=agent.reply_criteria,
-                )
-            )
-        )
-
-        if should_reply:
-            pushes["active"] = user_message_id
-
+    # If dont_reply is set, just push messages and return immediately
+    if dont_reply:
         thread.push(pushes)
+        return
+    
+    # Determine if agent should reply based on mention or conditions
+    agent_mentioned = any(
+        re.search(
+            rf"\b{re.escape(agent.name.lower())}\b", (msg.content or "").lower()
+        )
+        for msg in user_messages
+    )
 
-        if not should_reply:
-            return
+    # Reply if any of the following are true:
+    # - force_reply is set
+    # - the agent is mentioned in the user's message
+    # - the agent has a reply_condition set and the user's message matches the criteria
+    should_reply = (
+        force_reply
+        or agent_mentioned
+        or (
+            agent.reply_criteria
+            and await async_think(
+                thread=thread,
+                user_messages=user_messages,
+                reply_criteria=agent.reply_criteria,
+            )
+        )
+    )
 
-        yield ThreadUpdate(type=UpdateType.START_PROMPT)
+    if should_reply:
+        pushes["active"] = user_message_id
 
-        while True:
+    thread.push(pushes)
+
+    if not should_reply:
+        return
+
+    yield ThreadUpdate(type=UpdateType.START_PROMPT)
+
+    while True:
+        try:
+            messages = thread.get_messages(15)
+
+            # for error tracing
+            sentry_sdk.add_breadcrumb(
+                category="prompt_in",
+                data={
+                    "messages": messages,
+                    "system_message": system_message,
+                    "model": model,
+                    "tools": tools.keys(),
+                },
+            )
+
+            # main call to LLM
+            if stream:
+                content_chunks = []
+                tool_calls = []
+                stop = True
+
+                async for update_type, content in async_prompt_stream(
+                    messages,
+                    system_message=system_message,
+                    model=model,
+                    tools=tools,
+                ):
+                    # stream an individual token
+                    if update_type == UpdateType.ASSISTANT_TOKEN:
+                        if not content:  # Skip empty content
+                            continue
+                        content_chunks.append(content)
+                        yield ThreadUpdate(
+                            type=UpdateType.ASSISTANT_TOKEN, text=content
+                        )
+
+                    # tool call
+                    elif update_type == UpdateType.TOOL_CALL:
+                        tool_calls.append(content)
+
+                    # detect stop call
+                    elif update_type == UpdateType.ASSISTANT_STOP:
+                        stop = content == "end_turn" or content == "stop"
+
+                # Create assistant message from accumulated content
+                content = "".join(content_chunks)
+
+            else:
+                content, tool_calls, stop = await async_prompt(
+                    messages,
+                    system_message=system_message,
+                    model=model,
+                    tools=tools,
+                )
+
+            # for error tracing
+            sentry_sdk.add_breadcrumb(
+                category="prompt_out",
+                data={"content": content, "tool_calls": tool_calls, "stop": stop},
+            )
+
+            # create assistant message
+            assistant_message = AssistantMessage(
+                content=content or "",
+                tool_calls=tool_calls,
+                reply_to=user_messages[-1].id,
+            )
+
+            # push assistant message to thread and pop user message from actives array
+            pushes = {"messages": assistant_message}
+            pops = {"active": user_message_id} if stop else {}
+            thread.push(pushes, pops)
+            assistant_message = thread.messages[-1]
+
+            # yield update
+            yield ThreadUpdate(
+                type=UpdateType.ASSISTANT_MESSAGE, message=assistant_message
+            )
+
+        except Exception as e:
+            # capture error
+            sentry_sdk.capture_exception(e)
+            traceback.print_exc()
+
+            # create assistant message
+            assistant_message = AssistantMessage(
+                content="I'm sorry, but something went wrong internally. Please try again later.",
+                reply_to=user_messages[-1].id,
+            )
+
+            # push assistant message to thread and pop user message from actives array
+            pushes = {"messages": assistant_message}
+            pops = {"active": user_message_id}
+            thread.push(pushes, pops)
+
+            # yield error message
+            yield ThreadUpdate(
+                type=UpdateType.ERROR, message=assistant_message, error=str(e)
+            )
+
+            # stop thread
+            stop = True
+            break
+
+        # handle tool calls
+        for t, tool_call in enumerate(assistant_message.tool_calls):
             try:
-                messages = thread.get_messages(15)
+                # get tool
+                tool = tools.get(tool_call.tool)
+                if not tool:
+                    raise Exception(f"Tool {tool_call.tool} not found.")
 
-                # for error tracing
-                sentry_sdk.add_breadcrumb(
-                    category="prompt_in",
-                    data={
-                        "messages": messages,
-                        "system_message": system_message,
-                        "model": model,
-                        "tools": tools.keys(),
-                    },
+                # start task
+                task = await tool.async_start_task(
+                    user.id, agent.id, tool_call.args
                 )
 
-                # main call to LLM
-                if stream:
-                    content_chunks = []
-                    tool_calls = []
-                    stop = True
+                # update tool call with task id and status
+                thread.update_tool_call(
+                    assistant_message.id,
+                    t,
+                    {"task": ObjectId(task.id), "status": "pending"},
+                )
 
-                    async for update_type, content in async_prompt_stream(
-                        messages,
-                        system_message=system_message,
-                        model=model,
-                        tools=tools,
-                    ):
-                        # stream an individual token
-                        if update_type == UpdateType.ASSISTANT_TOKEN:
-                            if not content:  # Skip empty content
-                                continue
-                            content_chunks.append(content)
-                            yield ThreadUpdate(
-                                type=UpdateType.ASSISTANT_TOKEN, text=content
-                            )
+                # wait for task to complete
+                result = await tool.async_wait(task)
+                thread.update_tool_call(assistant_message.id, t, result)
 
-                        # tool call
-                        elif update_type == UpdateType.TOOL_CALL:
-                            tool_calls.append(content)
-
-                        # detect stop call
-                        elif update_type == UpdateType.ASSISTANT_STOP:
-                            stop = content == "end_turn" or content == "stop"
-
-                    # Create assistant message from accumulated content
-                    content = "".join(content_chunks)
-
-                else:
-                    content, tool_calls, stop = await async_prompt(
-                        messages,
-                        system_message=system_message,
-                        model=model,
-                        tools=tools,
+                # task completed
+                if result["status"] == "completed":
+                    # make a Creation
+                    name = task.args.get("prompt") or task.args.get("text_input")
+                    filename = result.get("output", [{}])[0].get("filename")
+                    media_attributes = result.get("output", [{}])[0].get(
+                        "mediaAttributes"
                     )
+                    if filename and media_attributes:
+                        new_creation = Creation(
+                            user=task.user,
+                            requester=task.requester,
+                            task=task.id,
+                            tool=task.tool,
+                            filename=filename,
+                            mediaAttributes=media_attributes,
+                            name=name,
+                        )
+                        new_creation.save()
 
-                # for error tracing
-                sentry_sdk.add_breadcrumb(
-                    category="prompt_out",
-                    data={"content": content, "tool_calls": tool_calls, "stop": stop},
-                )
-
-                # create assistant message
-                assistant_message = AssistantMessage(
-                    content=content or "",
-                    tool_calls=tool_calls,
-                    reply_to=user_messages[-1].id,
-                )
-
-                # push assistant message to thread and pop user message from actives array
-                pushes = {"messages": assistant_message}
-                pops = {"active": user_message_id} if stop else {}
-                thread.push(pushes, pops)
-                assistant_message = thread.messages[-1]
-
-                # yield update
-                yield ThreadUpdate(
-                    type=UpdateType.ASSISTANT_MESSAGE, message=assistant_message
-                )
+                    # yield update
+                    yield ThreadUpdate(
+                        type=UpdateType.TOOL_COMPLETE,
+                        tool_name=tool_call.tool,
+                        tool_index=t,
+                        result=result,
+                    )
+                else:
+                    # yield error
+                    yield ThreadUpdate(
+                        type=UpdateType.ERROR,
+                        tool_name=tool_call.tool,
+                        tool_index=t,
+                        error=result.get("error"),
+                    )
 
             except Exception as e:
                 # capture error
                 sentry_sdk.capture_exception(e)
                 traceback.print_exc()
 
-                # create assistant message
-                assistant_message = AssistantMessage(
-                    content="I'm sorry, but something went wrong internally. Please try again later.",
-                    reply_to=user_messages[-1].id,
+                # update tool call with status and error
+                thread.update_tool_call(
+                    assistant_message.id, t, {"status": "failed", "error": str(e)}
                 )
 
-                # push assistant message to thread and pop user message from actives array
-                pushes = {"messages": assistant_message}
-                pops = {"active": user_message_id}
-                thread.push(pushes, pops)
-
-                # yield error message
+                # yield update
                 yield ThreadUpdate(
-                    type=UpdateType.ERROR, message=assistant_message, error=str(e)
+                    type=UpdateType.ERROR,
+                    tool_name=tool_call.tool,
+                    tool_index=t,
+                    error=str(e),
                 )
 
-                # stop thread
-                stop = True
-                break
+        if stop:
+            break
 
-            # handle tool calls
-            for t, tool_call in enumerate(assistant_message.tool_calls):
-                try:
-                    # get tool
-                    tool = tools.get(tool_call.tool)
-                    if not tool:
-                        raise Exception(f"Tool {tool_call.tool} not found.")
-
-                    # start task
-                    task = await tool.async_start_task(
-                        user.id, agent.id, tool_call.args
-                    )
-
-                    # update tool call with task id and status
-                    thread.update_tool_call(
-                        assistant_message.id,
-                        t,
-                        {"task": ObjectId(task.id), "status": "pending"},
-                    )
-
-                    # wait for task to complete
-                    result = await tool.async_wait(task)
-                    thread.update_tool_call(assistant_message.id, t, result)
-
-                    # task completed
-                    if result["status"] == "completed":
-                        # make a Creation
-                        name = task.args.get("prompt") or task.args.get("text_input")
-                        filename = result.get("output", [{}])[0].get("filename")
-                        media_attributes = result.get("output", [{}])[0].get(
-                            "mediaAttributes"
-                        )
-                        if filename and media_attributes:
-                            new_creation = Creation(
-                                user=task.user,
-                                requester=task.requester,
-                                task=task.id,
-                                tool=task.tool,
-                                filename=filename,
-                                mediaAttributes=media_attributes,
-                                name=name,
-                            )
-                            new_creation.save()
-
-                        # yield update
-                        yield ThreadUpdate(
-                            type=UpdateType.TOOL_COMPLETE,
-                            tool_name=tool_call.tool,
-                            tool_index=t,
-                            result=result,
-                        )
-                    else:
-                        # yield error
-                        yield ThreadUpdate(
-                            type=UpdateType.ERROR,
-                            tool_name=tool_call.tool,
-                            tool_index=t,
-                            error=result.get("error"),
-                        )
-
-                except Exception as e:
-                    # capture error
-                    sentry_sdk.capture_exception(e)
-                    traceback.print_exc()
-
-                    # update tool call with status and error
-                    thread.update_tool_call(
-                        assistant_message.id, t, {"status": "failed", "error": str(e)}
-                    )
-
-                    # yield update
-                    yield ThreadUpdate(
-                        type=UpdateType.ERROR,
-                        tool_name=tool_call.tool,
-                        tool_index=t,
-                        error=str(e),
-                    )
-
-            if stop:
-                break
-
-        yield ThreadUpdate(type=UpdateType.END_PROMPT)
+    yield ThreadUpdate(type=UpdateType.END_PROMPT)
 
 
 def prompt_thread(
