@@ -450,15 +450,12 @@ async def lifespan(app: FastAPI):
         bot, bot_token = init(env=".env", local=False)
 
         def run_bot_in_thread():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
             try:
-                loop.run_until_complete(bot.start(bot_token))
+                # bot.run() handles event loop creation and cleanup
+                bot.run(bot_token)
             except Exception as e:
                 logger.error("Bot crashed", exc_info=True)
                 sentry_sdk.capture_exception(e)
-            finally:
-                loop.close()
 
         # Start bot in a separate thread
         logger.info("Starting Discord bot in separate thread...")
@@ -483,7 +480,7 @@ async def lifespan(app: FastAPI):
         # Cleanup
         logger.info("Cleaning up Discord bot...")
         if not bot.is_closed():
-            await bot.close()
+            bot.close()
         logger.info("Cleanup complete")
 
 
