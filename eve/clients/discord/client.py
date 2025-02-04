@@ -445,47 +445,24 @@ def start(env: str, local: bool = False) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Setup
-    try:
-        bot, bot_token = init(env=".env", local=False)
-
-        def run_bot_in_thread():
-            try:
-                # bot.run() handles event loop creation and cleanup
-                bot.run(bot_token)
-            except Exception as e:
-                logger.error("Bot crashed", exc_info=True)
-                sentry_sdk.capture_exception(e)
-
-        # Start bot in a separate thread
-        logger.info("Starting Discord bot in separate thread...")
-        import threading
-
-        bot_thread = threading.Thread(target=run_bot_in_thread, daemon=True)
-        bot_thread.start()
-
-        # Wait a moment to ensure the bot starts connecting
-        await asyncio.sleep(5)
-
-        if not bot_thread.is_alive():
-            raise Exception("Bot thread died during startup")
-
-        logger.info("Bot thread is running")
-        yield
-
-    except Exception as e:
-        logger.error("Failed in lifespan setup", exc_info=True)
-        raise
-    finally:
-        # Cleanup
-        logger.info("Cleaning up Discord bot...")
-        if not bot.is_closed():
-            bot.close()
-        logger.info("Cleanup complete")
+    # Just yield immediately - we'll start the bot separately
+    yield
 
 
 def create_discord_app() -> FastAPI:
     app = FastAPI(lifespan=lifespan)
+
+    # Start the bot in a background thread
+    bot, bot_token = init(env=".env", local=False)
+
+    def run_bot():
+        bot.run(bot_token)
+
+    import threading
+
+    bot_thread = threading.Thread(target=run_bot, daemon=True)
+    bot_thread.start()
+
     return app
 
 
