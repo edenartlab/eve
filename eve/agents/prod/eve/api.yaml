@@ -47,6 +47,7 @@ tools:
   ffmpeg_multitool:
   musicgen:
   audio_split_stems:
+  ominicontrol:
 
 clients:
   discord:
