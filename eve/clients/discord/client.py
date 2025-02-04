@@ -445,28 +445,47 @@ def start(env: str, local: bool = False) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Setup
-    bot, bot_token = init(env=".env", local=False)
+    try:
+        bot, bot_token = init(env=".env", local=False)
 
-    # Create a background task for the bot
-    bot_task = None
+        async def run_bot():
+            try:
+                logger.info("Starting Discord bot...")
+                await bot.start(bot_token)
+            except Exception as e:
+                logger.error("Bot crashed", exc_info=True)
+                sentry_sdk.capture_exception(e)
+                raise  # Re-raise to properly handle the error
 
-    async def run_bot():
-        try:
-            await bot.start(bot_token)
-        except Exception as e:
-            logger.error("Bot crashed", exc_info=True)
-            sentry_sdk.capture_exception(e)
+        # Start bot in background task
+        logger.info("Creating bot background task...")
+        bot_task = asyncio.create_task(run_bot())
 
-    # Start bot in background task
-    bot_task = asyncio.create_task(run_bot())
+        # Wait a moment to ensure the bot starts connecting
+        await asyncio.sleep(5)
 
-    yield
+        if bot_task.done():
+            # Check if the task failed
+            try:
+                bot_task.result()
+            except Exception as e:
+                logger.error("Bot failed to start", exc_info=True)
+                raise
 
-    # Cleanup
-    if bot_task and not bot_task.done():
-        bot_task.cancel()
-    if not bot.is_closed():
-        await bot.close()
+        logger.info("Bot task is running")
+        yield
+
+    except Exception as e:
+        logger.error("Failed in lifespan setup", exc_info=True)
+        raise
+    finally:
+        # Cleanup
+        logger.info("Cleaning up Discord bot...")
+        if "bot_task" in locals() and not bot_task.done():
+            bot_task.cancel()
+        if "bot" in locals() and not bot.is_closed():
+            await bot.close()
+        logger.info("Cleanup complete")
 
 
 def create_discord_app() -> FastAPI:
