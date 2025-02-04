@@ -449,31 +449,31 @@ async def lifespan(app: FastAPI):
     try:
         bot, bot_token = init(env=".env", local=False)
 
-        async def run_bot():
+        def run_bot_in_thread():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
             try:
-                logger.info("Starting Discord bot...")
-                await bot.start(bot_token)
+                loop.run_until_complete(bot.start(bot_token))
             except Exception as e:
                 logger.error("Bot crashed", exc_info=True)
                 sentry_sdk.capture_exception(e)
-                raise  # Re-raise to properly handle the error
+            finally:
+                loop.close()
 
-        # Start bot in background task
-        logger.info("Creating bot background task...")
-        bot_task = asyncio.create_task(run_bot())
+        # Start bot in a separate thread
+        logger.info("Starting Discord bot in separate thread...")
+        import threading
+
+        bot_thread = threading.Thread(target=run_bot_in_thread, daemon=True)
+        bot_thread.start()
 
         # Wait a moment to ensure the bot starts connecting
         await asyncio.sleep(5)
 
-        if bot_task.done():
-            # Check if the task failed
-            try:
-                bot_task.result()
-            except Exception as e:
-                logger.error("Bot failed to start", exc_info=True)
-                raise
+        if not bot_thread.is_alive():
+            raise Exception("Bot thread died during startup")
 
-        logger.info("Bot task is running")
+        logger.info("Bot thread is running")
         yield
 
     except Exception as e:
@@ -482,9 +482,7 @@ async def lifespan(app: FastAPI):
     finally:
         # Cleanup
         logger.info("Cleaning up Discord bot...")
-        if "bot_task" in locals() and not bot_task.done():
-            bot_task.cancel()
-        if "bot" in locals() and not bot.is_closed():
+        if not bot.is_closed():
             await bot.close()
         logger.info("Cleanup complete")
 
