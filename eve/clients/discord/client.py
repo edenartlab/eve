@@ -218,6 +218,7 @@ class Eden2Cog(commands.Cog):
 
     @commands.Cog.listener("on_message")
     async def on_message(self, message: discord.Message) -> None:
+        print("ON MESSAGE")
         try:
             if (
                 self.discord_channel_allowlist
