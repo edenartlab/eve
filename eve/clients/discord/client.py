@@ -447,12 +447,24 @@ async def lifespan(app: FastAPI):
     # Setup
     bot, bot_token = init(env=".env", local=False)
 
+    # Create a background task for the bot
+    bot_task = None
+
+    async def run_bot():
+        try:
+            await bot.start(bot_token)
+        except Exception as e:
+            logger.error("Bot crashed", exc_info=True)
+            sentry_sdk.capture_exception(e)
+
     # Start bot in background task
-    asyncio.create_task(bot.run(bot_token))
+    bot_task = asyncio.create_task(run_bot())
 
     yield
 
     # Cleanup
+    if bot_task and not bot_task.done():
+        bot_task.cancel()
     if not bot.is_closed():
         await bot.close()
 
