@@ -43,7 +43,8 @@ default_presets_flux = {
     "news": {},
     "websearch": {},
     "ffmpeg_multitool": {},
-    "mmaudio": {}
+    "mmaudio": {},
+    "ominicontrol": {"tip": "Tool for instantly copy-pasting a given image (logo, character, object, ...) into a new context with a prompt. This is kinda of like an instant (no-training) lora tool from a single image"}
 }
 
 
