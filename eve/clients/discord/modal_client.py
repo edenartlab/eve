@@ -1,7 +1,6 @@
-import os
 import modal
 from eve import db
-from eve.clients.discord.client import start as discord_start
+from eve.clients.discord.client import create_discord_app
 
 
 app = modal.App(
@@ -26,4 +25,4 @@ image = (
 @app.function(image=image, keep_warm=1, concurrency_limit=1, timeout=60 * 60 * 24)
 @modal.asgi_app()
 def modal_app() -> None:
-    discord_start(env=".env")
+    create_discord_app()

@@ -8,6 +8,8 @@ import aiohttp
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
+from fastapi import FastAPI
+from contextlib import asynccontextmanager
 
 from ... import load_env
 from ...clients import common
@@ -218,7 +220,6 @@ class Eden2Cog(commands.Cog):
 
     @commands.Cog.listener("on_message")
     async def on_message(self, message: discord.Message) -> None:
-        print("ON MESSAGE")
         try:
             if (
                 self.discord_channel_allowlist
@@ -414,7 +415,7 @@ class DiscordBot(commands.Bot):
         await self.process_commands(message)
 
 
-def start(
+def init(
     env: str,
     local: bool = False,
 ) -> None:
@@ -429,11 +430,36 @@ def start(
         bot_token = os.getenv("CLIENT_DISCORD_TOKEN")
         bot = DiscordBot()
         bot.add_cog(Eden2Cog(bot, agent, local=local))
-        bot.run(bot_token)
+        return bot, bot_token
     except Exception as e:
         logger.error("Failed to start Discord bot", exc_info=True)
         sentry_sdk.capture_exception(e)
         raise
+
+
+def start(env: str, local: bool = False) -> None:
+    bot, bot_token = init(env, local)
+    asyncio.create_task(bot.run(bot_token))
+
+
+@asynccontextmanager
+async def lifespan():
+    # Setup
+    bot, bot_token = init(env=".env", local=False)
+
+    # Start bot in background task
+    asyncio.create_task(bot.run(bot_token))
+
+    yield
+
+    # Cleanup
+    if not bot.is_closed():
+        await bot.close()
+
+
+def create_discord_app() -> FastAPI:
+    app = FastAPI(lifespan=lifespan)
+    return app
 
 
 if __name__ == "__main__":
@@ -447,4 +473,5 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     load_env(args.db)
-    start(args.env, args.agent, args.local)
+    bot, bot_token = init(args.env, args.local)
+    bot.run(bot_token)

@@ -289,9 +289,3 @@ async def postprocessing():
     except Exception as e:
         print(f"Error generating lora thumbnails: {e}")
         sentry_sdk.capture_exception(e)
-
-
-@web_app.on_event("startup")
-async def startup():
-    Tool.init_handler_cache()
-    # ... rest of startup code
