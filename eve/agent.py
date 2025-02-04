@@ -29,7 +29,9 @@ default_presets_flux = {
     "video_FX": {
         "tip": "Only use this tool if asked to add subtle or targeted effects on top of an existing video"
     },
-    "texture_flow": {"tip": "Just use this tool if asked to make abstract, morphing animations for eg VJing material."},
+    "texture_flow": {
+        "tip": "Just use this tool if asked to make abstract, morphing animations for eg VJing material."
+    },
     "outpaint": {},
     "remix_flux_schnell": {},
     "stable_audio": {},
@@ -43,7 +45,7 @@ default_presets_flux = {
     "news": {},
     "websearch": {},
     "ffmpeg_multitool": {},
-    "mmaudio": {}
+    "mmaudio": {},
 }
 
 
@@ -64,7 +66,7 @@ class Agent(User):
 
     name: str
     description: str
-    instructions: str
+    instructions: Optional[str] = None
     mute: Optional[bool] = False
     reply_criteria: Optional[str] = None
     model: Optional[ObjectId] = None
