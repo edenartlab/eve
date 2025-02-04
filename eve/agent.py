@@ -19,7 +19,7 @@ CHECK_INTERVAL = 30
 
 default_presets_flux = {
     "flux_schnell": {
-        "tip": "This must be your primary tool for making images. The other flux tools are only used for inpainting, remixing, and variations."
+        "tip": "This must be your primary tool for making images if no style lora needs to be applied. The other flux tools are only used for inpainting, remixing, and variations."
     },
     "flux_inpainting": {},
     "flux_redux": {},
