@@ -443,7 +443,7 @@ def start(env: str, local: bool = False) -> None:
 
 
 @asynccontextmanager
-async def lifespan():
+async def lifespan(app: FastAPI):
     # Setup
     bot, bot_token = init(env=".env", local=False)
 
