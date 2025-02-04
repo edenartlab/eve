@@ -74,6 +74,67 @@ def probe_media(filepath: str) -> dict:
     except Exception:
         return {}
 
+
+def get_stream_info(probe_data: dict) -> List[str]:
+    """Extract stream information from probe data safely"""
+    streams_info = []
+    if not isinstance(probe_data, dict):
+        return streams_info
+        
+    for idx, stream in enumerate(probe_data.get('streams', [])):
+        if not isinstance(stream, dict):
+            continue
+            
+        try:
+            codec_type = stream.get('codec_type', 'unknown')
+            if codec_type == 'video':
+                width = stream.get('width', 'unknown')
+                height = stream.get('height', 'unknown')
+                fps = stream.get('r_frame_rate', 'unknown')
+                streams_info.append(f"stream {idx}: {codec_type} ({width}x{height}, {fps}fps)")
+            elif codec_type == 'audio':
+                samplerate = stream.get('sample_rate', 'unknown')
+                channels = stream.get('channels', 'unknown')
+                streams_info.append(f"stream {idx}: {codec_type} ({samplerate}Hz, {channels}ch)")
+        except Exception:
+            # Log the error but continue processing other streams
+            continue
+            
+    return streams_info
+
+def probe_media_with_streams(filepath: str, timeout: int = 10) -> dict:
+    """Enhanced probe_media that includes stream information"""
+    try:
+        process = subprocess.run([
+            'ffprobe',
+            '-v', 'quiet',
+            '-print_format', 'json',
+            '-show_format',
+            '-show_streams',
+            filepath
+        ], capture_output=True, text=True, timeout=timeout)
+        
+        if process.returncode != 0:
+            return {}
+            
+        probe_data = json.loads(process.stdout)
+        
+        info = {}
+        # Basic media info
+        if 'format' in probe_data:
+            info['duration'] = round(float(probe_data['format'].get('duration', 0)), 2)
+            
+        # Get stream information
+        info['streams'] = get_stream_info(probe_data)
+            
+        return info
+    except subprocess.TimeoutExpired:
+        return {'error': 'Probe timeout'}
+    except json.JSONDecodeError:
+        return {'error': 'Invalid probe data'}
+    except Exception:
+        return {'error': 'Probe failed'}
+    
 class MediaFiles(BaseModel):
     """Model for organizing and validating media inputs"""
     images: List[str] = Field(default_factory=list)
@@ -108,49 +169,57 @@ class MediaFiles(BaseModel):
         """Convert media files to readable format for prompt including technical details"""
         media_items = []
         
+        # Handle images
         for i, img_path in enumerate(self.images, 1):
-            img_info = probe_media(img_path)
+            img_info = probe_media_with_streams(img_path)
+            if 'error' in img_info:
+                media_items.append(f"- Image {i}: {img_path} (Error: {img_info['error']})")
+                continue
+                
             width = img_info.get('width', 'unknown')
             height = img_info.get('height', 'unknown')
             media_items.append(f"- Image {i}: {img_path} ({width}x{height})")
         
-        video_info = {
-            "Video 1": self.video1,
-            "Video 2": self.video2,
-            "Video 3": self.video3,
-            "Video 4": self.video4,
-            "Video 5": self.video5
+        # Handle videos and audio with consistent pattern
+        media_files = {
+            "Video 1": self.video1, "Video 2": self.video2,
+            "Video 3": self.video3, "Video 4": self.video4,
+            "Video 5": self.video5, "Audio 1": self.audio1,
+            "Audio 2": self.audio2, "Audio 3": self.audio3,
+            "Audio 4": self.audio4, "Audio 5": self.audio5
         }
         
-        for video_type, path in video_info.items():
-            if path:
-                v_info = probe_media(path)
-                width = v_info.get('width', 'unknown')
-                height = v_info.get('height', 'unknown')
-                fps = v_info.get('fps', 'unknown')
-                duration = v_info.get('duration', 'unknown')
-                media_items.append(
-                    f"- {video_type}: {path} ({width}x{height}, {fps}fps, {duration}s)"
-                )
-        
-        audio_info = {
-            "Audio 1": self.audio1,
-            "Audio 2": self.audio2,
-            "Audio 3": self.audio3,
-            "Audio 4": self.audio4,
-            "Audio 5": self.audio5
-        }
-        
-        for audio_type, path in audio_info.items():
-            if path:
-                a_info = probe_media(path)
-                duration = a_info.get('duration', 'unknown')
-                samplerate = a_info.get('samplerate', 'unknown')
-                media_items.append(
-                    f"- {audio_type}: {path} ({duration}s, {samplerate}Hz)"
-                )
+        for media_type, path in media_files.items():
+            if not path:
+                continue
                 
+            info = probe_media_with_streams(path)
+            if 'error' in info:
+                media_items.append(f"- {media_type}: {path} (Error: {info['error']})")
+                continue
+            
+            duration = info.get('duration', 'unknown')
+            streams = info.get('streams', [])
+            
+            if streams:
+                media_items.append(
+                    f"- {media_type}: {path} ({duration}s)\n  Streams: {', '.join(streams)}"
+                )
+            else:
+                media_items.append(f"- {media_type}: {path} ({duration}s)")
+        
         return "Available media files:\n" + "\n".join(media_items)
+
+
+
+
+
+
+
+
+
+
+
 
 async def generate_ffmpeg_command(
     task_instruction: str, 
