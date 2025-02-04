@@ -24,5 +24,5 @@ image = (
 
 @app.function(image=image, keep_warm=1, concurrency_limit=1, timeout=60 * 60 * 24)
 @modal.asgi_app()
-def modal_app() -> None:
-    create_discord_app()
+def modal_app():
+    return create_discord_app()
