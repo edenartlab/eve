@@ -49,6 +49,7 @@ from eve.deploy import (
 from eve.tools.comfyui_tool import convert_tasks2_to_tasks3
 from eve import deploy
 from eve.tool import Tool
+from eve.trigger import load_existing_triggers
 
 
 app_name = f"api-{db.lower()}"
@@ -63,6 +64,19 @@ async def lifespan(app: FastAPI):
     watch_thread = threading.Thread(target=convert_tasks2_to_tasks3, daemon=True)
     watch_thread.start()
     app.state.watch_thread = watch_thread
+
+    # Initialize scheduler
+    scheduler = BackgroundScheduler()
+    scheduler.start()
+    app.state.scheduler = scheduler
+
+    # Load existing triggers
+    should_load_triggers = (
+        os.getenv("MODAL_SERVE") == "true"
+        or os.getenv("LOAD_EXISTING_TRIGGERS") == "true"
+    )
+    if should_load_triggers:
+        await load_existing_triggers(scheduler, handle_chat)
 
     try:
         yield
@@ -108,8 +122,6 @@ web_app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-scheduler = BackgroundScheduler()
-scheduler.start()
 
 api_key_header = APIKeyHeader(name="X-Api-Key", auto_error=False)
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -197,14 +209,14 @@ async def deployment_delete(
 async def trigger_create(
     request: CreateTriggerRequest, _: dict = Depends(auth.authenticate_admin)
 ):
-    return await handle_trigger_create(request, scheduler)
+    return await handle_trigger_create(request, web_app.state.scheduler)
 
 
 @web_app.post("/triggers/delete")
 async def trigger_delete(
     request: DeleteTriggerRequest, _: dict = Depends(auth.authenticate_admin)
 ):
-    return await handle_trigger_delete(request, scheduler)
+    return await handle_trigger_delete(request, web_app.state.scheduler)
 
 
 @web_app.exception_handler(Exception)
