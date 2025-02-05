@@ -81,6 +81,7 @@ class Agent(User):
 
     discord_channel_allowlist: Optional[List[str]] = None
     telegram_topic_allowlist: Optional[List[str]] = None
+    twitter_handle: Optional[str] = None
 
     def __init__(self, **data):
         if isinstance(data.get("owner"), str):

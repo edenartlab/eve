@@ -2,7 +2,7 @@ from typing import Dict, List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
 
-from eve.deploy import ClientType
+from eve.deploy import ClientType, DeploymentSecrets
 from eve.thread import UserMessage
 
 
@@ -79,14 +79,6 @@ class DeleteTriggerRequest(BaseModel):
     id: str
 
 
-class DeploymentSecrets(BaseModel):
-    eden_api_key: Optional[str] = None
-    client_discord_token: Optional[str] = None
-    client_telegram_token: Optional[str] = None
-    client_farcaster_mnemonic: Optional[str] = None
-    client_farcaster_neynar_webhook_secret: Optional[str] = None
-
-
 class AgentDeploymentConfig(BaseModel):
     discord_channel_allowlist: Optional[List[str]] = None
     telegram_topic_allowlist: Optional[List[str]] = None
@@ -95,12 +87,13 @@ class AgentDeploymentConfig(BaseModel):
 class ConfigureDeploymentRequest(BaseModel):
     agent_username: str
     secrets: Optional[DeploymentSecrets] = None
-    deployment_config: Optional[AgentDeploymentConfig] = None
+    deployment_config: Optional[DeploymentSecrets] = None
 
 
 class CreateDeploymentRequest(BaseModel):
     agent_username: str
     platform: ClientType
+    secrets: Optional[DeploymentSecrets] = None
     repo_branch: Optional[str] = None
 
 

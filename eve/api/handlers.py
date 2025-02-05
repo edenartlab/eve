@@ -213,18 +213,20 @@ async def handle_deployment_create(request: CreateDeploymentRequest):
         raise APIError(f"Agent not found: {request.agent_username}", status_code=404)
 
     # Create/update deployment record
-    deployment = Deployment(agent=agent.id, platform=request.platform)
+    deployment = Deployment(
+        agent=agent.id, platform=request.platform, secrets=request.secrets
+    )
     deployment.save(
         upsert_filter={"agent": agent.id, "platform": request.platform.value}
     )
 
     # Deploy the Modal container with optional repo branch
-    deploy_client(
-        request.agent_username,
-        request.platform.value,
-        db.lower(),
-        repo_branch=request.repo_branch,
-    )
+    # deploy_client(
+    #     request.agent_username,
+    #     request.platform.value,
+    #     db.lower(),
+    #     repo_branch=request.repo_branch,
+    # )
 
     return {"message": f"Deployed {request.platform.value} client"}
 

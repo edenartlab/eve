@@ -5,8 +5,6 @@ import aiohttp
 from bson import ObjectId
 from fastapi import BackgroundTasks
 from ably import AblyRest
-from apscheduler.schedulers.background import BackgroundScheduler
-import traceback
 
 from eve.api.errors import APIError
 from eve.tool import Tool
@@ -15,8 +13,6 @@ from eve.agent import Agent
 from eve.thread import Thread
 from eve.llm import async_title_thread
 from eve.api.api_requests import ChatRequest, UpdateConfig
-from eve.trigger import Trigger
-from eve.mongo import get_collection
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +63,7 @@ def serialize_for_json(obj):
     return obj
 
 
-async def emit_update(update_config: UpdateConfig, data: dict):
+async def emit_update(update_config: Optional[UpdateConfig], data: dict):
     if not update_config:
         return
 

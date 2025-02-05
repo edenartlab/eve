@@ -14,9 +14,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 import sentry_sdk
 
 from eve import auth, db
-from eve.postprocessing import (
-    generate_lora_thumbnails,
-    cancel_stuck_tasks,
+from eve.runner.runner_tasks import (
     download_nsfw_models,
 )
 from eve.api.handlers import (
@@ -282,24 +280,4 @@ def fastapi_app():
     return web_app
 
 
-@app.function(
-    image=image, concurrency_limit=1, schedule=modal.Period(minutes=15), timeout=3600
-)
-async def postprocessing():
-    try:
-        await cancel_stuck_tasks()
-    except Exception as e:
-        print(f"Error cancelling stuck tasks: {e}")
-        sentry_sdk.capture_exception(e)
 
-    # try:
-    #     await run_nsfw_detection()
-    # except Exception as e:
-    #     print(f"Error running nsfw detection: {e}")
-    #     sentry_sdk.capture_exception(e)
-
-    try:
-        await generate_lora_thumbnails()
-    except Exception as e:
-        print(f"Error generating lora thumbnails: {e}")
-        sentry_sdk.capture_exception(e)
