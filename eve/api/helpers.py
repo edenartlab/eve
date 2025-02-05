@@ -79,6 +79,7 @@ async def emit_update(update_config: Optional[UpdateConfig], data: dict):
 
 
 async def emit_http_update(update_config: UpdateConfig, data: dict):
+    print("DATA", data)
     async with aiohttp.ClientSession() as session:
         try:
             async with session.post(

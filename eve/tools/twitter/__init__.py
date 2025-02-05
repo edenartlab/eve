@@ -4,24 +4,14 @@ import requests
 from datetime import datetime, timedelta
 from requests_oauthlib import OAuth1Session
 
-from eve.agent import Agent
-from eve import db
 from eve.deploy import Deployment
 
 
 class X:
-    def __init__(self, agent: Agent):
-        """Initializes an X/Twitter session."""
-        deployment = Deployment.load(agent=agent.id, platform="twitter")
-        if not deployment:
-            raise ValueError(f"No Twitter deployment found for agent {agent.id}")
-
-        # User-specific credentials
+    def __init__(self, deployment: Deployment):
         self.user_id = deployment.secrets.twitter_user_id
         self.access_token = deployment.secrets.twitter_access_token
         self.access_token_secret = deployment.secrets.twitter_access_token_secret
-
-        # App-level credentials
         self.consumer_key = deployment.secrets.twitter_consumer_key
         self.consumer_secret = deployment.secrets.twitter_consumer_secret
         self.bearer_token = deployment.secrets.twitter_bearer_token
@@ -150,9 +140,6 @@ class X:
             "https://upload.twitter.com/1.1/media/upload.json",
             files={"media": content},
         )
-        if not upload_response:
-            return None
-
         return upload_response.json().get("media_id_string")
 
     def _upload_video(self, content):
@@ -169,13 +156,7 @@ class X:
                 "total_bytes": len(content),
             },
         )
-        if not init_response:
-            return None
-
         media_id = init_response.json().get("media_id_string")
-        if not media_id:
-            logging.error("No media_id_string found in INIT response.")
-            return None
 
         # --- APPEND ---
         chunk_size = 5 * 1024 * 1024  # 5MB chunks
@@ -188,9 +169,6 @@ class X:
                 data={"command": "APPEND", "media_id": media_id, "segment_index": i},
                 files={"media": chunk},
             )
-            if not append_response:
-                logging.error("APPEND step failed.")
-                return None
 
         # --- FINALIZE ---
         finalize_response = self._make_request(
@@ -198,19 +176,14 @@ class X:
             "https://upload.twitter.com/1.1/media/upload.json",
             data={"command": "FINALIZE", "media_id": media_id},
         )
-        if not finalize_response:
-            logging.error("FINALIZE step failed.")
-            return None
 
         response_json = finalize_response.json()
         processing_info = response_json.get("processing_info")
 
-        # If there's no "processing_info", Twitter might have fully processed it already
         if not processing_info:
             logging.debug("No processing_info, video may be ready immediately.")
             return media_id
 
-        # --- POLL for processing (only if state != succeeded) ---
         state = processing_info.get("state")
         while state in ["pending", "in_progress"]:
             check_after_secs = processing_info.get("check_after_secs", 5)
@@ -249,6 +222,7 @@ class X:
         response = self._make_request(
             "post", "https://api.twitter.com/2/tweets", json={"text": text}
         )
+        print("RESPONSE", response.json())
         return response.json()
 
     def get_following222(self, usernames):

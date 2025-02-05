@@ -10,6 +10,8 @@ from bson.objectid import ObjectId
 from pydantic import BaseModel, Field, ConfigDict
 from PIL import Image
 from io import BytesIO
+import aiohttp
+import os
 
 from eve import sentry_sdk
 from eve import eden_utils
@@ -20,6 +22,7 @@ from eve.tool import Tool
 from eve.mongo import get_collection
 from eve.models import Model
 from eve.tools.twitter import X
+from eve.api.api_requests import ChatRequest, UpdateConfig
 
 
 async def cancel_stuck_tasks():
@@ -358,41 +361,84 @@ STYLE_PROMPTS = [
 ALL_PROMPTS = FACE_PROMPTS + OBJECT_PROMPTS + STYLE_PROMPTS
 
 
-async def run_twitter_replybots(start_time=None):
-    # Get all Twitter deployments
+# async def run_twitter_replybots(start_time=None):
+#     # Get all Twitter deployments
+#     deployments = Deployment.find({"platform": "twitter"})
+
+#     for deployment in deployments:
+#         try:
+#             # Get the agent for this deployment
+#             agent = Agent.from_mongo(deployment.agent)
+
+#             # Initialize Twitter client
+#             twitter = X(agent)
+
+#             # Fetch mentions
+#             mentions = twitter.fetch_mentions(start_time=start_time)
+#             if not mentions.get("data"):
+#                 continue
+
+#             # Get newest tweet from each unique user
+#             user_tweets = {}
+#             for tweet in mentions.get("data", []):
+#                 author_id = tweet["author_id"]
+#                 if author_id not in user_tweets:
+#                     user_tweets[author_id] = tweet
+
+#             # Reply to each user's newest tweet
+#             for tweet in user_tweets.values():
+#                 try:
+#                     twitter.post(
+#                         tweet_text=f"👋 Hello! This is a placeholder reply from {agent.name}.",
+#                         reply_to_tweet_id=tweet["id"],
+#                     )
+#                 except Exception as e:
+#                     print(f"Error replying to tweet {tweet['id']}: {e}")
+#                     sentry_sdk.capture_exception(e)
+
+#         except Exception as e:
+#             print(f"Error processing deployment {deployment.id}: {e}")
+#             sentry_sdk.capture_exception(e)
+
+
+async def run_twitter_automation():
+    """Periodically generate tweets for Twitter deployments via chat endpoint"""
     deployments = Deployment.find({"platform": "twitter"})
+    api_url = os.getenv("EDEN_API_URL")
 
-    for deployment in deployments:
-        try:
-            # Get the agent for this deployment
-            agent = Agent.from_mongo(deployment.agent)
+    async with aiohttp.ClientSession() as session:
+        for deployment in deployments:
+            try:
+                agent = Agent.load(deployment.agent)
 
-            # Initialize Twitter client
-            twitter = X(agent)
+                # Create update config for the chat request
+                update_config = UpdateConfig(
+                    update_endpoint=f"{api_url}/updates/platform/twitter",
+                    deployment_id=str(deployment.id),
+                    twitter_tweet_to_reply_id=None,
+                )
 
-            # Fetch mentions
-            mentions = twitter.fetch_mentions(start_time=start_time)
-            if not mentions.get("data"):
-                continue
+                # Create chat request
+                chat_request = ChatRequest(
+                    user_id=str(agent.id),
+                    agent_id=str(agent.id),
+                    user_message={
+                        "content": "Please generate a tweet for my Twitter audience."
+                    },
+                    update_config=update_config,
+                    force_reply=True,
+                )
 
-            # Get newest tweet from each unique user
-            user_tweets = {}
-            for tweet in mentions.get("data", []):
-                author_id = tweet["author_id"]
-                if author_id not in user_tweets:
-                    user_tweets[author_id] = tweet
+                # Post to chat endpoint
+                async with session.post(
+                    f"{api_url}/chat",
+                    json=chat_request.model_dump(),
+                    headers={"Authorization": f"Bearer {os.getenv('EDEN_API_KEY')}"},
+                ) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        raise Exception(f"Chat request failed: {error_text}")
 
-            # Reply to each user's newest tweet
-            for tweet in user_tweets.values():
-                try:
-                    twitter.post(
-                        tweet_text=f"👋 Hello! This is a placeholder reply from {agent.name}.",
-                        reply_to_tweet_id=tweet["id"],
-                    )
-                except Exception as e:
-                    print(f"Error replying to tweet {tweet['id']}: {e}")
-                    sentry_sdk.capture_exception(e)
-
-        except Exception as e:
-            print(f"Error processing deployment {deployment.id}: {e}")
-            sentry_sdk.capture_exception(e)
+            except Exception as e:
+                print(f"Error processing deployment {deployment.id}: {e}")
+                sentry_sdk.capture_exception(e)

@@ -17,6 +17,7 @@ from eve.api.api_requests import (
     DeleteTriggerRequest,
     TaskRequest,
     ConfigureDeploymentRequest,
+    PlatformUpdateRequest,
 )
 from eve.api.helpers import (
     emit_update,
@@ -25,7 +26,6 @@ from eve.api.helpers import (
 )
 from eve.deploy import (
     create_modal_secrets,
-    deploy_client,
     stop_client,
 )
 from eve.tools.replicate_tool import replicate_update_task
@@ -36,6 +36,7 @@ from eve.task import Task
 from eve.tool import Tool
 from eve.agent import Agent
 from eve.deploy import Deployment
+from eve.tools.twitter import X
 
 logger = logging.getLogger(__name__)
 db = os.getenv("DB", "STAGE").upper()
@@ -208,13 +209,16 @@ async def handle_deployment_configure(request: ConfigureDeploymentRequest):
 
 @handle_errors
 async def handle_deployment_create(request: CreateDeploymentRequest):
-    agent = Agent.load(request.agent_username)
+    agent = Agent.from_mongo(ObjectId(request.agent))
     if not agent:
         raise APIError(f"Agent not found: {request.agent_username}", status_code=404)
 
     # Create/update deployment record
     deployment = Deployment(
-        agent=agent.id, platform=request.platform, secrets=request.secrets
+        agent=agent.id,
+        user=ObjectId(request.user),
+        platform=request.platform,
+        secrets=request.secrets,
     )
     deployment.save(
         upsert_filter={"agent": agent.id, "platform": request.platform.value}
@@ -233,9 +237,9 @@ async def handle_deployment_create(request: CreateDeploymentRequest):
 
 @handle_errors
 async def handle_deployment_delete(request: DeleteDeploymentRequest):
-    agent = Agent.load(request.agent_username)
+    agent = Agent.from_mongo(ObjectId(request.agent))
     if not agent:
-        raise APIError(f"Agent not found: {request.agent_username}", status_code=404)
+        raise APIError(f"Agent not found: {request.agent}", status_code=404)
 
     try:
         # Stop the Modal container
@@ -296,3 +300,36 @@ async def handle_trigger_delete(
     scheduler.remove_job(trigger.trigger_id)
     trigger.delete()
     return {"message": f"Deleted job {trigger.trigger_id}"}
+
+
+@handle_errors
+async def handle_twitter_update(request: PlatformUpdateRequest):
+    """Handle Twitter updates from async_prompt_thread"""
+
+    print("REQUEST", request)
+    deployment_id = request.update_config.deployment_id
+
+    # Get deployment
+    deployment = Deployment.from_mongo(ObjectId(deployment_id))
+    if not deployment:
+        raise APIError(f"Deployment not found: {deployment_id}")
+
+    # Initialize Twitter client
+    twitter = X(deployment)
+    reply_to = request.update_config.twitter_tweet_to_reply_id
+
+    # Post tweet
+    tweet_id = None
+    if request.type == UpdateType.ASSISTANT_MESSAGE:
+        if reply_to:
+            # Reply to specpific tweet
+            response = twitter.post(
+                text=request.content,
+                reply_to=reply_to,
+            )
+        else:
+            # Regular tweet
+            response = twitter.post(text=request.content)
+        tweet_id = response.get("data", {}).get("id")
+
+    return {"status": "success", "tweet_id": tweet_id}

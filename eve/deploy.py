@@ -3,10 +3,10 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from bson import ObjectId
-from pydantic import SecretStr, BaseModel
+from pydantic import BaseModel
 
 from eve.mongo import Collection, Document, get_collection
 
@@ -41,8 +41,18 @@ class DeploymentSecrets(BaseModel):
 @Collection("deployments")
 class Deployment(Document):
     agent: ObjectId
+    user: ObjectId
     platform: str
     secrets: Optional[DeploymentSecrets]
+
+    discord_token: Optional[str] = None
+    discord_channel_allowlist: Optional[List[str]] = None
+
+    telegram_token: Optional[str] = None
+    telegram_topic_allowlist: Optional[List[str]] = None
+
+    farcaster_mnemonic: Optional[str] = None
+    farcaster_neynar_webhook_secret: Optional[str] = None
 
     twitter_bearer_token: Optional[str] = None
     twitter_consumer_key: Optional[str] = None

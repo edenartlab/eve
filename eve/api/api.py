@@ -28,6 +28,7 @@ from eve.api.handlers import (
     handle_trigger_create,
     handle_trigger_delete,
     handle_deployment_configure,
+    handle_twitter_update,
 )
 from eve.api.api_requests import (
     CancelRequest,
@@ -36,6 +37,7 @@ from eve.api.api_requests import (
     CreateTriggerRequest,
     DeleteDeploymentRequest,
     DeleteTriggerRequest,
+    PlatformUpdateRequest,
     TaskRequest,
     ConfigureDeploymentRequest,
 )
@@ -69,7 +71,6 @@ async def lifespan(app: FastAPI):
     app.state.scheduler = scheduler
 
     # Load existing triggers
-    print("MODAL_SERVE", os.getenv("MODAL_SERVE"))
     should_load_triggers = (
         os.getenv("MODAL_SERVE") == "true"
         or os.getenv("LOAD_EXISTING_TRIGGERS") == "true"
@@ -219,6 +220,30 @@ async def trigger_delete(
     return await handle_trigger_delete(request, web_app.state.scheduler)
 
 
+@web_app.post("/updates/platform/telegram")
+async def updates_telegram(
+    request: PlatformUpdateRequest,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    return {"status": "success"}
+
+
+@web_app.post("/updates/platform/farcaster")
+async def updates_farcaster(
+    request: PlatformUpdateRequest,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    return {"status": "success"}
+
+
+@web_app.post("/updates/platform/twitter")
+async def updates_twitter(
+    request: PlatformUpdateRequest,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    return await handle_twitter_update(request)
+
+
 @web_app.exception_handler(Exception)
 async def catch_all_exception_handler(request, exc):
     sentry_sdk.capture_exception(exc)
@@ -278,6 +303,3 @@ def fastapi_app():
     if not check_environment_exists(deploy.DEPLOYMENT_ENV_NAME):
         create_environment(deploy.DEPLOYMENT_ENV_NAME)
     return web_app
-
-
-

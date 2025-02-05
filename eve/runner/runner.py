@@ -10,6 +10,7 @@ from eve.runner.runner_tasks import (
     download_nsfw_models,
     generate_lora_thumbnails,
     run_nsfw_detection,
+    run_twitter_automation,
     run_twitter_replybots,
 )
 
@@ -51,48 +52,45 @@ image = (
 )
 
 
-@app.function(
-    image=image, concurrency_limit=1, schedule=modal.Period(minutes=15), timeout=3600
-)
-async def cancel_stuck_tasks_fn():
-    try:
-        await cancel_stuck_tasks()
-    except Exception as e:
-        print(f"Error cancelling stuck tasks: {e}")
-        sentry_sdk.capture_exception(e)
+# @app.function(
+#     image=image, concurrency_limit=1, schedule=modal.Period(minutes=15), timeout=3600
+# )
+# async def cancel_stuck_tasks_fn():
+#     try:
+#         await cancel_stuck_tasks()
+#     except Exception as e:
+#         print(f"Error cancelling stuck tasks: {e}")
+#         sentry_sdk.capture_exception(e)
+
+
+# @app.function(
+#     image=image, concurrency_limit=1, schedule=modal.Period(minutes=15), timeout=3600
+# )
+# async def run_nsfw_detection_fn():
+#     try:
+#         await run_nsfw_detection()
+#     except Exception as e:
+#         print(f"Error running nsfw detection: {e}")
+#         sentry_sdk.capture_exception(e)
+
+
+# @app.function(
+#     image=image, concurrency_limit=1, schedule=modal.Period(minutes=15), timeout=3600
+# )
+# async def generate_lora_thumbnails_fn():
+#     try:
+#         await generate_lora_thumbnails()
+#     except Exception as e:
+#         print(f"Error generating lora thumbnails: {e}")
+#         sentry_sdk.capture_exception(e)
 
 
 @app.function(
-    image=image, concurrency_limit=1, schedule=modal.Period(minutes=15), timeout=3600
-)
-async def run_nsfw_detection_fn():
-    try:
-        await run_nsfw_detection()
-    except Exception as e:
-        print(f"Error running nsfw detection: {e}")
-        sentry_sdk.capture_exception(e)
-
-
-@app.function(
-    image=image, concurrency_limit=1, schedule=modal.Period(minutes=15), timeout=3600
-)
-async def generate_lora_thumbnails_fn():
-    try:
-        await generate_lora_thumbnails()
-    except Exception as e:
-        print(f"Error generating lora thumbnails: {e}")
-        sentry_sdk.capture_exception(e)
-
-
-@app.function(
-    image=image, concurrency_limit=15, schedule=modal.Period(minutes=15), timeout=3600
+    image=image, concurrency_limit=15, schedule=modal.Period(minutes=1), timeout=3600
 )
 async def run_twitter_replybots_fn():
-    """Process Twitter mentions for all deployed Twitter bots."""
     try:
-        await run_twitter_replybots(
-            start_time=datetime.now(timezone.utc) - timedelta(minutes=15)
-        )
+        await run_twitter_automation()
     except Exception as e:
         print(f"Error running Twitter replybots: {e}")
         sentry_sdk.capture_exception(e)
