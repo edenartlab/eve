@@ -38,7 +38,7 @@ default_presets_flux = {
         "tip": "This should be your primary tool for making videos or animations. Only use the other video tools if specifically asked to or asked to make VJing material."
     },
     "reel": {
-        "tip": "This is a tool for making short films with vocals, music, and several video cuts. This can be used to make commercials, films, music videos, and other kinds of shortform content. But it takes a while to run, around 5 minutes."
+        "tip": "This is a tool for making short films with vocals, music, and several video cuts. This can be used to make commercials, films, music videos, and other kinds of shortform content. But it takes a while to run, around 5 minutes, so always ask the user to confirm before calling this tool!"
     },
     "news": {},
     "websearch": {},
