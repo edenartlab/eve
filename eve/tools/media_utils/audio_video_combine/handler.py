@@ -31,6 +31,7 @@ async def handler(args: dict):
             "ffmpeg", "-y", "-loglevel", "panic",
             "-i", looped_video.name, "-i", audio_file,
             "-c:v", "copy", "-c:a", "aac", "-strict", "experimental", "-shortest",
+            "-movflags", "+faststart",
             output_file.name,
         ]
 
@@ -42,6 +43,7 @@ async def handler(args: dict):
             "-i", video_file,
             "-f", "lavfi", "-i", f"anullsrc=channel_layout=stereo:sample_rate=44100:duration={video_duration}",
             "-c:v", "copy", "-c:a", "aac", "-strict", "experimental",
+            "-movflags", "+faststart",
             output_file.name,
         ]
 
