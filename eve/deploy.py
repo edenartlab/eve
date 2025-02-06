@@ -3,9 +3,10 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
-from typing import Dict
+from typing import Dict, List, Optional
 
 from bson import ObjectId
+from pydantic import BaseModel
 
 from eve.mongo import Collection, Document, get_collection
 
@@ -20,18 +21,45 @@ class ClientType(Enum):
     DISCORD = "discord"
     TELEGRAM = "telegram"
     FARCASTER = "farcaster"
+    TWITTER = "twitter"
+
+
+class DeploymentSecrets(BaseModel):
+    eden_api_key: str | None = None
+    discord_token: str | None = None
+    telegram_token: str | None = None
+    farcaster_mnemonic: str | None = None
+    farcaster_neynar_webhook_secret: str | None = None
+    twitter_user_id: str | None = None
+    twitter_bearer_token: str | None = None
+    twitter_consumer_key: str | None = None
+    twitter_consumer_secret: str | None = None
+    twitter_access_token: str | None = None
+    twitter_access_token_secret: str | None = None
 
 
 @Collection("deployments")
 class Deployment(Document):
     agent: ObjectId
-    platform: str  # Store the string value instead of enum
+    user: ObjectId
+    platform: str
+    secrets: Optional[DeploymentSecrets]
 
-    def __init__(self, **data):
-        # Convert ClientType enum to string if needed
-        if isinstance(data.get("platform"), ClientType):
-            data["platform"] = data["platform"].value
-        super().__init__(**data)
+    discord_token: Optional[str] = None
+    discord_channel_allowlist: Optional[List[str]] = None
+
+    telegram_token: Optional[str] = None
+    telegram_topic_allowlist: Optional[List[str]] = None
+
+    farcaster_mnemonic: Optional[str] = None
+    farcaster_neynar_webhook_secret: Optional[str] = None
+
+    twitter_bearer_token: Optional[str] = None
+    twitter_consumer_key: Optional[str] = None
+    twitter_consumer_secret: Optional[str] = None
+    twitter_user_id: Optional[str] = None
+    twitter_access_token: Optional[str] = None
+    twitter_access_token_secret: Optional[str] = None
 
     @classmethod
     def ensure_indexes(cls):
@@ -50,6 +78,46 @@ class Deployment(Document):
         """Delete a deployment record"""
         collection = get_collection(cls.collection_name)
         collection.delete_one({"agent": agent_id, "platform": platform})
+
+    @classmethod
+    def create_twitter_deployment(cls, agent_id: ObjectId, credentials: dict):
+        """Create a new Twitter deployment with encrypted credentials"""
+        deployment = cls(
+            agent=agent_id,
+            platform="twitter",
+            twitter_bearer_token=credentials.get("TWITTER_BEARER_TOKEN"),
+            twitter_consumer_key=credentials.get("TWITTER_CONSUMER_KEY"),
+            twitter_consumer_secret=credentials.get("TWITTER_CONSUMER_SECRET"),
+            twitter_user_id=credentials.get("TWITTER_USER_ID"),
+            twitter_access_token=credentials.get("TWITTER_ACCESS_TOKEN"),
+            twitter_access_token_secret=credentials.get("TWITTER_ACCESS_TOKEN_SECRET"),
+        )
+        deployment.save()
+        return deployment
+
+    def get_twitter_credentials(self) -> dict:
+        """Get decrypted Twitter credentials"""
+        if self.platform != "twitter":
+            raise ValueError("Not a Twitter deployment")
+
+        return {
+            "TWITTER_BEARER_TOKEN": self.twitter_bearer_token.get_secret_value()
+            if self.twitter_bearer_token
+            else None,
+            "TWITTER_CONSUMER_KEY": self.twitter_consumer_key.get_secret_value()
+            if self.twitter_consumer_key
+            else None,
+            "TWITTER_CONSUMER_SECRET": self.twitter_consumer_secret.get_secret_value()
+            if self.twitter_consumer_secret
+            else None,
+            "TWITTER_USER_ID": self.twitter_user_id,
+            "TWITTER_ACCESS_TOKEN": self.twitter_access_token.get_secret_value()
+            if self.twitter_access_token
+            else None,
+            "TWITTER_ACCESS_TOKEN_SECRET": self.twitter_access_token_secret.get_secret_value()
+            if self.twitter_access_token_secret
+            else None,
+        }
 
 
 def authenticate_modal_key() -> bool:

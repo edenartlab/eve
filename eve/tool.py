@@ -119,29 +119,34 @@ class Tool(Document, ABC):
 
         # Lazy load the tool class if we haven't seen this handler before
         if handler not in _tool_classes:
-            if handler is None:
+            if handler == "local":
                 from .tools.local_tool import LocalTool
-                _tool_classes[handler] = LocalTool
-            elif handler == "local":
-                from .tools.local_tool import LocalTool
+
                 _tool_classes[handler] = LocalTool
             elif handler == "modal":
                 from .tools.modal_tool import ModalTool
+
                 _tool_classes[handler] = ModalTool
             elif handler == "comfyui":
                 from .tools.comfyui_tool import ComfyUITool
+
                 _tool_classes[handler] = ComfyUITool
             elif handler == "comfyui_legacy":
                 from .tools.comfyui_tool import ComfyUIToolLegacy
+
                 _tool_classes[handler] = ComfyUIToolLegacy
             elif handler == "replicate":
                 from .tools.replicate_tool import ReplicateTool
+
                 _tool_classes[handler] = ReplicateTool
             elif handler == "gcp":
                 from .tools.gcp_tool import GCPTool
+
                 _tool_classes[handler] = GCPTool
             else:
-                raise ValueError(f"Handler {handler} not found")
+                from .tools.local_tool import LocalTool
+
+                _tool_classes[handler] = LocalTool
 
         return _tool_classes[handler]
 
