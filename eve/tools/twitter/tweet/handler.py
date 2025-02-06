@@ -14,6 +14,9 @@ async def handler(args: dict):
     if args.get("images"):
         media_ids = [x.tweet_media(image) for image in args.get("images", [])]
         response = x.post(text=args.get("content") or "", media_ids=media_ids)
+    elif args.get("video"):
+        media_ids = [x.tweet_video(args.get("video"))]
+        response = x.post(text=args.get("content") or "", media_ids=media_ids)
     else:
         response = x.post(text=args.get("content"))
     tweet_id = response.get("data", {}).get("id")
