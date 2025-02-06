@@ -62,6 +62,7 @@ def tool():
     """Tool management commands"""
     pass
 
+
 @tool.command()
 @click.option(
     "--db",
@@ -72,7 +73,7 @@ def tool():
 @click.argument("names", nargs=-1, required=False)
 def update(db: str, names: tuple):
     """Upload tools to mongo"""
-    
+
     load_env(db)
 
     api_files = get_api_files()
@@ -123,11 +124,12 @@ def update(db: str, names: tuple):
 @click.argument("names", nargs=-1, required=True)
 def remove(db: str, names: tuple):
     """Upload tools to mongo"""
-    
+
     load_env(db)
 
     confirm = click.confirm(
-        f"Are you sure you want to remove {len(names)} following tools from {db}?", default=False
+        f"Are you sure you want to remove {len(names)} following tools from {db}?",
+        default=False,
     )
     if not confirm:
         return
@@ -137,18 +139,14 @@ def remove(db: str, names: tuple):
         try:
             tool = Tool.load(key=key)
             tool.delete()
-            click.echo(
-                click.style(f"Deleted tool {db}:{key})", fg="red")
-            )
+            click.echo(click.style(f"Deleted tool {db}:{key})", fg="red"))
             deleted += 1
         except Exception as e:
             traceback.print_exc()
             click.echo(click.style(f"Failed to delete tool {db}:{key}: {e}", fg="red"))
 
     click.echo(
-        click.style(
-            f"Deleted {deleted} of {len(names)} tools", fg="red", bold=True
-        )
+        click.style(f"Deleted {deleted} of {len(names)} tools", fg="red", bold=True)
     )
 
 
@@ -163,7 +161,7 @@ def remove(db: str, names: tuple):
 @click.pass_context
 def run(ctx, tool: str, db: str):
     """Create with a tool. Args are passed as --key=value or --key value"""
-    
+
     load_env(db)
 
     tool = Tool.load(key=tool)
@@ -173,19 +171,19 @@ def run(ctx, tool: str, db: str):
     i = 0
     while i < len(ctx.args):
         arg = ctx.args[i]
-        if arg.startswith('--'):
+        if arg.startswith("--"):
             key = arg[2:]
-            if '=' in key:
-                key, value = key.split('=', 1)
+            if "=" in key:
+                key, value = key.split("=", 1)
                 args[key] = value
-            elif i + 1 < len(ctx.args) and not ctx.args[i + 1].startswith('--'):
+            elif i + 1 < len(ctx.args) and not ctx.args[i + 1].startswith("--"):
                 value = ctx.args[i + 1]
                 args[key] = value
                 i += 1
             else:
                 args[key] = True
         i += 1
-            
+
     result = tool.run(args)
     color = random.choice(CLICK_COLORS)
     if result.get("error"):
@@ -228,13 +226,7 @@ def run(ctx, tool: str, db: str):
 @click.option("--mock", is_flag=True, default=False, help="Mock test results")
 @click.argument("tools", nargs=-1, required=False)
 def test(
-    tools: tuple, 
-    yaml: bool, 
-    db: str, 
-    api: bool, 
-    parallel: bool, 
-    save: bool, 
-    mock: bool
+    tools: tuple, yaml: bool, db: str, api: bool, parallel: bool, save: bool, mock: bool
 ):
     """Test multiple tools with their test args"""
 
@@ -248,10 +240,7 @@ def test(
         if api:
             user = get_my_eden_user()
             task = await tool.async_start_task(
-                requester_id=user.id, 
-                user_id=user.id, 
-                args=tool.test_args, 
-                mock=mock
+                requester_id=user.id, user_id=user.id, args=tool.test_args, mock=mock
             )
             result = await tool.async_wait(task)
         else:
