@@ -126,6 +126,10 @@ class ReplicateTool(Tool):
                             new_args["prompt"] = pattern.sub(
                                 lora_trigger_text, new_args["prompt"]
                             )
+                            if lora_trigger_text:
+                                if lora_trigger_text not in new_args["prompt"]:
+                                    new_args["prompt"] = f"{lora_trigger_text}, {new_args['prompt']}"
+
                 if is_number:
                     new_args[field] = float(args[field])
                 elif is_array:
