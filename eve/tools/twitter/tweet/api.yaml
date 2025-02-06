@@ -19,7 +19,11 @@ parameters:
     type: array
     label: Images
     description: A list of image or video URLs to include in the tweet.
-    tip: If you want to include a video, you can not include any additional images or other videos.
+    tip: If you have images, you cannot have a video.
     items:
       type: string
-  
+  video:
+    type: string
+    label: Video
+    description: A video URL to include in the tweet.
+    tip: If you want to include a video, you can not include any images.
