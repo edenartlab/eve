@@ -108,6 +108,7 @@ class Tool(Document, ABC):
     def get_sub_class(cls, schema, from_yaml=False) -> type:
         """Lazy load tool classes only when needed"""
         handler = schema.get("handler")
+        print("THE HANDLER IS 55", handler)
         parent_tool = schema.get("parent_tool")
 
         if parent_tool:
@@ -119,7 +120,11 @@ class Tool(Document, ABC):
 
         # Lazy load the tool class if we haven't seen this handler before
         if handler not in _tool_classes:
-            if handler == "local":
+            if handler is None:
+                from .tools.local_tool import LocalTool
+
+                _tool_classes[handler] = LocalTool
+            elif handler == "local":
                 from .tools.local_tool import LocalTool
 
                 _tool_classes[handler] = LocalTool

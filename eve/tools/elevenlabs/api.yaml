@@ -16,7 +16,14 @@ parameters:
     type: string
     label: Voice ID
     description: The voice ID to use for the speech
+    tip: Always use Verdelis for female and Tao for male by default, except when asked to do Middle Eastern, then use tlETan7Okc4pzjD0z62P.
     required: true
+    choices: [mrACSB3QITzdoWMZJH8P, 1wDwDMEYwjOS0vDcRyy3, tlETan7Okc4pzjD0z62P]
+    choices_labels: [Verdelis, Tao, Mohammed]
+
+    Carter qNkzaJoHLLdpvgh5tISm
+    Archer British L0Dsvb3SLTyegXwtm47J
+    
   stability:
     type: float
     label: Stability
