@@ -9,6 +9,7 @@ from eve.deploy import Deployment
 
 class X:
     def __init__(self, deployment: Deployment):
+        print("DEPLOYMENT", deployment)
         self.user_id = deployment.secrets.twitter_user_id
         self.access_token = deployment.secrets.twitter_access_token
         self.access_token_secret = deployment.secrets.twitter_access_token_secret
