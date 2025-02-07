@@ -490,8 +490,7 @@ async def lifespan(app: FastAPI):
 def create_telegram_app() -> FastAPI:
     app = FastAPI(lifespan=lifespan)
 
-    # Start the bot in a background thread. Without setting an event loop,
-    # run_polling() will fail in a newly spawned thread.
+    # Start the bot in a background thread
     application = init(env=".env", local=False)
 
     def run_bot():
@@ -500,17 +499,17 @@ def create_telegram_app() -> FastAPI:
         # Create a new event loop for this thread
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        # Disable signal handling in this background thread to avoid errors.
-        loop.run_until_complete(
-            application.run_polling(
-                allowed_updates=Update.ALL_TYPES, handle_signals=False
-            )
-        )
+        # Run the application directly without signal handling
+        loop.run_forever()
 
     import threading
 
     bot_thread = threading.Thread(target=run_bot, daemon=True)
     bot_thread.start()
+
+    # Start the application in the background
+    asyncio.create_task(application.initialize())
+    asyncio.create_task(application.start_polling(allowed_updates=Update.ALL_TYPES))
 
     return app
 
