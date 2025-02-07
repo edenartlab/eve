@@ -500,8 +500,11 @@ def create_telegram_app() -> FastAPI:
         # Create a new event loop for this thread
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
+        # Disable signal handling in this background thread to avoid errors.
         loop.run_until_complete(
-            application.run_polling(allowed_updates=Update.ALL_TYPES)
+            application.run_polling(
+                allowed_updates=Update.ALL_TYPES, handle_signals=False
+            )
         )
 
     import threading
