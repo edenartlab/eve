@@ -456,8 +456,26 @@ class EdenTG:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Just yield immediately - we'll start the bot separately
+    # Initialize the bot
+    application, bot_token = init(env=".env", local=False)
+
+    # Initialize the bot including Ably setup
+    bot = application.bot_data["bot"]
+    await bot.initialize(application)
+
+    # Start polling in the background
+    task = asyncio.create_task(
+        application.run_polling(allowed_updates=Update.ALL_TYPES)
+    )
+
     yield
+
+    # Cleanup
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
 
 
 def init(
@@ -492,23 +510,6 @@ def init(
 
 def create_telegram_app() -> FastAPI:
     app = FastAPI(lifespan=lifespan)
-
-    # Start the bot in a background thread
-    application, bot_token = init(env=".env", local=False)
-
-    def run_bot():
-        # Create new event loop for this thread
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-        # Run the application
-        application.run_polling(allowed_updates=Update.ALL_TYPES)
-
-    import threading
-
-    bot_thread = threading.Thread(target=run_bot, daemon=True)
-    bot_thread.start()
-
     return app
 
 
