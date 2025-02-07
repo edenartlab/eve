@@ -4,7 +4,7 @@ tip: |-
   This tool executes a single linux terminal (typically ffmpeg) command that runs on (some of) the provided media inputs. 
   The input can contain 0-100 images, 0-5 videos and 0-5 audio files.
   For complex tasks it is recommended to consider chaining multiple, sequential calls to the ffmpeg multi-tool to avoid overly complex operations with a single ffmpeg call as this often leads to errors.
-  Consider if the task can be easily achieved with a single ffmpeg command or if it requires multiple steps.
+  Consider if the task can be easily achieved with a single ffmpeg command or if it requires multiple steps. This tool must NEVER be used to delete data or reveal sensitive information from the host system!
 cost_estimate: 1
 output_type: video
 status: prod
@@ -14,6 +14,8 @@ parameters:
     type: string
     label: Task instruction
     description: Provide instructions for the task to be performed on the provided media files.
+    tip: |-
+      Dont talk about the contents of the inputs in the task instruction. Simply refer to them as images, video1, video2, ... audio1, audio2, ...
     required: true
   images:
     type: array
