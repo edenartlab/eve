@@ -76,7 +76,7 @@ class Eden2Cog(commands.Cog):
         self.typing_tasks = {}
 
     def _get_deployment_config(self, agent: Agent) -> DeploymentConfig:
-        deployment = Deployment.load({"agent": agent.id, "platform": "discord"})
+        deployment = Deployment.load(agent=agent.id, platform="discord")
         if not deployment:
             raise Exception("No deployment config found")
         return deployment.config
