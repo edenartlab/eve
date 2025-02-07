@@ -423,7 +423,7 @@ def init(
         load_dotenv(env)
 
         agent_name = os.getenv("AGENT_ID")
-        agent = Agent.load(agent_name)
+        agent = Agent.from_mongo(agent_name)
 
         logger.info(f"Launching Discord bot {agent.username}...")
 

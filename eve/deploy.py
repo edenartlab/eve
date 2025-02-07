@@ -14,7 +14,8 @@ from eve.mongo import Collection, Document, get_collection
 REPO_URL = "https://github.com/edenartlab/eve.git"
 DEPLOYMENT_ENV_NAME = "deployments"
 db = os.getenv("DB", "STAGE").upper()
-REPO_BRANCH = "main" if db == "PROD" else "staging"
+# REPO_BRANCH = "main" if db == "PROD" else "staging"
+REPO_BRANCH = "jmill/deployment-integration"
 
 
 class ClientType(Enum):
