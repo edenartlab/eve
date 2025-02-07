@@ -1,9 +1,11 @@
 import os
+import logging
 import argparse
 import re
 from ably import AblyRealtime
 import aiohttp
 from dotenv import load_dotenv
+import sentry_sdk
 from telegram import Update
 from telegram.constants import ChatAction
 from telegram.ext import (
@@ -15,13 +17,19 @@ from telegram.ext import (
     Application,
 )
 import asyncio
+from fastapi import FastAPI
+from contextlib import asynccontextmanager
+
+from eve import load_env
+from ...deploy import ClientType, Deployment, DeploymentConfig
 
 from ...clients import common
 from ...agent import Agent
 from ...llm import UpdateType
 from ...user import User
 from ...eden_utils import prepare_result
-from ...deploy import ClientType
+
+logger = logging.getLogger(__name__)
 
 
 async def handler_mention_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -118,17 +126,17 @@ class EdenTG:
     def __init__(self, token: str, agent: Agent, local: bool = False):
         self.token = token
         self.agent = agent
+        self.deployment_config = self._get_deployment_config(agent)
 
-        # Parse allowlist into tuples of (group_id, topic_id)
+        # Parse allowlist from deployment config
         self.telegram_topic_allowlist = []
         self.telegram_group_allowlist = []
 
-        # Only parse allowlist if it exists
-        if agent.telegram_topic_allowlist:
-            for entry in agent.telegram_topic_allowlist:
+        if self.deployment_config.telegram.topic_allowlist:
+            for entry in self.deployment_config.telegram.topic_allowlist:
                 try:
-                    if "/" in entry:  # Topic format: "group_id/topic_id"
-                        group_id, topic_id = entry.split("/")
+                    if "/" in entry.id:  # Topic format: "group_id/topic_id"
+                        group_id, topic_id = entry.id.split("/")
                         internal_group_id = -int(f"100{group_id}")
 
                         # Special case: if topic_id is "1", this is the main channel
@@ -139,9 +147,11 @@ class EdenTG:
                                 (internal_group_id, int(topic_id))
                             )
                     else:  # Group format: "group_id"
-                        self.telegram_group_allowlist.append(int(entry))
+                        self.telegram_group_allowlist.append(int(entry.id))
                 except ValueError:
-                    raise ValueError(f"Invalid format in telegram allowlist: {entry}")
+                    raise ValueError(
+                        f"Invalid format in telegram allowlist: {entry.id}"
+                    )
 
         self.tools = agent.get_tools()
         self.known_users = {}
@@ -159,6 +169,12 @@ class EdenTG:
         self.channel = None
 
         self.typing_tasks = {}
+
+    def _get_deployment_config(self, agent: Agent) -> DeploymentConfig:
+        deployment = Deployment.load(agent=agent.id, platform="telegram")
+        if not deployment:
+            raise Exception("No deployment config found")
+        return deployment.config
 
     async def initialize(self, application):
         """Initialize the bot including Ably setup"""
@@ -438,38 +454,69 @@ class EdenTG:
             print(f"Error sending typing indicator: {e}")
 
 
-def start(env: str, local: bool = False) -> None:
-    print("Starting Telegram client...")
-    load_dotenv(env)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Just yield immediately - we'll start the bot separately
+    yield
 
-    agent_name = os.getenv("EDEN_AGENT_USERNAME")
-    agent = Agent.load(agent_name)
 
-    bot_token = os.getenv("CLIENT_TELEGRAM_TOKEN")
-    if not bot_token:
-        raise ValueError("CLIENT_TELEGRAM_TOKEN not found in environment variables")
+def init(
+    env: str,
+    local: bool = False,
+) -> tuple[ApplicationBuilder, str]:
+    try:
+        load_dotenv(env)
 
-    application = ApplicationBuilder().token(bot_token).build()
-    bot = EdenTG(bot_token, agent, local=local)
+        agent_name = os.getenv("AGENT_ID")
+        agent = Agent.from_mongo(agent_name)
 
-    # Setup handlers
-    application.add_handler(CommandHandler("start", bot.start))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bot.echo))
-    application.add_handler(MessageHandler(filters.PHOTO, bot.echo))
+        logger.info(f"Launching Telegram bot {agent.username}...")
 
-    # Create a post init callback to setup Ably
-    async def post_init(application: Application) -> None:
-        await bot.initialize(application)
+        bot_token = os.getenv("CLIENT_TELEGRAM_TOKEN")
+        application = ApplicationBuilder().token(bot_token).build()
+        bot = EdenTG(bot_token, agent, local=local)
 
-    application.post_init = post_init
+        # Setup handlers
+        application.add_handler(CommandHandler("start", bot.start))
+        application.add_handler(
+            MessageHandler(filters.TEXT & ~filters.COMMAND, bot.echo)
+        )
+        application.add_handler(MessageHandler(filters.PHOTO, bot.echo))
 
-    # Run the bot
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+        return application, bot_token
+    except Exception as e:
+        logger.error("Failed to start Telegram bot", exc_info=True)
+        sentry_sdk.capture_exception(e)
+        raise
+
+
+def create_telegram_app() -> FastAPI:
+    app = FastAPI(lifespan=lifespan)
+
+    # Start the bot in a background thread
+    application, bot_token = init(env=".env", local=False)
+
+    def run_bot():
+        application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+    import threading
+
+    bot_thread = threading.Thread(target=run_bot, daemon=True)
+    bot_thread.start()
+
+    return app
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Eden Telegram Bot")
-    parser.add_argument("--env", help="Path to the .env file to load", default=".env")
+    parser = argparse.ArgumentParser(description="TelegramBot")
+    parser.add_argument("--agent", help="Agent username")
+    parser.add_argument("--db", help="Database to use", default="STAGE")
+    parser.add_argument(
+        "--env", help="Path to a different .env file not in agent directory"
+    )
     parser.add_argument("--local", help="Run locally", action="store_true")
     args = parser.parse_args()
-    start(args.env, args.local)
+
+    load_env(args.db)
+    application, bot_token = init(args.env, args.local)
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
