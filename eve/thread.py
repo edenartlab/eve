@@ -16,6 +16,7 @@ class ChatMessage(BaseModel):
     createdAt: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     role: Literal["user", "assistant"]
     reply_to: Optional[ObjectId] = None
+    hidden: Optional[bool] = False  # hides message (e.g. triggers / special system instructions) from llm
     reactions: Optional[Dict[str, List[ObjectId]]] = {}
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -390,9 +391,15 @@ class Thread(Document):
         }
         self.set_against_filter(updates, filter={"messages.id": message_id})
 
-    def get_messages(self, last_n=15):
+    def get_messages(self, last_n=25):
         # filter by time, number, or prompt
-        # if reply to inside messages, mark it
-        # if reply to by old message, include context leading up to it
-        # self.reload()
-        return self.messages[-last_n:]
+        # todo: if reply to inside messages, mark it
+        # todo: if reply to by old message, include context leading up to it
+        all_messages = self.messages[-last_n:]
+        messages = [m for m in all_messages if not m.hidden]
+        
+        # hidden messages should be excluded except for the last one (e.g. a trigger)
+        if all_messages and all_messages[-1].hidden:
+            messages.append(all_messages[-1])
+            
+        return messages

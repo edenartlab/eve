@@ -245,7 +245,9 @@ class EdenTG:
                 result = data.get("result", {})
                 result["result"] = prepare_result(result["result"])
                 outputs = result["result"][0]["output"]
-                urls = [output["url"] for output in outputs[:4]]  # Get up to 4 URLs
+                urls = [
+                    output["url"] for output in outputs[:4] if "url" in output
+                ]  # Get up to 4 URLs
 
                 # Send each URL as appropriate media type
                 for url in urls:
