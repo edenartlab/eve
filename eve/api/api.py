@@ -12,6 +12,7 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 from starlette.middleware.base import BaseHTTPMiddleware
 import sentry_sdk
+from fastapi.exceptions import RequestValidationError
 
 from eve import auth, db
 from eve.runner.runner_tasks import (
@@ -242,6 +243,21 @@ async def updates_twitter(
     _: dict = Depends(auth.authenticate_admin),
 ):
     return await handle_twitter_update(request)
+
+
+@web_app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    print(f"Validation error on {request.url}:")
+    print(f"Request body: {await request.body()}")
+    print(f"Validation errors: {exc.errors()}")
+
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": exc.errors(),
+            "body": await request.json() if await request.body() else None,
+        },
+    )
 
 
 @web_app.exception_handler(Exception)

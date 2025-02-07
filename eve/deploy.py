@@ -30,11 +30,11 @@ class AllowlistItem(BaseModel):
 
 
 class DeploymentSettingsDiscord(BaseModel):
-    channel_allowlist: List[AllowlistItem]
+    channel_allowlist: Optional[List[AllowlistItem]] = None
 
 
 class DeploymentSettingsTelegram(BaseModel):
-    topic_allowlist: List[AllowlistItem]
+    topic_allowlist: Optional[List[AllowlistItem]] = None
 
 
 class DeploymentSettingsFarcaster(BaseModel):

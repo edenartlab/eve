@@ -92,9 +92,14 @@ class DeleteTriggerRequest(BaseModel):
     id: str
 
 
+class AllowedChannel(BaseModel):
+    id: str
+    note: str
+
+
 class AgentDeploymentConfig(BaseModel):
-    discord_channel_allowlist: Optional[List[str]] = None
-    telegram_topic_allowlist: Optional[List[str]] = None
+    discord_channel_allowlist: Optional[List[AllowedChannel]] = None
+    telegram_topic_allowlist: Optional[List[AllowedChannel]] = None
 
 
 class ConfigureDeploymentRequest(BaseModel):

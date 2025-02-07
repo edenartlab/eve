@@ -233,7 +233,7 @@ async def handle_deployment_create(request: CreateDeploymentRequest):
     #     repo_branch=request.repo_branch,
     # )
 
-    return {"message": f"Deployed {request.platform.value} client"}
+    return {"deployment_id": str(deployment.id)}
 
 
 @handle_errors
@@ -244,12 +244,12 @@ async def handle_deployment_delete(request: DeleteDeploymentRequest):
 
     try:
         # Stop the Modal container
-        stop_client(request.agent_username, request.platform.value)
+        # stop_client(request.agent_username, request.platform.value)
 
         # Delete deployment record
         Deployment.delete_deployment(agent.id, request.platform.value)
 
-        return {"message": f"Stopped {request.platform.value} client"}
+        return {"success": True}
     except Exception as e:
         raise APIError(f"Failed to stop client: {str(e)}", status_code=500)
 
