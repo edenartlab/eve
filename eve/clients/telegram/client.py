@@ -1,11 +1,11 @@
+from contextlib import asynccontextmanager
 import os
-import logging
 import argparse
 import re
 from ably import AblyRealtime
 import aiohttp
 from dotenv import load_dotenv
-import sentry_sdk
+from fastapi import FastAPI
 from telegram import Update
 from telegram.constants import ChatAction
 from telegram.ext import (
@@ -17,19 +17,13 @@ from telegram.ext import (
     Application,
 )
 import asyncio
-from fastapi import FastAPI
-from contextlib import asynccontextmanager
-
-from eve import load_env
-from ...deploy import ClientType, Deployment, DeploymentConfig
 
 from ...clients import common
 from ...agent import Agent
 from ...llm import UpdateType
 from ...user import User
 from ...eden_utils import prepare_result
-
-logger = logging.getLogger(__name__)
+from ...deploy import ClientType
 
 
 async def handler_mention_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -126,17 +120,17 @@ class EdenTG:
     def __init__(self, token: str, agent: Agent, local: bool = False):
         self.token = token
         self.agent = agent
-        self.deployment_config = self._get_deployment_config(agent)
 
-        # Parse allowlist from deployment config
+        # Parse allowlist into tuples of (group_id, topic_id)
         self.telegram_topic_allowlist = []
         self.telegram_group_allowlist = []
 
-        if self.deployment_config.telegram.topic_allowlist:
-            for entry in self.deployment_config.telegram.topic_allowlist:
+        # Only parse allowlist if it exists
+        if agent.telegram_topic_allowlist:
+            for entry in agent.telegram_topic_allowlist:
                 try:
-                    if "/" in entry.id:  # Topic format: "group_id/topic_id"
-                        group_id, topic_id = entry.id.split("/")
+                    if "/" in entry:  # Topic format: "group_id/topic_id"
+                        group_id, topic_id = entry.split("/")
                         internal_group_id = -int(f"100{group_id}")
 
                         # Special case: if topic_id is "1", this is the main channel
@@ -147,11 +141,9 @@ class EdenTG:
                                 (internal_group_id, int(topic_id))
                             )
                     else:  # Group format: "group_id"
-                        self.telegram_group_allowlist.append(int(entry.id))
+                        self.telegram_group_allowlist.append(int(entry))
                 except ValueError:
-                    raise ValueError(
-                        f"Invalid format in telegram allowlist: {entry.id}"
-                    )
+                    raise ValueError(f"Invalid format in telegram allowlist: {entry}")
 
         self.tools = agent.get_tools()
         self.known_users = {}
@@ -169,12 +161,6 @@ class EdenTG:
         self.channel = None
 
         self.typing_tasks = {}
-
-    def _get_deployment_config(self, agent: Agent) -> DeploymentConfig:
-        deployment = Deployment.load(agent=agent.id, platform="telegram")
-        if not deployment:
-            raise Exception("No deployment config found")
-        return deployment.config
 
     async def initialize(self, application):
         """Initialize the bot including Ably setup"""
@@ -261,9 +247,7 @@ class EdenTG:
                 result = data.get("result", {})
                 result["result"] = prepare_result(result["result"])
                 outputs = result["result"][0]["output"]
-                urls = [
-                    output["url"] for output in outputs[:4] if "url" in output
-                ]  # Get up to 4 URLs
+                urls = [output["url"] for output in outputs[:4]]  # Get up to 4 URLs
 
                 # Send each URL as appropriate media type
                 for url in urls:
@@ -454,83 +438,66 @@ class EdenTG:
             print(f"Error sending typing indicator: {e}")
 
 
+def init(env: str, local: bool = False) -> None:
+    print("Starting Telegram client...")
+    load_dotenv(env)
+
+    agent_name = os.getenv("AGENT_ID")
+    agent = Agent.from_mongo(agent_name)
+
+    bot_token = os.getenv("CLIENT_TELEGRAM_TOKEN")
+    if not bot_token:
+        raise ValueError("CLIENT_TELEGRAM_TOKEN not found in environment variables")
+
+    application = ApplicationBuilder().token(bot_token).build()
+    bot = EdenTG(bot_token, agent, local=local)
+
+    # Setup handlers
+    application.add_handler(CommandHandler("start", bot.start))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bot.echo))
+    application.add_handler(MessageHandler(filters.PHOTO, bot.echo))
+
+    # Create a post init callback to setup Ably
+    async def post_init(application: Application) -> None:
+        await bot.initialize(application)
+
+    application.post_init = post_init
+
+    # Run the bot
+    return application
+
+
+def start(env: str, local: bool = False) -> None:
+    app = init(env, local)
+    app.run_polling(allowed_updates=Update.ALL_TYPES)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialize the bot
-    application, bot_token = init(env=".env", local=False)
-
-    # Initialize the bot including Ably setup
-    bot = application.bot_data["bot"]
-    await bot.initialize(application)
-
-    # Start polling in the background
-    task = asyncio.create_task(
-        application.run_polling(allowed_updates=Update.ALL_TYPES)
-    )
-
+    # Just yield immediately - we'll start the bot separately
     yield
-
-    # Cleanup
-    task.cancel()
-    try:
-        await task
-    except asyncio.CancelledError:
-        pass
-
-
-def init(
-    env: str,
-    local: bool = False,
-) -> tuple[Application, str]:
-    try:
-        load_dotenv(env)
-
-        agent_name = os.getenv("AGENT_ID")
-        agent = Agent.from_mongo(agent_name)
-
-        logger.info(f"Launching Telegram bot {agent.username}...")
-
-        bot_token = os.getenv("CLIENT_TELEGRAM_TOKEN")
-        application = ApplicationBuilder().token(bot_token).build()
-        bot = EdenTG(bot_token, agent, local=local)
-
-        # Store bot instance in application
-        application.bot_data["bot"] = bot
-
-        # Setup handlers
-        application.add_handler(CommandHandler("start", bot.start))
-        application.add_handler(
-            MessageHandler(filters.TEXT & ~filters.COMMAND, bot.echo)
-        )
-        application.add_handler(MessageHandler(filters.PHOTO, bot.echo))
-
-        return application, bot_token
-    except Exception as e:
-        logger.error("Failed to start Telegram bot", exc_info=True)
-        sentry_sdk.capture_exception(e)
-        raise
 
 
 def create_telegram_app() -> FastAPI:
     app = FastAPI(lifespan=lifespan)
+
+    # Start the bot in a background thread
+    application = init(env=".env", local=False)
+
+    def run_bot():
+        application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+    import threading
+
+    bot_thread = threading.Thread(target=run_bot, daemon=True)
+    bot_thread.start()
+
     return app
 
 
-def start(env: str, local: bool = False) -> None:
-    app, bot_token = init(env, local)
-    asyncio.create_task(app.run_polling(allowed_updates=Update.ALL_TYPES))
-
-
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="TelegramBot")
-    parser.add_argument("--agent", help="Agent username")
-    parser.add_argument("--db", help="Database to use", default="STAGE")
-    parser.add_argument(
-        "--env", help="Path to a different .env file not in agent directory"
-    )
+    parser = argparse.ArgumentParser(description="Eden Telegram Bot")
+    parser.add_argument("--env", help="Path to the .env file to load", default=".env")
     parser.add_argument("--local", help="Run locally", action="store_true")
     args = parser.parse_args()
-
-    load_env(args.db)
-    application, bot_token = init(args.env, args.local)
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    start(args.env, args.local)
