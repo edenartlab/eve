@@ -391,17 +391,15 @@ class Thread(Document):
         }
         self.set_against_filter(updates, filter={"messages.id": message_id})
 
-    def get_messages(self, last_n=15):
+    def get_messages(self, last_n=25):
         # filter by time, number, or prompt
-        # if reply to inside messages, mark it
-        # if reply to by old message, include context leading up to it
-        # self.reload()
-        messages = self.messages[-last_n:]
-        messages = [m for m in messages if not m.hidden]
-        messagesh = [m for m in messages if m.hidden]
-        print("HIDDEN MESSAGES ARE!!!")
-        print(messagesh)
-        print("THE MESSAGES ARE 1!!!")
-        print(messages)
-        print("THE MESSAGES ARE 2!!!")
+        # todo: if reply to inside messages, mark it
+        # todo: if reply to by old message, include context leading up to it
+        all_messages = self.messages[-last_n:]
+        messages = [m for m in all_messages if not m.hidden]
+        
+        # hidden messages should be excluded except for the last one (e.g. a trigger)
+        if all_messages and all_messages[-1].hidden:
+            messages.append(all_messages[-1])
+            
         return messages
