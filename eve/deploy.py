@@ -8,13 +8,15 @@ from typing import Dict, List, Optional
 from bson import ObjectId
 from pydantic import BaseModel
 
+from eve.agent import Agent
 from eve.mongo import Collection, Document, get_collection
 
 
 REPO_URL = "https://github.com/edenartlab/eve.git"
 DEPLOYMENT_ENV_NAME = "deployments"
 db = os.getenv("DB", "STAGE").upper()
-REPO_BRANCH = "main" if db == "PROD" else "staging"
+# REPO_BRANCH = "main" if db == "PROD" else "staging"
+REPO_BRANCH = "jmill/deployment-integration"
 
 
 class ClientType(Enum):
@@ -24,18 +26,61 @@ class ClientType(Enum):
     TWITTER = "twitter"
 
 
+class AllowlistItem(BaseModel):
+    id: str
+    note: str
+
+
+class DeploymentSettingsDiscord(BaseModel):
+    channel_allowlist: Optional[List[AllowlistItem]] = None
+
+
+class DeploymentSettingsTelegram(BaseModel):
+    topic_allowlist: Optional[List[AllowlistItem]] = None
+
+
+class DeploymentSettingsFarcaster(BaseModel):
+    pass
+
+
+class DeploymentSettingsTwitter(BaseModel):
+    pass
+
+
+class DeploymentSecretsDiscord(BaseModel):
+    token: str
+
+
+class DeploymentSecretsTelegram(BaseModel):
+    token: str
+
+
+class DeploymentSecretsFarcaster(BaseModel):
+    mnemonic: str
+    neynar_webhook_secret: str
+
+
+class DeploymentSecretsTwitter(BaseModel):
+    user_id: str
+    bearer_token: str
+    consumer_key: str
+    consumer_secret: str
+    access_token: str
+    access_token_secret: str
+
+
 class DeploymentSecrets(BaseModel):
-    eden_api_key: str | None = None
-    discord_token: str | None = None
-    telegram_token: str | None = None
-    farcaster_mnemonic: str | None = None
-    farcaster_neynar_webhook_secret: str | None = None
-    twitter_user_id: str | None = None
-    twitter_bearer_token: str | None = None
-    twitter_consumer_key: str | None = None
-    twitter_consumer_secret: str | None = None
-    twitter_access_token: str | None = None
-    twitter_access_token_secret: str | None = None
+    discord: DeploymentSecretsDiscord | None = None
+    telegram: DeploymentSecretsTelegram | None = None
+    farcaster: DeploymentSecretsFarcaster | None = None
+    twitter: DeploymentSecretsTwitter | None = None
+
+
+class DeploymentConfig(BaseModel):
+    discord: DeploymentSettingsDiscord | None = None
+    telegram: DeploymentSettingsTelegram | None = None
+    farcaster: DeploymentSettingsFarcaster | None = None
+    twitter: DeploymentSettingsTwitter | None = None
 
 
 @Collection("deployments")
@@ -44,22 +89,7 @@ class Deployment(Document):
     user: ObjectId
     platform: str
     secrets: Optional[DeploymentSecrets]
-
-    discord_token: Optional[str] = None
-    discord_channel_allowlist: Optional[List[str]] = None
-
-    telegram_token: Optional[str] = None
-    telegram_topic_allowlist: Optional[List[str]] = None
-
-    farcaster_mnemonic: Optional[str] = None
-    farcaster_neynar_webhook_secret: Optional[str] = None
-
-    twitter_bearer_token: Optional[str] = None
-    twitter_consumer_key: Optional[str] = None
-    twitter_consumer_secret: Optional[str] = None
-    twitter_user_id: Optional[str] = None
-    twitter_access_token: Optional[str] = None
-    twitter_access_token_secret: Optional[str] = None
+    config: Optional[DeploymentConfig]
 
     @classmethod
     def ensure_indexes(cls):
@@ -139,6 +169,10 @@ def authenticate_modal_key() -> bool:
     print(result.stdout)
 
 
+def get_container_name(agent_id: str, agent_key: str, platform: str, env: str) -> str:
+    return f"{agent_id}-{agent_key}-{platform}-{env}"
+
+
 def check_environment_exists(env_name: str) -> bool:
     result = subprocess.run(
         ["modal", "environment", "list"], capture_output=True, text=True
@@ -176,7 +210,14 @@ def clone_repo(temp_dir: str, branch: str = None):
     )
 
 
-def prepare_client_file(file_path: str, agent_key: str, env: str) -> None:
+def prepare_client_file(
+    file_path: str,
+    agent_id: str,
+    agent_key: str,
+    platform: str,
+    secrets: DeploymentSecrets,
+    env: str,
+) -> None:
     """Modify the client file to use correct secret name"""
     with open(file_path, "r") as f:
         content = f.read()
@@ -196,6 +237,33 @@ def prepare_client_file(file_path: str, agent_key: str, env: str) -> None:
         f'.pip_install_from_pyproject("{pyproject_path}")',
     )
 
+    # Fix environment variable replacement
+    modified_content = modified_content.replace(
+        '.env({"AGENT_ID": ""})',
+        f'.env({{"AGENT_ID": "{agent_id}"}})',  # Note the double curly braces
+    )
+
+    if platform == "discord":
+        discord_token = secrets.discord.token
+        if not discord_token:
+            raise Exception("Discord token not found")
+        modified_content = modified_content.replace(
+            '.env({"CLIENT_DISCORD_TOKEN": ""})',
+            f'.env({{"CLIENT_DISCORD_TOKEN": "{discord_token}"}})',
+        )
+    elif platform == "telegram":
+        telegram_token = secrets.telegram.token
+        if not telegram_token:
+            raise Exception("Telegram token not found")
+        modified_content = modified_content.replace(
+            '.env({"CLIENT_TELEGRAM_TOKEN": ""})',
+            f'.env({{"CLIENT_TELEGRAM_TOKEN": "{telegram_token}"}})',
+        )
+    elif platform == "farcaster":
+        pass
+    elif platform == "twitter":
+        pass
+
     print(modified_content)
 
     temp_dir = tempfile.mkdtemp()
@@ -206,7 +274,14 @@ def prepare_client_file(file_path: str, agent_key: str, env: str) -> None:
     return str(temp_file)
 
 
-def deploy_client(agent_key: str, client_name: str, env: str, repo_branch: str = None):
+def deploy_client(
+    agent_id: str,
+    agent_key: str,
+    platform: str,
+    secrets: DeploymentSecrets,
+    env: str,
+    repo_branch: str = None,
+):
     """Deploy a Modal client for an agent."""
     with tempfile.TemporaryDirectory() as temp_dir:
         # Clone the repo using provided branch or default
@@ -215,12 +290,14 @@ def deploy_client(agent_key: str, client_name: str, env: str, repo_branch: str =
 
         # Check for client file in the cloned repo
         client_path = os.path.join(
-            temp_dir, "eve", "clients", client_name, "modal_client.py"
+            temp_dir, "eve", "clients", platform, "modal_client.py"
         )
         if os.path.exists(client_path):
             # Modify the client file to use the correct secret name
-            temp_file = prepare_client_file(client_path, agent_key, env)
-            app_name = f"{agent_key}-{client_name}-{env}"
+            temp_file = prepare_client_file(
+                client_path, agent_id, agent_key, platform, secrets, env
+            )
+            app_name = get_container_name(agent_id, agent_key, platform, env)
 
             subprocess.run(
                 [
@@ -238,14 +315,15 @@ def deploy_client(agent_key: str, client_name: str, env: str, repo_branch: str =
             raise Exception(f"Client modal file not found: {client_path}")
 
 
-def stop_client(agent_key: str, client_name: str):
+def stop_client(agent: Agent, platform: str):
     """Stop a Modal client. Raises an exception if the stop fails."""
+    container_name = get_container_name(agent.id, agent.username, platform, db.lower())
     result = subprocess.run(
         [
             "modal",
             "app",
             "stop",
-            f"{agent_key}-{client_name}-{db.lower()}",
+            container_name,
             "-e",
             DEPLOYMENT_ENV_NAME,
         ],

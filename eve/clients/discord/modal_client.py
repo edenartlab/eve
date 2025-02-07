@@ -6,7 +6,6 @@ from eve.clients.discord.client import create_discord_app
 app = modal.App(
     name=f"client-discord-{db}",
     secrets=[
-        modal.Secret.from_name("client-secrets"),
         modal.Secret.from_name("eve-secrets", environment_name="main"),
         modal.Secret.from_name(f"eve-secrets-{db}", environment_name="main"),
     ],
@@ -15,6 +14,8 @@ app = modal.App(
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .env({"DB": db})
+    .env({"AGENT_ID": ""})
+    .env({"CLIENT_DISCORD_TOKEN": ""})
     .apt_install("libmagic1", "ffmpeg", "wget")
     .pip_install_from_pyproject("pyproject.toml")
     .run_commands(["playwright install"])

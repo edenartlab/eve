@@ -46,6 +46,7 @@ HANDLERS = Literal["local", "modal", "comfyui", "comfyui_legacy", "replicate", "
 class RateLimit(BaseModel):
     period: int
     count: int
+    feature_flag: Optional[str] = None
 
 
 @Collection("tools3")
