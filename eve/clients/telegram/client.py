@@ -481,7 +481,7 @@ async def lifespan(app: FastAPI):
 def init(
     env: str,
     local: bool = False,
-) -> tuple[ApplicationBuilder, str]:
+) -> tuple[Application, str]:
     try:
         load_dotenv(env)
 
@@ -493,6 +493,9 @@ def init(
         bot_token = os.getenv("CLIENT_TELEGRAM_TOKEN")
         application = ApplicationBuilder().token(bot_token).build()
         bot = EdenTG(bot_token, agent, local=local)
+
+        # Store bot instance in application
+        application.bot_data["bot"] = bot
 
         # Setup handlers
         application.add_handler(CommandHandler("start", bot.start))
