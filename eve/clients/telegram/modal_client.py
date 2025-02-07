@@ -1,7 +1,7 @@
 import modal
 
 from eve import db
-from eve.clients.telegram.client import create_telegram_app
+from eve.clients.telegram.client import start
 
 app = modal.App(
     name=f"client-telegram-{db}",
@@ -26,4 +26,4 @@ image = (
 @app.function(image=image, keep_warm=1, concurrency_limit=1, timeout=60 * 60 * 24)
 @modal.asgi_app()
 def modal_app():
-    return create_telegram_app()
+    return start(env=".env", local=False)
