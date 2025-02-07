@@ -204,7 +204,14 @@ def clone_repo(temp_dir: str, branch: str = None):
     )
 
 
-def prepare_client_file(file_path: str, agent_key: str, env: str) -> None:
+def prepare_client_file(
+    file_path: str,
+    agent_id: str,
+    agent_key: str,
+    platform: str,
+    secrets: DeploymentSecrets,
+    env: str,
+) -> None:
     """Modify the client file to use correct secret name"""
     with open(file_path, "r") as f:
         content = f.read()
@@ -224,6 +231,33 @@ def prepare_client_file(file_path: str, agent_key: str, env: str) -> None:
         f'.pip_install_from_pyproject("{pyproject_path}")',
     )
 
+    # Fix environment variable replacement
+    modified_content = modified_content.replace(
+        '.env({"AGENT_ID": ""})',
+        f'.env({{"AGENT_ID": "{agent_id}"}})',  # Note the double curly braces
+    )
+
+    if platform == "discord":
+        discord_token = secrets.discord.token
+        if not discord_token:
+            raise Exception("Discord token not found")
+        modified_content = modified_content.replace(
+            '.env({"CLIENT_DISCORD_TOKEN": ""})',
+            f'.env({{"CLIENT_DISCORD_TOKEN": "{discord_token}"}})',
+        )
+    elif platform == "telegram":
+        telegram_token = secrets.telegram.token
+        if not telegram_token:
+            raise Exception("Telegram token not found")
+        modified_content = modified_content.replace(
+            '.env({"CLIENT_TELEGRAM_TOKEN": ""})',
+            f'.env({{"CLIENT_TELEGRAM_TOKEN": "{telegram_token}"}})',
+        )
+    elif platform == "farcaster":
+        pass
+    elif platform == "twitter":
+        pass
+
     print(modified_content)
 
     temp_dir = tempfile.mkdtemp()
@@ -234,7 +268,14 @@ def prepare_client_file(file_path: str, agent_key: str, env: str) -> None:
     return str(temp_file)
 
 
-def deploy_client(agent_key: str, client_name: str, env: str, repo_branch: str = None):
+def deploy_client(
+    agent_id: str,
+    agent_key: str,
+    platform: str,
+    secrets: DeploymentSecrets,
+    env: str,
+    repo_branch: str = None,
+):
     """Deploy a Modal client for an agent."""
     with tempfile.TemporaryDirectory() as temp_dir:
         # Clone the repo using provided branch or default
@@ -243,12 +284,14 @@ def deploy_client(agent_key: str, client_name: str, env: str, repo_branch: str =
 
         # Check for client file in the cloned repo
         client_path = os.path.join(
-            temp_dir, "eve", "clients", client_name, "modal_client.py"
+            temp_dir, "eve", "clients", platform, "modal_client.py"
         )
         if os.path.exists(client_path):
             # Modify the client file to use the correct secret name
-            temp_file = prepare_client_file(client_path, agent_key, env)
-            app_name = f"{agent_key}-{client_name}-{env}"
+            temp_file = prepare_client_file(
+                client_path, agent_id, agent_key, platform, secrets, env
+            )
+            app_name = f"{agent_id}-{agent_key}-{platform}-{env}"
 
             subprocess.run(
                 [

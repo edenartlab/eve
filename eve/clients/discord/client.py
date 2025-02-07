@@ -422,7 +422,7 @@ def init(
     try:
         load_dotenv(env)
 
-        agent_name = os.getenv("EDEN_AGENT_USERNAME")
+        agent_name = os.getenv("AGENT_ID")
         agent = Agent.load(agent_name)
 
         logger.info(f"Launching Discord bot {agent.username}...")

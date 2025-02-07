@@ -26,6 +26,7 @@ from eve.api.helpers import (
 )
 from eve.deploy import (
     create_modal_secrets,
+    deploy_client,
     stop_client,
 )
 from eve.tools.replicate_tool import replicate_update_task
@@ -211,7 +212,19 @@ async def handle_deployment_configure(request: ConfigureDeploymentRequest):
 async def handle_deployment_create(request: CreateDeploymentRequest):
     agent = Agent.from_mongo(ObjectId(request.agent))
     if not agent:
-        raise APIError(f"Agent not found: {request.agent_username}", status_code=404)
+        raise APIError(f"Agent not found: {agent.id}", status_code=404)
+
+    try:
+        deploy_client(
+            agent_id=str(agent.id),
+            agent_key=agent.username,
+            platform=request.platform.value,
+            secrets=request.secrets,
+            env=db.lower(),
+            repo_branch=request.repo_branch,
+        )
+    except Exception as e:
+        raise APIError(f"Failed to deploy client: {str(e)}", status_code=500)
 
     # Create/update deployment record
     deployment = Deployment(
@@ -224,14 +237,6 @@ async def handle_deployment_create(request: CreateDeploymentRequest):
     deployment.save(
         upsert_filter={"agent": agent.id, "platform": request.platform.value}
     )
-
-    # Deploy the Modal container with optional repo branch
-    # deploy_client(
-    #     request.agent_username,
-    #     request.platform.value,
-    #     db.lower(),
-    #     repo_branch=request.repo_branch,
-    # )
 
     return {"deployment_id": str(deployment.id)}
 
