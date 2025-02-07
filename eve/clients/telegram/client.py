@@ -497,6 +497,11 @@ def create_telegram_app() -> FastAPI:
     application, bot_token = init(env=".env", local=False)
 
     def run_bot():
+        # Create new event loop for this thread
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        # Run the application
         application.run_polling(allowed_updates=Update.ALL_TYPES)
 
     import threading
@@ -505,6 +510,11 @@ def create_telegram_app() -> FastAPI:
     bot_thread.start()
 
     return app
+
+
+def start(env: str, local: bool = False) -> None:
+    app, bot_token = init(env, local)
+    asyncio.create_task(app.run_polling(allowed_updates=Update.ALL_TYPES))
 
 
 if __name__ == "__main__":
