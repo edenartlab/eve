@@ -29,7 +29,9 @@ default_presets_flux = {
     "video_FX": {
         "tip": "Only use this tool if asked to add subtle or targeted effects on top of an existing video"
     },
-    "texture_flow": {"tip": "Just use this tool if asked to make abstract, morphing animations for eg VJing material."},
+    "texture_flow": {
+        "tip": "Just use this tool if asked to make abstract, morphing animations for eg VJing material."
+    },
     "outpaint": {},
     "remix_flux_schnell": {},
     "stable_audio": {},
@@ -44,7 +46,9 @@ default_presets_flux = {
     "websearch": {},
     "ffmpeg_multitool": {},
     "mmaudio": {},
-    "ominicontrol": {"tip": "Tool for instantly copy-pasting a given image (logo, character, object, ...) into a new context with a prompt. This is kinda of like an instant (no-training) lora tool from a single image"}
+    "ominicontrol": {
+        "tip": "Tool for instantly copy-pasting a given image (logo, character, object, ...) into a new context with a prompt. This is kinda of like an instant (no-training) lora tool from a single image"
+    },
 }
 
 
@@ -65,7 +69,7 @@ class Agent(User):
 
     name: str
     description: str
-    instructions: str
+    instructions: Optional[str] = None
     mute: Optional[bool] = False
     reply_criteria: Optional[str] = None
     model: Optional[ObjectId] = None
@@ -77,6 +81,7 @@ class Agent(User):
 
     discord_channel_allowlist: Optional[List[str]] = None
     telegram_topic_allowlist: Optional[List[str]] = None
+    twitter_handle: Optional[str] = None
 
     def __init__(self, **data):
         if isinstance(data.get("owner"), str):

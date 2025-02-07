@@ -1,8 +1,9 @@
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
 
-from eve.deploy import ClientType
+from eve.deploy import ClientType, DeploymentSecrets
+from eve.llm import UpdateType
 from eve.thread import UserMessage
 
 
@@ -20,14 +21,25 @@ class CancelRequest(BaseModel):
 class UpdateConfig(BaseModel):
     sub_channel_name: Optional[str] = None
     update_endpoint: Optional[str] = None
+    deployment_id: Optional[str] = None
     discord_channel_id: Optional[str] = None
     telegram_chat_id: Optional[str] = None
     telegram_message_id: Optional[str] = None
     telegram_thread_id: Optional[str] = None
-    cast_hash: Optional[str] = None
-    author_fid: Optional[int] = None
-    message_id: Optional[str] = None
+    farcaster_hash: Optional[str] = None
+    farcaster_author_fid: Optional[int] = None
+    farcaster_message_id: Optional[str] = None
+    twitter_tweet_to_reply_id: Optional[str] = None
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+class PlatformUpdateRequest(BaseModel):
+    type: UpdateType
+    content: Optional[str] = None
+    tool: Optional[str] = None
+    result: Optional[List[Dict[str, Any]]] = None
+    error: Optional[str] = None
+    update_config: Optional[UpdateConfig] = None
 
 
 class ChatRequest(BaseModel):
@@ -79,14 +91,6 @@ class DeleteTriggerRequest(BaseModel):
     id: str
 
 
-class DeploymentSecrets(BaseModel):
-    eden_api_key: Optional[str] = None
-    client_discord_token: Optional[str] = None
-    client_telegram_token: Optional[str] = None
-    client_farcaster_mnemonic: Optional[str] = None
-    client_farcaster_neynar_webhook_secret: Optional[str] = None
-
-
 class AgentDeploymentConfig(BaseModel):
     discord_channel_allowlist: Optional[List[str]] = None
     telegram_topic_allowlist: Optional[List[str]] = None
@@ -95,15 +99,17 @@ class AgentDeploymentConfig(BaseModel):
 class ConfigureDeploymentRequest(BaseModel):
     agent_username: str
     secrets: Optional[DeploymentSecrets] = None
-    deployment_config: Optional[AgentDeploymentConfig] = None
+    deployment_config: Optional[DeploymentSecrets] = None
 
 
 class CreateDeploymentRequest(BaseModel):
-    agent_username: str
+    agent: str
+    user: str
     platform: ClientType
+    secrets: Optional[DeploymentSecrets] = None
     repo_branch: Optional[str] = None
 
 
 class DeleteDeploymentRequest(BaseModel):
-    agent_username: str
+    agent: str
     platform: ClientType

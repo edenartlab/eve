@@ -5,8 +5,6 @@ import aiohttp
 from bson import ObjectId
 from fastapi import BackgroundTasks
 from ably import AblyRest
-from apscheduler.schedulers.background import BackgroundScheduler
-import traceback
 
 from eve.api.errors import APIError
 from eve.tool import Tool
@@ -15,8 +13,6 @@ from eve.agent import Agent
 from eve.thread import Thread
 from eve.llm import async_title_thread
 from eve.api.api_requests import ChatRequest, UpdateConfig
-from eve.trigger import Trigger
-from eve.mongo import get_collection
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +63,7 @@ def serialize_for_json(obj):
     return obj
 
 
-async def emit_update(update_config: UpdateConfig, data: dict):
+async def emit_update(update_config: Optional[UpdateConfig], data: dict):
     if not update_config:
         return
 
@@ -83,6 +79,7 @@ async def emit_update(update_config: UpdateConfig, data: dict):
 
 
 async def emit_http_update(update_config: UpdateConfig, data: dict):
+    print("DATA", data)
     async with aiohttp.ClientSession() as session:
         try:
             async with session.post(
@@ -96,38 +93,3 @@ async def emit_http_update(update_config: UpdateConfig, data: dict):
                     )
         except Exception as e:
             logger.error(f"Error sending update to endpoint: {str(e)}")
-
-
-async def load_existing_triggers(
-    scheduler: BackgroundScheduler, ably_client: AblyRest, handle_chat_fn
-):
-    """Load all existing triggers from the database and add them to the scheduler"""
-    from ..trigger import create_chat_trigger
-
-    triggers_collection = get_collection(Trigger.collection_name)
-
-    for trigger_doc in triggers_collection.find({}):
-        try:
-            # Convert mongo doc to Trigger object
-            trigger = Trigger.convert_from_mongo(trigger_doc)
-            trigger = Trigger.from_schema(trigger)
-
-            await create_chat_trigger(
-                user_id=str(trigger.user),
-                agent_id=str(trigger.agent),
-                message=trigger.message,
-                schedule=trigger.schedule,
-                update_config=UpdateConfig(**trigger.update_config)
-                if trigger.update_config
-                else None,
-                scheduler=scheduler,
-                ably_client=ably_client,
-                trigger_id=trigger.trigger_id,
-                handle_chat_fn=handle_chat_fn,
-            )
-            logger.info(f"Loaded trigger {trigger.trigger_id}")
-
-        except Exception as e:
-            logger.error(
-                f"Error loading trigger {trigger_doc.get('trigger_id', 'unknown')}: {str(e)}\n{traceback.format_exc()}"
-            )

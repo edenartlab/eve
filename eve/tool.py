@@ -144,7 +144,9 @@ class Tool(Document, ABC):
 
                 _tool_classes[handler] = GCPTool
             else:
-                _tool_classes[handler] = Tool
+                from .tools.local_tool import LocalTool
+
+                _tool_classes[handler] = LocalTool
 
         return _tool_classes[handler]
 
