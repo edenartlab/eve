@@ -161,8 +161,8 @@ class Eden2Cog(commands.Cog):
                         result["result"] = prepare_result(result["result"])
                         outputs = result["result"][0]["output"]
                         urls = [
-                            output["url"] for output in outputs[:4]
-                        ]  # Get up to 4 URLs
+                            output["url"] for output in outputs[:4] if "url" in output
+                        ]  # Get up to 4 URLs with valid urls
 
                         # Get creation ID from the first output
                         creation_id = str(outputs[0].get("creation"))

@@ -83,6 +83,7 @@ class CreateTriggerRequest(BaseModel):
     agent_id: str
     user_id: str
     message: str
+    thread_id: str
     schedule: CronSchedule
     update_config: Optional[UpdateConfig] = None
 
