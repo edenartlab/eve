@@ -447,7 +447,7 @@ class EdenTG:
             print(f"Error sending typing indicator: {e}")
 
 
-def init(env: str, local: bool = False) -> None:
+def start(env: str, local: bool = False) -> None:
     print("Starting Telegram client...")
     load_dotenv(env)
 
@@ -473,45 +473,7 @@ def init(env: str, local: bool = False) -> None:
     application.post_init = post_init
 
     # Run the bot
-    return application
-
-
-def start(env: str, local: bool = False) -> None:
-    app = init(env, local)
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Just yield immediately - we'll start the bot separately
-    yield
-
-
-def create_telegram_app() -> FastAPI:
-    app = FastAPI(lifespan=lifespan)
-
-    # Start the bot in a background thread
-    application = init(env=".env", local=False)
-
-    def run_bot():
-        import asyncio
-
-        # Create a new event loop for this thread
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        # Run the application directly without signal handling
-        loop.run_forever()
-
-    import threading
-
-    bot_thread = threading.Thread(target=run_bot, daemon=True)
-    bot_thread.start()
-
-    # Start the application in the background
-    asyncio.create_task(application.initialize())
-    asyncio.create_task(application.start_polling(allowed_updates=Update.ALL_TYPES))
-
-    return app
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == "__main__":
