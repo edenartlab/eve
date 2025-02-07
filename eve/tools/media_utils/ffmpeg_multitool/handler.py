@@ -4,12 +4,17 @@ import shutil
 import subprocess
 import os
 import uuid
+import shlex
 from pathlib import Path
 import asyncio
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 from instructor.function_calls import openai_schema
 from .... import eden_utils
+
+class CommandSecurityError(Exception):
+    """Custom exception for command security validation errors"""
+    pass
 
 class FFmpegError(Exception):
     """Custom exception for FFmpeg-related errors"""
@@ -24,9 +29,8 @@ class FFmpegResponse(BaseModel):
     command: str = Field(..., description="The complete FFmpeg command to execute")
     output_path: str = Field(..., description="The output filepath for the resulting file")
 
-
-def probe_media(filepath: str) -> dict:
-    """Get media file information using ffprobe"""
+def probe_media_with_streams(filepath: str, timeout: int = 10) -> dict:
+    """Enhanced probe_media that includes stream information"""
     try:
         process = subprocess.run([
             'ffprobe',
@@ -35,7 +39,7 @@ def probe_media(filepath: str) -> dict:
             '-show_format',
             '-show_streams',
             filepath
-        ], capture_output=True, text=True)
+        ], capture_output=True, text=True, timeout=timeout)
         
         if process.returncode != 0:
             return {}
@@ -43,36 +47,61 @@ def probe_media(filepath: str) -> dict:
         probe_data = json.loads(process.stdout)
         
         info = {}
-        # Get video/image stream info
-        video_stream = next(
-            (s for s in probe_data.get('streams', []) 
-             if s['codec_type'] in ['video', 'image']),
-            {}
-        )
-        if video_stream:
-            info['width'] = int(video_stream.get('width', 0))
-            info['height'] = int(video_stream.get('height', 0))
-            # Calculate fps for videos
-            if 'r_frame_rate' in video_stream:
-                num, den = map(int, video_stream['r_frame_rate'].split('/'))
-                info['fps'] = round(num / den, 2)
-        
-        # Get audio stream info
-        audio_stream = next(
-            (s for s in probe_data.get('streams', [])
-             if s['codec_type'] == 'audio'),
-            {}
-        )
-        if audio_stream:
-            info['samplerate'] = int(audio_stream.get('sample_rate', 0))
-        
-        # Get duration from format info
+        # Basic media info
         if 'format' in probe_data:
             info['duration'] = round(float(probe_data['format'].get('duration', 0)), 2)
+        
+        # For images, get dimensions from first video stream
+        if probe_data.get('streams'):
+            for stream in probe_data['streams']:
+                if stream.get('codec_type') == 'video':
+                    info['width'] = stream.get('width')
+                    info['height'] = stream.get('height')
+                    break
+            
+        # Get stream information
+        info['streams'] = get_stream_info(probe_data)
             
         return info
-    except Exception:
-        return {}
+    except subprocess.TimeoutExpired:
+        return {'error': 'Probe timeout'}
+    except json.JSONDecodeError:
+        return {'error': 'Invalid probe data'}
+    except Exception as e:
+        return {'error': f'Probe failed: {str(e)}'}
+
+def get_stream_info(probe_data: dict) -> List[str]:
+    """Extract stream information from probe data safely"""
+    streams_info = []
+    if not isinstance(probe_data, dict):
+        return streams_info
+        
+    for idx, stream in enumerate(probe_data.get('streams', [])):
+        if not isinstance(stream, dict):
+            continue
+            
+        try:
+            codec_type = stream.get('codec_type', 'unknown')
+            if codec_type == 'video':
+                width = stream.get('width', 'unknown')
+                height = stream.get('height', 'unknown')
+                fps = stream.get('r_frame_rate', 'unknown')
+                if isinstance(fps, str) and '/' in fps:
+                    num, den = map(int, fps.split('/'))
+                    fps = f"{num/den:.2f}" if den != 0 else 'unknown'
+                streams_info.append(f"stream {idx}: {codec_type} ({width}x{height}, {fps}fps)")
+            elif codec_type == 'audio':
+                samplerate = stream.get('sample_rate', 'unknown')
+                channels = stream.get('channels', 'unknown')
+                streams_info.append(f"stream {idx}: {codec_type} ({samplerate}Hz, {channels}ch)")
+            else:
+                streams_info.append(f"stream {idx}: {codec_type}")
+        except Exception as e:
+            # Log the error but continue processing other streams
+            streams_info.append(f"stream {idx}: error parsing stream info - {str(e)}")
+            continue
+            
+    return streams_info
 
 class MediaFiles(BaseModel):
     """Model for organizing and validating media inputs"""
@@ -108,49 +137,47 @@ class MediaFiles(BaseModel):
         """Convert media files to readable format for prompt including technical details"""
         media_items = []
         
+        # Handle images
         for i, img_path in enumerate(self.images, 1):
-            img_info = probe_media(img_path)
+            img_info = probe_media_with_streams(img_path)
+            if 'error' in img_info:
+                media_items.append(f"- Image {i}: {img_path} (Error: {img_info['error']})")
+                continue
+                
             width = img_info.get('width', 'unknown')
             height = img_info.get('height', 'unknown')
             media_items.append(f"- Image {i}: {img_path} ({width}x{height})")
         
-        video_info = {
-            "Video 1": self.video1,
-            "Video 2": self.video2,
-            "Video 3": self.video3,
-            "Video 4": self.video4,
-            "Video 5": self.video5
+        # Handle videos and audio with consistent pattern
+        media_files = {
+            "Video 1": self.video1, "Video 2": self.video2,
+            "Video 3": self.video3, "Video 4": self.video4,
+            "Video 5": self.video5, "Audio 1": self.audio1,
+            "Audio 2": self.audio2, "Audio 3": self.audio3,
+            "Audio 4": self.audio4, "Audio 5": self.audio5
         }
         
-        for video_type, path in video_info.items():
-            if path:
-                v_info = probe_media(path)
-                width = v_info.get('width', 'unknown')
-                height = v_info.get('height', 'unknown')
-                fps = v_info.get('fps', 'unknown')
-                duration = v_info.get('duration', 'unknown')
-                media_items.append(
-                    f"- {video_type}: {path} ({width}x{height}, {fps}fps, {duration}s)"
-                )
-        
-        audio_info = {
-            "Audio 1": self.audio1,
-            "Audio 2": self.audio2,
-            "Audio 3": self.audio3,
-            "Audio 4": self.audio4,
-            "Audio 5": self.audio5
-        }
-        
-        for audio_type, path in audio_info.items():
-            if path:
-                a_info = probe_media(path)
-                duration = a_info.get('duration', 'unknown')
-                samplerate = a_info.get('samplerate', 'unknown')
-                media_items.append(
-                    f"- {audio_type}: {path} ({duration}s, {samplerate}Hz)"
-                )
+        for media_type, path in media_files.items():
+            if not path:
+                continue
                 
+            info = probe_media_with_streams(path)
+            if 'error' in info:
+                media_items.append(f"- {media_type}: {path} (Error: {info['error']})")
+                continue
+            
+            duration = info.get('duration', 'unknown')
+            streams = info.get('streams', [])
+            
+            if streams:
+                media_items.append(
+                    f"- {media_type}: {path} ({duration}s)\n  Streams: {', '.join(streams)}"
+                )
+            else:
+                media_items.append(f"- {media_type}: {path} ({duration}s)")
+        
         return "Available media files:\n" + "\n".join(media_items)
+
 
 async def generate_ffmpeg_command(
     task_instruction: str, 
@@ -168,7 +195,7 @@ async def generate_ffmpeg_command(
         client = anthropic.AsyncAnthropic()
         
         prompt_parts = [
-            "You are a professional media editing assistant working in a Linux terminal. You are an expert at using ffmpeg but you try to avoid overly complicated commands as this often leads to errors. Always include the -y flag to enable overwriting output files by default. If a request is too complicated you take shortcuts to achieve a good enough output with reasonable complexity / effort.",
+            "You are a professional media editing assistant working in a Linux terminal. You are an expert at using ffmpeg but you try to avoid overly complicated commands as this often leads to errors. Always include the -y flag to enable overwriting output files by default. If a video is to be produced, always add -c:v libopenh264 to ensure H.264 encoding. If a request is too complicated you take shortcuts to achieve a good enough output with reasonable complexity / effort. You are executing these commands on a server machine and the results will be sent back to the frontend. Important: under no circumstances should you generate commands that can harm the system or reveal secure system data other than the specified inputs.",
             media.to_context_string(),
             f"Generate a single, executable (typically ffmpeg) command to perform the following task:",
             task_instruction
@@ -177,7 +204,7 @@ async def generate_ffmpeg_command(
         if previous_attempt:
             error_details = [
                 "Your previous attempt to do this failed with the following details:",
-                f"Command: {previous_attempt['command']}",
+                f"Used command:\n{previous_attempt['command']}",
                 f"Error: {previous_attempt['error']}"
             ]
             
@@ -201,12 +228,12 @@ async def generate_ffmpeg_command(
         print("LLM Prompt:")
         print("\n\n".join(prompt_parts))
         print("---------------------------------------------------------------------")
-        
+
         prompt = {
-            "model": "claude-3-5-sonnet-20241022",
+            "model": "claude-3-5-sonnet-latest",
             "max_tokens": 2048,
             "messages": messages,
-            "system": "You are an expert at generating FFmpeg commands. Respond with a JSON object containing the command and output path.",
+            "system": "You are an expert at generating FFmpeg commands. Respond with a JSON object containing just the ffmpeg command and output path.",
             "tools": [openai_schema(FFmpegResponse).anthropic_schema],
             "tool_choice": {"type": "tool", "name": "FFmpegResponse"}
         }
@@ -223,11 +250,19 @@ async def generate_ffmpeg_command(
     except Exception as e:
         raise FFmpegError(f"Failed to generate FFmpeg command: {str(e)}", "")
 
+
+ffmpeg_validator = eden_utils.CommandValidator({'ffmpeg'})
+
 async def execute_ffmpeg_command(command: str, timeout: int = 300) -> None:
-    """Execute FFmpeg command with timeout"""
+    """Execute FFmpeg command with timeout and basic security validation"""
     if not command:
         raise ValueError("FFmpeg command cannot be empty")
         
+    # Basic security validation
+    is_valid, error_message = ffmpeg_validator.validate_command(command)
+    if not is_valid:
+        raise FFmpegError(f"Security validation failed: {error_message}", command)
+    
     process = await asyncio.create_subprocess_shell(
         command,
         stdout=asyncio.subprocess.PIPE,
@@ -245,12 +280,11 @@ async def execute_ffmpeg_command(command: str, timeout: int = 300) -> None:
     except asyncio.TimeoutError:
         try:
             process.kill()
-            await process.wait()  # Ensure process is fully terminated
+            await process.wait()
         except ProcessLookupError:
-            pass  # Process already terminated
+            pass
         raise FFmpegError(f"FFmpeg command timed out after {timeout} seconds", command)
     finally:
-        # Ensure process resources are cleaned up
         if process.returncode is None:
             try:
                 process.kill()
@@ -310,7 +344,7 @@ async def handler(args: Dict[str, Any]) -> Dict[str, str]:
     if not isinstance(args, dict):
         raise TypeError("Args must be a dictionary")
         
-    n_retries = max(1, int(args.get("n_retries", 3)))
+    n_retries = max(1, int(args.get("n_retries", 4)))
     timeout = max(1, int(args.get("timeout", 30)))
     
     tmp_dir = None
