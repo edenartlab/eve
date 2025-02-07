@@ -52,10 +52,10 @@ class Eden2Cog(commands.Cog):
     ) -> None:
         self.bot = bot
         self.agent = agent
-        deployment_config = _get_deployment_config(agent)
+        self.deployment_config = self._get_deployment_config(agent)
         self.discord_channel_allowlist = (
-            [int(channel) for channel in deployment_config.discord.channel_allowlist]
-            if deployment_config.discord.channel_allowlist
+            [int(item.id) for item in self.deployment_config.discord.channel_allowlist]
+            if self.deployment_config.discord.channel_allowlist
             else None
         )
         self.tools = agent.get_tools()
