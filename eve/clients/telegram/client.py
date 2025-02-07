@@ -23,7 +23,7 @@ from ...agent import Agent
 from ...llm import UpdateType
 from ...user import User
 from ...eden_utils import prepare_result
-from ...deploy import ClientType
+from ...deploy import ClientType, Deployment, DeploymentConfig
 
 
 async def handler_mention_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -125,9 +125,12 @@ class EdenTG:
         self.telegram_topic_allowlist = []
         self.telegram_group_allowlist = []
 
-        # Only parse allowlist if it exists
-        if agent.telegram_topic_allowlist:
-            for entry in agent.telegram_topic_allowlist:
+        self.deployment_config = self._get_deployment_config(agent)
+
+        if hasattr(self.deployment_config, "telegram") and hasattr(
+            self.deployment_config.telegram, "topic_allowlist"
+        ):
+            for entry in self.deployment_config.telegram.topic_allowlist:
                 try:
                     if "/" in entry:  # Topic format: "group_id/topic_id"
                         group_id, topic_id = entry.split("/")
@@ -161,6 +164,12 @@ class EdenTG:
         self.channel = None
 
         self.typing_tasks = {}
+
+    def _get_deployment_config(self, agent: Agent) -> DeploymentConfig:
+        deployment = Deployment.load(agent=agent.id, platform="discord")
+        if not deployment:
+            raise Exception("No deployment config found")
+        return deployment.config
 
     async def initialize(self, application):
         """Initialize the bot including Ably setup"""
