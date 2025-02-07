@@ -423,15 +423,6 @@ async def async_think(
     return result.reply
 
 
-# def sentry_transaction(op: str, name: str):
-#     def decorator(func):
-#         async def wrapper(*args, **kwargs):
-#             with start_transaction(op=op, name=name):
-#                 return await func(*args, **kwargs)
-#         return wrapper
-#     return decorator
-
-
 @trace
 async def async_prompt_thread(
     user: User,
