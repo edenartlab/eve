@@ -444,14 +444,11 @@ async def async_prompt_thread(
 
         print("================================================")
         print(user_messages)
-        print("hidden?")
         print("================================================")
         
         if isinstance(user_messages, UserMessage):
             user_messages = [user_messages]
 
-        print(user_messages[-1].hidden)
-        
         user_messages = (
             user_messages if isinstance(user_messages, List) else [user_messages]
         )
