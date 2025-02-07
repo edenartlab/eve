@@ -248,8 +248,7 @@ async def handle_deployment_delete(request: DeleteDeploymentRequest):
         raise APIError(f"Agent not found: {request.agent}", status_code=404)
 
     try:
-        # Stop the Modal container
-        # stop_client(request.agent_username, request.platform.value)
+        stop_client(agent, request.platform.value)
 
         # Delete deployment record
         Deployment.delete_deployment(agent.id, request.platform.value)

@@ -17,7 +17,7 @@ from ...agent import Agent
 from ...llm import UpdateType
 from ...user import User
 from ...eden_utils import prepare_result
-from ...deploy import ClientType
+from ...deploy import ClientType, Deployment, DeploymentConfig
 
 logger = logging.getLogger(__name__)
 
@@ -52,9 +52,10 @@ class Eden2Cog(commands.Cog):
     ) -> None:
         self.bot = bot
         self.agent = agent
+        deployment_config = _get_deployment_config(agent)
         self.discord_channel_allowlist = (
-            [int(channel) for channel in agent.discord_channel_allowlist]
-            if agent.discord_channel_allowlist
+            [int(channel) for channel in deployment_config.discord.channel_allowlist]
+            if deployment_config.discord.channel_allowlist
             else None
         )
         self.tools = agent.get_tools()
@@ -73,6 +74,12 @@ class Eden2Cog(commands.Cog):
         self.channel = None
 
         self.typing_tasks = {}
+
+    def _get_deployment_config(self, agent: Agent) -> DeploymentConfig:
+        deployment = Deployment.load({"agent": agent.id, "platform": "discord"})
+        if not deployment:
+            raise Exception("No deployment config found")
+        return deployment.config
 
     async def setup_ably(self):
         """Configure Ably realtime client"""

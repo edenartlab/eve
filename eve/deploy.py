@@ -8,6 +8,7 @@ from typing import Dict, List, Optional
 from bson import ObjectId
 from pydantic import BaseModel
 
+from eve.agent import Agent
 from eve.mongo import Collection, Document, get_collection
 
 
@@ -168,6 +169,10 @@ def authenticate_modal_key() -> bool:
     print(result.stdout)
 
 
+def get_container_name(agent_id: str, agent_key: str, platform: str, env: str) -> str:
+    return f"{agent_id}-{agent_key}-{platform}-{env}"
+
+
 def check_environment_exists(env_name: str) -> bool:
     result = subprocess.run(
         ["modal", "environment", "list"], capture_output=True, text=True
@@ -292,7 +297,7 @@ def deploy_client(
             temp_file = prepare_client_file(
                 client_path, agent_id, agent_key, platform, secrets, env
             )
-            app_name = f"{agent_id}-{agent_key}-{platform}-{env}"
+            app_name = get_container_name(agent_id, agent_key, platform, env)
 
             subprocess.run(
                 [
@@ -310,14 +315,15 @@ def deploy_client(
             raise Exception(f"Client modal file not found: {client_path}")
 
 
-def stop_client(agent_key: str, client_name: str):
+def stop_client(agent: Agent, platform: str):
     """Stop a Modal client. Raises an exception if the stop fails."""
+    container_name = get_container_name(agent.id, agent.username, platform, db.lower())
     result = subprocess.run(
         [
             "modal",
             "app",
             "stop",
-            f"{agent_key}-{client_name}-{db.lower()}",
+            container_name,
             "-e",
             DEPLOYMENT_ENV_NAME,
         ],
