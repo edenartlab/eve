@@ -219,6 +219,7 @@ async def handle_deployment_create(request: CreateDeploymentRequest):
         user=ObjectId(request.user),
         platform=request.platform,
         secrets=request.secrets,
+        config=request.config,
     )
     deployment.save(
         upsert_filter={"agent": agent.id, "platform": request.platform.value}

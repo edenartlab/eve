@@ -2,7 +2,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
 
-from eve.deploy import ClientType, DeploymentSecrets
+from eve.deploy import ClientType, DeploymentConfig, DeploymentSecrets
 from eve.llm import UpdateType
 from eve.thread import UserMessage
 
@@ -107,6 +107,7 @@ class CreateDeploymentRequest(BaseModel):
     user: str
     platform: ClientType
     secrets: Optional[DeploymentSecrets] = None
+    config: Optional[DeploymentConfig] = None
     repo_branch: Optional[str] = None
 
 

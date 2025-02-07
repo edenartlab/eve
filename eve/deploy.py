@@ -24,18 +24,61 @@ class ClientType(Enum):
     TWITTER = "twitter"
 
 
+class AllowlistItem(BaseModel):
+    id: str
+    note: str
+
+
+class DeploymentSettingsDiscord(BaseModel):
+    channel_allowlist: List[AllowlistItem]
+
+
+class DeploymentSettingsTelegram(BaseModel):
+    topic_allowlist: List[AllowlistItem]
+
+
+class DeploymentSettingsFarcaster(BaseModel):
+    pass
+
+
+class DeploymentSettingsTwitter(BaseModel):
+    pass
+
+
+class DeploymentSecretsDiscord(BaseModel):
+    token: str
+
+
+class DeploymentSecretsTelegram(BaseModel):
+    token: str
+
+
+class DeploymentSecretsFarcaster(BaseModel):
+    mnemonic: str
+    neynar_webhook_secret: str
+
+
+class DeploymentSecretsTwitter(BaseModel):
+    user_id: str
+    bearer_token: str
+    consumer_key: str
+    consumer_secret: str
+    access_token: str
+    access_token_secret: str
+
+
 class DeploymentSecrets(BaseModel):
-    eden_api_key: str | None = None
-    discord_token: str | None = None
-    telegram_token: str | None = None
-    farcaster_mnemonic: str | None = None
-    farcaster_neynar_webhook_secret: str | None = None
-    twitter_user_id: str | None = None
-    twitter_bearer_token: str | None = None
-    twitter_consumer_key: str | None = None
-    twitter_consumer_secret: str | None = None
-    twitter_access_token: str | None = None
-    twitter_access_token_secret: str | None = None
+    discord: DeploymentSecretsDiscord | None = None
+    telegram: DeploymentSecretsTelegram | None = None
+    farcaster: DeploymentSecretsFarcaster | None = None
+    twitter: DeploymentSecretsTwitter | None = None
+
+
+class DeploymentConfig(BaseModel):
+    discord: DeploymentSettingsDiscord | None = None
+    telegram: DeploymentSettingsTelegram | None = None
+    farcaster: DeploymentSettingsFarcaster | None = None
+    twitter: DeploymentSettingsTwitter | None = None
 
 
 @Collection("deployments")
@@ -44,22 +87,7 @@ class Deployment(Document):
     user: ObjectId
     platform: str
     secrets: Optional[DeploymentSecrets]
-
-    discord_token: Optional[str] = None
-    discord_channel_allowlist: Optional[List[str]] = None
-
-    telegram_token: Optional[str] = None
-    telegram_topic_allowlist: Optional[List[str]] = None
-
-    farcaster_mnemonic: Optional[str] = None
-    farcaster_neynar_webhook_secret: Optional[str] = None
-
-    twitter_bearer_token: Optional[str] = None
-    twitter_consumer_key: Optional[str] = None
-    twitter_consumer_secret: Optional[str] = None
-    twitter_user_id: Optional[str] = None
-    twitter_access_token: Optional[str] = None
-    twitter_access_token_secret: Optional[str] = None
+    config: Optional[DeploymentConfig]
 
     @classmethod
     def ensure_indexes(cls):
