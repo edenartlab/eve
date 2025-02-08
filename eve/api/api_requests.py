@@ -83,9 +83,10 @@ class CreateTriggerRequest(BaseModel):
     agent_id: str
     user_id: str
     message: str
-    thread_id: str
+    thread_id: Optional[str] = None
     schedule: CronSchedule
     update_config: Optional[UpdateConfig] = None
+    ephemeral: Optional[bool] = False
 
 
 class DeleteTriggerRequest(BaseModel):

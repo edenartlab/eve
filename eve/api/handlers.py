@@ -278,22 +278,22 @@ async def handle_trigger_create(
         trigger_id=trigger_id,
         handle_chat_fn=handle_chat,
     )
-
-    trigger = Trigger(
-        trigger_id=trigger_id,
-        user=ObjectId(request.user_id),
-        agent=ObjectId(request.agent_id),
-        thread=ObjectId(request.thread_id),
-        schedule=request.schedule.to_cron_dict(),
-        message=request.message,
-        update_config=request.update_config.model_dump()
-        if request.update_config
-        else {},
-    )
-    trigger.save()
+    if not request.ephemeral:
+        trigger = Trigger(
+            trigger_id=trigger_id,
+            user=ObjectId(request.user_id),
+            agent=ObjectId(request.agent_id),
+            thread=ObjectId(request.thread_id),
+            schedule=request.schedule.to_cron_dict(),
+            message=request.message,
+            update_config=request.update_config.model_dump()
+            if request.update_config
+            else {},
+        )
+        trigger.save()
 
     return {
-        "id": str(trigger.id),
+        "id": trigger_id if request.ephemeral else str(trigger.id),
         "job_id": job.id,
         "next_run_time": str(job.next_run_time),
     }
