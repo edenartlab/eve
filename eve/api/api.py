@@ -16,7 +16,10 @@ from fastapi.exceptions import RequestValidationError
 
 from eve import auth, db
 from eve.runner.runner_tasks import (
+    cancel_stuck_tasks,
     download_nsfw_models,
+    generate_lora_thumbnails,
+    run_nsfw_detection,
 )
 from eve.api.handlers import (
     handle_create,
@@ -319,3 +322,36 @@ def fastapi_app():
     if not check_environment_exists(deploy.DEPLOYMENT_ENV_NAME):
         create_environment(deploy.DEPLOYMENT_ENV_NAME)
     return web_app
+
+
+@app.function(
+    image=image, concurrency_limit=1, schedule=modal.Period(minutes=15), timeout=3600
+)
+async def cancel_stuck_tasks_fn():
+    try:
+        await cancel_stuck_tasks()
+    except Exception as e:
+        print(f"Error cancelling stuck tasks: {e}")
+        sentry_sdk.capture_exception(e)
+
+
+@app.function(
+    image=image, concurrency_limit=1, schedule=modal.Period(minutes=15), timeout=3600
+)
+async def run_nsfw_detection_fn():
+    try:
+        await run_nsfw_detection()
+    except Exception as e:
+        print(f"Error running nsfw detection: {e}")
+        sentry_sdk.capture_exception(e)
+
+
+@app.function(
+    image=image, concurrency_limit=1, schedule=modal.Period(minutes=15), timeout=3600
+)
+async def generate_lora_thumbnails_fn():
+    try:
+        await generate_lora_thumbnails()
+    except Exception as e:
+        print(f"Error generating lora thumbnails: {e}")
+        sentry_sdk.capture_exception(e)
