@@ -8,6 +8,8 @@ import aiohttp
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
+from fastapi import FastAPI
+from contextlib import asynccontextmanager
 
 from ... import load_env
 from ...clients import common
@@ -15,7 +17,7 @@ from ...agent import Agent
 from ...llm import UpdateType
 from ...user import User
 from ...eden_utils import prepare_result
-from ...deploy import ClientType
+from ...deploy import ClientType, Deployment, DeploymentConfig
 
 logger = logging.getLogger(__name__)
 
@@ -50,9 +52,10 @@ class Eden2Cog(commands.Cog):
     ) -> None:
         self.bot = bot
         self.agent = agent
+        self.deployment_config = self._get_deployment_config(agent)
         self.discord_channel_allowlist = (
-            [int(channel) for channel in agent.discord_channel_allowlist]
-            if agent.discord_channel_allowlist
+            [int(item.id) for item in self.deployment_config.discord.channel_allowlist]
+            if self.deployment_config.discord.channel_allowlist
             else None
         )
         self.tools = agent.get_tools()
@@ -71,6 +74,12 @@ class Eden2Cog(commands.Cog):
         self.channel = None
 
         self.typing_tasks = {}
+
+    def _get_deployment_config(self, agent: Agent) -> DeploymentConfig:
+        deployment = Deployment.load(agent=agent.id, platform="discord")
+        if not deployment:
+            raise Exception("No deployment config found")
+        return deployment.config
 
     async def setup_ably(self):
         """Configure Ably realtime client"""
@@ -159,8 +168,8 @@ class Eden2Cog(commands.Cog):
                         result["result"] = prepare_result(result["result"])
                         outputs = result["result"][0]["output"]
                         urls = [
-                            output["url"] for output in outputs[:4]
-                        ]  # Get up to 4 URLs
+                            output["url"] for output in outputs[:4] if "url" in output
+                        ]  # Get up to 4 URLs with valid urls
 
                         # Get creation ID from the first output
                         creation_id = str(outputs[0].get("creation"))
@@ -413,26 +422,54 @@ class DiscordBot(commands.Bot):
         await self.process_commands(message)
 
 
-def start(
+def init(
     env: str,
     local: bool = False,
 ) -> None:
     try:
         load_dotenv(env)
 
-        agent_name = os.getenv("EDEN_AGENT_USERNAME")
-        agent = Agent.load(agent_name)
+        agent_name = os.getenv("AGENT_ID")
+        agent = Agent.from_mongo(agent_name)
 
         logger.info(f"Launching Discord bot {agent.username}...")
 
         bot_token = os.getenv("CLIENT_DISCORD_TOKEN")
         bot = DiscordBot()
         bot.add_cog(Eden2Cog(bot, agent, local=local))
-        bot.run(bot_token)
+        return bot, bot_token
     except Exception as e:
         logger.error("Failed to start Discord bot", exc_info=True)
         sentry_sdk.capture_exception(e)
         raise
+
+
+def start(env: str, local: bool = False) -> None:
+    bot, bot_token = init(env, local)
+    asyncio.create_task(bot.run(bot_token))
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Just yield immediately - we'll start the bot separately
+    yield
+
+
+def create_discord_app() -> FastAPI:
+    app = FastAPI(lifespan=lifespan)
+
+    # Start the bot in a background thread
+    bot, bot_token = init(env=".env", local=False)
+
+    def run_bot():
+        bot.run(bot_token)
+
+    import threading
+
+    bot_thread = threading.Thread(target=run_bot, daemon=True)
+    bot_thread.start()
+
+    return app
 
 
 if __name__ == "__main__":
@@ -446,4 +483,5 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     load_env(args.db)
-    start(args.env, args.agent, args.local)
+    bot, bot_token = init(args.env, args.local)
+    bot.run(bot_token)
