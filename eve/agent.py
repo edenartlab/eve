@@ -68,8 +68,11 @@ class Agent(User):
     featured: Optional[bool] = False
 
     name: str
-    description: str
-    instructions: Optional[str] = None
+    description: Optional[str] = None
+    greeting: Optional[str] = None
+    persona: Optional[str] = None
+    knowledge: Optional[str] = None
+
     mute: Optional[bool] = False
     reply_criteria: Optional[str] = None
     model: Optional[ObjectId] = None

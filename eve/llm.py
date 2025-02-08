@@ -379,14 +379,10 @@ system_instructions = """In addition to the instructions above, follow these add
 """
 
 template = """<Summary>You are roleplaying as {{ name }}.</Summary>
-<Description>
-This is a description of {{ name }}.
-
-{{ description }}
-</Description>
-<Instructions>
-{{ instructions }}
-</Instructions>
+<Persona>
+This is a description of {{ name }}'s persona:
+{{ persona }}
+</Persona>
 <System Instructions>
 {{ system_instructions }}
 </System Instructions>"""
@@ -456,8 +452,7 @@ async def async_prompt_thread(
 
         system_message = Template(template).render(
             name=agent.name,
-            description=agent.description,
-            instructions=agent.instructions,
+            persona=agent.persona,
             system_instructions=system_instructions,
         )
 
