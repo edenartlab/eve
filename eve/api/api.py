@@ -72,13 +72,13 @@ async def lifespan(app: FastAPI):
     app.state.scheduler = scheduler
 
     # Load existing triggers
-    should_load_triggers = (
-        os.getenv("MODAL_SERVE") == "true"
-        or os.getenv("LOAD_EXISTING_TRIGGERS") == "true"
-    )
-    if should_load_triggers:
-        print("Loading existing triggers...")
-        await load_existing_triggers(scheduler, handle_chat)
+    # should_load_triggers = (
+    #     os.getenv("MODAL_SERVE") == "true"
+    #     or os.getenv("LOAD_EXISTING_TRIGGERS") == "true"
+    # )
+    # if should_load_triggers:
+    #     print("Loading existing triggers...")
+    #     await load_existing_triggers(scheduler, handle_chat)
 
     try:
         yield
