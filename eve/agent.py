@@ -34,8 +34,10 @@ default_presets_flux = {
     },
     "outpaint": {},
     "remix_flux_schnell": {},
+    "elevenlabs": {},
     "stable_audio": {},
     "musicgen": {},
+    "hedra": {},
     "runway": {
         "tip": "This should be your primary tool for making videos or animations. Only use the other video tools if specifically asked to or asked to make VJing material."
     },
@@ -44,6 +46,7 @@ default_presets_flux = {
     },
     "news": {},
     "websearch": {},
+    "weather": {},
     "ffmpeg_multitool": {},
     "mmaudio": {},
     "ominicontrol": {

@@ -451,8 +451,8 @@ def start(env: str, local: bool = False) -> None:
     print("Starting Telegram client...")
     load_dotenv(env)
 
-    agent_name = os.getenv("AGENT_ID")
-    agent = Agent.from_mongo(agent_name)
+    agent_id = os.getenv("AGENT_ID")
+    agent = Agent.from_mongo(agent_id)
 
     bot_token = os.getenv("CLIENT_TELEGRAM_TOKEN")
     if not bot_token:

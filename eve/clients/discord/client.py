@@ -172,7 +172,9 @@ class Eden2Cog(commands.Cog):
                         ]  # Get up to 4 URLs with valid urls
 
                         # Get creation ID from the first output
-                        creation_id = str(outputs[0].get("creation"))
+                        creation_id = None
+                        if isinstance(outputs, list) and len(outputs) > 0:
+                            creation_id = str(outputs[0].get("creation"))
 
                         if creation_id:
                             eden_url = common.get_eden_creation_url(creation_id)
@@ -429,8 +431,8 @@ def init(
     try:
         load_dotenv(env)
 
-        agent_name = os.getenv("AGENT_ID")
-        agent = Agent.from_mongo(agent_name)
+        agent_id = os.getenv("AGENT_ID")
+        agent = Agent.from_mongo(agent_id)
 
         logger.info(f"Launching Discord bot {agent.username}...")
 

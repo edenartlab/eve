@@ -12,14 +12,69 @@ parameters:
     label: Text
     description: The text to be spoken
     required: true
-  voice_id:
+  voice:
     type: string
-    label: Voice ID
-    description: The voice ID to use for the speech
-    tip: Always use Verdelis for female and Tao for male by default, except when asked to do Middle Eastern, then use tlETan7Okc4pzjD0z62P. When asked to do British, use Archer.
+    label: Voice
+    description: The voice name to use for the speech
+    tip: |-
+      Here are descriptions of all the available voices:
+
+      Aria: accent: American, description: expressive, age: middle-aged, gender: female, use_case: social media
+      Roger: accent: American, description: confident, age: middle-aged, gender: male, use_case: social media
+      Sarah: accent: american, description: soft, age: young, gender: female, use_case: news
+      Laura: accent: American, description: upbeat, age: young, gender: female, use_case: social media
+      Charlie: accent: Australian, description: natural, age: middle aged, gender: male, use_case: conversational
+      George: accent: British, description: warm, age: middle aged, gender: male, use_case: narration
+      Callum: accent: Transatlantic, description: intense, age: middle-aged, gender: male, use_case: characters
+      River: accent: American, description: confident, age: middle-aged, gender: non-binary, use_case: social media
+      Liam: accent: American, description: articulate, age: young, gender: male, use_case: narration
+      Charlotte: accent: Swedish, description: seductive, age: young, gender: female, use_case: characters
+      Alice: accent: British, description: confident, age: middle-aged, gender: female, use_case: news
+      Matilda: accent: American, description: friendly, age: middle-aged, gender: female, use_case: narration
+      Will: accent: American, description: friendly, age: young, gender: male, use_case: social media
+      Jessica: accent: American, description: expressive, age: young, gender: female, use_case: conversational
+      Eric: accent: American, description: friendly, age: middle-aged, gender: male, use_case: conversational
+      Chris: accent: American, description: casual, age: middle-aged, gender: male, use_case: conversational
+      Brian: accent: American, description: deep, age: middle-aged, gender: male, use_case: narration
+      David Lynch: An old American male perfect for reading the weather news. gender: male, use_case: narration
+      Daniel: accent: British, description: authoritative, age: middle-aged, gender: male, use_case: news
+      Lily: accent: British, description: warm, age: middle-aged, gender: female, use_case: narration
+      Bill: accent: American, description: trustworthy, age: old, gender: male, use_case: narration
+      Tao: Tao Ruspoli
+      Gene: Gene
+      Little Aerisita: Young, American female with an irresistibly cute and childlike voice that exudes bubbly cheerfulness. Ideal for narrating children's books, anime, and cartoons, this voice brings characters to life with its playful and endearing charm.language: en, descriptive: childish, accent: american, gender: female, age: young, use_case: characters_animation
+      Sue: A young female british. A pleasant voice fantastic for all usesaccent: british, descriptive: casual, age: young, gender: female, use_case: narrative_story
+      Archer: Conversational, calm British, thirty-something, perfect for an AI agent.language: en, descriptive: calm, accent: british, gender: male, age: middle_aged, use_case: conversational
+      Knightley - dapper and deep narrator: Old British male. A deep and smooth voice for storytelling and podcast.language: en, descriptive: classy, accent: american, gender: male, age: old, use_case: narrative_story
+      Hope - natural conversations: language: en, descriptive: crisp, accent: american, gender: female, age: young, use_case: conversational
+      Dakota H: Middle-aged African American southern female. language: en, descriptive: pleasant, accent: american, gender: female, age: middle_aged, use_case: conversational
+      Allison - inviting and velvety British accent: A smooth British accent that is elegant and engaging. A perfect choice for audiobook narration and YouTube. language: en, descriptive: pleasant, accent: british, gender: female, age: young, use_case: narrative_story
+      Hannah: A calm and well modulated voice. Great for general narrationaccent: american, descriptive: pleasant, age: middle_aged, gender: female, use_case: narrative_story
+      Aria - Sexy Female Villain Voice: A voice like dark velvet for a female villain or seductress. Her low, sultry tones are perfect for characters in video games, or if you just want your YouTube voiceovers to be more interesting.language: en, descriptive: confident, accent: american, gender: female, age: young, use_case: characters_animation
+      Arthur - Energetic American Male Narrator: A vibrant, fun, and dynamic young adult American Male voice. Perfect for social media videos, YouTube content, TikToks, and any project where you need to bring the energy! Arthur's voice is lively and engaging, making it ideal for grabbing attention and keeping your audience hooked. language: en, descriptive: excited, accent: american, gender: male, age: young, use_case: social_media
+      Natalie : Middle aged female with a pleasant voice. Suitable for Informative & Educational content.accent: british, descriptive: pleasant, age: middle_aged, gender: female, use_case: informative_educational
+      Wyatt- Wise Rustic Cowboy: Weathered wisdom from a Cowboy who's lived a hard life on the range.  An older American Deep Male voice with a Southern flavor.  Excellent for reading stories of the Wild West or American history.  language: en, descriptive: wise, accent: american, gender: male, age: old, use_case: narrative_story
+      Freeman: Mars College.
+      Amelia: A young British English woman's voice, clear and easy to understand. Expressive and enthusiastic, it's beautiful for narration, podcasts and social media such as YouTube, Tiktok, Reels and Stories. This studio-produced audio is great for a young woman's Gen-Z voice in audiobooks, high-quality video dubbing, advertising and reading.language: en, descriptive: upbeat, accent: british, gender: female, age: young, use_case: narrative_story
+      Kayla - Urban and Casual: An urban American female voice, ideal for casual conversations, podcasts, and audiobooks.language: en, descriptive: casual, accent: African American, gender: female, age: young, use_case: conversational
+      Sevan Bomar - Black Motivational Speaker: Middle-aged intelligent African American male narrator and storyteller.language: en, descriptive: confident, accent: american, gender: male, age: middle_aged, use_case: informative_educational
+      Katie Brown - Expressive: Middle-aged Female with British accent. Suitable for Advertising, Marketing and Expressive formats.language: en, descriptive: professional, accent: british, gender: female, age: middle_aged, use_case: advertisement
+      Claire: Middle aged South African female voice. Perfect for Informative content.language: en, descriptive: professional, accent: south african, gender: female, age: middle_aged, use_case: informative_educational
+      Prakash: Prakash is the pen name of a senior Indian artist who has spent enough time in corporate settings to understand how people speak there and what voice they will relate to. With all that experience and talent in his voice, he has recorded a dataset for this voice, and hence this voice is best for all professional content use cases like interactive training videos, social media content, and corporate videos.language: en, descriptive: confident, accent: indian, gender: male, age: middle_aged, use_case: informative_educational
+      James - Mysterious Intriguing: Old British man. Voice perfect for narrating deeply inspirational stories.accent: american, descriptive: deep, age: old, gender: male
+      Verdelis: A whimsical voice of a floating ceramic head
+      Eliza: Young american woman. A voice well for Social media with a relaxed tone.accent: american, descriptive: relaxed, age: young, gender: female, use_case: conversational
+      Carter the Mountain King: Middle-aged American male. Voice is rich, smooth, & rugged. Each syllable lingers on the palate, leaving a tantalizing trail of sensation in its wake.
+      Deep and sonorous, this Voice of the Mountain resonates... sending vibrations that stir the senses and beckon you closer, promising secrets and fulfilling them.language: en, descriptive: deep, accent: american, gender: male, age: middle_aged, use_case: characters_animation
+      Mia - Clear, Smooth, Professional: A clear, professional, friendly, confident  and empathic woman, perfect for narration, stories, news and conversational content.language: en, descriptive: professional, accent: american, gender: female, age: middle_aged, use_case: narrative_story
+      Zoe Drake - Professional: A young to middle-aged female voice with a subtle British accent, ideal for engaging storytelling, vivid narration, or character portrayal.language: en, descriptive: confident, accent: british, gender: female, age: middle_aged, use_case: narrative_story
+      Mohammed: A well spoken Arabic & Middle East voice. Great for conversational, audiobooks, social media and narration.accent: arabic, descriptive: calm, age: middle_aged, gender: male, language: en, use_case: informative_educational
+      Lively Amy: Female - Middle-Aged - Soccer Mom This voice sparks a wildfire of excitement among friends, igniting their spirits with every word. It lights up the sky with inspiration, urging listeners to chase their dreams, dance like no one’s watching, and leap into action with boundless energy. Trustworthy and true, it’s the guiding light that everyone relies on, leading them with confidence and care.language: en, descriptive: excited, accent: american, gender: female, age: middle_aged, use_case: conversational
+
+      By default, use Lively Amy for female and Tao for male by default, except when asked to do Middle Eastern, then use tlETan7Okc4pzjD0z62P. When asked to do British, use Archer. Otherwise, use your best judgement.    
     required: true
-    choices: [mrACSB3QITzdoWMZJH8P, 1wDwDMEYwjOS0vDcRyy3, tlETan7Okc4pzjD0z62P, qNkzaJoHLLdpvgh5tISm, L0Dsvb3SLTyegXwtm47J]
-    choices_labels: [Verdelis, Tao, Mohammed, Carter, Archer]    
+    choices: [Aria, Roger, Sarah, Laura, Charlie, George, Callum, River, Liam, Charlotte, Alice, Matilda, Will, Jessica, Eric, Chris, Brian, David Lynch, Daniel, Lily, Bill, Tao, Gene, Little Aerisita, Sue, Archer, Knightley - dapper and deep narrator, Hope - natural conversations, Dakota H, Allison - inviting and velvety British accent, Hannah, Aria - Sexy Female Villain Voice, Arthur - Energetic American Male Narrator, Natalie , Wyatt- Wise Rustic Cowboy, Freeman, Amelia, Kayla - Urban and Casual, Sevan Bomar - Black Motivational Speaker, Katie Brown - Expressive, Claire, Prakash, James - Mysterious Intriguing, Verdelis, Eliza, Carter the Mountain King, Mia - Clear, Smooth, Professional, Zoe Drake - Professional, Mohammed, Lively Amy]
+    choices_labels: [Aria, Roger, Sarah, Laura, Charlie, George, Callum, River, Liam, Charlotte, Alice, Matilda, Will, Jessica, Eric, Chris, Brian, David Lynch, Daniel, Lily, Bill, Tao, Gene, Little Aerisita, Sue, Archer, Knightley - dapper and deep narrator, Hope - natural conversations, Dakota H, Allison - inviting and velvety British accent, Hannah, Aria - Sexy Female Villain Voice, Arthur - Energetic American Male Narrator, Natalie , Wyatt- Wise Rustic Cowboy, Freeman, Amelia, Kayla - Urban and Casual, Sevan Bomar - Black Motivational Speaker, Katie Brown - Expressive, Claire, Prakash, James - Mysterious Intriguing, Verdelis, Eliza, Carter the Mountain King, Mia - Clear, Smooth, Professional, Zoe Drake - Professional, Mohammed, Lively Amy]
   stability:
     type: float
     label: Stability
