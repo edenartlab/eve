@@ -1,14 +1,17 @@
 import os
 import random
+import instructor
 from tempfile import NamedTemporaryFile
 from typing import List, Literal
 from elevenlabs.client import ElevenLabs, VoiceSettings, Voice
 from openai import OpenAI
 from typing import Iterator
-import instructor
+
 from ... import eden_utils
 
 eleven = ElevenLabs()
+
+DEFAULT_VOICE = "XB0fDUnXU5powFXDhCwa"
 
 
 async def handler(args: dict):
@@ -23,7 +26,7 @@ async def handler(args: dict):
     # get voice
     response = eleven.voices.get_all()
     voices = {v.name: v.voice_id for v in response.voices}
-    voice_id = voices.get(args["voice"], "XB0fDUnXU5powFXDhCwa")
+    voice_id = voices.get(args["voice"], DEFAULT_VOICE)
     
     def generate_with_params():
         return eleven.generate(
@@ -152,9 +155,8 @@ def select_random_voice(
         ],
     )
 
-    print("selected_voice", selected_voice)
-
-    return voice_ids[selected_voice]
+    #return voice_ids[selected_voice]
+    return selected_voice
 
 
 def get_voice_summary():
