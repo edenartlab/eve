@@ -14,36 +14,30 @@ async def handler(args: dict):
 
     try:
         ratio = "1280:768" if args["ratio"] == "16:9" else "768:1280"
-        
+
         task = await client.image_to_video.create(
-            model='gen3a_turbo',
+            model="gen3a_turbo",
             prompt_image=args["prompt_image"],
             prompt_text=args["prompt_text"][:512],
             duration=int(args["duration"]),
             ratio=ratio,
-            watermark=False
+            watermark=False,
         )
     except runwayml.APIConnectionError as e:
-        print("The server could not be reached")
-        print(e.__cause__)  # an underlying Exception, likely raised within httpx.
+        raise Exception("The server could not be reached")
     except runwayml.RateLimitError as e:
-        print("A 429 status code was received; we should back off a bit.")
+        raise Exception("A 429 status code was received; we should back off a bit.")
     except runwayml.APIStatusError as e:
-        print("Another non-200-range status code was received")
-        print(e.status_code)
-        print(e.response)
-        """
-        400	BadRequestError
-        401	AuthenticationError
-        403	PermissionDeniedError
-        404	NotFoundError
-        422	UnprocessableEntityError
-        429	RateLimitError
-        >=500	InternalServerError
-        N/A	APIConnectionError
-        """
+        raise Exception(
+            "Another non-200-range status code was received",
+            e.status_code,
+            e.response,
+        )
+    except Exception as e:
+        raise Exception("An unexpected error occurred", e)
 
-
+    if not task:
+        raise Exception("No task was returned")
 
     task_id = task.id
     print(task_id)
@@ -51,17 +45,16 @@ async def handler(args: dict):
     # time.sleep(10)
     await asyncio.sleep(10)
     task = await client.tasks.retrieve(task_id)
-    while task.status not in ['SUCCEEDED', 'FAILED']:
+    while task.status not in ["SUCCEEDED", "FAILED"]:
         print("status", task.status)
-        # time.sleep(10) 
+        # time.sleep(10)
         await asyncio.sleep(10)
         task = await client.tasks.retrieve(task_id)
-    
+
     # TODO: callback for running state
 
     print("task finished2", task.status)
     print(task)
-
 
     """
     
@@ -74,9 +67,7 @@ Error An unexpected error occurred.
     if task.status == "FAILED":
         print("Error", task.failure)
         raise Exception(task.failure)
-    
+
     print("task output", task.output)
-    
-    return {
-        "output": task.output[0]
-    }
+
+    return {"output": task.output[0]}
