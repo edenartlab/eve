@@ -1,11 +1,9 @@
-from contextlib import asynccontextmanager
 import os
 import argparse
 import re
 from ably import AblyRealtime
 import aiohttp
 from dotenv import load_dotenv
-from fastapi import FastAPI
 from telegram import Update
 from telegram.constants import ChatAction
 from telegram.ext import (
@@ -121,32 +119,36 @@ class EdenTG:
         self.token = token
         self.agent = agent
 
-        # Parse allowlist into tuples of (group_id, topic_id)
-        self.telegram_topic_allowlist = []
-        self.telegram_group_allowlist = []
+        if not local:
+            self.deployment_config = self._get_deployment_config(agent)
 
-        self.deployment_config = self._get_deployment_config(agent)
+            if hasattr(self.deployment_config, "telegram") and hasattr(
+                self.deployment_config.telegram, "topic_allowlist"
+            ):
+                self.telegram_topic_allowlist = []
+                self.telegram_group_allowlist = []
+                for entry in self.deployment_config.telegram.topic_allowlist:
+                    try:
+                        if "/" in entry:  # Topic format: "group_id/topic_id"
+                            group_id, topic_id = entry.split("/")
+                            internal_group_id = -int(f"100{group_id}")
 
-        if hasattr(self.deployment_config, "telegram") and hasattr(
-            self.deployment_config.telegram, "topic_allowlist"
-        ):
-            for entry in self.deployment_config.telegram.topic_allowlist:
-                try:
-                    if "/" in entry:  # Topic format: "group_id/topic_id"
-                        group_id, topic_id = entry.split("/")
-                        internal_group_id = -int(f"100{group_id}")
-
-                        # Special case: if topic_id is "1", this is the main channel
-                        if topic_id == "1":
-                            self.telegram_group_allowlist.append(internal_group_id)
-                        else:
-                            self.telegram_topic_allowlist.append(
-                                (internal_group_id, int(topic_id))
-                            )
-                    else:  # Group format: "group_id"
-                        self.telegram_group_allowlist.append(int(entry))
-                except ValueError:
-                    raise ValueError(f"Invalid format in telegram allowlist: {entry}")
+                            # Special case: if topic_id is "1", this is the main channel
+                            if topic_id == "1":
+                                self.telegram_group_allowlist.append(internal_group_id)
+                            else:
+                                self.telegram_topic_allowlist.append(
+                                    (internal_group_id, int(topic_id))
+                                )
+                        else:  # Group format: "group_id"
+                            self.telegram_group_allowlist.append(int(entry))
+                    except ValueError:
+                        raise ValueError(
+                            f"Invalid format in telegram allowlist: {entry}"
+                        )
+        else:
+            self.telegram_topic_allowlist = None
+            self.telegram_group_allowlist = None
 
         self.tools = agent.get_tools()
         self.known_users = {}
