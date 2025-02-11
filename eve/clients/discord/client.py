@@ -68,7 +68,7 @@ class Eden2Cog(commands.Cog):
         self.known_users = {}
         self.known_threads = {}
         if local:
-            self.api_url = "http://localhost:8000"
+            self.api_url = "http://127.0.0.1:8000"
         else:
             self.api_url = os.getenv("EDEN_API_URL")
         self.channel_name = common.get_ably_channel_name(

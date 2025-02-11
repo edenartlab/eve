@@ -154,7 +154,7 @@ class EdenTG:
         self.known_users = {}
         self.known_threads = {}
         if local:
-            self.api_url = "http://localhost:8000"
+            self.api_url = "http://127.0.0.1:8000"
         else:
             self.api_url = os.getenv("EDEN_API_URL")
         self.channel_name = common.get_ably_channel_name(
@@ -390,6 +390,12 @@ class EdenTG:
         if message.photo:
             photo_url = (await message.photo[-1].get_file()).file_path
             attachments.append(photo_url)
+            # Add photo caption to cleaned_text if it exists
+            if message.caption:
+                caption = replace_bot_mentions(
+                    message.caption, me_bot.username, self.agent.name
+                )
+                cleaned_text = caption
         else:
             cleaned_text = replace_bot_mentions(
                 message_text, me_bot.username, self.agent.name
