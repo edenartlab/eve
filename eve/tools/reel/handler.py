@@ -348,7 +348,7 @@ async def handler(args: dict):
         voice = args.get("voice") or select_random_voice("A heroic female voice")
         speech_audio = await elevenlabs.async_run({
             "text": reel.voiceover,
-            "voice_id": voice
+            "voice": voice
         })
 
         if speech_audio.get("error"):

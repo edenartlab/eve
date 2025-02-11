@@ -5,7 +5,7 @@ import tempfile
 from ... import eden_utils
 
 
-async def handler(args: dict, db: str):
+async def handler(args: dict):
     HEDRA_API_KEY = os.getenv("HEDRA_API_KEY")
     HEDRA_BASE_URL = "https://mercury.dev.dream-ai.com/api"
 
@@ -35,6 +35,13 @@ async def handler(args: dict, db: str):
         )
         if not image_response.ok:
             raise Exception(f"Failed to upload image: {image_response.text}")
+
+        # print({
+        #     "avatarImage": image_response.json()["url"],
+        #     "audioSource": "audio",
+        #     "voiceUrl": audio_response.json()["url"],
+        #     "aspectRatio": args["aspectRatio"]
+        # })
 
         # Do portrait
         video_response = requests.post(

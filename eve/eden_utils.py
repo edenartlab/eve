@@ -15,13 +15,13 @@ import tempfile
 import blurhash
 import subprocess
 import replicate
-import psutil
-import shutil
+import shlex
 import subprocess
 import numpy as np
 from bson import ObjectId
 from datetime import datetime
 from pprint import pformat
+from typing import Union, Tuple, Set, List, Optional, Dict
 from moviepy.editor import VideoFileClip, ImageClip, AudioClip
 from tqdm import tqdm
 from PIL import Image, ImageFont, ImageDraw
@@ -29,6 +29,70 @@ from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from . import s3
+
+class CommandValidator:
+    """Simple validator to ensure basic command security"""
+    
+    # Most dangerous shell operations that shouldn't appear in legitimate commands
+    DANGEROUS_OPERATIONS = [
+        '&&',        # Command chaining
+        '||',        # Command chaining
+        ' ; ',       # Command chaining (with spaces to avoid ffmpeg filter syntax)
+        ';\\n',      # Command chaining (newline variant)
+        '$(', '`',   # Command substitution
+        '> /',       # Writing to root
+        '>>/',       # Appending to root
+        'sudo ',     # Privilege escalation (with space to avoid false positives)
+        '| rm',      # Pipe to remove
+        '| sh',      # Pipe to shell
+        '| bash',    # Pipe to shell
+        'eval ',     # Command evaluation (with space)
+        'exec '      # Command execution (with space)
+    ]
+    
+    def __init__(self, allowed_commands: Set[str]):
+        """
+        Initialize the command validator.
+        
+        Args:
+            allowed_commands: Set of base commands that are allowed to be executed
+        """
+        self.allowed_commands = {cmd.lower() for cmd in allowed_commands}
+        
+    def validate_command(self, command: str) -> Tuple[bool, Union[str, None]]:
+        """
+        Validates that a command is safe to execute.
+        Only checks for base command and the most dangerous shell operations.
+        
+        Args:
+            command: The command string to validate
+            
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        if not command or not isinstance(command, str):
+            return False, "Command must be a non-empty string"
+            
+        # Try to parse command into tokens and get base command
+        try:
+            tokens = shlex.split(command)
+            if not tokens:
+                return False, "Empty command"
+            base_cmd = os.path.basename(tokens[0]).lower()
+        except ValueError as e:
+            return False, f"Invalid command syntax: {str(e)}"
+            
+        # Verify base command is allowed
+        if base_cmd not in self.allowed_commands:
+            return False, f"Command '{base_cmd}' is not in the allowed list"
+            
+        # Check for dangerous operations
+        for pattern in self.DANGEROUS_OPERATIONS:
+            if pattern in command:
+                return False, f"Command contains dangerous operation: {pattern}"
+                
+        return True, None
+    
 def log_memory_info():
     """
     Log basic GPU, RAM, and disk usage percentages using nvidia-smi for GPU metrics.

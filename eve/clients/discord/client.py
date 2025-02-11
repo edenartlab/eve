@@ -17,7 +17,7 @@ from ...agent import Agent
 from ...llm import UpdateType
 from ...user import User
 from ...eden_utils import prepare_result
-from ...deploy import ClientType
+from ...deploy import ClientType, Deployment, DeploymentConfig
 
 logger = logging.getLogger(__name__)
 
@@ -52,9 +52,10 @@ class Eden2Cog(commands.Cog):
     ) -> None:
         self.bot = bot
         self.agent = agent
+        self.deployment_config = self._get_deployment_config(agent)
         self.discord_channel_allowlist = (
-            [int(channel) for channel in agent.discord_channel_allowlist]
-            if agent.discord_channel_allowlist
+            [int(item.id) for item in self.deployment_config.discord.channel_allowlist]
+            if self.deployment_config.discord.channel_allowlist
             else None
         )
         self.tools = agent.get_tools()
@@ -73,6 +74,12 @@ class Eden2Cog(commands.Cog):
         self.channel = None
 
         self.typing_tasks = {}
+
+    def _get_deployment_config(self, agent: Agent) -> DeploymentConfig:
+        deployment = Deployment.load(agent=agent.id, platform="discord")
+        if not deployment:
+            raise Exception("No deployment config found")
+        return deployment.config
 
     async def setup_ably(self):
         """Configure Ably realtime client"""
@@ -161,11 +168,13 @@ class Eden2Cog(commands.Cog):
                         result["result"] = prepare_result(result["result"])
                         outputs = result["result"][0]["output"]
                         urls = [
-                            output["url"] for output in outputs[:4]
-                        ]  # Get up to 4 URLs
+                            output["url"] for output in outputs[:4] if "url" in output
+                        ]  # Get up to 4 URLs with valid urls
 
                         # Get creation ID from the first output
-                        creation_id = str(outputs[0].get("creation"))
+                        creation_id = None
+                        if isinstance(outputs, list) and len(outputs) > 0:
+                            creation_id = str(outputs[0].get("creation"))
 
                         if creation_id:
                             eden_url = common.get_eden_creation_url(creation_id)
@@ -422,8 +431,8 @@ def init(
     try:
         load_dotenv(env)
 
-        agent_name = os.getenv("EDEN_AGENT_USERNAME")
-        agent = Agent.load(agent_name)
+        agent_id = os.getenv("AGENT_ID")
+        agent = Agent.from_mongo(agent_id)
 
         logger.info(f"Launching Discord bot {agent.username}...")
 

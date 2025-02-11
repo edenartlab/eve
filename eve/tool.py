@@ -1,6 +1,5 @@
 import os
 import re
-import time
 import yaml
 import json
 import random
@@ -47,6 +46,7 @@ HANDLERS = Literal["local", "modal", "comfyui", "comfyui_legacy", "replicate", "
 class RateLimit(BaseModel):
     period: int
     count: int
+    feature_flag: Optional[str] = None
 
 
 @Collection("tools3")
@@ -122,31 +122,24 @@ class Tool(Document, ABC):
         if handler not in _tool_classes:
             if handler == "local":
                 from .tools.local_tool import LocalTool
-
                 _tool_classes[handler] = LocalTool
             elif handler == "modal":
                 from .tools.modal_tool import ModalTool
-
                 _tool_classes[handler] = ModalTool
             elif handler == "comfyui":
                 from .tools.comfyui_tool import ComfyUITool
-
                 _tool_classes[handler] = ComfyUITool
             elif handler == "comfyui_legacy":
                 from .tools.comfyui_tool import ComfyUIToolLegacy
-
                 _tool_classes[handler] = ComfyUIToolLegacy
             elif handler == "replicate":
                 from .tools.replicate_tool import ReplicateTool
-
                 _tool_classes[handler] = ReplicateTool
             elif handler == "gcp":
                 from .tools.gcp_tool import GCPTool
-
                 _tool_classes[handler] = GCPTool
             else:
                 from .tools.local_tool import LocalTool
-
                 _tool_classes[handler] = LocalTool
 
         return _tool_classes[handler]

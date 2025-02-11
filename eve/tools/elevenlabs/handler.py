@@ -1,14 +1,17 @@
 import os
 import random
+import instructor
 from tempfile import NamedTemporaryFile
 from typing import List, Literal
 from elevenlabs.client import ElevenLabs, VoiceSettings, Voice
 from openai import OpenAI
 from typing import Iterator
-import instructor
+
 from ... import eden_utils
 
 eleven = ElevenLabs()
+
+DEFAULT_VOICE = "XB0fDUnXU5powFXDhCwa"
 
 
 async def handler(args: dict):
@@ -19,12 +22,17 @@ async def handler(args: dict):
     args["use_speaker_boost"] = args.get("use_speaker_boost", True)
     args["max_attempts"] = args.get("max_attempts", 3)
     args["initial_delay"] = args.get("initial_delay", 1)
+
+    # get voice
+    response = eleven.voices.get_all()
+    voices = {v.name: v.voice_id for v in response.voices}
+    voice_id = voices.get(args["voice"], DEFAULT_VOICE)
     
     def generate_with_params():
         return eleven.generate(
             text=args["text"],
             voice=Voice(
-                voice_id=args["voice_id"],
+                voice_id=voice_id,
                 settings=VoiceSettings(
                     stability=args["stability"],
                     similarity_boost=args["similarity_boost"],
@@ -89,7 +97,7 @@ def select_random_voice(
         Predict the most likely gender of this person."""
         
         gender = client.chat.completions.create(
-            model="gpt-4o-2024-08-06",
+            model="gpt-4o-mini",
             response_model=Literal["male", "female"],
             max_retries=2,
             messages=[
@@ -147,6 +155,21 @@ def select_random_voice(
         ],
     )
 
-    print("selected_voice", selected_voice)
+    #return voice_ids[selected_voice]
+    return selected_voice
 
-    return voice_ids[selected_voice]
+
+def get_voice_summary():
+    response = eleven.voices.get_all()
+    names = [voice.name for voice in response.voices]
+    full_description = ""
+    
+    for voice in response.voices:
+        name = voice.name
+        description = voice.description or ""
+        labels = voice.labels or {}
+        description = description or ""
+        description += ", ".join([f"{k}: {v}" for k, v in labels.items()])    
+        full_description += f"{name}: {description}\n"
+    
+    return names, full_description

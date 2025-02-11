@@ -26,6 +26,7 @@ from eve.api.helpers import (
 )
 from eve.deploy import (
     create_modal_secrets,
+    deploy_client,
     stop_client,
 )
 from eve.tools.replicate_tool import replicate_update_task
@@ -211,7 +212,19 @@ async def handle_deployment_configure(request: ConfigureDeploymentRequest):
 async def handle_deployment_create(request: CreateDeploymentRequest):
     agent = Agent.from_mongo(ObjectId(request.agent))
     if not agent:
-        raise APIError(f"Agent not found: {request.agent_username}", status_code=404)
+        raise APIError(f"Agent not found: {agent.id}", status_code=404)
+
+    try:
+        deploy_client(
+            agent_id=str(agent.id),
+            agent_key=agent.username,
+            platform=request.platform.value,
+            secrets=request.secrets,
+            env=db.lower(),
+            repo_branch=request.repo_branch,
+        )
+    except Exception as e:
+        raise APIError(f"Failed to deploy client: {str(e)}", status_code=500)
 
     # Create/update deployment record
     deployment = Deployment(
@@ -219,20 +232,13 @@ async def handle_deployment_create(request: CreateDeploymentRequest):
         user=ObjectId(request.user),
         platform=request.platform,
         secrets=request.secrets,
+        config=request.config,
     )
     deployment.save(
         upsert_filter={"agent": agent.id, "platform": request.platform.value}
     )
 
-    # Deploy the Modal container with optional repo branch
-    # deploy_client(
-    #     request.agent_username,
-    #     request.platform.value,
-    #     db.lower(),
-    #     repo_branch=request.repo_branch,
-    # )
-
-    return {"message": f"Deployed {request.platform.value} client"}
+    return {"deployment_id": str(deployment.id)}
 
 
 @handle_errors
@@ -242,13 +248,12 @@ async def handle_deployment_delete(request: DeleteDeploymentRequest):
         raise APIError(f"Agent not found: {request.agent}", status_code=404)
 
     try:
-        # Stop the Modal container
-        stop_client(request.agent_username, request.platform.value)
+        stop_client(agent, request.platform.value)
 
         # Delete deployment record
         Deployment.delete_deployment(agent.id, request.platform.value)
 
-        return {"message": f"Stopped {request.platform.value} client"}
+        return {"success": True}
     except Exception as e:
         raise APIError(f"Failed to stop client: {str(e)}", status_code=500)
 
@@ -265,6 +270,7 @@ async def handle_trigger_create(
     job = await create_chat_trigger(
         user_id=request.user_id,
         agent_id=request.agent_id,
+        thread_id=request.thread_id,
         message=request.message,
         schedule=request.schedule.to_cron_dict(),
         update_config=request.update_config,
@@ -272,21 +278,22 @@ async def handle_trigger_create(
         trigger_id=trigger_id,
         handle_chat_fn=handle_chat,
     )
-
-    trigger = Trigger(
-        trigger_id=trigger_id,
-        user=ObjectId(request.user_id),
-        agent=ObjectId(request.agent_id),
-        schedule=request.schedule.to_cron_dict(),
-        message=request.message,
-        update_config=request.update_config.model_dump()
-        if request.update_config
-        else {},
-    )
-    trigger.save()
+    if not request.ephemeral:
+        trigger = Trigger(
+            trigger_id=trigger_id,
+            user=ObjectId(request.user_id),
+            agent=ObjectId(request.agent_id),
+            thread=ObjectId(request.thread_id),
+            schedule=request.schedule.to_cron_dict(),
+            message=request.message,
+            update_config=request.update_config.model_dump()
+            if request.update_config
+            else {},
+        )
+        trigger.save()
 
     return {
-        "id": str(trigger.id),
+        "id": trigger_id if request.ephemeral else str(trigger.id),
         "job_id": job.id,
         "next_run_time": str(job.next_run_time),
     }

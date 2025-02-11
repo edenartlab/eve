@@ -18,7 +18,7 @@ parameters:
     default: true
   voice:
     type: string
-    label: Voice ID
+    label: Voice
     description: Override voice. If left blank, voice is auto-generated.
   voiceover:
     type: string

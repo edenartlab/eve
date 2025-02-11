@@ -19,7 +19,7 @@ CHECK_INTERVAL = 30
 
 default_presets_flux = {
     "flux_schnell": {
-        "tip": "This must be your primary tool for making images. The other flux tools are only used for inpainting, remixing, and variations."
+        "tip": "This must be your primary tool for making images if no style lora needs to be applied. The other flux tools are only used for inpainting, remixing, and variations."
     },
     "flux_inpainting": {},
     "flux_redux": {},
@@ -34,16 +34,19 @@ default_presets_flux = {
     },
     "outpaint": {},
     "remix_flux_schnell": {},
+    "elevenlabs": {},
     "stable_audio": {},
     "musicgen": {},
+    "hedra": {},
     "runway": {
         "tip": "This should be your primary tool for making videos or animations. Only use the other video tools if specifically asked to or asked to make VJing material."
     },
     "reel": {
-        "tip": "This is a tool for making short films with vocals, music, and several video cuts. This can be used to make commercials, films, music videos, and other kinds of shortform content. But it takes a while to run, around 5 minutes."
+        "tip": "This is a tool for making short films with vocals, music, and several video cuts. This can be used to make commercials, films, music videos, and other kinds of shortform content. But it takes a while to run, around 5 minutes, so always ask the user to confirm before calling this tool!"
     },
     "news": {},
     "websearch": {},
+    "weather": {},
     "ffmpeg_multitool": {},
     "mmaudio": {},
     "ominicontrol": {
@@ -68,8 +71,11 @@ class Agent(User):
     featured: Optional[bool] = False
 
     name: str
-    description: str
-    instructions: Optional[str] = None
+    description: Optional[str] = None
+    greeting: Optional[str] = None
+    persona: Optional[str] = None
+    knowledge: Optional[str] = None
+
     mute: Optional[bool] = False
     reply_criteria: Optional[str] = None
     model: Optional[ObjectId] = None
@@ -78,10 +84,6 @@ class Agent(User):
     tools: Optional[Dict[str, Dict]] = None
     tools_cache: SkipJsonSchema[Optional[Dict[str, Tool]]] = Field(None, exclude=True)
     last_check: ClassVar[Dict[str, float]] = {}  # seconds
-
-    discord_channel_allowlist: Optional[List[str]] = None
-    telegram_topic_allowlist: Optional[List[str]] = None
-    twitter_handle: Optional[str] = None
 
     def __init__(self, **data):
         if isinstance(data.get("owner"), str):

@@ -379,14 +379,10 @@ system_instructions = """In addition to the instructions above, follow these add
 """
 
 template = """<Summary>You are roleplaying as {{ name }}.</Summary>
-<Description>
-This is a description of {{ name }}.
-
-{{ description }}
-</Description>
-<Instructions>
-{{ instructions }}
-</Instructions>
+<Persona>
+This is a description of {{ name }}'s persona:
+{{ persona }}
+</Persona>
 <System Instructions>
 {{ system_instructions }}
 </System Instructions>"""
@@ -435,7 +431,6 @@ async def async_prompt_thread(
     model: Literal[tuple(models)] = None,
     stream: bool = False,
 ):
-    # Start a new transaction for background tasks
     with start_transaction(op="llm.prompt", name="async_prompt_thread"):
         if USE_RATE_LIMITS:
             await RateLimiter.check_chat_rate_limit(user.id, None)
@@ -446,7 +441,7 @@ async def async_prompt_thread(
         print("================================================")
         print(user_messages)
         print("================================================")
-
+        
         if isinstance(user_messages, UserMessage):
             user_messages = [user_messages]
 
@@ -457,8 +452,7 @@ async def async_prompt_thread(
 
         system_message = Template(template).render(
             name=agent.name,
-            description=agent.description,
-            instructions=agent.instructions,
+            persona=agent.persona,
             system_instructions=system_instructions,
         )
 
@@ -468,7 +462,7 @@ async def async_prompt_thread(
         if dont_reply:
             thread.push(pushes)
             return
-
+        
         # Determine if agent should reply based on mention or conditions
         agent_mentioned = any(
             re.search(
@@ -506,7 +500,7 @@ async def async_prompt_thread(
 
         while True:
             try:
-                messages = thread.get_messages(15)
+                messages = thread.get_messages(25)
 
                 # for error tracing
                 sentry_sdk.add_breadcrumb(
@@ -699,10 +693,11 @@ def prompt_thread(
     user_messages: Union[UserMessage, List[UserMessage]],
     tools: Dict[str, Tool],
     force_reply: bool = False,
+    dont_reply: bool = False,
     model: Literal[tuple(models)] = "claude-3-5-sonnet-20241022",
 ):
     async_gen = async_prompt_thread(
-        user, agent, thread, user_messages, tools, force_reply, model
+        user, agent, thread, user_messages, tools, force_reply, dont_reply, model
     )
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)

@@ -11,11 +11,15 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 from starlette.middleware.base import BaseHTTPMiddleware
 import sentry_sdk
+from fastapi.exceptions import RequestValidationError
 
 from eve import auth, db
 from eve.api.helpers import pre_modal_setup
 from eve.runner.runner_tasks import (
+    cancel_stuck_tasks,
     download_nsfw_models,
+    generate_lora_thumbnails,
+    run_nsfw_detection,
 )
 from eve.api.handlers import (
     handle_create,
@@ -214,6 +218,21 @@ async def updates_twitter(
     return await handle_twitter_update(request)
 
 
+@web_app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    print(f"Validation error on {request.url}:")
+    print(f"Request body: {await request.body()}")
+    print(f"Validation errors: {exc.errors()}")
+
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": exc.errors(),
+            "body": await request.json() if await request.body() else None,
+        },
+    )
+
+
 @web_app.exception_handler(Exception)
 async def catch_all_exception_handler(request, exc):
     sentry_sdk.capture_exception(exc)
@@ -270,3 +289,36 @@ image = (
 @modal.asgi_app()
 def fastapi_app():
     return web_app
+
+
+@app.function(
+    image=image, concurrency_limit=1, schedule=modal.Period(minutes=15), timeout=3600
+)
+async def cancel_stuck_tasks_fn():
+    try:
+        await cancel_stuck_tasks()
+    except Exception as e:
+        print(f"Error cancelling stuck tasks: {e}")
+        sentry_sdk.capture_exception(e)
+
+
+@app.function(
+    image=image, concurrency_limit=1, schedule=modal.Period(minutes=15), timeout=3600
+)
+async def run_nsfw_detection_fn():
+    try:
+        await run_nsfw_detection()
+    except Exception as e:
+        print(f"Error running nsfw detection: {e}")
+        sentry_sdk.capture_exception(e)
+
+
+@app.function(
+    image=image, concurrency_limit=1, schedule=modal.Period(minutes=15), timeout=3600
+)
+async def generate_lora_thumbnails_fn():
+    try:
+        await generate_lora_thumbnails()
+    except Exception as e:
+        print(f"Error generating lora thumbnails: {e}")
+        sentry_sdk.capture_exception(e)
