@@ -1,177 +1,206 @@
-import os
-from typing import Dict, Optional, List, Any, Tuple
 from playwright.async_api import async_playwright
-import json
-import logging
+from typing import Dict, Any
+import asyncio
+from collections import Counter
 
-async def safe_evaluate(page, script: str, default_value: Any) -> Tuple[Any, str]:
-    """
-    Safely evaluate JavaScript on the page with error handling.
+async def wait_for_content(page) -> bool:
+    """Wait for page to load and stabilize."""
+    try:
+        # Wait for body to have content
+        await page.wait_for_selector('body', timeout=3000)
+        # Wait a bit for dynamic content
+        await page.wait_for_timeout(1000)
+        return True
+    except:
+        return False
+
+async def get_text_content(page) -> str:
+    """Extract all visible text content from the page."""
+    script = """
+    () => {
+        // Helper function to check if element is visible
+        const isVisible = el => {
+            if (!el.offsetParent && el.tagName !== 'BODY') return false;
+            const style = window.getComputedStyle(el);
+            return style.display !== 'none' && 
+                   style.visibility !== 'hidden' && 
+                   style.opacity !== '0' &&
+                   style.width !== '0px' &&
+                   style.height !== '0px';
+        };
+
+        // Helper to check if element is likely navigation/footer
+        const isBoilerplate = el => {
+            const tag = el.tagName.toLowerCase();
+            if (['nav', 'header', 'footer'].includes(tag)) return true;
+            
+            const classes = el.className.toLowerCase();
+            const id = el.id.toLowerCase();
+            const boilerplateTerms = ['menu', 'nav', 'header', 'footer', 'sidebar', 'cookie', 'popup', 'modal'];
+            
+            return boilerplateTerms.some(term => 
+                classes.includes(term) || id.includes(term)
+            );
+        };
+
+        // Get all text nodes in the document
+        const walker = document.createTreeWalker(
+            document.body,
+            NodeFilter.SHOW_TEXT,
+            {
+                acceptNode: function(node) {
+                    // Skip if parent is hidden
+                    if (!isVisible(node.parentElement)) {
+                        return NodeFilter.FILTER_REJECT;
+                    }
+                    
+                    // Skip if parent is boilerplate
+                    if (isBoilerplate(node.parentElement)) {
+                        return NodeFilter.FILTER_REJECT;
+                    }
+                    
+                    // Skip script and style contents
+                    if (['SCRIPT', 'STYLE', 'NOSCRIPT'].includes(node.parentElement.tagName)) {
+                        return NodeFilter.FILTER_REJECT;
+                    }
+                    
+                    // Accept if node has meaningful content
+                    return node.textContent.trim().length > 0 
+                        ? NodeFilter.FILTER_ACCEPT 
+                        : NodeFilter.FILTER_REJECT;
+                }
+            }
+        );
+
+        const textNodes = [];
+        while (walker.nextNode()) {
+            const node = walker.currentNode;
+            const text = node.textContent.trim();
+            
+            // Get the closest block-level ancestor
+            let ancestor = node.parentElement;
+            while (ancestor && window.getComputedStyle(ancestor).display === 'inline') {
+                ancestor = ancestor.parentElement;
+            }
+            
+            // Add text with its structural context
+            if (ancestor) {
+                const tag = ancestor.tagName.toLowerCase();
+                if (tag.match(/^h[1-6]$/)) {
+                    textNodes.push(`\n## ${text}\n`);
+                } else if (tag === 'p') {
+                    textNodes.push(`${text}\n\n`);
+                } else {
+                    textNodes.push(`${text} `);
+                }
+            }
+        }
+
+        return textNodes.join('').trim();
+    }
     """
     try:
-        result = await page.evaluate(script)
-        return result, ""
-    except Exception as e:
-        return default_value, str(e)
+        return await page.evaluate(script)
+    except:
+        return ""
 
-async def handler(args: dict) -> Dict[str, str]:
+async def handler(args: Dict[str, Any]) -> Dict[str, str]:
     """
-    Handler function for the websearch tool that scrapes content from specified URLs.
-    
-    Args:
-        args (dict): Dictionary containing:
-            - url (str): Required. The URL to scrape
-            - max_links (int): Optional. Maximum number of links to extract (default: 15)
-            - max_chars (int): Optional. Maximum number of characters to include in content summary (default: 2000)
-        env (str): Optional environment parameter
-    
-    Returns:
-        Dict[str, str]: Dictionary containing the scraped content and any errors
+    Performance-optimized web scraper using Playwright.
     """
     url = args["url"]
-        
-    # Get configurable limits from args with defaults
-    max_links = int(args.get('max_links', 15))
-    max_chars = int(args.get('max_chars', 2000))
+    max_links = int(args.get('max_links', 5))
+    max_chars = int(args.get('max_chars', 20000))
 
-    page_content = {
-        "title": "",
-        "text": "",
-        "links": []
-    }
-    
-    errors = []
-    
-    try:
-        async with async_playwright() as p:
-            # Launch browser with security options
-            browser = await p.chromium.launch(
-                headless=True,
-                args=['--disable-gpu', '--no-sandbox', '--disable-dev-shm-usage']
-            )
-            
-            # Create new page (timeout is set per operation, not during page creation)
-            context = await browser.new_context(
-                viewport={'width': 1280, 'height': 800}
-            )
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(
+            headless=True,
+            args=['--disable-gpu', '--no-sandbox', '--disable-dev-shm-usage']
+        )
+        
+        context = await browser.new_context(
+            viewport={'width': 1280, 'height': 800},
+            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+        )
+        
+        try:
             page = await context.new_page()
+            await page.goto(url, wait_until='networkidle', timeout=10000)
             
-            # Set default timeout for all operations
-            page.set_default_timeout(30000)
+            # Wait for content to load
+            await wait_for_content(page)
             
-            # Navigate to URL with retry
-            for attempt in range(3):
-                try:
-                    response = await page.goto(
-                        url, 
-                        wait_until='domcontentloaded',
-                        timeout=10000
-                    )
-                    if response and response.ok:
-                        break
-                except Exception as e:
-                    if attempt == 2:
-                        return {"output": f"Error loading page after 3 attempts: {str(e)}"}
-                    continue
+            # Extract data in parallel
+            title_future = page.title()
+            content_future = get_text_content(page)
             
-            # Extract page title (with fallback)
-            try:
-                page_content["title"] = await page.title()
-            except Exception as e:
-                page_content["title"] = "Title extraction failed"
-                errors.append(f"Title error: {str(e)}")
-            
-            # Extract visible text content with multiple strategies
-            text_extraction_script = """
-                () => {
-                    try {
-                        let text = Array.from(document.body.querySelectorAll('p, h1, h2, h3, h4, h5, h6, article, section, main'))
-                            .map(element => element.textContent.trim())
-                            .filter(text => text.length > 0)
-                            .join('\\n\\n');
-                            
-                        if (text.length < 100) {
-                            text = Array.from(document.body.getElementsByTagName('*'))
-                                .map(element => element.textContent.trim())
-                                .filter(text => text.length > 20)
-                                .join('\\n\\n');
-                        }
-                        
-                        return text;
-                    } catch (error) {
-                        return '';
-                    }
-                }
-            """
-            
-            text_content, text_error = await safe_evaluate(page, text_extraction_script, "")
-            if text_error:
-                errors.append(f"Text extraction error: {text_error}")
-            page_content["text"] = text_content if text_content else "No text content could be extracted"
-            
-            # Extract links with fallback strategies
+            # Modified link extraction to be more generic
             links_script = """
                 () => {
-                    try {
-                        let links = Array.from(document.links)
-                            .map(link => ({
-                                text: link.textContent.trim(),
-                                href: link.href
-                            }))
-                            .filter(link => link.text && link.href.startsWith('http'));
-                            
-                        if (links.length === 0) {
-                            links = Array.from(document.getElementsByTagName('a'))
-                                .map(a => ({
-                                    text: a.textContent.trim(),
-                                    href: a.getAttribute('href')
-                                }))
-                                .filter(link => link.text && link.href && link.href.startsWith('http'));
-                        }
-                        
-                        return links;
-                    } catch (error) {
-                        return [];
-                    }
+                    const isVisible = el => {
+                        if (!el.offsetParent && el.tagName !== 'BODY') return false;
+                        const style = window.getComputedStyle(el);
+                        return style.display !== 'none' && 
+                               style.visibility !== 'hidden' && 
+                               style.opacity !== '0';
+                    };
+                    
+                    return Array.from(document.querySelectorAll('a[href]'))
+                        .filter(a => isVisible(a))
+                        .map(a => ({
+                            text: (a.innerText || a.textContent || '').trim(),
+                            href: a.href
+                        }))
+                        .filter(({text, href}) => 
+                            text && 
+                            text.length > 1 &&
+                            href.startsWith('http') &&
+                            !href.includes('/cdn-cgi/') &&
+                            !text.match(/^(Accept|Cookie|Got it|×|Close)/i)
+                        );
                 }
             """
+            links_future = page.evaluate(links_script)
             
-            links, links_error = await safe_evaluate(page, links_script, [])
-            if links_error:
-                errors.append(f"Links extraction error: {links_error}")
-            page_content["links"] = links[:max_links] if links else []
+            # Wait for all operations to complete
+            title, text_content, links = await asyncio.gather(
+                title_future, 
+                content_future,
+                links_future
+            )
             
-            # Close browser
-            await browser.close()
-            
-            # Format output with error reporting
+            # Format output
             output = f"""# Page Analysis: {url}
 
 ## Title
-{page_content['title']}
+{title}
 
 ## Content Summary
-{page_content['text'][:max_chars]}{'...' if len(page_content['text']) > max_chars else ''}
+{text_content[:max_chars]}{'...' if len(text_content) > max_chars else ''}
 
 ## Top Links
 """
-            if page_content["links"]:
-                for link in page_content["links"]:
-                    output += f"- [{link['text']}]({link['href']})\n"
-            else:
-                output += "No links were extracted\n"
+            # Count frequency of each link
+            link_counts = Counter(link['href'] for link in links)
 
-            if errors:
-                output += "\n## Extraction Issues\n"
-                output += "Some content may be incomplete due to the following issues:\n"
-                for error in errors:
-                    output += f"- {error}\n"
+            # Sort links by frequency, then by text length for ties
+            sorted_links = sorted(
+                links, 
+                key=lambda x: (-link_counts[x['href']], -len(x['text']))
+            )
+
+            # Add links with their counts
+            seen_links = set()
+            for link in sorted_links[:max_links]:
+                if link['href'] not in seen_links:
+                    count = link_counts[link['href']]
+                    output += f"- [{link['text']}]({link['href']}) (appears {count} times)\n"
+                    seen_links.add(link['href'])
             
-            return {
-                "output": output
-            }
+            return {"output": output}
             
-    except Exception as e:
-        return {
-            "output": f"Critical error processing webpage: {str(e)}\n\nPartial content (if any):\n{json.dumps(page_content, indent=2)}"
-        }
+        except Exception as e:
+            return {"output": f"Error processing webpage: {str(e)}"}
+        
+        finally:
+            await browser.close()
