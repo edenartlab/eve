@@ -3,6 +3,7 @@ import logging
 import os
 import time
 from bson import ObjectId
+from typing import List
 from fastapi import BackgroundTasks
 from fastapi.responses import StreamingResponse
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -18,6 +19,7 @@ from eve.api.api_requests import (
     TaskRequest,
     ConfigureDeploymentRequest,
     PlatformUpdateRequest,
+    UpdateConfig
 )
 from eve.api.helpers import (
     emit_update,
@@ -36,6 +38,8 @@ from eve.mongo import serialize_document
 from eve.task import Task
 from eve.tool import Tool
 from eve.agent import Agent
+from eve.user import User
+from eve.thread import Thread, UserMessage
 from eve.deploy import Deployment
 from eve.tools.twitter import X
 
@@ -83,49 +87,73 @@ async def handle_replicate_webhook(body: dict):
     )
 
 
+async def run_chat_request(
+    user: User,
+    agent: Agent,
+    thread: Thread,
+    tools: List[Tool],
+    user_message: UserMessage,
+    update_config: UpdateConfig,
+    force_reply: bool,
+    dont_reply: bool,
+    model: str,
+):
+    try:
+        async for update in async_prompt_thread(
+            user=user,
+            agent=agent,
+            thread=thread,
+            user_messages=user_message,
+            tools=tools,
+            force_reply=force_reply,
+            dont_reply=dont_reply,
+            model=model,
+            stream=False,
+        ):
+            data = {
+                "type": update.type.value,
+                "update_config": update_config.model_dump()
+                if update_config
+                else {},
+            }
+
+            if update.type == UpdateType.ASSISTANT_MESSAGE:
+                data["content"] = update.message.content
+            elif update.type == UpdateType.TOOL_COMPLETE:
+                data["tool"] = update.tool_name
+                data["result"] = serialize_for_json(update.result)
+            elif update.type == UpdateType.ERROR:
+                data["error"] = update.error if hasattr(update, "error") else None
+
+            await emit_update(update_config, data)
+    
+    except Exception as e:
+        logger.error("Error in run_prompt", exc_info=True)
+        await emit_update(
+            update_config,
+            {"type": "error", "error": str(e)},
+        )
+
+
 async def handle_chat(
     request: ChatRequest,
     background_tasks: BackgroundTasks,
 ):
     user, agent, thread, tools = await setup_chat(request, background_tasks)
-
-    async def run_prompt():
-        try:
-            async for update in async_prompt_thread(
-                user=user,
-                agent=agent,
-                thread=thread,
-                user_messages=request.user_message,
-                tools=tools,
-                force_reply=request.force_reply,
-                dont_reply=request.dont_reply,
-                model=request.model,
-                stream=False,
-            ):
-                data = {
-                    "type": update.type.value,
-                    "update_config": request.update_config.model_dump()
-                    if request.update_config
-                    else {},
-                }
-
-                if update.type == UpdateType.ASSISTANT_MESSAGE:
-                    data["content"] = update.message.content
-                elif update.type == UpdateType.TOOL_COMPLETE:
-                    data["tool"] = update.tool_name
-                    data["result"] = serialize_for_json(update.result)
-                elif update.type == UpdateType.ERROR:
-                    data["error"] = update.error if hasattr(update, "error") else None
-
-                await emit_update(request.update_config, data)
-        except Exception as e:
-            logger.error("Error in run_prompt", exc_info=True)
-            await emit_update(
-                request.update_config,
-                {"type": "error", "error": str(e)},
-            )
-
-    background_tasks.add_task(run_prompt)
+    
+    background_tasks.add_task(
+        run_chat_request, 
+        user, 
+        agent, 
+        thread, 
+        tools, 
+        request.user_message, 
+        request.update_config, 
+        request.force_reply, 
+        request.dont_reply, 
+        request.model
+    )
+    
     return {"thread_id": str(thread.id)}
 
 

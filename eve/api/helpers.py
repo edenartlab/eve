@@ -30,7 +30,8 @@ async def get_update_channel(
 
 
 async def setup_chat(
-    request: ChatRequest, background_tasks: BackgroundTasks
+    request: ChatRequest, 
+    background_tasks: BackgroundTasks
 ) -> tuple[User, Agent, Thread, list[Tool]]:
     try:
         user = User.from_mongo(request.user_id)
