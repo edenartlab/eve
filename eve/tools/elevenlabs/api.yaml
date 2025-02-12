@@ -5,7 +5,7 @@ tip: |-
 cost_estimate: 50
 output_type: audio
 status: prod
-visible: false
+visible: true
 parameters:
   text:
     type: string
