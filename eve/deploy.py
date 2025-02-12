@@ -8,8 +8,8 @@ from typing import Dict, List, Optional
 from bson import ObjectId
 from pydantic import BaseModel
 
-from eve.agent import Agent
-from eve.mongo import Collection, Document, get_collection
+from .agent import Agent
+from .mongo import Collection, Document, get_collection
 
 
 REPO_URL = "https://github.com/edenartlab/eve.git"

@@ -13,15 +13,15 @@ from starlette.middleware.base import BaseHTTPMiddleware
 import sentry_sdk
 from fastapi.exceptions import RequestValidationError
 
-from eve import auth, db
-from eve.api.helpers import pre_modal_setup
-from eve.runner.runner_tasks import (
+from .. import auth, db
+from ..tools.comfyui_tool import convert_tasks2_to_tasks3
+from ..runner.runner_tasks import (
     cancel_stuck_tasks,
     download_nsfw_models,
     generate_lora_thumbnails,
     run_nsfw_detection,
 )
-from eve.api.handlers import (
+from .handlers import (
     handle_create,
     handle_cancel,
     handle_replicate_webhook,
@@ -33,7 +33,7 @@ from eve.api.handlers import (
     handle_trigger_delete,
     handle_twitter_update,
 )
-from eve.api.api_requests import (
+from .api_requests import (
     CancelRequest,
     ChatRequest,
     CreateDeploymentRequest,
@@ -43,7 +43,8 @@ from eve.api.api_requests import (
     PlatformUpdateRequest,
     TaskRequest,
 )
-from eve.tools.comfyui_tool import convert_tasks2_to_tasks3
+from .helpers import pre_modal_setup
+
 
 app_name = f"api-{db.lower()}"
 logging.basicConfig(level=logging.INFO)

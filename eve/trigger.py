@@ -1,16 +1,16 @@
-from typing import Dict, Any
-from bson import ObjectId
-from eve.mongo import Collection, Document, get_collection
 import asyncio
 import logging
+import sentry_sdk
+from typing import Dict, Any
+from bson import ObjectId
 from typing import Optional
 from fastapi import BackgroundTasks
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-import sentry_sdk
 
-from eve.api.api_requests import ChatRequest, UpdateConfig
-from eve.thread import UserMessage
+from .api.api_requests import ChatRequest, UpdateConfig
+from .thread import UserMessage
+from .mongo import Collection, Document
 
 logger = logging.getLogger(__name__)
 
