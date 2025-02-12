@@ -253,7 +253,7 @@ async def generate_ffmpeg_command(
 
 ffmpeg_validator = eden_utils.CommandValidator({'ffmpeg'})
 
-async def execute_ffmpeg_command(command: str, timeout: int = 300) -> None:
+async def execute_ffmpeg_command(command: str, timeout: int = 60) -> None:
     """Execute FFmpeg command with timeout and basic security validation"""
     if not command:
         raise ValueError("FFmpeg command cannot be empty")
@@ -345,7 +345,7 @@ async def handler(args: Dict[str, Any]) -> Dict[str, str]:
         raise TypeError("Args must be a dictionary")
         
     n_retries = max(1, int(args.get("n_retries", 4)))
-    timeout = max(1, int(args.get("timeout", 30)))
+    timeout = max(1, int(args.get("timeout", 60)))
     
     tmp_dir = None
     output_path = None
