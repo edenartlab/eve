@@ -229,6 +229,15 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
             output = eden_utils.upload_result(
                 output, save_thumbnails=True, save_blurhash=True
             )
+            if thumbnails:
+                thumbnail_results = [
+                    eden_utils.upload_media(
+                        thumb, 
+                        save_thumbnails=True,
+                        save_blurhash=True
+                    ) 
+                    for thumb in thumbnails
+                ]
             result = [{"output": [out]} for out in output]
         else:
             output = eden_utils.upload_result(
@@ -242,7 +251,7 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
                     filename = output["filename"]
                     thumbnail = (
                         eden_utils.upload_media(
-                            thumbnails[0], save_thumbnails=False, save_blurhash=False
+                            thumbnails[0], save_thumbnails=True, save_blurhash=True
                         )
                         if thumbnails
                         else None
