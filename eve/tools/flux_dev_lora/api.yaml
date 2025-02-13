@@ -1,7 +1,7 @@
 name: Create an image with Flux-Dev
 description: Generate an image from text Flux-Dev.
 tip: |-
-  Flux is a text to image model that excels at prompt coherence and text generation. This should always be your default way to generate an image from text when quality is preferred over speed.
+  Flux is a text to image model that excels at prompt coherence and text generation. This should always be your default way to generate an image when text has to be drawn.
 cost_estimate: 1 * n_samples
 output_type: image
 base_model: flux-dev

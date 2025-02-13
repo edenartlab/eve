@@ -1,7 +1,7 @@
 name: Create an image (Fast)
 description: Generate an image from text quickly with Flux Schnell.
 tip: |-
-  Flux is a text to image model that excels at prompt coherence and text generation. This should always be the default way to generate an image from text!
+  Flux is a fast and cheap text to image model that excels at prompt coherence.
 cost_estimate: 1 * n_samples
 output_type: image
 thumbnail: app/flux-schnell.jpg
