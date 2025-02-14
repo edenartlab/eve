@@ -49,7 +49,6 @@ class ChatRequest(BaseModel):
     thread_id: Optional[str] = None
     update_config: Optional[UpdateConfig] = None
     force_reply: bool = False
-    dont_reply: bool = False
     model: Optional[str] = None
 
 

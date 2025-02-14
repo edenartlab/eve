@@ -60,7 +60,6 @@ async def run_chat_trigger(
         user_message=user_message,
         update_config=update_config,
         force_reply=True,
-        dont_reply=False,
         model="claude-3-5-sonnet-20241022"
     )
 

@@ -16,6 +16,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 import json
 
 from . import sentry_sdk
+from .eden_utils import prepare_result
 from .tool import Tool
 from .task import Creation
 from .user import User
@@ -56,6 +57,11 @@ async def async_anthropic_prompt(
         "messages": [item for msg in messages for item in msg.anthropic_schema()],
         "system": system_message,
     }
+    print("BBBB 1")
+    print(tools.keys())
+    print(response_model)
+    print("BBBB 2")
+
     if tools or response_model:
         tool_schemas = [
             t.anthropic_schema(exclude_hidden=True) for t in (tools or {}).values()
@@ -65,18 +71,31 @@ async def async_anthropic_prompt(
             prompt["tool_choice"] = {"type": "tool", "name": response_model.__name__}
         prompt["tools"] = tool_schemas
 
+    print("BBBB 3")
+    print("CCC 111")
+    print("CCC 222")
     # Non-streaming call
+    # print(prompt)
+    print("CCC 444444")
+
     response = await anthropic_client.messages.create(**prompt)
+    print("CCC 555555")
+    print("BBBB 4")
     if response_model:
+        print("BBBB 5")
         return response_model(**response.content[0].input)
     else:
+        print("BBBB 6")
         content = ". ".join(
             [r.text for r in response.content if r.type == "text" and r.text]
         )
+        print("BBBB 7")
         tool_calls = [
             ToolCall.from_anthropic(r) for r in response.content if r.type == "tool_use"
         ]
+        print("BBBB 8")
         stop = response.stop_reason == "end_turn"
+        print("BBBB 9")
         return (content, tool_calls, stop)
 
 
@@ -323,23 +342,21 @@ async def async_prompt_stream(
     system_message: Optional[str],
     model: str,
     response_model: Optional[type[BaseModel]] = None,
-    tools: Dict[str, Tool] = {},
+    tools: Optional[Dict[str, Tool]] = None,
 ) -> AsyncGenerator[Tuple[UpdateType, str], None]:
     """
     Streaming LLM call => yields (UpdateType.ASSISTANT_TOKEN, partial_text).
     Add a similar function for OpenAI if you need streaming from GPT-based models.
     """
-    if model.startswith("claude"):
-        async for chunk in async_anthropic_prompt_stream(
-            messages, system_message, model, response_model, tools
-        ):
-            yield chunk
-    else:
-        async for chunk in async_openai_prompt_stream(
-            messages, system_message, model, response_model, tools
-        ):
-            yield chunk
-
+    
+    async_prompt_stream_method = async_anthropic_prompt_stream \
+        if model.startswith("claude") else async_openai_prompt_stream
+    
+    async for chunk in async_prompt_stream_method(
+        messages, system_message, model, response_model, tools
+    ):
+        yield chunk
+    
 
 def anthropic_prompt(messages, system_message, model, response_model=None, tools=None):
     return asyncio.run(
@@ -372,51 +389,117 @@ class ThreadUpdate(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
-system_instructions = """In addition to the instructions above, follow these additional guidelines:
-* In your response, do not include anything besides for your chat message. Do not include pretext, stage directions, or anything other than what you are saying.
-* Do not apologize.
-* Try to be concise. Do not be verbose.
-"""
-
-template = """<Summary>You are roleplaying as {{ name }}.</Summary>
+system_template = """<Summary>You are roleplaying as {{ name }}.</Summary>
 <Persona>
 This is a description of {{ name }}'s persona:
 {{ persona }}
 </Persona>
 <System Instructions>
-{{ system_instructions }}
+In addition to the instructions above, follow these additional guidelines:
+* In your response, do not include anything besides for your chat message. Do not include pretext, stage directions, or anything other than what you are saying.
+* Try to be concise. Do not be verbose.
 </System Instructions>"""
 
 
-async def async_think(
-    thread: Thread,
-    user_messages: Union[UserMessage, List[UserMessage]],
-    reply_criteria: str,
-):
-    class ShouldReply(BaseModel):
-        """
-        True if you want to send a message, False if you don't. Use the reply criteria to determine if you should reply.
-        """
+thought_template = """<Name>{{ name }}</Name>
+<ChatLog>
+You are roleplaying as {{ name }} in a group chat. The previous 10 messages in the chat follow. Note that "You" means you, Eve, sent the message.
+---
+{{ chat }}---
+</ChatLog>
+<Task>
+You will receive the next message from a user to this chat. Note that this message is not necessarily directed to you. This is a group chat with multiple users and you. The message may be directed at someone else. Use context to determine if the message is directed at you, references something you said earlier, directed at someone other than you, or is just a general message to no one specific.
 
-        reply: bool = Field(
-            ..., description="Whether or not to reply, given the criteria"
+Read the new message and generate a response to it which contains the following:
+
+* intention: A classification of how to respond to the user message. If the message does not involve you or address you directly, and if it is not relevant to any of your interests or goals, you should set this to "ignore". If the message involves you or is somehow relevant to you, you should at least set this to "react" which will let you analyze the message further. If you are reacting to it, and decide you need to reply with a message, you should set this to "react_and_reply". You should generally reply only when a user requests you, responds to you, or brings up something very obviously relevant or interesting to you.
+* thought: A short thought about the message, its relevance to you, and a justification of your intention.
+* tools: If and only if you are reacting and/or replying, you may optionally select any and all tools that might be relevant to the user message.
+</Task>
+<Message>
+{{ message }}
+</Message>"""
+
+
+tool_categories = {
+    "create_media": "Generate or edit an image, video, or audio asset.",
+    "knowledge": "Refer to your large external knowledge base.",
+    "search": "Retrieve old chat messages to recall information, or search the database for other agents, users, models, or loras.",
+}
+
+tool_descriptions = "\n".join([f"{k}: {v}" for k, v in tool_categories.items()])
+
+
+async def async_think(
+    agent: Agent,
+    thread: Thread,
+    user_message: UserMessage,
+    reply_criteria: Optional[str] = None,
+    force_reply: bool = True,
+):  
+    intention_description = "Response class to the last user message. Ignore if irrelevant, react if relevant, react_and_reply if you intend to say something."
+    if reply_criteria:
+        intention_description += f"\nAdditional criteria for replying spontaneously: {reply_criteria}"
+
+    class ChatResponse(BaseModel):
+        """A response to a chat message."""
+        
+        thought: str = Field(
+            ...,
+            description="A thought about what relevance, if any, the last user message has to you, and a justification of your intention."
+        )
+        intention: Literal["ignore", "react", "react_and_reply"] = Field(
+            ...,
+            description=intention_description
+        )
+        tools: Optional[List[Literal[tuple(tool_categories.keys())]]] = Field(
+            ...,
+            description=f"A list of tools you might need to react to this message.\n{tool_descriptions}"
         )
 
-    messages = [
-        UserMessage(
-            content=f"<Instructions>Your goal is to decide whether or not to reply to the user, given the desired criteria. You should only consider the user's LAST message, although context is useful.</Instructions>\n<Reply_Criteria>{reply_criteria}</Reply_Criteria>"
-        ),
-    ]
-    messages.extend(thread.get_messages(5))
-    messages.extend(user_messages)
+    messages = thread.get_messages(10)
+
+    chat = ""
+    for msg in messages:
+        content = msg.content
+        if msg.role == "user":
+            if msg.attachments:
+                content += f" (attachments: {msg.attachments})"
+            name = "You" if msg.name == agent.name else msg.name or "User"
+        elif msg.role == "assistant":
+            name = agent.name
+            for tc in msg.tool_calls:
+                args = ", ".join([f"{k}={v}" for k, v in tc.args.items()])
+                tc_result = json.dumps(prepare_result(tc.result))
+                content += f"\n -> {tc.tool}({args}) -> {tc_result}"
+        time_str = msg.createdAt.strftime("%H:%M")
+        chat += f"<{name} {time_str}> {content}\n"
+
+    content = user_message.content
+    if user_message.attachments:
+        content += f" (attachments: {user_message.attachments})"
+    time_str = user_message.createdAt.strftime("%H:%M")
+    message = f"<{user_message.name} {time_str}> {content}"
+    
+    prompt = Template(thought_template).render(
+        name=agent.name, 
+        chat=chat, 
+        message=message
+    )
 
     result = await async_prompt(
-        messages,
-        system_message="You are a helpful assistant who decides whether or not to reply to the last message.",
-        model="gpt-4o-mini",
-        response_model=ShouldReply,
+        [UserMessage(content=prompt)],
+        system_message="You are a helpful assistant named Eve. You are just generating thoughts.",
+        model="claude-3-5-haiku-20241022",
+        response_model=ChatResponse,
     )
-    return result.reply
+
+    if force_reply:
+        result.intention = "react_and_reply"
+
+    return result
+
+
 
 
 @trace
@@ -426,11 +509,12 @@ async def async_prompt_thread(
     thread: Thread,
     user_messages: Union[UserMessage, List[UserMessage]],
     tools: Dict[str, Tool],
-    force_reply: bool = True,
-    dont_reply: bool = False,
-    model: Literal[tuple(models)] = None,
+    force_reply: bool = False,
+    model: Optional[Literal[tuple(models)]] = None,
     stream: bool = False,
 ):
+    
+    print("tge tioioks 1 ", tools.keys())
     with start_transaction(op="llm.prompt", name="async_prompt_thread"):
         if USE_RATE_LIMITS:
             await RateLimiter.check_chat_rate_limit(user.id, None)
@@ -450,43 +534,36 @@ async def async_prompt_thread(
         )
         user_message_id = user_messages[-1].id
 
-        system_message = Template(template).render(
+        system_message = Template(system_template).render(
             name=agent.name,
-            persona=agent.persona,
-            system_instructions=system_instructions,
+            persona=agent.persona
         )
 
         pushes = {"messages": user_messages}
-
-        # If dont_reply is set, just push messages and return immediately
-        if dont_reply:
-            thread.push(pushes)
-            return
         
         # Determine if agent should reply based on mention or conditions
-        agent_mentioned = any(
-            re.search(
-                rf"\b{re.escape(agent.name.lower())}\b", (msg.content or "").lower()
-            )
-            for msg in user_messages
+        # agent_mentioned = any(
+        #     re.search(
+        #         rf"\b{re.escape(agent.name.lower())}\b", (msg.content or "").lower()
+        #     )
+        #     for msg in user_messages
+        # )
+
+        print("tge tioioks 3 ", tools.keys())
+
+        thought = await async_think(
+            agent=agent,
+            thread=thread,
+            user_message=user_messages[-1],
+            reply_criteria=agent.reply_criteria,
+            force_reply=force_reply,
         )
 
-        # Reply if any of the following are true:
-        # - force_reply is set
-        # - the agent is mentioned in the user's message
-        # - the agent has a reply_condition set and the user's message matches the criteria
-        should_reply = (
-            force_reply
-            or agent_mentioned
-            or (
-                agent.reply_criteria
-                and await async_think(
-                    thread=thread,
-                    user_messages=user_messages,
-                    reply_criteria=agent.reply_criteria,
-                )
-            )
-        )
+        print("================================================")
+        print(thought)
+        print("================================================")
+
+        should_reply = thought.intention == "react_and_reply"
 
         if should_reply:
             pushes["active"] = user_message_id
@@ -502,6 +579,24 @@ async def async_prompt_thread(
             try:
                 messages = thread.get_messages(25)
 
+
+                print("tge tioioks 2 ", tools.keys())
+                print("tge tioioks 2aaa  sdd", tools.keys())
+
+                tools_called = set([tc.tool for msg in messages if msg.role == "assistant" for tc in msg.tool_calls])
+                print("ALL THE TOOLS CALLED: ", tools_called)
+
+                print("tge tioioks 2aaa ", tools.keys())
+
+                if not "create_media" in thought.tools:
+                    print("lets get the tools called 123")
+                    tools = {k: v for k, v in tools.items() if k in tools_called}
+                    print("tge tioioks 2aaa  s23434dd", tools.keys())
+
+                print("tge tioioks 2ccc ", tools.keys())
+
+                print("INCLDUE THIESE TOOLS: ", tools.keys())
+
                 # for error tracing
                 sentry_sdk.add_breadcrumb(
                     category="prompt_in",
@@ -509,7 +604,7 @@ async def async_prompt_thread(
                         "messages": messages,
                         "system_message": system_message,
                         "model": model,
-                        "tools": tools.keys(),
+                        "tools": (tools or {}).keys(),
                     },
                 )
 
@@ -546,12 +641,16 @@ async def async_prompt_thread(
                     content = "".join(content_chunks)
 
                 else:
+
+                    print("AAAA 1")
                     content, tool_calls, stop = await async_prompt(
                         messages,
                         system_message=system_message,
                         model=model,
                         tools=tools,
                     )
+
+                    print("AAAA 2")
 
                 # for error tracing
                 sentry_sdk.add_breadcrumb(
@@ -693,11 +792,10 @@ def prompt_thread(
     user_messages: Union[UserMessage, List[UserMessage]],
     tools: Dict[str, Tool],
     force_reply: bool = False,
-    dont_reply: bool = False,
     model: Literal[tuple(models)] = "claude-3-5-sonnet-20241022",
 ):
     async_gen = async_prompt_thread(
-        user, agent, thread, user_messages, tools, force_reply, dont_reply, model
+        user, agent, thread, user_messages, tools, force_reply, model
     )
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)

@@ -1,4 +1,4 @@
-from eve.llm import prompt_thread, UserMessage, AssistantMessage
+from eve.llm import prompt_thread, UserMessage, AssistantMessage, async_think
 from eve.tool import get_tools_from_mongo
 from eve.auth import get_my_eden_user
 
@@ -70,14 +70,45 @@ def test_valid_messages():
     tools = agent.get_tools()
     thread = agent.request_thread()
 
+    for msg in async_think(
+        user=user,
+        agent=agent,
+        thread=thread,
+        user_messages=messages,
+        tools=tools,
+        force_reply=False,
+        model="gpt-4o-mini"
+    ):
+        print(msg)
+
+
+
+
+def test_think():
+    user = get_my_eden_user()
+
+    messages = [
+        UserMessage(name="gene", content="eve, make a picture of a golden retriever playing chess against Vitalik Buterin in impressionist style."),
+        # UserMessage(name="gene", content="eve, tell me a funny joke"),
+        # UserMessage(name="gene", content="alright nice."),
+    ]
+
+    agent = Agent.load("eve")
+    tools = agent.get_tools()
+    # thread = agent.request_thread()
+    thread = Thread.from_mongo("6774249ff8d4aae98c89ac0f")
+
     for msg in prompt_thread(
         user=user,
         agent=agent,
         thread=thread,
         user_messages=messages,
         tools=tools,
-        force_reply=True,
-        model="gpt-4o-mini"
+        # force_reply=True,
+        # model="gpt-4o-mini"
+        model="claude-3-5-sonnet-20240620"
     ):
         print(msg)
 
+
+test_think()

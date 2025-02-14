@@ -95,7 +95,6 @@ async def run_chat_request(
     user_message: UserMessage,
     update_config: UpdateConfig,
     force_reply: bool,
-    dont_reply: bool,
     model: str,
 ):
     try:
@@ -106,7 +105,6 @@ async def run_chat_request(
             user_messages=user_message,
             tools=tools,
             force_reply=force_reply,
-            dont_reply=dont_reply,
             model=model,
             stream=False,
         ):
@@ -150,7 +148,6 @@ async def handle_chat(
         request.user_message, 
         request.update_config, 
         request.force_reply, 
-        request.dont_reply, 
         request.model
     )
     
@@ -170,7 +167,6 @@ async def handle_stream_chat(request: ChatRequest, background_tasks: BackgroundT
                 user_messages=request.user_message,
                 tools=tools,
                 force_reply=request.force_reply,
-                dont_reply=request.dont_reply,
                 model=request.model,
                 stream=True,
             ):
