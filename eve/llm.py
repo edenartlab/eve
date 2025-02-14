@@ -403,7 +403,7 @@ In addition to the instructions above, follow these additional guidelines:
 
 thought_template = """<Name>{{ name }}</Name>
 <ChatLog>
-You are roleplaying as {{ name }} in a group chat. The previous 10 messages in the chat follow. Note that "You" means you, Eve, sent the message.
+You are roleplaying as {{ name }} in a group chat. The previous 10 messages in the chat follow. Note that "You" means you, {{ name }}, sent the message.
 ---
 {{ chat }}---
 </ChatLog>
