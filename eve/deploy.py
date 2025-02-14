@@ -152,7 +152,7 @@ class Deployment(Document):
 def authenticate_modal_key() -> bool:
     token_id = os.getenv("MODAL_DEPLOYER_TOKEN_ID")
     token_secret = os.getenv("MODAL_DEPLOYER_TOKEN_SECRET")
-    result = subprocess.run(
+    subprocess.run(
         [
             "modal",
             "token",
@@ -165,7 +165,6 @@ def authenticate_modal_key() -> bool:
         capture_output=True,
         text=True,
     )
-    print(result.stdout)
 
 
 def get_container_name(agent_id: str, agent_key: str, platform: str, env: str) -> str:

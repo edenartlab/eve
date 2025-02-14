@@ -16,16 +16,17 @@ from eve.api.api_requests import (
     DeleteDeploymentRequest,
     DeleteTriggerRequest,
     TaskRequest,
-    ConfigureDeploymentRequest,
     PlatformUpdateRequest,
+    UpdateConfig,
+    UpdateDeploymentRequest,
 )
 from eve.api.helpers import (
     emit_update,
     serialize_for_json,
     setup_chat,
 )
+from eve.clients.common import get_ably_channel_name
 from eve.deploy import (
-    create_modal_secrets,
     deploy_client,
     stop_client,
 )
@@ -180,35 +181,6 @@ async def handle_stream_chat(request: ChatRequest, background_tasks: BackgroundT
 
 
 @handle_errors
-async def handle_deployment_configure(request: ConfigureDeploymentRequest):
-    agent = Agent.load(request.agent_username)
-    if not agent:
-        raise APIError(f"Agent not found: {request.agent_username}", status_code=404)
-
-    env = db.lower()
-
-    # Update secrets if provided
-    if request.secrets:
-        secrets_dict = request.secrets.model_dump(exclude_none=True)
-        secrets_dict["EDEN_AGENT_USERNAME"] = request.agent_username
-        if secrets_dict:
-            create_modal_secrets(
-                secrets_dict,
-                f"{request.agent_username}-secrets-{env}",
-            )
-
-    # Update agent config if provided
-    if request.deployment_config:
-        config_dict = request.deployment_config.model_dump(exclude_none=True)
-        if config_dict:
-            for key, value in config_dict.items():
-                setattr(agent, key, value)
-            agent.save()
-
-    return {"message": "Deployment configuration updated"}
-
-
-@handle_errors
 async def handle_deployment_create(request: CreateDeploymentRequest):
     agent = Agent.from_mongo(ObjectId(request.agent))
     if not agent:
@@ -237,6 +209,28 @@ async def handle_deployment_create(request: CreateDeploymentRequest):
     deployment.save(
         upsert_filter={"agent": agent.id, "platform": request.platform.value}
     )
+
+    return {"deployment_id": str(deployment.id)}
+
+
+@handle_errors
+async def handle_deployment_update(request: UpdateDeploymentRequest):
+    deployment = Deployment.from_mongo(ObjectId(request.deployment_id))
+    if not deployment:
+        raise APIError(
+            f"Deployment not found: {request.deployment_id}", status_code=404
+        )
+
+    deployment.update(config=request.config.model_dump())
+    agent = Agent.from_mongo(deployment.agent)
+
+    try:
+        channel_name = get_ably_channel_name(agent.username, request.platform.value)
+        await emit_update(
+            UpdateConfig(sub_channel_name=channel_name), {"type": "RELOAD_DEPLOYMENT"}
+        )
+    except Exception as e:
+        logger.error(f"Failed to emit deployment reload message: {str(e)}")
 
     return {"deployment_id": str(deployment.id)}
 
