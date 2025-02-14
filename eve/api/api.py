@@ -24,6 +24,7 @@ from eve.runner.runner_tasks import (
 from eve.api.handlers import (
     handle_create,
     handle_cancel,
+    handle_deployment_update,
     handle_replicate_webhook,
     handle_chat,
     handle_deployment_create,
@@ -42,6 +43,7 @@ from eve.api.api_requests import (
     DeleteTriggerRequest,
     PlatformUpdateRequest,
     TaskRequest,
+    UpdateDeploymentRequest,
 )
 from eve.tools.comfyui_tool import convert_tasks2_to_tasks3
 
@@ -170,6 +172,14 @@ async def deployment_create(
 ):
     pre_modal_setup()
     return await handle_deployment_create(request)
+
+
+@web_app.post("/deployments/update")
+async def deployment_update(
+    request: UpdateDeploymentRequest, _: dict = Depends(auth.authenticate_admin)
+):
+    pre_modal_setup()
+    return await handle_deployment_update(request)
 
 
 @web_app.post("/deployments/delete")
