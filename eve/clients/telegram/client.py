@@ -120,32 +120,7 @@ class EdenTG:
         self.agent = agent
 
         if not local:
-            self.deployment_config = self._get_deployment_config(agent)
-
-            if hasattr(self.deployment_config, "telegram") and hasattr(
-                self.deployment_config.telegram, "topic_allowlist"
-            ):
-                self.telegram_topic_allowlist = []
-                self.telegram_group_allowlist = []
-                for entry in self.deployment_config.telegram.topic_allowlist:
-                    try:
-                        if "/" in entry:  # Topic format: "group_id/topic_id"
-                            group_id, topic_id = entry.split("/")
-                            internal_group_id = -int(f"100{group_id}")
-
-                            # Special case: if topic_id is "1", this is the main channel
-                            if topic_id == "1":
-                                self.telegram_group_allowlist.append(internal_group_id)
-                            else:
-                                self.telegram_topic_allowlist.append(
-                                    (internal_group_id, int(topic_id))
-                                )
-                        else:  # Group format: "group_id"
-                            self.telegram_group_allowlist.append(int(entry))
-                    except ValueError:
-                        raise ValueError(
-                            f"Invalid format in telegram allowlist: {entry}"
-                        )
+            self.load_deployment_config()
         else:
             self.telegram_topic_allowlist = None
             self.telegram_group_allowlist = None
@@ -167,8 +142,35 @@ class EdenTG:
 
         self.typing_tasks = {}
 
+    def load_deployment_config(self):
+        """Load deployment configuration from database"""
+        self.deployment_config = self._get_deployment_config(self.agent)
+
+        if hasattr(self.deployment_config, "telegram") and hasattr(
+            self.deployment_config.telegram, "topic_allowlist"
+        ):
+            self.telegram_topic_allowlist = []
+            self.telegram_group_allowlist = []
+            for entry in self.deployment_config.telegram.topic_allowlist:
+                try:
+                    if "/" in entry:  # Topic format: "group_id/topic_id"
+                        group_id, topic_id = entry.split("/")
+                        internal_group_id = -int(f"100{group_id}")
+
+                        # Special case: if topic_id is "1", this is the main channel
+                        if topic_id == "1":
+                            self.telegram_group_allowlist.append(internal_group_id)
+                        else:
+                            self.telegram_topic_allowlist.append(
+                                (internal_group_id, int(topic_id))
+                            )
+                    else:  # Group format: "group_id"
+                        self.telegram_group_allowlist.append(int(entry))
+                except ValueError:
+                    raise ValueError(f"Invalid format in telegram allowlist: {entry}")
+
     def _get_deployment_config(self, agent: Agent) -> DeploymentConfig:
-        deployment = Deployment.load(agent=agent.id, platform="discord")
+        deployment = Deployment.load(agent=agent.id, platform="telegram")
         if not deployment:
             raise Exception("No deployment config found")
         return deployment.config
@@ -209,11 +211,18 @@ class EdenTG:
             print(f"Received update in Telegram client: {message.data}")
 
             data = message.data
-            if not isinstance(data, dict) or "type" not in data:
+            if not isinstance(data, dict):
                 print("Invalid message format:", data)
                 return
 
             update_type = data["type"]
+
+            # Handle deployment reload messages
+            if update_type == "RELOAD_DEPLOYMENT":
+                print("Reloading deployment configuration")
+                self.load_deployment_config()
+                return
+
             update_config = data.get("update_config", {})
             telegram_chat_id = update_config.get("telegram_chat_id")
             telegram_message_id = update_config.get("telegram_message_id")

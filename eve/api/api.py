@@ -178,7 +178,6 @@ async def deployment_create(
 async def deployment_update(
     request: UpdateDeploymentRequest, _: dict = Depends(auth.authenticate_admin)
 ):
-    pre_modal_setup()
     return await handle_deployment_update(request)
 
 

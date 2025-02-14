@@ -17,6 +17,7 @@ from eve.api.api_requests import (
     DeleteTriggerRequest,
     TaskRequest,
     PlatformUpdateRequest,
+    UpdateConfig,
     UpdateDeploymentRequest,
 )
 from eve.api.helpers import (
@@ -24,6 +25,7 @@ from eve.api.helpers import (
     serialize_for_json,
     setup_chat,
 )
+from eve.clients.common import get_ably_channel_name
 from eve.deploy import (
     deploy_client,
     stop_client,
@@ -219,21 +221,16 @@ async def handle_deployment_update(request: UpdateDeploymentRequest):
             f"Deployment not found: {request.deployment_id}", status_code=404
         )
 
-    current_config = deployment.config or {}
+    deployment.update(config=request.config.model_dump())
+    agent = Agent.from_mongo(deployment.agent)
 
-    updated_config = {
-        **current_config,
-        **request.config.model_dump(exclude_unset=True),
-    }
-
-    for platform in ["discord", "telegram"]:
-        if platform in request.config.model_dump(exclude_unset=True):
-            updated_config[platform] = {
-                **(current_config.get(platform, {})),
-                **request.config.model_dump(exclude_unset=True)[platform],
-            }
-
-    deployment.update(config=updated_config)
+    try:
+        channel_name = get_ably_channel_name(agent.username, request.platform.value)
+        await emit_update(
+            UpdateConfig(sub_channel_name=channel_name), {"type": "RELOAD_DEPLOYMENT"}
+        )
+    except Exception as e:
+        logger.error(f"Failed to emit deployment reload message: {str(e)}")
 
     return {"deployment_id": str(deployment.id)}
 
