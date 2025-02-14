@@ -7,6 +7,10 @@ def load_handler(name):
             from .example_tool.handler import handler
 
             handlers[name] = handler
+        elif name == "memory":
+            from .memory.handler import handler
+
+            handlers[name] = handler
         elif name == "audio_video_combine":
             from .media_utils.audio_video_combine.handler import handler
 

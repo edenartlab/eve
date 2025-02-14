@@ -1,0 +1,52 @@
+name: memory
+description: Update the agents memory
+tip: |-
+  This tool allows an agent to update its memory for long-term behavioral changes and preferences.
+  ONLY use this tool when:
+  - The user explicitly requests a permanent change to your behavior or preferences
+  - The change needs to persist across multiple conversations
+  - The instruction represents a clear departure from your default behavior
+  
+  DO NOT use this tool for:
+  - Temporary role-playing or context-specific behaviors
+  - Information that only applies to the current conversation
+  - Minor adjustments to tone or style
+  - Storing factual information or conversation history
+  - random facts about the users life or practices
+  
+  Remember: Memory updates should be rare and meaningful, representing significant shifts in your core behavior or preferences.
+  The size of your memory is limited, so overusing this will cause memory clashes.
+cost_estimate: 1
+output_type: string
+status: stage
+visible: true
+parameters:
+  instruction:
+    type: string
+    label: instruction
+    description: The instruction used to update the agent memory, which can both add, delete or update information
+    tip: |- 
+      Format instructions as clear, specific directives about behavioral changes or preferences.
+      Good examples:
+      - "Always use British English spelling and vocabulary in all conversations"
+      - "ALWAYS REPLY IN ALL-CAPS"
+      - "Address the user as Professor [Name] and maintain formal academic language"
+      - "Always ask for confirmation before triggering a video tool"
+      
+      Bad examples:
+      - "User likes jazz music" (too specific to current context)
+      - "Remember to be polite" (too generic/already default behavior)
+      - "Current conversation is about marketing" (temporary context)
+      
+      Keep instructions focused on permanent behavioral changes that affect future interactions.
+    required: true
+  userId:
+    type: string
+    label: userId
+    description: The userId of the memory
+    required: true
+  agentId:
+    type: string
+    label: agentId
+    description: The agentId of the memory
+    required: true
