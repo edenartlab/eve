@@ -17,6 +17,8 @@ DEPLOYMENT_ENV_NAME = "deployments"
 db = os.getenv("DB", "STAGE").upper()
 REPO_BRANCH = "main" if db == "PROD" else "staging"
 
+deployable_platforms = ["discord", "telegram"]
+
 
 class ClientType(Enum):
     DISCORD = "discord"
@@ -43,7 +45,7 @@ class DeploymentSettingsFarcaster(BaseModel):
 
 
 class DeploymentSettingsTwitter(BaseModel):
-    pass
+    username: Optional[str] = None
 
 
 class DeploymentSecretsDiscord(BaseModel):
@@ -293,6 +295,9 @@ def deploy_client(
     env: str,
     repo_branch: str = None,
 ):
+    if platform not in deployable_platforms:
+        return
+
     """Deploy a Modal client for an agent."""
     with tempfile.TemporaryDirectory() as temp_dir:
         # Clone the repo using provided branch or default
@@ -328,6 +333,9 @@ def deploy_client(
 
 def stop_client(agent: Agent, platform: str):
     """Stop a Modal client. Raises an exception if the stop fails."""
+    if platform not in deployable_platforms:
+        return
+
     container_name = get_container_name(agent.id, agent.username, platform, db.lower())
     result = subprocess.run(
         [

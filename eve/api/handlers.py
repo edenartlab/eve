@@ -215,6 +215,8 @@ async def handle_deployment_create(request: CreateDeploymentRequest):
 
 @handle_errors
 async def handle_deployment_update(request: UpdateDeploymentRequest):
+    print("REQUEST", request)
+
     deployment = Deployment.from_mongo(ObjectId(request.deployment_id))
     if not deployment:
         raise APIError(
