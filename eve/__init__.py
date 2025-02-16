@@ -17,7 +17,6 @@ logging.basicConfig(
 def setup_sentry():
     sentry_dsn = os.getenv("SENTRY_DSN")
     if not sentry_dsn:
-        print("No Sentry DSN found, skipping Sentry setup")
         return
 
     # Determine environment

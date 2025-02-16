@@ -52,17 +52,15 @@ class Eden2Cog(commands.Cog):
     ) -> None:
         self.bot = bot
         self.agent = agent
-        self.deployment_config = self._get_deployment_config(agent)
-        self.discord_channel_allowlist = (
-            [int(item.id) for item in self.deployment_config.discord.channel_allowlist]
-            if self.deployment_config.discord.channel_allowlist
-            else None
-        )
+        if not local:
+            self.load_deployment_config()
+        else:
+            self.discord_channel_allowlist = None
         self.tools = agent.get_tools()
         self.known_users = {}
         self.known_threads = {}
         if local:
-            self.api_url = "http://localhost:8000"
+            self.api_url = "http://127.0.0.1:8000"
         else:
             self.api_url = os.getenv("EDEN_API_URL")
         self.channel_name = common.get_ably_channel_name(
@@ -74,6 +72,15 @@ class Eden2Cog(commands.Cog):
         self.channel = None
 
         self.typing_tasks = {}
+
+    def load_deployment_config(self):
+        """Load deployment configuration from database"""
+        self.deployment_config = self._get_deployment_config(self.agent)
+        self.discord_channel_allowlist = (
+            [int(item.id) for item in self.deployment_config.discord.channel_allowlist]
+            if self.deployment_config.discord.channel_allowlist
+            else None
+        )
 
     def _get_deployment_config(self, agent: Agent) -> DeploymentConfig:
         deployment = Deployment.load(agent=agent.id, platform="discord")
@@ -106,6 +113,13 @@ class Eden2Cog(commands.Cog):
                     return
 
                 update_type = data["type"]
+
+                # Handle deployment reload messages
+                if update_type == "RELOAD_DEPLOYMENT":
+                    logger.info("Reloading deployment configuration")
+                    self.load_deployment_config()
+                    return
+
                 update_config = data.get("update_config", {})
                 discord_channel_id = update_config.get("discord_channel_id")
                 message_id = update_config.get("message_id")

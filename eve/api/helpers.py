@@ -6,7 +6,13 @@ from bson import ObjectId
 from fastapi import BackgroundTasks
 from ably import AblyRest
 
+from eve import deploy
 from eve.api.errors import APIError
+from eve.deploy import (
+    authenticate_modal_key,
+    check_environment_exists,
+    create_environment,
+)
 from eve.tool import Tool
 from eve.user import User
 from eve.agent import Agent
@@ -93,3 +99,9 @@ async def emit_http_update(update_config: UpdateConfig, data: dict):
                     )
         except Exception as e:
             logger.error(f"Error sending update to endpoint: {str(e)}")
+
+
+def pre_modal_setup():
+    authenticate_modal_key()
+    if not check_environment_exists(deploy.DEPLOYMENT_ENV_NAME):
+        create_environment(deploy.DEPLOYMENT_ENV_NAME)

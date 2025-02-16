@@ -86,9 +86,22 @@ class DeploymentConfig(BaseModel):
 class Deployment(Document):
     agent: ObjectId
     user: ObjectId
-    platform: str
+    platform: ClientType
     secrets: Optional[DeploymentSecrets]
     config: Optional[DeploymentConfig]
+
+    def __init__(self, **data):
+        # Convert string to ClientType enum if needed
+        if "platform" in data and isinstance(data["platform"], str):
+            data["platform"] = ClientType(data["platform"])
+        super().__init__(**data)
+
+    def model_dump(self, *args, **kwargs):
+        """Override model_dump to convert enum to string for MongoDB"""
+        data = super().model_dump(*args, **kwargs)
+        if "platform" in data and isinstance(data["platform"], ClientType):
+            data["platform"] = data["platform"].value
+        return data
 
     @classmethod
     def ensure_indexes(cls):
@@ -152,7 +165,7 @@ class Deployment(Document):
 def authenticate_modal_key() -> bool:
     token_id = os.getenv("MODAL_DEPLOYER_TOKEN_ID")
     token_secret = os.getenv("MODAL_DEPLOYER_TOKEN_SECRET")
-    result = subprocess.run(
+    subprocess.run(
         [
             "modal",
             "token",
@@ -165,7 +178,6 @@ def authenticate_modal_key() -> bool:
         capture_output=True,
         text=True,
     )
-    print(result.stdout)
 
 
 def get_container_name(agent_id: str, agent_key: str, platform: str, env: str) -> str:
