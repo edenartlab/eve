@@ -114,6 +114,7 @@ class CreateDeploymentRequest(BaseModel):
 
 class UpdateDeploymentRequest(BaseModel):
     deployment_id: str
+    platform: ClientType
     config: Optional[DeploymentConfig] = None
 
 

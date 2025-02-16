@@ -225,7 +225,7 @@ async def handle_deployment_update(request: UpdateDeploymentRequest):
     agent = Agent.from_mongo(deployment.agent)
 
     try:
-        channel_name = get_ably_channel_name(agent.username, request.platform.value)
+        channel_name = get_ably_channel_name(agent.username, deployment.platform)
         await emit_update(
             UpdateConfig(sub_channel_name=channel_name), {"type": "RELOAD_DEPLOYMENT"}
         )
