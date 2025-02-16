@@ -86,9 +86,15 @@ class DeploymentConfig(BaseModel):
 class Deployment(Document):
     agent: ObjectId
     user: ObjectId
-    platform: ClientType
+    platform: str
     secrets: Optional[DeploymentSecrets]
     config: Optional[DeploymentConfig]
+
+    def __init__(self, **data):
+        # Convert ClientType enum to string if needed
+        if "platform" in data and isinstance(data["platform"], ClientType):
+            data["platform"] = data["platform"].value
+        super().__init__(**data)
 
     @classmethod
     def ensure_indexes(cls):
