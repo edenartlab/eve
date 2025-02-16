@@ -153,8 +153,8 @@ class EdenTG:
             self.telegram_group_allowlist = []
             for entry in self.deployment_config.telegram.topic_allowlist:
                 try:
-                    if "/" in entry:  # Topic format: "group_id/topic_id"
-                        group_id, topic_id = entry.split("/")
+                    if "/" in entry.id:  # Topic format: "group_id/topic_id"
+                        group_id, topic_id = entry.id.split("/")
                         internal_group_id = -int(f"100{group_id}")
 
                         # Special case: if topic_id is "1", this is the main channel
@@ -165,9 +165,11 @@ class EdenTG:
                                 (internal_group_id, int(topic_id))
                             )
                     else:  # Group format: "group_id"
-                        self.telegram_group_allowlist.append(int(entry))
+                        self.telegram_group_allowlist.append(int(entry.id))
                 except ValueError:
-                    raise ValueError(f"Invalid format in telegram allowlist: {entry}")
+                    raise ValueError(
+                        f"Invalid format in telegram allowlist: {entry.id}"
+                    )
 
     def _get_deployment_config(self, agent: Agent) -> DeploymentConfig:
         deployment = Deployment.load(agent=agent.id, platform="telegram")
