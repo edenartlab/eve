@@ -86,7 +86,7 @@ class DeploymentConfig(BaseModel):
 class Deployment(Document):
     agent: ObjectId
     user: ObjectId
-    platform: str
+    platform: ClientType
     secrets: Optional[DeploymentSecrets]
     config: Optional[DeploymentConfig]
 
