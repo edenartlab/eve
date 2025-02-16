@@ -133,7 +133,7 @@ class EdenTG:
         else:
             self.api_url = os.getenv("EDEN_API_URL")
         self.channel_name = common.get_ably_channel_name(
-            agent.name, ClientType.TELEGRAM
+            agent.username, ClientType.TELEGRAM
         )
 
         # Don't initialize Ably here - we'll do it in setup_ably
