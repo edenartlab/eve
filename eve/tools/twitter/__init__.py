@@ -9,13 +9,12 @@ from eve.deploy import Deployment
 
 class X:
     def __init__(self, deployment: Deployment):
-        print("DEPLOYMENT", deployment)
-        self.user_id = deployment.secrets.twitter_user_id
-        self.access_token = deployment.secrets.twitter_access_token
-        self.access_token_secret = deployment.secrets.twitter_access_token_secret
-        self.consumer_key = deployment.secrets.twitter_consumer_key
-        self.consumer_secret = deployment.secrets.twitter_consumer_secret
-        self.bearer_token = deployment.secrets.twitter_bearer_token
+        self.user_id = deployment.secrets.twitter.user_id
+        self.access_token = deployment.secrets.twitter.access_token
+        self.access_token_secret = deployment.secrets.twitter.access_token_secret
+        self.consumer_key = deployment.secrets.twitter.consumer_key
+        self.consumer_secret = deployment.secrets.twitter.consumer_secret
+        self.bearer_token = deployment.secrets.twitter.bearer_token
 
         if not all(
             [
@@ -218,12 +217,16 @@ class X:
             logging.error(f"Video upload failed with state: {state}")
             return None
 
-    def post(self, text: str):
+    def post(self, text: str, media_ids: list[str] = None):
         """Posts a tweet."""
+        json = {"text": text}
+        if media_ids:
+            json["media"] = {"media_ids": media_ids}
         response = self._make_request(
-            "post", "https://api.twitter.com/2/tweets", json={"text": text}
+            "post",
+            "https://api.twitter.com/2/tweets",
+            json=json,
         )
-        print("RESPONSE", response.json())
         return response.json()
 
     def get_following222(self, usernames):

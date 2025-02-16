@@ -101,7 +101,7 @@ class AllowedChannel(BaseModel):
 class AgentDeploymentConfig(BaseModel):
     discord_channel_allowlist: Optional[List[AllowedChannel]] = None
     telegram_topic_allowlist: Optional[List[AllowedChannel]] = None
-
+    
 
 class CreateDeploymentRequest(BaseModel):
     agent: str
