@@ -21,6 +21,7 @@ class LocalTool(Tool):
 
     @Tool.handle_start_task
     async def async_start_task(self, task: Task):
+        print("~~~ starting LOCAL task ~~~")
         task_id = str(uuid.uuid4())
         background_task = asyncio.create_task(run_task(task))
         self._tasks[task_id] = background_task

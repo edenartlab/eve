@@ -53,12 +53,19 @@ USE_RATE_LIMITS = os.getenv("USE_RATE_LIMITS", "false").lower() == "true"
 async def handle_create(request: TaskRequest):
     tool = Tool.load(key=request.tool)
 
+    print("#### create ####")
+    print(request)
+
     # if USE_RATE_LIMITS:
     #     await RateLimiter().check_create_rate_limit(user, tool)
 
+    print("### run the tool ###")
     result = await tool.async_start_task(
         requester_id=request.user_id, user_id=request.user_id, args=request.args
     )
+
+    print("### return the result ###")
+    print(result)
 
     return serialize_document(result.model_dump(by_alias=True))
 
