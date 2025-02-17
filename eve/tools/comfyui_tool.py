@@ -59,7 +59,9 @@ class ComfyUITool(Tool):
     async def async_start_task(self, task: Task):
         db = os.getenv("DB")
         cls = modal.Cls.lookup(
-            f"comfyui-{self.workspace}-{db}", "ComfyUI", environment_name="main"
+            f"comfyui-{self.workspace}-{db}", 
+            "ComfyUI", 
+            environment_name="main"
         )
         job = await cls().run_task.spawn.aio(task)
         return job.object_id
