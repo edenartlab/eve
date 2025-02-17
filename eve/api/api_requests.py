@@ -100,13 +100,7 @@ class AllowedChannel(BaseModel):
 class AgentDeploymentConfig(BaseModel):
     discord_channel_allowlist: Optional[List[AllowedChannel]] = None
     telegram_topic_allowlist: Optional[List[AllowedChannel]] = None
-
-
-class ConfigureDeploymentRequest(BaseModel):
-    agent_username: str
-    secrets: Optional[DeploymentSecrets] = None
-    deployment_config: Optional[DeploymentSecrets] = None
-
+    
 
 class CreateDeploymentRequest(BaseModel):
     agent: str
@@ -115,6 +109,11 @@ class CreateDeploymentRequest(BaseModel):
     secrets: Optional[DeploymentSecrets] = None
     config: Optional[DeploymentConfig] = None
     repo_branch: Optional[str] = None
+
+
+class UpdateDeploymentRequest(BaseModel):
+    deployment_id: str
+    config: Optional[DeploymentConfig] = None
 
 
 class DeleteDeploymentRequest(BaseModel):

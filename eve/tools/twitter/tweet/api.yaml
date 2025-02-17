@@ -8,7 +8,7 @@ parameters:
   agent:
     type: string
     label: Agent
-    description: The name of the agent to use to make the tweet.
+    description: The Agent ID of the agent to use to make the tweet.
     required: true
   content:
     type: string
