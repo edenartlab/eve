@@ -71,7 +71,7 @@ class Tool(Document, ABC):
     allowlist: Optional[str] = None
 
     model: Type[BaseModel]
-    handler: HANDLERS = "local"
+    handler: HANDLERS = "modal"
     parent_tool: Optional[str] = None
     parameters: Optional[Dict[str, Any]] = None
     parameter_presets: Optional[Dict[str, Any]] = None
