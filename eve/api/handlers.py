@@ -143,6 +143,9 @@ async def handle_chat(
 ):
     user, agent, thread, tools = await setup_chat(request, background_tasks)
     
+    print("chat request")
+    print(request)
+
     background_tasks.add_task(
         run_chat_request, 
         user, 
