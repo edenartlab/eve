@@ -492,12 +492,18 @@ async def async_think(
         knowledge_summary=knowledge_summary
     )
 
+    print("prompt")
+    print(prompt)
+
     result = await async_prompt(
         [UserMessage(content=prompt)],
         system_message=f"You are a helpful assistant named {agent.name}. You are just analyzing chats and generating thoughts.",
         model="gpt-4o-mini",
         response_model=ChatResponse,
     )
+
+    print("thought response")
+    print(result)
 
     if force_reply:
         result.intention = "reply"
@@ -555,7 +561,9 @@ async def async_prompt_thread(
         )
         for msg in user_messages
     )
+    print("agent mentioned", agent_mentioned)
 
+    # a thought contains intention and tool pre-selection
     thought = await async_think(
         agent=agent,
         thread=thread,
@@ -584,9 +592,12 @@ async def async_prompt_thread(
         })
     else:
         # update thread and stop
-        thread.push({"messages": user_messages})
+        thread.push({
+            "messages": user_messages
+        })
         return
 
+    # yield start signal
     yield ThreadUpdate(type=UpdateType.START_PROMPT)
 
     while True:
