@@ -119,13 +119,25 @@ class ReplicateTool(Tool):
                         lora_url = s3.get_full_url(lora_doc.get("checkpoint"))
                         lora_name = lora_doc.get("name")
                         lora_trigger_text = lora_doc.get("lora_trigger_text")
+                        print("The trigger text is")
+                        print(lora_trigger_text)
                         new_args[field] = lora_url
+                        print("new args", new_args.keys())
+                        print(new_args)
                         if "prompt" in new_args:
+                            print("The prompt is")
+                            print(new_args["prompt"])
                             name_pattern = f"(\\b{re.escape(lora_name)}\\b|<{re.escape(lora_name)}>|\\<concept\\>)"
+                            print("The name pattern is")
+                            print(name_pattern)
                             pattern = re.compile(name_pattern, re.IGNORECASE)
+                            print("The pattern is")
+                            print(pattern)
                             new_args["prompt"] = pattern.sub(
                                 lora_trigger_text, new_args["prompt"]
                             )
+                            print("The new prompt is")
+                            print(new_args["prompt"])
                             if lora_trigger_text:
                                 if lora_trigger_text not in new_args["prompt"]:
                                     new_args["prompt"] = f"{lora_trigger_text}, {new_args['prompt']}"

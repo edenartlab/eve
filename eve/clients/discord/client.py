@@ -76,6 +76,9 @@ class Eden2Cog(commands.Cog):
         """Load deployment configuration from database"""
         self.deployment_config = self._get_deployment_config(self.agent)
         if self.deployment_config.discord.channel_allowlist:
+            print("### channel allowlist ###")
+            print(self.deployment_config.discord.channel_allowlist)
+            print("go...")
             self.discord_channel_allowlist = [
                 int(item.id) for item in self.deployment_config.discord.channel_allowlist
             ]
