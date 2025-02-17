@@ -88,9 +88,10 @@ def test_think():
     user = get_my_eden_user()
 
     messages = [
-        UserMessage(name="gene", content="eve, make a picture of a golden retriever playing chess against Vitalik Buterin in impressionist style."),
+        # UserMessage(name="gene", content="eve, make a picture of a golden retriever playing chess against Vitalik Buterin in impressionist style."),
         # UserMessage(name="gene", content="eve, tell me a funny joke"),
-        # UserMessage(name="gene", content="alright nice."),
+        # UserMessage(name="gene", content="how can i turn that into a video?"),
+        UserMessage(name="gene", content="does someone know the year of the first moon landing?"),
     ]
 
     agent = Agent.load("eve")

@@ -50,7 +50,7 @@ class ChatRequest(BaseModel):
     update_config: Optional[UpdateConfig] = None
     force_reply: bool = False
     model: Optional[str] = None
-
+    user_is_bot: Optional[bool] = False
 
 class CronSchedule(BaseModel):
     year: Optional[int | str] = Field(None, description="4-digit year")

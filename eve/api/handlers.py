@@ -96,7 +96,9 @@ async def run_chat_request(
     update_config: UpdateConfig,
     force_reply: bool,
     model: str,
+    user_is_bot: bool = False,
 ):
+    print("update_config", update_config)
     try:
         async for update in async_prompt_thread(
             user=user,
@@ -106,6 +108,7 @@ async def run_chat_request(
             tools=tools,
             force_reply=force_reply,
             model=model,
+            user_is_bot=user_is_bot,
             stream=False,
         ):
             data = {
@@ -148,7 +151,8 @@ async def handle_chat(
         request.user_message, 
         request.update_config, 
         request.force_reply, 
-        request.model
+        request.model,
+        request.user_is_bot
     )
     
     return {"thread_id": str(thread.id)}
@@ -168,6 +172,7 @@ async def handle_stream_chat(request: ChatRequest, background_tasks: BackgroundT
                 tools=tools,
                 force_reply=request.force_reply,
                 model=request.model,
+                user_is_bot=request.user_is_bot,
                 stream=True,
             ):
                 data = {"type": update.type}
@@ -337,7 +342,7 @@ async def handle_trigger_delete(
 async def handle_twitter_update(request: PlatformUpdateRequest):
     """Handle Twitter updates from async_prompt_thread"""
 
-    print("REQUEST", request)
+    print("request", request)
     deployment_id = request.update_config.deployment_id
 
     # Get deployment

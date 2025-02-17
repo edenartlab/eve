@@ -132,7 +132,7 @@ async def generate_lora_thumbnails():
             "thumbnail": {
                 "$in": [
                     None,
-                    "61ccedc87dd9689b2714daebbd851a37b6f74cd5dc3a16dc0b8267a8b535db04.jpg",
+                    "a7d63343652cc8a45831d5a580fc6be091e69217ef3e341e353c117ac94eaadd.jpg",
                 ]
             },
         }

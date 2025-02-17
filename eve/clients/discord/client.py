@@ -298,6 +298,7 @@ class Eden2Cog(commands.Cog):
                     "agent_id": str(self.agent.id),
                     "thread_id": str(thread.id),
                     "force_reply": force_reply,
+                    "user_is_bot": message.author.bot,
                     "user_message": {
                         "content": content,
                         "name": message.author.name,

@@ -57,28 +57,6 @@ default_presets_flux = {
 
 
 
-
-
-from pydantic import BaseModel, ConfigDict
-
-class Suggestion(BaseModel):
-    """A prompt suggestion for an Agent in two parts: a concise tagline, and a longer prompt for an LLM. The prompt should correspond to the agent's personality."""
-
-    tagline: str = Field(..., description="A short and catchy tagline, no more than 7 words, to go into a home page button. Shorten, omit stop words (the, a, an, etc) when possible.")
-    prompt: str = Field(..., description="A longer version of the tagline, a prompt to be sent to the agent following its greeting. The prompt should be no more than one sentence or 30 words.")
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "examples": [
-                {"tagline": "Help me make live visuals", "prompt": "I'm making live visuals for an upcoming event. Can you help me?"},
-                {"tagline": "What do you do?", "prompt": "Can you tell me about what you can do? What are your capabilities?"},
-            ]
-        }
-    )
-
-
-
-
 @Collection("users3")
 class Agent(User):
     """
@@ -241,7 +219,6 @@ class Agent(User):
         return schema
 
     def get_tools(self, cache=False):
-        # return {}
         if not hasattr(self, "tools") or not self.tools:
             self.tools = {}
 

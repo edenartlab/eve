@@ -140,7 +140,7 @@ def select_random_voice(
     Select the voice that best matches the description of the character."""
 
     selected_voice = client.chat.completions.create(
-        model="gpt-4o-2024-08-06",
+        model="gpt-4o-mini",
         response_model=Literal[*voice_ids.keys()],
         max_retries=2,
         messages=[
