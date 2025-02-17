@@ -62,7 +62,11 @@ class ReplicateTool(Tool):
             # So we spawn a remote task on Modal which awaits the Replicate task
             db = os.getenv("DB", "STAGE").upper()
             func = modal.Function.lookup(
-                f"remote-replicate-{db}", "run_task", environment_name="main"
+                # f"remote-replicate-{db}", 
+                # "run_task", 
+                f"api-{db.lower()}",
+                "run_task_replicate", 
+                environment_name="main"
             )
             job = func.spawn(task)
             return job.object_id
@@ -107,7 +111,11 @@ class ReplicateTool(Tool):
             alias = parameter.get("alias")
             lora = parameter.get("type") == "lora"
 
+            if lora:
+                print("---- FOUND A LORA ----")
+
             if field in new_args:
+                print("field in new args", field)
                 if lora:
                     loras = get_collection(Model.collection_name)
                     lora_doc = (
@@ -115,6 +123,7 @@ class ReplicateTool(Tool):
                         if args[field]
                         else None
                     )
+                    print("lora doc", lora_doc)
                     if lora_doc:
                         lora_url = s3.get_full_url(lora_doc.get("checkpoint"))
                         lora_name = lora_doc.get("name")

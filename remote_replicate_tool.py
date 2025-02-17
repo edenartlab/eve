@@ -30,11 +30,17 @@ image = (
 
 @app.function(image=image, timeout=3600)
 async def run_task(task: Task):
+    print("run task remote 1")
     task.update(status="running")
+    print("run task remote 2")
     tool = Tool.load(task.tool)
+    print("run task remote 3")
     args = tool.prepare_args(task.args)
+    print("run task remote 4")
     args = tool._format_args_for_replicate(args)
+    print("run task remote 5")
     replicate_model = tool._get_replicate_model(task.args)
+    print("run task remote 6")
     output = await replicate.async_run(replicate_model, input=args)
     result = replicate_update_task(task, "succeeded", None, output, "normal")
     return result

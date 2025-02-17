@@ -334,6 +334,38 @@ async def run_task(tool_key: str, args: dict):
     return await handler(args)
 
 
+from eve.task import Task
+from eve.tool import Tool
+from eve.tools.replicate_tool import replicate_update_task
+
+@app.function(
+    image=image, 
+    concurrency_limit=10,
+    allow_concurrent_inputs=4,
+    timeout=3600
+)
+async def run_task_replicate(task: Task):
+    print("run task remote 1")
+    task.update(status="running")
+    print("run task remote 2")
+    tool = Tool.load(task.tool)
+    print("run task remote 3")
+    print("task.args", task.args)
+    args = tool.prepare_args(task.args)
+    print("args", args)
+    print("run task remote 4")
+    args = tool._format_args_for_replicate(args)
+    print("args2", args)
+    print("run task remote 5")
+    replicate_model = tool._get_replicate_model(task.args)
+    print("run task remote 6")
+    output = await replicate.async_run(replicate_model, input=args)
+    result = replicate_update_task(task, "succeeded", None, output, "normal")
+    return result
+
+
+
+
 @app.function(
     image=image, 
     concurrency_limit=1, 
