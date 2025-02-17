@@ -300,6 +300,13 @@ class Eden2Cog(commands.Cog):
                 )
                 content = f"(Replying to message: {source_message.content[:100]} ...)\n\n{content}"
 
+
+            print("look up message bot")
+            print(message)
+            print(message.author)
+            print(message.author.bot)
+            print("~~~~~")
+            
             async with aiohttp.ClientSession() as session:
                 request_data = {
                     "user_id": str(user.id),
