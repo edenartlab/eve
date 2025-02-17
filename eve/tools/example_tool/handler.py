@@ -1,6 +1,6 @@
 from ...eden_utils import download_file
 
-async def handler(args: dict, db: str):   
+async def handler(args: dict):   
     # print("args", args)
     
     # you can download files

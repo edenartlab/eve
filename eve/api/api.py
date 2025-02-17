@@ -13,15 +13,17 @@ from starlette.middleware.base import BaseHTTPMiddleware
 import sentry_sdk
 from fastapi.exceptions import RequestValidationError
 
-from .. import auth, db
-from ..tools.comfyui_tool import convert_tasks2_to_tasks3
-from ..runner.runner_tasks import (
+from eve import auth, db, eden_utils
+from eve.task import task_handler_func
+from eve.tools.tool_handlers import handlers, load_handler
+from eve.tools.comfyui_tool import convert_tasks2_to_tasks3
+from eve.runner.runner_tasks import (
     cancel_stuck_tasks,
     download_nsfw_models,
     generate_lora_thumbnails,
-    run_nsfw_detection,
+    run_nsfw_detection,handle_replicate_webhook
 )
-from .handlers import (
+from eve.api.handlers import (
     handle_create,
     handle_cancel,
     handle_deployment_update,
@@ -34,7 +36,7 @@ from .handlers import (
     handle_trigger_delete,
     handle_twitter_update,
 )
-from .api_requests import (
+from eve.api.api_requests import (
     CancelRequest,
     ChatRequest,
     CreateDeploymentRequest,
@@ -45,7 +47,7 @@ from .api_requests import (
     TaskRequest,
     UpdateDeploymentRequest,
 )
-from .helpers import pre_modal_setup
+from eve.api.helpers import pre_modal_setup
 
 
 app_name = f"api-{db.lower()}"
@@ -121,9 +123,12 @@ async def cancel(request: CancelRequest, _: dict = Depends(auth.authenticate_adm
     return await handle_cancel(request)
 
 
+import replicate
+
 @web_app.post("/update")
 async def replicate_webhook(request: Request):
     # Get raw body for signature verification
+    print("REPLICATE WEBHOOK")
     body = await request.body()
     print(body)
 
@@ -135,14 +140,16 @@ async def replicate_webhook(request: Request):
 
     # todo: validate webhook signature
     try:
-        # headers = dict(request.headers)
-        # secret = replicate.webhooks.default.secret()
-        # replicate.webhooks.validate(
-        #     body=body,  # Pass raw body for signature verification
-        #     headers=headers,
-        #     secret=secret
-        # )
-        pass
+        print("VALIDATING WEBHOOK !!!")
+        headers = dict(request.headers)
+        secret = replicate.webhooks.default.secret()
+        replicate.webhooks.validate(
+            body=body,  # Pass raw body for signature verification
+            headers=headers,
+            secret=secret
+        )
+        # pass
+        print("VALIDATING WEBHOOK SUCCESS")
     except Exception as e:
         return {"status": "error", "message": f"Invalid webhook signature: {str(e)}"}
 
@@ -303,7 +310,35 @@ def fastapi_app():
 
 
 @app.function(
-    image=image, concurrency_limit=1, schedule=modal.Period(minutes=15), timeout=3600
+    image=image, 
+    concurrency_limit=10,
+    allow_concurrent_inputs=4,
+    timeout=3600
+)
+async def run(tool_key: str, args: dict):
+    result = await handlers[tool_key](args)
+    return eden_utils.upload_result(result)
+
+
+@app.function(
+    image=image, 
+    concurrency_limit=10,
+    allow_concurrent_inputs=4,
+    timeout=3600
+)
+@task_handler_func
+async def run_task(tool_key: str, args: dict):
+    print("~~~ RUN TASK ~~~")
+    print("tool key", tool_key)
+    handler = load_handler(tool_key)
+    return await handler(args)
+
+
+@app.function(
+    image=image, 
+    concurrency_limit=1, 
+    schedule=modal.Period(minutes=15), 
+    timeout=3600
 )
 async def cancel_stuck_tasks_fn():
     try:
@@ -314,7 +349,10 @@ async def cancel_stuck_tasks_fn():
 
 
 @app.function(
-    image=image, concurrency_limit=1, schedule=modal.Period(minutes=15), timeout=3600
+    image=image, 
+    concurrency_limit=1, 
+    schedule=modal.Period(minutes=15), 
+    timeout=3600
 )
 async def run_nsfw_detection_fn():
     try:
@@ -325,7 +363,10 @@ async def run_nsfw_detection_fn():
 
 
 @app.function(
-    image=image, concurrency_limit=1, schedule=modal.Period(minutes=15), timeout=3600
+    image=image, 
+    concurrency_limit=1, 
+    schedule=modal.Period(minutes=15), 
+    timeout=3600
 )
 async def generate_lora_thumbnails_fn():
     try:

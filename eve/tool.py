@@ -139,8 +139,8 @@ class Tool(Document, ABC):
                 from .tools.gcp_tool import GCPTool
                 _tool_classes[handler] = GCPTool
             else:
-                from .tools.local_tool import LocalTool
-                _tool_classes[handler] = LocalTool
+                from .tools.modal_tool import ModalTool
+                _tool_classes[handler] = ModalTool
 
         return _tool_classes[handler]
 

@@ -85,6 +85,7 @@ async def handle_replicate_webhook(body: dict):
     _ = replicate_update_task(
         task, body["status"], body["error"], body["output"], tool.output_handler
     )
+    return {"status": "success!!"}
 
 
 async def run_chat_request(
