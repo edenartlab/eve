@@ -123,8 +123,10 @@ class Tool(Document, ABC):
         # Lazy load the tool class if we haven't seen this handler before
         if handler not in _tool_classes:
             if handler == "local":
-                from .tools.local_tool import LocalTool
-                _tool_classes[handler] = LocalTool
+                #from .tools.local_tool import LocalTool
+                #_tool_classes[handler] = LocalTool
+                from .tools.modal_tool import ModalTool
+                _tool_classes[handler] = ModalTool
             elif handler == "modal":
                 from .tools.modal_tool import ModalTool
                 _tool_classes[handler] = ModalTool
