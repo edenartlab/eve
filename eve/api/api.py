@@ -21,7 +21,7 @@ from eve.runner.runner_tasks import (
     cancel_stuck_tasks,
     download_nsfw_models,
     generate_lora_thumbnails,
-    run_nsfw_detection,handle_replicate_webhook
+    run_nsfw_detection
 )
 from eve.api.handlers import (
     handle_create,
