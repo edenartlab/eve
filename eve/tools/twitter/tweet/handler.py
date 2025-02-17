@@ -7,7 +7,6 @@ async def handler(args: dict):
     agent = Agent.from_mongo(args["agent"])
     # attempt to find a valid twitter deployment
     deployment = Deployment.load(agent=agent.id, platform="twitter")
-    print("DEPLOYMENT", deployment)
     if not deployment:
         raise Exception("No valid twitter deployments found")
     x = X(deployment)
@@ -20,5 +19,5 @@ async def handler(args: dict):
     else:
         response = x.post(text=args.get("content"))
     tweet_id = response.get("data", {}).get("id")
-    url = f"https://x.com/{agent.username}/status/{tweet_id}"
+    url = f"https://x.com/{deployment.config.twitter.username}/status/{tweet_id}"
     return {"output": url}

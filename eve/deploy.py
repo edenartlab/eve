@@ -17,6 +17,8 @@ DEPLOYMENT_ENV_NAME = "deployments"
 db = os.getenv("DB", "STAGE").upper()
 REPO_BRANCH = "main" if db == "PROD" else "staging"
 
+deployable_platforms = ["discord", "telegram"]
+
 
 class ClientType(Enum):
     DISCORD = "discord"
@@ -43,7 +45,7 @@ class DeploymentSettingsFarcaster(BaseModel):
 
 
 class DeploymentSettingsTwitter(BaseModel):
-    pass
+    username: Optional[str] = None
 
 
 class DeploymentSecretsDiscord(BaseModel):
@@ -86,9 +88,22 @@ class DeploymentConfig(BaseModel):
 class Deployment(Document):
     agent: ObjectId
     user: ObjectId
-    platform: str
+    platform: ClientType
     secrets: Optional[DeploymentSecrets]
     config: Optional[DeploymentConfig]
+
+    def __init__(self, **data):
+        # Convert string to ClientType enum if needed
+        if "platform" in data and isinstance(data["platform"], str):
+            data["platform"] = ClientType(data["platform"])
+        super().__init__(**data)
+
+    def model_dump(self, *args, **kwargs):
+        """Override model_dump to convert enum to string for MongoDB"""
+        data = super().model_dump(*args, **kwargs)
+        if "platform" in data and isinstance(data["platform"], ClientType):
+            data["platform"] = data["platform"].value
+        return data
 
     @classmethod
     def ensure_indexes(cls):
@@ -152,7 +167,7 @@ class Deployment(Document):
 def authenticate_modal_key() -> bool:
     token_id = os.getenv("MODAL_DEPLOYER_TOKEN_ID")
     token_secret = os.getenv("MODAL_DEPLOYER_TOKEN_SECRET")
-    result = subprocess.run(
+    subprocess.run(
         [
             "modal",
             "token",
@@ -165,7 +180,6 @@ def authenticate_modal_key() -> bool:
         capture_output=True,
         text=True,
     )
-    print(result.stdout)
 
 
 def get_container_name(agent_id: str, agent_key: str, platform: str, env: str) -> str:
@@ -281,6 +295,9 @@ def deploy_client(
     env: str,
     repo_branch: str = None,
 ):
+    if platform not in deployable_platforms:
+        return
+
     """Deploy a Modal client for an agent."""
     with tempfile.TemporaryDirectory() as temp_dir:
         # Clone the repo using provided branch or default
@@ -316,6 +333,9 @@ def deploy_client(
 
 def stop_client(agent: Agent, platform: str):
     """Stop a Modal client. Raises an exception if the stop fails."""
+    if platform not in deployable_platforms:
+        return
+
     container_name = get_container_name(agent.id, agent.username, platform, db.lower())
     result = subprocess.run(
         [
