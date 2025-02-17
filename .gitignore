@@ -8,3 +8,5 @@ tests/out
 dist
 logs/
 *.log
+scripts/analytics/data
+scripts/analytics/results

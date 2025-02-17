@@ -14,8 +14,8 @@ machine_type: a2-highgpu-1g
 parameters:
   name:
     type: string
-    label: Model/Agent Name
-    description: Name of your trained model/agent. Does not have to be unique. Used to 'trigger' your model in prompts.
+    label: Model name
+    description: Name of your trained model. Does not have to be unique. Used to 'trigger' your model in prompts.
     required: true
   lora_training_urls:
     type: array

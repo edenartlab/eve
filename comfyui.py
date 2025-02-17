@@ -246,6 +246,7 @@ image = (
     .copy_local_file(f"{root_workflows_folder}/workspaces/{workspace_name}/downloads.json", "/root/workspace/downloads.json")
     .run_function(install_comfyui) #, force_build=True)
     .run_function(install_custom_nodes, gpu=modal.gpu.A100())
+    .pip_install("moviepy==1.0.3")
     .copy_local_dir(f"{root_workflows_folder}/workspaces/{workspace_name}", "/root/workspace")
     .env({"WORKFLOWS": test_workflows, "SKIP_TESTS": skip_tests})
 )
