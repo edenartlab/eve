@@ -80,7 +80,7 @@ class Eden2Cog(commands.Cog):
             print(self.deployment_config.discord.channel_allowlist)
             print("go...")
             self.discord_channel_allowlist = [
-                int(item.id) for item in self.deployment_config.discord.channel_allowlist
+                int(item.id) for item in self.deployment_config.discord.channel_allowlist if item.id
             ]
 
     def _get_deployment_config(self, agent: Agent) -> DeploymentConfig:
