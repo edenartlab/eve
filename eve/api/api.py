@@ -293,7 +293,7 @@ image = (
     keep_warm=1,
     concurrency_limit=10,
     container_idle_timeout=60,
-    allow_concurrent_inputs=1,
+    allow_concurrent_inputs=10,
     timeout=3600,
 )
 @modal.asgi_app()
