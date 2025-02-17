@@ -547,10 +547,8 @@ async def async_prompt_thread(
         await RateLimiter.check_chat_rate_limit(user.id, None)
 
     # Apply bot-specific limits
-    print("is the user a bot?")
-    print(user_is_bot)
     if user_is_bot:
-        print("bot message")
+        print("bot message, stop")
         return
 
     # Refresh agent

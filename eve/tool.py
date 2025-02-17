@@ -111,6 +111,8 @@ class Tool(Document, ABC):
         handler = schema.get("handler")
         parent_tool = schema.get("parent_tool")
 
+        print(f"load tool {schema.get('key')} with handler {handler}")
+
         if parent_tool:
             if parent_tool not in _handler_cache:
                 collection = get_collection(cls.collection_name)

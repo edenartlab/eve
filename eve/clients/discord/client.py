@@ -76,9 +76,6 @@ class Eden2Cog(commands.Cog):
         """Load deployment configuration from database"""
         self.deployment_config = self._get_deployment_config(self.agent)
         if self.deployment_config.discord.channel_allowlist:
-            print("### channel allowlist ###")
-            print(self.deployment_config.discord.channel_allowlist)
-            print("go...")
             self.discord_channel_allowlist = [
                 int(item.id) for item in self.deployment_config.discord.channel_allowlist if item.id
             ]
@@ -300,13 +297,6 @@ class Eden2Cog(commands.Cog):
                     message.reference.message_id
                 )
                 content = f"(Replying to message: {source_message.content[:100]} ...)\n\n{content}"
-
-
-            print("look up message bot")
-            print(message)
-            print(message.author)
-            print(message.author.bot)
-            print("~~~~~")
 
             async with aiohttp.ClientSession() as session:
                 request_data = {
