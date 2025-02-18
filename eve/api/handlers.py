@@ -7,6 +7,7 @@ from typing import List
 from fastapi import BackgroundTasks
 from fastapi.responses import StreamingResponse
 from apscheduler.schedulers.background import BackgroundScheduler
+from modal import Function
 
 from eve.api.errors import handle_errors, APIError
 from eve.api.api_requests import (
@@ -28,7 +29,6 @@ from eve.api.helpers import (
 )
 from eve.clients.common import get_ably_channel_name
 from eve.deploy import (
-    deploy_client,
     stop_client,
 )
 from eve.tools.replicate_tool import replicate_update_task
@@ -42,7 +42,6 @@ from eve.user import User
 from eve.thread import Thread, UserMessage
 from eve.deploy import Deployment
 from eve.tools.twitter import X
-from eve.api.api import deploy_client_modal
 
 logger = logging.getLogger(__name__)
 db = os.getenv("DB", "STAGE").upper()
@@ -88,12 +87,14 @@ async def handle_cancel(request: CancelRequest):
 
 
 async def handle_replicate_webhook(body: dict):
+    print("___handle_replicate_webhook")
     task = Task.from_handler_id(body["id"])
     tool = Tool.load(task.tool)
     _ = replicate_update_task(
         task, body["status"], body["error"], body["output"], tool.output_handler
     )
-    return {"status": "success!!"}
+    print("___handle_replicate_webhook success !")
+    return {"status": "success"}
 
 
 async def run_chat_request(
@@ -225,7 +226,10 @@ async def handle_deployment_create(request: CreateDeploymentRequest):
         raise APIError(f"Agent not found: {agent.id}", status_code=404)
 
     try:
-        await deploy_client_modal.remote(
+        deploy_func = Function.lookup(
+            f"api-{db.lower()}", "deploy_client_modal", environment_name="main"
+        )
+        await deploy_func.remote(
             agent_id=str(agent.id),
             agent_key=agent.username,
             platform=request.platform.value,
@@ -253,7 +257,7 @@ async def handle_deployment_create(request: CreateDeploymentRequest):
 
 @handle_errors
 async def handle_deployment_update(request: UpdateDeploymentRequest):
-    print("REQUEST", request)
+    print("deployment update request", request)
 
     deployment = Deployment.from_mongo(ObjectId(request.deployment_id))
     if not deployment:
@@ -347,7 +351,7 @@ async def handle_trigger_delete(
 async def handle_twitter_update(request: PlatformUpdateRequest):
     """Handle Twitter updates from async_prompt_thread"""
 
-    print("request", request)
+    print("twitter update request", request)
     deployment_id = request.update_config.deployment_id
 
     # Get deployment

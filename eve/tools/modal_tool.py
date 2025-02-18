@@ -21,7 +21,6 @@ class ModalTool(Tool):
     @Tool.handle_start_task
     async def async_start_task(self, task: Task):
         db = os.getenv("DB", "STAGE").upper()
-        print("~~~ starting task ~~~")
         func = modal.Function.lookup(
             f"api-{db.lower()}", 
             "run_task", 
@@ -29,8 +28,6 @@ class ModalTool(Tool):
         )
         # job = func.spawn(task, parent_tool=self.parent_tool)
         job = await func.spawn.aio(task)
-        print(task)
-        print("~~~ task started ~~~")
         return job.object_id
     
     @Tool.handle_wait

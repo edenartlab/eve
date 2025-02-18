@@ -424,6 +424,7 @@ class ComfyUI:
 
     def _interrupt(self):
         try:
+            print("Interrupting ComfyUI ...")
             with urllib.request.urlopen(f"http://{self.server_address}/interrupt") as response:
                 if response.status != 200:
                     raise Exception(f"Failed to interrupt ComfyUI: {response.status}")

@@ -2,24 +2,30 @@ import logging
 import os
 import threading
 import json
-from fastapi.responses import JSONResponse
 import modal
+import replicate
+import sentry_sdk
+from fastapi.responses import JSONResponse
 from fastapi import FastAPI, Depends, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader, HTTPBearer
 from pathlib import Path
 from contextlib import asynccontextmanager
 from starlette.middleware.base import BaseHTTPMiddleware
-import sentry_sdk
 from fastapi.exceptions import RequestValidationError
 
 from eve import auth, db, eden_utils
-from eve.task import task_handler_func
-from eve.tools.tool_handlers import handlers, load_handler
-from eve.tools.comfyui_tool import convert_tasks2_to_tasks3
-from eve.task import Task
+from eve.api.runner_tasks import (
+    cancel_stuck_tasks,
+    download_nsfw_models,
+    generate_lora_thumbnails,
+    run_nsfw_detection,
+)
+from eve.task import task_handler_func, Task
 from eve.tool import Tool
+from eve.tools.tool_handlers import handlers, load_handler
 from eve.tools.replicate_tool import replicate_update_task
+from eve.tools.comfyui_tool import convert_tasks2_to_tasks3
 
 from eve.api.handlers import (
     handle_create,
@@ -121,35 +127,23 @@ async def cancel(request: CancelRequest, _: dict = Depends(auth.authenticate_adm
     return await handle_cancel(request)
 
 
-import replicate
-
-
 @web_app.post("/update")
 async def replicate_webhook(request: Request):
-    # Get raw body for signature verification
-    print("REPLICATE WEBHOOK")
     body = await request.body()
-    print(body)
-
-    # Parse JSON body
     try:
         data = json.loads(body)
     except json.JSONDecodeError:
         return {"status": "error", "message": "Invalid JSON body"}
 
-    # todo: validate webhook signature
+    # Validate webhook signature
     try:
-        print("VALIDATING WEBHOOK !!!")
+        body = body.decode()
         headers = dict(request.headers)
         secret = replicate.webhooks.default.secret()
-        replicate.webhooks.validate(
-            body=body,  # Pass raw body for signature verification
-            headers=headers,
-            secret=secret,
-        )
-        # pass
-        print("VALIDATING WEBHOOK SUCCESS")
+        replicate.webhooks.validate(body=body, headers=headers, secret=secret)
+
     except Exception as e:
+        print(f"Webhook validation failed: {str(e)}")
         return {"status": "error", "message": f"Invalid webhook signature: {str(e)}"}
 
     return await handle_replicate_webhook(data)
@@ -289,6 +283,7 @@ image = (
     .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
     .pip_install("numpy<2.0", "torch==2.0.1", "torchvision", "transformers", "Pillow")
     .run_commands(["playwright install"])
+    .run_function(download_nsfw_models)
     .copy_local_dir(str(workflows_dir), "/workflows")
 )
 
@@ -298,12 +293,45 @@ image = (
     keep_warm=1,
     concurrency_limit=10,
     container_idle_timeout=60,
-    allow_concurrent_inputs=10,
+    allow_concurrent_inputs=25,
     timeout=3600,
 )
 @modal.asgi_app()
 def fastapi_app():
     return web_app
+
+
+@app.function(
+    image=image, concurrency_limit=1, schedule=modal.Period(minutes=15), timeout=3600
+)
+async def cancel_stuck_tasks_fn():
+    try:
+        await cancel_stuck_tasks()
+    except Exception as e:
+        print(f"Error cancelling stuck tasks: {e}")
+        sentry_sdk.capture_exception(e)
+
+
+@app.function(
+    image=image, concurrency_limit=1, schedule=modal.Period(minutes=15), timeout=3600
+)
+async def run_nsfw_detection_fn():
+    try:
+        await run_nsfw_detection()
+    except Exception as e:
+        print(f"Error running nsfw detection: {e}")
+        sentry_sdk.capture_exception(e)
+
+
+@app.function(
+    image=image, concurrency_limit=1, schedule=modal.Period(minutes=15), timeout=3600
+)
+async def generate_lora_thumbnails_fn():
+    try:
+        await generate_lora_thumbnails()
+    except Exception as e:
+        print(f"Error generating lora thumbnails: {e}")
+        sentry_sdk.capture_exception(e)
 
 
 @app.function(
@@ -319,8 +347,6 @@ async def run(tool_key: str, args: dict):
 )
 @task_handler_func
 async def run_task(tool_key: str, args: dict):
-    print("~~~ RUN TASK ~~~")
-    print("tool key", tool_key)
     handler = load_handler(tool_key)
     return await handler(args)
 
@@ -331,11 +357,8 @@ async def run_task(tool_key: str, args: dict):
 async def run_task_replicate(task: Task):
     task.update(status="running")
     tool = Tool.load(task.tool)
-    print("task.args", task.args)
     args = tool.prepare_args(task.args)
-    print("args", args)
     args = tool._format_args_for_replicate(args)
-    print("args2", args)
     replicate_model = tool._get_replicate_model(task.args)
     output = await replicate.async_run(replicate_model, input=args)
     result = replicate_update_task(task, "succeeded", None, output, "normal")
@@ -358,10 +381,8 @@ async def deploy_client_modal(
     env: str,
     repo_branch: str = None,
 ):
-    """Modal function to handle client deployments"""
     from eve.deploy import deploy_client as deploy_client_impl, DeploymentSecrets
 
-    # Convert dict back to pydantic model
     secrets_model = DeploymentSecrets(**secrets)
 
     return await deploy_client_impl(

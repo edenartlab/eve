@@ -58,14 +58,17 @@ class UserMessage(ChatMessage):
                         ),
                         overwrite=False,
                     )
-                    attachment_files.append(attachment_file)
                     mime_type = magic.from_file(attachment_file, mime=True)
                     if "video" in mime_type:
                         attachment_lines.append(
                             f"* {attachment} (The asset is a video, the corresponding image attachment is its first frame.)"
                         )
-                    else:
+                        attachment_files.append(attachment_file)
+                    elif "image" in mime_type:
                         attachment_lines.append(f"* {attachment}")
+                        attachment_files.append(attachment_file)
+                    else:
+                        attachment_errors.append(f"* {attachment}: (Mime type: {mime_type})")
                 except Exception as e:
                     attachment_errors.append(f"* {attachment}: {str(e)}")
 
