@@ -129,7 +129,7 @@ async def cancel(request: CancelRequest, _: dict = Depends(auth.authenticate_adm
 @web_app.post("/update")
 async def replicate_webhook(request: Request):
     # Get raw body for signature verification
-    print("REPLICATE WEBHOOK")
+    print("REPLICATE WEBHOOK ...")
     body = await request.body()
     print(body)
 
@@ -142,17 +142,23 @@ async def replicate_webhook(request: Request):
     # todo: validate webhook signature
     try:
         print("VALIDATING WEBHOOK !!!")
+        print("webhook 1")
         headers = dict(request.headers)
+        print("headers", headers)
+        print("webhook 2")
         secret = replicate.webhooks.default.secret()
+        print("secret", secret)
+        print("webhook 3")
         replicate.webhooks.validate(
             body=body,  # Pass raw body for signature verification
             headers=headers,
             secret=secret
         )
+        print("webhook 4")
         # pass
-        print("!! VALIDATING WEBHOOK SUCCESS")
+        print("!2! VALIDATING WEBHOOK SUCCESS")
     except Exception as e:
-        print("!! VALIDATING WEBHOOK FAILURE")
+        print("!3! VALIDATING WEBHOOK FAILURE")
         return {"status": "error", "message": f"Invalid webhook signature: {str(e)}"}
 
     return await handle_replicate_webhook(data)
