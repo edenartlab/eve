@@ -161,11 +161,11 @@ async def rotate_agent_suggestions():
         print("Refresh agent", agent["username"])
         
         agent_text = await generate_agent_text(agent)
-        knowledge_summary = await generate_agent_knowledge_description(agent)
+        knowledge_description = await generate_agent_knowledge_description(agent)
         time = datetime.now(timezone.utc)
 
         agents.update_one({"_id": agent["_id"]}, {"$set": {
-            "knowledge_description": f"Summary: {knowledge_summary.summary}. Retrieval Criteria: {knowledge_summary.retrieval_criteria}",
+            "knowledge_description": f"Summary: {knowledge_description.summary}. Retrieval Criteria: {knowledge_description.retrieval_criteria}",
             "greeting": agent_text.greeting,
             "suggestions": [s.model_dump() for s in agent_text.suggestions],
             "refreshed_at": time, 
