@@ -42,6 +42,7 @@ from eve.user import User
 from eve.thread import Thread, UserMessage
 from eve.deploy import Deployment
 from eve.tools.twitter import X
+from eve.api.api import deploy_client_modal
 
 logger = logging.getLogger(__name__)
 db = os.getenv("DB", "STAGE").upper()
@@ -121,9 +122,7 @@ async def run_chat_request(
         ):
             data = {
                 "type": update.type.value,
-                "update_config": update_config.model_dump()
-                if update_config
-                else {},
+                "update_config": update_config.model_dump() if update_config else {},
             }
 
             if update.type == UpdateType.ASSISTANT_MESSAGE:
@@ -135,7 +134,7 @@ async def run_chat_request(
                 data["error"] = update.error if hasattr(update, "error") else None
 
             await emit_update(update_config, data)
-    
+
     except Exception as e:
         logger.error("Error in run_prompt", exc_info=True)
         await emit_update(
@@ -149,23 +148,23 @@ async def handle_chat(
     background_tasks: BackgroundTasks,
 ):
     user, agent, thread, tools = await setup_chat(request, background_tasks)
-    
+
     print("chat request")
     print(request)
 
     background_tasks.add_task(
-        run_chat_request, 
-        user, 
-        agent, 
-        thread, 
-        tools, 
-        request.user_message, 
-        request.update_config, 
-        request.force_reply, 
+        run_chat_request,
+        user,
+        agent,
+        thread,
+        tools,
+        request.user_message,
+        request.update_config,
+        request.force_reply,
         request.model,
-        request.user_is_bot
+        request.user_is_bot,
     )
-    
+
     return {"thread_id": str(thread.id)}
 
 
@@ -226,11 +225,11 @@ async def handle_deployment_create(request: CreateDeploymentRequest):
         raise APIError(f"Agent not found: {agent.id}", status_code=404)
 
     try:
-        deploy_client(
+        await deploy_client_modal.remote(
             agent_id=str(agent.id),
             agent_key=agent.username,
             platform=request.platform.value,
-            secrets=request.secrets,
+            secrets=request.secrets.model_dump(),
             env=db.lower(),
             repo_branch=request.repo_branch,
         )

@@ -340,3 +340,35 @@ async def run_task_replicate(task: Task):
     output = await replicate.async_run(replicate_model, input=args)
     result = replicate_update_task(task, "succeeded", None, output, "normal")
     return result
+
+
+@app.function(
+    image=image,
+    keep_warm=1,
+    concurrency_limit=10,
+    container_idle_timeout=60,
+    allow_concurrent_inputs=10,
+    timeout=3600,
+)
+async def deploy_client_modal(
+    agent_id: str,
+    agent_key: str,
+    platform: str,
+    secrets: dict,
+    env: str,
+    repo_branch: str = None,
+):
+    """Modal function to handle client deployments"""
+    from eve.deploy import deploy_client as deploy_client_impl, DeploymentSecrets
+
+    # Convert dict back to pydantic model
+    secrets_model = DeploymentSecrets(**secrets)
+
+    return await deploy_client_impl(
+        agent_id=agent_id,
+        agent_key=agent_key,
+        platform=platform,
+        secrets=secrets_model,
+        env=env,
+        repo_branch=repo_branch,
+    )
