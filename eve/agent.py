@@ -74,10 +74,11 @@ class Agent(User):
 
     name: str
     description: Optional[str] = None
+    suggestions: Optional[List[dict]] = None
     greeting: Optional[str] = None
     persona: Optional[str] = None
     knowledge: Optional[str] = None
-    knowledge_summary: Optional[str] = None
+    knowledge_description: Optional[str] = None
     refreshed_at: Optional[datetime] = None
 
     mute: Optional[bool] = False
