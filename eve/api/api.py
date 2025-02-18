@@ -143,7 +143,9 @@ async def replicate_webhook(request: Request):
     try:
         print("VALIDATING WEBHOOK !!!")
         headers = dict(request.headers)
-        secret = replicate.webhooks.default.secret()
+        raw_secret = replicate.webhooks.default.secret()
+        # Extract just the secret value, removing the 'key=' prefix
+        secret = raw_secret.split('=')[1].strip("'")
         
         # Extract the specific headers Replicate needs
         webhook_headers = {
@@ -154,7 +156,8 @@ async def replicate_webhook(request: Request):
         
         print("Webhook Headers:", webhook_headers)
         print("Body length:", len(body))
-        print("Body preview:", body[:200])  # Print first 200 chars of body
+        print("Body preview:", body[:200])
+        print("Secret (sanitized):", f"whsec_...{secret[-4:]}")  # Print last 4 chars for verification
         
         replicate.webhooks.validate(
             body=body,
@@ -165,7 +168,7 @@ async def replicate_webhook(request: Request):
     except Exception as e:
         print(f"Webhook validation failed: {str(e)}")
         print(f"Debug info:")
-        print(f"Secret used: {secret}")
+        print(f"Raw secret format: {raw_secret}")
         print(f"Headers received: {headers}")
         return {"status": "error", "message": f"Invalid webhook signature: {str(e)}"}
 
