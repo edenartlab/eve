@@ -78,6 +78,7 @@ class Agent(User):
     greeting: Optional[str] = None
     persona: Optional[str] = None
     knowledge: Optional[str] = None
+    knowledge_summary: Optional[str] = None
     knowledge_description: Optional[str] = None
     refreshed_at: Optional[datetime] = None
 

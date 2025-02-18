@@ -15,17 +15,18 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.exceptions import RequestValidationError
 
 from eve import auth, db, eden_utils
+from eve.api.runner_tasks import (
+    cancel_stuck_tasks,
+    download_nsfw_models,
+    generate_lora_thumbnails,
+    run_nsfw_detection,
+)
 from eve.task import task_handler_func, Task
 from eve.tool import Tool
 from eve.tools.tool_handlers import handlers, load_handler
 from eve.tools.replicate_tool import replicate_update_task
 from eve.tools.comfyui_tool import convert_tasks2_to_tasks3
-from eve.runner.runner_tasks import (
-    cancel_stuck_tasks,
-    download_nsfw_models,
-    generate_lora_thumbnails,
-    run_nsfw_detection
-)
+
 from eve.api.handlers import (
     handle_create,
     handle_cancel,
@@ -140,7 +141,7 @@ async def replicate_webhook(request: Request):
         headers = dict(request.headers)
         secret = replicate.webhooks.default.secret()
         replicate.webhooks.validate(body=body, headers=headers, secret=secret)
-    
+
     except Exception as e:
         print(f"Webhook validation failed: {str(e)}")
         return {"status": "error", "message": f"Invalid webhook signature: {str(e)}"}
@@ -271,7 +272,6 @@ image = (
         "libmagic1",
         "ffmpeg",
         "wget",
-        # Add Playwright dependencies
         "libnss3",
         "libnspr4",
         "libatk1.0-0",
@@ -302,10 +302,40 @@ def fastapi_app():
 
 
 @app.function(
-    image=image, 
-    concurrency_limit=10,
-    allow_concurrent_inputs=4,
-    timeout=3600
+    image=image, concurrency_limit=1, schedule=modal.Period(minutes=15), timeout=3600
+)
+async def cancel_stuck_tasks_fn():
+    try:
+        await cancel_stuck_tasks()
+    except Exception as e:
+        print(f"Error cancelling stuck tasks: {e}")
+        sentry_sdk.capture_exception(e)
+
+
+@app.function(
+    image=image, concurrency_limit=1, schedule=modal.Period(minutes=15), timeout=3600
+)
+async def run_nsfw_detection_fn():
+    try:
+        await run_nsfw_detection()
+    except Exception as e:
+        print(f"Error running nsfw detection: {e}")
+        sentry_sdk.capture_exception(e)
+
+
+@app.function(
+    image=image, concurrency_limit=1, schedule=modal.Period(minutes=15), timeout=3600
+)
+async def generate_lora_thumbnails_fn():
+    try:
+        await generate_lora_thumbnails()
+    except Exception as e:
+        print(f"Error generating lora thumbnails: {e}")
+        sentry_sdk.capture_exception(e)
+
+
+@app.function(
+    image=image, concurrency_limit=10, allow_concurrent_inputs=4, timeout=3600
 )
 async def run(tool_key: str, args: dict):
     handler = load_handler(tool_key)
@@ -314,10 +344,7 @@ async def run(tool_key: str, args: dict):
 
 
 @app.function(
-    image=image, 
-    concurrency_limit=10,
-    allow_concurrent_inputs=4,
-    timeout=3600
+    image=image, concurrency_limit=10, allow_concurrent_inputs=4, timeout=3600
 )
 @task_handler_func
 async def run_task(tool_key: str, args: dict):
@@ -326,10 +353,7 @@ async def run_task(tool_key: str, args: dict):
 
 
 @app.function(
-    image=image, 
-    concurrency_limit=10,
-    allow_concurrent_inputs=4,
-    timeout=3600
+    image=image, concurrency_limit=10, allow_concurrent_inputs=4, timeout=3600
 )
 async def run_task_replicate(task: Task):
     task.update(status="running")
@@ -343,42 +367,30 @@ async def run_task_replicate(task: Task):
 
 
 @app.function(
-    image=image, 
-    concurrency_limit=1, 
-    schedule=modal.Period(minutes=15), 
-    timeout=3600
+    image=image,
+    keep_warm=1,
+    concurrency_limit=10,
+    container_idle_timeout=60,
+    allow_concurrent_inputs=10,
+    timeout=3600,
 )
-async def cancel_stuck_tasks_fn():
-    try:
-        await cancel_stuck_tasks()
-    except Exception as e:
-        print(f"Error cancelling stuck tasks: {e}")
-        sentry_sdk.capture_exception(e)
+async def deploy_client_modal(
+    agent_id: str,
+    agent_key: str,
+    platform: str,
+    secrets: dict,
+    env: str,
+    repo_branch: str = None,
+):
+    from eve.deploy import deploy_client as deploy_client_impl, DeploymentSecrets
 
+    secrets_model = DeploymentSecrets(**secrets)
 
-@app.function(
-    image=image, 
-    concurrency_limit=1, 
-    schedule=modal.Period(minutes=15), 
-    timeout=3600
-)
-async def run_nsfw_detection_fn():
-    try:
-        await run_nsfw_detection()
-    except Exception as e:
-        print(f"Error running nsfw detection: {e}")
-        sentry_sdk.capture_exception(e)
-
-
-@app.function(
-    image=image, 
-    concurrency_limit=1, 
-    schedule=modal.Period(minutes=15), 
-    timeout=3600
-)
-async def generate_lora_thumbnails_fn():
-    try:
-        await generate_lora_thumbnails()
-    except Exception as e:
-        print(f"Error generating lora thumbnails: {e}")
-        sentry_sdk.capture_exception(e)
+    return deploy_client_impl(
+        agent_id=agent_id,
+        agent_key=agent_key,
+        platform=platform,
+        secrets=secrets_model,
+        env=env,
+        repo_branch=repo_branch,
+    )
