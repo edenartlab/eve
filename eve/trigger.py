@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import subprocess
@@ -5,14 +6,17 @@ from typing import Dict, Any
 from bson import ObjectId
 import modal
 import modal.runner
+import requests
 
 from eve.api.api_requests import CronSchedule
 from eve.mongo import Collection, Document
-from eve.services.trigger_fn import trigger_app, trigger_fn, base_image
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 db = os.getenv("DB", "STAGE").upper()
 TRIGGER_ENV_NAME = "triggers"
+
+trigger_app = modal.App()
 
 
 @Collection("triggers")
@@ -35,19 +39,77 @@ class Trigger(Document):
         super().__init__(**data)
 
 
+def create_image(trigger_id: str):
+    return (
+        modal.Image.debian_slim(python_version="3.11")
+        .apt_install("libmagic1", "ffmpeg", "wget")
+        .pip_install_from_pyproject("pyproject.toml")
+        .run_commands(["playwright install"])
+        .copy_local_dir("../workflows", "/workflows")
+        .env({"DB": db})
+        .env({"TRIGGER_ID": trigger_id})
+    )
+
+
+trigger_message = """<AdminMessage>
+You have received a request from an admin to run a scheduled task. The instructions for the task are below. In your response, do not ask for clarification, just do the task. Do not acknowledge receipt of this message, as no one else in the chat can see it and the admin is absent. Simply follow whatever instructions are below.
+</AdminMessage>
+<Task>
+{task}
+</Task>"""
+
+
+async def trigger_fn():
+    trigger_id = os.getenv("TRIGGER_ID")
+    api_url = os.getenv("EDEN_API_URL")
+    trigger = Trigger.load(trigger_id=trigger_id)
+
+    if not trigger:
+        raise Exception(f"No trigger found for ID: {trigger_id}")
+
+    user_message = {
+        "content": trigger_message.format(task=trigger.message),
+        "hidden": True,
+    }
+
+    chat_request = {
+        "user_id": str(trigger.user),
+        "agent_id": str(trigger.agent),
+        "thread_id": str(trigger.thread),
+        "user_message": user_message,
+        "update_config": trigger.update_config,
+        "force_reply": True,
+    }
+
+    response = requests.post(
+        f"{api_url}/chat",
+        json=chat_request,
+        headers={"Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}"},
+    )
+
+    if not response.ok:
+        raise Exception(
+            f"Error making chat request: {response.status_code} - {response.text}"
+        )
+
+    print(f"Chat request successful: {response.json()}")
+
+
+def trigger_fn_sync():
+    asyncio.run(trigger_fn())
+
+
 async def create_chat_trigger(
     schedule: CronSchedule,
     trigger_id: str,
 ) -> None:
     """Creates a Modal scheduled function with the provided cron schedule"""
     try:
-        # Convert schedule to cron string
         schedule_dict = schedule
         cron_string = f"{schedule_dict.get('minute', '*')} {schedule_dict.get('hour', '*')} {schedule_dict.get('day', '*')} {schedule_dict.get('month', '*')} {schedule_dict.get('day_of_week', '*')}"
-        # Apply schedule and deploy exactly like the example
         trigger_app.function(
             schedule=modal.Cron(cron_string),
-            image=base_image,
+            image=create_image(trigger_id),
             secrets=[
                 modal.Secret.from_name("eve-secrets", environment_name="main"),
                 modal.Secret.from_name(f"eve-secrets-{db}", environment_name="main"),

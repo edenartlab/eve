@@ -111,8 +111,6 @@ class Tool(Document, ABC):
         handler = schema.get("handler")
         parent_tool = schema.get("parent_tool")
 
-        print(f"load tool {schema.get('key')} with handler {handler}")
-
         if parent_tool:
             if parent_tool not in _handler_cache:
                 collection = get_collection(cls.collection_name)
@@ -123,27 +121,34 @@ class Tool(Document, ABC):
         # Lazy load the tool class if we haven't seen this handler before
         if handler not in _tool_classes:
             if handler == "local":
-                #from .tools.local_tool import LocalTool
-                #_tool_classes[handler] = LocalTool
+                # from .tools.local_tool import LocalTool
+                # _tool_classes[handler] = LocalTool
                 from .tools.modal_tool import ModalTool
+
                 _tool_classes[handler] = ModalTool
             elif handler == "modal":
                 from .tools.modal_tool import ModalTool
+
                 _tool_classes[handler] = ModalTool
             elif handler == "comfyui":
                 from .tools.comfyui_tool import ComfyUITool
+
                 _tool_classes[handler] = ComfyUITool
             elif handler == "comfyui_legacy":
                 from .tools.comfyui_tool import ComfyUIToolLegacy
+
                 _tool_classes[handler] = ComfyUIToolLegacy
             elif handler == "replicate":
                 from .tools.replicate_tool import ReplicateTool
+
                 _tool_classes[handler] = ReplicateTool
             elif handler == "gcp":
                 from .tools.gcp_tool import GCPTool
+
                 _tool_classes[handler] = GCPTool
             else:
                 from .tools.modal_tool import ModalTool
+
                 _tool_classes[handler] = ModalTool
 
         return _tool_classes[handler]

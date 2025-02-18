@@ -304,11 +304,14 @@ async def handle_trigger_create(request: CreateTriggerRequest):
         trigger_id=trigger_id,
     )
 
+    agent = Agent.from_mongo(ObjectId(request.agent_id))
+    thread = agent.request_thread(user=ObjectId(request.user_id), key=trigger_id)
+
     trigger = Trigger(
         trigger_id=trigger_id,
         user=ObjectId(request.user_id),
         agent=ObjectId(request.agent_id),
-        thread=ObjectId(request.thread_id),
+        thread=thread.id,
         schedule=request.schedule.to_cron_dict(),
         message=request.message,
         update_config=request.update_config.model_dump()
@@ -335,7 +338,6 @@ async def handle_trigger_delete(request: DeleteTriggerRequest):
 async def handle_twitter_update(request: PlatformUpdateRequest):
     """Handle Twitter updates from async_prompt_thread"""
 
-    print("twitter update request", request)
     deployment_id = request.update_config.deployment_id
 
     # Get deployment
