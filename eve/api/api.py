@@ -385,7 +385,7 @@ async def deploy_client_modal(
 
     secrets_model = DeploymentSecrets(**secrets)
 
-    return await deploy_client_impl(
+    return deploy_client_impl(
         agent_id=agent_id,
         agent_key=agent_key,
         platform=platform,
