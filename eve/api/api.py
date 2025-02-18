@@ -23,7 +23,7 @@ from eve.api.runner_tasks import (
 )
 from eve.task import task_handler_func, Task
 from eve.tool import Tool
-from eve.tools.tool_handlers import handlers, load_handler
+from eve.tools.tool_handlers import load_handler
 from eve.tools.replicate_tool import replicate_update_task
 from eve.tools.comfyui_tool import convert_tasks2_to_tasks3
 
@@ -50,10 +50,8 @@ from eve.api.api_requests import (
     PlatformUpdateRequest,
     TaskRequest,
     UpdateDeploymentRequest,
-    UpdateConfig,
 )
 from eve.api.helpers import pre_modal_setup
-from eve.thread import UserMessage
 
 
 app_name = f"api-{db.lower()}"
