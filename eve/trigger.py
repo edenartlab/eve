@@ -41,7 +41,8 @@ class Trigger(Document):
 
 
 def create_image(trigger_id: str):
-    root_dir = Path(__file__).parent.parent
+    root_dir = Path(__file__).parent
+    print([str(p) for p in root_dir.glob("**/*")])
     pyproject_path = root_dir / "pyproject.toml"
     return (
         modal.Image.debian_slim(python_version="3.11")
