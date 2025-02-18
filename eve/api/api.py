@@ -152,6 +152,10 @@ async def replicate_webhook(request: Request):
             'Webhook-Signature': headers.get('webhook-signature')
         }
         
+        print("Webhook Headers:", webhook_headers)
+        print("Body length:", len(body))
+        print("Body preview:", body[:200])  # Print first 200 chars of body
+        
         replicate.webhooks.validate(
             body=body,
             headers=webhook_headers,
@@ -160,6 +164,9 @@ async def replicate_webhook(request: Request):
         print("WEBHOOK VALIDATION SUCCESS")
     except Exception as e:
         print(f"Webhook validation failed: {str(e)}")
+        print(f"Debug info:")
+        print(f"Secret used: {secret}")
+        print(f"Headers received: {headers}")
         return {"status": "error", "message": f"Invalid webhook signature: {str(e)}"}
 
     return await handle_replicate_webhook(data)
