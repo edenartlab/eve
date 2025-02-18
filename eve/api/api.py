@@ -2,20 +2,23 @@ import logging
 import os
 import threading
 import json
-from fastapi.responses import JSONResponse
 import modal
+import replicate
+import sentry_sdk
+from fastapi.responses import JSONResponse
 from fastapi import FastAPI, Depends, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader, HTTPBearer
 from pathlib import Path
 from contextlib import asynccontextmanager
 from starlette.middleware.base import BaseHTTPMiddleware
-import sentry_sdk
 from fastapi.exceptions import RequestValidationError
 
 from eve import auth, db, eden_utils
-from eve.task import task_handler_func
+from eve.task import task_handler_func, Task
+from eve.tool import Tool
 from eve.tools.tool_handlers import handlers, load_handler
+from eve.tools.replicate_tool import replicate_update_task
 from eve.tools.comfyui_tool import convert_tasks2_to_tasks3
 from eve.runner.runner_tasks import (
     cancel_stuck_tasks,
@@ -123,8 +126,6 @@ async def cancel(request: CancelRequest, _: dict = Depends(auth.authenticate_adm
     return await handle_cancel(request)
 
 
-import replicate
-
 @web_app.post("/update")
 async def replicate_webhook(request: Request):
     # Get raw body for signature verification
@@ -149,8 +150,9 @@ async def replicate_webhook(request: Request):
             secret=secret
         )
         # pass
-        print("VALIDATING WEBHOOK SUCCESS")
+        print("!! VALIDATING WEBHOOK SUCCESS")
     except Exception as e:
+        print("!! VALIDATING WEBHOOK FAILURE")
         return {"status": "error", "message": f"Invalid webhook signature: {str(e)}"}
 
     return await handle_replicate_webhook(data)
@@ -328,15 +330,9 @@ async def run(tool_key: str, args: dict):
 )
 @task_handler_func
 async def run_task(tool_key: str, args: dict):
-    print("~~~ RUN TASK ~~~")
-    print("tool key", tool_key)
     handler = load_handler(tool_key)
     return await handler(args)
 
-
-from eve.task import Task
-from eve.tool import Tool
-from eve.tools.replicate_tool import replicate_update_task
 
 @app.function(
     image=image, 
@@ -345,25 +341,14 @@ from eve.tools.replicate_tool import replicate_update_task
     timeout=3600
 )
 async def run_task_replicate(task: Task):
-    print("run task remote 1")
     task.update(status="running")
-    print("run task remote 2")
     tool = Tool.load(task.tool)
-    print("run task remote 3")
-    print("task.args", task.args)
     args = tool.prepare_args(task.args)
-    print("args", args)
-    print("run task remote 4")
     args = tool._format_args_for_replicate(args)
-    print("args2", args)
-    print("run task remote 5")
     replicate_model = tool._get_replicate_model(task.args)
-    print("run task remote 6")
     output = await replicate.async_run(replicate_model, input=args)
     result = replicate_update_task(task, "succeeded", None, output, "normal")
     return result
-
-
 
 
 @app.function(

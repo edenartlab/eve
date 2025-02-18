@@ -87,12 +87,14 @@ async def handle_cancel(request: CancelRequest):
 
 
 async def handle_replicate_webhook(body: dict):
+    print("___handle_replicate_webhook")
     task = Task.from_handler_id(body["id"])
     tool = Tool.load(task.tool)
     _ = replicate_update_task(
         task, body["status"], body["error"], body["output"], tool.output_handler
     )
-    return {"status": "success!!"}
+    print("___handle_replicate_webhook success !")
+    return {"status": "success"}
 
 
 async def run_chat_request(
@@ -254,7 +256,7 @@ async def handle_deployment_create(request: CreateDeploymentRequest):
 
 @handle_errors
 async def handle_deployment_update(request: UpdateDeploymentRequest):
-    print("REQUEST", request)
+    print("deployment update request", request)
 
     deployment = Deployment.from_mongo(ObjectId(request.deployment_id))
     if not deployment:
@@ -348,7 +350,7 @@ async def handle_trigger_delete(
 async def handle_twitter_update(request: PlatformUpdateRequest):
     """Handle Twitter updates from async_prompt_thread"""
 
-    print("request", request)
+    print("twitter update request", request)
     deployment_id = request.update_config.deployment_id
 
     # Get deployment
