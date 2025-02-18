@@ -71,7 +71,7 @@ class Tool(Document, ABC):
     allowlist: Optional[str] = None
 
     model: Type[BaseModel]
-    handler: HANDLERS = "local"
+    handler: HANDLERS = "modal"
     parent_tool: Optional[str] = None
     parameters: Optional[Dict[str, Any]] = None
     parameter_presets: Optional[Dict[str, Any]] = None
@@ -111,6 +111,8 @@ class Tool(Document, ABC):
         handler = schema.get("handler")
         parent_tool = schema.get("parent_tool")
 
+        print(f"load tool {schema.get('key')} with handler {handler}")
+
         if parent_tool:
             if parent_tool not in _handler_cache:
                 collection = get_collection(cls.collection_name)
@@ -121,8 +123,10 @@ class Tool(Document, ABC):
         # Lazy load the tool class if we haven't seen this handler before
         if handler not in _tool_classes:
             if handler == "local":
-                from .tools.local_tool import LocalTool
-                _tool_classes[handler] = LocalTool
+                #from .tools.local_tool import LocalTool
+                #_tool_classes[handler] = LocalTool
+                from .tools.modal_tool import ModalTool
+                _tool_classes[handler] = ModalTool
             elif handler == "modal":
                 from .tools.modal_tool import ModalTool
                 _tool_classes[handler] = ModalTool
@@ -139,8 +143,8 @@ class Tool(Document, ABC):
                 from .tools.gcp_tool import GCPTool
                 _tool_classes[handler] = GCPTool
             else:
-                from .tools.local_tool import LocalTool
-                _tool_classes[handler] = LocalTool
+                from .tools.modal_tool import ModalTool
+                _tool_classes[handler] = ModalTool
 
         return _tool_classes[handler]
 

@@ -55,34 +55,6 @@ def test_prompting2():
         print(msg)
 
 
-def test_valid_messages():
-    user = get_my_eden_user()
-
-    messages = [
-        UserMessage(name="alice", content="i am alice"),
-        UserMessage(name="bob", content="i am bob."),
-        AssistantMessage(content="now i will speak."),
-        AssistantMessage(content="i am eve. who am i? let me say that again, but with exclamation marks at the end. and i'm going to rename myself Esmerelda."),
-        # UserMessage(name="kate", content="Eve what is my name?"),
-    ]
-
-    agent = Agent.load("eve")
-    tools = agent.get_tools()
-    thread = agent.request_thread()
-
-    for msg in async_think(
-        user=user,
-        agent=agent,
-        thread=thread,
-        user_messages=messages,
-        tools=tools,
-        force_reply=False,
-        model="gpt-4o-mini"
-    ):
-        print(msg)
-
-
-
 
 def test_think():
     user = get_my_eden_user()
@@ -112,4 +84,3 @@ def test_think():
         print(msg)
 
 
-test_think()

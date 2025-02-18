@@ -53,12 +53,19 @@ USE_RATE_LIMITS = os.getenv("USE_RATE_LIMITS", "false").lower() == "true"
 async def handle_create(request: TaskRequest):
     tool = Tool.load(key=request.tool)
 
+    print("#### create ####")
+    print(request)
+
     # if USE_RATE_LIMITS:
     #     await RateLimiter().check_create_rate_limit(user, tool)
 
+    print("### run the tool ###")
     result = await tool.async_start_task(
         requester_id=request.user_id, user_id=request.user_id, args=request.args
     )
+
+    print("### return the result ###")
+    print(result)
 
     return serialize_document(result.model_dump(by_alias=True))
 
@@ -85,6 +92,7 @@ async def handle_replicate_webhook(body: dict):
     _ = replicate_update_task(
         task, body["status"], body["error"], body["output"], tool.output_handler
     )
+    return {"status": "success!!"}
 
 
 async def run_chat_request(
@@ -142,6 +150,9 @@ async def handle_chat(
 ):
     user, agent, thread, tools = await setup_chat(request, background_tasks)
     
+    print("chat request")
+    print(request)
+
     background_tasks.add_task(
         run_chat_request, 
         user, 

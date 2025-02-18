@@ -52,10 +52,9 @@ class Eden2Cog(commands.Cog):
     ) -> None:
         self.bot = bot
         self.agent = agent
+        self.discord_channel_allowlist = None
         if not local:
             self.load_deployment_config()
-        else:
-            self.discord_channel_allowlist = None
         self.tools = agent.get_tools()
         self.known_users = {}
         self.known_threads = {}
@@ -76,11 +75,10 @@ class Eden2Cog(commands.Cog):
     def load_deployment_config(self):
         """Load deployment configuration from database"""
         self.deployment_config = self._get_deployment_config(self.agent)
-        self.discord_channel_allowlist = (
-            [int(item.id) for item in self.deployment_config.discord.channel_allowlist]
-            if self.deployment_config.discord.channel_allowlist
-            else None
-        )
+        if self.deployment_config.discord.channel_allowlist:
+            self.discord_channel_allowlist = [
+                int(item.id) for item in self.deployment_config.discord.channel_allowlist if item.id
+            ]
 
     def _get_deployment_config(self, agent: Agent) -> DeploymentConfig:
         deployment = Deployment.load(agent=agent.id, platform="discord")

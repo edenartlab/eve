@@ -13,14 +13,14 @@ from starlette.middleware.base import BaseHTTPMiddleware
 import sentry_sdk
 from fastapi.exceptions import RequestValidationError
 
-from eve import auth, db
+from eve import auth, db, eden_utils
+from eve.task import task_handler_func
+from eve.tools.tool_handlers import handlers, load_handler
 from eve.tools.comfyui_tool import convert_tasks2_to_tasks3
-from eve.runner.runner_tasks import (
-    cancel_stuck_tasks,
-    download_nsfw_models,
-    generate_lora_thumbnails,
-    run_nsfw_detection,
-)
+from eve.task import Task
+from eve.tool import Tool
+from eve.tools.replicate_tool import replicate_update_task
+
 from eve.api.handlers import (
     handle_create,
     handle_cancel,
@@ -121,9 +121,13 @@ async def cancel(request: CancelRequest, _: dict = Depends(auth.authenticate_adm
     return await handle_cancel(request)
 
 
+import replicate
+
+
 @web_app.post("/update")
 async def replicate_webhook(request: Request):
     # Get raw body for signature verification
+    print("REPLICATE WEBHOOK")
     body = await request.body()
     print(body)
 
@@ -135,14 +139,16 @@ async def replicate_webhook(request: Request):
 
     # todo: validate webhook signature
     try:
-        # headers = dict(request.headers)
-        # secret = replicate.webhooks.default.secret()
-        # replicate.webhooks.validate(
-        #     body=body,  # Pass raw body for signature verification
-        #     headers=headers,
-        #     secret=secret
-        # )
-        pass
+        print("VALIDATING WEBHOOK !!!")
+        headers = dict(request.headers)
+        secret = replicate.webhooks.default.secret()
+        replicate.webhooks.validate(
+            body=body,  # Pass raw body for signature verification
+            headers=headers,
+            secret=secret,
+        )
+        # pass
+        print("VALIDATING WEBHOOK SUCCESS")
     except Exception as e:
         return {"status": "error", "message": f"Invalid webhook signature: {str(e)}"}
 
@@ -283,7 +289,6 @@ image = (
     .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
     .pip_install("numpy<2.0", "torch==2.0.1", "torchvision", "transformers", "Pillow")
     .run_commands(["playwright install"])
-    .run_function(download_nsfw_models)
     .copy_local_dir(str(workflows_dir), "/workflows")
 )
 
@@ -299,3 +304,39 @@ image = (
 @modal.asgi_app()
 def fastapi_app():
     return web_app
+
+
+@app.function(
+    image=image, concurrency_limit=10, allow_concurrent_inputs=4, timeout=3600
+)
+async def run(tool_key: str, args: dict):
+    result = await handlers[tool_key](args)
+    return eden_utils.upload_result(result)
+
+
+@app.function(
+    image=image, concurrency_limit=10, allow_concurrent_inputs=4, timeout=3600
+)
+@task_handler_func
+async def run_task(tool_key: str, args: dict):
+    print("~~~ RUN TASK ~~~")
+    print("tool key", tool_key)
+    handler = load_handler(tool_key)
+    return await handler(args)
+
+
+@app.function(
+    image=image, concurrency_limit=10, allow_concurrent_inputs=4, timeout=3600
+)
+async def run_task_replicate(task: Task):
+    task.update(status="running")
+    tool = Tool.load(task.tool)
+    print("task.args", task.args)
+    args = tool.prepare_args(task.args)
+    print("args", args)
+    args = tool._format_args_for_replicate(args)
+    print("args2", args)
+    replicate_model = tool._get_replicate_model(task.args)
+    output = await replicate.async_run(replicate_model, input=args)
+    result = replicate_update_task(task, "succeeded", None, output, "normal")
+    return result

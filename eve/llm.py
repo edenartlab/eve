@@ -548,7 +548,7 @@ async def async_prompt_thread(
 
     # Apply bot-specific limits
     if user_is_bot:
-        print("bot message")
+        print("bot message, stop")
         return
 
     # Refresh agent
