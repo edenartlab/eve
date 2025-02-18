@@ -50,8 +50,10 @@ from eve.api.api_requests import (
     PlatformUpdateRequest,
     TaskRequest,
     UpdateDeploymentRequest,
+    UpdateConfig,
 )
 from eve.api.helpers import pre_modal_setup
+from eve.thread import UserMessage
 
 
 app_name = f"api-{db.lower()}"
@@ -194,14 +196,16 @@ async def deployment_delete(
 async def trigger_create(
     request: CreateTriggerRequest, _: dict = Depends(auth.authenticate_admin)
 ):
-    return await handle_trigger_create(request, web_app.state.scheduler)
+    pre_modal_setup()
+    return await handle_trigger_create(request)
 
 
 @web_app.post("/triggers/delete")
 async def trigger_delete(
     request: DeleteTriggerRequest, _: dict = Depends(auth.authenticate_admin)
 ):
-    return await handle_trigger_delete(request, web_app.state.scheduler)
+    pre_modal_setup()
+    return await handle_trigger_delete(request)
 
 
 @web_app.post("/updates/platform/telegram")

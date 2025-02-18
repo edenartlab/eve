@@ -467,7 +467,7 @@ typing-extensions==4.12.2
     # via web3
 typing-inspect==0.9.0
     # via clerk-backend-api
-tzlocal==5.2
+tzlocal==5.3
     # via apscheduler
 urllib3==2.2.3
     # via botocore

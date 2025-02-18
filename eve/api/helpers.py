@@ -6,7 +6,7 @@ from bson import ObjectId
 from fastapi import BackgroundTasks
 from ably import AblyRest
 
-from eve import deploy
+from eve import deploy, trigger
 from eve.api.errors import APIError
 from eve.deploy import (
     authenticate_modal_key,
@@ -30,8 +30,7 @@ async def get_update_channel(
 
 
 async def setup_chat(
-    request: ChatRequest, 
-    background_tasks: BackgroundTasks
+    request: ChatRequest, background_tasks: BackgroundTasks
 ) -> tuple[User, Agent, Thread, list[Tool]]:
     try:
         user = User.from_mongo(request.user_id)
@@ -86,7 +85,6 @@ async def emit_update(update_config: Optional[UpdateConfig], data: dict):
 
 
 async def emit_http_update(update_config: UpdateConfig, data: dict):
-    print("DATA", data)
     async with aiohttp.ClientSession() as session:
         try:
             async with session.post(
@@ -106,3 +104,5 @@ def pre_modal_setup():
     authenticate_modal_key()
     if not check_environment_exists(deploy.DEPLOYMENT_ENV_NAME):
         create_environment(deploy.DEPLOYMENT_ENV_NAME)
+    if not check_environment_exists(trigger.TRIGGER_ENV_NAME):
+        create_environment(trigger.TRIGGER_ENV_NAME)

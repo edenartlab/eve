@@ -6,7 +6,6 @@ from bson import ObjectId
 from typing import List
 from fastapi import BackgroundTasks
 from fastapi.responses import StreamingResponse
-from apscheduler.schedulers.background import BackgroundScheduler
 from modal import Function
 
 from eve.api.errors import handle_errors, APIError
@@ -32,7 +31,7 @@ from eve.deploy import (
     stop_client,
 )
 from eve.tools.replicate_tool import replicate_update_task
-from eve.trigger import Trigger
+from eve.trigger import Trigger, create_chat_trigger, delete_trigger
 from eve.llm import UpdateType, async_prompt_thread
 from eve.mongo import serialize_document
 from eve.task import Task
@@ -297,61 +296,48 @@ async def handle_deployment_delete(request: DeleteDeploymentRequest):
 
 
 @handle_errors
-async def handle_trigger_create(
-    request: CreateTriggerRequest,
-    scheduler: BackgroundScheduler,
-):
-    from eve.trigger import create_chat_trigger
-
+async def handle_trigger_create(request: CreateTriggerRequest):
     trigger_id = f"{request.user_id}_{request.agent_id}_{int(time.time())}"
 
-    job = await create_chat_trigger(
-        user_id=request.user_id,
-        agent_id=request.agent_id,
-        thread_id=request.thread_id,
-        message=request.message,
+    await create_chat_trigger(
         schedule=request.schedule.to_cron_dict(),
-        update_config=request.update_config,
-        scheduler=scheduler,
         trigger_id=trigger_id,
-        handle_chat_fn=handle_chat,
     )
-    if not request.ephemeral:
-        trigger = Trigger(
-            trigger_id=trigger_id,
-            user=ObjectId(request.user_id),
-            agent=ObjectId(request.agent_id),
-            thread=ObjectId(request.thread_id),
-            schedule=request.schedule.to_cron_dict(),
-            message=request.message,
-            update_config=request.update_config.model_dump()
-            if request.update_config
-            else {},
-        )
-        trigger.save()
+
+    agent = Agent.from_mongo(ObjectId(request.agent_id))
+    thread = agent.request_thread(user=ObjectId(request.user_id), key=trigger_id)
+
+    trigger = Trigger(
+        trigger_id=trigger_id,
+        user=ObjectId(request.user_id),
+        agent=ObjectId(request.agent_id),
+        thread=thread.id,
+        schedule=request.schedule.to_cron_dict(),
+        message=request.message,
+        update_config=request.update_config.model_dump()
+        if request.update_config
+        else {},
+    )
+    trigger.save()
 
     return {
-        "id": trigger_id if request.ephemeral else str(trigger.id),
-        "job_id": job.id,
-        "next_run_time": str(job.next_run_time),
+        "id": str(trigger.id),
+        "trigger_id": trigger_id,
     }
 
 
 @handle_errors
-async def handle_trigger_delete(
-    request: DeleteTriggerRequest, scheduler: BackgroundScheduler
-):
+async def handle_trigger_delete(request: DeleteTriggerRequest):
     trigger = Trigger.from_mongo(request.id)
-    scheduler.remove_job(trigger.trigger_id)
+    await delete_trigger(trigger.trigger_id)
     trigger.delete()
-    return {"message": f"Deleted job {trigger.trigger_id}"}
+    return {"id": str(trigger.id)}
 
 
 @handle_errors
 async def handle_twitter_update(request: PlatformUpdateRequest):
     """Handle Twitter updates from async_prompt_thread"""
 
-    print("twitter update request", request)
     deployment_id = request.update_config.deployment_id
 
     # Get deployment
