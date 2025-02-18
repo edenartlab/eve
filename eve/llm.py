@@ -476,7 +476,6 @@ async def async_think(
     time_str = user_message.createdAt.strftime("%H:%M")
     message = f"<{user_message.name} {time_str}> {content}"
 
-
     # need agent.knowledge_summary
     if agent.knowledge:
         knowledge_summary = Template(knowledge_template).render(

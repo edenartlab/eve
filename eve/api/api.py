@@ -308,7 +308,8 @@ def fastapi_app():
     timeout=3600
 )
 async def run(tool_key: str, args: dict):
-    result = await handlers[tool_key](args)
+    handler = load_handler(tool_key)
+    result = await handler(args)
     return eden_utils.upload_result(result)
 
 
