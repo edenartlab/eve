@@ -41,6 +41,9 @@ class Trigger(Document):
 
 
 def create_image(trigger_id: str):
+    # log the contents of the pyproject.toml file
+    with open("/eve/pyproject.toml", "r") as f:
+        print(f.read())
     return (
         modal.Image.debian_slim(python_version="3.11")
         .apt_install("libmagic1", "ffmpeg", "wget")
