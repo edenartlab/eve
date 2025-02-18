@@ -229,7 +229,7 @@ async def handle_deployment_create(request: CreateDeploymentRequest):
         deploy_func = Function.lookup(
             f"api-{db.lower()}", "deploy_client_modal", environment_name="main"
         )
-        await deploy_func.remote(
+        deploy_func.spawn(
             agent_id=str(agent.id),
             agent_key=agent.username,
             platform=request.platform.value,
