@@ -128,64 +128,24 @@ async def cancel(request: CancelRequest, _: dict = Depends(auth.authenticate_adm
 
 @web_app.post("/update")
 async def replicate_webhook(request: Request):
-    # Get raw body for signature verification
-    print("REPLICATE WEBHOOK ...")
     body = await request.body()
-    print(body)
-
-    # Parse JSON body
     try:
         data = json.loads(body)
     except json.JSONDecodeError:
         return {"status": "error", "message": "Invalid JSON body"}
 
-    # todo: validate webhook signature
+    # Validate webhook signature
     try:
-        print("VALIDATING WEBHOOK !!!")
-        # headers = dict(request.headers)
-        # raw_secret = replicate.webhooks.default.secret()
-        # # Extract just the secret value, removing the 'key=' prefix
-        # secret = raw_secret.split('=')[1].strip("'")
-        
-        # # Extract the specific headers Replicate needs
-        # webhook_headers = {
-        #     'Webhook-Id': headers.get('webhook-id'),
-        #     'Webhook-Timestamp': headers.get('webhook-timestamp'),
-        #     'Webhook-Signature': headers.get('webhook-signature')
-        # }
-        
-        # print("Webhook Headers:", webhook_headers)
-        # print("Body length:", len(body))
-        # print("Body preview:", body[:200])
-        # print("Secret (sanitized):", f"whsec_...{secret[-4:]}")  # Print last 4 chars for verification
-        
-        # replicate.webhooks.validate(
-        #     body=body,
-        #     headers=webhook_headers,
-        #     secret=secret
-        # )
-
-        # body = await request.body()
         body = body.decode()
-        # Get the headers
         headers = dict(request.headers)
-        # Validate the webhook
         secret = replicate.webhooks.default.secret()
-
         replicate.webhooks.validate(body=body, headers=headers, secret=secret)
-        
-        print("WEBHOOK VALIDATION SUCCESS")
+    
     except Exception as e:
         print(f"Webhook validation failed: {str(e)}")
-        print(f"Debug info:")
-        # print(f"Raw secret format: {raw_secret}")
-        print(f"Headers received: {headers}")
         return {"status": "error", "message": f"Invalid webhook signature: {str(e)}"}
 
     return await handle_replicate_webhook(data)
-
-
-
 
 
 @web_app.post("/chat")
