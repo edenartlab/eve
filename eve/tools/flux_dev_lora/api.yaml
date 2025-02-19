@@ -28,10 +28,14 @@ parameters:
     type: image
     label: Input image
     description: Input image. Aspect ratio will match this.
+    tip: |-
+      Providing an input image will activate prompt-guided img2img. This can be used to inject color patterns or rough shapes into the final generation. The result can be very sensitive to prompt_strength values.
   prompt_strength:
     type: float
     label: Prompt strength
     description: Prompt strength when using img2img. 1.0 corresponds to full destruction of information in image
+    tip: |-
+      Typical values are 0.7-0.9 However, rounding errors can occur for large values of prompt_strength (>0.95), causing it to snap to 1.0 (rounded) instead.
     default: 0.8
     minimum: 0
     maximum: 1
@@ -83,16 +87,17 @@ parameters:
     label: Number of denoising steps
     description: Number of denoising steps. Recommended range is 25-40. Higher values can sometimes produce slightly more details.
     default: 30
-    minimum: 1
+    minimum: 20
     maximum: 50
+    hide_from_agent: true
   guidance:
     type: float
     label: Guidance scale
     description: How strictly to follow the prompt
     hide_from_ui: true
     hide_from_agent: true
-    default: 2.5
-    minimum: 1.0
+    default: 3.0
+    minimum: 2.0
     maximum: 4.0
   lora:
     type: lora
