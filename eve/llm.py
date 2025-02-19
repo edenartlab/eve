@@ -551,7 +551,7 @@ async def async_prompt_thread(
         return
 
     # only think in stage, otherwise do classic behavior
-    think = os.getenv("DB").upper() == "STAGE"
+    think = False# os.getenv("DB").upper() == "STAGE"
 
     # thinking step
     if think:
@@ -571,9 +571,7 @@ async def async_prompt_thread(
 
         # Check mentions
         agent_mentioned = any(
-            re.search(
-                rf"\b{re.escape(agent.name.lower())}\b", (msg.content or "").lower()
-            )
+            re.search(rf"\b{re.escape(agent.name.lower())}\b", (msg.content or "").lower())
             for msg in user_messages
         )
         print("agent mentioned", agent_mentioned)
