@@ -34,7 +34,7 @@ class KnowledgeDescription(BaseModel):
 class Suggestion(BaseModel):
     """A prompt suggestion for an Agent in two parts: a concise tagline, and a longer prompt for an LLM. The prompt should correspond to the agent's personality."""
 
-    tagline: str = Field(..., description="A short and catchy tagline, no more than 7 words, to go into a home page button. Shorten, omit stop words (the, a, an, etc) when possible.")
+    label: str = Field(..., description="A short and catchy tagline, no more than 7 words, to go into a home page button. Shorten, omit stop words (the, a, an, etc) when possible.")
     prompt: str = Field(..., description="A longer version of the tagline, a prompt to be sent to the agent following its greeting. The prompt should be no more than one sentence or 30 words.")
 
 
@@ -165,7 +165,8 @@ async def rotate_agent_suggestions(since_hours=6):
     if since_hours:
         filter["type"] = "agent"
         filter["$or"] = [
-            # {"updatedAt": None},
+            {"refreshed_at": None},
+            {"updatedAt": None},
             {"updatedAt": {"$gt": datetime.now(timezone.utc) - timedelta(hours=since_hours)}}
         ]
 

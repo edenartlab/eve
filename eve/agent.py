@@ -70,9 +70,9 @@ class KnowledgeDescription(BaseModel):
 
 
 class Suggestion(BaseModel):
-    """A prompt suggestion for an Agent in two parts: a concise tagline, and a longer prompt for an LLM. The prompt should correspond to the agent's personality."""
+    """A prompt suggestion for an Agent in two parts: a concise tagline, and a longer prompt for an LLM. The prompt should be appropriate for the agent, but not exaggerated."""
 
-    tagline: Optional[str] = Field(
+    label: Optional[str] = Field(
         ...,
         description="A short and catchy tagline, no more than 7 words, to go into a home page button. Shorten, omit stop words (the, a, an, etc) when possible.",
     )

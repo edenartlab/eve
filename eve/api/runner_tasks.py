@@ -403,7 +403,10 @@ ALL_PROMPTS = FACE_PROMPTS + OBJECT_PROMPTS + STYLE_PROMPTS
 
 
 async def run_twitter_automation():
-    """Periodically generate tweets for Twitter deployments via chat endpoint"""
+    """
+    Periodically generate tweets for Twitter deployments via chat endpoint
+    """
+
     deployments = Deployment.find({"platform": "twitter"})
     api_url = os.getenv("EDEN_API_URL")
 
@@ -447,7 +450,9 @@ async def run_twitter_automation():
 
 
 class AgentText(BaseModel):
-    """A text prompt for an Agent in two parts: a concise tagline, and a longer prompt for an LLM. The prompt should correspond to the agent's personality."""
+    """
+    Auto-generated greeting and suggestions for prompts and taglines that are specific to an Agent's description.
+    """
 
     suggestions: List[Suggestion] = Field(..., description="A list of prompt suggestions and corresponding taglines for the agent. Should be appropriate to the agent's description.")
     greeting: str = Field(..., description="A very short greeting for the agent to use as a conversation starter with a new user. Should be no more than 10 words.")
@@ -459,19 +464,19 @@ class AgentText(BaseModel):
                     "greeting": "I'm your personal creative assistant! How can I help you?",
                     "suggestions": [
                         {
-                            "tagline": "What tools can you use?",
+                            "label": "What tools can you use?",
                             "prompt": "Give me a list of all of your tools, and explain your capabilities.",
                         },
                         {
-                            "tagline": "Help me make live visuals",
+                            "label": "Help me make live visuals",
                             "prompt": "I'm making live visuals for an upcoming event. Can you help me?",
                         },
                         {
-                            "tagline": "Turn a sketch into a painting",
+                            "label": "Turn a sketch into a painting",
                             "prompt": "I'm making sketches and doodles in my notebook, and I want to transform them into a digital painting.",
                         },
                         {
-                            "tagline": "Draft a character",
+                            "label": "Draft a character",
                             "prompt": "Help me write out a character description for a video game I am producing.",
                         }
                     ]
@@ -480,19 +485,19 @@ class AgentText(BaseModel):
                     "greeting": "What kind of a story would you like to write together?",
                     "suggestions": [
                         {
-                            "tagline": "Make a romantic story",
+                            "label": "Make a romantic story",
                             "prompt": "I want to write a romantic comedy about a couple who meet at a party. Help me write it.",
                         },
                         {
-                            "tagline": "Imagine a character",
+                            "label": "Imagine a character",
                             "prompt": "I would like to draft a protagonist for a novel I'm writing about the sea.",
                         },
                         {
-                            "tagline": "What have you written before?",
+                            "label": "What have you written before?",
                             "prompt": "Tell me about some of the previous stories you've written.",
                         },
                         {
-                            "tagline": "Revise the style of my essay",
+                            "label": "Revise the style of my essay",
                             "prompt": "I've made an essay about the history of the internet, but I'm not sure if it's written in the style I want. Help me revise it.",
                         }
                     ]
@@ -551,7 +556,7 @@ async def generate_agent_knowledge_description(agent: Agent):
 
 async def generate_agent_text(agent: Agent):
     """
-    Given an agent's description, generate a greeting and suggestions for prompts and taglines
+    Given an agent's description, generate a greeting and suggestions for prompts and taglines (labels) for the prompts
     """
 
     system_message = "You receive a description of an agent and come up with a greeting and suggestions for those agents' example prompts and taglines."
