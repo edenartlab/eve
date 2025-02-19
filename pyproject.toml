@@ -56,10 +56,6 @@ dependencies = [
 requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools.packages.find]
-include = ["eve*"]
-exclude = ["modal_functions*"]
-
 [tool.rye]
 dev-dependencies = [
     "uvicorn>=0.32.0",

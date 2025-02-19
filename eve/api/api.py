@@ -294,7 +294,7 @@ image = (
     .run_commands(["playwright install"])
     .run_function(download_nsfw_models)
     .copy_local_dir(str(workflows_dir), "/workflows")
-    .copy_local_dir(str(root_dir), "/eve")
+    .copy_local_file(str(root_dir / "pyproject.toml"), "/pyproject.toml")
 )
 
 
