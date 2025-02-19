@@ -1,12 +1,16 @@
 import os
 import json
 import traceback
+import openai
+from datetime import timezone
+from instructor import instructor
 from pathlib import Path
+from jinja2 import Template
 from bson import ObjectId
 from typing import Optional, Literal, Any, Dict, List, ClassVar
 from datetime import datetime
 from dotenv import dotenv_values
-from pydantic import SecretStr, Field, BaseModel
+from pydantic import SecretStr, Field, BaseModel, ConfigDict
 from pydantic.json_schema import SkipJsonSchema
 
 from .thread import Thread
@@ -312,3 +316,162 @@ def get_api_files(root_dir: str = None) -> List[str]:
                 api_files[key] = api_path
 
     return api_files
+
+
+class AgentText(BaseModel):
+    """
+    Auto-generated greeting and suggestions for prompts and taglines that are specific to an Agent's description.
+    """
+
+    suggestions: List[Suggestion] = Field(..., description="A list of prompt suggestions and corresponding taglines for the agent. Should be appropriate to the agent's description.")
+    greeting: str = Field(..., description="A very short greeting for the agent to use as a conversation starter with a new user. Should be no more than 10 words.")
+
+    model_config = ConfigDict(
+        json_schema_extra = {
+            "examples": [
+                {
+                    "greeting": "I'm your personal creative assistant! How can I help you?",
+                    "suggestions": [
+                        {
+                            "label": "What tools can you use?",
+                            "prompt": "Give me a list of all of your tools, and explain your capabilities.",
+                        },
+                        {
+                            "label": "Help me make live visuals",
+                            "prompt": "I'm making live visuals for an upcoming event. Can you help me?",
+                        },
+                        {
+                            "label": "Turn a sketch into a painting",
+                            "prompt": "I'm making sketches and doodles in my notebook, and I want to transform them into a digital painting.",
+                        },
+                        {
+                            "label": "Draft a character",
+                            "prompt": "Help me write out a character description for a video game I am producing.",
+                        }
+                    ]
+                },
+                {
+                    "greeting": "What kind of a story would you like to write together?",
+                    "suggestions": [
+                        {
+                            "label": "Make a romantic story",
+                            "prompt": "I want to write a romantic comedy about a couple who meet at a party. Help me write it.",
+                        },
+                        {
+                            "label": "Imagine a character",
+                            "prompt": "I would like to draft a protagonist for a novel I'm writing about the sea.",
+                        },
+                        {
+                            "label": "What have you written before?",
+                            "prompt": "Tell me about some of the previous stories you've written.",
+                        },
+                        {
+                            "label": "Revise the style of my essay",
+                            "prompt": "I've made an essay about the history of the internet, but I'm not sure if it's written in the style I want. Help me revise it.",
+                        }
+                    ]
+                }            
+            ]
+        }
+    )
+
+
+knowledge_template = """<Agent Description>
+Name: {{name}}
+Description: {{agent_description}}
+</Agent Description>
+
+<Reference>
+This is {{name}}'s full reference document or knowledge:
+---
+{{knowledge_base}}
+---
+</Reference>
+<Task>
+Your task is to generate a KnowledgeDescription for a reference document. Given a description of yourself and access to the document, analyze its contents and produce the following:
+
+summary – A concise, detailed description of what information is contained in the reference document. Focus on subjects, topics, facts, and structure rather than adjectives or generalizations. Be specific about what kind of knowledge is present.
+
+retrieval_criteria – A structured, single-instruction paragraph that clearly defines when the reference document should be consulted. Identify the subjects, topics, types of questions, or knowledge gaps that require retrieving the document’s contents. This should help the assistant determine whether the document is necessary to accurately respond to a user message. Avoid overly broad conditions to prevent unnecessary retrievals, but ensure all relevant cases are covered.
+</Task>"""
+
+
+async def generate_agent_knowledge_description(agent: Agent):
+    """
+    Given a knowledge document / reference, generate a summary and retrieval criteria
+    """
+
+    system_message = "You receive a description of an agent, along with a large document of information the agent must memorize, and you come up with instructions for the agent on when they should consult the reference document."
+
+    prompt = Template(knowledge_template).render(
+        name=agent["username"],
+        agent_description=agent["persona"],
+        knowledge_base=agent["knowledge"]
+    )
+
+    client = instructor.from_openai(openai.AsyncOpenAI())
+    
+    result = await client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": system_message},
+            {"role": "user", "content": prompt},
+        ],
+        response_model=KnowledgeDescription,
+    )
+
+    return result
+
+
+async def generate_agent_text(agent: Agent):
+    """
+    Given an agent's description, generate a greeting and suggestions for prompts and taglines (labels) for the prompts
+    """
+
+    system_message = "You receive a description of an agent and come up with a greeting and suggestions for those agents' example prompts and taglines."
+
+    prompt = f"""Come up with exactly FOUR (4, no more, no less) suggestions for sample prompts for the agent {agent["username"]}, as well as a simple greeting for the agent to begin a conversation with. Make sure all of the text is especially unique to or appropriate to {agent["username"]}, given their description. Do not use exclamation marks. Here is the description of {agent["username"]}:\n\n{agent["persona"]}."""
+
+    client = instructor.from_openai(openai.AsyncOpenAI())
+    result = await client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": system_message},
+            {"role": "user", "content": prompt},
+        ],
+        response_model=AgentText,
+    )
+
+    return result
+
+
+async def refresh_agent(agent: Agent):
+    """
+    Refresh an agent's suggestions, greetings, and knowledge descriptions
+    """
+    print("Refresh agent", agent["username"])
+
+    # get suggestions and greeting
+    agent_text = await generate_agent_text(agent)
+
+    # get knowledge description if there is any knowledge
+    if agent.get("knowledge"): 
+        knowledge_description = await generate_agent_knowledge_description(agent)
+        knowledge_description = f"Summary: {knowledge_description.summary}. Retrieval Criteria: {knowledge_description.retrieval_criteria}"
+    else:
+        knowledge_description = None
+    
+    time = datetime.now(timezone.utc)
+
+    update = {
+        "knowledge_description": knowledge_description,
+        "greeting": agent_text.greeting,
+        "suggestions": [s.model_dump() for s in agent_text.suggestions],
+        "refreshed_at": time, 
+        "updatedAt": time,
+    }
+
+    print(update)
+
+    agents = get_collection(Agent.collection_name)
+    agents.update_one({"_id": agent["_id"]}, {"$set": update})
