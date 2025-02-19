@@ -31,7 +31,7 @@ from eve.deploy import (
     stop_client,
 )
 from eve.tools.replicate_tool import replicate_update_task
-from eve.trigger import Trigger, create_chat_trigger, delete_trigger
+from eve.trigger import create_chat_trigger, delete_trigger
 from eve.llm import UpdateType, async_prompt_thread
 from eve.mongo import serialize_document
 from eve.task import Task
@@ -364,3 +364,18 @@ async def handle_twitter_update(request: PlatformUpdateRequest):
         tweet_id = response.get("data", {}).get("id")
 
     return {"status": "success", "tweet_id": tweet_id}
+
+
+@handle_errors
+async def handle_trigger_get(trigger_id: str):
+    trigger = Trigger.load(trigger_id=trigger_id)
+    if not trigger:
+        raise APIError(f"Trigger not found: {trigger_id}", status_code=404)
+
+    return {
+        "user": str(trigger.user),
+        "agent": str(trigger.agent),
+        "thread": str(trigger.thread),
+        "message": trigger.message,
+        "update_config": trigger.update_config,
+    }
