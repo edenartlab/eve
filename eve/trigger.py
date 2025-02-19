@@ -44,6 +44,7 @@ def create_image(trigger_id: str):
     return (
         modal.Image.debian_slim(python_version="3.11")
         .pip_install("requests")
+        .pip_install("modal")
         .env({"DB": db})
         .env({"TRIGGER_ID": trigger_id})
     )
