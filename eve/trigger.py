@@ -41,12 +41,6 @@ class Trigger(Document):
 def create_image(trigger_id: str):
     return (
         modal.Image.debian_slim(python_version="3.11")
-        .secrets(
-            [
-                modal.Secret.from_name("eve-secrets", environment_name="main"),
-                modal.Secret.from_name(f"eve-secrets-{db}", environment_name="main"),
-            ]
-        )
         .pip_install("requests")
         .env({"DB": db})
         .env({"TRIGGER_ID": trigger_id})
