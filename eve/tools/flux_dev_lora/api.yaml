@@ -24,7 +24,7 @@ parameters:
     description: Aspect ratio width/height
     default: "1:1"
     choices: ["21:9", "16:9", "3:2", "4:3", "5:4", "1:1", "4:5", "3:4", "2:3", "9:16", "9:21"]
-  init_image:
+  image:
     type: image
     label: Input image
     description: Input image. Aspect ratio will match this.
