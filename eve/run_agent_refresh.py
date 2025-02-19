@@ -14,7 +14,15 @@ from eve.thread import Thread
 
 agents = get_collection(Agent.collection_name)
 
-
+# beepler
+# example_agent
+# bombay_beach
+# cyberswami
+# vj
+# desci
+# anime
+# photo
+# gamekeeper
 
 class KnowledgeDescription(BaseModel):
     """Defines when and why a reference document should be consulted to enhance responses."""
@@ -149,7 +157,10 @@ async def generate_agent_text(agent: Agent):
 
 
 async def rotate_agent_suggestions(since_hours=6):
-    # get all agents whose updatedAt is younger than 6 hours or null (new agents)
+    """
+    Rotate agent suggestions, greetings, and knowledge descriptions for agents whose updatedAt is younger than 6 hours or null (new agents)
+    """
+
     filter = {}
     if since_hours:
         filter["type"] = "agent"

@@ -576,6 +576,9 @@ async def rotate_agent_suggestions(since_hours=6):
     Rotate agent suggestions, greetings, and knowledge descriptions for agents whose updatedAt is younger than 6 hours or null (new agents)
     """
 
+    print("LETS RUN!!!")
+    print(since_hours)
+
     agents = get_collection(Agent.collection_name)
 
     filter = {}
