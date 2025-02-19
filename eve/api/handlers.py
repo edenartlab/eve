@@ -31,7 +31,7 @@ from eve.deploy import (
     stop_client,
 )
 from eve.tools.replicate_tool import replicate_update_task
-from eve.trigger import create_chat_trigger, delete_trigger
+from eve.trigger import create_chat_trigger, delete_trigger, Trigger
 from eve.llm import UpdateType, async_prompt_thread
 from eve.mongo import serialize_document
 from eve.task import Task
