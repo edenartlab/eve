@@ -41,7 +41,7 @@ class Trigger(Document):
 
 
 def create_image(trigger_id: str):
-    root_dir = Path(__file__).parent / "eve"
+    root_dir = Path(__file__).parent
     # list all files in the root_dir
     print(list(root_dir.iterdir()))
     return (
