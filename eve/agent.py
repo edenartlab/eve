@@ -2,8 +2,8 @@ import os
 import json
 import traceback
 import openai
+import instructor
 from datetime import timezone
-from instructor import instructor
 from pathlib import Path
 from jinja2 import Template
 from bson import ObjectId
