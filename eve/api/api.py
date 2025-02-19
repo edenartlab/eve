@@ -2,25 +2,32 @@ import logging
 import os
 import threading
 import json
-from fastapi.responses import JSONResponse
 import modal
+import replicate
+import sentry_sdk
+from fastapi.responses import JSONResponse
 from fastapi import FastAPI, Depends, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader, HTTPBearer
 from pathlib import Path
 from contextlib import asynccontextmanager
 from starlette.middleware.base import BaseHTTPMiddleware
-import sentry_sdk
 from fastapi.exceptions import RequestValidationError
 
-from eve import auth, db
-from eve.api.helpers import pre_modal_setup
-from eve.runner.runner_tasks import (
+from eve import auth, db, eden_utils
+from eve.api.runner_tasks import (
     cancel_stuck_tasks,
     download_nsfw_models,
     generate_lora_thumbnails,
     run_nsfw_detection,
+    rotate_agent_metadata,
 )
+from eve.task import task_handler_func, Task
+from eve.tool import Tool
+from eve.tools.tool_handlers import load_handler
+from eve.tools.replicate_tool import replicate_update_task
+from eve.tools.comfyui_tool import convert_tasks2_to_tasks3
+
 from eve.api.handlers import (
     handle_create,
     handle_cancel,
@@ -33,6 +40,7 @@ from eve.api.handlers import (
     handle_trigger_create,
     handle_trigger_delete,
     handle_twitter_update,
+    handle_trigger_get,
 )
 from eve.api.api_requests import (
     CancelRequest,
@@ -45,7 +53,8 @@ from eve.api.api_requests import (
     TaskRequest,
     UpdateDeploymentRequest,
 )
-from eve.tools.comfyui_tool import convert_tasks2_to_tasks3
+from eve.api.helpers import pre_modal_setup
+
 
 app_name = f"api-{db.lower()}"
 logging.basicConfig(level=logging.INFO)
@@ -122,27 +131,21 @@ async def cancel(request: CancelRequest, _: dict = Depends(auth.authenticate_adm
 
 @web_app.post("/update")
 async def replicate_webhook(request: Request):
-    # Get raw body for signature verification
     body = await request.body()
-    print(body)
-
-    # Parse JSON body
     try:
         data = json.loads(body)
     except json.JSONDecodeError:
         return {"status": "error", "message": "Invalid JSON body"}
 
-    # todo: validate webhook signature
+    # Validate webhook signature
     try:
-        # headers = dict(request.headers)
-        # secret = replicate.webhooks.default.secret()
-        # replicate.webhooks.validate(
-        #     body=body,  # Pass raw body for signature verification
-        #     headers=headers,
-        #     secret=secret
-        # )
-        pass
+        body = body.decode()
+        headers = dict(request.headers)
+        secret = replicate.webhooks.default.secret()
+        replicate.webhooks.validate(body=body, headers=headers, secret=secret)
+
     except Exception as e:
+        print(f"Webhook validation failed: {str(e)}")
         return {"status": "error", "message": f"Invalid webhook signature: {str(e)}"}
 
     return await handle_replicate_webhook(data)
@@ -193,14 +196,16 @@ async def deployment_delete(
 async def trigger_create(
     request: CreateTriggerRequest, _: dict = Depends(auth.authenticate_admin)
 ):
-    return await handle_trigger_create(request, web_app.state.scheduler)
+    pre_modal_setup()
+    return await handle_trigger_create(request)
 
 
 @web_app.post("/triggers/delete")
 async def trigger_delete(
     request: DeleteTriggerRequest, _: dict = Depends(auth.authenticate_admin)
 ):
-    return await handle_trigger_delete(request, web_app.state.scheduler)
+    pre_modal_setup()
+    return await handle_trigger_delete(request)
 
 
 @web_app.post("/updates/platform/telegram")
@@ -225,6 +230,11 @@ async def updates_twitter(
     _: dict = Depends(auth.authenticate_admin),
 ):
     return await handle_twitter_update(request)
+
+
+@web_app.get("/triggers/{trigger_id}")
+async def trigger_get(trigger_id: str, _: dict = Depends(auth.authenticate_admin)):
+    return await handle_trigger_get(trigger_id)
 
 
 @web_app.exception_handler(RequestValidationError)
@@ -271,7 +281,6 @@ image = (
         "libmagic1",
         "ffmpeg",
         "wget",
-        # Add Playwright dependencies
         "libnss3",
         "libnspr4",
         "libatk1.0-0",
@@ -285,6 +294,7 @@ image = (
     .run_commands(["playwright install"])
     .run_function(download_nsfw_models)
     .copy_local_dir(str(workflows_dir), "/workflows")
+    .copy_local_file(str(root_dir / "pyproject.toml"), "/root/eve/pyproject.toml")
 )
 
 
@@ -293,7 +303,7 @@ image = (
     keep_warm=1,
     concurrency_limit=10,
     container_idle_timeout=60,
-    allow_concurrent_inputs=1,
+    allow_concurrent_inputs=25,
     timeout=3600,
 )
 @modal.asgi_app()
@@ -302,7 +312,10 @@ def fastapi_app():
 
 
 @app.function(
-    image=image, concurrency_limit=1, schedule=modal.Period(minutes=15), timeout=3600
+    image=image, 
+    concurrency_limit=1, 
+    schedule=modal.Period(minutes=15), 
+    timeout=3600
 )
 async def cancel_stuck_tasks_fn():
     try:
@@ -313,7 +326,10 @@ async def cancel_stuck_tasks_fn():
 
 
 @app.function(
-    image=image, concurrency_limit=1, schedule=modal.Period(minutes=15), timeout=3600
+    image=image, 
+    concurrency_limit=1, 
+    schedule=modal.Period(minutes=15), 
+    timeout=3600
 )
 async def run_nsfw_detection_fn():
     try:
@@ -324,7 +340,10 @@ async def run_nsfw_detection_fn():
 
 
 @app.function(
-    image=image, concurrency_limit=1, schedule=modal.Period(minutes=15), timeout=3600
+    image=image, 
+    concurrency_limit=1, 
+    schedule=modal.Period(minutes=15), 
+    timeout=3600
 )
 async def generate_lora_thumbnails_fn():
     try:
@@ -332,3 +351,88 @@ async def generate_lora_thumbnails_fn():
     except Exception as e:
         print(f"Error generating lora thumbnails: {e}")
         sentry_sdk.capture_exception(e)
+
+
+@app.function(
+    image=image, 
+    concurrency_limit=1, 
+    schedule=modal.Period(hours=2), 
+    timeout=3600
+)
+async def rotate_agent_metadata_fn():
+    try:
+        await rotate_agent_metadata()
+    except Exception as e:
+        print(f"Error generating lora thumbnails: {e}")
+        sentry_sdk.capture_exception(e)
+
+
+@app.function(
+    image=image, 
+    concurrency_limit=10, 
+    allow_concurrent_inputs=4, 
+    timeout=3600
+)
+async def run(tool_key: str, args: dict):
+    handler = load_handler(tool_key)
+    result = await handler(args)
+    return eden_utils.upload_result(result)
+
+
+@app.function(
+    image=image, 
+    concurrency_limit=10, 
+    allow_concurrent_inputs=4, 
+    timeout=3600
+)
+@task_handler_func
+async def run_task(tool_key: str, args: dict):
+    handler = load_handler(tool_key)
+    return await handler(args)
+
+
+@app.function(
+    image=image, 
+    concurrency_limit=10, 
+    allow_concurrent_inputs=4, 
+    timeout=3600
+)
+async def run_task_replicate(task: Task):
+    task.update(status="running")
+    tool = Tool.load(task.tool)
+    args = tool.prepare_args(task.args)
+    args = tool._format_args_for_replicate(args)
+    replicate_model = tool._get_replicate_model(task.args)
+    output = await replicate.async_run(replicate_model, input=args)
+    result = replicate_update_task(task, "succeeded", None, output, "normal")
+    return result
+
+
+@app.function(
+    image=image,
+    keep_warm=1,
+    concurrency_limit=10,
+    container_idle_timeout=60,
+    allow_concurrent_inputs=10,
+    timeout=3600,
+)
+async def deploy_client_modal(
+    agent_id: str,
+    agent_key: str,
+    platform: str,
+    secrets: dict,
+    env: str,
+    repo_branch: str = None,
+):
+    from eve.deploy import deploy_client as deploy_client_impl, DeploymentSecrets
+
+    secrets_model = DeploymentSecrets(**secrets)
+
+    return deploy_client_impl(
+        agent_id=agent_id,
+        agent_key=agent_key,
+        platform=platform,
+        secrets=secrets_model,
+        env=env,
+        repo_branch=repo_branch,
+    )

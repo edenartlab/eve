@@ -2,10 +2,10 @@ name: TTS
 description: Text-to-speech with ElevenLabs
 tip: |-
   This tool can be used to generate speech audio from text.
-cost_estimate: 50
+cost_estimate: 0.2 * text.length
 output_type: audio
 status: prod
-visible: false
+visible: true
 parameters:
   text:
     type: string

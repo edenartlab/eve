@@ -1,4 +1,4 @@
-from eve.llm import prompt_thread, UserMessage, AssistantMessage
+from eve.llm import prompt_thread, UserMessage, AssistantMessage, async_think
 from eve.tool import get_tools_from_mongo
 from eve.auth import get_my_eden_user
 
@@ -55,20 +55,21 @@ def test_prompting2():
         print(msg)
 
 
-def test_valid_messages():
+
+def test_think():
     user = get_my_eden_user()
 
     messages = [
-        UserMessage(name="alice", content="i am alice"),
-        UserMessage(name="bob", content="i am bob."),
-        AssistantMessage(content="now i will speak."),
-        AssistantMessage(content="i am eve. who am i? let me say that again, but with exclamation marks at the end. and i'm going to rename myself Esmerelda."),
-        # UserMessage(name="kate", content="Eve what is my name?"),
+        # UserMessage(name="gene", content="eve, make a picture of a golden retriever playing chess against Vitalik Buterin in impressionist style."),
+        # UserMessage(name="gene", content="eve, tell me a funny joke"),
+        # UserMessage(name="gene", content="how can i turn that into a video?"),
+        UserMessage(name="gene", content="does someone know the year of the first moon landing?"),
     ]
 
     agent = Agent.load("eve")
     tools = agent.get_tools()
-    thread = agent.request_thread()
+    # thread = agent.request_thread()
+    thread = Thread.from_mongo("6774249ff8d4aae98c89ac0f")
 
     for msg in prompt_thread(
         user=user,
@@ -76,8 +77,10 @@ def test_valid_messages():
         thread=thread,
         user_messages=messages,
         tools=tools,
-        force_reply=True,
-        model="gpt-4o-mini"
+        # force_reply=True,
+        # model="gpt-4o-mini"
+        model="claude-3-5-sonnet-20240620"
     ):
         print(msg)
+
 

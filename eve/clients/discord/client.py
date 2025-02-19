@@ -52,10 +52,9 @@ class Eden2Cog(commands.Cog):
     ) -> None:
         self.bot = bot
         self.agent = agent
+        self.discord_channel_allowlist = None
         if not local:
             self.load_deployment_config()
-        else:
-            self.discord_channel_allowlist = None
         self.tools = agent.get_tools()
         self.known_users = {}
         self.known_threads = {}
@@ -76,11 +75,10 @@ class Eden2Cog(commands.Cog):
     def load_deployment_config(self):
         """Load deployment configuration from database"""
         self.deployment_config = self._get_deployment_config(self.agent)
-        self.discord_channel_allowlist = (
-            [int(item.id) for item in self.deployment_config.discord.channel_allowlist]
-            if self.deployment_config.discord.channel_allowlist
-            else None
-        )
+        if self.deployment_config.discord.channel_allowlist:
+            self.discord_channel_allowlist = [
+                int(item.id) for item in self.deployment_config.discord.channel_allowlist if item.id
+            ]
 
     def _get_deployment_config(self, agent: Agent) -> DeploymentConfig:
         deployment = Deployment.load(agent=agent.id, platform="discord")
@@ -253,9 +251,6 @@ class Eden2Cog(commands.Cog):
             if message.author.id == self.bot.user.id:
                 return
 
-            # Add check for bot messages
-            dont_reply = message.author.bot
-
             dm = message.channel.type == discord.ChannelType.private
             if dm:
                 thread_key = f"discord-dm-{message.author.name}-{message.author.id}"
@@ -263,10 +258,6 @@ class Eden2Cog(commands.Cog):
                     return
             else:
                 thread_key = f"discord-{message.guild.id}-{message.channel.id}"
-
-            # Stop typing if dont_reply is true
-            # if dont_reply:
-            #     await self.stop_typing(message.channel)
 
             # Lookup thread
             if thread_key not in self.known_threads:
@@ -313,7 +304,7 @@ class Eden2Cog(commands.Cog):
                     "agent_id": str(self.agent.id),
                     "thread_id": str(thread.id),
                     "force_reply": force_reply,
-                    "dont_reply": dont_reply,
+                    "user_is_bot": message.author.bot,
                     "user_message": {
                         "content": content,
                         "name": message.author.name,

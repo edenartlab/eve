@@ -1,9 +1,9 @@
 import logging
-import sentry_sdk
 from dotenv import load_dotenv
 from pathlib import Path
 from pydantic import SecretStr
 import os
+import sentry_sdk
 
 home_dir = str(Path.home())
 

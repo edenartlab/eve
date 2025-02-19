@@ -1,28 +1,31 @@
 import re
-import sentry_sdk
-import traceback
 import os
+import json
 import asyncio
+import traceback
+import functools
 import openai
 import anthropic
 from enum import Enum
-from typing import Optional, Dict, Any, List, Union, Literal, Tuple, AsyncGenerator
 from bson import ObjectId
+from typing import Optional, Dict, Any, List, Union, Literal, Tuple, AsyncGenerator
 from jinja2 import Template
 from pydantic import BaseModel, Field
 from pydantic.config import ConfigDict
 from instructor.function_calls import openai_schema
+import sentry_sdk
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
-import json
+from sentry_sdk import trace, start_transaction, add_breadcrumb, capture_exception
 
-from . import sentry_sdk
+from .eden_utils import dump_json
 from .tool import Tool
 from .task import Creation
 from .user import User
 from .agent import Agent
 from .thread import UserMessage, AssistantMessage, ToolCall, Thread
+from .api.runner_tasks import refresh_agent
 from .api.rate_limiter import RateLimiter
-from sentry_sdk import trace, start_transaction
+
 
 USE_RATE_LIMITS = os.getenv("USE_RATE_LIMITS", "false").lower() == "true"
 
@@ -45,17 +48,19 @@ DEFAULT_MODEL = "claude-3-5-sonnet-20241022"
 async def async_anthropic_prompt(
     messages: List[Union[UserMessage, AssistantMessage]],
     system_message: Optional[str],
-    model: str,
-    response_model: Optional[type[BaseModel]],
-    tools: Dict[str, Tool],
+    model: Literal[tuple(models)] = "claude-3-5-haiku-20241022",
+    response_model: Optional[type[BaseModel]] = None,
+    tools: Dict[str, Tool] = {},
 ):
     anthropic_client = anthropic.AsyncAnthropic()
+    
     prompt = {
         "model": model,
         "max_tokens": 8192,
         "messages": [item for msg in messages for item in msg.anthropic_schema()],
         "system": system_message,
     }
+
     if tools or response_model:
         tool_schemas = [
             t.anthropic_schema(exclude_hidden=True) for t in (tools or {}).values()
@@ -65,8 +70,8 @@ async def async_anthropic_prompt(
             prompt["tool_choice"] = {"type": "tool", "name": response_model.__name__}
         prompt["tools"] = tool_schemas
 
-    # Non-streaming call
     response = await anthropic_client.messages.create(**prompt)
+
     if response_model:
         return response_model(**response.content[0].input)
     else:
@@ -77,15 +82,15 @@ async def async_anthropic_prompt(
             ToolCall.from_anthropic(r) for r in response.content if r.type == "tool_use"
         ]
         stop = response.stop_reason == "end_turn"
-        return (content, tool_calls, stop)
+        return content, tool_calls, stop
 
 
 async def async_anthropic_prompt_stream(
     messages: List[Union[UserMessage, AssistantMessage]],
     system_message: Optional[str],
-    model: str,
-    response_model: Optional[type[BaseModel]],
-    tools: Dict[str, Tool],
+    model: Literal[tuple(models)] = "claude-3-5-haiku-20241022",
+    response_model: Optional[type[BaseModel]] = None,
+    tools: Dict[str, Tool] = {},
 ) -> AsyncGenerator[Tuple[UpdateType, str], None]:
     """Yields partial tokens (ASSISTANT_TOKEN, partial_text) for streaming."""
     anthropic_client = anthropic.AsyncAnthropic()
@@ -136,7 +141,7 @@ async def async_anthropic_prompt_stream(
 async def async_openai_prompt(
     messages: List[Union[UserMessage, AssistantMessage]],
     system_message: Optional[str] = "You are a helpful assistant.",
-    model: str = "gpt-4o-mini",  # "gpt-4o-2024-08-06",
+    model: Literal[tuple(models)] = "gpt-4o-mini",
     response_model: Optional[type[BaseModel]] = None,
     tools: Dict[str, Tool] = {},
 ):
@@ -177,11 +182,12 @@ async def async_openai_prompt(
 async def async_openai_prompt_stream(
     messages: List[Union[UserMessage, AssistantMessage]],
     system_message: Optional[str],
-    model: str,
-    response_model: Optional[type[BaseModel]],
-    tools: Dict[str, Tool],
+    model: Literal[tuple(models)] = "gpt-4o-mini",
+    response_model: Optional[type[BaseModel]] = None,
+    tools: Dict[str, Tool] = {},
 ) -> AsyncGenerator[Tuple[UpdateType, str], None]:
     """Yields partial tokens (ASSISTANT_TOKEN, partial_text) for streaming."""
+    
     if not os.getenv("OPENAI_API_KEY"):
         raise ValueError("OPENAI_API_KEY env is not set")
 
@@ -207,7 +213,6 @@ async def async_openai_prompt_stream(
     )
 
     tool_calls = []
-    current_tool_call = None
 
     async for chunk in stream:
         delta = chunk.choices[0].delta
@@ -275,7 +280,7 @@ async def async_openai_prompt_stream(
 async def async_prompt(
     messages: List[Union[UserMessage, AssistantMessage]],
     system_message: Optional[str],
-    model: str,
+    model: Literal[tuple(models)] = "gpt-4o-mini",
     response_model: Optional[type[BaseModel]] = None,
     tools: Dict[str, Tool] = {},
 ) -> Tuple[str, List[ToolCall], bool]:
@@ -323,23 +328,21 @@ async def async_prompt_stream(
     system_message: Optional[str],
     model: str,
     response_model: Optional[type[BaseModel]] = None,
-    tools: Dict[str, Tool] = {},
+    tools: Optional[Dict[str, Tool]] = None,
 ) -> AsyncGenerator[Tuple[UpdateType, str], None]:
     """
     Streaming LLM call => yields (UpdateType.ASSISTANT_TOKEN, partial_text).
     Add a similar function for OpenAI if you need streaming from GPT-based models.
     """
-    if model.startswith("claude"):
-        async for chunk in async_anthropic_prompt_stream(
-            messages, system_message, model, response_model, tools
-        ):
-            yield chunk
-    else:
-        async for chunk in async_openai_prompt_stream(
-            messages, system_message, model, response_model, tools
-        ):
-            yield chunk
-
+    
+    async_prompt_stream_method = async_anthropic_prompt_stream \
+        if model.startswith("claude") else async_openai_prompt_stream
+    
+    async for chunk in async_prompt_stream_method(
+        messages, system_message, model, response_model, tools
+    ):
+        yield chunk
+    
 
 def anthropic_prompt(messages, system_message, model, response_model=None, tools=None):
     return asyncio.run(
@@ -372,318 +375,457 @@ class ThreadUpdate(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
-system_instructions = """In addition to the instructions above, follow these additional guidelines:
-* In your response, do not include anything besides for your chat message. Do not include pretext, stage directions, or anything other than what you are saying.
-* Do not apologize.
-* Try to be concise. Do not be verbose.
-"""
-
-template = """<Summary>You are roleplaying as {{ name }}.</Summary>
+system_template = """<Summary>You are roleplaying as {{ name }}.</Summary>
 <Persona>
 This is a description of {{ name }}'s persona:
 {{ persona }}
 </Persona>
 <System Instructions>
-{{ system_instructions }}
+In addition to the instructions above, follow these additional guidelines:
+* In your response, do not include anything besides for your chat message. Do not include pretext, stage directions, or anything other than what you are saying.
+* Try to be concise. Do not be verbose.
 </System Instructions>"""
 
 
-async def async_think(
-    thread: Thread,
-    user_messages: Union[UserMessage, List[UserMessage]],
-    reply_criteria: str,
-):
-    class ShouldReply(BaseModel):
-        """
-        True if you want to send a message, False if you don't. Use the reply criteria to determine if you should reply.
-        """
+thought_template = """<Name>{{ name }}</Name>
+<ChatLog>
+You are roleplaying as {{ name }} in a group chat. The previous 10 messages in the chat follow. Note that "You" means you, Eve, sent the message.
+---
+{{ chat }}---
+</ChatLog>
+<Task>
+You will receive the next message from a user to this chat. Note that this message is not necessarily directed to you. This is a group chat with multiple users and you. The message may be directed at someone else. Use context to determine if the message is directed at you, references something you said earlier, directed at someone other than you, or is just a general message to no one specific.
 
-        reply: bool = Field(
-            ..., description="Whether or not to reply, given the criteria"
+Read the new message and generate a response to it which contains the following:
+
+* intention: A classification of how to respond to the user message. If the message does not involve you or address you directly, and if it is not relevant to any of your interests or goals, you should set this to "ignore". If the message involves you or is somehow relevant to you, and you decide you need to reply with a message, you should set this to "reply". You should generally reply only when a user requests you, responds to you, or brings up something very obviously relevant or interesting to you.
+* thought: A short thought about the message, its relevance to you, and a justification of your intention.
+* tools: If and only if you are replying, you may optionally select any and all tools that might be relevant to the user message.
+</Task>
+{{ knowledge_description }}
+<Message>
+{{ message }}
+</Message>"""
+
+
+knowledge_template = """
+<Knowledge>
+This is your background knowledge.
+
+{knowledge}
+</Knowledge>"""
+
+
+async def async_think(
+    agent: Agent,
+    thread: Thread,
+    user_message: UserMessage,
+    force_reply: bool = True,
+):  
+    intention_description = "Response class to the last user message. Ignore if irrelevant, reply if relevant and you intend to say something."
+
+    if agent.reply_criteria:
+        intention_description += f"\nAdditional criteria for replying spontaneously: {agent.reply_criteria}"
+
+    tool_categories = {
+        "create_media": "Generate or edit an image, video, or audio asset.",
+        "search": "Retrieve old chat messages to recall information, or search the database for other agents, users, models, or loras.",
+    }
+
+    if agent.knowledge:
+        tool_categories["knowledge"] = "Refer to your large external knowledge base."
+
+    tool_descriptions = "\n".join([f"{k}: {v}" for k, v in tool_categories.items()])
+
+    class ChatThought(BaseModel):
+        """A response to a chat message."""
+        
+        thought: str = Field(
+            ...,
+            description="A thought about what relevance, if any, the last user message has to you, and a justification of your intention."
+        )
+        intention: Literal["ignore", "reply"] = Field(
+            ...,
+            description=intention_description
+        )
+        tools: Optional[List[Literal[tuple(tool_categories.keys())]]] = Field(
+            ...,
+            description=f"A list of tools you might need to address this message.\n{tool_descriptions}"
         )
 
-    messages = [
-        UserMessage(
-            content=f"<Instructions>Your goal is to decide whether or not to reply to the user, given the desired criteria. You should only consider the user's LAST message, although context is useful.</Instructions>\n<Reply_Criteria>{reply_criteria}</Reply_Criteria>"
-        ),
-    ]
-    messages.extend(thread.get_messages(5))
-    messages.extend(user_messages)
+    # generate text blob of chat history
+    chat = ""
+    messages = thread.get_messages(25)
+    for msg in messages:
+        content = msg.content
+        if msg.role == "user":
+            if msg.attachments:
+                content += f" (attachments: {msg.attachments})"
+            name = "You" if msg.name == agent.name else msg.name or "User"
+        elif msg.role == "assistant":
+            name = agent.name
+            for tc in msg.tool_calls:
+                args = ", ".join([f"{k}={v}" for k, v in tc.args.items()])
+                tc_result = dump_json(tc.result)
+                content += f"\n -> {tc.tool}({args}) -> {tc_result}"
+        time_str = msg.createdAt.strftime("%H:%M")
+        chat += f"<{name} {time_str}> {content}\n"
 
-    result = await async_prompt(
-        messages,
-        system_message="You are a helpful assistant who decides whether or not to reply to the last message.",
-        model="gpt-4o-mini",
-        response_model=ShouldReply,
+    # user message text
+    content = user_message.content
+    if user_message.attachments:
+        content += f" (attachments: {user_message.attachments})"
+    time_str = user_message.createdAt.strftime("%H:%M")
+    message = f"<{user_message.name} {time_str}> {content}"
+
+    if agent.knowledge:
+        # if knowledge is requested but no knowledge description, create it now
+        if not agent.knowledge_description:
+            await refresh_agent(agent)
+            agent.reload()
+
+        knowledge_description = Template(knowledge_template).render(
+            knowledge_description=agent.knowledge_description
+        )
+    else:
+        knowledge_description = ""
+    
+    prompt = Template(thought_template).render(
+        name=agent.name, 
+        chat=chat, 
+        message=message,
+        knowledge_description=knowledge_description
     )
-    return result.reply
+
+    print("prompt")
+    print(prompt)
+
+    thought = await async_prompt(
+        [UserMessage(content=prompt)],
+        system_message=f"You are a helpful assistant named {agent.name}. You are just analyzing chats and generating thoughts.",
+        model="gpt-4o-mini",
+        response_model=ChatThought,
+    )
+
+    print("thought response")
+    print(thought)
+
+    if force_reply:
+        thought.intention = "reply"
+
+    return thought
 
 
-@trace
+def sentry_transaction(op: str, name: str):
+    def decorator(func):
+        @trace
+        @functools.wraps(func)
+        async def wrapper(*args, **kwargs):
+            transaction = start_transaction(op=op, name=name)
+            try:
+                async for item in func(*args, **kwargs):
+                    yield item
+            finally:
+                transaction.finish()
+        return wrapper
+    return decorator
+
+
+@sentry_transaction(op="llm.prompt", name="async_prompt_thread")
 async def async_prompt_thread(
     user: User,
     agent: Agent,
     thread: Thread,
     user_messages: Union[UserMessage, List[UserMessage]],
     tools: Dict[str, Tool],
-    force_reply: bool = True,
-    dont_reply: bool = False,
-    model: Literal[tuple(models)] = None,
+    force_reply: bool = False,
+    model: Literal[tuple(models)] = DEFAULT_MODEL,
+    user_is_bot: bool = False,
     stream: bool = False,
 ):
-    with start_transaction(op="llm.prompt", name="async_prompt_thread"):
-        if USE_RATE_LIMITS:
-            await RateLimiter.check_chat_rate_limit(user.id, None)
+    model = model or DEFAULT_MODEL
+    user_messages = user_messages if isinstance(user_messages, list) else [user_messages]
+    user_message_id = user_messages[-1].id
 
-        if not model:
-            model = DEFAULT_MODEL
+    # Rate limiting
+    if USE_RATE_LIMITS:
+        await RateLimiter.check_chat_rate_limit(user.id, None)
 
-        print("================================================")
-        print(user_messages)
-        print("================================================")
-        
-        if isinstance(user_messages, UserMessage):
-            user_messages = [user_messages]
+    # Apply bot-specific limits
+    if user_is_bot:
+        print("bot message, stop")
+        return
 
-        user_messages = (
-            user_messages if isinstance(user_messages, List) else [user_messages]
+    # only think in stage, otherwise do classic behavior
+    think = os.getenv("DB").upper() == "STAGE"
+
+    # thinking step
+    if think:
+        print("Thinking...")
+
+        # a thought contains intention and tool pre-selection
+        thought = await async_think(
+            agent=agent,
+            thread=thread,
+            user_message=user_messages[-1],
+            force_reply=force_reply,
         )
-        user_message_id = user_messages[-1].id
+        thought = thought.model_dump()
 
-        system_message = Template(template).render(
-            name=agent.name,
-            persona=agent.persona,
-            system_instructions=system_instructions,
-        )
+    else:
+        print("Skipping thinking, default to classic behavior")
 
-        pushes = {"messages": user_messages}
-
-        # If dont_reply is set, just push messages and return immediately
-        if dont_reply:
-            thread.push(pushes)
-            return
-        
-        # Determine if agent should reply based on mention or conditions
+        # Check mentions
         agent_mentioned = any(
-            re.search(
-                rf"\b{re.escape(agent.name.lower())}\b", (msg.content or "").lower()
-            )
+            re.search(rf"\b{re.escape(agent.name.lower())}\b", (msg.content or "").lower())
             for msg in user_messages
         )
+        print("agent mentioned", agent_mentioned)
 
-        # Reply if any of the following are true:
-        # - force_reply is set
-        # - the agent is mentioned in the user's message
-        # - the agent has a reply_condition set and the user's message matches the criteria
-        should_reply = (
-            force_reply
-            or agent_mentioned
-            or (
-                agent.reply_criteria
-                and await async_think(
-                    thread=thread,
-                    user_messages=user_messages,
-                    reply_criteria=agent.reply_criteria,
+        # when there's no thinking, reply if mentioned or forced, and include all tools
+        thought = {
+            "thought": "<skip>",
+            "intention": "reply" if agent_mentioned or force_reply else "ignore",
+            "tools": ["create_media"]
+        }
+
+    # for error tracing
+    add_breadcrumb(
+        category="prompt_thought",
+        data={
+            "user_message": user_messages[-1],
+            "model": model,
+            "thought": thought,
+        },
+    )
+
+    # reply only if intention is "reply"
+    should_reply = thought["intention"] == "reply"
+    
+    if should_reply:
+        # update thread and continue
+        thread.push({
+            "messages": user_messages,
+            "active": user_message_id
+        })
+    else:
+        # update thread and stop
+        thread.push({
+            "messages": user_messages
+        })
+        return
+
+    # yield start signal
+    yield ThreadUpdate(type=UpdateType.START_PROMPT)
+
+    while True:
+        try:
+            messages = thread.get_messages(25)
+
+            # if creation tools are *not* requested, remove them from the tools list,
+            # except for any that were already called in previous messages.
+            if not "create_media" in (thought["tools"] or []):
+                tools_called = set([
+                    tc.tool for msg in messages if msg.role == "assistant" 
+                    for tc in msg.tool_calls
+                ])
+                tools = {k: v for k, v in tools.items() if k in tools_called}
+
+            # if knowledge requested, prepend with full knowledge text
+            if "knowledge" in (thought["tools"] or []) and agent.knowledge:
+                knowledge = Template(knowledge_template).render(
+                    knowledge=agent.knowledge
                 )
+                messages.insert(0, UserMessage(name="admin", content=knowledge))
+
+            # for error tracing
+            add_breadcrumb(
+                category="prompt_in",
+                data={
+                    "messages": messages,
+                    "model": model,
+                    "tools": (tools or {}).keys(),
+                },
             )
-        )
 
-        if should_reply:
-            pushes["active"] = user_message_id
+            system_message = Template(system_template).render(
+                name=agent.name,
+                persona=agent.persona
+            )
 
-        thread.push(pushes)
-
-        if not should_reply:
-            return
-
-        yield ThreadUpdate(type=UpdateType.START_PROMPT)
-
-        while True:
-            try:
-                messages = thread.get_messages(25)
-
-                # for error tracing
-                sentry_sdk.add_breadcrumb(
-                    category="prompt_in",
-                    data={
-                        "messages": messages,
-                        "system_message": system_message,
-                        "model": model,
-                        "tools": tools.keys(),
-                    },
-                )
-
-                # main call to LLM
-                if stream:
-                    content_chunks = []
-                    tool_calls = []
-                    stop = True
-
-                    async for update_type, content in async_prompt_stream(
-                        messages,
-                        system_message=system_message,
-                        model=model,
-                        tools=tools,
-                    ):
-                        # stream an individual token
-                        if update_type == UpdateType.ASSISTANT_TOKEN:
-                            if not content:  # Skip empty content
-                                continue
-                            content_chunks.append(content)
-                            yield ThreadUpdate(
-                                type=UpdateType.ASSISTANT_TOKEN, text=content
-                            )
-
-                        # tool call
-                        elif update_type == UpdateType.TOOL_CALL:
-                            tool_calls.append(content)
-
-                        # detect stop call
-                        elif update_type == UpdateType.ASSISTANT_STOP:
-                            stop = content == "end_turn" or content == "stop"
-
-                    # Create assistant message from accumulated content
-                    content = "".join(content_chunks)
-
-                else:
-                    content, tool_calls, stop = await async_prompt(
-                        messages,
-                        system_message=system_message,
-                        model=model,
-                        tools=tools,
-                    )
-
-                # for error tracing
-                sentry_sdk.add_breadcrumb(
-                    category="prompt_out",
-                    data={"content": content, "tool_calls": tool_calls, "stop": stop},
-                )
-
-                # create assistant message
-                assistant_message = AssistantMessage(
-                    content=content or "",
-                    tool_calls=tool_calls,
-                    reply_to=user_messages[-1].id,
-                )
-
-                # push assistant message to thread and pop user message from actives array
-                pushes = {"messages": assistant_message}
-                pops = {"active": user_message_id} if stop else {}
-                thread.push(pushes, pops)
-                assistant_message = thread.messages[-1]
-
-                # yield update
-                yield ThreadUpdate(
-                    type=UpdateType.ASSISTANT_MESSAGE, message=assistant_message
-                )
-
-            except Exception as e:
-                # capture error
-                sentry_sdk.capture_exception(e)
-                traceback.print_exc()
-
-                # create assistant message
-                assistant_message = AssistantMessage(
-                    content="I'm sorry, but something went wrong internally. Please try again later.",
-                    reply_to=user_messages[-1].id,
-                )
-
-                # push assistant message to thread and pop user message from actives array
-                pushes = {"messages": assistant_message}
-                pops = {"active": user_message_id}
-                thread.push(pushes, pops)
-
-                # yield error message
-                yield ThreadUpdate(
-                    type=UpdateType.ERROR, message=assistant_message, error=str(e)
-                )
-
-                # stop thread
+            # main call to LLM, streaming
+            if stream:
+                content_chunks = []
+                tool_calls = []
                 stop = True
-                break
 
-            # handle tool calls
-            for t, tool_call in enumerate(assistant_message.tool_calls):
-                try:
-                    # get tool
-                    tool = tools.get(tool_call.tool)
-                    if not tool:
-                        raise Exception(f"Tool {tool_call.tool} not found.")
-
-                    # start task
-                    task = await tool.async_start_task(
-                        user.id, agent.id, tool_call.args
-                    )
-
-                    # update tool call with task id and status
-                    thread.update_tool_call(
-                        assistant_message.id,
-                        t,
-                        {"task": ObjectId(task.id), "status": "pending"},
-                    )
-
-                    # wait for task to complete
-                    result = await tool.async_wait(task)
-                    thread.update_tool_call(assistant_message.id, t, result)
-
-                    # task completed
-                    if result["status"] == "completed":
-                        # make a Creation
-                        name = task.args.get("prompt") or task.args.get("text_input")
-                        filename = result.get("output", [{}])[0].get("filename")
-                        media_attributes = result.get("output", [{}])[0].get(
-                            "mediaAttributes"
-                        )
-                        if filename and media_attributes:
-                            new_creation = Creation(
-                                user=task.user,
-                                requester=task.requester,
-                                task=task.id,
-                                tool=task.tool,
-                                filename=filename,
-                                mediaAttributes=media_attributes,
-                                name=name,
-                            )
-                            new_creation.save()
-
-                        # yield update
+                async for update_type, content in async_prompt_stream(
+                    messages,
+                    system_message=system_message,
+                    model=model,
+                    tools=tools,
+                ):
+                    # stream an individual token
+                    if update_type == UpdateType.ASSISTANT_TOKEN:
+                        if not content:  # Skip empty content
+                            continue
+                        content_chunks.append(content)
                         yield ThreadUpdate(
-                            type=UpdateType.TOOL_COMPLETE,
-                            tool_name=tool_call.tool,
-                            tool_index=t,
-                            result=result,
-                        )
-                    else:
-                        # yield error
-                        yield ThreadUpdate(
-                            type=UpdateType.ERROR,
-                            tool_name=tool_call.tool,
-                            tool_index=t,
-                            error=result.get("error"),
+                            type=UpdateType.ASSISTANT_TOKEN, text=content
                         )
 
-                except Exception as e:
-                    # capture error
-                    sentry_sdk.capture_exception(e)
-                    traceback.print_exc()
+                    # tool call
+                    elif update_type == UpdateType.TOOL_CALL:
+                        tool_calls.append(content)
 
-                    # update tool call with status and error
-                    thread.update_tool_call(
-                        assistant_message.id, t, {"status": "failed", "error": str(e)}
+                    # detect stop call
+                    elif update_type == UpdateType.ASSISTANT_STOP:
+                        stop = content == "end_turn" or content == "stop"
+
+                # Create assistant message from accumulated content
+                content = "".join(content_chunks)
+
+            # main call to LLM, non-streaming
+            else:
+                content, tool_calls, stop = await async_prompt(
+                    messages,
+                    system_message=system_message,
+                    model=model,
+                    tools=tools,
+                )
+
+            # for error tracing
+            add_breadcrumb(
+                category="prompt_out",
+                data={"content": content, "tool_calls": tool_calls, "stop": stop},
+            )
+
+            # create assistant message
+            assistant_message = AssistantMessage(
+                content=content or "",
+                tool_calls=tool_calls,
+                reply_to=user_messages[-1].id,
+            )
+
+            # push assistant message to thread and pop user message from actives array
+            pushes = {"messages": assistant_message}
+            pops = {"active": user_message_id} if stop else {}
+            thread.push(pushes, pops)
+            assistant_message = thread.messages[-1]
+
+            # yield update
+            yield ThreadUpdate(
+                type=UpdateType.ASSISTANT_MESSAGE, message=assistant_message
+            )
+
+        except Exception as e:
+            # capture error
+            capture_exception(e)
+            traceback.print_exc()
+
+            # create assistant message
+            assistant_message = AssistantMessage(
+                content="I'm sorry, but something went wrong internally. Please try again later.",
+                reply_to=user_messages[-1].id,
+            )
+
+            # push assistant message to thread and pop user message from actives array
+            pushes = {"messages": assistant_message}
+            pops = {"active": user_message_id}
+            thread.push(pushes, pops)
+
+            # yield error message
+            yield ThreadUpdate(
+                type=UpdateType.ERROR, message=assistant_message, error=str(e)
+            )
+
+            # stop thread
+            stop = True
+            break
+
+        # handle tool calls
+        for t, tool_call in enumerate(assistant_message.tool_calls):
+            try:
+                # get tool
+                tool = tools.get(tool_call.tool)
+                if not tool:
+                    raise Exception(f"Tool {tool_call.tool} not found.")
+
+                # start task
+                task = await tool.async_start_task(
+                    user.id, agent.id, tool_call.args
+                )
+
+                # update tool call with task id and status
+                thread.update_tool_call(
+                    assistant_message.id,
+                    t,
+                    {"task": ObjectId(task.id), "status": "pending"},
+                )
+
+                # wait for task to complete
+                result = await tool.async_wait(task)
+                thread.update_tool_call(assistant_message.id, t, result)
+
+                # task completed
+                if result["status"] == "completed":
+                    # make a Creation
+                    name = task.args.get("prompt") or task.args.get("text_input")
+                    filename = result.get("output", [{}])[0].get("filename")
+                    media_attributes = result.get("output", [{}])[0].get(
+                        "mediaAttributes"
                     )
+                    if filename and media_attributes:
+                        new_creation = Creation(
+                            user=task.user,
+                            requester=task.requester,
+                            task=task.id,
+                            tool=task.tool,
+                            filename=filename,
+                            mediaAttributes=media_attributes,
+                            name=name,
+                        )
+                        new_creation.save()
 
                     # yield update
+                    yield ThreadUpdate(
+                        type=UpdateType.TOOL_COMPLETE,
+                        tool_name=tool_call.tool,
+                        tool_index=t,
+                        result=result,
+                    )
+                else:
+                    # yield error
                     yield ThreadUpdate(
                         type=UpdateType.ERROR,
                         tool_name=tool_call.tool,
                         tool_index=t,
-                        error=str(e),
+                        error=result.get("error"),
                     )
 
-            if stop:
-                break
+            except Exception as e:
+                # capture error
+                capture_exception(e)
+                traceback.print_exc()
 
-        yield ThreadUpdate(type=UpdateType.END_PROMPT)
+                # update tool call with status and error
+                thread.update_tool_call(
+                    assistant_message.id, t, {"status": "failed", "error": str(e)}
+                )
+
+                # yield update
+                yield ThreadUpdate(
+                    type=UpdateType.ERROR,
+                    tool_name=tool_call.tool,
+                    tool_index=t,
+                    error=str(e),
+                )
+
+        # if stop called, break out of loop
+        if stop:
+            break
+
+    yield ThreadUpdate(type=UpdateType.END_PROMPT)
 
 
 def prompt_thread(
@@ -693,11 +835,11 @@ def prompt_thread(
     user_messages: Union[UserMessage, List[UserMessage]],
     tools: Dict[str, Tool],
     force_reply: bool = False,
-    dont_reply: bool = False,
-    model: Literal[tuple(models)] = "claude-3-5-sonnet-20241022",
+    model: Literal[tuple(models)] = DEFAULT_MODEL,
+    user_is_bot: bool = False,
 ):
     async_gen = async_prompt_thread(
-        user, agent, thread, user_messages, tools, force_reply, dont_reply, model
+        user, agent, thread, user_messages, tools, force_reply, model, user_is_bot
     )
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -739,7 +881,7 @@ async def async_title_thread(thread: Thread, *extra_messages: UserMessage):
         thread.save()
 
     except Exception as e:
-        sentry_sdk.capture_exception(e)
+        capture_exception(e)
         traceback.print_exc()
         return
 

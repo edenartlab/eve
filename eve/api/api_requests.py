@@ -49,9 +49,8 @@ class ChatRequest(BaseModel):
     thread_id: Optional[str] = None
     update_config: Optional[UpdateConfig] = None
     force_reply: bool = False
-    dont_reply: bool = False
     model: Optional[str] = None
-
+    user_is_bot: Optional[bool] = False
 
 class CronSchedule(BaseModel):
     year: Optional[int | str] = Field(None, description="4-digit year")
@@ -101,7 +100,7 @@ class AllowedChannel(BaseModel):
 class AgentDeploymentConfig(BaseModel):
     discord_channel_allowlist: Optional[List[AllowedChannel]] = None
     telegram_topic_allowlist: Optional[List[AllowedChannel]] = None
-
+    
 
 class CreateDeploymentRequest(BaseModel):
     agent: str

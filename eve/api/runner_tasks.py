@@ -13,9 +13,8 @@ from io import BytesIO
 import aiohttp
 import os
 
-from eve import sentry_sdk
-from eve import eden_utils
-from eve.agent import Agent
+from eve import sentry_sdk, eden_utils
+from eve.agent import Agent, refresh_agent
 from eve.deploy import Deployment
 from eve.task import Task
 from eve.tool import Tool
@@ -132,7 +131,7 @@ async def generate_lora_thumbnails():
             "thumbnail": {
                 "$in": [
                     None,
-                    "61ccedc87dd9689b2714daebbd851a37b6f74cd5dc3a16dc0b8267a8b535db04.jpg",
+                    "a7d63343652cc8a45831d5a580fc6be091e69217ef3e341e353c117ac94eaadd.jpg",
                 ]
             },
         }
@@ -402,7 +401,10 @@ ALL_PROMPTS = FACE_PROMPTS + OBJECT_PROMPTS + STYLE_PROMPTS
 
 
 async def run_twitter_automation():
-    """Periodically generate tweets for Twitter deployments via chat endpoint"""
+    """
+    Periodically generate tweets for Twitter deployments via chat endpoint
+    """
+
     deployments = Deployment.find({"platform": "twitter"})
     api_url = os.getenv("EDEN_API_URL")
 
@@ -442,3 +444,35 @@ async def run_twitter_automation():
             except Exception as e:
                 print(f"Error processing deployment {deployment.id}: {e}")
                 sentry_sdk.capture_exception(e)
+
+
+async def rotate_agent_metadata(since_hours=6):
+    """
+    Rotate agent suggestions, greetings, and knowledge descriptions for agents whose updatedAt is younger than 6 hours or null (new agents)
+    """
+
+    agents = get_collection(Agent.collection_name)
+
+    filter = {}
+    if since_hours:
+        filter["type"] = "agent"
+        filter["$or"] = [
+            {"updatedAt": None},
+            {"updatedAt": {"$gt": datetime.now(timezone.utc) - timedelta(hours=24000)}}
+        ]
+
+    for agent in agents.find(filter):
+        print(agent["username"])
+        updated_at = (agent.get("updatedAt") or agent["createdAt"]).replace(tzinfo=timezone.utc)
+        refreshed_at = agent.get("refreshed_at")
+        if refreshed_at:
+            refreshed_at = refreshed_at.replace(tzinfo=timezone.utc)
+        
+        if refreshed_at and (updated_at - refreshed_at).total_seconds() <= 0:
+           continue
+
+        try:
+            await refresh_agent(agent)
+        except Exception as e:
+            print(f"Error refreshing agent {agent['username']}: {e}")
+            sentry_sdk.capture_exception(e)
