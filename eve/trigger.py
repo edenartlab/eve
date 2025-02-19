@@ -40,7 +40,8 @@ class Trigger(Document):
 
 def create_image(trigger_id: str):
     return (
-        modal.Image.debian_slim(python_version="3.11")
+        modal.Image.debian_slim(python_version="3.12")
+        .pip_install("modal")
         .pip_install("requests")
         .env({"DB": db})
         .env({"TRIGGER_ID": trigger_id})
