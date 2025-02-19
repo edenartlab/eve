@@ -400,7 +400,7 @@ Read the new message and generate a response to it which contains the following:
 * thought: A short thought about the message, its relevance to you, and a justification of your intention.
 * tools: If and only if you are replying, you may optionally select any and all tools that might be relevant to the user message.
 </Task>
-{{ knowledge_summary }}
+{{ knowledge_description }}
 <Message>
 {{ message }}
 </Message>"""
@@ -478,17 +478,17 @@ async def async_think(
 
     if agent.knowledge and agent.knowledge_description:
         # todo: if no knowledge description, generate one here
-        knowledge_summary = Template(knowledge_template).render(
-            knowledge_summary=agent.knowledge_description
+        knowledge_description = Template(knowledge_template).render(
+            knowledge_description=agent.knowledge_description
         )
     else:
-        knowledge_summary = ""
+        knowledge_description = ""
     
     prompt = Template(thought_template).render(
         name=agent.name, 
         chat=chat, 
         message=message,
-        knowledge_summary=knowledge_summary
+        knowledge_description=knowledge_description
     )
 
     print("prompt")
