@@ -148,8 +148,17 @@ async def generate_agent_text(agent: Agent):
     return result
 
 
-async def rotate_agent_suggestions():
-    for agent in agents.find({"type": "agent", "username": "banny"}):
+async def rotate_agent_suggestions(since_hours=6):
+    # get all agents whose updatedAt is younger than 6 hours or null (new agents)
+    filter = {}
+    if since_hours:
+        filter["type"] = "agent"
+        filter["$or"] = [
+            # {"updatedAt": None},
+            {"updatedAt": {"$gt": datetime.now(timezone.utc) - timedelta(hours=since_hours)}}
+        ]
+
+    for agent in agents.find(filter):
         updated_at = (agent.get("updatedAt") or agent["createdAt"]).replace(tzinfo=timezone.utc)
         refreshed_at = agent.get("refreshed_at")
         if refreshed_at:
@@ -164,13 +173,17 @@ async def rotate_agent_suggestions():
         knowledge_description = await generate_agent_knowledge_description(agent)
         time = datetime.now(timezone.utc)
 
-        agents.update_one({"_id": agent["_id"]}, {"$set": {
+        update = {
             "knowledge_description": f"Summary: {knowledge_description.summary}. Retrieval Criteria: {knowledge_description.retrieval_criteria}",
             "greeting": agent_text.greeting,
             "suggestions": [s.model_dump() for s in agent_text.suggestions],
             "refreshed_at": time, 
             "updatedAt": time,
-        }})
+        }
+
+        print(update)
+
+        agents.update_one({"_id": agent["_id"]}, {"$set": update})
 
 
 import asyncio

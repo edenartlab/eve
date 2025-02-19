@@ -20,6 +20,7 @@ from eve.api.runner_tasks import (
     download_nsfw_models,
     generate_lora_thumbnails,
     run_nsfw_detection,
+    rotate_agent_suggestions,
 )
 from eve.task import task_handler_func, Task
 from eve.tool import Tool
@@ -327,7 +328,10 @@ async def run_nsfw_detection_fn():
 
 
 @app.function(
-    image=image, concurrency_limit=1, schedule=modal.Period(minutes=15), timeout=3600
+    image=image, 
+    concurrency_limit=1, 
+    schedule=modal.Period(minutes=15), 
+    timeout=3600
 )
 async def generate_lora_thumbnails_fn():
     try:
@@ -338,7 +342,25 @@ async def generate_lora_thumbnails_fn():
 
 
 @app.function(
-    image=image, concurrency_limit=10, allow_concurrent_inputs=4, timeout=3600
+    image=image, 
+    concurrency_limit=1, 
+    schedule=modal.Period(hours=2), 
+    timeout=3600
+)
+async def rotate_agent_suggestions_fn():
+    try:
+        await rotate_agent_suggestions()
+    except Exception as e:
+        print(f"Error generating lora thumbnails: {e}")
+        sentry_sdk.capture_exception(e)
+
+
+
+@app.function(
+    image=image, 
+    concurrency_limit=10, 
+    allow_concurrent_inputs=4, 
+    timeout=3600
 )
 async def run(tool_key: str, args: dict):
     handler = load_handler(tool_key)
@@ -347,7 +369,10 @@ async def run(tool_key: str, args: dict):
 
 
 @app.function(
-    image=image, concurrency_limit=10, allow_concurrent_inputs=4, timeout=3600
+    image=image, 
+    concurrency_limit=10, 
+    allow_concurrent_inputs=4, 
+    timeout=3600
 )
 @task_handler_func
 async def run_task(tool_key: str, args: dict):
@@ -356,7 +381,10 @@ async def run_task(tool_key: str, args: dict):
 
 
 @app.function(
-    image=image, concurrency_limit=10, allow_concurrent_inputs=4, timeout=3600
+    image=image, 
+    concurrency_limit=10, 
+    allow_concurrent_inputs=4, 
+    timeout=3600
 )
 async def run_task_replicate(task: Task):
     task.update(status="running")
