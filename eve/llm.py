@@ -555,6 +555,8 @@ async def async_prompt_thread(
 
     # thinking step
     if think:
+        print("Thinking...")
+
         # a thought contains intention and tool pre-selection
         thought = await async_think(
             agent=agent,
@@ -565,6 +567,8 @@ async def async_prompt_thread(
         thought = thought.model_dump()
 
     else:
+        print("Skipping thinking, default to classic behavior")
+
         # Check mentions
         agent_mentioned = any(
             re.search(
@@ -624,11 +628,11 @@ async def async_prompt_thread(
                 tools = {k: v for k, v in tools.items() if k in tools_called}
 
             # if knowledge requested, prepend with full knowledge text
-            if "knowledge" in (thought["tools"] or []):
+            if "knowledge" in (thought["tools"] or []) and agent.knowledge:
                 knowledge = Template(knowledge_template).render(
                     knowledge=agent.knowledge
                 )
-                messages.insert(0, UserMessage(content=knowledge))
+                messages.insert(0, UserMessage(name="admin", content=knowledge))
 
             # for error tracing
             add_breadcrumb(

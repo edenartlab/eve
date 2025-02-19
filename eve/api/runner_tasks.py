@@ -576,9 +576,6 @@ async def rotate_agent_suggestions(since_hours=6):
     Rotate agent suggestions, greetings, and knowledge descriptions for agents whose updatedAt is younger than 6 hours or null (new agents)
     """
 
-    print("LETS RUN!!!")
-    print(since_hours)
-
     agents = get_collection(Agent.collection_name)
 
     filter = {}
@@ -601,12 +598,20 @@ async def rotate_agent_suggestions(since_hours=6):
 
         print("Refresh agent", agent["username"])
         
+        # get suggestions and greeting
         agent_text = await generate_agent_text(agent)
-        knowledge_description = await generate_agent_knowledge_description(agent)
+
+        # get knowledge description if there is any knowledge
+        if agent.get("knowledge"): 
+            knowledge_description = await generate_agent_knowledge_description(agent)
+            knowledge_description = f"Summary: {knowledge_description.summary}. Retrieval Criteria: {knowledge_description.retrieval_criteria}"
+        else:
+            knowledge_description = None
+        
         time = datetime.now(timezone.utc)
 
         update = {
-            "knowledge_description": f"Summary: {knowledge_description.summary}. Retrieval Criteria: {knowledge_description.retrieval_criteria}",
+            "knowledge_description": knowledge_description,
             "greeting": agent_text.greeting,
             "suggestions": [s.model_dump() for s in agent_text.suggestions],
             "refreshed_at": time, 
