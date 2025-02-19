@@ -574,6 +574,7 @@ async def async_prompt_thread(
         )
         print("agent mentioned", agent_mentioned)
 
+        # when there's no thinking, reply if mentioned or forced, and include all tools
         thought = {
             "thought": "<skip>",
             "intention": "reply" if agent_mentioned or force_reply else "ignore",
