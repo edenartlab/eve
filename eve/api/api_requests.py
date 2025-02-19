@@ -5,17 +5,7 @@ from datetime import datetime
 
 from eve.deploy import ClientType, DeploymentConfig, DeploymentSecrets
 from eve.thread import UserMessage
-
-
-class UpdateType(str, Enum):
-    START_PROMPT = "start_prompt"
-    ASSISTANT_MESSAGE = "assistant_message"
-    TOOL_COMPLETE = "tool_complete"
-    ERROR = "error"
-    END_PROMPT = "end_prompt"
-    ASSISTANT_TOKEN = "assistant_token"
-    ASSISTANT_STOP = "assistant_stop"
-    TOOL_CALL = "tool_call"
+from eve.llm import UpdateType
 
 
 class TaskRequest(BaseModel):
