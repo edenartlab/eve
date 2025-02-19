@@ -59,15 +59,27 @@ default_presets_flux = {
 class KnowledgeDescription(BaseModel):
     """Defines when and why a reference document should be consulted to enhance responses."""
 
-    summary: str = Field(..., description="A precise, content-focused summary of the document, detailing what information it contains without unnecessary adjectives or filler words.")
-    retrieval_criteria: str = Field(..., description="A clear, specific description of when the reference document is needed to answer a user query. This should specify what topics, types of questions, or gaps in the assistant’s knowledge require consulting the document.")
+    summary: str = Field(
+        ...,
+        description="A precise, content-focused summary of the document, detailing what information it contains without unnecessary adjectives or filler words.",
+    )
+    retrieval_criteria: str = Field(
+        ...,
+        description="A clear, specific description of when the reference document is needed to answer a user query. This should specify what topics, types of questions, or gaps in the assistant’s knowledge require consulting the document.",
+    )
 
 
 class Suggestion(BaseModel):
     """A prompt suggestion for an Agent in two parts: a concise tagline, and a longer prompt for an LLM. The prompt should correspond to the agent's personality."""
 
-    tagline: str = Field(..., description="A short and catchy tagline, no more than 7 words, to go into a home page button. Shorten, omit stop words (the, a, an, etc) when possible.")
-    prompt: str = Field(..., description="A longer version of the tagline, a prompt to be sent to the agent following its greeting. The prompt should be no more than one sentence or 30 words.")
+    tagline: Optional[str] = Field(
+        ...,
+        description="A short and catchy tagline, no more than 7 words, to go into a home page button. Shorten, omit stop words (the, a, an, etc) when possible.",
+    )
+    prompt: Optional[str] = Field(
+        ...,
+        description="A longer version of the tagline, a prompt to be sent to the agent following its greeting. The prompt should be no more than one sentence or 30 words.",
+    )
 
 
 @Collection("users3")
