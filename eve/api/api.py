@@ -40,6 +40,7 @@ from eve.api.handlers import (
     handle_trigger_create,
     handle_trigger_delete,
     handle_twitter_update,
+    handle_trigger_get,
 )
 from eve.api.api_requests import (
     CancelRequest,
@@ -231,6 +232,11 @@ async def updates_twitter(
     return await handle_twitter_update(request)
 
 
+@web_app.get("/triggers/{trigger_id}")
+async def trigger_get(trigger_id: str, _: dict = Depends(auth.authenticate_admin)):
+    return await handle_trigger_get(trigger_id)
+
+
 @web_app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     print(f"Validation error on {request.url}:")
@@ -328,10 +334,7 @@ async def run_nsfw_detection_fn():
 
 
 @app.function(
-    image=image, 
-    concurrency_limit=1, 
-    schedule=modal.Period(minutes=15), 
-    timeout=3600
+    image=image, concurrency_limit=1, schedule=modal.Period(minutes=15), timeout=3600
 )
 async def generate_lora_thumbnails_fn():
     try:
@@ -342,10 +345,7 @@ async def generate_lora_thumbnails_fn():
 
 
 @app.function(
-    image=image, 
-    concurrency_limit=1, 
-    schedule=modal.Period(hours=2), 
-    timeout=3600
+    image=image, concurrency_limit=1, schedule=modal.Period(hours=2), timeout=3600
 )
 async def rotate_agent_suggestions_fn():
     print("ROTATING AGENT SUGGESTIONS")
@@ -358,12 +358,8 @@ async def rotate_agent_suggestions_fn():
         sentry_sdk.capture_exception(e)
 
 
-
 @app.function(
-    image=image, 
-    concurrency_limit=10, 
-    allow_concurrent_inputs=4, 
-    timeout=3600
+    image=image, concurrency_limit=10, allow_concurrent_inputs=4, timeout=3600
 )
 async def run(tool_key: str, args: dict):
     handler = load_handler(tool_key)
@@ -372,10 +368,7 @@ async def run(tool_key: str, args: dict):
 
 
 @app.function(
-    image=image, 
-    concurrency_limit=10, 
-    allow_concurrent_inputs=4, 
-    timeout=3600
+    image=image, concurrency_limit=10, allow_concurrent_inputs=4, timeout=3600
 )
 @task_handler_func
 async def run_task(tool_key: str, args: dict):
@@ -384,10 +377,7 @@ async def run_task(tool_key: str, args: dict):
 
 
 @app.function(
-    image=image, 
-    concurrency_limit=10, 
-    allow_concurrent_inputs=4, 
-    timeout=3600
+    image=image, concurrency_limit=10, allow_concurrent_inputs=4, timeout=3600
 )
 async def run_task_replicate(task: Task):
     task.update(status="running")
