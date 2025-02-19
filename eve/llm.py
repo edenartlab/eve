@@ -13,7 +13,6 @@ from jinja2 import Template
 from pydantic import BaseModel, Field
 from pydantic.config import ConfigDict
 from instructor.function_calls import openai_schema
-import sentry_sdk
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
 from sentry_sdk import trace, start_transaction, add_breadcrumb, capture_exception
 
@@ -21,9 +20,8 @@ from .eden_utils import dump_json
 from .tool import Tool
 from .task import Creation
 from .user import User
-from .agent import Agent
+from .agent import Agent, refresh_agent
 from .thread import UserMessage, AssistantMessage, ToolCall, Thread
-from .api.runner_tasks import refresh_agent
 from .api.rate_limiter import RateLimiter
 
 

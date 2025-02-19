@@ -1,10 +1,11 @@
+from enum import Enum
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
 
 from eve.deploy import ClientType, DeploymentConfig, DeploymentSecrets
-from eve.llm import UpdateType
 from eve.thread import UserMessage
+from eve.llm import UpdateType
 
 
 class TaskRequest(BaseModel):
@@ -51,6 +52,7 @@ class ChatRequest(BaseModel):
     force_reply: bool = False
     model: Optional[str] = None
     user_is_bot: Optional[bool] = False
+
 
 class CronSchedule(BaseModel):
     year: Optional[int | str] = Field(None, description="4-digit year")
@@ -100,7 +102,7 @@ class AllowedChannel(BaseModel):
 class AgentDeploymentConfig(BaseModel):
     discord_channel_allowlist: Optional[List[AllowedChannel]] = None
     telegram_topic_allowlist: Optional[List[AllowedChannel]] = None
-    
+
 
 class CreateDeploymentRequest(BaseModel):
     agent: str
