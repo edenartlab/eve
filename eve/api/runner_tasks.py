@@ -585,11 +585,12 @@ async def rotate_agent_suggestions(since_hours=6):
     if since_hours:
         filter["type"] = "agent"
         filter["$or"] = [
-            # {"updatedAt": None},
+            {"updatedAt": None},
             {"updatedAt": {"$gt": datetime.now(timezone.utc) - timedelta(hours=since_hours)}}
         ]
 
     for agent in agents.find(filter):
+        print(agent["username"])
         updated_at = (agent.get("updatedAt") or agent["createdAt"]).replace(tzinfo=timezone.utc)
         refreshed_at = agent.get("refreshed_at")
         if refreshed_at:

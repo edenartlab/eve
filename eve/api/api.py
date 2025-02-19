@@ -358,7 +358,6 @@ async def rotate_agent_suggestions_fn():
         sentry_sdk.capture_exception(e)
 
 
-
 @app.function(
     image=image, 
     concurrency_limit=10, 

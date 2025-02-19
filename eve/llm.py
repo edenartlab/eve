@@ -435,7 +435,7 @@ async def async_think(
 
     tool_descriptions = "\n".join([f"{k}: {v}" for k, v in tool_categories.items()])
 
-    class ChatResponse(BaseModel):
+    class ChatThought(BaseModel):
         """A response to a chat message."""
         
         thought: str = Field(
@@ -494,20 +494,20 @@ async def async_think(
     print("prompt")
     print(prompt)
 
-    result = await async_prompt(
+    thought = await async_prompt(
         [UserMessage(content=prompt)],
         system_message=f"You are a helpful assistant named {agent.name}. You are just analyzing chats and generating thoughts.",
         model="gpt-4o-mini",
-        response_model=ChatResponse,
+        response_model=ChatThought,
     )
 
     print("thought response")
-    print(result)
+    print(thought)
 
     if force_reply:
-        result.intention = "reply"
+        thought.intention = "reply"
 
-    return result
+    return thought
 
 
 def sentry_transaction(op: str, name: str):
@@ -550,25 +550,35 @@ async def async_prompt_thread(
         print("bot message, stop")
         return
 
-    # Refresh agent
-    #agent.maybe_refresh()
+    # only think in stage, otherwise do classic behavior
+    think = os.getenv("DB").upper() == "STAGE"
 
-    # Check mentions
-    agent_mentioned = any(
-        re.search(
-            rf"\b{re.escape(agent.name.lower())}\b", (msg.content or "").lower()
+    # thinking step
+    if think:
+        # a thought contains intention and tool pre-selection
+        thought = await async_think(
+            agent=agent,
+            thread=thread,
+            user_message=user_messages[-1],
+            force_reply=force_reply,
         )
-        for msg in user_messages
-    )
-    print("agent mentioned", agent_mentioned)
+        thought = thought.model_dump()
 
-    # a thought contains intention and tool pre-selection
-    thought = await async_think(
-        agent=agent,
-        thread=thread,
-        user_message=user_messages[-1],
-        force_reply=force_reply,
-    )
+    else:
+        # Check mentions
+        agent_mentioned = any(
+            re.search(
+                rf"\b{re.escape(agent.name.lower())}\b", (msg.content or "").lower()
+            )
+            for msg in user_messages
+        )
+        print("agent mentioned", agent_mentioned)
+
+        thought = {
+            "thought": "<skip>",
+            "intention": "reply" if agent_mentioned or force_reply else "ignore",
+            "tools": ["create_media"]
+        }
 
     # for error tracing
     add_breadcrumb(
@@ -576,12 +586,12 @@ async def async_prompt_thread(
         data={
             "user_message": user_messages[-1],
             "model": model,
-            "thought": thought.model_dump(),
+            "thought": thought,
         },
     )
 
     # reply only if intention is "reply"
-    should_reply = thought.intention == "reply"
+    should_reply = thought["intention"] == "reply"
     
     if should_reply:
         # update thread and continue
@@ -605,7 +615,7 @@ async def async_prompt_thread(
 
             # if creation tools are *not* requested, remove them from the tools list,
             # except for any that were already called in previous messages.
-            if not "create_media" in (thought.tools or []):
+            if not "create_media" in (thought["tools"] or []):
                 tools_called = set([
                     tc.tool for msg in messages if msg.role == "assistant" 
                     for tc in msg.tool_calls
@@ -613,7 +623,7 @@ async def async_prompt_thread(
                 tools = {k: v for k, v in tools.items() if k in tools_called}
 
             # if knowledge requested, prepend with full knowledge text
-            if "knowledge" in (thought.tools or []):
+            if "knowledge" in (thought["tools"] or []):
                 knowledge = Template(knowledge_template).render(
                     knowledge=agent.knowledge
                 )
