@@ -348,8 +348,11 @@ async def generate_lora_thumbnails_fn():
     timeout=3600
 )
 async def rotate_agent_suggestions_fn():
+    print("ROTATING AGENT SUGGESTIONS")
     try:
+        print("ROTATING AGENT SUGGESTIONS 2")
         await rotate_agent_suggestions()
+        print("ROTATING AGENT SUGGESTIONS 3")
     except Exception as e:
         print(f"Error generating lora thumbnails: {e}")
         sentry_sdk.capture_exception(e)
