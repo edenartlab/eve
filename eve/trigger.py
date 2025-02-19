@@ -41,14 +41,9 @@ class Trigger(Document):
 
 
 def create_image(trigger_id: str):
-    root_dir = Path(__file__).parent
-    # list all files in the root_dir
-    print(list(root_dir.iterdir()))
     return (
         modal.Image.debian_slim(python_version="3.11")
-        .apt_install("libmagic1", "ffmpeg", "wget")
-        .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
-        .run_commands(["playwright install"])
+        .pip_install("requests")
         .env({"DB": db})
         .env({"TRIGGER_ID": trigger_id})
     )
