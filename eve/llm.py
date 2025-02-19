@@ -13,6 +13,7 @@ from jinja2 import Template
 from pydantic import BaseModel, Field
 from pydantic.config import ConfigDict
 from instructor.function_calls import openai_schema
+import sentry_sdk
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
 from sentry_sdk import trace, start_transaction, add_breadcrumb, capture_exception
 
@@ -22,6 +23,7 @@ from .task import Creation
 from .user import User
 from .agent import Agent
 from .thread import UserMessage, AssistantMessage, ToolCall, Thread
+from .api.runner_tasks import refresh_agent
 from .api.rate_limiter import RateLimiter
 
 
@@ -476,8 +478,12 @@ async def async_think(
     time_str = user_message.createdAt.strftime("%H:%M")
     message = f"<{user_message.name} {time_str}> {content}"
 
-    if agent.knowledge and agent.knowledge_description:
-        # todo: if no knowledge description, generate one here
+    if agent.knowledge:
+        # if knowledge is requested but no knowledge description, create it now
+        if not agent.knowledge_description:
+            await refresh_agent(agent)
+            agent.reload()
+
         knowledge_description = Template(knowledge_template).render(
             knowledge_description=agent.knowledge_description
         )
@@ -551,7 +557,7 @@ async def async_prompt_thread(
         return
 
     # only think in stage, otherwise do classic behavior
-    think = False# os.getenv("DB").upper() == "STAGE"
+    think = os.getenv("DB").upper() == "STAGE"
 
     # thinking step
     if think:

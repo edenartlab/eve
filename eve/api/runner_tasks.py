@@ -576,7 +576,39 @@ async def generate_agent_text(agent: Agent):
     return result
 
 
-async def rotate_agent_suggestions(since_hours=6):
+async def refresh_agent(agent: Agent):
+    """
+    Refresh an agent's suggestions, greetings, and knowledge descriptions
+    """
+    print("Refresh agent", agent["username"])
+
+    # get suggestions and greeting
+    agent_text = await generate_agent_text(agent)
+
+    # get knowledge description if there is any knowledge
+    if agent.get("knowledge"): 
+        knowledge_description = await generate_agent_knowledge_description(agent)
+        knowledge_description = f"Summary: {knowledge_description.summary}. Retrieval Criteria: {knowledge_description.retrieval_criteria}"
+    else:
+        knowledge_description = None
+    
+    time = datetime.now(timezone.utc)
+
+    update = {
+        "knowledge_description": knowledge_description,
+        "greeting": agent_text.greeting,
+        "suggestions": [s.model_dump() for s in agent_text.suggestions],
+        "refreshed_at": time, 
+        "updatedAt": time,
+    }
+
+    print(update)
+
+    agents = get_collection(Agent.collection_name)
+    agents.update_one({"_id": agent["_id"]}, {"$set": update})
+
+
+async def rotate_agent_metadata(since_hours=6):
     """
     Rotate agent suggestions, greetings, and knowledge descriptions for agents whose updatedAt is younger than 6 hours or null (new agents)
     """
@@ -601,28 +633,8 @@ async def rotate_agent_suggestions(since_hours=6):
         if refreshed_at and (updated_at - refreshed_at).total_seconds() <= 0:
            continue
 
-        print("Refresh agent", agent["username"])
-        
-        # get suggestions and greeting
-        agent_text = await generate_agent_text(agent)
-
-        # get knowledge description if there is any knowledge
-        if agent.get("knowledge"): 
-            knowledge_description = await generate_agent_knowledge_description(agent)
-            knowledge_description = f"Summary: {knowledge_description.summary}. Retrieval Criteria: {knowledge_description.retrieval_criteria}"
-        else:
-            knowledge_description = None
-        
-        time = datetime.now(timezone.utc)
-
-        update = {
-            "knowledge_description": knowledge_description,
-            "greeting": agent_text.greeting,
-            "suggestions": [s.model_dump() for s in agent_text.suggestions],
-            "refreshed_at": time, 
-            "updatedAt": time,
-        }
-
-        print(update)
-
-        agents.update_one({"_id": agent["_id"]}, {"$set": update})
+        try:
+            await refresh_agent(agent)
+        except Exception as e:
+            print(f"Error refreshing agent {agent['username']}: {e}")
+            sentry_sdk.capture_exception(e)
