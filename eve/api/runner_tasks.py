@@ -458,7 +458,7 @@ async def rotate_agent_metadata(since_hours=6):
         filter["type"] = "agent"
         filter["$or"] = [
             {"updatedAt": None},
-            {"updatedAt": {"$gt": datetime.now(timezone.utc) - timedelta(hours=24000)}}
+            {"updatedAt": {"$gt": datetime.now(timezone.utc) - timedelta(hours=since_hours)}}
         ]
 
     for agent in agents.find(filter):
