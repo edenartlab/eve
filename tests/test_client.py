@@ -4,6 +4,7 @@ import time
 import subprocess
 import requests
 import eve
+import pytest
 
 
 EDEN_ADMIN_KEY = os.getenv("EDEN_ADMIN_KEY")
@@ -84,9 +85,26 @@ def test_client(server_url):
             server.terminate()
             server.wait()
 
+@pytest.fixture
+def server_url():
+    url = os.getenv("EDEN_API_URL", "http://localhost:8000")
+    if url == "http://localhost:8000":
+        print("Starting local server...")
+        server = subprocess.Popen(
+            ["rye", "run", "eve", "api", "--db", "STAGE"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+        time.sleep(5)
+        yield url
+        server.terminate()
+        server.wait()
+    else:
+        yield url
 
-if __name__ == "__main__":
-    server_url = None  
-    server_url = "http://localhost:8000"
-    # server_url = os.getenv("EDEN_API_URL")
-    test_client(server_url)
+
+# if __name__ == "__main__":
+#     server_url = None  
+#     server_url = "http://localhost:8000"
+#     # server_url = os.getenv("EDEN_API_URL")
+#     test_client(server_url)
