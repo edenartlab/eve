@@ -68,7 +68,6 @@ def clone_voice(name, description, voice_urls):
         with NamedTemporaryFile(delete=False) as file:
             file = eden_utils.download_file(url, file.name)
             voice_files.append(file)
-    voice_files = ["/Users/gene/Downloads/verdelis-future of life - isolated.mp3"]
     voice = eleven.clone(name, voice_files, description)    
     for file in voice_files:
         os.remove(file)
