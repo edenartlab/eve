@@ -5,6 +5,7 @@ import json
 import modal
 import replicate
 import sentry_sdk
+import uvicorn
 from fastapi.responses import JSONResponse
 from fastapi import FastAPI, Depends, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -436,3 +437,6 @@ async def deploy_client_modal(
         env=env,
         repo_branch=repo_branch,
     )
+
+if __name__ == "__main__":
+    uvicorn.run(web_app, host="0.0.0.0", port=8000, reload=True)
