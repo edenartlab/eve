@@ -1,11 +1,11 @@
-# Use Python 3.12.8 image
+# Use Python 3.12 image
 ARG PYTHON_VERSION=3.12
 FROM python:${PYTHON_VERSION}-slim-bookworm
 
 # Install system dependencies for curl and bash
 RUN apt update && \
     apt install -y curl bash \
-    build-essential clang \
+    build-essential clang libmagic1 \
     && apt clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -27,4 +27,6 @@ COPY . /eve
 
 # Install dependencies using 'rye sync'
 RUN rye sync
+
+CMD ["rye", "run", "uvicorn", "eve.api.api:web_app", "--host", "0.0.0.0", "--port", "8000"]
 
