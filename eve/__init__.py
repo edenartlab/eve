@@ -47,15 +47,15 @@ def load_env(db):
     global EDEN_API_KEY
 
     db = db.upper()
-    if db not in ["STAGE", "PROD", "WEB3-STAGE", "WEB3-PROD"]:
+    if db not in ["LOCAL", "STAGE", "PROD", "WEB3-STAGE", "WEB3-PROD"]:
         raise ValueError(f"Invalid database: {db}")
 
     os.environ["DB"] = db
 
     # First try ~/.eve
-    stage = db == "STAGE"
-    env_file = ".env.STAGE" if stage else ".env"
-    eve_file = ".eve.STAGE" if stage else ".eve"
+    stage = db == "LOCAL"
+    env_file = ".env.LOCAL" if stage else ".env"
+    eve_file = ".eve.LOCAL" if stage else ".eve"
     eve_path = os.path.join(home_dir, eve_file)
 
     if os.path.exists(eve_path):
@@ -95,11 +95,11 @@ def verify_env():
         print("WARNING: MONGO_URI must be set in the environment")
 
 
-db = os.getenv("DB", "STAGE").upper()
+db = os.getenv("DB", "LOCAL").upper()
 
-if db not in ["STAGE", "PROD", "WEB3-STAGE", "WEB3-PROD"]:
+if db not in ["LOCAL", "STAGE", "PROD", "WEB3-STAGE", "WEB3-PROD"]:
     raise Exception(
-        f"Invalid environment: {db}. Must be STAGE, PROD, WEB3-STAGE, or WEB3-PROD"
+        f"Invalid environment: {db}. Must be LOCAL, STAGE, PROD, WEB3-STAGE, or WEB3-PROD"
     )
 
 load_env(db)
