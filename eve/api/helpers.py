@@ -1,12 +1,12 @@
 import logging
 import os
-import time
 from typing import Optional
 import aiohttp
 from bson import ObjectId
 from fastapi import BackgroundTasks
 from ably import AblyRest
 import traceback
+import re
 
 from eve import deploy, trigger
 from eve.api.errors import APIError
@@ -18,9 +18,10 @@ from eve.deploy import (
 from eve.tool import Tool
 from eve.user import User
 from eve.agent import Agent
-from eve.thread import Thread
+from eve.thread import Thread, UserMessage
 from eve.llm import async_title_thread
 from eve.api.api_requests import ChatRequest, UpdateConfig
+from eve.deploy import Deployment
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,7 @@ def serialize_for_json(obj):
 
 
 async def emit_update(update_config: Optional[UpdateConfig], data: dict):
+    print("EMIT UPDATE", update_config, data)
     if not update_config:
         return
 
@@ -111,3 +113,94 @@ def pre_modal_setup():
         create_environment(deploy.DEPLOYMENT_ENV_NAME)
     if not check_environment_exists(trigger.TRIGGER_ENV_NAME):
         create_environment(trigger.TRIGGER_ENV_NAME)
+
+
+async def create_telegram_chat_request(
+    update_data: dict, deployment: Deployment
+) -> Optional[ChatRequest]:
+    """Helper to create a ChatRequest from Telegram update data"""
+    message = update_data.get("message", {})
+    if not message:
+        return None
+
+    chat_id = message.get("chat", {}).get("id")
+    message_thread_id = message.get("message_thread_id")
+
+    # Check allowlist if it exists
+    if deployment.config and deployment.config.telegram:
+        allowlist = deployment.config.telegram.topic_allowlist or []
+        if allowlist:
+            current_id = (
+                f"{chat_id}/{message_thread_id}" if message_thread_id else str(chat_id)
+            )
+            if not any(item.id == current_id for item in allowlist):
+                return None
+
+    agent = Agent.from_mongo(deployment.agent)
+
+    # Check if bot is mentioned or replied to
+    is_bot_mentioned = False
+    is_replied_to = False
+    entities = message.get("entities", [])
+    text = message.get("text", "")
+
+    # Check for mentions
+    for entity in entities:
+        if entity["type"] == "mention":
+            mention = text[entity["offset"] : entity["offset"] + entity["length"]]
+            if mention.lower() == f"@{agent.username.lower()}_bot":
+                is_bot_mentioned = True
+                break
+
+    # Check for replies
+    reply_to = message.get("reply_to_message", {})
+    if (
+        reply_to.get("from", {}).get("username", "").lower()
+        == f"{agent.username.lower()}_bot"
+    ):
+        is_replied_to = True
+
+    # Determine if we should force reply
+    force_reply = is_bot_mentioned or is_replied_to
+
+    # Get user info
+    from_user = message.get("from", {})
+    user_id = str(from_user.get("id"))
+    username = from_user.get("username", "unknown")
+
+    # Create thread key and get/create thread
+    thread_key = (
+        f"telegram-{chat_id}-topic-{message_thread_id}"
+        if message_thread_id
+        else f"telegram-{chat_id}"
+    )
+
+    thread = agent.request_thread(key=thread_key)
+    user = User.from_telegram(user_id, username)
+
+    # Clean message text (remove bot mention)
+    cleaned_text = text
+    if is_bot_mentioned:
+        bot_username = f"@{agent.username.lower()}_bot"
+        pattern = rf"\s*{re.escape(bot_username)}\b"
+        cleaned_text = re.sub(pattern, "", text, flags=re.IGNORECASE).strip()
+
+    return {
+        "user_id": str(user.id),
+        "agent_id": str(deployment.agent),
+        "thread_id": str(thread.id),
+        # force_reply=force_reply,
+        "force_reply": True,
+        "user_is_bot": from_user.get("is_bot", False),
+        "user_message": {
+            "content": cleaned_text,
+            "name": username,
+            "attachments": [],
+        },
+        "update_config": {
+            "update_endpoint": "https://j.eden.ngrok.dev/emissions/platform/telegram",
+            "telegram_chat_id": str(chat_id),
+            "telegram_message_id": str(message.get("message_id")),
+            "telegram_thread_id": str(message_thread_id) if message_thread_id else None,
+        },
+    }

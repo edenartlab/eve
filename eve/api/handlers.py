@@ -6,6 +6,7 @@ from bson import ObjectId
 from typing import List
 from fastapi import BackgroundTasks, Request
 from fastapi.responses import JSONResponse, StreamingResponse
+import aiohttp
 
 from eve.api.errors import handle_errors, APIError
 from eve.api.api_requests import (
@@ -24,12 +25,14 @@ from eve.api.helpers import (
     emit_update,
     serialize_for_json,
     setup_chat,
+    create_telegram_chat_request,
 )
 from eve.clients.common import get_ably_channel_name
 from eve.deploy import (
     deploy_client,
     stop_client,
 )
+from eve.eden_utils import prepare_result
 from eve.tools.replicate_tool import replicate_update_task
 from eve.trigger import create_chat_trigger, delete_trigger, Trigger
 from eve.llm import UpdateType, async_prompt_thread
@@ -119,6 +122,7 @@ async def run_chat_request(
             user_is_bot=user_is_bot,
             stream=False,
         ):
+            print("UPDATE", update)
             data = {
                 "type": update.type.value,
                 "update_config": update_config.model_dump() if update_config else {},
@@ -373,21 +377,127 @@ async def handle_trigger_get(trigger_id: str):
 
 
 @handle_errors
+async def handle_telegram_emission(request: Request):
+    """Handle updates from async_prompt_thread for Telegram"""
+    try:
+        data = await request.json()
+        print("TELEGRAM EMISSION DATA:", data)
+
+        update_type = data.get("type")
+        update_config = data.get("update_config", {})
+
+        # Convert chat_id to int
+        chat_id = int(update_config.get("telegram_chat_id"))
+        message_id = (
+            int(update_config.get("telegram_message_id"))
+            if update_config.get("telegram_message_id")
+            else None
+        )
+        thread_id = (
+            int(update_config.get("telegram_thread_id"))
+            if update_config.get("telegram_thread_id")
+            else None
+        )
+
+        print("CHAT ID:", chat_id)
+        print("MESSAGE ID:", message_id)
+        print("THREAD ID:", thread_id)
+
+        # Find deployment
+        deployment = next(
+            (
+                d
+                for d in Deployment.find({"platform": "telegram"})
+                if d.secrets and d.secrets.telegram
+            ),
+            None,
+        )
+        if not deployment:
+            return JSONResponse(
+                status_code=404, content={"error": "No Telegram deployment found"}
+            )
+
+        print("DEPLOYMENT:", deployment)
+
+        # Initialize bot
+        from telegram import Bot
+
+        bot = Bot(deployment.secrets.telegram.token)
+        print("BOT TOKEN:", deployment.secrets.telegram.token)
+
+        # Verify bot info
+        try:
+            me = await bot.get_me()
+            print("BOT INFO:", me.to_dict())
+        except Exception as e:
+            print("Failed to get bot info:", str(e))
+            return JSONResponse(
+                status_code=500,
+                content={"error": f"Bot authentication failed: {str(e)}"},
+            )
+
+        if update_type == UpdateType.ASSISTANT_MESSAGE:
+            content = data.get("content")
+            if content:
+                try:
+                    await bot.send_message(
+                        chat_id=chat_id,
+                        text=content,
+                        reply_to_message_id=message_id,
+                        message_thread_id=thread_id,
+                    )
+                except Exception as e:
+                    print(f"Failed to send message: {str(e)}")
+                    print(
+                        f"Params: chat_id={chat_id}, text={content}, reply_to={message_id}, thread_id={thread_id}"
+                    )
+                    raise
+
+        elif update_type == UpdateType.TOOL_COMPLETE:
+            result = data.get("result", {})
+            if not result:
+                return JSONResponse(status_code=200, content={"ok": True})
+
+            result["result"] = prepare_result(result["result"])
+            outputs = result["result"][0]["output"]
+            urls = [output["url"] for output in outputs[:4]]  # Get up to 4 URLs
+
+            # Send each URL as appropriate media type
+            for url in urls:
+                video_extensions = (".mp4", ".avi", ".mov", ".mkv", ".webm")
+                if any(url.lower().endswith(ext) for ext in video_extensions):
+                    await bot.send_video(
+                        chat_id=chat_id,
+                        video=url,
+                        reply_to_message_id=message_id,
+                        message_thread_id=thread_id,
+                    )
+                else:
+                    await bot.send_photo(
+                        chat_id=chat_id,
+                        photo=url,
+                        reply_to_message_id=message_id,
+                        message_thread_id=thread_id,
+                    )
+
+        return JSONResponse(status_code=200, content={"ok": True})
+
+    except Exception as e:
+        logger.error("Error handling Telegram emission", exc_info=True)
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@handle_errors
 async def handle_telegram_update(request: Request):
     secret_token = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
-    print("SECRET TOKEN", secret_token)
     if not secret_token:
         return JSONResponse(status_code=401, content={"error": "Missing secret token"})
 
     try:
         update_data = await request.json()
-    except Exception as e:
-        return JSONResponse(
-            status_code=400, content={"error": f"Invalid JSON: {str(e)}"}
-        )
+        print("TELEGRAM UPDATE DATA:", update_data)
 
-    print("UPDATE DATA", update_data)
-    try:
+        # Find deployment by webhook secret
         deployment = next(
             (
                 d
@@ -404,30 +514,33 @@ async def handle_telegram_update(request: Request):
                 status_code=401, content={"error": "Invalid secret token"}
             )
 
-        message = update_data.get("message", {})
-        chat_request = ChatRequest(
-            user_id=str(message.get("from", {}).get("id")),
-            agent_id=str(deployment.agent),
-            user_message=UserMessage(
-                content=message.get("text", ""),
-                name=message.get("from", {}).get("username", "unknown"),
-                attachments=[],
-            ),
-            update_config=UpdateConfig(
-                telegram_chat_id=str(message.get("chat", {}).get("id")),
-                telegram_message_id=str(message.get("message_id")),
-                telegram_thread_id=str(message.get("message_thread_id"))
-                if message.get("message_thread_id")
-                else None,
-            ),
-            force_reply=False,
-        )
+        # Create chat request with endpoint for updates
+        chat_request = await create_telegram_chat_request(update_data, deployment)
+        if not chat_request:
+            return JSONResponse(status_code=200, content={"ok": True})
 
-        print("CHAT REQUEST", chat_request)
+        print("SENDING TO /chat:", chat_request)
 
-        await handle_chat(chat_request, BackgroundTasks())
-
-        print("RESPONSE")
+        # Make async HTTP POST to /chat
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://j.eden.ngrok.dev/chat",
+                json=chat_request,
+                headers={
+                    "Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}",
+                    "Content-Type": "application/json",
+                },
+            ) as response:
+                print("CHAT RESPONSE:", response.status)
+                if response.status != 200:
+                    error_text = await response.text()
+                    print("CHAT ERROR:", error_text)
+                    return JSONResponse(
+                        status_code=500,
+                        content={
+                            "error": f"Failed to process chat request: {error_text}"
+                        },
+                    )
 
         return JSONResponse(status_code=200, content={"ok": True})
 

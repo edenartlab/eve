@@ -541,6 +541,18 @@ async def async_prompt_thread(
     user_is_bot: bool = False,
     stream: bool = False,
 ):
+    print(
+        "PROMPT THREAD",
+        user,
+        agent,
+        thread,
+        user_messages,
+        tools,
+        force_reply,
+        model,
+        user_is_bot,
+        stream,
+    )
     model = model or DEFAULT_MODEL
     user_messages = (
         user_messages if isinstance(user_messages, list) else [user_messages]
@@ -557,7 +569,8 @@ async def async_prompt_thread(
         return
 
     # only think in stage, otherwise do classic behavior
-    think = os.getenv("DB").upper() == "STAGE"
+    # think = os.getenv("DB").upper() == "STAGE"
+    think = False
 
     # thinking step
     if think:

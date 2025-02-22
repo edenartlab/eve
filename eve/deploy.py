@@ -364,6 +364,7 @@ async def deploy_client_telegram(secrets: DeploymentSecrets):
         url=webhook_url,
         secret_token=secrets.telegram.webhook_secret,
         drop_pending_updates=True,
+        max_connections=100,
     )
 
     if not response:

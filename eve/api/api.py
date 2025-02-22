@@ -22,7 +22,6 @@ from eve.api.runner_tasks import (
     run_nsfw_detection,
     rotate_agent_metadata,
 )
-from eve.deploy import Deployment
 from eve.task import task_handler_func, Task
 from eve.tool import Tool
 from eve.tools.tool_handlers import load_handler
@@ -38,6 +37,7 @@ from eve.api.handlers import (
     handle_deployment_create,
     handle_deployment_delete,
     handle_stream_chat,
+    handle_telegram_emission,
     handle_telegram_update,
     handle_trigger_create,
     handle_trigger_delete,
@@ -159,6 +159,7 @@ async def chat(
     background_tasks: BackgroundTasks,
     _: dict = Depends(auth.authenticate_admin),
 ):
+    print("CHAT", request)
     return await handle_chat(request, background_tasks)
 
 
@@ -231,6 +232,14 @@ async def updates_twitter(
     _: dict = Depends(auth.authenticate_admin),
 ):
     return await handle_twitter_update(request)
+
+
+@web_app.post("/emissions/platform/telegram")
+async def emissions_telegram(
+    request: Request,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    return await handle_telegram_emission(request)
 
 
 @web_app.get("/triggers/{trigger_id}")
