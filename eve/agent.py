@@ -461,16 +461,17 @@ async def refresh_agent(agent: Agent):
     # get knowledge description if there is any knowledge
     if agent.knowledge:
         knowledge_description = await generate_agent_knowledge_description(agent)
+        knowledge_description_dict = {
+            "summary": knowledge_description.summary,
+            "retrieval_criteria": knowledge_description.retrieval_criteria,
+        }
     else:
-        knowledge_description = None
+        knowledge_description_dict = None
 
     time = datetime.now(timezone.utc)
 
     update = {
-        "knowledge_description": {
-            "summary": knowledge_description.summary,
-            "retrieval_criteria": knowledge_description.retrieval_criteria,
-        },
+        "knowledge_description": knowledge_description_dict,
         "greeting": agent_text.greeting,
         "suggestions": [s.model_dump() for s in agent_text.suggestions],
         "refreshed_at": time,
