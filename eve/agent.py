@@ -288,8 +288,8 @@ def get_agents_from_mongo(
                     raise ValueError(f"Duplicate agent {agent.key} found.")
                 agents[agent.key] = agent
         except Exception as e:
+            print(f"Error loading agent {agent.key}: {e}")
             print(traceback.format_exc())
-            print(f"Error loading agent {agent['key']}: {e}")
 
     return agents
 
@@ -323,11 +323,17 @@ class AgentText(BaseModel):
     Auto-generated greeting and suggestions for prompts and taglines that are specific to an Agent's description.
     """
 
-    suggestions: List[Suggestion] = Field(..., description="A list of prompt suggestions and corresponding taglines for the agent. Should be appropriate to the agent's description.")
-    greeting: str = Field(..., description="A very short greeting for the agent to use as a conversation starter with a new user. Should be no more than 10 words.")
+    suggestions: List[Suggestion] = Field(
+        ...,
+        description="A list of prompt suggestions and corresponding taglines for the agent. Should be appropriate to the agent's description.",
+    )
+    greeting: str = Field(
+        ...,
+        description="A very short greeting for the agent to use as a conversation starter with a new user. Should be no more than 10 words.",
+    )
 
     model_config = ConfigDict(
-        json_schema_extra = {
+        json_schema_extra={
             "examples": [
                 {
                     "greeting": "I'm your personal creative assistant! How can I help you?",
@@ -347,8 +353,8 @@ class AgentText(BaseModel):
                         {
                             "label": "Draft a character",
                             "prompt": "Help me write out a character description for a video game I am producing.",
-                        }
-                    ]
+                        },
+                    ],
                 },
                 {
                     "greeting": "What kind of a story would you like to write together?",
@@ -368,9 +374,9 @@ class AgentText(BaseModel):
                         {
                             "label": "Revise the style of my essay",
                             "prompt": "I've made an essay about the history of the internet, but I'm not sure if it's written in the style I want. Help me revise it.",
-                        }
-                    ]
-                }            
+                        },
+                    ],
+                },
             ]
         }
     )
@@ -404,13 +410,13 @@ async def generate_agent_knowledge_description(agent: Agent):
     system_message = "You receive a description of an agent, along with a large document of information the agent must memorize, and you come up with instructions for the agent on when they should consult the reference document."
 
     prompt = Template(knowledge_template).render(
-        name=agent["username"],
-        agent_description=agent["persona"],
-        knowledge_base=agent["knowledge"]
+        name=agent.username,
+        agent_description=agent.persona,
+        knowledge_base=agent.knowledge,
     )
 
     client = instructor.from_openai(openai.AsyncOpenAI())
-    
+
     result = await client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
@@ -430,7 +436,7 @@ async def generate_agent_text(agent: Agent):
 
     system_message = "You receive a description of an agent and come up with a greeting and suggestions for those agents' example prompts and taglines."
 
-    prompt = f"""Come up with exactly FOUR (4, no more, no less) suggestions for sample prompts for the agent {agent["username"]}, as well as a simple greeting for the agent to begin a conversation with. Make sure all of the text is especially unique to or appropriate to {agent["username"]}, given their description. Do not use exclamation marks. Here is the description of {agent["username"]}:\n\n{agent["persona"]}."""
+    prompt = f"""Come up with exactly FOUR (4, no more, no less) suggestions for sample prompts for the agent {agent.username}, as well as a simple greeting for the agent to begin a conversation with. Make sure all of the text is especially unique to or appropriate to {agent.username}, given their description. Do not use exclamation marks. Here is the description of {agent.username}:\n\n{agent.persona}."""
 
     client = instructor.from_openai(openai.AsyncOpenAI())
     result = await client.chat.completions.create(
@@ -449,29 +455,29 @@ async def refresh_agent(agent: Agent):
     """
     Refresh an agent's suggestions, greetings, and knowledge descriptions
     """
-    print("Refresh agent", agent["username"])
-
     # get suggestions and greeting
     agent_text = await generate_agent_text(agent)
 
     # get knowledge description if there is any knowledge
-    if agent.get("knowledge"): 
+    if agent.knowledge:
         knowledge_description = await generate_agent_knowledge_description(agent)
-        knowledge_description = f"Summary: {knowledge_description.summary}. Retrieval Criteria: {knowledge_description.retrieval_criteria}"
     else:
         knowledge_description = None
-    
+
     time = datetime.now(timezone.utc)
 
     update = {
-        "knowledge_description": knowledge_description,
+        "knowledge_description": {
+            "summary": knowledge_description.summary,
+            "retrieval_criteria": knowledge_description.retrieval_criteria,
+        },
         "greeting": agent_text.greeting,
         "suggestions": [s.model_dump() for s in agent_text.suggestions],
-        "refreshed_at": time, 
+        "refreshed_at": time,
         "updatedAt": time,
     }
 
     print(update)
 
     agents = get_collection(Agent.collection_name)
-    agents.update_one({"_id": agent["_id"]}, {"$set": update})
+    agents.update_one({"_id": agent.id}, {"$set": update})

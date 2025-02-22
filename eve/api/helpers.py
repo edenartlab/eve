@@ -1,10 +1,12 @@
 import logging
 import os
+import time
 from typing import Optional
 import aiohttp
 from bson import ObjectId
 from fastapi import BackgroundTasks
 from ably import AblyRest
+import traceback
 
 from eve import deploy, trigger
 from eve.api.errors import APIError
@@ -35,19 +37,24 @@ async def setup_chat(
     try:
         user = User.from_mongo(request.user_id)
     except Exception as e:
+        logger.error(f"Error loading user: {traceback.format_exc()}")
         raise APIError(f"Invalid user_id: {request.user_id}", status_code=400) from e
 
     try:
         agent = Agent.from_mongo(request.agent_id, cache=False)
     except Exception as e:
+        logger.error(f"Error loading agent: {traceback.format_exc()}")
         raise APIError(f"Invalid agent_id: {request.agent_id}", status_code=400) from e
 
-    tools = agent.get_tools(cache=True)
+    start_time = time.time()
+    tools = agent.get_tools(cache=False)
+    logger.info(f"Time to get tools: {time.time() - start_time}")
 
     if request.thread_id:
         try:
             thread = Thread.from_mongo(request.thread_id)
         except Exception as e:
+            logger.error(f"Error loading thread: {traceback.format_exc()}")
             raise APIError(
                 f"Invalid thread_id: {request.thread_id}", status_code=400
             ) from e

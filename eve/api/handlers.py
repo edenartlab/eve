@@ -107,7 +107,6 @@ async def run_chat_request(
     model: str,
     user_is_bot: bool = False,
 ):
-    print("update_config", update_config)
     try:
         async for update in async_prompt_thread(
             user=user,
@@ -149,7 +148,7 @@ async def handle_chat(
 ):
     print("handle_chat")
     print(request)
-    
+
     user, agent, thread, tools = await setup_chat(request, background_tasks)
 
     print("chat request")

@@ -458,21 +458,24 @@ async def rotate_agent_metadata(since_hours=6):
         filter["type"] = "agent"
         filter["$or"] = [
             {"updatedAt": None},
-            {"updatedAt": {"$gt": datetime.now(timezone.utc) - timedelta(hours=since_hours)}}
+            {
+                "updatedAt": {
+                    "$gt": datetime.now(timezone.utc) - timedelta(hours=since_hours)
+                }
+            },
         ]
 
     for agent in agents.find(filter):
-        print(agent["username"])
-        updated_at = (agent.get("updatedAt") or agent["createdAt"]).replace(tzinfo=timezone.utc)
-        refreshed_at = agent.get("refreshed_at")
+        updated_at = (agent.updatedAt or agent.createdAt).replace(tzinfo=timezone.utc)
+        refreshed_at = agent.refreshed_at
         if refreshed_at:
             refreshed_at = refreshed_at.replace(tzinfo=timezone.utc)
-        
+
         if refreshed_at and (updated_at - refreshed_at).total_seconds() <= 0:
-           continue
+            continue
 
         try:
             await refresh_agent(agent)
         except Exception as e:
-            print(f"Error refreshing agent {agent['username']}: {e}")
+            print(f"Error refreshing agent {agent.username}: {e}")
             sentry_sdk.capture_exception(e)

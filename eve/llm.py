@@ -51,7 +51,7 @@ async def async_anthropic_prompt(
     tools: Dict[str, Tool] = {},
 ):
     anthropic_client = anthropic.AsyncAnthropic()
-    
+
     prompt = {
         "model": model,
         "max_tokens": 8192,
@@ -185,7 +185,7 @@ async def async_openai_prompt_stream(
     tools: Dict[str, Tool] = {},
 ) -> AsyncGenerator[Tuple[UpdateType, str], None]:
     """Yields partial tokens (ASSISTANT_TOKEN, partial_text) for streaming."""
-    
+
     if not os.getenv("OPENAI_API_KEY"):
         raise ValueError("OPENAI_API_KEY env is not set")
 
@@ -332,15 +332,18 @@ async def async_prompt_stream(
     Streaming LLM call => yields (UpdateType.ASSISTANT_TOKEN, partial_text).
     Add a similar function for OpenAI if you need streaming from GPT-based models.
     """
-    
-    async_prompt_stream_method = async_anthropic_prompt_stream \
-        if model.startswith("claude") else async_openai_prompt_stream
-    
+
+    async_prompt_stream_method = (
+        async_anthropic_prompt_stream
+        if model.startswith("claude")
+        else async_openai_prompt_stream
+    )
+
     async for chunk in async_prompt_stream_method(
         messages, system_message, model, response_model, tools
     ):
         yield chunk
-    
+
 
 def anthropic_prompt(messages, system_message, model, response_model=None, tools=None):
     return asyncio.run(
@@ -419,11 +422,13 @@ async def async_think(
     thread: Thread,
     user_message: UserMessage,
     force_reply: bool = True,
-):  
+):
     intention_description = "Response class to the last user message. Ignore if irrelevant, reply if relevant and you intend to say something."
 
     if agent.reply_criteria:
-        intention_description += f"\nAdditional criteria for replying spontaneously: {agent.reply_criteria}"
+        intention_description += (
+            f"\nAdditional criteria for replying spontaneously: {agent.reply_criteria}"
+        )
 
     tool_categories = {
         "create_media": "Generate or edit an image, video, or audio asset.",
@@ -437,18 +442,17 @@ async def async_think(
 
     class ChatThought(BaseModel):
         """A response to a chat message."""
-        
+
         thought: str = Field(
             ...,
-            description="A thought about what relevance, if any, the last user message has to you, and a justification of your intention."
+            description="A thought about what relevance, if any, the last user message has to you, and a justification of your intention.",
         )
         intention: Literal["ignore", "reply"] = Field(
-            ...,
-            description=intention_description
+            ..., description=intention_description
         )
         tools: Optional[List[Literal[tuple(tool_categories.keys())]]] = Field(
             ...,
-            description=f"A list of tools you might need to address this message.\n{tool_descriptions}"
+            description=f"A list of tools you might need to address this message.\n{tool_descriptions}",
         )
 
     # generate text blob of chat history
@@ -487,16 +491,13 @@ async def async_think(
         )
     else:
         knowledge_description = ""
-    
-    prompt = Template(thought_template).render(
-        name=agent.name, 
-        chat=chat, 
-        message=message,
-        knowledge_description=knowledge_description
-    )
 
-    print("prompt")
-    print(prompt)
+    prompt = Template(thought_template).render(
+        name=agent.name,
+        chat=chat,
+        message=message,
+        knowledge_description=knowledge_description,
+    )
 
     thought = await async_prompt(
         [UserMessage(content=prompt)],
@@ -504,9 +505,6 @@ async def async_think(
         model="gpt-4o-mini",
         response_model=ChatThought,
     )
-
-    print("thought response")
-    print(thought)
 
     if force_reply:
         thought.intention = "reply"
@@ -525,7 +523,9 @@ def sentry_transaction(op: str, name: str):
                     yield item
             finally:
                 transaction.finish()
+
         return wrapper
+
     return decorator
 
 
@@ -542,7 +542,9 @@ async def async_prompt_thread(
     stream: bool = False,
 ):
     model = model or DEFAULT_MODEL
-    user_messages = user_messages if isinstance(user_messages, list) else [user_messages]
+    user_messages = (
+        user_messages if isinstance(user_messages, list) else [user_messages]
+    )
     user_message_id = user_messages[-1].id
 
     # Rate limiting
@@ -575,7 +577,9 @@ async def async_prompt_thread(
 
         # Check mentions
         agent_mentioned = any(
-            re.search(rf"\b{re.escape(agent.name.lower())}\b", (msg.content or "").lower())
+            re.search(
+                rf"\b{re.escape(agent.name.lower())}\b", (msg.content or "").lower()
+            )
             for msg in user_messages
         )
         print("agent mentioned", agent_mentioned)
@@ -584,7 +588,7 @@ async def async_prompt_thread(
         thought = {
             "thought": "<skip>",
             "intention": "reply" if agent_mentioned or force_reply else "ignore",
-            "tools": ["create_media"]
+            "tools": ["create_media"],
         }
 
     # for error tracing
@@ -599,18 +603,13 @@ async def async_prompt_thread(
 
     # reply only if intention is "reply"
     should_reply = thought["intention"] == "reply"
-    
+
     if should_reply:
         # update thread and continue
-        thread.push({
-            "messages": user_messages,
-            "active": user_message_id
-        })
+        thread.push({"messages": user_messages, "active": user_message_id})
     else:
         # update thread and stop
-        thread.push({
-            "messages": user_messages
-        })
+        thread.push({"messages": user_messages})
         return
 
     # yield start signal
@@ -623,10 +622,14 @@ async def async_prompt_thread(
             # if creation tools are *not* requested, remove them from the tools list,
             # except for any that were already called in previous messages.
             if not "create_media" in (thought["tools"] or []):
-                tools_called = set([
-                    tc.tool for msg in messages if msg.role == "assistant" 
-                    for tc in msg.tool_calls
-                ])
+                tools_called = set(
+                    [
+                        tc.tool
+                        for msg in messages
+                        if msg.role == "assistant"
+                        for tc in msg.tool_calls
+                    ]
+                )
                 tools = {k: v for k, v in tools.items() if k in tools_called}
 
             # if knowledge requested, prepend with full knowledge text
@@ -647,8 +650,7 @@ async def async_prompt_thread(
             )
 
             system_message = Template(system_template).render(
-                name=agent.name,
-                persona=agent.persona
+                name=agent.name, persona=agent.persona
             )
 
             # main call to LLM, streaming
@@ -750,9 +752,7 @@ async def async_prompt_thread(
                     raise Exception(f"Tool {tool_call.tool} not found.")
 
                 # start task
-                task = await tool.async_start_task(
-                    user.id, agent.id, tool_call.args
-                )
+                task = await tool.async_start_task(user.id, agent.id, tool_call.args)
 
                 # update tool call with task id and status
                 thread.update_tool_call(
