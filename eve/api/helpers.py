@@ -46,9 +46,7 @@ async def setup_chat(
         logger.error(f"Error loading agent: {traceback.format_exc()}")
         raise APIError(f"Invalid agent_id: {request.agent_id}", status_code=400) from e
 
-    start_time = time.time()
     tools = agent.get_tools(cache=False)
-    logger.info(f"Time to get tools: {time.time() - start_time}")
 
     if request.thread_id:
         try:
@@ -59,7 +57,7 @@ async def setup_chat(
                 f"Invalid thread_id: {request.thread_id}", status_code=400
             ) from e
     else:
-        thread = agent.request_thread(user=user.id)
+        thread = agent.request_thread(user=user.id, message_limit=25)
         background_tasks.add_task(async_title_thread, thread, request.user_message)
 
     return user, agent, thread, tools
