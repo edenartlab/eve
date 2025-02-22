@@ -16,7 +16,9 @@ class ChatMessage(BaseModel):
     createdAt: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     role: Literal["user", "assistant"]
     reply_to: Optional[ObjectId] = None
-    hidden: Optional[bool] = False  # hides message (e.g. triggers / special system instructions) from llm
+    hidden: Optional[bool] = (
+        False  # hides message (e.g. triggers / special system instructions) from llm
+    )
     reactions: Optional[Dict[str, List[ObjectId]]] = {}
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -25,7 +27,7 @@ class ChatMessage(BaseModel):
         if reaction not in self.reactions:
             self.reactions[reaction] = []
         self.reactions[reaction].append(user)
-    
+
 
 class UserMessage(ChatMessage):
     role: Literal["user"] = "user"
@@ -68,7 +70,9 @@ class UserMessage(ChatMessage):
                         attachment_lines.append(f"* {attachment}")
                         attachment_files.append(attachment_file)
                     else:
-                        attachment_errors.append(f"* {attachment}: (Mime type: {mime_type})")
+                        attachment_errors.append(
+                            f"* {attachment}: (Mime type: {mime_type})"
+                        )
                 except Exception as e:
                     attachment_errors.append(f"* {attachment}: {str(e)}")
 
@@ -125,14 +129,8 @@ class UserMessage(ChatMessage):
         return content
 
     def anthropic_schema(self, truncate_images=False):
-        content = self._get_content(
-            "anthropic", 
-            truncate_images=truncate_images
-        )
-        return [{
-            "role": "user",
-            "content": content
-        }] if content else []
+        content = self._get_content("anthropic", truncate_images=truncate_images)
+        return [{"role": "user", "content": content}] if content else []
 
     def openai_schema(self, truncate_images=False):
         return [
@@ -258,9 +256,7 @@ class ToolCall(BaseModel):
 
     @staticmethod
     def from_anthropic(tool_call):
-        return ToolCall(
-            id=tool_call.id, tool=tool_call.name, args=tool_call.input
-        )
+        return ToolCall(id=tool_call.id, tool=tool_call.name, args=tool_call.input)
 
     def openai_call_schema(self):
         return {
@@ -283,8 +279,7 @@ class ToolCall(BaseModel):
             "type": "tool_result",
             "tool_use_id": self.id,
             "content": self.get_result(
-                schema="anthropic", 
-                truncate_images=truncate_images
+                schema="anthropic", truncate_images=truncate_images
             ),
         }
 
@@ -293,8 +288,7 @@ class ToolCall(BaseModel):
             "role": "tool",
             "name": self.tool,
             "content": self.get_result(
-                schema="openai", 
-                truncate_images=truncate_images
+                schema="openai", truncate_images=truncate_images
             ),
             "tool_call_id": self.id,
         }
@@ -329,15 +323,14 @@ class AssistantMessage(ChatMessage):
     def anthropic_schema(self, truncate_images=False):
         if not self.content and not self.tool_calls:
             return []
-        schema = [{
-            "role": "assistant",
-            "content": [
-                {
-                    "type": "text",
-                    "text": self.content
-                }
-            ] if self.content else [],
-        }]
+        schema = [
+            {
+                "role": "assistant",
+                "content": [{"type": "text", "text": self.content}]
+                if self.content
+                else [],
+            }
+        ]
         if self.tool_calls:
             schema[0]["content"].extend(
                 [t.anthropic_call_schema() for t in self.tool_calls]
@@ -353,7 +346,7 @@ class AssistantMessage(ChatMessage):
             )
         return schema
 
-    
+
 @Collection("threads3")
 class Thread(Document):
     key: Optional[str] = None
@@ -362,24 +355,41 @@ class Thread(Document):
     user: Optional[ObjectId] = None
     messages: List[Union[UserMessage, AssistantMessage]] = Field(default_factory=list)
     active: List[ObjectId] = Field(default_factory=list)
+    message_limit: Optional[int] = 25
 
     @classmethod
-    def load(cls, key, agent=None, user=None, create_if_missing=False):
+    def from_mongo(cls, document_id: ObjectId):
+        """Override from_mongo to apply message limit during load"""
+        thread = super().from_mongo(document_id)
+        if thread.messages:
+            thread.messages = thread.messages[-thread.message_limit :]
+        return thread
+
+    @classmethod
+    def load(
+        cls, key, agent=None, user=None, create_if_missing=False, message_limit=25
+    ):
         filter = {"key": key}
         if agent:
             filter["agent"] = agent
         if user:
-            filter["user"] = user        
+            filter["user"] = user
         thread = cls.get_collection().find_one(filter)
         if thread:
             thread = Thread(**thread)
+            if thread.messages:
+                thread.messages = thread.messages[-message_limit:]
         else:
             if create_if_missing:
-                thread = cls(key=key, agent=agent, user=user)
+                thread = cls(
+                    key=key, agent=agent, user=user, message_limit=message_limit
+                )
                 thread.save()
             else:
                 db = os.getenv("DB")
-                raise Exception(f"Thread {key} with agent {agent} not found in {cls.collection_name}:{db}")        
+                raise Exception(
+                    f"Thread {key} with agent {agent} not found in {cls.collection_name}:{db}"
+                )
         return thread
 
     def update_tool_call(self, message_id, tool_call_index, updates):
@@ -394,15 +404,14 @@ class Thread(Document):
         }
         self.set_against_filter(updates, filter={"messages.id": message_id})
 
-    def get_messages(self, last_n=25):
-        # filter by time, number, or prompt
-        # todo: if reply to inside messages, mark it
-        # todo: if reply to by old message, include context leading up to it
+    def get_messages(self, last_n=None):
+        """Get messages with optional limit override"""
+        last_n = last_n or self.message_limit
         all_messages = self.messages[-last_n:]
         messages = [m for m in all_messages if not m.hidden]
-        
+
         # hidden messages should be excluded except for the last one (e.g. a trigger)
         if all_messages and all_messages[-1].hidden:
             messages.append(all_messages[-1])
-            
+
         return messages

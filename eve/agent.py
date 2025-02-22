@@ -69,7 +69,7 @@ class KnowledgeDescription(BaseModel):
     )
     retrieval_criteria: str = Field(
         ...,
-        description="A clear, specific description of when the reference document is needed to answer a user query. This should specify what topics, types of questions, or gaps in the assistant’s knowledge require consulting the document.",
+        description="A clear, specific description of when the reference document is needed to answer a user query. This should specify what topics, types of questions, or gaps in the assistant's knowledge require consulting the document.",
     )
 
 
@@ -180,12 +180,8 @@ class Agent(User):
     def load(cls, username, cache=False):
         return super().load(username=username)
 
-    def request_thread(self, key=None, user=None):
-        thread = Thread(
-            key=key,
-            agent=self.id,
-            user=user,
-        )
+    def request_thread(self, key=None, user=None, message_limit=25):
+        thread = Thread(key=key, agent=self.id, user=user, message_limit=message_limit)
         thread.save()
         return thread
 
@@ -398,7 +394,7 @@ Your task is to generate a KnowledgeDescription for a reference document. Given 
 
 summary – A concise, detailed description of what information is contained in the reference document. Focus on subjects, topics, facts, and structure rather than adjectives or generalizations. Be specific about what kind of knowledge is present.
 
-retrieval_criteria – A structured, single-instruction paragraph that clearly defines when the reference document should be consulted. Identify the subjects, topics, types of questions, or knowledge gaps that require retrieving the document’s contents. This should help the assistant determine whether the document is necessary to accurately respond to a user message. Avoid overly broad conditions to prevent unnecessary retrievals, but ensure all relevant cases are covered.
+retrieval_criteria – A structured, single-instruction paragraph that clearly defines when the reference document should be consulted. Identify the subjects, topics, types of questions, or knowledge gaps that require retrieving the document's contents. This should help the assistant determine whether the document is necessary to accurately respond to a user message. Avoid overly broad conditions to prevent unnecessary retrievals, but ensure all relevant cases are covered.
 </Task>"""
 
 
