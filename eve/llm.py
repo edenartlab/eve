@@ -26,6 +26,9 @@ from .api.rate_limiter import RateLimiter
 
 
 USE_RATE_LIMITS = os.getenv("USE_RATE_LIMITS", "false").lower() == "true"
+USE_THINKING = os.getenv("USE_THINKING", "false").lower() == "true"
+
+BASE_TOOLS = ["flux_schnell", "flux_dev_lora", "ffmpeg_multitool", "musicgen", "runway"]
 
 
 class UpdateType(str, Enum):
@@ -376,32 +379,49 @@ class ThreadUpdate(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
+
+
+
 system_template = """<Summary>You are roleplaying as {{ name }}.</Summary>
 <Persona>
-This is a description of {{ name }}'s persona:
+This section describes {{ name }}'s persona:
 {{ persona }}
 </Persona>
-<System Instructions>
-In addition to the instructions above, follow these additional guidelines:
-* In your response, do not include anything besides for your chat message. Do not include pretext, stage directions, or anything other than what you are saying.
-* Try to be concise. Do not be verbose.
-</System Instructions>"""
+{{ knowledge }}
+<SystemInstructions>
+Please follow these guidelines:
+1. Output only your final chat message.
+2. Do not include any preamble, meta commentary, or stage directions.
+3. Be concise.
+4. Only create images or other media if the user requests it. Don't go out of your way to create media.
+</SystemInstructions>"""
 
+knowledge_template = """
+<Knowledge>
+The following summarizes your background knowledge and the circumstances for which you may need to consult or refer to it. If you need to consult your knowledge base, set "recall_knowledge" to true.
+
+{{ knowledge_description }}
+</Knowledge>"""
 
 thought_template = """<Name>{{ name }}</Name>
 <ChatLog>
-You are roleplaying as {{ name }} in a group chat. The previous 10 messages in the chat follow. Note that "You" means you, Eve, sent the message.
+Role: You are roleplaying as {{ name }} in a group chat. The following are the last 10 messages. Note: "You" refers to your own messages.
 ---
 {{ chat }}---
 </ChatLog>
+{{ tools_description }}
 <Task>
-You will receive the next message from a user to this chat. Note that this message is not necessarily directed to you. This is a group chat with multiple users and you. The message may be directed at someone else. Use context to determine if the message is directed at you, references something you said earlier, directed at someone other than you, or is just a general message to no one specific.
-
-Read the new message and generate a response to it which contains the following:
-
-* intention: A classification of how to respond to the user message. If the message does not involve you or address you directly, and if it is not relevant to any of your interests or goals, you should set this to "ignore". If the message involves you or is somehow relevant to you, and you decide you need to reply with a message, you should set this to "reply". You should generally reply only when a user requests you, responds to you, or brings up something very obviously relevant or interesting to you.
-* thought: A short thought about the message, its relevance to you, and a justification of your intention.
-* tools: If and only if you are replying, you may optionally select any and all tools that might be relevant to the user message.
+You will receive the next user message in this group chat. Note that the message may not be directed specifically to you. Use context to determine if it:
+- Directly addresses you,
+- References something you said,
+- Is intended for another participant, or
+- Is a general message.
+Based on your analysis, generate a response containing:
+- intention: Either "reply" or "ignore". Choose "reply" if the message is relevant or requests you; choose "ignore" if it is not.
+- thought: A brief explanation of your reasoning regarding the message’s relevance and your decision.
+- tools: Whether to consult all tools (complete), or just the base set (base).
+- recall_knowledge: Whether to consult your background knowledge.
+{{ reply_criteria }}
 </Task>
 {{ knowledge_description }}
 <Message>
@@ -409,12 +429,15 @@ Read the new message and generate a response to it which contains the following:
 </Message>"""
 
 
-knowledge_template = """
-<Knowledge>
-This is your background knowledge.
+tools_template = """
+<AvailableTools>
+These are your tool sets. Select the one best for the last message.
 
-{knowledge}
-</Knowledge>"""
+{{ tool_categories }}
+</AvailableTools>
+"""
+
+
 
 
 async def async_think(
@@ -425,34 +448,33 @@ async def async_think(
 ):
     intention_description = "Response class to the last user message. Ignore if irrelevant, reply if relevant and you intend to say something."
 
-    if agent.reply_criteria:
-        intention_description += (
-            f"\nAdditional criteria for replying spontaneously: {agent.reply_criteria}"
-        )
+    # if agent.reply_criteria:
+    #     intention_description += (
+    #         f"\nAdditional criteria for replying spontaneously: {agent.reply_criteria}"
+    #     )
 
     tool_categories = {
-        "create_media": "Generate or edit an image, video, or audio asset.",
-        "search": "Retrieve old chat messages to recall information, or search the database for other agents, users, models, or loras.",
+        "base": "Basic tools you want to keep in context at all times. This includes common creation tools like simple text-to-image, image-to-video, text-to-audio (including speech, music, and sound effects), as well as tools for searching and retrieving information from your knowledge base, memory, and all documents (including models/finetunes).",
+        "complete": "All basic tools, plus lesser-used creation tools for image and video generation and editing, including inpainting, outpainting, remixing, restyling, inserting, and modifying, as well as tools for generating talking heads, and retrieving news, weather, and web search results.",
     }
-
-    if agent.knowledge:
-        tool_categories["knowledge"] = "Refer to your large external knowledge base."
-
-    tool_descriptions = "\n".join([f"{k}: {v}" for k, v in tool_categories.items()])
 
     class ChatThought(BaseModel):
         """A response to a chat message."""
 
+        intention: Literal["ignore", "reply"] = Field(
+            ..., description="Ignore if last message is irrelevant, reply if relevant or criteria met."
+        )
         thought: str = Field(
             ...,
-            description="A thought about what relevance, if any, the last user message has to you, and a justification of your intention.",
+            description="A very brief thought about what relevance, if any, the last user message has to you, and a justification of your intention.",
         )
-        intention: Literal["ignore", "reply"] = Field(
-            ..., description=intention_description
-        )
-        tools: Optional[List[Literal[tuple(tool_categories.keys())]]] = Field(
+        tools: Optional[Literal[tuple(tool_categories.keys())]] = Field(
             ...,
-            description=f"A list of tools you might need to address this message.\n{tool_descriptions}",
+            description=f"Which tools to include in reply context",
+        )
+        recall_knowledge: bool = Field(
+            ...,
+            description="Whether to recall, refer to, or consult your knowledge base.",
         )
 
     # generate text blob of chat history
@@ -468,7 +490,7 @@ async def async_think(
             name = agent.name
             for tc in msg.tool_calls:
                 args = ", ".join([f"{k}={v}" for k, v in tc.args.items()])
-                tc_result = dump_json(tc.result)
+                tc_result = dump_json(tc.result, exclude="blurhash")
                 content += f"\n -> {tc.tool}({args}) -> {tc_result}"
         time_str = msg.createdAt.strftime("%H:%M")
         chat += f"<{name} {time_str}> {content}\n"
@@ -486,22 +508,35 @@ async def async_think(
             await refresh_agent(agent)
             agent.reload()
 
+        knowledge_description = f"Summary: {agent.knowledge_description.summary}. Recall if: {agent.knowledge_description.retrieval_criteria}"
         knowledge_description = Template(knowledge_template).render(
-            knowledge_description=agent.knowledge_description
+            knowledge_description=knowledge_description
         )
     else:
         knowledge_description = ""
 
+    if agent.reply_criteria:
+        reply_criteria = f"Note: You should additionally set reply to true if any of the follorwing criteria are met: {agent.reply_criteria}"
+    else:
+        reply_criteria = ""
+
+    tool_descriptions = "\n".join([f"{k}: {v}" for k, v in tool_categories.items()])
+    tools_description = Template(tools_template).render(
+        tool_categories=tool_descriptions
+    )
+
     prompt = Template(thought_template).render(
         name=agent.name,
         chat=chat,
-        message=message,
+        tools_description=tools_description,
         knowledge_description=knowledge_description,
+        message=message,
+        reply_criteria=reply_criteria,
     )
 
     thought = await async_prompt(
         [UserMessage(content=prompt)],
-        system_message=f"You are a helpful assistant named {agent.name}. You are just analyzing chats and generating thoughts.",
+        system_message=f"You analyze the chat on behalf of {agent.name} and generate a thought.",
         model="gpt-4o-mini",
         response_model=ChatThought,
     )
@@ -529,6 +564,93 @@ def sentry_transaction(op: str, name: str):
     return decorator
 
 
+async def process_tool_call(
+    thread: Thread,
+    assistant_message: AssistantMessage,
+    tool_call_index: int,
+    tool_call: ToolCall,
+    tools: Dict[str, Tool],
+    user_id: str,
+    agent_id: str,
+) -> ThreadUpdate:
+    """Process a single tool call and return the appropriate ThreadUpdate"""
+    
+    try:
+        # get tool
+        tool = tools.get(tool_call.tool)
+        if not tool:
+            raise Exception(f"Tool {tool_call.tool} not found.")
+
+        # start task
+        task = await tool.async_start_task(user_id, agent_id, tool_call.args)
+
+        # update tool call with task id and status
+        thread.update_tool_call(
+            assistant_message.id,
+            tool_call_index,
+            {"task": ObjectId(task.id), "status": "pending"},
+        )
+
+        # wait for task to complete
+        result = await tool.async_wait(task)
+        thread.update_tool_call(assistant_message.id, tool_call_index, result)
+
+        # task completed
+        if result["status"] == "completed":
+            # make a Creation
+            name = task.args.get("prompt") or task.args.get("text_input")
+            filename = result.get("output", [{}])[0].get("filename")
+            media_attributes = result.get("output", [{}])[0].get("mediaAttributes")
+            
+            if filename and media_attributes:
+                new_creation = Creation(
+                    user=task.user,
+                    requester=task.requester,
+                    task=task.id,
+                    tool=task.tool,
+                    filename=filename,
+                    mediaAttributes=media_attributes,
+                    name=name,
+                )
+                new_creation.save()
+
+            # yield update
+            return ThreadUpdate(
+                type=UpdateType.TOOL_COMPLETE,
+                tool_name=tool_call.tool,
+                tool_index=tool_call_index,
+                result=result,
+            )
+        else:
+            # yield error
+            return ThreadUpdate(
+                type=UpdateType.ERROR,
+                tool_name=tool_call.tool,
+                tool_index=tool_call_index,
+                error=result.get("error"),
+            )
+
+    except Exception as e:
+        # capture error
+        capture_exception(e)
+        traceback.print_exc()
+
+        # update tool call with status and error
+        thread.update_tool_call(
+            assistant_message.id,
+            tool_call_index,
+            {"status": "failed", "error": str(e)},
+        )
+
+        # yield update
+        return ThreadUpdate(
+            type=UpdateType.ERROR,
+            tool_name=tool_call.tool,
+            tool_index=tool_call_index,
+            error=str(e),
+        )
+
+
 @sentry_transaction(op="llm.prompt", name="async_prompt_thread")
 async def async_prompt_thread(
     user: User,
@@ -553,14 +675,11 @@ async def async_prompt_thread(
 
     # Apply bot-specific limits
     if user_is_bot:
-        print("bot message, stop")
+        print("Bot message, stopping")
         return
 
-    # only think in stage, otherwise do classic behavior
-    think = os.getenv("DB").upper() == "STAGE"
-
     # thinking step
-    if think:
+    if USE_THINKING:
         print("Thinking...")
 
         # a thought contains intention and tool pre-selection
@@ -586,9 +705,9 @@ async def async_prompt_thread(
 
         # when there's no thinking, reply if mentioned or forced, and include all tools
         thought = {
-            "thought": "<skip>",
+            "thought": "none",
             "intention": "reply" if agent_mentioned or force_reply else "ignore",
-            "tools": ["create_media"],
+            "tools": ["base"],
         }
 
     # for error tracing
@@ -621,23 +740,27 @@ async def async_prompt_thread(
 
             # if creation tools are *not* requested, remove them from the tools list,
             # except for any that were already called in previous messages.
-            if not "create_media" in (thought["tools"] or []):
-                tools_called = set(
-                    [
-                        tc.tool
-                        for msg in messages
-                        if msg.role == "assistant"
-                        for tc in msg.tool_calls
-                    ]
-                )
-                tools = {k: v for k, v in tools.items() if k in tools_called}
+            if thought["tools"] == "base":
+                include_tools = [
+                    tc.tool
+                    for msg in messages
+                    if msg.role == "assistant"
+                    for tc in msg.tool_calls
+                ] # start with tools already called
+                include_tools.extend(BASE_TOOLS) # add base tools
+                tools = {k: v for k, v in tools.items() if k in include_tools}
 
             # if knowledge requested, prepend with full knowledge text
-            if "knowledge" in (thought["tools"] or []) and agent.knowledge:
-                knowledge = Template(knowledge_template).render(
-                    knowledge=agent.knowledge
-                )
-                messages.insert(0, UserMessage(name="admin", content=knowledge))
+            if thought["recall_knowledge"] and agent.knowledge:
+                knowledge = agent.knowledge
+            else:
+                knowledge = ""
+
+            system_message = Template(system_template).render(
+                name=agent.name, 
+                persona=agent.persona, 
+                knowledge=knowledge
+            )
 
             # for error tracing
             add_breadcrumb(
@@ -647,10 +770,6 @@ async def async_prompt_thread(
                     "model": model,
                     "tools": (tools or {}).keys(),
                 },
-            )
-
-            system_message = Template(system_template).render(
-                name=agent.name, persona=agent.persona
             )
 
             # main call to LLM, streaming
@@ -743,81 +862,27 @@ async def async_prompt_thread(
             stop = True
             break
 
-        # handle tool calls
-        for t, tool_call in enumerate(assistant_message.tool_calls):
-            try:
-                # get tool
-                tool = tools.get(tool_call.tool)
-                if not tool:
-                    raise Exception(f"Tool {tool_call.tool} not found.")
-
-                # start task
-                task = await tool.async_start_task(user.id, agent.id, tool_call.args)
-
-                # update tool call with task id and status
-                thread.update_tool_call(
-                    assistant_message.id,
-                    t,
-                    {"task": ObjectId(task.id), "status": "pending"},
+        # handle tool calls in batches of 4
+        tool_calls = assistant_message.tool_calls or []
+        for b in range(0, len(tool_calls), 4):
+            batch = enumerate(tool_calls[b:b + 4])
+            tasks = [
+                process_tool_call(
+                    thread,
+                    assistant_message,
+                    b + idx,
+                    tool_call,
+                    tools,
+                    user.id,
+                    agent.id
                 )
-
-                # wait for task to complete
-                result = await tool.async_wait(task)
-                thread.update_tool_call(assistant_message.id, t, result)
-
-                # task completed
-                if result["status"] == "completed":
-                    # make a Creation
-                    name = task.args.get("prompt") or task.args.get("text_input")
-                    filename = result.get("output", [{}])[0].get("filename")
-                    media_attributes = result.get("output", [{}])[0].get(
-                        "mediaAttributes"
-                    )
-                    if filename and media_attributes:
-                        new_creation = Creation(
-                            user=task.user,
-                            requester=task.requester,
-                            task=task.id,
-                            tool=task.tool,
-                            filename=filename,
-                            mediaAttributes=media_attributes,
-                            name=name,
-                        )
-                        new_creation.save()
-
-                    # yield update
-                    yield ThreadUpdate(
-                        type=UpdateType.TOOL_COMPLETE,
-                        tool_name=tool_call.tool,
-                        tool_index=t,
-                        result=result,
-                    )
-                else:
-                    # yield error
-                    yield ThreadUpdate(
-                        type=UpdateType.ERROR,
-                        tool_name=tool_call.tool,
-                        tool_index=t,
-                        error=result.get("error"),
-                    )
-
-            except Exception as e:
-                # capture error
-                capture_exception(e)
-                traceback.print_exc()
-
-                # update tool call with status and error
-                thread.update_tool_call(
-                    assistant_message.id, t, {"status": "failed", "error": str(e)}
-                )
-
-                # yield update
-                yield ThreadUpdate(
-                    type=UpdateType.ERROR,
-                    tool_name=tool_call.tool,
-                    tool_index=t,
-                    error=str(e),
-                )
+                for idx, tool_call in batch
+            ]
+            
+            # wait for batch to complete and yield each result
+            results = await asyncio.gather(*tasks, return_exceptions=False)
+            for result in results:
+                yield result
 
         # if stop called, break out of loop
         if stop:

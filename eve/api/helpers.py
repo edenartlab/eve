@@ -32,7 +32,9 @@ async def get_update_channel(
 
 
 async def setup_chat(
-    request: ChatRequest, background_tasks: BackgroundTasks
+    request: ChatRequest, 
+    cache: bool = False,
+    background_tasks: BackgroundTasks = None,
 ) -> tuple[User, Agent, Thread, list[Tool]]:
     try:
         user = User.from_mongo(request.user_id)
@@ -46,7 +48,10 @@ async def setup_chat(
         logger.error(f"Error loading agent: {traceback.format_exc()}")
         raise APIError(f"Invalid agent_id: {request.agent_id}", status_code=400) from e
 
-    tools = agent.get_tools(cache=False)
+    t1 = time.time()
+    tools = agent.get_tools(cache=cache)
+    t2 = time.time()
+    print(f"Time taken to GET TOOLS 9999: {t2 - t1} seconds")
 
     if request.thread_id:
         try:

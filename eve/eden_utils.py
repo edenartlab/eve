@@ -869,7 +869,7 @@ def save_test_results(tools, results):
     print(f"Test results saved to {results_dir}")
 
 
-def dump_json(obj, indent=None):
+def dump_json(obj, indent=None, exclude=None):
     class CustomJSONEncoder(json.JSONEncoder):
         def default(self, obj):
             if isinstance(obj, ObjectId):
@@ -877,6 +877,11 @@ def dump_json(obj, indent=None):
             if isinstance(obj, datetime):
                 return obj.isoformat()
             return super().default(obj)
+    if not obj:
+        return ""
+    for e in exclude or []:
+        if e in obj:
+            del obj[e]
     return json.dumps(obj, cls=CustomJSONEncoder, indent=indent)
 
 

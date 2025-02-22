@@ -16,9 +16,7 @@ class ChatMessage(BaseModel):
     createdAt: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     role: Literal["user", "assistant"]
     reply_to: Optional[ObjectId] = None
-    hidden: Optional[bool] = (
-        False  # hides message (e.g. triggers / special system instructions) from llm
-    )
+    hidden: Optional[bool] = False # hides trigger messages from llm
     reactions: Optional[Dict[str, List[ObjectId]]] = {}
 
     model_config = ConfigDict(arbitrary_types_allowed=True)

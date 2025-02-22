@@ -19,7 +19,9 @@ from .mongo import Collection, get_collection
 from .user import User, Manna
 from .models import Model
 
-CHECK_INTERVAL = 30
+
+last_tools_update = None
+agent_tools_cache = {}
 
 
 default_presets_flux = {
@@ -116,9 +118,8 @@ class Agent(User):
     model: Optional[ObjectId] = None
     test_args: Optional[List[Dict[str, Any]]] = None
 
-    tools: Optional[Dict[str, Dict]] = None
-    tools_cache: SkipJsonSchema[Optional[Dict[str, Tool]]] = Field(None, exclude=True)
-    last_check: ClassVar[Dict[str, float]] = {}  # seconds
+    tools: Optional[Dict[str, Dict]] = {}
+    # tools_cache: SkipJsonSchema[Optional[Dict[str, Tool]]] = Field(None, exclude=True)
 
     def __init__(self, **data):
         if isinstance(data.get("owner"), str):
@@ -247,16 +248,33 @@ class Agent(User):
         return schema
 
     def get_tools(self, cache=False):
-        if not hasattr(self, "tools") or not self.tools:
-            self.tools = {}
+        global last_tools_update
+
+        # if not hasattr(self, "tools") or not self.tools:
+        #     self.tools = {}
 
         if cache:
-            self.tools_cache = self.tools_cache or {}
+            # get latest updatedAt timestamp for tools
+            tools = get_collection(Tool.collection_name)
+            timestamps = tools.find({}, {"updatedAt": 1})
+            last_tools_update_ = max((doc.get('updatedAt') for doc in timestamps if doc.get('updatedAt')), default=None)
+            if last_tools_update is None:
+                last_tools_update = last_tools_update_
+            
+            # reset cache if outdated
+            cache_outdated = last_tools_update < last_tools_update_
+            last_tools_update = max(last_tools_update, last_tools_update_)
+            if self.username not in agent_tools_cache or cache_outdated:
+                print("Cache is outdated, resetting...")
+                agent_tools_cache[self.username] = {}
+
+            # insert new tools into cache
             for k, v in self.tools.items():
-                if k not in self.tools_cache:
+                if k not in agent_tools_cache[self.username]:
                     tool = Tool.from_raw_yaml({"parent_tool": k, **v})
-                    self.tools_cache[k] = tool
-            return self.tools_cache
+                    agent_tools_cache[self.username][k] = tool
+            
+            return agent_tools_cache[self.username]
         else:
             return {
                 k: Tool.from_raw_yaml({"parent_tool": k, **v})
