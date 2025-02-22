@@ -23,6 +23,10 @@ OUTPUT_TYPES = Literal[
     "boolean", "string", "integer", "float", "image", "video", "audio", "lora"
 ]
 
+HANDLERS = Literal[
+    "local", "modal", "comfyui", "comfyui_legacy", "replicate", "gcp"
+]
+
 BASE_MODELS = Literal[
     "sd15",
     "sdxl",
@@ -40,7 +44,13 @@ BASE_MODELS = Literal[
     "musicgen",
 ]
 
-HANDLERS = Literal["local", "modal", "comfyui", "comfyui_legacy", "replicate", "gcp"]
+BASE_TOOLS = [
+    "flux_schnell", 
+    "flux_dev_lora", 
+    "ffmpeg_multitool", 
+    "musicgen", 
+    "runway"
+]
 
 
 class RateLimit(BaseModel):

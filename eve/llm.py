@@ -17,7 +17,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 from sentry_sdk import trace, start_transaction, add_breadcrumb, capture_exception
 
 from .eden_utils import dump_json
-from .tool import Tool
+from .tool import Tool, BASE_TOOLS
 from .task import Creation
 from .user import User
 from .agent import Agent, refresh_agent
@@ -27,8 +27,6 @@ from .api.rate_limiter import RateLimiter
 
 USE_RATE_LIMITS = os.getenv("USE_RATE_LIMITS", "false").lower() == "true"
 USE_THINKING = os.getenv("USE_THINKING", "false").lower() == "true"
-
-BASE_TOOLS = ["flux_schnell", "flux_dev_lora", "ffmpeg_multitool", "musicgen", "runway"]
 
 
 class UpdateType(str, Enum):
@@ -380,8 +378,6 @@ class ThreadUpdate(BaseModel):
 
 
 
-
-
 system_template = """<Summary>You are roleplaying as {{ name }}.</Summary>
 <Persona>
 This section describes {{ name }}'s persona:
@@ -396,11 +392,18 @@ Please follow these guidelines:
 4. Only create images or other media if the user requests it. Don't go out of your way to create media.
 </SystemInstructions>"""
 
-knowledge_template = """
+knowledge_think_template = """
 <Knowledge>
 The following summarizes your background knowledge and the circumstances for which you may need to consult or refer to it. If you need to consult your knowledge base, set "recall_knowledge" to true.
 
 {{ knowledge_description }}
+</Knowledge>"""
+
+knowledge_reply_template = """
+<Knowledge>
+You have the following background knowledge:
+
+{{ knowledge }}
 </Knowledge>"""
 
 thought_template = """<Name>{{ name }}</Name>
@@ -509,7 +512,7 @@ async def async_think(
             agent.reload()
 
         knowledge_description = f"Summary: {agent.knowledge_description.summary}. Recall if: {agent.knowledge_description.retrieval_criteria}"
-        knowledge_description = Template(knowledge_template).render(
+        knowledge_description = Template(knowledge_think_template).render(
             knowledge_description=knowledge_description
         )
     else:
@@ -746,13 +749,15 @@ async def async_prompt_thread(
                     for msg in messages
                     if msg.role == "assistant"
                     for tc in msg.tool_calls
-                ] # start with tools already called
-                include_tools.extend(BASE_TOOLS) # add base tools
+                ]  # start with tools already called
+                include_tools.extend(BASE_TOOLS)  # add base tools
                 tools = {k: v for k, v in tools.items() if k in include_tools}
 
             # if knowledge requested, prepend with full knowledge text
             if thought["recall_knowledge"] and agent.knowledge:
-                knowledge = agent.knowledge
+                knowledge = Template(knowledge_reply_template).render(
+                    knowledge=agent.knowledge
+                )
             else:
                 knowledge = ""
 
