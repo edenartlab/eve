@@ -4,9 +4,8 @@ import os
 import time
 from bson import ObjectId
 from typing import List
-from fastapi import BackgroundTasks
-from fastapi.responses import StreamingResponse
-from modal import Function
+from fastapi import BackgroundTasks, Request
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from eve.api.errors import handle_errors, APIError
 from eve.api.api_requests import (
@@ -28,6 +27,7 @@ from eve.api.helpers import (
 )
 from eve.clients.common import get_ably_channel_name
 from eve.deploy import (
+    deploy_client,
     stop_client,
 )
 from eve.tools.replicate_tool import replicate_update_task
@@ -226,27 +226,16 @@ async def handle_deployment_create(request: CreateDeploymentRequest):
     if not agent:
         raise APIError(f"Agent not found: {agent.id}", status_code=404)
 
-    try:
-        deploy_func = Function.lookup(
-            f"api-{db.lower()}", "deploy_client_modal", environment_name="main"
-        )
-        deploy_func.remote(
-            agent_id=str(agent.id),
-            agent_key=agent.username,
-            platform=request.platform.value,
-            secrets=request.secrets.model_dump(),
-            env=db.lower(),
-            repo_branch=request.repo_branch,
-        )
-    except Exception as e:
-        raise APIError(f"Failed to deploy client: {str(e)}", status_code=500)
+    secrets = await deploy_client(
+        agent, request.platform, request.secrets, db.lower(), request.repo_branch
+    )
 
     # Create/update deployment record
     deployment = Deployment(
         agent=agent.id,
         user=ObjectId(request.user),
         platform=request.platform,
-        secrets=request.secrets,
+        secrets=secrets,
         config=request.config,
     )
     deployment.save(
@@ -381,3 +370,67 @@ async def handle_trigger_get(trigger_id: str):
         "message": trigger.message,
         "update_config": trigger.update_config,
     }
+
+
+@handle_errors
+async def handle_telegram_update(request: Request):
+    secret_token = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
+    print("SECRET TOKEN", secret_token)
+    if not secret_token:
+        return JSONResponse(status_code=401, content={"error": "Missing secret token"})
+
+    try:
+        update_data = await request.json()
+    except Exception as e:
+        return JSONResponse(
+            status_code=400, content={"error": f"Invalid JSON: {str(e)}"}
+        )
+
+    print("UPDATE DATA", update_data)
+    try:
+        deployment = next(
+            (
+                d
+                for d in Deployment.find({"platform": "telegram"})
+                if d.secrets
+                and d.secrets.telegram
+                and d.secrets.telegram.webhook_secret == secret_token
+            ),
+            None,
+        )
+
+        if not deployment:
+            return JSONResponse(
+                status_code=401, content={"error": "Invalid secret token"}
+            )
+
+        message = update_data.get("message", {})
+        chat_request = ChatRequest(
+            user_id=str(message.get("from", {}).get("id")),
+            agent_id=str(deployment.agent),
+            user_message=UserMessage(
+                content=message.get("text", ""),
+                name=message.get("from", {}).get("username", "unknown"),
+                attachments=[],
+            ),
+            update_config=UpdateConfig(
+                telegram_chat_id=str(message.get("chat", {}).get("id")),
+                telegram_message_id=str(message.get("message_id")),
+                telegram_thread_id=str(message.get("message_thread_id"))
+                if message.get("message_thread_id")
+                else None,
+            ),
+            force_reply=False,
+        )
+
+        print("CHAT REQUEST", chat_request)
+
+        await handle_chat(chat_request, BackgroundTasks())
+
+        print("RESPONSE")
+
+        return JSONResponse(status_code=200, content={"ok": True})
+
+    except Exception as e:
+        logger.error("Error processing Telegram update", exc_info=True)
+        return JSONResponse(status_code=500, content={"error": str(e)})

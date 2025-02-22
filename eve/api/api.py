@@ -22,6 +22,7 @@ from eve.api.runner_tasks import (
     run_nsfw_detection,
     rotate_agent_metadata,
 )
+from eve.deploy import Deployment
 from eve.task import task_handler_func, Task
 from eve.tool import Tool
 from eve.tools.tool_handlers import load_handler
@@ -37,6 +38,7 @@ from eve.api.handlers import (
     handle_deployment_create,
     handle_deployment_delete,
     handle_stream_chat,
+    handle_telegram_update,
     handle_trigger_create,
     handle_trigger_delete,
     handle_twitter_update,
@@ -210,10 +212,9 @@ async def trigger_delete(
 
 @web_app.post("/updates/platform/telegram")
 async def updates_telegram(
-    request: PlatformUpdateRequest,
-    _: dict = Depends(auth.authenticate_admin),
+    request: Request,
 ):
-    return {"status": "success"}
+    return await handle_telegram_update(request)
 
 
 @web_app.post("/updates/platform/farcaster")
