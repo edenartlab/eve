@@ -1,0 +1,18 @@
+<Agent Description>
+Name: {{name}}
+Description: {{agent_description}}
+</Agent Description>
+
+<Reference>
+This is {{name}}'s full reference document or knowledge:
+---
+{{knowledge}}
+---
+</Reference>
+<Task>
+Your task is to generate a KnowledgeDescription for a reference document. Given a description of yourself and access to the document, analyze its contents and produce the following:
+
+summary – A concise, detailed description of what information is contained in the reference document. Focus on subjects, topics, facts, and structure rather than adjectives or generalizations. Be specific about what kind of knowledge is present.
+
+retrieval_criteria – A structured, single-instruction paragraph that clearly defines when the reference document should be consulted. Identify the subjects, topics, types of questions, or knowledge gaps that require retrieving the document's contents. This should help the assistant determine whether the document is necessary to accurately respond to a user message. Avoid overly broad conditions to prevent unnecessary retrievals, but ensure all relevant cases are covered.
+</Task>
