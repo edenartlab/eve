@@ -14,7 +14,6 @@ from .llm import async_prompt
 
 
 knowledge_think_template = load_template("knowledge_think") 
-knowledge_reply_template = load_template("knowledge_reply")
 thought_template = load_template("thought")
 tools_template = load_template("tools")
 

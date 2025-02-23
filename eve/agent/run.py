@@ -30,6 +30,7 @@ from .think import async_think
 
 
 system_template = load_template("system")
+knowledge_reply_template = load_template("knowledge_reply")
 
 USE_RATE_LIMITS = os.getenv("USE_RATE_LIMITS", "false").lower() == "true"
 USE_THINKING = os.getenv("USE_THINKING", "false").lower() == "true"
@@ -46,6 +47,8 @@ class ThreadUpdate(BaseModel):
     text: Optional[str] = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
 
 
 

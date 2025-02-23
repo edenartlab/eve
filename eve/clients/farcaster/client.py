@@ -11,10 +11,10 @@ from fastapi.background import BackgroundTasks
 import aiohttp
 import traceback
 
-from eve.agent import Agent
-from eve.llm import UpdateType
-from eve.user import User
-from eve.eden_utils import prepare_result
+from ...agent.agent import Agent
+from ...agent.llm import UpdateType
+from ...user import User
+from ...eden_utils import prepare_result
 
 logger = logging.getLogger(__name__)
 
