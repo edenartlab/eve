@@ -9,15 +9,14 @@ import anthropic
 from enum import Enum
 from bson import ObjectId
 from typing import Optional, Dict, Any, List, Union, Literal, Tuple, AsyncGenerator
-from jinja2 import Template
 from pydantic import BaseModel, Field
 from pydantic.config import ConfigDict
 from instructor.function_calls import openai_schema
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
 from sentry_sdk import trace, start_transaction, add_breadcrumb, capture_exception
 
-from .eden_utils import dump_json
-from .tool import Tool, BASE_TOOLS
+from .eden_utils import dump_json, load_template
+from .tool import Tool, BASE_TOOLS, TOOL_CATEGORIES
 from .task import Creation
 from .user import User
 from .agent import Agent, refresh_agent
@@ -42,6 +41,13 @@ class UpdateType(str, Enum):
 
 models = ["claude-3-5-sonnet-20241022", "gpt-4o-mini", "gpt-4o-2024-08-06"]
 DEFAULT_MODEL = "claude-3-5-sonnet-20241022"
+
+
+system_template = load_template("system")
+knowledge_think_template = load_template("knowledge_think") 
+knowledge_reply_template = load_template("knowledge_reply")
+thought_template = load_template("thought")
+tools_template = load_template("tools")
 
 
 async def async_anthropic_prompt(
@@ -378,69 +384,132 @@ class ThreadUpdate(BaseModel):
 
 
 
-system_template = """<Summary>You are roleplaying as {{ name }}.</Summary>
-<Persona>
-This section describes {{ name }}'s persona:
-{{ persona }}
-</Persona>
-{{ knowledge }}
-<SystemInstructions>
-Please follow these guidelines:
-1. Output only your final chat message.
-2. Do not include any preamble, meta commentary, or stage directions.
-3. Be concise.
-4. Only create images or other media if the user requests it. Don't go out of your way to create media.
-</SystemInstructions>"""
+import instructor
+from eve.models import Model
+from eve.agent import Agent
+from eve.mongo import get_collection
 
-knowledge_think_template = """
-<Knowledge>
-The following summarizes your background knowledge and the circumstances for which you may need to consult or refer to it. If you need to consult your knowledge base, set "recall_knowledge" to true.
+class SearchResult(BaseModel):
+    """A matching result from the database search."""
+    
+    id: str = Field(..., description="The MongoDB ID of the result")
+    name: str = Field(..., description="The name/title of the result")
+    description: str = Field(..., description="A brief description of the result")
+    relevance: str = Field(
+        ..., 
+        description="A brief explanation of why this result matches the search query"
+    )
 
-{{ knowledge_description }}
-</Knowledge>"""
-
-knowledge_reply_template = """
-<Knowledge>
-You have the following background knowledge:
-
-{{ knowledge }}
-</Knowledge>"""
-
-thought_template = """<Name>{{ name }}</Name>
-<ChatLog>
-Role: You are roleplaying as {{ name }} in a group chat. The following are the last 10 messages. Note: "You" refers to your own messages.
----
-{{ chat }}---
-</ChatLog>
-{{ tools_description }}
-<Task>
-You will receive the next user message in this group chat. Note that the message may not be directed specifically to you. Use context to determine if it:
-- Directly addresses you,
-- References something you said,
-- Is intended for another participant, or
-- Is a general message.
-Based on your analysis, generate a response containing:
-- intention: Either "reply" or "ignore". Choose "reply" if the message is relevant or requests you; choose "ignore" if it is not.
-- thought: A brief explanation of your reasoning regarding the message’s relevance and your decision.
-- tools: Whether to consult all tools (complete), or just the base set (base).
-- recall_knowledge: Whether to consult your background knowledge.
-{{ reply_criteria }}
-</Task>
-{{ knowledge_description }}
-<Message>
-{{ message }}
-</Message>"""
+class SearchResults(BaseModel):
+    """Results from searching the database."""
+    
+    results: List[SearchResult] = Field(
+        ...,
+        description="The matching results, ordered by relevance. Include only truly relevant results."
+    )
 
 
-tools_template = """
-<AvailableTools>
-These are your tool sets. Select the one best for the last message.
+search_template = """<mongodb_documents>
+{{documents}}
+</mongodb_documents>
+<query>
+{{query}}
+</query>
+<task>
+Return a list of matching documents to the query.
+</task>"""
 
-{{ tool_categories }}
-</AvailableTools>
-"""
+agent_template = """<document>
+  <_id>{{_id}}</_id>
+  <name>{{name}}</name>
+  <username>{{username}}</username>
+  <description>{{description}}</description>
+  <knowledge_description>{{knowledge_description}}</knowledge_description>
+  <persona>{{persona[:750]}}</persona>
+  <created_at>{{createdAt}}</created_at>
+</document>"""
+
+model_template = """<document>
+  <_id>{{_id}}</_id>
+  <name>{{name}}</name>
+  <lora_model>{{lora_model}}</lora_model>
+  <lora_trigger_text>{{lora_trigger_text}}</lora_trigger_text>
+  <created_at>{{createdAt}}</created_at>
+</document>"""
+
+from jinja2 import Template
+model_template = Template(model_template)
+agent_template = Template(agent_template)
+search_template = Template(search_template)
+
+async def search_mongo(type: Literal["model", "agent"], query: str):
+    """Search MongoDB for models or agents matching the query."""
+    
+    docs = []
+    id_map = {}
+    counter = 1
+    
+    if type == "model":
+        collection = get_collection(Model.get_collection_name())
+        for doc in collection.find({"base_model": "flux-dev", "public": True, "deleted": {"$ne": True}}):
+            # Map the real ID to a counter
+            id_map[counter] = str(doc["_id"])
+            doc["_id"] = counter
+            counter += 1
+            docs.append(model_template.render(doc))
+
+    elif type == "agent":
+        collection = get_collection(Agent.collection_name)
+        for doc in collection.find({"type": "agent", "public": True, "deleted": {"$ne": True}}):
+            # Map the real ID to a counter
+            id_map[counter] = str(doc["_id"])
+            doc["_id"] = counter
+            counter += 1
+            docs.append(agent_template.render(doc))
+
+    # Create context for LLM
+    context = search_template.render(
+        documents="\n".join(docs), 
+        query=query
+    )
+
+    # Make LLM call
+    system_message = f"""You are a search assistant that helps find relevant {type}s based on natural language queries. 
+    Analyze the provided items and return only the most relevant matches for the query.
+    Be selective - only return items that truly match the query's intent."""
+
+    prompt = f"""<{type}s>
+{context}
+</{type}s>
+<query>
+"{query}"
+</query>
+<task>
+Analyze these items and return only the ones that are truly relevant to this search query. 
+Explain why each result matches the query criteria.
+</task>"""
+
+    print(context)
 
 
+
+    # raise Exception("stop")
+
+    client = instructor.from_openai(openai.AsyncOpenAI())
+    results = await client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": system_message},
+            {"role": "user", "content": prompt},
+        ],
+        response_model=SearchResults,
+    )
+
+    # Map the simple IDs back to real MongoDB IDs
+    for result in results.results:
+        result.id = id_map[int(result.id)]
+
+    return results.results
 
 
 async def async_think(
@@ -449,17 +518,12 @@ async def async_think(
     user_message: UserMessage,
     force_reply: bool = True,
 ):
-    intention_description = "Response class to the last user message. Ignore if irrelevant, reply if relevant and you intend to say something."
+    # intention_description = "Response class to the last user message. Ignore if irrelevant, reply if relevant and you intend to say something."
 
     # if agent.reply_criteria:
     #     intention_description += (
     #         f"\nAdditional criteria for replying spontaneously: {agent.reply_criteria}"
     #     )
-
-    tool_categories = {
-        "base": "Basic tools you want to keep in context at all times. This includes common creation tools like simple text-to-image, image-to-video, text-to-audio (including speech, music, and sound effects), as well as tools for searching and retrieving information from your knowledge base, memory, and all documents (including models/finetunes).",
-        "complete": "All basic tools, plus lesser-used creation tools for image and video generation and editing, including inpainting, outpainting, remixing, restyling, inserting, and modifying, as well as tools for generating talking heads, and retrieving news, weather, and web search results.",
-    }
 
     class ChatThought(BaseModel):
         """A response to a chat message."""
@@ -471,7 +535,7 @@ async def async_think(
             ...,
             description="A very brief thought about what relevance, if any, the last user message has to you, and a justification of your intention.",
         )
-        tools: Optional[Literal[tuple(tool_categories.keys())]] = Field(
+        tools: Optional[Literal[tuple(TOOL_CATEGORIES.keys())]] = Field(
             ...,
             description=f"Which tools to include in reply context",
         )
@@ -512,7 +576,7 @@ async def async_think(
             agent.reload()
 
         knowledge_description = f"Summary: {agent.knowledge_description.summary}. Recall if: {agent.knowledge_description.retrieval_criteria}"
-        knowledge_description = Template(knowledge_think_template).render(
+        knowledge_description = knowledge_think_template.render(
             knowledge_description=knowledge_description
         )
     else:
@@ -523,12 +587,12 @@ async def async_think(
     else:
         reply_criteria = ""
 
-    tool_descriptions = "\n".join([f"{k}: {v}" for k, v in tool_categories.items()])
-    tools_description = Template(tools_template).render(
+    tool_descriptions = "\n".join([f"{k}: {v}" for k, v in TOOL_CATEGORIES.items()])
+    tools_description = tools_template.render(
         tool_categories=tool_descriptions
     )
 
-    prompt = Template(thought_template).render(
+    prompt = thought_template.render(
         name=agent.name,
         chat=chat,
         tools_description=tools_description,
@@ -755,13 +819,13 @@ async def async_prompt_thread(
 
             # if knowledge requested, prepend with full knowledge text
             if thought["recall_knowledge"] and agent.knowledge:
-                knowledge = Template(knowledge_reply_template).render(
+                knowledge = knowledge_reply_template.render(
                     knowledge=agent.knowledge
                 )
             else:
                 knowledge = ""
 
-            system_message = Template(system_template).render(
+            system_message = system_template.render(
                 name=agent.name, 
                 persona=agent.persona, 
                 knowledge=knowledge

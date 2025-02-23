@@ -18,6 +18,7 @@ import replicate
 import shlex
 import subprocess
 import numpy as np
+from jinja2 import Template
 from bson import ObjectId
 from datetime import datetime
 from pprint import pformat
@@ -883,6 +884,14 @@ def dump_json(obj, indent=None, exclude=None):
         if e in obj:
             del obj[e]
     return json.dumps(obj, cls=CustomJSONEncoder, indent=indent)
+
+
+def load_template(filename: str) -> Template:
+    """Load and compile a template from the templates directory"""
+    TEMPLATE_DIR = pathlib.Path(__file__).parent / "prompt_templates"
+    template_path = TEMPLATE_DIR / f"{filename}.txt"
+    with open(template_path) as f:
+        return Template(f.read())
 
 
 CLICK_COLORS = [

@@ -48,10 +48,7 @@ async def setup_chat(
         logger.error(f"Error loading agent: {traceback.format_exc()}")
         raise APIError(f"Invalid agent_id: {request.agent_id}", status_code=400) from e
 
-    t1 = time.time()
     tools = agent.get_tools(cache=cache)
-    t2 = time.time()
-    print(f"Time taken to GET TOOLS 9999: {t2 - t1} seconds")
 
     if request.thread_id:
         try:

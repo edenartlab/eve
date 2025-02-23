@@ -4,7 +4,7 @@ from eve.auth import get_my_eden_user
 
 from eve.agent import Agent
 from eve.thread import Thread
-
+from eve.llm import search_mongo
 # todo: since prompt_thread handles exceptions, this won't actually fail if there are errors
 def test_prompting():
     user = get_my_eden_user()
@@ -84,3 +84,14 @@ def test_think():
         print(msg)
 
 
+async def test_search_mongo():
+    result = await search_mongo(
+        type="agent",
+        query="look for all verdelis models"
+    )
+    for r in result:
+        print(r)
+
+
+import asyncio
+asyncio.run(test_search_mongo())
