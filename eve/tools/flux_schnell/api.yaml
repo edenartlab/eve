@@ -1,7 +1,7 @@
 name: Create an image (Fast)
 description: Generate an image from text quickly with Flux Schnell.
 tip: |-
-  For most image tasks, you should use Flux Schnell. If a user requests higher quality or an image containing rendered text, use Flux Dev instead. If a user asks for SDXL or Stable Diffusion, use txt2img. 
+  For baisc image tasks, this should be your primary tool. If a user requests higher quality, an image containing rendered text, or contains a Lora, use flux_dev_lora instead.
 cost_estimate: 1 * n_samples
 output_type: image
 thumbnail: app/flux-schnell.jpg
