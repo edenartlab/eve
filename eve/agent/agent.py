@@ -11,42 +11,17 @@ from typing import Optional, Literal, Any, Dict, List, ClassVar
 from datetime import datetime
 from dotenv import dotenv_values
 from pydantic import SecretStr, Field, BaseModel, ConfigDict
-from pydantic.json_schema import SkipJsonSchema
 
+from ..tool import Tool, COMPLETE_TOOLS
+from ..mongo import Collection, get_collection
+from ..user import User, Manna
+from ..models import Model
+from ..eden_utils import load_template
 from .thread import Thread
-from .tool import Tool, BASE_TOOLS, COMPLETE_TOOLS
-from .mongo import Collection, get_collection
-from .user import User, Manna
-from .models import Model
-from .eden_utils import load_template
 
 
 last_tools_update = None
 agent_tools_cache = {}
-
-
-default_presets_flux = {
-    "flux_schnell": {},
-    "flux_inpainting": {},
-    "flux_redux": {},
-    "vid2vid_sdxl": {},
-    "video_FX": {},
-    "texture_flow": {},
-    "outpaint": {},
-    "remix_flux_schnell": {},
-    "elevenlabs": {},
-    "stable_audio": {},
-    "musicgen": {},
-    "hedra": {},
-    "runway": {},
-    "reel": {},
-    "news": {},
-    "websearch": {},
-    "weather": {},
-    "ffmpeg_multitool": {},
-    "mmaudio": {},
-    "ominicontrol": {},
-}
 
 
 class KnowledgeDescription(BaseModel):
@@ -106,7 +81,6 @@ class Agent(User):
     test_args: Optional[List[Dict[str, Any]]] = None
 
     tools: Optional[Dict[str, Dict]] = {}
-    # tools_cache: SkipJsonSchema[Optional[Dict[str, Tool]]] = Field(None, exclude=True)
 
     def __init__(self, **data):
         if isinstance(data.get("owner"), str):

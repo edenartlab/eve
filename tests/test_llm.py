@@ -1,10 +1,10 @@
-from eve.llm import prompt_thread, UserMessage, AssistantMessage, async_think
-from eve.tool import get_tools_from_mongo
 from eve.auth import get_my_eden_user
+from eve.agent.thread import UserMessage, AssistantMessage, Thread
+from eve.agent.run import prompt_thread
+from eve.agent.think import async_think, search_mongo
+from eve.agent.agent import Agent
+from eve.tool import get_tools_from_mongo
 
-from eve.agent import Agent
-from eve.thread import Thread
-from eve.llm import search_mongo
 # todo: since prompt_thread handles exceptions, this won't actually fail if there are errors
 def test_prompting():
     user = get_my_eden_user()
@@ -77,8 +77,6 @@ def test_think():
         thread=thread,
         user_messages=messages,
         tools=tools,
-        # force_reply=True,
-        # model="gpt-4o-mini"
         model="claude-3-5-sonnet-20240620"
     ):
         print(msg)
@@ -89,9 +87,13 @@ async def test_search_mongo():
         type="agent",
         query="look for all verdelis models"
     )
+    print("---> RESULT:")
     for r in result:
         print(r)
 
 
 import asyncio
 asyncio.run(test_search_mongo())
+test_think()
+test_prompting()
+test_prompting2()
