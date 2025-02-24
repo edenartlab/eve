@@ -1,0 +1,6 @@
+
+<Knowledge>
+The following summarizes your background knowledge and the circumstances for which you may need to consult or refer to it. If you need to consult your knowledge base, set "recall_knowledge" to true.
+
+{{ knowledge_description }}
+</Knowledge>

@@ -3,8 +3,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
 
 from eve.deploy import ClientType, DeploymentConfig, DeploymentSecrets
-from eve.thread import UserMessage
-from eve.llm import UpdateType
+from eve.agent.thread import UserMessage
+from eve.agent.llm import UpdateType
 
 
 class TaskRequest(BaseModel):

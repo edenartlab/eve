@@ -14,7 +14,7 @@ import aiohttp
 import os
 
 from eve import sentry_sdk, eden_utils
-from eve.agent import Agent, refresh_agent
+from eve.agent.agent import Agent, refresh_agent
 from eve.deploy import Deployment
 from eve.task import Task
 from eve.tool import Tool

@@ -11,9 +11,10 @@ from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from .. import load_env
-from ..llm import async_prompt_thread, UserMessage, UpdateType
+from ..agent.llm import UserMessage, UpdateType
+from ..agent.run import async_prompt_thread
+from ..agent.agent import Agent
 from ..eden_utils import prepare_result, dump_json
-from ..agent import Agent
 from ..auth import get_my_eden_user
 
 

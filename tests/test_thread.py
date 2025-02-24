@@ -1,6 +1,6 @@
 import json
-from eve.thread import Thread
-from eve.llm import title_thread
+from eve.agent.thread import Thread
+from eve.agent.llm import title_thread
 
 def test_title_thread():
     """Pytest entry point"""

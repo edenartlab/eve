@@ -18,6 +18,7 @@ import replicate
 import shlex
 import subprocess
 import numpy as np
+from jinja2 import Template
 from bson import ObjectId
 from datetime import datetime
 from pprint import pformat
@@ -869,7 +870,7 @@ def save_test_results(tools, results):
     print(f"Test results saved to {results_dir}")
 
 
-def dump_json(obj, indent=None):
+def dump_json(obj, indent=None, exclude=None):
     class CustomJSONEncoder(json.JSONEncoder):
         def default(self, obj):
             if isinstance(obj, ObjectId):
@@ -877,7 +878,20 @@ def dump_json(obj, indent=None):
             if isinstance(obj, datetime):
                 return obj.isoformat()
             return super().default(obj)
+    if not obj:
+        return ""
+    for e in exclude or []:
+        if e in obj:
+            del obj[e]
     return json.dumps(obj, cls=CustomJSONEncoder, indent=indent)
+
+
+def load_template(filename: str) -> Template:
+    """Load and compile a template from the templates directory"""
+    TEMPLATE_DIR = pathlib.Path(__file__).parent / "prompt_templates"
+    template_path = TEMPLATE_DIR / f"{filename}.txt"
+    with open(template_path) as f:
+        return Template(f.read())
 
 
 CLICK_COLORS = [

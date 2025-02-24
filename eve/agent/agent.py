@@ -11,53 +11,17 @@ from typing import Optional, Literal, Any, Dict, List, ClassVar
 from datetime import datetime
 from dotenv import dotenv_values
 from pydantic import SecretStr, Field, BaseModel, ConfigDict
-from pydantic.json_schema import SkipJsonSchema
 
+from ..tool import Tool, COMPLETE_TOOLS
+from ..mongo import Collection, get_collection
+from ..user import User, Manna
+from ..models import Model
+from ..eden_utils import load_template
 from .thread import Thread
-from .tool import Tool
-from .mongo import Collection, get_collection
-from .user import User, Manna
-from .models import Model
-
-CHECK_INTERVAL = 30
 
 
-default_presets_flux = {
-    "flux_schnell": {
-        "tip": "This must be your primary tool for making images if no style lora needs to be applied. The other flux tools are only used for inpainting, remixing, and variations."
-    },
-    "flux_inpainting": {},
-    "flux_redux": {},
-    "vid2vid_sdxl": {
-        "tip": "Only use this tool if asked to restyle an existing video with a style image"
-    },
-    "video_FX": {
-        "tip": "Only use this tool if asked to add subtle or targeted effects on top of an existing video"
-    },
-    "texture_flow": {
-        "tip": "Just use this tool if asked to make abstract, morphing animations for eg VJing material."
-    },
-    "outpaint": {},
-    "remix_flux_schnell": {},
-    "elevenlabs": {},
-    "stable_audio": {},
-    "musicgen": {},
-    "hedra": {},
-    "runway": {
-        "tip": "This should be your primary tool for making videos or animations. Only use the other video tools if specifically asked to or asked to make VJing material."
-    },
-    "reel": {
-        "tip": "This is a tool for making short films with vocals, music, and several video cuts. This can be used to make commercials, films, music videos, and other kinds of shortform content. But it takes a while to run, around 5 minutes, so always ask the user to confirm before calling this tool!"
-    },
-    "news": {},
-    "websearch": {},
-    "weather": {},
-    "ffmpeg_multitool": {},
-    "mmaudio": {},
-    "ominicontrol": {
-        "tip": "Tool for instantly copy-pasting a given image (logo, character, object, ...) into a new context with a prompt. This is kinda of like an instant (no-training) lora tool from a single image"
-    },
-}
+last_tools_update = None
+agent_tools_cache = {}
 
 
 class KnowledgeDescription(BaseModel):
@@ -116,9 +80,7 @@ class Agent(User):
     model: Optional[ObjectId] = None
     test_args: Optional[List[Dict[str, Any]]] = None
 
-    tools: Optional[Dict[str, Dict]] = None
-    tools_cache: SkipJsonSchema[Optional[Dict[str, Tool]]] = Field(None, exclude=True)
-    last_check: ClassVar[Dict[str, float]] = {}  # seconds
+    tools: Optional[Dict[str, Dict]] = {}
 
     def __init__(self, **data):
         if isinstance(data.get("owner"), str):
@@ -199,7 +161,8 @@ class Agent(User):
 
         # if no tools are defined, use the default presets
         else:
-            schema["tools"] = default_presets_flux.copy()
+            #schema["tools"] = default_presets_flux.copy()
+            schema["tools"] = {k: {} for k in COMPLETE_TOOLS}
 
             # if a model is set, remove flux_schnell and replace it with flux_dev_lora
             if schema.get("model"):
@@ -217,10 +180,6 @@ class Agent(User):
                                 "default": str(model.id),
                                 "hide_from_agent": True,
                             },
-                            "lora_strength": {
-                                "default": 1.0,
-                                "hide_from_agent": True,
-                            },
                         },
                     }
                     schema["tools"]["reel"] = {
@@ -234,10 +193,6 @@ class Agent(User):
                                 "default": str(model.id),
                                 "hide_from_agent": True,
                             },
-                            "lora_strength": {
-                                "default": 1.0,
-                                "hide_from_agent": True,
-                            },
                         },
                     }
                 elif model.base_model == "sdxl":
@@ -247,16 +202,33 @@ class Agent(User):
         return schema
 
     def get_tools(self, cache=False):
-        if not hasattr(self, "tools") or not self.tools:
-            self.tools = {}
+        global last_tools_update
+
+        # if not hasattr(self, "tools") or not self.tools:
+        #     self.tools = {}
 
         if cache:
-            self.tools_cache = self.tools_cache or {}
+            # get latest updatedAt timestamp for tools
+            tools = get_collection(Tool.collection_name)
+            timestamps = tools.find({}, {"updatedAt": 1})
+            last_tools_update_ = max((doc.get('updatedAt') for doc in timestamps if doc.get('updatedAt')), default=None)
+            if last_tools_update is None:
+                last_tools_update = last_tools_update_
+            
+            # reset cache if outdated
+            cache_outdated = last_tools_update < last_tools_update_
+            last_tools_update = max(last_tools_update, last_tools_update_)
+            if self.username not in agent_tools_cache or cache_outdated:
+                print("Cache is outdated, resetting...")
+                agent_tools_cache[self.username] = {}
+
+            # insert new tools into cache
             for k, v in self.tools.items():
-                if k not in self.tools_cache:
+                if k not in agent_tools_cache[self.username]:
                     tool = Tool.from_raw_yaml({"parent_tool": k, **v})
-                    self.tools_cache[k] = tool
-            return self.tools_cache
+                    agent_tools_cache[self.username][k] = tool
+            
+            return agent_tools_cache[self.username]
         else:
             return {
                 k: Tool.from_raw_yaml({"parent_tool": k, **v})
@@ -378,37 +350,19 @@ class AgentText(BaseModel):
     )
 
 
-knowledge_template = """<Agent Description>
-Name: {{name}}
-Description: {{agent_description}}
-</Agent Description>
-
-<Reference>
-This is {{name}}'s full reference document or knowledge:
----
-{{knowledge_base}}
----
-</Reference>
-<Task>
-Your task is to generate a KnowledgeDescription for a reference document. Given a description of yourself and access to the document, analyze its contents and produce the following:
-
-summary – A concise, detailed description of what information is contained in the reference document. Focus on subjects, topics, facts, and structure rather than adjectives or generalizations. Be specific about what kind of knowledge is present.
-
-retrieval_criteria – A structured, single-instruction paragraph that clearly defines when the reference document should be consulted. Identify the subjects, topics, types of questions, or knowledge gaps that require retrieving the document's contents. This should help the assistant determine whether the document is necessary to accurately respond to a user message. Avoid overly broad conditions to prevent unnecessary retrievals, but ensure all relevant cases are covered.
-</Task>"""
-
-
 async def generate_agent_knowledge_description(agent: Agent):
     """
     Given a knowledge document / reference, generate a summary and retrieval criteria
     """
 
     system_message = "You receive a description of an agent, along with a large document of information the agent must memorize, and you come up with instructions for the agent on when they should consult the reference document."
+    
+    knowledge_template = load_template("knowledge_summarize")
 
-    prompt = Template(knowledge_template).render(
+    prompt = knowledge_template.render(
         name=agent.username,
         agent_description=agent.persona,
-        knowledge_base=agent.knowledge,
+        knowledge=agent.knowledge,
     )
 
     client = instructor.from_openai(openai.AsyncOpenAI())
@@ -457,16 +411,17 @@ async def refresh_agent(agent: Agent):
     # get knowledge description if there is any knowledge
     if agent.knowledge:
         knowledge_description = await generate_agent_knowledge_description(agent)
+        knowledge_description_dict = {
+            "summary": knowledge_description.summary,
+            "retrieval_criteria": knowledge_description.retrieval_criteria,
+        }
     else:
-        knowledge_description = None
+        knowledge_description_dict = None
 
     time = datetime.now(timezone.utc)
 
     update = {
-        "knowledge_description": {
-            "summary": knowledge_description.summary,
-            "retrieval_criteria": knowledge_description.retrieval_criteria,
-        },
+        "knowledge_description": knowledge_description_dict,
         "greeting": agent_text.greeting,
         "suggestions": [s.model_dump() for s in agent_text.suggestions],
         "refreshed_at": time,

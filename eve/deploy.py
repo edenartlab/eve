@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 from bson import ObjectId
 from pydantic import BaseModel
 
-from .agent import Agent
+from .agent.agent import Agent
 from .mongo import Collection, Document, get_collection
 
 

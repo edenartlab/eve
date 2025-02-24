@@ -7,8 +7,8 @@ from pydantic import BaseModel, Field
 from pydantic.config import ConfigDict
 from typing import List, Optional, Dict, Any, Literal, Union
 
-from .mongo import Document, Collection
-from .eden_utils import download_file, image_to_base64, prepare_result, dump_json
+from ..mongo import Document, Collection
+from ..eden_utils import download_file, image_to_base64, prepare_result, dump_json
 
 
 class ChatMessage(BaseModel):
@@ -16,9 +16,7 @@ class ChatMessage(BaseModel):
     createdAt: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     role: Literal["user", "assistant"]
     reply_to: Optional[ObjectId] = None
-    hidden: Optional[bool] = (
-        False  # hides message (e.g. triggers / special system instructions) from llm
-    )
+    hidden: Optional[bool] = False # hides trigger messages from llm
     reactions: Optional[Dict[str, List[ObjectId]]] = {}
 
     model_config = ConfigDict(arbitrary_types_allowed=True)

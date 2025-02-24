@@ -35,13 +35,14 @@ from eve.deploy import (
 from eve.eden_utils import prepare_result
 from eve.tools.replicate_tool import replicate_update_task
 from eve.trigger import create_chat_trigger, delete_trigger, Trigger
-from eve.llm import UpdateType, async_prompt_thread
+from eve.agent.llm import UpdateType
+from eve.agent.run import async_prompt_thread
 from eve.mongo import serialize_document
 from eve.task import Task
 from eve.tool import Tool
-from eve.agent import Agent
+from eve.agent.agent import Agent
 from eve.user import User
-from eve.thread import Thread, UserMessage
+from eve.agent.thread import Thread, UserMessage
 from eve.deploy import Deployment
 from eve.tools.twitter import X
 
@@ -153,10 +154,9 @@ async def handle_chat(
     print("handle_chat")
     print(request)
 
-    user, agent, thread, tools = await setup_chat(request, background_tasks)
-
-    print("chat request")
-    print(request)
+    user, agent, thread, tools = await setup_chat(
+        request, cache=True, background_tasks=background_tasks
+    )
 
     background_tasks.add_task(
         run_chat_request,
@@ -176,7 +176,9 @@ async def handle_chat(
 
 @handle_errors
 async def handle_stream_chat(request: ChatRequest, background_tasks: BackgroundTasks):
-    user, agent, thread, tools = await setup_chat(request, background_tasks)
+    user, agent, thread, tools = await setup_chat(
+        request, cache=True, background_tasks=background_tasks
+    )
 
     async def event_generator():
         try:

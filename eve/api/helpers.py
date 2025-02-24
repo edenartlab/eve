@@ -17,8 +17,8 @@ from eve.deploy import (
 )
 from eve.tool import Tool
 from eve.user import User
-from eve.agent import Agent
-from eve.thread import Thread, UserMessage
+from eve.agent.agent import Agent
+from eve.agent.thread import Thread
 from eve.llm import async_title_thread
 from eve.api.api_requests import ChatRequest, UpdateConfig
 from eve.deploy import Deployment
@@ -33,7 +33,9 @@ async def get_update_channel(
 
 
 async def setup_chat(
-    request: ChatRequest, background_tasks: BackgroundTasks
+    request: ChatRequest,
+    cache: bool = False,
+    background_tasks: BackgroundTasks = None,
 ) -> tuple[User, Agent, Thread, list[Tool]]:
     try:
         user = User.from_mongo(request.user_id)
@@ -47,7 +49,7 @@ async def setup_chat(
         logger.error(f"Error loading agent: {traceback.format_exc()}")
         raise APIError(f"Invalid agent_id: {request.agent_id}", status_code=400) from e
 
-    tools = agent.get_tools(cache=False)
+    tools = agent.get_tools(cache=cache)
 
     if request.thread_id:
         try:
