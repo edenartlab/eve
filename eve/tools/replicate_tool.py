@@ -45,6 +45,9 @@ class ReplicateTool(Tool):
             args = self._format_args_for_replicate(args)
             result = {"output": replicate.run(replicate_model, input=args)}
 
+        print(f"result: {result['output']}")
+        print(type(result['output']))
+        print("output_handler", self.output_handler)
         result = eden_utils.upload_result(result)
         return result
 

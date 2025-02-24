@@ -1,0 +1,47 @@
+name: TTS-Zonos
+description: Text-to-speech using Zonos
+tip: |-
+  This tool can be used to generate speech audio from text with advanced control for speaking rate and emotion. This tool has a cold boot which may come at some initial delay.
+cost_estimate: 0.4 * text.length
+output_type: audio
+active: true
+replicate_model: jaaari/zonos:79caaf88e47605d71197442eb35361be922488dfb2d55de8ae757cc73d6d2a15
+handler: replicate
+parameters:
+  text:
+    type: string
+    label: Text
+    description: Text to generate speech from
+    required: true
+  audio:
+    type: audio
+    description: Optional reference audio to use for voice cloning
+  language:
+    type: string
+    description: Language to generate voice in
+    choices: [en-us, en-gb, ja, cmn, yue, fr-fr, de]
+    choices_labels: [English (United States), English (United Kingdom), Japanese, Mandarin Chinese, Cantonese Chinese, French (France), German]
+  emotion:
+    type: string
+    description: Emotion vector for the generated speech
+    tip: |-
+      Encodes emotion in an 8D vector. Included emotions are Happiness, Sadness, Disgust, Fear, Surprise, Anger, Other, Neutral in that order. This vector tends to be entangled with various other conditioning inputs. More notably, it's entangled with text based on the text sentiment (eg. Angry texts will be more effectively conditioned to be angry, but if you try to make it sound sad it will be a lot less effective). It's also entangled with pitch standard deviation since larger values there tend to correlate to more emotional utterances. Make sure to always surround the emotion vector with quotes to avoid list-parsing!
+    default: "[0.30, 0.03, 0.03, 0.03, 0.03, 0.03, 0.25, 0.30]"
+  speaking_rate:
+    type: float
+    label: Speaking Rate
+    description: Speaking rate in phonemes per second.
+    tip: |-
+      Speaking rate in phonemes per second. Default is 15.0. 10-12 is slow and clear, 15-17 is natural conversational, 20+ is fast. Values above 25 may produce artifacts.
+    default: 15
+    minimum: 5
+    maximum: 30
+  seed:
+    type: integer
+    label: Seed
+    description: Set random seed for reproducibility. If blank, will be set to a random value.
+    tip: |-
+      You should only set this if you want to start from/copy the seed of a previous generation. Unless one is specified, you should leave this blank!
+    minimum: 0
+    maximum: 2147483647
+    default: random

@@ -28,7 +28,6 @@ from tqdm import tqdm
 from PIL import Image, ImageFont, ImageDraw
 from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor, as_completed
-
 from . import s3
 
 class CommandValidator:
@@ -321,8 +320,16 @@ def mock_image(args):
     url, _ = s3.upload_buffer(buffer)
     return url
 
-
 def get_media_duration(media_file):
+    # If it's a BytesIO object, we need to save it to a temporary file first
+    if isinstance(media_file, BytesIO):
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+        temp_file.write(media_file.getvalue())
+        temp_file.close()
+        media_file_path = temp_file.name
+    else:
+        media_file_path = media_file
+        
     cmd = [
         "ffprobe",
         "-v",
@@ -331,10 +338,18 @@ def get_media_duration(media_file):
         "format=duration",
         "-of",
         "default=noprint_wrappers=1:nokey=1",
-        media_file,
+        media_file_path,
     ]
-    duration = subprocess.check_output(cmd).decode().strip()
-    return float(duration)
+    
+    try:
+        duration = subprocess.check_output(cmd).decode().strip()
+        result = float(duration)
+    finally:
+        # Clean up temporary file if we created one
+        if isinstance(media_file, BytesIO) and os.path.exists(media_file_path):
+            os.unlink(media_file_path)
+    
+    return result
 
 
 def get_font(font_name, font_size):
