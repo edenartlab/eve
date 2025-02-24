@@ -1,29 +1,20 @@
 import re
 import os
-import json
 import asyncio
 import traceback
 import functools
-import openai
-import anthropic
-import instructor
-from enum import Enum
 from bson import ObjectId
-from typing import Optional, Dict, Any, List, Union, Literal, Tuple, AsyncGenerator
-from pydantic import BaseModel, Field
+from typing import Optional, Dict, Any, List, Union, Literal
+from pydantic import BaseModel
 from pydantic.config import ConfigDict
-from instructor.function_calls import openai_schema
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
 from sentry_sdk import trace, start_transaction, add_breadcrumb, capture_exception
 
-from ..eden_utils import dump_json, load_template
-from ..tool import Tool, BASE_TOOLS, TOOL_CATEGORIES
+from ..eden_utils import load_template
+from ..tool import Tool, BASE_TOOLS
 from ..task import Creation
 from ..user import User
 from ..api.rate_limiter import RateLimiter
-from ..models import Model
-from ..mongo import get_collection
-from .agent import Agent, refresh_agent
+from .agent import Agent
 from .thread import UserMessage, AssistantMessage, ToolCall, Thread
 from .llm import async_prompt, async_prompt_stream, UpdateType, models, DEFAULT_MODEL
 from .think import async_think
@@ -47,9 +38,6 @@ class ThreadUpdate(BaseModel):
     text: Optional[str] = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
-
-
-
 
 
 def sentry_transaction(op: str, name: str):
@@ -79,7 +67,7 @@ async def process_tool_call(
     agent_id: str,
 ) -> ThreadUpdate:
     """Process a single tool call and return the appropriate ThreadUpdate"""
-    
+
     try:
         # get tool
         tool = tools.get(tool_call.tool)
@@ -106,7 +94,7 @@ async def process_tool_call(
             name = task.args.get("prompt") or task.args.get("text_input")
             filename = result.get("output", [{}])[0].get("filename")
             media_attributes = result.get("output", [{}])[0].get("mediaAttributes")
-            
+
             if filename and media_attributes:
                 new_creation = Creation(
                     user=task.user,
@@ -256,17 +244,13 @@ async def async_prompt_thread(
                 tools = {k: v for k, v in tools.items() if k in include_tools}
 
             # if knowledge requested, prepend with full knowledge text
-            if thought["recall_knowledge"] and agent.knowledge:
-                knowledge = knowledge_reply_template.render(
-                    knowledge=agent.knowledge
-                )
+            if thought.get("recall_knowledge") and agent.knowledge:
+                knowledge = knowledge_reply_template.render(knowledge=agent.knowledge)
             else:
                 knowledge = ""
 
             system_message = system_template.render(
-                name=agent.name, 
-                persona=agent.persona, 
-                knowledge=knowledge
+                name=agent.name, persona=agent.persona, knowledge=knowledge
             )
 
             # for error tracing
@@ -372,7 +356,7 @@ async def async_prompt_thread(
         # handle tool calls in batches of 4
         tool_calls = assistant_message.tool_calls or []
         for b in range(0, len(tool_calls), 4):
-            batch = enumerate(tool_calls[b:b + 4])
+            batch = enumerate(tool_calls[b : b + 4])
             tasks = [
                 process_tool_call(
                     thread,
@@ -381,11 +365,11 @@ async def async_prompt_thread(
                     tool_call,
                     tools,
                     user.id,
-                    agent.id
+                    agent.id,
                 )
                 for idx, tool_call in batch
             ]
-            
+
             # wait for batch to complete and yield each result
             results = await asyncio.gather(*tasks, return_exceptions=False)
             for result in results:
@@ -421,4 +405,3 @@ def prompt_thread(
                 break
     finally:
         loop.close()
-

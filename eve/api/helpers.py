@@ -1,12 +1,12 @@
 import logging
 import os
-import time
 from typing import Optional
 import aiohttp
 from bson import ObjectId
 from fastapi import BackgroundTasks
 from ably import AblyRest
 import traceback
+import re
 
 from eve import deploy, trigger
 from eve.api.errors import APIError
@@ -21,6 +21,7 @@ from eve.agent.agent import Agent
 from eve.agent.thread import Thread
 from eve.agent.tasks import async_title_thread
 from eve.api.api_requests import ChatRequest, UpdateConfig
+from eve.deploy import Deployment
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,7 @@ async def get_update_channel(
 
 
 async def setup_chat(
-    request: ChatRequest, 
+    request: ChatRequest,
     cache: bool = False,
     background_tasks: BackgroundTasks = None,
 ) -> tuple[User, Agent, Thread, list[Tool]]:
@@ -77,6 +78,8 @@ def serialize_for_json(obj):
 
 
 async def emit_update(update_config: Optional[UpdateConfig], data: dict):
+    print("EMIT UPDATE CONFIG:", update_config)
+    print("EMIT UPDATE DATA:", data)
     if not update_config:
         return
 
@@ -113,3 +116,90 @@ def pre_modal_setup():
         create_environment(deploy.DEPLOYMENT_ENV_NAME)
     if not check_environment_exists(trigger.TRIGGER_ENV_NAME):
         create_environment(trigger.TRIGGER_ENV_NAME)
+
+
+async def create_telegram_chat_request(
+    update_data: dict, deployment: Deployment
+) -> Optional[ChatRequest]:
+    message = update_data.get("message", {})
+    if not message:
+        return None
+
+    chat_id = message.get("chat", {}).get("id")
+    message_thread_id = message.get("message_thread_id")
+
+    # Check allowlist if it exists
+    if deployment.config and deployment.config.telegram:
+        allowlist = deployment.config.telegram.topic_allowlist or []
+        if allowlist:
+            current_id = (
+                f"{chat_id}_{message_thread_id}" if message_thread_id else str(chat_id)
+            )
+            if not any(item.id == current_id for item in allowlist):
+                return None
+
+    agent = Agent.from_mongo(deployment.agent)
+
+    # Get user info
+    from_user = message.get("from", {})
+    user_id = str(from_user.get("id"))
+    username = from_user.get("username", "unknown")
+    user = User.from_telegram(user_id, username)
+
+    # Process text and attachments
+    text = message.get("text", "")
+    attachments = []
+
+    # Handle photos
+    photos = message.get("photo", [])
+    if photos:
+        # Get the largest photo (last in array)
+        largest_photo = photos[-1]
+        file_id = largest_photo.get("file_id")
+
+        # Initialize bot to get file path
+        from telegram import Bot
+
+        bot = Bot(deployment.secrets.telegram.token)
+        file = await bot.get_file(file_id)
+        photo_url = file.file_path
+        attachments.append(photo_url)
+
+        # Use caption as text if available
+        if message.get("caption"):
+            text = message.get("caption")
+
+    # Create thread
+    thread_key = (
+        f"telegram-{chat_id}-topic-{message_thread_id}"
+        if message_thread_id
+        else f"telegram-{chat_id}"
+    )
+    thread = agent.request_thread(key=thread_key)
+
+    # Clean message text (remove bot mention)
+    cleaned_text = text
+    if text:
+        bot_username = f"@{agent.username.lower()}_bot"
+        pattern = rf"\s*{re.escape(bot_username)}\b"
+        cleaned_text = re.sub(pattern, "", text, flags=re.IGNORECASE).strip()
+
+    return {
+        "user_id": str(user.id),
+        "agent_id": str(deployment.agent),
+        "thread_id": str(thread.id),
+        "user_is_bot": from_user.get("is_bot", False),
+        "force_reply": True,
+        "user_message": {
+            "content": cleaned_text,
+            "name": username,
+            "attachments": attachments,
+        },
+        "update_config": {
+            "update_endpoint": f"{os.getenv('EDEN_API_URL')}/emissions/platform/telegram",
+            "deployment_id": str(deployment.id),
+            "telegram_chat_id": str(chat_id),
+            "telegram_message_id": str(message.get("message_id")),
+            "telegram_thread_id": str(message_thread_id) if message_thread_id else None,
+        },
+    }
