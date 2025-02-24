@@ -320,6 +320,7 @@ def mock_image(args):
     url, _ = s3.upload_buffer(buffer)
     return url
 
+
 def get_media_duration(media_file):
     # If it's a BytesIO object, we need to save it to a temporary file first
     if isinstance(media_file, BytesIO):

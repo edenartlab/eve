@@ -45,9 +45,6 @@ class ReplicateTool(Tool):
             args = self._format_args_for_replicate(args)
             result = {"output": replicate.run(replicate_model, input=args)}
 
-        print(f"result: {result['output']}")
-        print(type(result['output']))
-        print("output_handler", self.output_handler)
         result = eden_utils.upload_result(result)
         return result
 
@@ -161,8 +158,6 @@ class ReplicateTool(Tool):
         replicate_model = self._get_replicate_model(args)
         user, model = replicate_model.split("/", 1)
         webhook_url = get_webhook_url() if webhook else None
-        print("THE WEBHOOK URL IS")
-        print(webhook_url)
         webhook_events_filter = ["start", "completed"] if webhook else None
 
         if self.version == "deployment":
@@ -204,15 +199,6 @@ def get_webhook_url():
 
 def replicate_update_task(task: Task, status, error, output, output_handler):
     output = output if isinstance(output, list) else [output]
-
-    print("!!!!!")
-    print("replicate update task -->")
-    print("task", task)
-    print("status", status)
-    print("error", error)
-    print("output", output)
-    print("output_handler", output_handler)
-    print("!!!!!")
 
     if output and isinstance(output[0], replicate.helpers.FileOutput):
         output_files = []

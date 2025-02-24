@@ -12,7 +12,7 @@ from datetime import datetime
 from dotenv import dotenv_values
 from pydantic import SecretStr, Field, BaseModel, ConfigDict
 
-from ..tool import Tool, COMPLETE_TOOLS
+from ..tool import Tool, BASE_TOOLS, ADDITIONAL_TOOLS
 from ..mongo import Collection, get_collection
 from ..user import User, Manna
 from ..models import Model
@@ -161,8 +161,8 @@ class Agent(User):
 
         # if no tools are defined, use the default presets
         else:
-            #schema["tools"] = default_presets_flux.copy()
-            schema["tools"] = {k: {} for k in COMPLETE_TOOLS}
+            # include all tools
+            schema["tools"] = {k: {} for k in BASE_TOOLS + ADDITIONAL_TOOLS}
 
             # if a model is set, remove flux_schnell and replace it with flux_dev_lora
             if schema.get("model"):

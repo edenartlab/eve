@@ -44,11 +44,6 @@ BASE_MODELS = Literal[
     "musicgen",
 ]
 
-TOOL_CATEGORIES = {
-    "base": "Basic tools you want to keep in context at all times. This includes common creation tools like simple text-to-image, image-to-video, text-to-audio (including speech, music, and sound effects), as well as tools for searching and retrieving information from your knowledge base, memory, and all documents (including models/finetunes).",
-    "complete": "All basic tools, plus lesser-used creation tools for image and video generation and editing, including inpainting, outpainting, remixing, restyling, inserting, and modifying, as well as tools for generating talking heads, and retrieving news, weather, and web search results.",
-}
-
 # These tools are always in agent context
 BASE_TOOLS = [
     "flux_schnell", 
@@ -61,7 +56,7 @@ BASE_TOOLS = [
 ]
 
 # Additional tools in agent's context if agent chooses to recall them
-COMPLETE_TOOLS = BASE_TOOLS + [
+ADDITIONAL_TOOLS = [
     "flux_inpainting",
     "flux_redux",
     "vid2vid_sdxl",
@@ -77,7 +72,13 @@ COMPLETE_TOOLS = BASE_TOOLS + [
     "websearch",
     "weather",
     "ominicontrol",
+    "zonos",
 ]
+
+TOOL_CATEGORIES = {
+    "base": "Basic tools you want to keep in context at all times. This includes common creation tools like simple text-to-image, image-to-video, text-to-audio (including speech, music, and sound effects), as well as tools for searching and retrieving information from your knowledge base, memory, and all documents (including models/finetunes).",
+    "complete": f"All basic tools, plus lesser-used creation tools for image and video generation and editing, including inpainting, outpainting, remixing, restyling, inserting, and modifying, as well as tools for generating talking heads, and retrieving news, weather, and web search results. Includes {', '.join(ADDITIONAL_TOOLS)}.",
+}
 
 
 class RateLimit(BaseModel):

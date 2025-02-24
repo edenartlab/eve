@@ -1,35 +1,25 @@
-import re
 import os
 import json
 import asyncio
-import traceback
-import functools
 import openai
 import anthropic
-import instructor
 from enum import Enum
-from bson import ObjectId
-from typing import Optional, Dict, Any, List, Union, Literal, Tuple, AsyncGenerator
-from pydantic import BaseModel, Field
-from pydantic.config import ConfigDict
+from typing import Optional, Dict, List, Union, Literal, Tuple, AsyncGenerator
+from pydantic import BaseModel
 from instructor.function_calls import openai_schema
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
-from sentry_sdk import trace, start_transaction, add_breadcrumb, capture_exception
 
-from ..eden_utils import dump_json, load_template
-from ..tool import Tool, BASE_TOOLS, TOOL_CATEGORIES
-from ..task import Creation
-from ..user import User
-from ..api.rate_limiter import RateLimiter
-from ..models import Model
-from ..mongo import get_collection
-from .agent import Agent, refresh_agent
-from .thread import UserMessage, AssistantMessage, ToolCall, Thread
+from ..tool import Tool
+from .thread import UserMessage, AssistantMessage, ToolCall
 
 
-models = ["claude-3-5-sonnet-20241022", "gpt-4o-mini", "gpt-4o-2024-08-06"]
+models = [
+    "claude-3-5-sonnet-20241022",
+    "gpt-4o-mini",
+    "gpt-4o-2024-08-06",
+]
+
 DEFAULT_MODEL = "claude-3-5-sonnet-20241022"
-
 
 
 class UpdateType(str, Enum):
@@ -41,9 +31,6 @@ class UpdateType(str, Enum):
     ASSISTANT_TOKEN = "assistant_token"
     ASSISTANT_STOP = "assistant_stop"
     TOOL_CALL = "tool_call"
-
-
-
 
 
 async def async_anthropic_prompt(
