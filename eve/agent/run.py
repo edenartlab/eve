@@ -201,6 +201,7 @@ async def async_prompt_thread(
             "thought": "none",
             "intention": "reply" if agent_mentioned or force_reply else "ignore",
             "tools": ["base"],
+            "recall_knowledge": False,
         }
 
     # for error tracing
