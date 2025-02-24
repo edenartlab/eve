@@ -355,9 +355,7 @@ def deploy_client_discord(
 async def deploy_client_telegram(secrets: DeploymentSecrets):
     from telegram import Bot
 
-    print("Deploying Telegram client")
-
-    webhook_url = "https://j.eden.ngrok.dev/updates/platform/telegram"
+    webhook_url = f"{os.getenv('EDEN_API_URL')}/updates/platform/telegram"
 
     # Update bot webhook
     response = await Bot(secrets.telegram.token).set_webhook(

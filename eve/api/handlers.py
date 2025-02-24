@@ -407,10 +407,6 @@ async def handle_telegram_emission(request: Request):
             else None
         )
 
-        print("CHAT ID:", chat_id)
-        print("MESSAGE ID:", message_id)
-        print("THREAD ID:", thread_id)
-
         # Find deployment
         deployment = Deployment.from_mongo(ObjectId(deployment_id))
         if not deployment:
@@ -418,13 +414,10 @@ async def handle_telegram_emission(request: Request):
                 status_code=404, content={"error": "No Telegram deployment found"}
             )
 
-        print("DEPLOYMENT:", deployment)
-
         # Initialize bot
         from telegram import Bot
 
         bot = Bot(deployment.secrets.telegram.token)
-        print("BOT TOKEN:", deployment.secrets.telegram.token)
 
         # Verify bot info
         try:
@@ -520,12 +513,10 @@ async def handle_telegram_update(request: Request):
         if not chat_request:
             return JSONResponse(status_code=200, content={"ok": True})
 
-        print("SENDING TO /chat:", chat_request)
-
         # Make async HTTP POST to /chat
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                "https://j.eden.ngrok.dev/chat",
+                f"{os.getenv('EDEN_API_URL')}/chat",
                 json=chat_request,
                 headers={
                     "Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}",

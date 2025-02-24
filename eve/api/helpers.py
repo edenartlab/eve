@@ -19,7 +19,7 @@ from eve.tool import Tool
 from eve.user import User
 from eve.agent.agent import Agent
 from eve.agent.thread import Thread
-from eve.llm import async_title_thread
+from eve.agent.tasks import async_title_thread
 from eve.api.api_requests import ChatRequest, UpdateConfig
 from eve.deploy import Deployment
 
@@ -133,7 +133,7 @@ async def create_telegram_chat_request(
         allowlist = deployment.config.telegram.topic_allowlist or []
         if allowlist:
             current_id = (
-                f"{chat_id}/{message_thread_id}" if message_thread_id else str(chat_id)
+                f"{chat_id}_{message_thread_id}" if message_thread_id else str(chat_id)
             )
             if not any(item.id == current_id for item in allowlist):
                 return None
