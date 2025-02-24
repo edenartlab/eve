@@ -385,6 +385,12 @@ async def handle_telegram_emission(request: Request):
 
         update_type = data.get("type")
         update_config = data.get("update_config", {})
+        deployment_id = update_config.get("deployment_id")
+
+        if not deployment_id:
+            return JSONResponse(
+                status_code=400, content={"error": "Deployment ID is required"}
+            )
 
         # Convert chat_id to int
         chat_id = int(update_config.get("telegram_chat_id"))
@@ -404,14 +410,7 @@ async def handle_telegram_emission(request: Request):
         print("THREAD ID:", thread_id)
 
         # Find deployment
-        deployment = next(
-            (
-                d
-                for d in Deployment.find({"platform": "telegram"})
-                if d.secrets and d.secrets.telegram
-            ),
-            None,
-        )
+        deployment = Deployment.from_mongo(ObjectId(deployment_id))
         if not deployment:
             return JSONResponse(
                 status_code=404, content={"error": "No Telegram deployment found"}

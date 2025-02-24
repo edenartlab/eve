@@ -76,7 +76,8 @@ def serialize_for_json(obj):
 
 
 async def emit_update(update_config: Optional[UpdateConfig], data: dict):
-    print("EMIT UPDATE", update_config, data)
+    print("EMIT UPDATE CONFIG:", update_config)
+    print("EMIT UPDATE DATA:", data)
     if not update_config:
         return
 
@@ -118,7 +119,6 @@ def pre_modal_setup():
 async def create_telegram_chat_request(
     update_data: dict, deployment: Deployment
 ) -> Optional[ChatRequest]:
-    """Helper to create a ChatRequest from Telegram update data"""
     message = update_data.get("message", {})
     if not message:
         return None
@@ -138,49 +138,46 @@ async def create_telegram_chat_request(
 
     agent = Agent.from_mongo(deployment.agent)
 
-    # Check if bot is mentioned or replied to
-    is_bot_mentioned = False
-    is_replied_to = False
-    entities = message.get("entities", [])
-    text = message.get("text", "")
-
-    # Check for mentions
-    for entity in entities:
-        if entity["type"] == "mention":
-            mention = text[entity["offset"] : entity["offset"] + entity["length"]]
-            if mention.lower() == f"@{agent.username.lower()}_bot":
-                is_bot_mentioned = True
-                break
-
-    # Check for replies
-    reply_to = message.get("reply_to_message", {})
-    if (
-        reply_to.get("from", {}).get("username", "").lower()
-        == f"{agent.username.lower()}_bot"
-    ):
-        is_replied_to = True
-
-    # Determine if we should force reply
-    force_reply = is_bot_mentioned or is_replied_to
-
     # Get user info
     from_user = message.get("from", {})
     user_id = str(from_user.get("id"))
     username = from_user.get("username", "unknown")
+    user = User.from_telegram(user_id, username)
 
-    # Create thread key and get/create thread
+    # Process text and attachments
+    text = message.get("text", "")
+    attachments = []
+
+    # Handle photos
+    photos = message.get("photo", [])
+    if photos:
+        # Get the largest photo (last in array)
+        largest_photo = photos[-1]
+        file_id = largest_photo.get("file_id")
+
+        # Initialize bot to get file path
+        from telegram import Bot
+
+        bot = Bot(deployment.secrets.telegram.token)
+        file = await bot.get_file(file_id)
+        photo_url = file.file_path
+        attachments.append(photo_url)
+
+        # Use caption as text if available
+        if message.get("caption"):
+            text = message.get("caption")
+
+    # Create thread
     thread_key = (
         f"telegram-{chat_id}-topic-{message_thread_id}"
         if message_thread_id
         else f"telegram-{chat_id}"
     )
-
     thread = agent.request_thread(key=thread_key)
-    user = User.from_telegram(user_id, username)
 
     # Clean message text (remove bot mention)
     cleaned_text = text
-    if is_bot_mentioned:
+    if text:
         bot_username = f"@{agent.username.lower()}_bot"
         pattern = rf"\s*{re.escape(bot_username)}\b"
         cleaned_text = re.sub(pattern, "", text, flags=re.IGNORECASE).strip()
@@ -189,16 +186,16 @@ async def create_telegram_chat_request(
         "user_id": str(user.id),
         "agent_id": str(deployment.agent),
         "thread_id": str(thread.id),
-        # force_reply=force_reply,
-        "force_reply": True,
         "user_is_bot": from_user.get("is_bot", False),
+        "force_reply": True,
         "user_message": {
             "content": cleaned_text,
             "name": username,
-            "attachments": [],
+            "attachments": attachments,
         },
         "update_config": {
-            "update_endpoint": "https://j.eden.ngrok.dev/emissions/platform/telegram",
+            "update_endpoint": f"{os.getenv('EDEN_API_URL')}/emissions/platform/telegram",
+            "deployment_id": str(deployment.id),
             "telegram_chat_id": str(chat_id),
             "telegram_message_id": str(message.get("message_id")),
             "telegram_thread_id": str(message_thread_id) if message_thread_id else None,
