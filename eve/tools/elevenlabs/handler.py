@@ -9,7 +9,9 @@ from typing import Iterator
 
 from ... import eden_utils
 
-eleven = ElevenLabs()
+eleven = ElevenLabs(
+    api_key=os.getenv("ELEVEN_API_KEY")
+)
 
 DEFAULT_VOICE = "XB0fDUnXU5powFXDhCwa"
 
