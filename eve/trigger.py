@@ -41,10 +41,12 @@ class Trigger(Document):
 def create_image(trigger_id: str):
     return (
         modal.Image.debian_slim(python_version="3.12")
-        .pip_install("modal")
-        .pip_install("requests")
+        .apt_install("libmagic1", "ffmpeg", "wget")
+        .pip_install_from_pyproject("/eve/pyproject.toml")
+        .run_commands(["playwright install"])
         .env({"DB": db})
         .env({"TRIGGER_ID": trigger_id})
+        .add_local_dir("/root/eve", "/root/eve")
     )
 
 

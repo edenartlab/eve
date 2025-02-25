@@ -1,0 +1,5 @@
+<AvailableTools>
+These are your tool sets. Select the one best for the last message.
+
+{{ tool_categories }}
+</AvailableTools>

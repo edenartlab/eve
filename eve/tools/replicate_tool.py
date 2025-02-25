@@ -158,8 +158,6 @@ class ReplicateTool(Tool):
         replicate_model = self._get_replicate_model(args)
         user, model = replicate_model.split("/", 1)
         webhook_url = get_webhook_url() if webhook else None
-        print("THE WEBHOOK URL IS")
-        print(webhook_url)
         webhook_events_filter = ["start", "completed"] if webhook else None
 
         if self.version == "deployment":
@@ -201,15 +199,6 @@ def get_webhook_url():
 
 def replicate_update_task(task: Task, status, error, output, output_handler):
     output = output if isinstance(output, list) else [output]
-
-    print("!!!!!")
-    print("replicate update task -->")
-    print("task", task)
-    print("status", status)
-    print("error", error)
-    print("output", output)
-    print("output_handler", output_handler)
-    print("!!!!!")
 
     if output and isinstance(output[0], replicate.helpers.FileOutput):
         output_files = []

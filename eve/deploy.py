@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 from bson import ObjectId
 from pydantic import BaseModel
 
-from .agent import Agent
+from .agent.agent import Agent
 from .mongo import Collection, Document, get_collection
 
 
@@ -17,7 +17,7 @@ DEPLOYMENT_ENV_NAME = "deployments"
 db = os.getenv("DB", "STAGE").upper()
 REPO_BRANCH = "main" if db == "PROD" else "staging"
 
-deployable_platforms = ["discord", "telegram"]
+deployable_platforms = ["discord"]
 
 
 class ClientType(Enum):
@@ -54,6 +54,7 @@ class DeploymentSecretsDiscord(BaseModel):
 
 class DeploymentSecretsTelegram(BaseModel):
     token: str
+    webhook_secret: Optional[str] = None
 
 
 class DeploymentSecretsFarcaster(BaseModel):
@@ -287,18 +288,38 @@ def prepare_client_file(
     return str(temp_file)
 
 
-def deploy_client(
-    agent_id: str,
-    agent_key: str,
+async def deploy_client(
+    agent: Agent,
     platform: str,
     secrets: DeploymentSecrets,
     env: str,
     repo_branch: str = None,
 ):
-    if platform not in deployable_platforms:
-        return
+    if platform == ClientType.DISCORD:
+        deploy_client_discord(agent, secrets, env, repo_branch)
 
-    """Deploy a Modal client for an agent."""
+    if platform == ClientType.TELEGRAM:
+        import secrets as python_secrets
+
+        webhook_secret = python_secrets.token_urlsafe(32)
+        secrets.telegram.webhook_secret = webhook_secret
+        await deploy_client_telegram(secrets)
+
+    if platform == ClientType.FARCASTER:
+        pass
+
+    if platform == ClientType.TWITTER:
+        pass
+
+    return secrets
+
+
+def deploy_client_discord(
+    agent: Agent, secrets: DeploymentSecrets, env: str, repo_branch: str = None
+):
+    agent_id = str(agent.id)
+    agent_key = agent.username
+    platform = "discord"
     with tempfile.TemporaryDirectory() as temp_dir:
         # Clone the repo using provided branch or default
         branch = repo_branch or REPO_BRANCH
@@ -329,6 +350,23 @@ def deploy_client(
             )
         else:
             raise Exception(f"Client modal file not found: {client_path}")
+
+
+async def deploy_client_telegram(secrets: DeploymentSecrets):
+    from telegram import Bot
+
+    webhook_url = f"{os.getenv('EDEN_API_URL')}/updates/platform/telegram"
+
+    # Update bot webhook
+    response = await Bot(secrets.telegram.token).set_webhook(
+        url=webhook_url,
+        secret_token=secrets.telegram.webhook_secret,
+        drop_pending_updates=True,
+        max_connections=100,
+    )
+
+    if not response:
+        raise Exception("Failed to set Telegram webhook")
 
 
 def stop_client(agent: Agent, platform: str):

@@ -37,6 +37,8 @@ from eve.api.handlers import (
     handle_deployment_create,
     handle_deployment_delete,
     handle_stream_chat,
+    handle_telegram_emission,
+    handle_telegram_update,
     handle_trigger_create,
     handle_trigger_delete,
     handle_twitter_update,
@@ -157,6 +159,7 @@ async def chat(
     background_tasks: BackgroundTasks,
     _: dict = Depends(auth.authenticate_admin),
 ):
+    print("CHAT", request)
     return await handle_chat(request, background_tasks)
 
 
@@ -210,10 +213,9 @@ async def trigger_delete(
 
 @web_app.post("/updates/platform/telegram")
 async def updates_telegram(
-    request: PlatformUpdateRequest,
-    _: dict = Depends(auth.authenticate_admin),
+    request: Request,
 ):
-    return {"status": "success"}
+    return await handle_telegram_update(request)
 
 
 @web_app.post("/updates/platform/farcaster")
@@ -230,6 +232,14 @@ async def updates_twitter(
     _: dict = Depends(auth.authenticate_admin),
 ):
     return await handle_twitter_update(request)
+
+
+@web_app.post("/emissions/platform/telegram")
+async def emissions_telegram(
+    request: Request,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    return await handle_telegram_emission(request)
 
 
 @web_app.get("/triggers/{trigger_id}")
@@ -293,8 +303,8 @@ image = (
     .pip_install("numpy<2.0", "torch==2.0.1", "torchvision", "transformers", "Pillow")
     .run_commands(["playwright install"])
     .run_function(download_nsfw_models)
-    .copy_local_dir(str(workflows_dir), "/workflows")
-    .copy_local_file(str(root_dir / "pyproject.toml"), "/root/eve/pyproject.toml")
+    .add_local_dir(str(workflows_dir), "/workflows")
+    .add_local_file(str(root_dir / "pyproject.toml"), "/eve/pyproject.toml")
 )
 
 
@@ -312,10 +322,7 @@ def fastapi_app():
 
 
 @app.function(
-    image=image, 
-    concurrency_limit=1, 
-    schedule=modal.Period(minutes=15), 
-    timeout=3600
+    image=image, concurrency_limit=1, schedule=modal.Period(minutes=15), timeout=3600
 )
 async def cancel_stuck_tasks_fn():
     try:
@@ -326,10 +333,7 @@ async def cancel_stuck_tasks_fn():
 
 
 @app.function(
-    image=image, 
-    concurrency_limit=1, 
-    schedule=modal.Period(minutes=15), 
-    timeout=3600
+    image=image, concurrency_limit=1, schedule=modal.Period(minutes=15), timeout=3600
 )
 async def run_nsfw_detection_fn():
     try:
@@ -340,10 +344,7 @@ async def run_nsfw_detection_fn():
 
 
 @app.function(
-    image=image, 
-    concurrency_limit=1, 
-    schedule=modal.Period(minutes=15), 
-    timeout=3600
+    image=image, concurrency_limit=1, schedule=modal.Period(minutes=15), timeout=3600
 )
 async def generate_lora_thumbnails_fn():
     try:
@@ -354,10 +355,7 @@ async def generate_lora_thumbnails_fn():
 
 
 @app.function(
-    image=image, 
-    concurrency_limit=1, 
-    schedule=modal.Period(hours=2), 
-    timeout=3600
+    image=image, concurrency_limit=1, schedule=modal.Period(hours=2), timeout=3600
 )
 async def rotate_agent_metadata_fn():
     try:
@@ -368,10 +366,7 @@ async def rotate_agent_metadata_fn():
 
 
 @app.function(
-    image=image, 
-    concurrency_limit=10, 
-    allow_concurrent_inputs=4, 
-    timeout=3600
+    image=image, concurrency_limit=10, allow_concurrent_inputs=4, timeout=3600
 )
 async def run(tool_key: str, args: dict):
     handler = load_handler(tool_key)
@@ -380,10 +375,7 @@ async def run(tool_key: str, args: dict):
 
 
 @app.function(
-    image=image, 
-    concurrency_limit=10, 
-    allow_concurrent_inputs=4, 
-    timeout=3600
+    image=image, concurrency_limit=10, allow_concurrent_inputs=4, timeout=3600
 )
 @task_handler_func
 async def run_task(tool_key: str, args: dict):
@@ -392,10 +384,7 @@ async def run_task(tool_key: str, args: dict):
 
 
 @app.function(
-    image=image, 
-    concurrency_limit=10, 
-    allow_concurrent_inputs=4, 
-    timeout=3600
+    image=image, concurrency_limit=10, allow_concurrent_inputs=4, timeout=3600
 )
 async def run_task_replicate(task: Task):
     task.update(status="running")

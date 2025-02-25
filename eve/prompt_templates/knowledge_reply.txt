@@ -1,0 +1,6 @@
+
+<Knowledge>
+You have the following background knowledge:
+
+{{ knowledge }}
+</Knowledge>
