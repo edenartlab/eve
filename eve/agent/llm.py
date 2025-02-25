@@ -10,6 +10,7 @@ from instructor.function_calls import openai_schema
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
 
 from ..tool import Tool
+from ..eden_utils import dump_json
 from .thread import UserMessage, AssistantMessage, ToolCall
 
 
@@ -275,6 +276,13 @@ async def async_prompt(
     """
     Non-streaming LLM call => returns (content, tool_calls, stop).
     """
+
+    print("--------------------------------")
+    print(f"Prompting {model} with {len(messages)} messages")
+    print(dump_json(messages))
+    print("tools", tools.keys())
+    print("--------------------------------")
+
     if model.startswith("claude"):
         # Use the non-stream Anthropics helper
         return await async_anthropic_prompt(
