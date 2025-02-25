@@ -148,7 +148,6 @@ class Tool(Document, ABC):
         """Lazy load tool classes only when needed"""
 
         handler = schema.get("handler")
-        handler = "local"
         parent_tool = schema.get("parent_tool")
 
         # cache parent tool handler
