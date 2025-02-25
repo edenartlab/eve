@@ -1,5 +1,6 @@
 import re
 import os
+import copy
 import asyncio
 import traceback
 import functools
@@ -317,6 +318,11 @@ async def async_prompt_thread(
                 tool_calls=tool_calls,
                 reply_to=user_messages[-1].id,
             )
+
+            # TODO: save thought to just first assistant message
+            # if USE_THINKING:
+            #     assistant_message.thought = copy.deepcopy(thought)
+            #     thought = None
 
             # push assistant message to thread and pop user message from actives array
             pushes = {"messages": assistant_message}
