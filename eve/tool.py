@@ -109,7 +109,7 @@ class Tool(Document, ABC):
     allowlist: Optional[str] = None
 
     model: Type[BaseModel]
-    handler: HANDLERS = "modal"
+    handler: HANDLERS = "local"
     parent_tool: Optional[str] = None
     parameters: Optional[Dict[str, Any]] = None
     parameter_presets: Optional[Dict[str, Any]] = None
@@ -148,6 +148,7 @@ class Tool(Document, ABC):
         """Lazy load tool classes only when needed"""
 
         handler = schema.get("handler")
+        handler = "local"
         parent_tool = schema.get("parent_tool")
 
         # cache parent tool handler
