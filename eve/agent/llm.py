@@ -15,12 +15,12 @@ from .thread import UserMessage, AssistantMessage, ToolCall
 
 
 models = [
-    "claude-3-5-sonnet-20241022",
+    "claude-3-7-sonnet-20250219",
     "gpt-4o-mini",
     "gpt-4o-2024-08-06",
 ]
 
-DEFAULT_MODEL = "claude-3-5-sonnet-20241022"
+DEFAULT_MODEL = "claude-3-7-sonnet-20250219"
 
 
 class UpdateType(str, Enum):

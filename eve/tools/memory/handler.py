@@ -111,7 +111,7 @@ async def update_memory_with_llm(
         print("---------------------------------------------------------------------")
 
         prompt = {
-            "model": "claude-3-5-sonnet-latest",
+            "model": "claude-3-7-sonnet-20250219",
             "max_tokens": LLM_CALL_MAX_TOKENS,
             "messages": messages,
             "system": "You are an expert at managing agent memories. Respond with a JSON object containing just the updated memory content.",
