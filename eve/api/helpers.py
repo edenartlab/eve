@@ -107,6 +107,7 @@ async def emit_http_update(update_config: UpdateConfig, data: dict):
                         f"Failed to send update to endpoint: {await response.text()}"
                     )
         except Exception as e:
+            logger.error(traceback.format_exc())
             logger.error(f"Error sending update to endpoint: {str(e)}")
 
 

@@ -5,7 +5,9 @@ import subprocess
 import tempfile
 from typing import Dict, List, Optional
 import secrets as python_secrets
-
+import asyncio
+import aiohttp
+from ably import AblyRest
 
 from bson import ObjectId
 from pydantic import BaseModel
@@ -293,7 +295,15 @@ def prepare_client_file(
     return str(temp_file)
 
 
+def modify_secrets(secrets: DeploymentSecrets, platform: ClientType):
+    if platform == ClientType.TELEGRAM_HTTP:
+        webhook_secret = python_secrets.token_urlsafe(32)
+        secrets.telegram.webhook_secret = webhook_secret
+    return secrets
+
+
 async def deploy_client(
+    deployment: Deployment,
     agent: Agent,
     platform: ClientType,
     secrets: DeploymentSecrets,
@@ -304,11 +314,9 @@ async def deploy_client(
         deploy_client_modal(agent, platform, secrets, env, repo_branch)
 
     elif platform == ClientType.DISCORD_HTTP:
-        await deploy_client_discord(secrets)
+        await deploy_client_discord(deployment, secrets)
 
     elif platform == ClientType.TELEGRAM_HTTP:
-        webhook_secret = python_secrets.token_urlsafe(32)
-        secrets.telegram.webhook_secret = webhook_secret
         await deploy_client_telegram(secrets)
 
     elif platform == ClientType.FARCASTER:
@@ -319,8 +327,6 @@ async def deploy_client(
 
     else:
         raise Exception(f"Unsupported platform: {platform}")
-
-    return secrets
 
 
 def deploy_client_modal(
@@ -365,9 +371,31 @@ def deploy_client_modal(
             raise Exception(f"Client modal file not found: {client_path}")
 
 
-async def deploy_client_discord(secrets: DeploymentSecrets):
-    webhook_url = f"{os.getenv('EDEN_API_URL')}/updates/platform/discord"
-        
+async def deploy_client_discord(deployment: Deployment, secrets: DeploymentSecrets):
+    """
+    For HTTP-based Discord bots, we verify the token and notify the gateway service via Ably.
+    """
+    # Verify token is valid
+    headers = {"Authorization": f"Bot {secrets.discord.token}"}
+    async with aiohttp.ClientSession() as session:
+        async with session.get(
+            "https://discord.com/api/v10/users/@me", headers=headers
+        ) as response:
+            if response.status != 200:
+                raise Exception("Invalid Discord token")
+
+        # Notify gateway service via Ably
+        try:
+            ably_client = AblyRest(os.getenv("ABLY_PUBLISHER_KEY"))
+            channel = ably_client.channels.get(f"discord-gateway-{db}")
+
+            await channel.publish(
+                "command", {"command": "start", "deployment_id": str(deployment.id)}
+            )
+            print(f"Sent start command for deployment {deployment.id} via Ably")
+        except Exception as e:
+            print(f"Failed to notify gateway service: {e}")
+            raise Exception("Failed to start gateway client")
 
 
 async def deploy_client_telegram(secrets: DeploymentSecrets):
@@ -387,8 +415,27 @@ async def deploy_client_telegram(secrets: DeploymentSecrets):
         raise Exception("Failed to set Telegram webhook")
 
 
-def stop_client(agent: Agent, platform: ClientType):
-    """Stop a Modal client. Raises an exception if the stop fails."""
+async def stop_client(agent: Agent, platform: ClientType):
+    """Stop a Modal client. For Discord HTTP, notify the gateway service via Ably."""
+    if platform == ClientType.DISCORD_HTTP:
+        # Find the deployment
+        deployment = Deployment.load(agent=agent.id, platform=platform.value)
+        if deployment:
+            try:
+                ably_client = AblyRest(os.getenv("ABLY_PUBLISHER_KEY"))
+                channel = ably_client.channels.get(f"discord-gateway-{db}")
+
+                await channel.publish(
+                    "command",
+                    {"command": "stop", "deployment_id": str(deployment.id)},
+                )
+                print(f"Sent stop command for deployment {deployment.id} via Ably")
+            except Exception as e:
+                print(f"Failed to notify gateway service: {e}")
+
+        return
+
+    # Handle other platforms as before
     if platform not in modal_platforms:
         return
 
