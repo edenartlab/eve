@@ -366,7 +366,8 @@ def deploy_client_modal(
 
 
 async def deploy_client_discord(secrets: DeploymentSecrets):
-    pass
+    webhook_url = f"{os.getenv('EDEN_API_URL')}/updates/platform/discord"
+        
 
 
 async def deploy_client_telegram(secrets: DeploymentSecrets):
