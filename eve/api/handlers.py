@@ -282,7 +282,7 @@ async def handle_deployment_delete(request: DeleteDeploymentRequest):
         raise APIError(f"Agent not found: {request.agent}", status_code=404)
 
     try:
-        stop_client(agent, request.platform.value)
+        stop_client(agent, request.platform)
 
         # Delete deployment record
         Deployment.delete_deployment(agent.id, request.platform.value)

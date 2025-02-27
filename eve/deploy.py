@@ -4,6 +4,8 @@ from pathlib import Path
 import subprocess
 import tempfile
 from typing import Dict, List, Optional
+import secrets as python_secrets
+
 
 from bson import ObjectId
 from pydantic import BaseModel
@@ -17,14 +19,17 @@ DEPLOYMENT_ENV_NAME = "deployments"
 db = os.getenv("DB", "STAGE").upper()
 REPO_BRANCH = "main" if db == "PROD" else "staging"
 
-deployable_platforms = ["discord"]
-
 
 class ClientType(Enum):
     DISCORD = "discord"
     TELEGRAM = "telegram"
     FARCASTER = "farcaster"
     TWITTER = "twitter"
+    TELEGRAM_HTTP = "telegram_http"
+    DISCORD_HTTP = "discord_http"
+
+
+modal_platforms = [ClientType.DISCORD, ClientType.TELEGRAM]
 
 
 class AllowlistItem(BaseModel):
@@ -290,36 +295,44 @@ def prepare_client_file(
 
 async def deploy_client(
     agent: Agent,
-    platform: str,
+    platform: ClientType,
     secrets: DeploymentSecrets,
     env: str,
     repo_branch: str = None,
 ):
-    if platform == ClientType.DISCORD:
-        deploy_client_discord(agent, secrets, env, repo_branch)
+    if platform in modal_platforms:
+        deploy_client_modal(agent, platform, secrets, env, repo_branch)
 
-    if platform == ClientType.TELEGRAM:
-        import secrets as python_secrets
+    elif platform == ClientType.DISCORD_HTTP:
+        await deploy_client_discord(secrets)
 
+    elif platform == ClientType.TELEGRAM_HTTP:
         webhook_secret = python_secrets.token_urlsafe(32)
         secrets.telegram.webhook_secret = webhook_secret
         await deploy_client_telegram(secrets)
 
-    if platform == ClientType.FARCASTER:
+    elif platform == ClientType.FARCASTER:
         pass
 
-    if platform == ClientType.TWITTER:
+    elif platform == ClientType.TWITTER:
         pass
+
+    else:
+        raise Exception(f"Unsupported platform: {platform}")
 
     return secrets
 
 
-def deploy_client_discord(
-    agent: Agent, secrets: DeploymentSecrets, env: str, repo_branch: str = None
+def deploy_client_modal(
+    agent: Agent,
+    platform: ClientType,
+    secrets: DeploymentSecrets,
+    env: str,
+    repo_branch: str = None,
 ):
     agent_id = str(agent.id)
     agent_key = agent.username
-    platform = "discord"
+    platform_value = platform.value
     with tempfile.TemporaryDirectory() as temp_dir:
         # Clone the repo using provided branch or default
         branch = repo_branch or REPO_BRANCH
@@ -327,14 +340,14 @@ def deploy_client_discord(
 
         # Check for client file in the cloned repo
         client_path = os.path.join(
-            temp_dir, "eve", "clients", platform, "modal_client.py"
+            temp_dir, "eve", "clients", platform_value, "modal_client.py"
         )
         if os.path.exists(client_path):
             # Modify the client file to use the correct secret name
             temp_file = prepare_client_file(
-                client_path, agent_id, agent_key, platform, secrets, env
+                client_path, agent_id, agent_key, platform_value, secrets, env
             )
-            app_name = get_container_name(agent_id, agent_key, platform, env)
+            app_name = get_container_name(agent_id, agent_key, platform_value, env)
 
             subprocess.run(
                 [
@@ -350,6 +363,10 @@ def deploy_client_discord(
             )
         else:
             raise Exception(f"Client modal file not found: {client_path}")
+
+
+async def deploy_client_discord(secrets: DeploymentSecrets):
+    pass
 
 
 async def deploy_client_telegram(secrets: DeploymentSecrets):
@@ -369,12 +386,14 @@ async def deploy_client_telegram(secrets: DeploymentSecrets):
         raise Exception("Failed to set Telegram webhook")
 
 
-def stop_client(agent: Agent, platform: str):
+def stop_client(agent: Agent, platform: ClientType):
     """Stop a Modal client. Raises an exception if the stop fails."""
-    if platform not in deployable_platforms:
+    if platform not in modal_platforms:
         return
 
-    container_name = get_container_name(agent.id, agent.username, platform, db.lower())
+    container_name = get_container_name(
+        agent.id, agent.username, platform.value, db.lower()
+    )
     result = subprocess.run(
         [
             "modal",
