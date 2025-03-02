@@ -6,6 +6,7 @@ import traceback
 import functools
 from bson import ObjectId
 from typing import Optional, Dict, Any, List, Union, Literal
+import modal
 from pydantic import BaseModel
 from pydantic.config import ConfigDict
 from sentry_sdk import trace, start_transaction, add_breadcrumb, capture_exception

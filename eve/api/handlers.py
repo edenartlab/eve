@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import time
+import uuid
 from bson import ObjectId
 from typing import List
 from fastapi import BackgroundTasks, Request
@@ -26,10 +27,9 @@ from eve.api.helpers import (
     serialize_for_json,
     setup_chat,
     create_telegram_chat_request,
+    update_busy_state,
 )
-from eve.clients.common import get_ably_channel_name
 from eve.deploy import (
-    ClientType,
     deploy_client,
     modify_secrets,
     stop_client,
@@ -114,6 +114,10 @@ async def run_chat_request(
     model: str,
     user_is_bot: bool = False,
 ):
+    print("XXX run_chat_request")
+    print("XXX update_config", update_config)
+    request_id = str(uuid.uuid4())
+    update_busy_state(update_config, request_id, True)
     try:
         async for update in async_prompt_thread(
             user=user,
@@ -139,11 +143,13 @@ async def run_chat_request(
                 data["result"] = serialize_for_json(update.result)
             elif update.type == UpdateType.ERROR:
                 data["error"] = update.error if hasattr(update, "error") else None
-
+            elif update.type == UpdateType.END_PROMPT:
+                update_busy_state(update_config, request_id, False)
             await emit_update(update_config, data)
 
     except Exception as e:
         logger.error("Error in run_prompt", exc_info=True)
+        update_busy_state(update_config, request_id, False)
         await emit_update(
             update_config,
             {"type": "error", "error": str(e)},
