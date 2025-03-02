@@ -7,10 +7,14 @@ from fastapi import BackgroundTasks
 from ably import AblyRest
 import traceback
 import re
+import asyncio
+
+import modal
 
 from eve import deploy, trigger
 from eve.api.errors import APIError
 from eve.deploy import (
+    ClientType,
     authenticate_modal_key,
     check_environment_exists,
     create_environment,
@@ -26,6 +30,7 @@ from eve.deploy import Deployment
 logger = logging.getLogger(__name__)
 
 db = os.getenv("DB", "STAGE").upper()
+busy_state = modal.Dict.from_name(f"busy-state-{db}", create_if_missing=True)
 
 
 async def get_update_channel(
@@ -211,3 +216,83 @@ async def create_telegram_chat_request(
 def get_eden_creation_url(creation_id: str):
     root_url = "beta.eden.art" if db == "PROD" else "staging2.app.eden.art"
     return f"https://{root_url}/creations/{creation_id}"
+
+
+def update_busy_state(update_config: UpdateConfig, request_id: str, busy: bool):
+    """
+    Update the busy state for a deployment.
+
+    Args:
+        update_config: The update configuration containing platform and deployment_id
+        request_id: Unique identifier for this request
+        busy: True to add this request to busy state, False to remove it
+    """
+    if not update_config or not update_config.deployment_id:
+        return
+
+    # Determine platform from update_endpoint
+    platform = None
+    if update_config.update_endpoint:
+        platform = update_config.update_endpoint.split("/")[-1]
+
+    if not platform or not update_config.deployment_id:
+        return
+
+    deployment_id = update_config.deployment_id
+
+    # Create the key for this deployment's busy state
+    deployment_key = f"{deployment_id}.{platform}"
+
+    try:
+        # Get current requests list or initialize empty list
+        current_requests = busy_state.get(deployment_key, [])
+
+        if busy:
+            # Add this request to the busy list if not already present
+            if request_id not in current_requests:
+                current_requests.append(request_id)
+                # Must explicitly update the Dict with the modified list
+                busy_state[deployment_key] = current_requests
+                print(f"Added request {request_id} to busy state for {deployment_key}")
+        else:
+            # Remove this request from the busy list if present
+            if request_id in current_requests:
+                current_requests.remove(request_id)
+                # Must explicitly update the Dict with the modified list
+                busy_state[deployment_key] = current_requests
+                print(
+                    f"Removed request {request_id} from busy state for {deployment_key}"
+                )
+
+                # If this was the last request and platform is discord, emit an update
+                if not current_requests and platform == "discord":
+                    asyncio.create_task(
+                        emit_typing_update(
+                            deployment_id, update_config.discord_channel_id, False
+                        )
+                    )
+
+        # Log the current state
+        print(
+            f"Current busy state for {deployment_key}: {busy_state.get(deployment_key, [])}"
+        )
+
+    except Exception as e:
+        logger.error(f"Error updating busy state: {str(e)}")
+        logger.error(traceback.format_exc())
+
+
+async def emit_typing_update(deployment_id: str, channel_id: str, is_busy: bool):
+    """Emit a typing update to Ably for Discord channels"""
+    try:
+        from ably import AblyRest
+
+        client = AblyRest(os.getenv("ABLY_PUBLISHER_KEY"))
+        channel = client.channels.get(f"busy-state-discord-{deployment_id}")
+
+        await channel.publish("update", {"channel_id": channel_id, "is_busy": is_busy})
+
+        logger.info(f"Emitted typing update for channel {channel_id}: busy={is_busy}")
+    except Exception as e:
+        logger.error(f"Failed to emit typing update: {str(e)}")
+        logger.error(traceback.format_exc())

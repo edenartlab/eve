@@ -62,6 +62,63 @@ class GatewayEvent:
     MESSAGE_CREATE = "MESSAGE_CREATE"
 
 
+class TypingManager:
+    """Manages typing indicators for Discord channels"""
+
+    def __init__(self, client):
+        self.client = client
+        self.typing_channels = {}  # channel_id -> typing task
+
+    async def start_typing(self, channel_id):
+        """Start typing in a channel"""
+        if (
+            channel_id in self.typing_channels
+            and not self.typing_channels[channel_id].done()
+        ):
+            return  # Already typing in this channel
+
+        self.typing_channels[channel_id] = asyncio.create_task(
+            self._typing_loop(channel_id)
+        )
+        logger.info(f"Started typing in channel {channel_id}")
+
+    async def stop_typing(self, channel_id):
+        """Stop typing in a channel"""
+        task = self.typing_channels.pop(channel_id, None)
+        if task and not task.done():
+            task.cancel()
+            logger.info(f"Stopped typing in channel {channel_id}")
+
+    async def _typing_loop(self, channel_id):
+        """Loop that sends typing indicators every 5 seconds"""
+        try:
+            while True:
+                await self._send_typing_indicator(channel_id)
+                await asyncio.sleep(5)
+        except asyncio.CancelledError:
+            logger.info(f"Typing cancelled for channel {channel_id}")
+        except Exception as e:
+            logger.error(f"Error in typing loop: {e}")
+
+    async def _send_typing_indicator(self, channel_id):
+        """Send a typing indicator to a Discord channel"""
+        try:
+            async with aiohttp.ClientSession() as session:
+                headers = {
+                    "Authorization": f"Bot {self.client.token}",
+                    "Content-Type": "application/json",
+                }
+
+                url = f"https://discord.com/api/v10/channels/{channel_id}/typing"
+                async with session.post(url, headers=headers) as response:
+                    if response.status != 204:
+                        logger.warning(
+                            f"Failed to send typing indicator: {await response.text()}"
+                        )
+        except Exception as e:
+            logger.error(f"Error sending typing indicator: {e}")
+
+
 class DiscordGatewayClient:
     GATEWAY_VERSION = 10
     GATEWAY_URL = f"wss://gateway.discord.gg/?v={GATEWAY_VERSION}&encoding=json"
@@ -78,6 +135,11 @@ class DiscordGatewayClient:
         self._reconnect = True
         self._last_sequence = None
         self._session_id = None
+        self.typing_manager = TypingManager(self)
+
+        # Set up Ably for busy state updates
+        self.ably_client = None
+        self.busy_channel = None
 
     async def heartbeat_loop(self):
         while True:
@@ -220,6 +282,9 @@ class DiscordGatewayClient:
         ):
             force_reply = True
 
+        # Start typing in the channel
+        await self.typing_manager.start_typing(channel_id)
+
         chat_request = {
             "agent_id": str(self.deployment.agent),
             "user_id": str(self.deployment.user),
@@ -258,7 +323,44 @@ class DiscordGatewayClient:
                         f"Failed to process chat request: {await response.text()}"
                     )
 
+    async def setup_ably(self):
+        """Set up Ably for listening to busy state updates"""
+        try:
+            from ably import AblyRealtime
+
+            self.ably_client = AblyRealtime(os.getenv("ABLY_SUBSCRIBER_KEY"))
+            channel_name = f"busy-state-discord-{self.deployment.id}"
+            self.busy_channel = self.ably_client.channels.get(channel_name)
+
+            async def message_handler(message):
+                print("XXX Received busy state update:", message)
+                try:
+                    data = message.data
+                    if not isinstance(data, dict):
+                        return
+
+                    channel_id = data.get("channel_id")
+                    is_busy = data.get("is_busy", False)
+
+                    if channel_id:
+                        if is_busy:
+                            await self.typing_manager.start_typing(channel_id)
+                        else:
+                            await self.typing_manager.stop_typing(channel_id)
+
+                except Exception as e:
+                    logger.error(f"Error handling busy state update: {e}")
+
+            await self.busy_channel.subscribe(message_handler)
+            logger.info(f"Subscribed to busy state updates: {channel_name}")
+
+        except Exception as e:
+            logger.error(f"Failed to setup Ably: {e}")
+
     async def connect(self):
+        # Set up Ably for typing indicators
+        await self.setup_ably()
+
         while self._reconnect:
             try:
                 logger.info(
