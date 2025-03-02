@@ -1,3 +1,4 @@
+from pathlib import Path
 import modal
 import asyncio
 import json
@@ -13,6 +14,7 @@ from fastapi import FastAPI
 from contextlib import asynccontextmanager
 
 logger = logging.getLogger(__name__)
+root_dir = Path(__file__).parent.parent.parent.parent
 
 # Create Modal app
 app = modal.App(
@@ -26,7 +28,7 @@ app = modal.App(
 # Set up image
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    .pip_install_from_pyproject("pyproject.toml")
+    .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
     .env({"DB": db})
 )
 
