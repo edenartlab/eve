@@ -4,6 +4,9 @@ from pathlib import Path
 import subprocess
 import tempfile
 from typing import Dict, List, Optional
+import secrets as python_secrets
+import aiohttp
+from ably import AblyRest
 
 from bson import ObjectId
 from pydantic import BaseModel
@@ -17,19 +20,22 @@ DEPLOYMENT_ENV_NAME = "deployments"
 db = os.getenv("DB", "STAGE").upper()
 REPO_BRANCH = "main" if db == "PROD" else "staging"
 
-deployable_platforms = ["discord"]
-
 
 class ClientType(Enum):
     DISCORD = "discord"
     TELEGRAM = "telegram"
     FARCASTER = "farcaster"
     TWITTER = "twitter"
+    TELEGRAM_HTTP = "telegram_http"
+    DISCORD_HTTP = "discord_http"
+
+
+modal_platforms = [ClientType.DISCORD, ClientType.TELEGRAM]
 
 
 class AllowlistItem(BaseModel):
     id: str
-    note: str
+    note: Optional[str] = None
 
 
 class DeploymentSettingsDiscord(BaseModel):
@@ -50,6 +56,7 @@ class DeploymentSettingsTwitter(BaseModel):
 
 class DeploymentSecretsDiscord(BaseModel):
     token: str
+    application_id: Optional[str] = None
 
 
 class DeploymentSecretsTelegram(BaseModel):
@@ -288,38 +295,66 @@ def prepare_client_file(
     return str(temp_file)
 
 
+async def modify_secrets(secrets: DeploymentSecrets, platform: ClientType):
+    if platform == ClientType.TELEGRAM_HTTP:
+        webhook_secret = python_secrets.token_urlsafe(32)
+        secrets.telegram.webhook_secret = webhook_secret
+    elif platform == ClientType.DISCORD_HTTP:
+        headers = {"Authorization": f"Bot {secrets.discord.token}"}
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                "https://discord.com/api/v10/users/@me", headers=headers
+            ) as response:
+                if response.status != 200:
+                    raise Exception("Invalid Discord token")
+
+                # Get application ID if not provided
+                if not secrets.discord.application_id:
+                    bot_data = await response.json()
+                    application_id = bot_data.get("id")
+                    print(application_id)
+                    if application_id:
+                        secrets.discord.application_id = application_id
+    return secrets
+
+
 async def deploy_client(
+    deployment: Deployment,
     agent: Agent,
-    platform: str,
+    platform: ClientType,
     secrets: DeploymentSecrets,
     env: str,
     repo_branch: str = None,
 ):
-    if platform == ClientType.DISCORD:
-        deploy_client_discord(agent, secrets, env, repo_branch)
+    if platform in modal_platforms:
+        deploy_client_modal(agent, platform, secrets, env, repo_branch)
 
-    if platform == ClientType.TELEGRAM:
-        import secrets as python_secrets
+    elif platform == ClientType.DISCORD_HTTP:
+        await deploy_client_discord(deployment, secrets)
 
-        webhook_secret = python_secrets.token_urlsafe(32)
-        secrets.telegram.webhook_secret = webhook_secret
+    elif platform == ClientType.TELEGRAM_HTTP:
         await deploy_client_telegram(secrets)
 
-    if platform == ClientType.FARCASTER:
+    elif platform == ClientType.FARCASTER:
         pass
 
-    if platform == ClientType.TWITTER:
+    elif platform == ClientType.TWITTER:
         pass
 
-    return secrets
+    else:
+        raise Exception(f"Unsupported platform: {platform}")
 
 
-def deploy_client_discord(
-    agent: Agent, secrets: DeploymentSecrets, env: str, repo_branch: str = None
+def deploy_client_modal(
+    agent: Agent,
+    platform: ClientType,
+    secrets: DeploymentSecrets,
+    env: str,
+    repo_branch: str = None,
 ):
     agent_id = str(agent.id)
     agent_key = agent.username
-    platform = "discord"
+    platform_value = platform.value
     with tempfile.TemporaryDirectory() as temp_dir:
         # Clone the repo using provided branch or default
         branch = repo_branch or REPO_BRANCH
@@ -327,14 +362,14 @@ def deploy_client_discord(
 
         # Check for client file in the cloned repo
         client_path = os.path.join(
-            temp_dir, "eve", "clients", platform, "modal_client.py"
+            temp_dir, "eve", "clients", platform_value, "modal_client.py"
         )
         if os.path.exists(client_path):
             # Modify the client file to use the correct secret name
             temp_file = prepare_client_file(
-                client_path, agent_id, agent_key, platform, secrets, env
+                client_path, agent_id, agent_key, platform_value, secrets, env
             )
-            app_name = get_container_name(agent_id, agent_key, platform, env)
+            app_name = get_container_name(agent_id, agent_key, platform_value, env)
 
             subprocess.run(
                 [
@@ -350,6 +385,23 @@ def deploy_client_discord(
             )
         else:
             raise Exception(f"Client modal file not found: {client_path}")
+
+
+async def deploy_client_discord(deployment: Deployment, secrets: DeploymentSecrets):
+    """
+    For HTTP-based Discord bots, we verify the token and notify the gateway service via Ably.
+    """
+    try:
+        ably_client = AblyRest(os.getenv("ABLY_PUBLISHER_KEY"))
+        channel = ably_client.channels.get(f"discord-gateway-{db}")
+
+        await channel.publish(
+            "command", {"command": "start", "deployment_id": str(deployment.id)}
+        )
+        print(f"Sent start command for deployment {deployment.id} via Ably")
+    except Exception as e:
+        print(f"Failed to notify gateway service: {e}")
+        raise Exception("Failed to start gateway client")
 
 
 async def deploy_client_telegram(secrets: DeploymentSecrets):
@@ -369,12 +421,33 @@ async def deploy_client_telegram(secrets: DeploymentSecrets):
         raise Exception("Failed to set Telegram webhook")
 
 
-def stop_client(agent: Agent, platform: str):
-    """Stop a Modal client. Raises an exception if the stop fails."""
-    if platform not in deployable_platforms:
+async def stop_client(agent: Agent, platform: ClientType):
+    """Stop a Modal client. For Discord HTTP, notify the gateway service via Ably."""
+    if platform == ClientType.DISCORD_HTTP:
+        # Find the deployment
+        deployment = Deployment.load(agent=agent.id, platform=platform.value)
+        if deployment:
+            try:
+                ably_client = AblyRest(os.getenv("ABLY_PUBLISHER_KEY"))
+                channel = ably_client.channels.get(f"discord-gateway-{db}")
+
+                await channel.publish(
+                    "command",
+                    {"command": "stop", "deployment_id": str(deployment.id)},
+                )
+                print(f"Sent stop command for deployment {deployment.id} via Ably")
+            except Exception as e:
+                print(f"Failed to notify gateway service: {e}")
+
         return
 
-    container_name = get_container_name(agent.id, agent.username, platform, db.lower())
+    # Handle other platforms as before
+    if platform not in modal_platforms:
+        return
+
+    container_name = get_container_name(
+        agent.id, agent.username, platform.value, db.lower()
+    )
     result = subprocess.run(
         [
             "modal",

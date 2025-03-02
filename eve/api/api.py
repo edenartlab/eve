@@ -32,6 +32,7 @@ from eve.api.handlers import (
     handle_create,
     handle_cancel,
     handle_deployment_update,
+    handle_discord_emission,
     handle_replicate_webhook,
     handle_chat,
     handle_deployment_create,
@@ -232,6 +233,14 @@ async def updates_twitter(
     _: dict = Depends(auth.authenticate_admin),
 ):
     return await handle_twitter_update(request)
+
+
+@web_app.post("/emissions/platform/discord")
+async def emissions_discord(
+    request: Request,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    return await handle_discord_emission(request)
 
 
 @web_app.post("/emissions/platform/telegram")
