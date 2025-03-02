@@ -88,12 +88,11 @@ class SentryContextMiddleware(BaseHTTPMiddleware):
 
             # Extract client context from headers
             client_platform = request.headers.get("X-Client-Platform")
-            client_agent = request.headers.get("X-Client-Agent")
-
+            client_deployment_id = request.headers.get("X-Client-Deployment-Id")
             if client_platform:
                 scope.set_tag("client_platform", client_platform)
-            if client_agent:
-                scope.set_tag("client_agent", client_agent)
+            if client_deployment_id:
+                scope.set_tag("client_deployment_id", client_deployment_id)
 
             scope.set_context(
                 "api",
@@ -101,7 +100,7 @@ class SentryContextMiddleware(BaseHTTPMiddleware):
                     "endpoint": request.url.path,
                     "modal_serve": os.getenv("MODAL_SERVE"),
                     "client_platform": client_platform,
-                    "client_agent": client_agent,
+                    "client_deployment_id": client_deployment_id,
                 },
             )
         return await call_next(request)

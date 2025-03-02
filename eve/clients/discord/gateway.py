@@ -168,6 +168,9 @@ class DiscordGatewayClient:
             data.get("author", {}).get("id")
             == self.deployment.secrets.discord.application_id
         ):
+            print("SKIPPING MESSAGE FROM BOT ITSELF")
+            print("DEPLOYMENT ID", self.deployment.id)
+            print("APPLICATION ID", self.deployment.secrets.discord.application_id)
             return
 
         channel_id = str(data["channel_id"])
@@ -205,6 +208,14 @@ class DiscordGatewayClient:
                 if "proxy_url" in attachment
             ]
 
+        # # Check if this is a direct mention or reply to the bot
+        force_reply = False
+        if data.get("mentions") and any(
+            mention.get("id") == self.deployment.secrets.discord.application_id
+            for mention in data.get("mentions", [])
+        ):
+            force_reply = True
+
         chat_request = {
             "agent_id": str(self.deployment.agent),
             "user_id": str(self.deployment.user),
@@ -221,16 +232,11 @@ class DiscordGatewayClient:
                 "update_endpoint": f"{os.getenv('EDEN_API_URL')}/emissions/platform/discord",
             },
             "user_is_bot": data.get("author", {}).get("bot", False),
-            "force_reply": True,
+            "force_reply": force_reply,
         }
 
-        # # Check if this is a direct mention or reply to the bot
-        force_reply = False
-        if data.get("mentions") and any(
-            mention.get("id") == self.deployment.secrets.discord.application_id
-            for mention in data.get("mentions", [])
-        ):
-            force_reply = True
+        print("CHAT REQUEST", chat_request)
+        print("SENDING TO", f"{os.getenv('EDEN_API_URL')}/chat")
 
         async with aiohttp.ClientSession() as session:
             async with session.post(
@@ -240,6 +246,7 @@ class DiscordGatewayClient:
                     "Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}",
                     "Content-Type": "application/json",
                     "X-Client-Platform": "discord",
+                    "X-Client-Deployment-Id": str(self.deployment.id),
                 },
             ) as response:
                 if response.status != 200:
