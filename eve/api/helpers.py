@@ -7,6 +7,7 @@ from fastapi import BackgroundTasks
 from ably import AblyRest
 import traceback
 import re
+import asyncio
 
 import modal
 
@@ -263,6 +264,14 @@ def update_busy_state(update_config: UpdateConfig, request_id: str, busy: bool):
                     f"Removed request {request_id} from busy state for {deployment_key}"
                 )
 
+                # If this was the last request and platform is discord, emit an update
+                if not current_requests and platform == "discord":
+                    asyncio.create_task(
+                        emit_typing_update(
+                            deployment_id, update_config.discord_channel_id, False
+                        )
+                    )
+
         # Log the current state
         print(
             f"Current busy state for {deployment_key}: {busy_state.get(deployment_key, [])}"
@@ -270,4 +279,20 @@ def update_busy_state(update_config: UpdateConfig, request_id: str, busy: bool):
 
     except Exception as e:
         logger.error(f"Error updating busy state: {str(e)}")
+        logger.error(traceback.format_exc())
+
+
+async def emit_typing_update(deployment_id: str, channel_id: str, is_busy: bool):
+    """Emit a typing update to Ably for Discord channels"""
+    try:
+        from ably import AblyRest
+
+        client = AblyRest(os.getenv("ABLY_PUBLISHER_KEY"))
+        channel = client.channels.get(f"busy-state-discord-{deployment_id}")
+
+        await channel.publish("update", {"channel_id": channel_id, "is_busy": is_busy})
+
+        logger.info(f"Emitted typing update for channel {channel_id}: busy={is_busy}")
+    except Exception as e:
+        logger.error(f"Failed to emit typing update: {str(e)}")
         logger.error(traceback.format_exc())
