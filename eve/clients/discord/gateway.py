@@ -405,7 +405,6 @@ web_app = FastAPI(lifespan=lifespan)
 
 @app.function(
     keep_warm=1,
-    container_idle_timeout=60 * 60 * 24,
     concurrency_limit=1,
     allow_concurrent_inputs=100,
     timeout=3600,
