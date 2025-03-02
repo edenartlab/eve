@@ -247,6 +247,12 @@ class EdenTG:
 
             elif update_type == UpdateType.ASSISTANT_MESSAGE:
                 content = data.get("content")
+                print("ASSISTANT MESSAGE TELEGRAM")
+                print("content", content)
+                print("telegram_chat_id", telegram_chat_id)
+                print("telegram_message_id", telegram_message_id)
+                print("telegram_thread_id", telegram_thread_id)
+                print("mute1", self.agent.mute)
                 if content and not self.agent.mute:
                     await application.bot.send_message(
                         chat_id=telegram_chat_id,
