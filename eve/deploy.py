@@ -339,7 +339,7 @@ async def deploy_client(
         pass
 
     elif platform == ClientType.TWITTER:
-        pass
+        await deploy_client_twitter(deployment, secrets)
 
     else:
         raise Exception(f"Unsupported platform: {platform}")
@@ -421,30 +421,51 @@ async def deploy_client_telegram(secrets: DeploymentSecrets):
         raise Exception("Failed to set Telegram webhook")
 
 
+async def deploy_client_twitter(deployment: Deployment, secrets: DeploymentSecrets):
+    agent = Agent.from_mongo(deployment.agent)
+    if not agent:
+        raise Exception("Agent not found")
+
+    # Add Twitter tool to agent's tools
+    if not agent.tools:
+        agent.tools = {}
+
+    agent.tools["tweet"] = {
+        "parameters": {"agent": {"default": str(agent.id), "hide_from_agent": True}}
+    }
+
+    agent.save()
+
+
 async def stop_client(agent: Agent, platform: ClientType):
     """Stop a Modal client. For Discord HTTP, notify the gateway service via Ably."""
     if platform == ClientType.DISCORD:
         # Find the deployment
         deployment = Deployment.load(agent=agent.id, platform=platform.value)
         if deployment:
-            try:
-                ably_client = AblyRest(os.getenv("ABLY_PUBLISHER_KEY"))
-                channel = ably_client.channels.get(f"discord-gateway-{db}")
+            await stop_client_discord(deployment)
+    elif platform == ClientType.TWITTER:
+        await stop_client_twitter(agent)
+    elif platform in modal_platforms:
+        await stop_client_modal(agent, platform)
 
-                await channel.publish(
-                    "command",
-                    {"command": "stop", "deployment_id": str(deployment.id)},
-                )
-                print(f"Sent stop command for deployment {deployment.id} via Ably")
-            except Exception as e:
-                print(f"Failed to notify gateway service: {e}")
 
-        return
+async def stop_client_discord(deployment: Deployment):
+    if deployment:
+        try:
+            ably_client = AblyRest(os.getenv("ABLY_PUBLISHER_KEY"))
+            channel = ably_client.channels.get(f"discord-gateway-{db}")
 
-    # Handle other platforms as before
-    if platform not in modal_platforms:
-        return
+            await channel.publish(
+                "command",
+                {"command": "stop", "deployment_id": str(deployment.id)},
+            )
+            print(f"Sent stop command for deployment {deployment.id} via Ably")
+        except Exception as e:
+            print(f"Failed to notify gateway service: {e}")
 
+
+async def stop_client_modal(agent: Agent, platform: ClientType):
     container_name = get_container_name(
         agent.id, agent.username, platform.value, db.lower()
     )
@@ -462,3 +483,9 @@ async def stop_client(agent: Agent, platform: ClientType):
     )
     if result.returncode != 0:
         raise Exception(f"Failed to stop client: {result.stderr}")
+
+
+async def stop_client_twitter(agent: Agent):
+    if agent.tools and "tweet" in agent.tools:
+        agent.tools.pop("tweet")
+        agent.save()

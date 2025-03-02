@@ -322,6 +322,25 @@ class GatewayManager:
         self.ably_client = AblyRealtime(os.getenv("ABLY_SUBSCRIBER_KEY"))
         self.channel = self.ably_client.channels.get(f"discord-gateway-{db}")
 
+    async def reload_client(self, deployment_id: str):
+        """Reload a gateway client with fresh deployment data"""
+        logger.info(f"Reloading gateway client for deployment {deployment_id}")
+
+        # First stop the existing client if it exists
+        if deployment_id in self.clients:
+            await self.stop_client(deployment_id)
+
+        # Get fresh deployment data from database
+        deployment = Deployment.from_mongo(deployment_id)
+        if deployment:
+            # Start a new client with the fresh data
+            await self.start_client(deployment)
+            logger.info(
+                f"Successfully reloaded gateway client for deployment {deployment_id}"
+            )
+        else:
+            logger.error(f"Failed to reload - deployment not found: {deployment_id}")
+
     async def setup_ably(self):
         """Set up Ably subscription for gateway commands"""
 
@@ -357,18 +376,12 @@ class GatewayManager:
                     await self.stop_client(deployment_id)
 
                 elif command == "reload":
-                    # Reload a gateway client (stop and start)
-                    if deployment_id in self.clients:
-                        await self.stop_client(deployment_id)
-
-                    deployment = Deployment.from_mongo(deployment_id)
-                    if deployment:
-                        await self.start_client(deployment)
-                    else:
-                        logger.error(f"Deployment not found: {deployment_id}")
+                    # Use the dedicated reload method instead
+                    await self.reload_client(deployment_id)
 
             except Exception as e:
                 logger.error(f"Error handling Ably message: {e}")
+                logger.exception(e)
 
         # Subscribe to the channel
         await self.channel.subscribe(message_handler)
