@@ -333,6 +333,7 @@ class DiscordGatewayClient:
             self.busy_channel = self.ably_client.channels.get(channel_name)
 
             async def message_handler(message):
+                print("XXX Received busy state update:", message)
                 try:
                     data = message.data
                     if not isinstance(data, dict):
