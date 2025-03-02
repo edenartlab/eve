@@ -29,6 +29,7 @@ from eve.api.helpers import (
 )
 from eve.clients.common import get_ably_channel_name
 from eve.deploy import (
+    ClientType,
     deploy_client,
     modify_secrets,
     stop_client,
@@ -274,13 +275,14 @@ async def handle_deployment_update(request: UpdateDeploymentRequest):
         )
 
     deployment.update(config=request.config.model_dump())
-    agent = Agent.from_mongo(deployment.agent)
 
     try:
-        channel_name = get_ably_channel_name(agent.username, deployment.platform)
-        await emit_update(
-            UpdateConfig(sub_channel_name=channel_name), {"type": "RELOAD_DEPLOYMENT"}
-        )
+        if deployment.platform == ClientType.DISCORD:
+            channel_name = f"discord-gateway-{db}"
+            await emit_update(
+                UpdateConfig(sub_channel_name=channel_name),
+                {"command": "reload", "deployment_id": deployment.id},
+            )
     except Exception as e:
         logger.error(f"Failed to emit deployment reload message: {str(e)}")
 
