@@ -5,7 +5,6 @@ import subprocess
 import tempfile
 from typing import Dict, List, Optional
 import secrets as python_secrets
-import asyncio
 import aiohttp
 from ably import AblyRest
 
@@ -36,7 +35,7 @@ modal_platforms = [ClientType.DISCORD, ClientType.TELEGRAM]
 
 class AllowlistItem(BaseModel):
     id: str
-    note: str
+    note: Optional[str] = None
 
 
 class DeploymentSettingsDiscord(BaseModel):
@@ -57,6 +56,7 @@ class DeploymentSettingsTwitter(BaseModel):
 
 class DeploymentSecretsDiscord(BaseModel):
     token: str
+    application_id: Optional[str] = None
 
 
 class DeploymentSecretsTelegram(BaseModel):
@@ -295,10 +295,26 @@ def prepare_client_file(
     return str(temp_file)
 
 
-def modify_secrets(secrets: DeploymentSecrets, platform: ClientType):
+async def modify_secrets(secrets: DeploymentSecrets, platform: ClientType):
     if platform == ClientType.TELEGRAM_HTTP:
         webhook_secret = python_secrets.token_urlsafe(32)
         secrets.telegram.webhook_secret = webhook_secret
+    elif platform == ClientType.DISCORD_HTTP:
+        headers = {"Authorization": f"Bot {secrets.discord.token}"}
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                "https://discord.com/api/v10/users/@me", headers=headers
+            ) as response:
+                if response.status != 200:
+                    raise Exception("Invalid Discord token")
+
+                # Get application ID if not provided
+                if not secrets.discord.application_id:
+                    bot_data = await response.json()
+                    application_id = bot_data.get("id")
+                    print(application_id)
+                    if application_id:
+                        secrets.discord.application_id = application_id
     return secrets
 
 
@@ -375,27 +391,17 @@ async def deploy_client_discord(deployment: Deployment, secrets: DeploymentSecre
     """
     For HTTP-based Discord bots, we verify the token and notify the gateway service via Ably.
     """
-    # Verify token is valid
-    headers = {"Authorization": f"Bot {secrets.discord.token}"}
-    async with aiohttp.ClientSession() as session:
-        async with session.get(
-            "https://discord.com/api/v10/users/@me", headers=headers
-        ) as response:
-            if response.status != 200:
-                raise Exception("Invalid Discord token")
+    try:
+        ably_client = AblyRest(os.getenv("ABLY_PUBLISHER_KEY"))
+        channel = ably_client.channels.get(f"discord-gateway-{db}")
 
-        # Notify gateway service via Ably
-        try:
-            ably_client = AblyRest(os.getenv("ABLY_PUBLISHER_KEY"))
-            channel = ably_client.channels.get(f"discord-gateway-{db}")
-
-            await channel.publish(
-                "command", {"command": "start", "deployment_id": str(deployment.id)}
-            )
-            print(f"Sent start command for deployment {deployment.id} via Ably")
-        except Exception as e:
-            print(f"Failed to notify gateway service: {e}")
-            raise Exception("Failed to start gateway client")
+        await channel.publish(
+            "command", {"command": "start", "deployment_id": str(deployment.id)}
+        )
+        print(f"Sent start command for deployment {deployment.id} via Ably")
+    except Exception as e:
+        print(f"Failed to notify gateway service: {e}")
+        raise Exception("Failed to start gateway client")
 
 
 async def deploy_client_telegram(secrets: DeploymentSecrets):

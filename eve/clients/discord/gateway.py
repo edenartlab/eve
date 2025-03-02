@@ -149,11 +149,12 @@ class DiscordGatewayClient:
             return
 
         # Skip messages from the bot itself
-        # if (
-        #     data.get("author", {}).get("id")
-        #     == self.deployment.secrets.discord.application_id
-        # ):
-        #     return
+        print("AUTHOR ID", data.get("author", {}).get("id"))
+        if (
+            data.get("author", {}).get("id")
+            == self.deployment.secrets.discord.application_id
+        ):
+            return
 
         channel_id = str(data["channel_id"])
 
@@ -210,12 +211,12 @@ class DiscordGatewayClient:
         }
 
         # # Check if this is a direct mention or reply to the bot
-        # force_reply = False
-        # if data.get("mentions") and any(
-        #     mention.get("id") == self.deployment.secrets.discord.application_id
-        #     for mention in data.get("mentions", [])
-        # ):
-        #     force_reply = True
+        force_reply = False
+        if data.get("mentions") and any(
+            mention.get("id") == self.deployment.secrets.discord.application_id
+            for mention in data.get("mentions", [])
+        ):
+            force_reply = True
 
         async with aiohttp.ClientSession() as session:
             async with session.post(

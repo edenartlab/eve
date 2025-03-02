@@ -233,7 +233,7 @@ async def handle_deployment_create(request: CreateDeploymentRequest):
     if not agent:
         raise APIError(f"Agent not found: {agent.id}", status_code=404)
 
-    secrets = modify_secrets(request.secrets, request.platform)
+    secrets = await modify_secrets(request.secrets, request.platform)
 
     deployment = Deployment(
         agent=agent.id,
