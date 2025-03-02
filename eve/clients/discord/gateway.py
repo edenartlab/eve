@@ -119,6 +119,82 @@ class TypingManager:
             logger.error(f"Error sending typing indicator: {e}")
 
 
+class TelegramTypingManager:
+    """Manages typing indicators for Telegram chats"""
+
+    def __init__(self):
+        self.typing_chats = {}  # chat_id_thread_id -> typing task
+        self.tokens = {}  # deployment_id -> bot token
+
+    def register_deployment(self, deployment_id, token):
+        """Register a Telegram deployment with its token"""
+        self.tokens[deployment_id] = token
+        logger.info(f"Registered Telegram deployment {deployment_id}")
+
+    def unregister_deployment(self, deployment_id):
+        """Unregister a Telegram deployment"""
+        if deployment_id in self.tokens:
+            del self.tokens[deployment_id]
+            logger.info(f"Unregistered Telegram deployment {deployment_id}")
+
+    async def start_typing(self, deployment_id, chat_id, thread_id=None):
+        """Start typing in a Telegram chat"""
+        if deployment_id not in self.tokens:
+            logger.warning(f"No token found for deployment {deployment_id}")
+            return
+
+        chat_key = f"{chat_id}_{thread_id}" if thread_id else str(chat_id)
+
+        if chat_key in self.typing_chats and not self.typing_chats[chat_key].done():
+            return  # Already typing in this chat
+
+        self.typing_chats[chat_key] = asyncio.create_task(
+            self._typing_loop(deployment_id, chat_id, thread_id)
+        )
+        logger.info(f"Started typing in Telegram chat {chat_key}")
+
+    async def stop_typing(self, chat_id, thread_id=None):
+        """Stop typing in a Telegram chat"""
+        chat_key = f"{chat_id}_{thread_id}" if thread_id else str(chat_id)
+        task = self.typing_chats.pop(chat_key, None)
+        if task and not task.done():
+            task.cancel()
+            logger.info(f"Stopped typing in Telegram chat {chat_key}")
+
+    async def _typing_loop(self, deployment_id, chat_id, thread_id):
+        """Loop that sends typing indicators every 5 seconds"""
+        try:
+            token = self.tokens.get(deployment_id)
+            if not token:
+                return
+
+            while True:
+                await self._send_typing_indicator(token, chat_id, thread_id)
+                await asyncio.sleep(5)
+        except asyncio.CancelledError:
+            logger.info(f"Typing cancelled for Telegram chat {chat_id}")
+        except Exception as e:
+            logger.error(f"Error in Telegram typing loop: {e}")
+
+    async def _send_typing_indicator(self, token, chat_id, thread_id):
+        """Send a typing indicator to a Telegram chat"""
+        try:
+            async with aiohttp.ClientSession() as session:
+                url = f"https://api.telegram.org/bot{token}/sendChatAction"
+                payload = {"chat_id": chat_id, "action": "typing"}
+
+                if thread_id:
+                    payload["message_thread_id"] = thread_id
+
+                async with session.post(url, json=payload) as response:
+                    if response.status != 200:
+                        logger.warning(
+                            f"Failed to send Telegram typing indicator: {await response.text()}"
+                        )
+        except Exception as e:
+            logger.error(f"Error sending Telegram typing indicator: {e}")
+
+
 class DiscordGatewayClient:
     GATEWAY_VERSION = 10
     GATEWAY_URL = f"wss://gateway.discord.gg/?v={GATEWAY_VERSION}&encoding=json"
@@ -347,6 +423,9 @@ class DiscordGatewayClient:
                             await self.typing_manager.start_typing(channel_id)
                         else:
                             await self.typing_manager.stop_typing(channel_id)
+                            # Double-check after a short delay to ensure typing has stopped
+                            await asyncio.sleep(0.5)
+                            await self.typing_manager.stop_typing(channel_id)
 
                 except Exception as e:
                     logger.error(f"Error handling busy state update: {e}")
@@ -427,6 +506,12 @@ class GatewayManager:
         self.clients: Dict[str, DiscordGatewayClient] = {}
         self.ably_client = AblyRealtime(os.getenv("ABLY_SUBSCRIBER_KEY"))
         self.channel = self.ably_client.channels.get(f"discord-gateway-{db}")
+
+        # Add Telegram typing manager
+        self.telegram_typing_manager = TelegramTypingManager()
+
+        # Set up Ably for Telegram busy state updates
+        self.telegram_busy_channel = None
 
     async def reload_client(self, deployment_id: str):
         """Reload a gateway client with fresh deployment data"""
@@ -511,12 +596,63 @@ class GatewayManager:
         await self.channel.subscribe(message_handler)
         logger.info("Subscribed to Ably channel for gateway commands")
 
+        # Set up Ably for Telegram busy state updates
+        try:
+            # Subscribe to Telegram busy state updates
+            telegram_channel = self.ably_client.channels.get(
+                f"busy-state-telegram-{db}"
+            )
+
+            async def telegram_message_handler(message):
+                try:
+                    data = message.data
+                    if not isinstance(data, dict):
+                        return
+
+                    deployment_id = data.get("deployment_id")
+                    chat_id = data.get("chat_id")
+                    thread_id = data.get("thread_id")
+                    is_busy = data.get("is_busy", False)
+
+                    if deployment_id and chat_id:
+                        if is_busy:
+                            await self.telegram_typing_manager.start_typing(
+                                deployment_id, chat_id, thread_id
+                            )
+                        else:
+                            await self.telegram_typing_manager.stop_typing(
+                                chat_id, thread_id
+                            )
+                except Exception as e:
+                    logger.error(f"Error handling Telegram busy state update: {e}")
+
+            await telegram_channel.subscribe(telegram_message_handler)
+            logger.info("Subscribed to Telegram busy state updates")
+
+        except Exception as e:
+            logger.error(f"Failed to setup Telegram Ably subscription: {e}")
+
     async def load_deployments(self):
         """Load all Discord HTTP deployments from database"""
         deployments = Deployment.find({"platform": ClientType.DISCORD.value})
         for deployment in deployments:
             if deployment.secrets and deployment.secrets.discord.token:
                 await self.start_client(deployment)
+
+        # Also load Telegram deployments for typing
+        telegram_deployments = Deployment.find({"platform": ClientType.TELEGRAM.value})
+        for deployment in telegram_deployments:
+            if (
+                deployment.secrets
+                and deployment.secrets.telegram
+                and deployment.secrets.telegram.token
+            ):
+                self.telegram_typing_manager.register_deployment(
+                    str(deployment.id), deployment.secrets.telegram.token
+                )
+                logger.info(
+                    f"Registered Telegram deployment {deployment.id} for typing"
+                )
 
     async def start_client(self, deployment: Deployment):
         """Start a new gateway client for a deployment"""
