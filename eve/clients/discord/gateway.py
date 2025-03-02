@@ -28,6 +28,19 @@ app = modal.App(
 # Set up image
 image = (
     modal.Image.debian_slim(python_version="3.11")
+    .apt_install(
+        "git",
+        "libmagic1",
+        "ffmpeg",
+        "wget",
+        "libnss3",
+        "libnspr4",
+        "libatk1.0-0",
+        "libatk-bridge2.0-0",
+        "libcups2",
+        "libatspi2.0-0",
+        "libxcomposite1",
+    )
     .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
     .env({"DB": db})
 )
@@ -405,6 +418,7 @@ web_app = FastAPI(lifespan=lifespan)
 
 
 @app.function(
+    image=image,
     keep_warm=1,
     concurrency_limit=1,
     allow_concurrent_inputs=100,
