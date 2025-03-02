@@ -332,6 +332,7 @@ class GatewayManager:
                     logger.warning(f"Received invalid message format: {data}")
                     return
 
+                # Continue with existing command handling
                 command = data.get("command")
                 deployment_id = data.get("deployment_id")
 
