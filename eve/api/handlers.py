@@ -47,6 +47,7 @@ from eve.user import User
 from eve.agent.thread import Thread, UserMessage
 from eve.deploy import Deployment
 from eve.tools.twitter import X
+from eve.api.helpers import get_eden_creation_url
 
 logger = logging.getLogger(__name__)
 db = os.getenv("DB", "STAGE").upper()
@@ -606,6 +607,65 @@ async def handle_discord_emission(request: Request):
                                     "error": f"Failed to send message: {error_text}"
                                 },
                             )
+
+            elif update_type == UpdateType.TOOL_COMPLETE:
+                result = data.get("result", {})
+                if not result:
+                    return JSONResponse(status_code=200, content={"ok": True})
+
+                result["result"] = prepare_result(result["result"])
+                outputs = result["result"][0]["output"]
+                urls = [
+                    output["url"] for output in outputs[:4] if "url" in output
+                ]  # Get up to 4 URLs with valid urls
+
+                # Get creation ID from the first output
+                creation_id = None
+                if isinstance(outputs, list) and len(outputs) > 0:
+                    creation_id = str(outputs[0].get("creation"))
+
+                # Prepare message content with URLs
+                content = "\n".join(urls)
+
+                # Basic message payload
+                payload = {
+                    "content": content,
+                    "message_reference": {
+                        "message_id": message_id,
+                        "channel_id": channel_id,
+                        "fail_if_not_exists": False,
+                    },
+                }
+
+                # Add components for Eden link if creation_id exists
+                if creation_id:
+                    eden_url = get_eden_creation_url(creation_id)
+                    payload["components"] = [
+                        {
+                            "type": 1,  # Action Row
+                            "components": [
+                                {
+                                    "type": 2,  # Button
+                                    "style": 5,  # Link
+                                    "label": "View on Eden",
+                                    "url": eden_url,
+                                }
+                            ],
+                        }
+                    ]
+
+                async with session.post(
+                    f"https://discord.com/api/v10/channels/{channel_id}/messages",
+                    headers=headers,
+                    json=payload,
+                ) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        logger.error(f"Failed to send Discord message: {error_text}")
+                        return JSONResponse(
+                            status_code=500,
+                            content={"error": f"Failed to send message: {error_text}"},
+                        )
 
         return JSONResponse(status_code=200, content={"ok": True})
 

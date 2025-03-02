@@ -25,6 +25,8 @@ from eve.deploy import Deployment
 
 logger = logging.getLogger(__name__)
 
+db = os.getenv("DB", "STAGE").upper()
+
 
 async def get_update_channel(
     update_config: UpdateConfig, ably_client: AblyRest
@@ -204,3 +206,8 @@ async def create_telegram_chat_request(
             "telegram_thread_id": str(message_thread_id) if message_thread_id else None,
         },
     }
+
+
+def get_eden_creation_url(creation_id: str):
+    root_url = "beta.eden.art" if db == "PROD" else "staging2.app.eden.art"
+    return f"https://{root_url}/creations/{creation_id}"
