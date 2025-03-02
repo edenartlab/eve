@@ -165,7 +165,7 @@ class DiscordGatewayClient:
             data.get("author", {}).get("id")
             == self.deployment.secrets.discord.application_id
         ):
-            print("SKIPPING MESSAGE FROM BOT ITSELF")
+            print("SKIPPING MESSAGE FROM BOT")
             print("DEPLOYMENT ID", self.deployment.id)
             print("APPLICATION ID", self.deployment.secrets.discord.application_id)
             return
