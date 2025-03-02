@@ -326,18 +326,40 @@ class GatewayManager:
         """Reload a gateway client with fresh deployment data"""
         logger.info(f"Reloading gateway client for deployment {deployment_id}")
 
-        # First stop the existing client if it exists
+        # First stop and remove the existing client if it exists
         if deployment_id in self.clients:
-            await self.stop_client(deployment_id)
+            client = self.clients.pop(deployment_id)
+            client.stop()
+            logger.info(f"Stopped existing client for deployment {deployment_id}")
+
+            # Add a small delay to ensure cleanup
+            await asyncio.sleep(1)
 
         # Get fresh deployment data from database
         deployment = Deployment.from_mongo(deployment_id)
         if deployment:
-            # Start a new client with the fresh data
-            await self.start_client(deployment)
+            # Create a completely new client with the fresh data
+            client = DiscordGatewayClient(deployment)
+            self.clients[deployment_id] = client
+
+            # Start the new client
+            asyncio.create_task(client.connect())
             logger.info(
-                f"Successfully reloaded gateway client for deployment {deployment_id}"
+                f"Successfully reloaded gateway client for deployment {deployment_id} with fresh data"
             )
+
+            # Log the updated channel allowlist for debugging
+            if (
+                deployment.config
+                and deployment.config.discord
+                and deployment.config.discord.channel_allowlist
+            ):
+                allowed_channels = [
+                    item.id for item in deployment.config.discord.channel_allowlist
+                ]
+                logger.info(
+                    f"Updated allowlist for deployment {deployment_id}: {allowed_channels}"
+                )
         else:
             logger.error(f"Failed to reload - deployment not found: {deployment_id}")
 
@@ -409,7 +431,7 @@ class GatewayManager:
     async def stop_client(self, deployment_id: str):
         """Stop a gateway client"""
         if deployment_id in self.clients:
-            client = self.clients.pop(deployment_id)
+            client = self.clients.pop(deployment_id)  # Remove from dict first
             client.stop()
             logger.info(f"Stopped gateway client for deployment {deployment_id}")
         else:
