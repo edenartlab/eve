@@ -177,8 +177,11 @@ class DiscordGatewayClient:
 
         if self.deployment.config.discord.channel_allowlist:
             allowed_channels = [
-                item.id for item in self.deployment.config.discord.channel_allowlist
+                int(item.id)
+                for item in self.deployment.config.discord.channel_allowlist
             ]
+            print("ALLOWED CHANNELS", allowed_channels)
+            print("CHANNEL ID", channel_id)
 
             if channel_id not in allowed_channels:
                 logger.info(
