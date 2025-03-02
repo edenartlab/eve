@@ -602,8 +602,10 @@ class GatewayManager:
             telegram_channel = self.ably_client.channels.get(
                 f"busy-state-telegram-{db}"
             )
+            print("XXX CONNECTED TO TELEGRAM CHANNEL:", telegram_channel)
 
             async def telegram_message_handler(message):
+                print("XXX TELEGRAM MESSAGE:", message)
                 try:
                     data = message.data
                     if not isinstance(data, dict):
