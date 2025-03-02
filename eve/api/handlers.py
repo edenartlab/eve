@@ -276,16 +276,6 @@ async def handle_deployment_update(request: UpdateDeploymentRequest):
 
     deployment.update(config=request.config.model_dump())
 
-    try:
-        if deployment.platform == ClientType.DISCORD:
-            channel_name = f"discord-gateway-{db}"
-            await emit_update(
-                UpdateConfig(sub_channel_name=channel_name),
-                {"command": "reload", "deployment_id": str(deployment.id)},
-            )
-    except Exception as e:
-        logger.error(f"Failed to emit deployment reload message: {str(e)}")
-
     return {"deployment_id": str(deployment.id)}
 
 

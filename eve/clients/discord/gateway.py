@@ -158,9 +158,6 @@ class DiscordGatewayClient:
         logger.info(
             f"Handling message for deployment {self.deployment.id} with data {data}"
         )
-        logger.info(f"Deployment config: {self.deployment.config}")
-        if not self.deployment.config:
-            return
 
         # Skip messages from the bot itself
         print("AUTHOR ID", data.get("author", {}).get("id"))
@@ -173,11 +170,18 @@ class DiscordGatewayClient:
             print("APPLICATION ID", self.deployment.secrets.discord.application_id)
             return
 
+        # Fetch fresh deployment data to get the latest allowlist
+        fresh_deployment = Deployment.from_mongo(str(self.deployment.id))
+        if not fresh_deployment or not fresh_deployment.config:
+            logger.info(f"No config found for deployment {self.deployment.id}")
+            return
+
         channel_id = str(data["channel_id"])
 
-        if self.deployment.config.discord.channel_allowlist:
+        # Check against the freshly fetched allowlist
+        if fresh_deployment.config.discord.channel_allowlist:
             allowed_channels = [
-                item.id for item in self.deployment.config.discord.channel_allowlist
+                item.id for item in fresh_deployment.config.discord.channel_allowlist
             ]
             print("ALLOWED CHANNELS", allowed_channels)
             print("CHANNEL ID", channel_id)
@@ -396,10 +400,6 @@ class GatewayManager:
                 elif command == "stop":
                     # Stop an existing gateway client
                     await self.stop_client(deployment_id)
-
-                elif command == "reload":
-                    # Use the dedicated reload method instead
-                    await self.reload_client(deployment_id)
 
             except Exception as e:
                 logger.error(f"Error handling Ably message: {e}")
