@@ -67,7 +67,7 @@ class DiscordGatewayClient:
     GATEWAY_URL = f"wss://gateway.discord.gg/?v={GATEWAY_VERSION}&encoding=json"
 
     def __init__(self, deployment: Deployment):
-        if deployment.platform != ClientType.DISCORD_HTTP:
+        if deployment.platform != ClientType.DISCORD:
             raise ValueError("Deployment must be for Discord HTTP platform")
 
         self.deployment = deployment
@@ -375,7 +375,7 @@ class GatewayManager:
 
     async def load_deployments(self):
         """Load all Discord HTTP deployments from database"""
-        deployments = Deployment.find({"platform": ClientType.DISCORD_HTTP.value})
+        deployments = Deployment.find({"platform": ClientType.DISCORD.value})
         for deployment in deployments:
             if deployment.secrets and deployment.secrets.discord.token:
                 await self.start_client(deployment)

@@ -26,11 +26,11 @@ class ClientType(Enum):
     TELEGRAM = "telegram"
     FARCASTER = "farcaster"
     TWITTER = "twitter"
-    TELEGRAM_HTTP = "telegram_http"
-    DISCORD_HTTP = "discord_http"
+    TELEGRAM_MODAL = "telegram_modal"
+    DISCORD_MODAL = "discord_modal"
 
 
-modal_platforms = [ClientType.DISCORD, ClientType.TELEGRAM]
+modal_platforms = [ClientType.DISCORD_MODAL, ClientType.TELEGRAM_MODAL]
 
 
 class AllowlistItem(BaseModel):
@@ -296,10 +296,10 @@ def prepare_client_file(
 
 
 async def modify_secrets(secrets: DeploymentSecrets, platform: ClientType):
-    if platform == ClientType.TELEGRAM_HTTP:
+    if platform == ClientType.TELEGRAM:
         webhook_secret = python_secrets.token_urlsafe(32)
         secrets.telegram.webhook_secret = webhook_secret
-    elif platform == ClientType.DISCORD_HTTP:
+    elif platform == ClientType.DISCORD:
         headers = {"Authorization": f"Bot {secrets.discord.token}"}
         async with aiohttp.ClientSession() as session:
             async with session.get(
@@ -329,10 +329,10 @@ async def deploy_client(
     if platform in modal_platforms:
         deploy_client_modal(agent, platform, secrets, env, repo_branch)
 
-    elif platform == ClientType.DISCORD_HTTP:
+    elif platform == ClientType.DISCORD:
         await deploy_client_discord(deployment, secrets)
 
-    elif platform == ClientType.TELEGRAM_HTTP:
+    elif platform == ClientType.TELEGRAM:
         await deploy_client_telegram(secrets)
 
     elif platform == ClientType.FARCASTER:
@@ -423,7 +423,7 @@ async def deploy_client_telegram(secrets: DeploymentSecrets):
 
 async def stop_client(agent: Agent, platform: ClientType):
     """Stop a Modal client. For Discord HTTP, notify the gateway service via Ably."""
-    if platform == ClientType.DISCORD_HTTP:
+    if platform == ClientType.DISCORD:
         # Find the deployment
         deployment = Deployment.load(agent=agent.id, platform=platform.value)
         if deployment:
