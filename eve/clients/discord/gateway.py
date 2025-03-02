@@ -26,7 +26,6 @@ app = modal.App(
 # Set up image
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    .pip_install("websockets", "ably")
     .pip_install_from_pyproject("pyproject.toml")
     .env({"DB": db})
 )
