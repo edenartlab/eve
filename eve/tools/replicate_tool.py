@@ -62,8 +62,6 @@ class ReplicateTool(Tool):
             # So we spawn a remote task on Modal which awaits the Replicate task
             db = os.getenv("DB", "STAGE").upper()
             func = modal.Function.lookup(
-                # f"remote-replicate-{db}", 
-                # "run_task", 
                 f"api-{db.lower()}",
                 "run_task_replicate", 
                 environment_name="main"

@@ -36,7 +36,7 @@ The following agents are public and owned by other users.
 </Query>
 
 <Task>
-Analyze these agents and return only the ones that are relevant to this search query. You should prefer the agents made by the user, and if none are found, expand your search to public agents.
+Analyze these agents and return only the ones that are relevant to this search query. You should prefer the agents made by the user, and if none are found, expand your search to public agents. Do not return more than 10 agents.
 
 Explain why each result matches the query criteria.
 </Task>""")
@@ -63,8 +63,11 @@ class SearchResults(BaseModel):
     )
 
 
-async def handler(args: dict):    
-    searcher = "gene" #args.get("searcher")
+async def handler(args: dict, user: str = None, requester: str = None):
+    searcher = requester
+
+    print("SEARCH FOR THE SEARCHER", searcher)
+
     query = args.get("query")
     
     # Get all documents
@@ -76,7 +79,7 @@ async def handler(args: dict):
         doc["_id"] = counter        
         docs[str(counter)] = {
             "id": id,
-            "owned": searcher == str(doc["owner"]),
+            "owned": str(searcher) == str(doc["owner"]),
             "public": doc["public"],
             "used": doc.get("creationCount", 0),
             "doc": doc,
@@ -103,6 +106,10 @@ async def handler(args: dict):
         docs_public=docs_public, 
         query=query
     )
+
+    print("--------------------------------")
+    print(prompt[:500])
+    print("--------------------------------")
 
     # Make LLM call
     system_message = f"""You are a search assistant that helps find relevant Agents based on natural language queries. Analyze the provided items and return only the most relevant matches for the query.
@@ -138,6 +145,10 @@ async def handler(args: dict):
                     "aspectRatio": 1,
                 }
             matches.append(r)
+
+
+    print("AGENT MATCHES")
+    print(matches)
 
     return {
         "output": matches

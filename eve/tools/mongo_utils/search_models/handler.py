@@ -34,7 +34,7 @@ The following models were trained by others but are public.
 </Query>
 
 <Task>
-Analyze these models and return only the ones that are relevant to this search query. You should prefer models trained by the user, and if none are found, expand your search to public models.
+Analyze these models and return only the ones that are relevant to this search query. You should prefer models trained by the user, and if none are found, expand your search to public models. Do not return more than 10 models.
 
 Explain why each result matches the query criteria.
 </Task>"""
@@ -64,9 +64,13 @@ class SearchResults(BaseModel):
     )
 
 
-async def handler(args: dict):
+async def handler(args: dict, user: str = None, requester: str = None):
     
-    searcher = "gene" #args.get("searcher")
+    searcher = requester
+
+    print("SEARCH FOR THE SEARCHER", searcher)
+
+    
     query = args.get("query")
     
     # Get all documents
@@ -78,7 +82,7 @@ async def handler(args: dict):
         doc["_id"] = counter        
         docs[str(counter)] = {
             "id": id,
-            "owned": searcher == str(doc["user"]),
+            "owned": str(searcher) == str(doc["user"]),
             "public": doc["public"],
             "used": doc.get("creationCount", 0),
             "doc": doc,
@@ -105,6 +109,10 @@ async def handler(args: dict):
         docs_public=docs_public, 
         query=query
     )
+
+    print("--------------------------------")
+    print(prompt[:500])
+    print("--------------------------------")
 
     # Make LLM call
     system_message = f"""You are a search assistant that helps find relevant Models based on natural language queries. Analyze the provided items and return only the most relevant matches for the query.

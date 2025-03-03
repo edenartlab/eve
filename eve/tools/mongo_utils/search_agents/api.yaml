@@ -1,6 +1,6 @@
 name: Search for Agents
 description: Search database for agents
-tip: Use this tool to search for agents based on a query. The agent_id field is the unique ID for the agent.
+tip: Use this tool to search for agents based on a query. The agent_id field is the unique ID for the agent. Do not return more than 10 results.
 cost_estimate: 0
 output_type: image
 status: prod

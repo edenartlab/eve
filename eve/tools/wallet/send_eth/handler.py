@@ -2,7 +2,7 @@ import os
 from web3 import Web3
 
 
-async def handler(args: dict):
+async def handler(args: dict, user: str = None, requester: str = None):
     # Initialize Web3 with Base Sepolia RPC URL
     w3 = Web3(Web3.HTTPProvider(os.getenv("BASE_SEPOLIA_RPC_URL")))
     

@@ -1,7 +1,7 @@
 import json
 import requests
 
-async def handler(args: dict):
+async def handler(args: dict, user: str = None, requester: str = None):
     lat = args["lat"]
     lon = args["lon"]
     
