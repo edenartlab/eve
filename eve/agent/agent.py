@@ -178,7 +178,7 @@ class Agent(User):
                             },
                             "lora": {
                                 "default": str(model.id),
-                                "hide_from_agent": True,
+                                # "hide_from_agent": True,
                             },
                         },
                     }
@@ -187,11 +187,11 @@ class Agent(User):
                         "parameters": {
                             "use_lora": {
                                 "default": True,
-                                "hide_from_agent": True,
+                                # "hide_from_agent": True,
                             },
                             "lora": {
                                 "default": str(model.id),
-                                "hide_from_agent": True,
+                                # "hide_from_agent": True,
                             },
                         },
                     }

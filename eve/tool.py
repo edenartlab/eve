@@ -53,6 +53,9 @@ BASE_TOOLS = [
     "musicgen", 
     "elevenlabs",
     "mmaudio",
+
+    "search_agents",
+    "search_models",
 ]
 
 # Additional tools in agent's context if agent chooses to recall them
