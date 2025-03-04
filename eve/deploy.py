@@ -333,7 +333,7 @@ async def deploy_client(
         await deploy_client_discord(deployment, secrets)
 
     elif platform == ClientType.TELEGRAM:
-        await deploy_client_telegram(secrets)
+        await deploy_client_telegram(secrets, str(deployment.id))
 
     elif platform == ClientType.FARCASTER:
         pass
@@ -404,7 +404,7 @@ async def deploy_client_discord(deployment: Deployment, secrets: DeploymentSecre
         raise Exception("Failed to start gateway client")
 
 
-async def deploy_client_telegram(secrets: DeploymentSecrets):
+async def deploy_client_telegram(secrets: DeploymentSecrets, deployment_id: str):
     from telegram import Bot
 
     webhook_url = f"{os.getenv('EDEN_API_URL')}/updates/platform/telegram"
@@ -419,6 +419,25 @@ async def deploy_client_telegram(secrets: DeploymentSecrets):
 
     if not response:
         raise Exception("Failed to set Telegram webhook")
+
+    # Notify gateway about the new deployment
+    try:
+        ably_client = AblyRest(os.getenv("ABLY_PUBLISHER_KEY"))
+        channel = ably_client.channels.get(f"discord-gateway-{db}")
+
+        await channel.publish(
+            "command",
+            {
+                "command": "register_telegram",
+                "deployment_id": deployment_id,
+                "token": secrets.telegram.token,
+            },
+        )
+        print(
+            f"Sent Telegram registration command for deployment {deployment_id} via Ably"
+        )
+    except Exception as e:
+        print(f"Failed to notify gateway service for Telegram: {e}")
 
 
 async def deploy_client_twitter(deployment: Deployment, secrets: DeploymentSecrets):
@@ -444,6 +463,11 @@ async def stop_client(agent: Agent, platform: ClientType):
         deployment = Deployment.load(agent=agent.id, platform=platform.value)
         if deployment:
             await stop_client_discord(deployment)
+    elif platform == ClientType.TELEGRAM:
+        # Find the deployment
+        deployment = Deployment.load(agent=agent.id, platform=platform.value)
+        if deployment:
+            await stop_client_telegram(deployment)
     elif platform == ClientType.TWITTER:
         await stop_client_twitter(agent)
     elif platform in modal_platforms:
@@ -489,3 +513,21 @@ async def stop_client_twitter(agent: Agent):
     if agent.tools and "tweet" in agent.tools:
         agent.tools.pop("tweet")
         agent.save()
+
+
+# Add the new function for stopping Telegram client
+async def stop_client_telegram(deployment: Deployment):
+    if deployment:
+        try:
+            ably_client = AblyRest(os.getenv("ABLY_PUBLISHER_KEY"))
+            channel = ably_client.channels.get(f"discord-gateway-{db}")
+
+            await channel.publish(
+                "command",
+                {"command": "unregister_telegram", "deployment_id": str(deployment.id)},
+            )
+            print(
+                f"Sent unregister command for Telegram deployment {deployment.id} via Ably"
+            )
+        except Exception as e:
+            print(f"Failed to notify gateway service for Telegram unregistration: {e}")

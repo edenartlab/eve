@@ -126,16 +126,28 @@ class TelegramTypingManager:
         self.typing_chats = {}  # chat_id_thread_id -> typing task
         self.tokens = {}  # deployment_id -> bot token
 
-    def register_deployment(self, deployment_id, token):
-        """Register a Telegram deployment with its token"""
+    def register_deployment(self, deployment_id: str, token: str):
+        """Register a new deployment with its token"""
         self.tokens[deployment_id] = token
-        logger.info(f"Registered Telegram deployment {deployment_id}")
+        logger.info(f"Registered Telegram deployment {deployment_id} for typing")
 
-    def unregister_deployment(self, deployment_id):
-        """Unregister a Telegram deployment"""
+    def unregister_deployment(self, deployment_id: str):
+        """Unregister a deployment"""
         if deployment_id in self.tokens:
             del self.tokens[deployment_id]
-            logger.info(f"Unregistered Telegram deployment {deployment_id}")
+            logger.info(f"Unregistered Telegram deployment {deployment_id} from typing")
+
+            # Stop any active typing for this deployment
+            # This is a safety measure to ensure no lingering typing indicators
+            chats_to_stop = []
+            for chat_key in self.typing_chats:
+                if chat_key.startswith(f"{deployment_id}:"):
+                    chats_to_stop.append(chat_key)
+
+            for chat_key in chats_to_stop:
+                task = self.typing_chats.pop(chat_key, None)
+                if task and not task.done():
+                    task.cancel()
 
     async def start_typing(self, deployment_id, chat_id, thread_id=None):
         """Start typing in a Telegram chat"""
@@ -588,6 +600,21 @@ class GatewayManager:
                     # Stop an existing gateway client
                     await self.stop_client(deployment_id)
 
+                # Add Telegram-specific commands
+                elif command == "register_telegram":
+                    # Register a new Telegram deployment
+                    token = data.get("token")
+                    if token:
+                        self.telegram_typing_manager.register_deployment(
+                            deployment_id, token
+                        )
+                    else:
+                        logger.error(f"Missing token for Telegram registration: {data}")
+
+                elif command == "unregister_telegram":
+                    # Unregister a Telegram deployment
+                    self.telegram_typing_manager.unregister_deployment(deployment_id)
+
             except Exception as e:
                 logger.error(f"Error handling Ably message: {e}")
                 logger.exception(e)
@@ -617,6 +644,13 @@ class GatewayManager:
                     is_busy = data.get("is_busy", False)
 
                     if deployment_id and chat_id:
+                        print(
+                            "XXX TELEGRAM BUSY STATE UPDATE:",
+                            deployment_id,
+                            chat_id,
+                            thread_id,
+                            is_busy,
+                        )
                         if is_busy:
                             await self.telegram_typing_manager.start_typing(
                                 deployment_id, chat_id, thread_id
