@@ -332,9 +332,11 @@ async def async_prompt_thread(
             assistant_message = thread.messages[-1]
 
             # yield update
-            yield ThreadUpdate(
-                type=UpdateType.ASSISTANT_MESSAGE, message=assistant_message
-            )
+            if not agent.mute:
+                yield ThreadUpdate(
+                    type=UpdateType.ASSISTANT_MESSAGE, 
+                    message=assistant_message
+                )
 
         except Exception as e:
             # capture error
