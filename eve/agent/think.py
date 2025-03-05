@@ -1,146 +1,16 @@
-import openai
-import anthropic
-import instructor
-
+import asyncio
 from pydantic import BaseModel, Field
-from typing import List, Literal, Optional
+from typing import Literal, Optional
+
 from .agent import Agent, refresh_agent
 from .thread import UserMessage, Thread
 from ..tool import TOOL_CATEGORIES
-from ..models import Model
-from ..mongo import get_collection
 from ..eden_utils import dump_json, load_template
 from .llm import async_prompt
-
 
 knowledge_think_template = load_template("knowledge_think") 
 thought_template = load_template("thought")
 tools_template = load_template("tools")
-
-
-
-
-class SearchResult(BaseModel):
-    """A matching result from the database search."""
-    
-    id: str = Field(..., description="The MongoDB ID of the result")
-    name: str = Field(..., description="The name/title of the result")
-    description: str = Field(..., description="A brief description of the result")
-    relevance: str = Field(
-        ..., 
-        description="A brief explanation of why this result matches the search query"
-    )
-
-class SearchResults(BaseModel):
-    """Results from searching the database."""
-    
-    results: List[SearchResult] = Field(
-        ...,
-        description="The matching results, ordered by relevance. Include only truly relevant results."
-    )
-
-
-search_template = """<mongodb_documents>
-{{documents}}
-</mongodb_documents>
-<query>
-{{query}}
-</query>
-<task>
-Return a list of matching documents to the query.
-</task>"""
-
-agent_template = """<document>
-  <_id>{{_id}}</_id>
-  <name>{{name}}</name>
-  <username>{{username}}</username>
-  <description>{{description}}</description>
-  <knowledge_description>{{knowledge_description}}</knowledge_description>
-  <persona>{{persona[:750]}}</persona>
-  <created_at>{{createdAt}}</created_at>
-</document>"""
-
-model_template = """<document>
-  <_id>{{_id}}</_id>
-  <name>{{name}}</name>
-  <lora_model>{{lora_model}}</lora_model>
-  <lora_trigger_text>{{lora_trigger_text}}</lora_trigger_text>
-  <created_at>{{createdAt}}</created_at>
-</document>"""
-
-from jinja2 import Template
-model_template = Template(model_template)
-agent_template = Template(agent_template)
-search_template = Template(search_template)
-
-async def search_mongo(type: Literal["model", "agent"], query: str):
-    """Search MongoDB for models or agents matching the query."""
-    
-    docs = []
-    id_map = {}
-    counter = 1
-    
-    if type == "model":
-        collection = get_collection(Model.get_collection_name())
-        for doc in collection.find({"base_model": "flux-dev", "public": True, "deleted": {"$ne": True}}):
-            # Map the real ID to a counter
-            id_map[counter] = str(doc["_id"])
-            doc["_id"] = counter
-            counter += 1
-            docs.append(model_template.render(doc))
-
-    elif type == "agent":
-        collection = get_collection(Agent.collection_name)
-        for doc in collection.find({"type": "agent", "public": True, "deleted": {"$ne": True}}):
-            # Map the real ID to a counter
-            id_map[counter] = str(doc["_id"])
-            doc["_id"] = counter
-            counter += 1
-            docs.append(agent_template.render(doc))
-
-    # Create context for LLM
-    context = search_template.render(
-        documents="\n".join(docs), 
-        query=query
-    )
-
-    # Make LLM call
-    system_message = f"""You are a search assistant that helps find relevant {type}s based on natural language queries. 
-    Analyze the provided items and return only the most relevant matches for the query.
-    Be selective - only return items that truly match the query's intent."""
-
-    prompt = f"""<{type}s>
-{context}
-</{type}s>
-<query>
-"{query}"
-</query>
-<task>
-Analyze these items and return only the ones that are truly relevant to this search query. 
-Explain why each result matches the query criteria.
-</task>"""
-
-    print(context)
-
-
-
-    # raise Exception("stop")
-
-    client = instructor.from_openai(openai.AsyncOpenAI())
-    results = await client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": system_message},
-            {"role": "user", "content": prompt},
-        ],
-        response_model=SearchResults,
-    )
-
-    # Map the simple IDs back to real MongoDB IDs
-    for result in results.results:
-        result.id = id_map[int(result.id)]
-
-    return results.results
 
 
 async def async_think(
@@ -172,7 +42,6 @@ async def async_think(
         )
         recall_knowledge: bool = Field(
             ...,
-            description="Whether to recall, refer to, or consult your knowledge base.",
         )
 
     # generate text blob of chat history
@@ -244,3 +113,6 @@ async def async_think(
 
     return thought
 
+
+def think(agent: Agent, thread: Thread, user_message: UserMessage, force_reply: bool = True):
+    return asyncio.run(async_think(agent, thread, user_message, force_reply))

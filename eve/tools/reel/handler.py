@@ -312,7 +312,7 @@ def write_visual_prompts(
 
 
 
-async def handler(args: dict):
+async def handler(args: dict, user: str = None, requester: str = None):
     elevenlabs = Tool.load("elevenlabs")
     musicgen = Tool.load("musicgen")
     flux = Tool.load("flux_dev")

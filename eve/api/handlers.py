@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import time
+import uuid
 from bson import ObjectId
 from typing import List
 from fastapi import BackgroundTasks, Request
@@ -26,10 +27,11 @@ from eve.api.helpers import (
     serialize_for_json,
     setup_chat,
     create_telegram_chat_request,
+    update_busy_state,
 )
-from eve.clients.common import get_ably_channel_name
 from eve.deploy import (
     deploy_client,
+    modify_secrets,
     stop_client,
 )
 from eve.eden_utils import prepare_result
@@ -45,6 +47,7 @@ from eve.user import User
 from eve.agent.thread import Thread, UserMessage
 from eve.deploy import Deployment
 from eve.tools.twitter import X
+from eve.api.helpers import get_eden_creation_url
 
 logger = logging.getLogger(__name__)
 db = os.getenv("DB", "STAGE").upper()
@@ -111,6 +114,10 @@ async def run_chat_request(
     model: str,
     user_is_bot: bool = False,
 ):
+    print("XXX run_chat_request")
+    print("XXX update_config", update_config)
+    request_id = str(uuid.uuid4())
+    update_busy_state(update_config, request_id, True)
     try:
         async for update in async_prompt_thread(
             user=user,
@@ -136,11 +143,13 @@ async def run_chat_request(
                 data["result"] = serialize_for_json(update.result)
             elif update.type == UpdateType.ERROR:
                 data["error"] = update.error if hasattr(update, "error") else None
-
+            elif update.type == UpdateType.END_PROMPT:
+                update_busy_state(update_config, request_id, False)
             await emit_update(update_config, data)
 
     except Exception as e:
         logger.error("Error in run_prompt", exc_info=True)
+        update_busy_state(update_config, request_id, False)
         await emit_update(
             update_config,
             {"type": "error", "error": str(e)},
@@ -232,11 +241,8 @@ async def handle_deployment_create(request: CreateDeploymentRequest):
     if not agent:
         raise APIError(f"Agent not found: {agent.id}", status_code=404)
 
-    secrets = await deploy_client(
-        agent, request.platform, request.secrets, db.lower(), request.repo_branch
-    )
+    secrets = await modify_secrets(request.secrets, request.platform)
 
-    # Create/update deployment record
     deployment = Deployment(
         agent=agent.id,
         user=ObjectId(request.user),
@@ -247,6 +253,20 @@ async def handle_deployment_create(request: CreateDeploymentRequest):
     deployment.save(
         upsert_filter={"agent": agent.id, "platform": request.platform.value}
     )
+
+    try:
+        await deploy_client(
+            deployment,
+            agent,
+            request.platform,
+            request.secrets,
+            db.lower(),
+            request.repo_branch,
+        )
+    except Exception as e:
+        logger.error(f"Failed to deploy client: {str(e)}")
+        deployment.delete()
+        raise APIError(f"Failed to deploy client: {str(e)}", status_code=500)
 
     return {"deployment_id": str(deployment.id)}
 
@@ -262,15 +282,6 @@ async def handle_deployment_update(request: UpdateDeploymentRequest):
         )
 
     deployment.update(config=request.config.model_dump())
-    agent = Agent.from_mongo(deployment.agent)
-
-    try:
-        channel_name = get_ably_channel_name(agent.username, deployment.platform)
-        await emit_update(
-            UpdateConfig(sub_channel_name=channel_name), {"type": "RELOAD_DEPLOYMENT"}
-        )
-    except Exception as e:
-        logger.error(f"Failed to emit deployment reload message: {str(e)}")
 
     return {"deployment_id": str(deployment.id)}
 
@@ -282,7 +293,7 @@ async def handle_deployment_delete(request: DeleteDeploymentRequest):
         raise APIError(f"Agent not found: {request.agent}", status_code=404)
 
     try:
-        stop_client(agent, request.platform.value)
+        await stop_client(agent, request.platform)
 
         # Delete deployment record
         Deployment.delete_deployment(agent.id, request.platform.value)
@@ -538,4 +549,132 @@ async def handle_telegram_update(request: Request):
 
     except Exception as e:
         logger.error("Error processing Telegram update", exc_info=True)
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@handle_errors
+async def handle_discord_emission(request: Request):
+    """Handle updates from async_prompt_thread for Discord"""
+    try:
+        data = await request.json()
+        print("DISCORD EMISSION DATA:", data)
+
+        update_type = data.get("type")
+        update_config = data.get("update_config", {})
+        deployment_id = update_config.get("deployment_id")
+        channel_id = update_config.get("discord_channel_id")
+        message_id = update_config.get("discord_message_id")
+
+        if not deployment_id or not channel_id:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Deployment ID and channel ID are required"},
+            )
+
+        # Find deployment
+        deployment = Deployment.from_mongo(ObjectId(deployment_id))
+        if not deployment:
+            return JSONResponse(
+                status_code=404, content={"error": "No Discord deployment found"}
+            )
+
+        # Initialize Discord REST client for sending messages
+        async with aiohttp.ClientSession() as session:
+            headers = {
+                "Authorization": f"Bot {deployment.secrets.discord.token}",
+                "Content-Type": "application/json",
+            }
+
+            if update_type == UpdateType.ASSISTANT_MESSAGE:
+                content = data.get("content")
+                if content:
+                    payload = {
+                        "content": content,
+                        "message_reference": {
+                            "message_id": message_id,
+                            "channel_id": channel_id,
+                            "fail_if_not_exists": False,
+                        },
+                    }
+
+                    async with session.post(
+                        f"https://discord.com/api/v10/channels/{channel_id}/messages",
+                        headers=headers,
+                        json=payload,
+                    ) as response:
+                        if response.status != 200:
+                            error_text = await response.text()
+                            logger.error(
+                                f"Failed to send Discord message: {error_text}"
+                            )
+                            return JSONResponse(
+                                status_code=500,
+                                content={
+                                    "error": f"Failed to send message: {error_text}"
+                                },
+                            )
+
+            elif update_type == UpdateType.TOOL_COMPLETE:
+                result = data.get("result", {})
+                if not result:
+                    return JSONResponse(status_code=200, content={"ok": True})
+
+                result["result"] = prepare_result(result["result"])
+                outputs = result["result"][0]["output"]
+                urls = [
+                    output["url"] for output in outputs[:4] if "url" in output
+                ]  # Get up to 4 URLs with valid urls
+
+                # Get creation ID from the first output
+                creation_id = None
+                if isinstance(outputs, list) and len(outputs) > 0:
+                    creation_id = str(outputs[0].get("creation"))
+
+                # Prepare message content with URLs
+                content = "\n".join(urls)
+
+                # Basic message payload
+                payload = {
+                    "content": content,
+                    "message_reference": {
+                        "message_id": message_id,
+                        "channel_id": channel_id,
+                        "fail_if_not_exists": False,
+                    },
+                }
+
+                # Add components for Eden link if creation_id exists
+                if creation_id:
+                    eden_url = get_eden_creation_url(creation_id)
+                    payload["components"] = [
+                        {
+                            "type": 1,  # Action Row
+                            "components": [
+                                {
+                                    "type": 2,  # Button
+                                    "style": 5,  # Link
+                                    "label": "View on Eden",
+                                    "url": eden_url,
+                                }
+                            ],
+                        }
+                    ]
+
+                async with session.post(
+                    f"https://discord.com/api/v10/channels/{channel_id}/messages",
+                    headers=headers,
+                    json=payload,
+                ) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        logger.error(f"Failed to send Discord message: {error_text}")
+                        return JSONResponse(
+                            status_code=500,
+                            content={"error": f"Failed to send message: {error_text}"},
+                        )
+
+        return JSONResponse(status_code=200, content={"ok": True})
+
+    except Exception as e:
+        logger.error("Error handling Discord emission", exc_info=True)
         return JSONResponse(status_code=500, content={"error": str(e)})

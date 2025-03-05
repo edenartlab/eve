@@ -51,5 +51,5 @@ class LocalTool(Tool):
 
 
 @task_handler_func
-async def run_task(tool_key: str, args: dict):
-    return await load_handler(tool_key)(args)
+async def run_task(tool_key: str, args: dict, user: str = None, requester: str = None):
+    return await load_handler(tool_key)(args, user, requester)

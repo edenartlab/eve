@@ -10,6 +10,11 @@ from .mongo import Document, Collection
 from . import eden_utils
 from . import sentry_sdk
 
+# A list of tools that output media but do not result in new Creations
+NON_CREATION_TOOLS = [
+    "search_agents", 
+    "search_models"
+]
 
 
 @Collection("creations3")
@@ -104,9 +109,10 @@ def task_handler_method(func):
     return wrapper
 
 
+# this is not used yet, but can be used for moderating requests
 async def _preprocess_task(task: Task):
     """Helper function that sleeps for 5 seconds"""
-    await asyncio.sleep(5)
+    await asyncio.sleep(1)
     return {"name": "this is a tbd side task"}
 
 
@@ -124,6 +130,7 @@ async def _task_handler(func, *args, **kwargs):
     task_update = {}
     n_samples = task.args.get("n_samples", 1)
     output_type = task.output_type
+    is_creation_tool = not task.tool in NON_CREATION_TOOLS
 
     try:
         for i in range(n_samples):
@@ -132,17 +139,21 @@ async def _task_handler(func, *args, **kwargs):
                 task_args["seed"] = task_args["seed"] + i
 
             # Run both functions concurrently
-            main_task = func(*args[:-1], task.parent_tool or task.tool, task_args)
+            main_task = func(*args[:-1], task.parent_tool or task.tool, task_args, user=task.user, requester=task.requester)
             preprocess_task = _preprocess_task(task)
 
             # preprocess_task is just a stub. it will allow us to parallelize pre-processing tasks that dont want to hold up the main task
-            result, preprocess_result = await asyncio.gather(main_task, preprocess_task)
+            result, _ = await asyncio.gather(main_task, preprocess_task)
 
-            if output_type in ["image", "video", "audio", "lora"]:
+            if output_type in ["image", "video", "audio", "lora"] and is_creation_tool:
                 result["output"] = result["output"] if isinstance(result["output"], list) else [result["output"]]
                 result = eden_utils.upload_result(result, save_thumbnails=True, save_blurhash=True)
 
                 for output in result["output"]:
+                    # Skip if the tool is a non-creation tool
+                    if not "filename" in result["output"]:
+                        continue
+
                     # name = preprocess_result.get("name") or task_args.get("prompt") or args.get("text_input")
                     name = task_args.get("prompt") or task_args.get("text_input")
                     if not name:

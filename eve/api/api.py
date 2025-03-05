@@ -13,6 +13,8 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.exceptions import RequestValidationError
+import time
+import asyncio
 
 from eve import auth, db, eden_utils
 from eve.api.runner_tasks import (
@@ -32,6 +34,7 @@ from eve.api.handlers import (
     handle_create,
     handle_cancel,
     handle_deployment_update,
+    handle_discord_emission,
     handle_replicate_webhook,
     handle_chat,
     handle_deployment_create,
@@ -55,7 +58,7 @@ from eve.api.api_requests import (
     TaskRequest,
     UpdateDeploymentRequest,
 )
-from eve.api.helpers import pre_modal_setup
+from eve.api.helpers import pre_modal_setup, busy_state
 
 
 app_name = f"api-{db.lower()}"
@@ -87,12 +90,11 @@ class SentryContextMiddleware(BaseHTTPMiddleware):
 
             # Extract client context from headers
             client_platform = request.headers.get("X-Client-Platform")
-            client_agent = request.headers.get("X-Client-Agent")
-
+            client_deployment_id = request.headers.get("X-Client-Deployment-Id")
             if client_platform:
                 scope.set_tag("client_platform", client_platform)
-            if client_agent:
-                scope.set_tag("client_agent", client_agent)
+            if client_deployment_id:
+                scope.set_tag("client_deployment_id", client_deployment_id)
 
             scope.set_context(
                 "api",
@@ -100,7 +102,7 @@ class SentryContextMiddleware(BaseHTTPMiddleware):
                     "endpoint": request.url.path,
                     "modal_serve": os.getenv("MODAL_SERVE"),
                     "client_platform": client_platform,
-                    "client_agent": client_agent,
+                    "client_deployment_id": client_deployment_id,
                 },
             )
         return await call_next(request)
@@ -232,6 +234,14 @@ async def updates_twitter(
     _: dict = Depends(auth.authenticate_admin),
 ):
     return await handle_twitter_update(request)
+
+
+@web_app.post("/emissions/platform/discord")
+async def emissions_discord(
+    request: Request,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    return await handle_discord_emission(request)
 
 
 @web_app.post("/emissions/platform/telegram")
@@ -378,9 +388,9 @@ async def run(tool_key: str, args: dict):
     image=image, concurrency_limit=10, allow_concurrent_inputs=4, timeout=3600
 )
 @task_handler_func
-async def run_task(tool_key: str, args: dict):
+async def run_task(tool_key: str, args: dict, user: str = None, requester: str = None):
     handler = load_handler(tool_key)
-    return await handler(args)
+    return await handler(args, user, requester)
 
 
 @app.function(
@@ -425,3 +435,77 @@ async def deploy_client_modal(
         env=env,
         repo_branch=repo_branch,
     )
+
+
+@app.function(
+    image=image, concurrency_limit=1, schedule=modal.Period(minutes=2), timeout=3600
+)
+async def cleanup_stale_busy_states():
+    """Clean up any stale busy states that might be lingering"""
+    try:
+        current_time = time.time()
+        stale_threshold = 240
+
+        # Get all keys in the busy_state dict
+        all_keys = list(busy_state.keys())
+
+        for key in all_keys:
+            # Get the timestamps for this key
+            timestamps = busy_state.get(f"{key}_timestamps", {})
+
+            # Get the request IDs for this key
+            requests = busy_state.get(key, [])
+
+            # Check each request ID
+            stale_requests = []
+            for request_id in requests:
+                timestamp = timestamps.get(request_id, 0)
+                if current_time - timestamp > stale_threshold:
+                    stale_requests.append(request_id)
+
+            # Remove stale requests
+            if stale_requests:
+                updated_requests = [r for r in requests if r not in stale_requests]
+                busy_state[key] = updated_requests
+
+                # Also update timestamps
+                updated_timestamps = {
+                    k: v for k, v in timestamps.items() if k not in stale_requests
+                }
+                busy_state[f"{key}_timestamps"] = updated_timestamps
+
+                print(f"Cleaned up {len(stale_requests)} stale requests for {key}")
+
+                # If this was a Discord or Telegram deployment, emit typing stop
+                if "discord" in key or "telegram" in key:
+                    deployment_id, platform = key.split(".")
+
+                    if platform == "discord":
+                        # Find any channel IDs associated with this deployment
+                        from eve.api.helpers import emit_typing_update
+
+                        for channel_id in busy_state.get(f"{key}_channels", []):
+                            asyncio.create_task(
+                                emit_typing_update(deployment_id, channel_id, False)
+                            )
+
+                    elif platform == "telegram":
+                        # Find any chat IDs associated with this deployment
+                        from eve.api.helpers import emit_telegram_typing_update
+
+                        for chat_key in busy_state.get(f"{key}_chats", []):
+                            chat_id, thread_id = (
+                                chat_key.split("_")
+                                if "_" in chat_key
+                                else (chat_key, None)
+                            )
+                            asyncio.create_task(
+                                emit_telegram_typing_update(
+                                    deployment_id, chat_id, thread_id, False
+                                )
+                            )
+
+        print("Finished cleaning up stale busy states")
+    except Exception as e:
+        print(f"Error cleaning up stale busy states: {e}")
+        sentry_sdk.capture_exception(e)

@@ -5,7 +5,7 @@ import tempfile
 from ... import eden_utils
 
 
-async def handler(args: dict):
+async def handler(args: dict, user: str = None, requester: str = None):
     HEDRA_API_KEY = os.getenv("HEDRA_API_KEY")
     HEDRA_BASE_URL = "https://mercury.dev.dream-ai.com/api"
 
