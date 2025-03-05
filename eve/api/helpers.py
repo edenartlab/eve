@@ -247,9 +247,14 @@ def update_busy_state(update_config: UpdateConfig, request_id: str, busy: bool):
         # Get current requests list or initialize empty list
         current_requests = busy_state.get(deployment_key, [])
 
-        # Get or initialize timestamps dict
+        # Get or initialize timestamps dict - make sure it's a dict, not a list
         timestamps_key = f"{deployment_key}_timestamps"
-        timestamps = busy_state.get(timestamps_key, {})
+        timestamps = busy_state.get(timestamps_key)
+        if timestamps is None or not isinstance(timestamps, dict):
+            timestamps = {}
+
+        print("XXX BUSY STATE:", deployment_key, current_requests, timestamps)
+        print("XXX TIMESTAMPS TYPE:", type(timestamps))
 
         if busy:
             # Add this request to the busy list if not already present
