@@ -93,13 +93,11 @@ async def handle_cancel(request: CancelRequest):
 
 
 async def handle_replicate_webhook(body: dict):
-    print("___handle_replicate_webhook")
     task = Task.from_handler_id(body["id"])
     tool = Tool.load(task.tool)
     _ = replicate_update_task(
         task, body["status"], body["error"], body["output"], tool.output_handler
     )
-    print("___handle_replicate_webhook success !")
     return {"status": "success"}
 
 
