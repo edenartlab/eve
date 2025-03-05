@@ -512,7 +512,6 @@ web3==6.20.3
 websockets==12.0
     # via ably
     # via elevenlabs
-    # via eve
     # via playwright
     # via web3
 yarl==1.18.3

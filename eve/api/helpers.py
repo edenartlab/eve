@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 db = os.getenv("DB", "STAGE").upper()
 busy_state = modal.Dict.from_name(f"busy-state-{db}", create_if_missing=True)
+busy_state.clear()
 
 
 async def get_update_channel(
@@ -240,8 +241,30 @@ def update_busy_state(update_config: UpdateConfig, request_id: str, busy: bool):
 
     deployment_id = update_config.deployment_id
 
-    # Create the key for this deployment's busy state
-    deployment_key = f"{deployment_id}.{platform}"
+    # Get channel ID based on platform
+    channel_id = None
+    if platform == "discord" and update_config.discord_channel_id:
+        channel_id = update_config.discord_channel_id
+    elif platform == "telegram" and update_config.telegram_chat_id:
+        # For telegram, combine chat_id and thread_id if thread_id exists
+        if update_config.telegram_thread_id:
+            channel_id = (
+                f"{update_config.telegram_chat_id}_{update_config.telegram_thread_id}"
+            )
+        else:
+            channel_id = update_config.telegram_chat_id
+    elif platform == "farcaster" and update_config.farcaster_author_fid:
+        channel_id = str(update_config.farcaster_author_fid)
+    elif platform == "twitter" and update_config.twitter_tweet_to_reply_id:
+        channel_id = update_config.twitter_tweet_to_reply_id
+
+    # If we couldn't determine a channel ID, fall back to deployment-only key
+    if not channel_id:
+        # Create the key for this deployment's busy state
+        deployment_key = f"{deployment_id}.{platform}"
+    else:
+        # Create a channel-specific key
+        deployment_key = f"{deployment_id}.{platform}.{channel_id}"
 
     try:
         # Get current requests list or initialize empty list
@@ -254,7 +277,7 @@ def update_busy_state(update_config: UpdateConfig, request_id: str, busy: bool):
             timestamps = {}
 
         print("XXX BUSY STATE:", deployment_key, current_requests, timestamps)
-        print("XXX TIMESTAMPS TYPE:", type(timestamps))
+        print("XXX TIMESTAMPS:", timestamps)
 
         if busy:
             # Add this request to the busy list if not already present
@@ -269,35 +292,23 @@ def update_busy_state(update_config: UpdateConfig, request_id: str, busy: bool):
 
                 print(f"Added request {request_id} to busy state for {deployment_key}")
 
-                # Track channel/chat IDs for this deployment
-                if platform == "discord" and update_config.discord_channel_id:
-                    channels_key = f"{deployment_key}_channels"
-                    channels = busy_state.get(channels_key, [])
-                    if update_config.discord_channel_id not in channels:
-                        channels.append(update_config.discord_channel_id)
-                        busy_state[channels_key] = channels
-
-                elif platform == "telegram" and update_config.telegram_chat_id:
-                    chats_key = f"{deployment_key}_chats"
-                    chats = busy_state.get(chats_key, [])
-                    chat_key = (
-                        f"{update_config.telegram_chat_id}_{update_config.telegram_thread_id}"
-                        if update_config.telegram_thread_id
-                        else update_config.telegram_chat_id
-                    )
-                    if chat_key not in chats:
-                        chats.append(chat_key)
-                        busy_state[chats_key] = chats
-
                 # If this is the first request and platform is discord, emit a typing update
-                if len(current_requests) == 1 and platform == "discord":
+                if (
+                    len(current_requests) == 1
+                    and platform == "discord"
+                    and update_config.discord_channel_id
+                ):
                     asyncio.create_task(
                         emit_typing_update(
                             deployment_id, update_config.discord_channel_id, True
                         )
                     )
                 # If this is the first request and platform is telegram, emit a typing update
-                elif len(current_requests) == 1 and platform == "telegram":
+                elif (
+                    len(current_requests) == 1
+                    and platform == "telegram"
+                    and update_config.telegram_chat_id
+                ):
                     asyncio.create_task(
                         emit_telegram_typing_update(
                             deployment_id,
@@ -323,14 +334,22 @@ def update_busy_state(update_config: UpdateConfig, request_id: str, busy: bool):
                 )
 
                 # If this was the last request and platform is discord, emit an update
-                if not current_requests and platform == "discord":
+                if (
+                    not current_requests
+                    and platform == "discord"
+                    and update_config.discord_channel_id
+                ):
                     asyncio.create_task(
                         emit_typing_update(
                             deployment_id, update_config.discord_channel_id, False
                         )
                     )
                 # If this was the last request and platform is telegram, emit an update
-                elif not current_requests and platform == "telegram":
+                elif (
+                    not current_requests
+                    and platform == "telegram"
+                    and update_config.telegram_chat_id
+                ):
                     asyncio.create_task(
                         emit_telegram_typing_update(
                             deployment_id,

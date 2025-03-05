@@ -444,10 +444,11 @@ async def cleanup_stale_busy_states():
     """Clean up any stale busy states that might be lingering"""
     try:
         current_time = time.time()
-        stale_threshold = 240
+        stale_threshold = 300
 
         # Get all keys in the busy_state dict
         all_keys = list(busy_state.keys())
+        print(f"All keys: {all_keys}")
 
         for key in all_keys:
             # Get the timestamps for this key
@@ -465,6 +466,9 @@ async def cleanup_stale_busy_states():
 
             # Remove stale requests
             if stale_requests:
+                print(f"Cleaning up {len(stale_requests)} stale requests for {key}")
+                print(f"Requests: {requests}")
+                print(f"Stale requests: {stale_requests}")
                 updated_requests = [r for r in requests if r not in stale_requests]
                 busy_state[key] = updated_requests
 
@@ -494,11 +498,11 @@ async def cleanup_stale_busy_states():
                         from eve.api.helpers import emit_telegram_typing_update
 
                         for chat_key in busy_state.get(f"{key}_chats", []):
-                            chat_id, thread_id = (
-                                chat_key.split("_")
-                                if "_" in chat_key
-                                else (chat_key, None)
-                            )
+                            if "_" in chat_key:
+                                chat_id, thread_id = chat_key.split("_", 1)
+                            else:
+                                chat_id, thread_id = chat_key, None
+
                             asyncio.create_task(
                                 emit_telegram_typing_update(
                                     deployment_id, chat_id, thread_id, False

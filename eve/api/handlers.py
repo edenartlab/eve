@@ -115,7 +115,7 @@ async def run_chat_request(
     print("XXX run_chat_request")
     print("XXX update_config", update_config)
     request_id = str(uuid.uuid4())
-    update_busy_state(update_config, request_id, True)
+
     try:
         async for update in async_prompt_thread(
             user=user,
@@ -134,7 +134,9 @@ async def run_chat_request(
                 "update_config": update_config.model_dump() if update_config else {},
             }
 
-            if update.type == UpdateType.ASSISTANT_MESSAGE:
+            if update.type == UpdateType.START_PROMPT:
+                update_busy_state(update_config, request_id, True)
+            elif update.type == UpdateType.ASSISTANT_MESSAGE:
                 data["content"] = update.message.content
             elif update.type == UpdateType.TOOL_COMPLETE:
                 data["tool"] = update.tool_name

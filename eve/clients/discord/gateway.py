@@ -370,9 +370,6 @@ class DiscordGatewayClient:
         ):
             force_reply = True
 
-        # Start typing in the channel
-        await self.typing_manager.start_typing(channel_id)
-
         chat_request = {
             "agent_id": str(self.deployment.agent),
             "user_id": str(self.deployment.user),
