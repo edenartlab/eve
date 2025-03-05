@@ -260,7 +260,7 @@ class Tool(Document, ABC):
         return super().save({"key": self.key}, **kwargs)
 
     @classmethod
-    def from_raw_yaml(cls, schema, from_yaml=True):
+    def from_raw_yaml(cls, schema, from_yaml=False):
         schema = cls.convert_from_yaml(schema)
         sub_cls = cls.get_sub_class(schema, from_yaml=from_yaml)
         return sub_cls.model_validate(schema)

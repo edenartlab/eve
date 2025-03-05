@@ -1,6 +1,6 @@
 name: Search for Models
 description: Search database for models
-tip: Use this tool to search for agents based on a query. The model_id field is the unique ID for this model. If you wish to use this model, put its ID into the "lora" parameter of any model that can use Loras. Do not return more than 10 results.
+tip: Use this tool to search for models based on a query. The model_id field is the unique ID for this model. If you wish to use this model, put its ID into the "lora" parameter of any model that can use Loras, and make sure its prompt contains the model's name when referring to it. Do not return more than 10 results. Note, the model_id field is only meant to be used as a technical parameter for some tools. When referring to the model in casual talk, use its name not ID. Just use the ID for tool calls, unless you are specifically asked for the ID.
 cost_estimate: 0
 output_type: image
 status: prod
