@@ -11,11 +11,8 @@ RUN apt update && \
 
 # Set up user and working directory
 
-ENV EVE_HOME=/root/eve
-RUN python3 -m venv ${EVE_HOME}
-
 ENV RYE_HOME=/root/.rye
-ENV PATH=${RYE_HOME}/shims:${EVE_HOME}/bin:${PATH}
+ENV PATH=${RYE_HOME}/shims:${PATH}
 
 # Install Rye (needs to be done as root)
 RUN curl -sSf https://rye.astral.sh/get | RYE_NO_AUTO_INSTALL=1 RYE_INSTALL_OPTION="--yes" bash
@@ -23,10 +20,10 @@ RUN curl -sSf https://rye.astral.sh/get | RYE_NO_AUTO_INSTALL=1 RYE_INSTALL_OPTI
 WORKDIR /eve
 
 # Copy project files to the container
-COPY . /eve
+COPY . .
 
 # Install dependencies using 'rye sync'
 RUN rye sync
 
-CMD ["rye", "run", "uvicorn", "eve.api.api:web_app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["rye", "run", "pytest", "-s", "tests"]
 
