@@ -4,11 +4,13 @@ import os
 import time
 import uuid
 from bson import ObjectId
-from typing import List
+from typing import Dict, List, Optional
 from fastapi import BackgroundTasks, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 import aiohttp
 
+from langfuse.decorators import observe, langfuse_context
+from eve import LANGFUSE_ENV
 from eve.api.errors import handle_errors, APIError
 from eve.api.api_requests import (
     CancelRequest,
@@ -101,6 +103,7 @@ async def handle_replicate_webhook(body: dict):
     return {"status": "success"}
 
 
+@observe()
 async def run_chat_request(
     user: User,
     agent: Agent,
@@ -111,10 +114,21 @@ async def run_chat_request(
     force_reply: bool,
     model: str,
     user_is_bot: bool = False,
+    metadata: Optional[Dict] = None,
 ):
     print("XXX run_chat_request")
     print("XXX update_config", update_config)
     request_id = str(uuid.uuid4())
+
+    metadata = {
+        "user_id": str(user.id),
+        "agent_id": str(agent.id),
+        "thread_id": str(thread.id),
+        "request_id": request_id,
+        "environment": LANGFUSE_ENV,
+    }
+
+    langfuse_context.update_current_observation(metadata=metadata)
 
     try:
         async for update in async_prompt_thread(

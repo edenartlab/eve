@@ -1,13 +1,15 @@
 import os
 import json
 import asyncio
-import openai
 import anthropic
 from enum import Enum
 from typing import Optional, Dict, List, Union, Literal, Tuple, AsyncGenerator
 from pydantic import BaseModel
 from instructor.function_calls import openai_schema
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
+from langfuse.decorators import observe, langfuse_context
+from langfuse.openai import openai
+
 
 from ..tool import Tool
 from ..eden_utils import dump_json
@@ -34,6 +36,7 @@ class UpdateType(str, Enum):
     TOOL_CALL = "tool_call"
 
 
+@observe(as_type="generation")
 async def async_anthropic_prompt(
     messages: List[Union[UserMessage, AssistantMessage]],
     system_message: Optional[str],
@@ -61,6 +64,13 @@ async def async_anthropic_prompt(
 
     response = await anthropic_client.messages.create(**prompt)
 
+    langfuse_context.update_current_observation(
+        usage_details={
+            "input": response.usage.input_tokens,
+            "output": response.usage.output_tokens,
+        }
+    )
+
     if response_model:
         return response_model(**response.content[0].input)
     else:
@@ -74,6 +84,7 @@ async def async_anthropic_prompt(
         return content, tool_calls, stop
 
 
+@observe(as_type="generation")
 async def async_anthropic_prompt_stream(
     messages: List[Union[UserMessage, AssistantMessage]],
     system_message: Optional[str],
@@ -127,6 +138,7 @@ async def async_anthropic_prompt_stream(
             yield (UpdateType.TOOL_CALL, tool_call)
 
 
+@observe()
 async def async_openai_prompt(
     messages: List[Union[UserMessage, AssistantMessage]],
     system_message: Optional[str] = "You are a helpful assistant.",
@@ -266,6 +278,7 @@ async def async_openai_prompt_stream(
     stop=stop_after_attempt(3),
     reraise=True,
 )
+@observe()
 async def async_prompt(
     messages: List[Union[UserMessage, AssistantMessage]],
     system_message: Optional[str],
@@ -282,6 +295,8 @@ async def async_prompt(
     print(dump_json([m.model_dump() for m in messages]))
     print("tools", tools.keys())
     print("--------------------------------")
+
+    langfuse_context.update_current_observation(input=messages)
 
     if model.startswith("claude"):
         # Use the non-stream Anthropics helper
@@ -359,4 +374,3 @@ def prompt(messages, system_message, model, response_model=None, tools=None):
     return asyncio.run(
         async_prompt(messages, system_message, model, response_model, tools)
     )
-
