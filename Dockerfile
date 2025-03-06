@@ -1,29 +1,43 @@
-# Use Python 3.12 image
-ARG PYTHON_VERSION=3.12
-FROM python:${PYTHON_VERSION}-slim-bookworm
+# Build stage for installing dependencies
+FROM python:3.12-bookworm AS builder
 
-# Install system dependencies for curl and bash
-RUN apt update && \
-    apt install -y curl bash \
-    build-essential clang libmagic1 \
-    && apt clean && \
+# Install system dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    curl \
+    build-essential \
+    clang \
+    libmagic1 \
+    bash && \
+    apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Set up user and working directory
-
+# Set environment variables
 ENV RYE_HOME=/root/.rye
-ENV PATH=${RYE_HOME}/shims:${PATH}
+ENV BREW_HOME=/home/linuxbrew/.linuxbrew/bin
+ENV PATH="${RYE_HOME}/shims:${BREW_HOME}:${PATH}"
 
-# Install Rye (needs to be done as root)
+# Install Rye package manager
 RUN curl -sSf https://rye.astral.sh/get | RYE_NO_AUTO_INSTALL=1 RYE_INSTALL_OPTION="--yes" bash
-# Set the working directory to /eve
+
+# Install Homebrew and required packages
+RUN /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+RUN brew install ffmpeg libmagic
+
+WORKDIR /workflows
+COPY workflows /workflows
+
+# Set working directory
 WORKDIR /eve
 
-# Copy project files to the container
-COPY . .
+# Copy only dependency files first for better caching
+COPY eve/pyproject.toml eve/requirements*.lock ./
 
-# Install dependencies using 'rye sync'
+# Initialize rye project and sync dependencies
+RUN rye sync --no-lock
+
+# Copy the rest of the project files
+COPY eve/ .
+
+# Run sync again with all files (this time it will work with the virtual env)
 RUN rye sync
-
-CMD ["rye", "run", "pytest", "-s", "tests"]
-
