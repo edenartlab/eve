@@ -18,7 +18,6 @@ async def async_think(
     thread: Thread,
     user_message: UserMessage,
     force_reply: bool = True,
-    metadata: Optional[Dict] = None,
 ):
     # intention_description = "Response class to the last user message. Ignore if irrelevant, reply if relevant and you intend to say something."
 

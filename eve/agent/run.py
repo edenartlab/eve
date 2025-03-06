@@ -375,7 +375,6 @@ async def async_prompt_thread(
                     tools,
                     user.id,
                     agent.id,
-                    metadata,
                 )
                 for idx, tool_call in batch
             ]
