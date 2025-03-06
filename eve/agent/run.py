@@ -334,8 +334,7 @@ async def async_prompt_thread(
             # yield update
             if not agent.mute:
                 yield ThreadUpdate(
-                    type=UpdateType.ASSISTANT_MESSAGE, 
-                    message=assistant_message
+                    type=UpdateType.ASSISTANT_MESSAGE, message=assistant_message
                 )
 
         except Exception as e:
@@ -376,6 +375,7 @@ async def async_prompt_thread(
                     tools,
                     user.id,
                     agent.id,
+                    metadata,
                 )
                 for idx, tool_call in batch
             ]

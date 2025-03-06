@@ -2,12 +2,19 @@ from pydantic import BaseModel, Field
 from sentry_sdk import capture_exception
 import asyncio
 import traceback
+from typing import Optional, Dict
+from langfuse.decorators import observe, langfuse_context
+
+from eve import LANGFUSE_ENV
 
 from .thread import Thread, UserMessage
 from .llm import async_prompt
 
 
-async def async_title_thread(thread: Thread, *extra_messages: UserMessage):
+@observe()
+async def async_title_thread(
+    thread: Thread, *extra_messages: UserMessage, metadata: Optional[Dict] = None
+):
     """
     Generate a title for a thread
     """
@@ -23,6 +30,11 @@ async def async_title_thread(thread: Thread, *extra_messages: UserMessage):
     messages = thread.get_messages()
     messages.extend(extra_messages)
     messages.append(UserMessage(content="Come up with a title for this thread."))
+
+    metadata["environment"] = LANGFUSE_ENV
+    langfuse_context.update_current_observation(
+        input=messages, model="gpt-4o-mini", metadata=metadata
+    )
 
     try:
         result = await async_prompt(

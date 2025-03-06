@@ -1,6 +1,6 @@
 import logging
 import os
-from typing import Optional
+from typing import Dict, Optional
 import aiohttp
 from bson import ObjectId
 from fastapi import BackgroundTasks
@@ -44,6 +44,7 @@ async def setup_chat(
     request: ChatRequest,
     cache: bool = False,
     background_tasks: BackgroundTasks = None,
+    metadata: Optional[Dict] = None,
 ) -> tuple[User, Agent, Thread, list[Tool]]:
     try:
         user = User.from_mongo(request.user_id)
@@ -69,7 +70,14 @@ async def setup_chat(
             ) from e
     else:
         thread = agent.request_thread(user=user.id, message_limit=25)
-        background_tasks.add_task(async_title_thread, thread, request.user_message)
+        metadata = {
+            "user_id": str(user.id),
+            "agent_id": str(agent.id),
+            "thread_id": str(thread.id),
+        }
+        background_tasks.add_task(
+            async_title_thread, thread, request.user_message, metadata=metadata
+        )
 
     return user, agent, thread, tools
 
