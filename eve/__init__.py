@@ -20,10 +20,11 @@ LANGFUSE_ENV = os.getenv("LANGFUSE_ENV", "production" if db == "PROD" else "stag
 
 
 def setup_langfuse():
-    langfuse_private_key = os.getenv("LANGFUSE_PRIVATE_KEY")
+    langfuse_private_key = os.getenv("LANGFUSE_SECRET_KEY")
     if not langfuse_private_key:
         return
 
+    print(f"Setting up langfuse for {LANGFUSE_ENV}")
     langfuse_context.configure(environment=LANGFUSE_ENV)
 
 
@@ -81,7 +82,7 @@ def load_env(db):
     elif os.path.exists(env_file):
         load_dotenv(env_file, override=True)
 
-    # start sentry
+    # start sentry and langfuse
     setup_sentry()
     setup_langfuse()
 
