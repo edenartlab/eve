@@ -1,6 +1,6 @@
 import asyncio
 from pydantic import BaseModel, Field
-from typing import Literal, Optional
+from typing import Dict, Literal, Optional
 
 from .agent import Agent, refresh_agent
 from .thread import UserMessage, Thread
@@ -8,7 +8,7 @@ from ..tool import TOOL_CATEGORIES
 from ..eden_utils import dump_json, load_template
 from .llm import async_prompt
 
-knowledge_think_template = load_template("knowledge_think") 
+knowledge_think_template = load_template("knowledge_think")
 thought_template = load_template("thought")
 tools_template = load_template("tools")
 
@@ -30,7 +30,8 @@ async def async_think(
         """A response to a chat message."""
 
         intention: Literal["ignore", "reply"] = Field(
-            ..., description="Ignore if last message is irrelevant, reply if relevant or criteria met."
+            ...,
+            description="Ignore if last message is irrelevant, reply if relevant or criteria met.",
         )
         thought: str = Field(
             ...,
@@ -88,9 +89,7 @@ async def async_think(
         reply_criteria = ""
 
     tool_descriptions = "\n".join([f"{k}: {v}" for k, v in TOOL_CATEGORIES.items()])
-    tools_description = tools_template.render(
-        tool_categories=tool_descriptions
-    )
+    tools_description = tools_template.render(tool_categories=tool_descriptions)
 
     prompt = thought_template.render(
         name=agent.name,
@@ -114,5 +113,7 @@ async def async_think(
     return thought
 
 
-def think(agent: Agent, thread: Thread, user_message: UserMessage, force_reply: bool = True):
+def think(
+    agent: Agent, thread: Thread, user_message: UserMessage, force_reply: bool = True
+):
     return asyncio.run(async_think(agent, thread, user_message, force_reply))

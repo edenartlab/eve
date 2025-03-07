@@ -1,13 +1,15 @@
 import os
 import json
 import asyncio
-import openai
 import anthropic
 from enum import Enum
 from typing import Optional, Dict, List, Union, Literal, Tuple, AsyncGenerator
 from pydantic import BaseModel
 from instructor.function_calls import openai_schema
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
+from langfuse.decorators import observe, langfuse_context
+from langfuse.openai import openai
+
 
 from ..tool import Tool
 from ..eden_utils import dump_json
@@ -20,7 +22,7 @@ models = [
     "gpt-4o-2024-08-06",
 ]
 
-DEFAULT_MODEL = "claude-3-7-sonnet-20250219"
+DEFAULT_MODEL = "gpt-4o-mini"
 
 
 class UpdateType(str, Enum):
@@ -34,6 +36,70 @@ class UpdateType(str, Enum):
     TOOL_CALL = "tool_call"
 
 
+def calculate_model_cost(
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    prompt_cache_write_tokens: int = 0,
+    cached_tokens: int = 0,
+) -> Dict[str, float]:
+    """
+    Calculate the cost of a model call based on token usage.
+
+    Args:
+        model: The model name
+        input_tokens: Number of input tokens
+        output_tokens: Number of output tokens
+        cached_tokens: Number of cached tokens (for prompt caching)
+
+    Returns:
+        Dictionary with cost details
+    """
+    # Claude 3.7 Sonnet pricing
+    if model == "claude-3-7-sonnet-20250219":
+        # Prices per million tokens ($X/MTok)
+        input_price = 3.0 / 1_000_000  # $3/MTok
+        prompt_cache_write_price = 3.75 / 1_000_000  # $0.30/MTok for cached tokens
+        output_price = 15.0 / 1_000_000  # $15/MTok
+        cached_price = 0.30 / 1_000_000  # $0.30/MTok for cached tokens
+
+        # Calculate costs
+        input_cost = input_tokens * input_price
+        prompt_cache_write_cost = prompt_cache_write_tokens * prompt_cache_write_price
+        output_cost = output_tokens * output_price
+        cached_cost = cached_tokens * cached_price
+        total_cost = input_cost + prompt_cache_write_cost + output_cost + cached_cost
+
+        return {
+            "input": input_cost + prompt_cache_write_cost,
+            "output": output_cost,
+            "total": total_cost,
+        }
+    if model == "claude-3-5-haiku-20241022":
+        # Prices per million tokens ($X/MTok)
+        input_price = 0.8 / 1_000_000  # $3/MTok
+        output_price = 4.0 / 1_000_000  # $15/MTok
+        prompt_cache_write_price = 1.0 / 1_000_000  # $0.30/MTok for cached tokens
+        cached_price = 0.08 / 1_000_000  # $0.30/MTok for cached tokens
+
+        # Calculate costs
+        input_cost = input_tokens * input_price
+        prompt_cache_write_cost = prompt_cache_write_tokens * prompt_cache_write_price
+        output_cost = output_tokens * output_price
+        cached_cost = cached_tokens * cached_price
+        total_cost = input_cost + prompt_cache_write_cost + output_cost + cached_cost
+
+        return {
+            "input": input_cost + prompt_cache_write_cost,
+            "output": output_cost,
+            "total": total_cost,
+        }
+
+    # Default fallback pricing
+    return {"input": 0, "output": 0, "cache_read_input_tokens": 0, "total": 0}
+
+
+@observe(as_type="generation")
 async def async_anthropic_prompt(
     messages: List[Union[UserMessage, AssistantMessage]],
     system_message: Optional[str],
@@ -47,7 +113,13 @@ async def async_anthropic_prompt(
         "model": model,
         "max_tokens": 8192,
         "messages": [item for msg in messages for item in msg.anthropic_schema()],
-        "system": system_message,
+        "system": [
+            {
+                "type": "text",
+                "text": system_message,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ],
     }
 
     if tools or response_model:
@@ -60,6 +132,25 @@ async def async_anthropic_prompt(
         prompt["tools"] = tool_schemas
 
     response = await anthropic_client.messages.create(**prompt)
+
+    # Get token usage
+    input_tokens = response.usage.input_tokens + getattr(
+        response.usage, "cache_creation_input_tokens", 0
+    )
+    output_tokens = response.usage.output_tokens
+    cached_tokens = getattr(response.usage, "cache_read_input_tokens", 0)
+
+    # Calculate cost
+    cost = calculate_model_cost(model, input_tokens, output_tokens, cached_tokens)
+
+    # Update Langfuse observation with usage and cost details
+    langfuse_context.update_current_observation(
+        usage_details={
+            "input": input_tokens + cached_tokens,
+            "output": output_tokens,
+        },
+        cost_details=cost,
+    )
 
     if response_model:
         return response_model(**response.content[0].input)
@@ -74,6 +165,7 @@ async def async_anthropic_prompt(
         return content, tool_calls, stop
 
 
+@observe(as_type="generation")
 async def async_anthropic_prompt_stream(
     messages: List[Union[UserMessage, AssistantMessage]],
     system_message: Optional[str],
@@ -127,6 +219,7 @@ async def async_anthropic_prompt_stream(
             yield (UpdateType.TOOL_CALL, tool_call)
 
 
+@observe()
 async def async_openai_prompt(
     messages: List[Union[UserMessage, AssistantMessage]],
     system_message: Optional[str] = "You are a helpful assistant.",
@@ -266,6 +359,7 @@ async def async_openai_prompt_stream(
     stop=stop_after_attempt(3),
     reraise=True,
 )
+@observe()
 async def async_prompt(
     messages: List[Union[UserMessage, AssistantMessage]],
     system_message: Optional[str],
@@ -282,6 +376,8 @@ async def async_prompt(
     print(dump_json([m.model_dump() for m in messages]))
     print("tools", tools.keys())
     print("--------------------------------")
+
+    langfuse_context.update_current_observation(input=messages)
 
     if model.startswith("claude"):
         # Use the non-stream Anthropics helper
@@ -359,4 +455,3 @@ def prompt(messages, system_message, model, response_model=None, tools=None):
     return asyncio.run(
         async_prompt(messages, system_message, model, response_model, tools)
     )
-

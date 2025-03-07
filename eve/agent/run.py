@@ -334,8 +334,7 @@ async def async_prompt_thread(
             # yield update
             if not agent.mute:
                 yield ThreadUpdate(
-                    type=UpdateType.ASSISTANT_MESSAGE, 
-                    message=assistant_message
+                    type=UpdateType.ASSISTANT_MESSAGE, message=assistant_message
                 )
 
         except Exception as e:

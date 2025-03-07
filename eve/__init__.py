@@ -4,6 +4,8 @@ from pathlib import Path
 from pydantic import SecretStr
 import os
 import sentry_sdk
+from langfuse.decorators import langfuse_context
+
 
 home_dir = str(Path.home())
 
@@ -12,6 +14,18 @@ EDEN_API_KEY = None
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
+db = os.getenv("DB", "STAGE").upper()
+
+LANGFUSE_ENV = os.getenv("LANGFUSE_ENV", "production" if db == "PROD" else "staging")
+
+
+def setup_langfuse():
+    langfuse_private_key = os.getenv("LANGFUSE_SECRET_KEY")
+    if not langfuse_private_key:
+        return
+
+    print(f"Setting up langfuse for {LANGFUSE_ENV}")
+    langfuse_context.configure(environment=LANGFUSE_ENV)
 
 
 def setup_sentry():
@@ -68,8 +82,9 @@ def load_env(db):
     elif os.path.exists(env_file):
         load_dotenv(env_file, override=True)
 
-    # start sentry
+    # start sentry and langfuse
     setup_sentry()
+    setup_langfuse()
 
     # load api keys
     EDEN_API_KEY = SecretStr(os.getenv("EDEN_API_KEY", ""))
@@ -94,8 +109,6 @@ def verify_env():
     if not MONGO_URI:
         print("WARNING: MONGO_URI must be set in the environment")
 
-
-db = os.getenv("DB", "STAGE").upper()
 
 if db not in ["STAGE", "PROD", "WEB3-STAGE", "WEB3-PROD"]:
     raise Exception(
