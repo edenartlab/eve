@@ -126,6 +126,7 @@ async def run_chat_request(
         "environment": LANGFUSE_ENV,
     }
 
+    langfuse_context.update_current_trace(user_id=str(user.id))
     langfuse_context.update_current_observation(metadata=metadata)
 
     try:
