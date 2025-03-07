@@ -37,7 +37,11 @@ class UpdateType(str, Enum):
 
 
 def calculate_model_cost(
-    model: str, input_tokens: int, output_tokens: int, cached_tokens: int = 0
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    prompt_cache_write_tokens: int = 0,
+    cached_tokens: int = 0,
 ) -> Dict[str, float]:
     """
     Calculate the cost of a model call based on token usage.
@@ -55,19 +59,39 @@ def calculate_model_cost(
     if model == "claude-3-7-sonnet-20250219":
         # Prices per million tokens ($X/MTok)
         input_price = 3.0 / 1_000_000  # $3/MTok
+        prompt_cache_write_price = 3.75 / 1_000_000  # $0.30/MTok for cached tokens
         output_price = 15.0 / 1_000_000  # $15/MTok
         cached_price = 0.30 / 1_000_000  # $0.30/MTok for cached tokens
 
         # Calculate costs
         input_cost = input_tokens * input_price
+        prompt_cache_write_cost = prompt_cache_write_tokens * prompt_cache_write_price
         output_cost = output_tokens * output_price
         cached_cost = cached_tokens * cached_price
-        total_cost = input_cost + output_cost + cached_cost
+        total_cost = input_cost + prompt_cache_write_cost + output_cost + cached_cost
 
         return {
-            "input": input_cost,
+            "input": input_cost + prompt_cache_write_cost,
             "output": output_cost,
-            "cache_read_input_tokens": cached_cost,
+            "total": total_cost,
+        }
+    if model == "claude-3-5-haiku-20241022":
+        # Prices per million tokens ($X/MTok)
+        input_price = 0.8 / 1_000_000  # $3/MTok
+        output_price = 4.0 / 1_000_000  # $15/MTok
+        prompt_cache_write_price = 1.0 / 1_000_000  # $0.30/MTok for cached tokens
+        cached_price = 0.08 / 1_000_000  # $0.30/MTok for cached tokens
+
+        # Calculate costs
+        input_cost = input_tokens * input_price
+        prompt_cache_write_cost = prompt_cache_write_tokens * prompt_cache_write_price
+        output_cost = output_tokens * output_price
+        cached_cost = cached_tokens * cached_price
+        total_cost = input_cost + prompt_cache_write_cost + output_cost + cached_cost
+
+        return {
+            "input": input_cost + prompt_cache_write_cost,
+            "output": output_cost,
             "total": total_cost,
         }
 
