@@ -83,6 +83,7 @@ def load_env(db):
 
     # start sentry
     setup_sentry()
+    setup_langfuse()
 
     # load api keys
     EDEN_API_KEY = SecretStr(os.getenv("EDEN_API_KEY", ""))
