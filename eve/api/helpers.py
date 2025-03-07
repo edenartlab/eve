@@ -284,8 +284,6 @@ def update_busy_state(update_config: UpdateConfig, request_id: str, busy: bool):
         if timestamps is None or not isinstance(timestamps, dict):
             timestamps = {}
 
-        print("XXX BUSY STATE:", deployment_key, current_requests, timestamps)
-        print("XXX TIMESTAMPS:", timestamps)
 
         if busy:
             # Add this request to the busy list if not already present
@@ -384,7 +382,6 @@ async def emit_typing_update(deployment_id: str, channel_id: str, is_busy: bool)
 
         client = AblyRest(os.getenv("ABLY_PUBLISHER_KEY"))
         channel = client.channels.get(f"busy-state-discord-{deployment_id}")
-        print("XXX EMITTING TYPING UPDATE:", channel_id, is_busy)
 
         await channel.publish("update", {"channel_id": channel_id, "is_busy": is_busy})
 

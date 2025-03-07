@@ -116,8 +116,6 @@ async def run_chat_request(
     user_is_bot: bool = False,
     metadata: Optional[Dict] = None,
 ):
-    print("XXX run_chat_request")
-    print("XXX update_config", update_config)
     request_id = str(uuid.uuid4())
 
     metadata = {

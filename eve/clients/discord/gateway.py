@@ -418,7 +418,6 @@ class DiscordGatewayClient:
             self.busy_channel = self.ably_client.channels.get(channel_name)
 
             async def message_handler(message):
-                print("XXX Received busy state update:", message)
                 try:
                     data = message.data
                     if not isinstance(data, dict):
@@ -626,10 +625,8 @@ class GatewayManager:
             telegram_channel = self.ably_client.channels.get(
                 f"busy-state-telegram-{db}"
             )
-            print("XXX CONNECTED TO TELEGRAM CHANNEL:", telegram_channel)
 
             async def telegram_message_handler(message):
-                print("XXX TELEGRAM MESSAGE:", message)
                 try:
                     data = message.data
                     if not isinstance(data, dict):
@@ -641,13 +638,6 @@ class GatewayManager:
                     is_busy = data.get("is_busy", False)
 
                     if deployment_id and chat_id:
-                        print(
-                            "XXX TELEGRAM BUSY STATE UPDATE:",
-                            deployment_id,
-                            chat_id,
-                            thread_id,
-                            is_busy,
-                        )
                         if is_busy:
                             await self.telegram_typing_manager.start_typing(
                                 deployment_id, chat_id, thread_id
