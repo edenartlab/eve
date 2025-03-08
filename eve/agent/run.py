@@ -13,7 +13,7 @@ from sentry_sdk import trace, start_transaction, add_breadcrumb, capture_excepti
 
 from ..eden_utils import load_template
 from ..tool import Tool, BASE_TOOLS
-from ..task import Creation
+from ..task import Creation, NON_CREATION_TOOLS
 from ..user import User
 from ..api.rate_limiter import RateLimiter
 from .agent import Agent
@@ -78,6 +78,8 @@ async def process_tool_call(
 
         # start task
         task = await tool.async_start_task(user_id, agent_id, tool_call.args)
+        output_type = task.output_type
+        is_creation_tool = not task.tool in NON_CREATION_TOOLS
 
         # update tool call with task id and status
         thread.update_tool_call(
@@ -88,27 +90,52 @@ async def process_tool_call(
 
         # wait for task to complete
         result = await tool.async_wait(task)
+
         thread.update_tool_call(assistant_message.id, tool_call_index, result)
+
+
+        print("HERE I!!!S THE RESULT")
+        print(result)
+
+        print(is_creation_tool, output_type)
 
         # task completed
         if result["status"] == "completed":
+            print("completed 22 34RES 3123ULT")
             # make a Creation
-            name = task.args.get("prompt") or task.args.get("text_input")
-            filename = result.get("output", [{}])[0].get("filename")
-            media_attributes = result.get("output", [{}])[0].get("mediaAttributes")
+            """
+            if is_creation_tool and output_type in ["image", "video", "audio", "lora"]:
+                print("here is the creation too333l")
+                name = task.args.get("prompt") or task.args.get("text_input")
+                results = result.get("result")
 
-            if filename and media_attributes:
-                new_creation = Creation(
-                    user=task.user,
-                    requester=task.requester,
-                    task=task.id,
-                    tool=task.tool,
-                    filename=filename,
-                    mediaAttributes=media_attributes,
-                    name=name,
-                )
-                new_creation.save()
+                print(results)
+                print("--------------------------------")
 
+                for result in results:
+                    print(result)
+                    outputs = result.get("output")
+                    print(outputs)
+                    for output in outputs:
+                        print(output)
+                        filename = output.get("filename")
+                        media_attributes = output.get("mediaAttributes")
+
+                        print(filename, media_attributes)
+
+                        if filename and media_attributes:
+                            print("NEW CREATION")
+                            new_creation = Creation(
+                                user=task.user,
+                                requester=task.requester,
+                                task=task.id,
+                                tool=task.tool,
+                                filename=filename,
+                                mediaAttributes=media_attributes,
+                                name=name,
+                            )
+                            new_creation.save()
+            """
             # yield update
             return ThreadUpdate(
                 type=UpdateType.TOOL_COMPLETE,
