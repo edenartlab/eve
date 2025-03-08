@@ -48,7 +48,7 @@ class ComfyUITool(Tool):
     @Tool.handle_run
     async def async_run(self, args: Dict):
         db = os.getenv("DB")
-        cls = modal.Cls.lookup(
+        cls = modal.Cls.from_name(
             f"comfyui-{self.workspace}-{db}", "ComfyUI", environment_name="main"
         )
         result = await cls().run.remote.aio(self.parent_tool or self.key, args)
@@ -58,7 +58,7 @@ class ComfyUITool(Tool):
     @trace
     async def async_start_task(self, task: Task):
         db = os.getenv("DB")
-        cls = modal.Cls.lookup(
+        cls = modal.Cls.from_name(
             f"comfyui-{self.workspace}-{db}", 
             "ComfyUI", 
             environment_name="main"
@@ -85,7 +85,7 @@ class ComfyUIToolLegacy(ComfyUITool):
     @Tool.handle_run
     async def async_run(self, args: Dict):
         db = os.getenv("DB")
-        cls = modal.Cls.lookup(
+        cls = modal.Cls.from_name(
             f"comfyui-{self.key}", "ComfyUI", environment_name="main"
         )
         result = await cls().run.remote.aio(workflow_name=self.key, args=args, env=db)
@@ -104,7 +104,7 @@ class ComfyUIToolLegacy(ComfyUITool):
         tasks2 = get_collection("tasks2")
         tasks2.insert_one(task_data)
 
-        cls = modal.Cls.lookup(
+        cls = modal.Cls.from_name(
             f"comfyui-{self.key}", "ComfyUI", environment_name="main"
         )
         job = await cls().run_task.spawn.aio(task_id=ObjectId(task_data["_id"]), env=db)

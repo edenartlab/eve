@@ -5,7 +5,8 @@ tip: |-
   It cannot generate complicated sounds like speed or music. The main advantage of mmaudio is that the sound effects will be matched to the video and automatically timed correctly.
 cost_estimate: 0.5 * duration
 output_type: video
-active: true
+status: prod
+visible: true
 replicate_model: zsxkib/mmaudio:4b9f801a167b1f6cc2db6ba7ffdeb307630bf411841d4e8300e63ca992de0be9
 thumbnail: app/mmaudio.mp4
 handler: replicate

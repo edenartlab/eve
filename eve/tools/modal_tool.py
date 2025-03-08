@@ -10,7 +10,7 @@ class ModalTool(Tool):
     @Tool.handle_run
     async def async_run(self, args: Dict):
         db = os.getenv("DB", "STAGE").upper()
-        func = modal.Function.lookup(
+        func = modal.Function.from_name(
             f"api-{db.lower()}", 
             "run", 
             environment_name="main"
@@ -21,7 +21,7 @@ class ModalTool(Tool):
     @Tool.handle_start_task
     async def async_start_task(self, task: Task):
         db = os.getenv("DB", "STAGE").upper()
-        func = modal.Function.lookup(
+        func = modal.Function.from_name(
             f"api-{db.lower()}", 
             "run_task", 
             environment_name="main"

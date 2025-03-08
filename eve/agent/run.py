@@ -13,7 +13,7 @@ from sentry_sdk import trace, start_transaction, add_breadcrumb, capture_excepti
 
 from ..eden_utils import load_template
 from ..tool import Tool, BASE_TOOLS
-from ..task import Creation
+from ..task import Creation, NON_CREATION_TOOLS
 from ..user import User
 from ..api.rate_limiter import RateLimiter
 from .agent import Agent
@@ -89,33 +89,10 @@ async def process_tool_call(
         # wait for task to complete
         result = await tool.async_wait(task)
 
-        print(f"here is the result of task {task.id}", result)
-
         thread.update_tool_call(assistant_message.id, tool_call_index, result)
 
         # task completed
         if result["status"] == "completed":
-            # make a Creation
-            name = task.args.get("prompt") or task.args.get("text_input")
-            filename = result.get("output", [{}])[0].get("filename")
-            media_attributes = result.get("output", [{}])[0].get("mediaAttributes")
-
-            print(f"here is the filename {filename}")
-            print(f"here is the media_attributes {media_attributes}") 
-            print(f"here is the name {name}")
-
-            if filename and media_attributes:
-                new_creation = Creation(
-                    user=task.user,
-                    requester=task.requester,
-                    task=task.id,
-                    tool=task.tool,
-                    filename=filename,
-                    mediaAttributes=media_attributes,
-                    name=name,
-                )
-                new_creation.save()
-
             # yield update
             return ThreadUpdate(
                 type=UpdateType.TOOL_COMPLETE,
