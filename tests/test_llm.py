@@ -1,6 +1,6 @@
 from eve.auth import get_my_eden_user
 from eve.agent.thread import UserMessage, AssistantMessage, Thread
-from eve.agent.run import prompt_thread
+from eve.agent.run_thread import prompt_thread, async_prompt_thread
 from eve.agent.think import async_think
 from eve.agent.agent import Agent
 
@@ -54,35 +54,33 @@ def test_prompting2():
         print(msg)
 
 
+from eve.agent.agent import Tool
 
 async def test_sub():
 
+    user = get_my_eden_user()
+
     messages = [
-        UserMessage(name="gene", content="eve, tell me a funny joke"),
+        UserMessage(name="kate", content="make a picture of a cat"),
     ]
 
     agent = Agent.load("eve")
+    agent.tools = {
+        "txt2img": {},
+    }
     tools = agent.get_tools()
-    thread = Thread.from_mongo("6774249ff8d4aae98c89ac0f")
+    print("TOOLS", tools)
+    print("TOOLS", tools.keys())
+    thread = agent.request_thread()
 
-    for msg in async_think(
+    async for msg in async_prompt_thread(
+        user=user,
         agent=agent,
         thread=thread,
         user_messages=messages,
         tools=tools,
-        # model="claude-3-7-sonnet-20250219"
+        force_reply=True,
+        use_thinking=False,
         model="gpt-4o-mini"
     ):
         print(msg)
-
-
-
-# import asyncio
-# asyncio.run(test_sub())
-
-
-# """
-
-
-
-# """

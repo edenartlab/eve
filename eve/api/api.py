@@ -308,6 +308,7 @@ image = (
         "libcups2",
         "libatspi2.0-0",
         "libxcomposite1",
+        "libgtk-3-0",
     )
     .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
     .pip_install("numpy<2.0", "torch==2.0.1", "torchvision", "transformers", "Pillow")

@@ -10,19 +10,19 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 from langfuse.decorators import observe, langfuse_context
 from langfuse.openai import openai
 
-
 from ..tool import Tool
 from ..eden_utils import dump_json
 from .thread import UserMessage, AssistantMessage, ToolCall
 
 
-models = [
-    "claude-3-7-sonnet-20250219",
+MODELS = [
+    "claude-3-7-sonnet-latest",
+    "claude-3-5-haiku-latest",
     "gpt-4o-mini",
     "gpt-4o-2024-08-06",
 ]
 
-DEFAULT_MODEL = "gpt-4o-mini"
+DEFAULT_MODEL = "claude-3-5-haiku-latest"
 
 
 class UpdateType(str, Enum):
@@ -36,7 +36,7 @@ class UpdateType(str, Enum):
     TOOL_CALL = "tool_call"
 
 
-def calculate_model_cost(
+def calculate_anthropic_model_cost(
     model: str,
     input_tokens: int,
     output_tokens: int,
@@ -55,8 +55,9 @@ def calculate_model_cost(
     Returns:
         Dictionary with cost details
     """
-    # Claude 3.7 Sonnet pricing
-    if model == "claude-3-7-sonnet-20250219":
+
+    # Claude 3.7 Sonnet
+    if model == "claude-3-7-sonnet-latest":
         # Prices per million tokens ($X/MTok)
         input_price = 3.0 / 1_000_000  # $3/MTok
         prompt_cache_write_price = 3.75 / 1_000_000  # $0.30/MTok for cached tokens
@@ -75,7 +76,9 @@ def calculate_model_cost(
             "output": output_cost,
             "total": total_cost,
         }
-    if model == "claude-3-5-haiku-20241022":
+    
+    # Claude 3.5 Haiku
+    elif model == "claude-3-5-haiku-latest":
         # Prices per million tokens ($X/MTok)
         input_price = 0.8 / 1_000_000  # $3/MTok
         output_price = 4.0 / 1_000_000  # $15/MTok
@@ -103,7 +106,7 @@ def calculate_model_cost(
 async def async_anthropic_prompt(
     messages: List[Union[UserMessage, AssistantMessage]],
     system_message: Optional[str],
-    model: Literal[tuple(models)] = "claude-3-5-haiku-20241022",
+    model: Literal[tuple(MODELS)] = "claude-3-5-haiku-latest",
     response_model: Optional[type[BaseModel]] = None,
     tools: Dict[str, Tool] = {},
 ):
@@ -117,11 +120,16 @@ async def async_anthropic_prompt(
             {
                 "type": "text",
                 "text": system_message,
-                "cache_control": {"type": "ephemeral"},
+                # "cache_control": {"type": "ephemeral"},
             }
         ],
     }
 
+    # efficient tool calls feature for claude 3.7
+    if "claude-3-7" in model:
+        prompt["betas"] = ["token-efficient-tools-2025-02-19"]
+
+    # add tools / structure output
     if tools or response_model:
         tool_schemas = [
             t.anthropic_schema(exclude_hidden=True) for t in (tools or {}).values()
@@ -129,9 +137,29 @@ async def async_anthropic_prompt(
         if response_model:
             tool_schemas.append(openai_schema(response_model).anthropic_schema)
             prompt["tool_choice"] = {"type": "tool", "name": response_model.__name__}
+
+        # cache tools
+        tool_schemas[-1]["cache_control"] = {"type": "ephemeral"}
+
         prompt["tools"] = tool_schemas
 
+    import json
+    import time
+
+    start_time = time.time()
+
+    # call Anthropic
     response = await anthropic_client.messages.create(**prompt)
+
+    
+    # print("-----------PROMPT---------------------")
+    # print(json.dumps(prompt["tools"], indent=2))
+    # print("--------------------------------")
+
+    print("-----------RESPONSE USAGE---------------------")
+    print(f"Time taken: {time.time() - start_time} seconds")
+    print(response.usage)
+    print("--------------------------------")
 
     # Get token usage
     input_tokens = response.usage.input_tokens + getattr(
@@ -141,7 +169,7 @@ async def async_anthropic_prompt(
     cached_tokens = getattr(response.usage, "cache_read_input_tokens", 0)
 
     # Calculate cost
-    cost = calculate_model_cost(model, input_tokens, output_tokens, cached_tokens)
+    cost = calculate_anthropic_model_cost(model, input_tokens, output_tokens, cached_tokens)
 
     # Update Langfuse observation with usage and cost details
     langfuse_context.update_current_observation(
@@ -169,7 +197,7 @@ async def async_anthropic_prompt(
 async def async_anthropic_prompt_stream(
     messages: List[Union[UserMessage, AssistantMessage]],
     system_message: Optional[str],
-    model: Literal[tuple(models)] = "claude-3-5-haiku-20241022",
+    model: Literal[tuple(MODELS)] = "claude-3-5-haiku-latest",
     response_model: Optional[type[BaseModel]] = None,
     tools: Dict[str, Tool] = {},
 ) -> AsyncGenerator[Tuple[UpdateType, str], None]:
@@ -223,7 +251,7 @@ async def async_anthropic_prompt_stream(
 async def async_openai_prompt(
     messages: List[Union[UserMessage, AssistantMessage]],
     system_message: Optional[str] = "You are a helpful assistant.",
-    model: Literal[tuple(models)] = "gpt-4o-mini",
+    model: Literal[tuple(MODELS)] = "gpt-4o-mini",
     response_model: Optional[type[BaseModel]] = None,
     tools: Dict[str, Tool] = {},
 ):
@@ -264,7 +292,7 @@ async def async_openai_prompt(
 async def async_openai_prompt_stream(
     messages: List[Union[UserMessage, AssistantMessage]],
     system_message: Optional[str],
-    model: Literal[tuple(models)] = "gpt-4o-mini",
+    model: Literal[tuple(MODELS)] = "gpt-4o-mini",
     response_model: Optional[type[BaseModel]] = None,
     tools: Dict[str, Tool] = {},
 ) -> AsyncGenerator[Tuple[UpdateType, str], None]:
@@ -363,7 +391,7 @@ async def async_openai_prompt_stream(
 async def async_prompt(
     messages: List[Union[UserMessage, AssistantMessage]],
     system_message: Optional[str],
-    model: Literal[tuple(models)] = "gpt-4o-mini",
+    model: Literal[tuple(MODELS)] = "gpt-4o-mini",
     response_model: Optional[type[BaseModel]] = None,
     tools: Dict[str, Tool] = {},
 ) -> Tuple[str, List[ToolCall], bool]:
