@@ -17,7 +17,6 @@ from .agent import Agent
 Todo:
 - conversion: cast user->asst messages and asst->user
 - run session with dispatcher
-- api/crud
 """
 
 
