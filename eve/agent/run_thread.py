@@ -1,6 +1,5 @@
 import re
 import os
-import copy
 import asyncio
 import traceback
 import functools
