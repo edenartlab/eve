@@ -84,3 +84,28 @@ async def test_sub():
         model="gpt-4o-mini"
     ):
         print(msg)
+
+
+from eve.agent.run_thread import async_run_session
+from eve.agent.session import Session
+
+async def test_dispatch_run():
+
+    user = get_my_eden_user()
+    
+    session = Session.load("test-session")
+    
+    messages = [
+        UserMessage(name="kate", content="make a picture of a cat"),
+    ]
+
+    result = await async_run_session(
+        user=user,
+        session=session,
+        user_messages=messages,
+    )
+    print(result)
+
+
+import asyncio
+asyncio.run(test_dispatch_run())
