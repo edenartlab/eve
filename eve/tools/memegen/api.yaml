@@ -1,8 +1,9 @@
 name: Meme generator
 description: Make memes
 output_type: image
-cost_estimate: 10
-active: false
+cost_estimate: 5
+status: inactive
+visible: false
 parameters:
   prompt:
     type: string

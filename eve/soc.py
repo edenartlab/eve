@@ -7,7 +7,7 @@ import os
 import asyncio
 from eve.agent.llm import *
 from eve.agent.thread import *
-from eve.agent.run import *
+from eve.agent.run_thread import *
 from eve.tool import get_tools_from_mongo
 from eve.auth import get_my_eden_user
 

@@ -1,6 +1,6 @@
 name: Weather
 description: Get the weather for a given location
-cost_estimate: 1
+cost_estimate: 0.5
 output_type: string
 status: prod
 visible: true

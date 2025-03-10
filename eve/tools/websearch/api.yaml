@@ -2,7 +2,7 @@ name: Web Search
 description: Search and extract content from any webpage
 tip: |-
   The returns a raw text dump of the page and a few of its linked urls, no visual content.
-cost_estimate: 1
+cost_estimate: 0.5
 output_type: string
 status: prod
 visible: true
