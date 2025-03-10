@@ -2,7 +2,7 @@ name: Talking Head
 description: Talking head generated with Hedra
 tip: |-
   This takes an image of a face and some speech audio and generates a talking head.
-cost_estimate: 200
+cost_estimate: 100
 output_type: video
 status: stage
 visible: false

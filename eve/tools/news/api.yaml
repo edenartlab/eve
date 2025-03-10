@@ -1,6 +1,6 @@
 name: Get the news
 description: Get the news
-cost_estimate: 1
+cost_estimate: 0.5
 output_type: string
 status: prod
 visible: false
