@@ -12,7 +12,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from .. import load_env
 from ..agent.llm import UserMessage, UpdateType
-from ..agent.run import async_prompt_thread
+from ..agent.run_thread import async_prompt_thread
 from ..agent.agent import Agent
 from ..eden_utils import prepare_result, dump_json
 from ..auth import get_my_eden_user

@@ -50,6 +50,7 @@ class ChatRequest(BaseModel):
     thread_id: Optional[str] = None
     update_config: Optional[UpdateConfig] = None
     force_reply: bool = False
+    use_thinking: bool = True
     model: Optional[str] = None
     user_is_bot: Optional[bool] = False
 

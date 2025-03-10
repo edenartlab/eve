@@ -1,16 +1,45 @@
 import asyncio
+from jinja2 import Template
 from pydantic import BaseModel, Field
-from typing import Dict, Literal, Optional
+from typing import Literal
 
+from ..eden_utils import dump_json
+from .llm import async_prompt
 from .agent import Agent, refresh_agent
 from .thread import UserMessage, Thread
-from ..tool import TOOL_CATEGORIES
-from ..eden_utils import dump_json, load_template
-from .llm import async_prompt
 
-knowledge_think_template = load_template("knowledge_think")
-thought_template = load_template("thought")
-tools_template = load_template("tools")
+
+knowledge_think_template = Template("""<Knowledge>
+The following summarizes your background knowledge and the circumstances for which you may need to consult or refer to it. If you need to consult your knowledge base, set "recall_knowledge" to true.
+
+{{ knowledge_description }}
+</Knowledge>""")
+
+
+thought_template = Template("""<Name>{{ name }}</Name>
+<ChatLog>
+Role: You are roleplaying as {{ name }} in a group chat. The following are the last {{ message_count }} messages. Note: "You" refers to your own messages.
+---
+{{ chat }}
+---
+</ChatLog>
+<Task>
+You will receive the next user message in this group chat. Note that the message may not be directed specifically to you. Use context to determine if it:
+- Directly addresses you,
+- References something you said,
+- Is intended for another participant, or
+- Is a general message.
+Based on your analysis, generate a response containing:
+- intention: Either "reply" or "ignore". Choose "reply" if the message is relevant or requests you; choose "ignore" if it is not.
+- thought: A brief explanation of your reasoning regarding the message’s relevance and your decision.
+- recall_knowledge: Whether to consult your background knowledge.
+{{ reply_criteria }}
+</Task>
+{{ knowledge_description }}
+<Message>
+{{ message }}
+</Message>
+""")
 
 
 async def async_think(
@@ -19,12 +48,6 @@ async def async_think(
     user_message: UserMessage,
     force_reply: bool = True,
 ):
-    # intention_description = "Response class to the last user message. Ignore if irrelevant, reply if relevant and you intend to say something."
-
-    # if agent.reply_criteria:
-    #     intention_description += (
-    #         f"\nAdditional criteria for replying spontaneously: {agent.reply_criteria}"
-    #     )
 
     class ChatThought(BaseModel):
         """A response to a chat message."""
@@ -37,12 +60,9 @@ async def async_think(
             ...,
             description="A very brief thought about what relevance, if any, the last user message has to you, and a justification of your intention.",
         )
-        tools: Optional[Literal[tuple(TOOL_CATEGORIES.keys())]] = Field(
-            ...,
-            description=f"Which tools to include in reply context",
-        )
         recall_knowledge: bool = Field(
             ...,
+            description="Whether to look up relevant knowledge from the knowledge base.",
         )
 
     # generate text blob of chat history
@@ -88,13 +108,10 @@ async def async_think(
     else:
         reply_criteria = ""
 
-    tool_descriptions = "\n".join([f"{k}: {v}" for k, v in TOOL_CATEGORIES.items()])
-    tools_description = tools_template.render(tool_categories=tool_descriptions)
-
     prompt = thought_template.render(
         name=agent.name,
+        message_count=len(messages),
         chat=chat,
-        tools_description=tools_description,
         knowledge_description=knowledge_description,
         message=message,
         reply_criteria=reply_criteria,
@@ -114,6 +131,11 @@ async def async_think(
 
 
 def think(
-    agent: Agent, thread: Thread, user_message: UserMessage, force_reply: bool = True
+    agent: Agent, 
+    thread: Thread, 
+    user_message: UserMessage, 
+    force_reply: bool = True
 ):
-    return asyncio.run(async_think(agent, thread, user_message, force_reply))
+    return asyncio.run(
+        async_think(agent, thread, user_message, force_reply)
+    )

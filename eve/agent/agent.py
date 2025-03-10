@@ -12,7 +12,7 @@ from datetime import datetime
 from dotenv import dotenv_values
 from pydantic import SecretStr, Field, BaseModel, ConfigDict
 
-from ..tool import Tool, BASE_TOOLS, ADDITIONAL_TOOLS
+from ..tool import Tool, BASE_TOOLS
 from ..mongo import Collection, get_collection
 from ..user import User, Manna
 from ..models import Model
@@ -77,7 +77,8 @@ class Agent(User):
 
     mute: Optional[bool] = False
     reply_criteria: Optional[str] = None
-    model: Optional[ObjectId] = None
+    model: Optional[ObjectId] = None # deprecated
+    models: Optional[List[Dict[str, Any]]] = None
     test_args: Optional[List[Dict[str, Any]]] = None
 
     tools: Optional[Dict[str, Dict]] = {}
@@ -155,49 +156,11 @@ class Agent(User):
         """
         tools = schema.get("tools")
 
-        # if tools are defined, use those
+        # if tools are set explicitly, use those, otherwise use default presets
         if tools:
             schema["tools"] = {k: v or {} for k, v in tools.items()}
-
-        # if no tools are defined, use the default presets
         else:
-            # include all tools
-            schema["tools"] = {k: {} for k in BASE_TOOLS + ADDITIONAL_TOOLS}
-
-            # if a model is set, remove flux_schnell and replace it with flux_dev_lora
-            if schema.get("model"):
-                model = Model.from_mongo(schema["model"])
-                if model.base_model == "flux-dev":
-                    schema["tools"].pop("flux_schnell", None)
-                    schema["tools"]["flux_dev_lora"] = {
-                        "description": f"This is your primary and default tool for making images. The other flux tools are only used for inpainting, remixing, and variations. In particular, this will generate an image of {model.name}",
-                        "tip": f"If you want to depict {model.name} in the image, make sure to include {model.name} in the prompt.",
-                        "parameters": {
-                            "prompt": {
-                                "tip": 'Try to enhance or embellish prompts. For example, if the user requests "Verdelis as a mermaid smoking a cigar", you would make it much longer and more intricate and detailed, like "Verdelis as a dried-out crusty old mermaid, wrinkled and weathered skin, tangled and brittle seaweed-like hair, smoking a smoldering cigarette underwater with tiny bubbles rising, jagged and cracked tail with faded iridescent scales, adorned with a tarnished coral crown, holding a rusted trident, faint sunlight beams coming through." If the user provides a lot of detail, just stay faithful to their wishes.'
-                            },
-                            "lora": {
-                                "default": str(model.id),
-                                # "hide_from_agent": True,
-                            },
-                        },
-                    }
-                    schema["tools"]["reel"] = {
-                        "tip": f"If you want to depict {model.name} in the image, make sure to include {model.name} in the prompt.",
-                        "parameters": {
-                            "use_lora": {
-                                "default": True,
-                                # "hide_from_agent": True,
-                            },
-                            "lora": {
-                                "default": str(model.id),
-                                # "hide_from_agent": True,
-                            },
-                        },
-                    }
-                elif model.base_model == "sdxl":
-                    # schema["tools"] = default_presets_sdxl.copy()
-                    pass
+            schema["tools"] = {k: {} for k in BASE_TOOLS}
 
         return schema
 

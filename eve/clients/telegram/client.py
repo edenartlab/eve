@@ -247,12 +247,6 @@ class EdenTG:
 
             elif update_type == UpdateType.ASSISTANT_MESSAGE:
                 content = data.get("content")
-                print("ASSISTANT MESSAGE TELEGRAM")
-                print("content", content)
-                print("telegram_chat_id", telegram_chat_id)
-                print("telegram_message_id", telegram_message_id)
-                print("telegram_thread_id", telegram_thread_id)
-                print("mute1", self.agent.mute)
                 if content and not self.agent.mute:
                     await application.bot.send_message(
                         chat_id=telegram_chat_id,
@@ -399,22 +393,14 @@ class EdenTG:
             cleaned_text = replace_bot_mentions(
                 message_text, me_bot.username, self.agent.name
             )
-
-
-        # this is a test
-        print("is the msg a bot")
-        try:
-            print(message.from_user.is_bot)
-        except:
-            print("did not work")
-
+            
         # Make API request
         request_data = {
             "user_id": str(user.id),
             "agent_id": str(self.agent.id),
             "thread_id": str(thread.id),
             "force_reply": force_reply,
-            #"user_is_bot": message.from_user.is_bot,  # is this correct?
+            "user_is_bot": message.from_user.is_bot, 
             "user_message": {
                 "content": cleaned_text,
                 "name": username,

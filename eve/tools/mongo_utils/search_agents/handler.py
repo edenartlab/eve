@@ -29,7 +29,7 @@ The following agents are created and managed by the user.
 The following agents are public and owned by other users.
 {{docs_public}}
 </Public>
-</Models>
+</Agents>
 
 <Query>
 {{query}}

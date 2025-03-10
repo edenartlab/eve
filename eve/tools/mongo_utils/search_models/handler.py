@@ -4,19 +4,14 @@ from jinja2 import Template
 from pydantic import BaseModel, Field
 from typing import List
 
+from ....eden_utils import load_template
 from ....models import Model
 from ....mongo import get_collection
 
 
 
 
-model_template = """<Model>
-  <_id>{{_id}}</_id>
-  <name>{{name}}</name>
-  <lora_model>{{lora_model}}</lora_model>
-  <lora_trigger_text>{{lora_trigger_text}}</lora_trigger_text>
-  <created_at>{{createdAt}}</created_at>
-</Model>"""
+model_template = load_template("model_doc")
 
 search_models_template = """<Models>
 <Owned>
@@ -39,7 +34,6 @@ Analyze these models and return only the ones that are relevant to this search q
 Explain why each result matches the query criteria.
 </Task>"""
 
-model_template = Template(model_template)
 search_models_template = Template(search_models_template)
 
 

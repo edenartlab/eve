@@ -40,7 +40,7 @@ from eve.eden_utils import prepare_result
 from eve.tools.replicate_tool import replicate_update_task
 from eve.trigger import create_chat_trigger, delete_trigger, Trigger
 from eve.agent.llm import UpdateType
-from eve.agent.run import async_prompt_thread
+from eve.agent.run_thread import async_prompt_thread
 from eve.mongo import serialize_document
 from eve.task import Task
 from eve.tool import Tool
@@ -112,6 +112,7 @@ async def run_chat_request(
     user_message: UserMessage,
     update_config: UpdateConfig,
     force_reply: bool,
+    use_thinking: bool,
     model: str,
     user_is_bot: bool = False,
     metadata: Optional[Dict] = None,
@@ -137,6 +138,7 @@ async def run_chat_request(
             user_messages=user_message,
             tools=tools,
             force_reply=force_reply,
+            use_thinking=use_thinking,
             model=model,
             user_is_bot=user_is_bot,
             stream=False,
@@ -189,6 +191,7 @@ async def handle_chat(
         request.user_message,
         request.update_config,
         request.force_reply,
+        request.use_thinking,
         request.model,
         request.user_is_bot,
     )
@@ -211,6 +214,7 @@ async def handle_stream_chat(request: ChatRequest, background_tasks: BackgroundT
                 user_messages=request.user_message,
                 tools=tools,
                 force_reply=request.force_reply,
+                use_thinking=request.use_thinking,
                 model=request.model,
                 user_is_bot=request.user_is_bot,
                 stream=True,

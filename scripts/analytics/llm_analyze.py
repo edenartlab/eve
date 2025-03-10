@@ -166,7 +166,7 @@ Format your response in a clear, structured way that can be easily parsed for th
             
             # Create message with the chunk
             response = client.messages.create(
-                model="claude-3-7-sonnet-20250219",
+                model="claude-3-7-sonnet-latest",
                 #model="claude-3-5-haiku-latest",
                 max_tokens=4048,
                 messages=[{

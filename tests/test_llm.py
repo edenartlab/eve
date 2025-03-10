@@ -1,9 +1,8 @@
 from eve.auth import get_my_eden_user
 from eve.agent.thread import UserMessage, AssistantMessage, Thread
-from eve.agent.run import prompt_thread
-from eve.agent.think import async_think, search_mongo
+from eve.agent.run_thread import prompt_thread, async_prompt_thread
+from eve.agent.think import async_think
 from eve.agent.agent import Agent
-from eve.tool import get_tools_from_mongo
 
 # todo: since prompt_thread handles exceptions, this won't actually fail if there are errors
 def test_prompting():
@@ -55,45 +54,58 @@ def test_prompting2():
         print(msg)
 
 
+from eve.agent.agent import Tool
 
-def test_think():
+async def test_sub():
+
     user = get_my_eden_user()
 
     messages = [
-        # UserMessage(name="gene", content="eve, make a picture of a golden retriever playing chess against Vitalik Buterin in impressionist style."),
-        # UserMessage(name="gene", content="eve, tell me a funny joke"),
-        # UserMessage(name="gene", content="how can i turn that into a video?"),
-        UserMessage(name="gene", content="does someone know the year of the first moon landing?"),
+        UserMessage(name="kate", content="make a picture of a cat"),
     ]
 
     agent = Agent.load("eve")
+    agent.tools = {
+        "txt2img": {},
+    }
     tools = agent.get_tools()
-    # thread = agent.request_thread()
-    thread = Thread.from_mongo("6774249ff8d4aae98c89ac0f")
+    print("TOOLS", tools)
+    print("TOOLS", tools.keys())
+    thread = agent.request_thread()
 
-    for msg in prompt_thread(
+    async for msg in async_prompt_thread(
         user=user,
         agent=agent,
         thread=thread,
         user_messages=messages,
         tools=tools,
-        model="claude-3-7-sonnet-20250219"
+        force_reply=True,
+        use_thinking=False,
+        model="gpt-4o-mini"
     ):
         print(msg)
 
 
-async def test_search_mongo():
-    result = await search_mongo(
-        type="agent",
-        query="look for all verdelis models"
+from eve.agent.run_thread import async_run_session
+from eve.agent.session import Session
+
+async def test_dispatch_run():
+
+    user = get_my_eden_user()
+    
+    session = Session.load("test-session")
+    
+    messages = [
+        UserMessage(name="kate", content="make a picture of a cat"),
+    ]
+
+    result = await async_run_session(
+        user=user,
+        session=session,
+        user_messages=messages,
     )
-    print("---> RESULT:")
-    for r in result:
-        print(r)
+    print(result)
 
 
 import asyncio
-asyncio.run(test_search_mongo())
-test_think()
-test_prompting()
-test_prompting2()
+asyncio.run(test_dispatch_run())

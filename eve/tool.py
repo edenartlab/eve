@@ -44,80 +44,52 @@ BASE_MODELS = Literal[
     "musicgen",
 ]
 
-# These tools are always in agent context
+# These tools are default agent tools except Eve
 BASE_TOOLS = [
+    # text-to-image
     "flux_schnell", 
-    "flux_dev_lora", 
-    "ffmpeg_multitool", 
-    "runway",
-    "musicgen", 
-    "elevenlabs",
-    "mmaudio",
+    "flux_dev_lora",
+    "flux_dev", 
+    "txt2img",
 
-    "search_agents",
-    "search_models",
-]
-
-# Additional tools in agent's context if agent chooses to recall them
-ADDITIONAL_TOOLS = [
+    # more image generation
     "flux_inpainting",
-    "flux_redux",
+    "outpaint",
+    "remix_flux_schnell",
+
+    # video
+    "runway",
+    "hedra",
     "vid2vid_sdxl",
     "video_FX",
     "texture_flow",
-    "outpaint",
-    "remix_flux_schnell",
+    
+    # audio
+    "musicgen", 
+    "elevenlabs",
+    "mmaudio",
     "stable_audio",
-    "musicgen",
-    "hedra",
-    "reel",
+    "zonos",
+
+    # editing
+    "ffmpeg_multitool", 
+
+    # search
+    "search_agents",
+    "search_models",
+
+    # misc
     "news",
     "websearch",
     "weather",
-    "ominicontrol",
-    "zonos",
+
+    # inactive
+    # "ominicontrol",
+    # "flux_redux",
+    # "reel"
+    # "txt2vid",
+    # "animate_3d"
 ]
-
-
-"""
-create
-- generate_image (txt2img, flux, img2vid)
-- generate_video
-- generate_music (musicgen)
-- generate_sound_effects (mmaudio)
-- generate_speech (elevenlabs)
-- inpaint (flux, sdxl)
-- outpaint (flux, sdxl)
-
-
-create
-- txt2img_sdxl (txt2img)
-- txt2img_flux (flux_schnell, flux_schnell_lora, flux_dev, flux_dev_lora)
-
-
-- img2vid_flux
-- img2vid_sdxl
-- img2img_flux
-- img2img_sdxl
-
-
-
-edit
-- media_utils
-- ffmpeg_multitool
-search_eden (search_agents, search_models)
-memory (add_memory, delete_memory)
-
-news
-websearch
-
-"""
-
-
-TOOL_CATEGORIES = {
-    "base": "Basic tools you want to keep in context at all times. This includes common creation tools like simple text-to-image, image-to-video, text-to-audio (including speech, music, and sound effects), as well as tools for searching and retrieving information from your knowledge base, memory, and all documents (including models/finetunes).",
-    "complete": f"All basic tools, plus lesser-used creation tools for image and video generation and editing, including inpainting, outpainting, remixing, restyling, inserting, and modifying, as well as tools for generating talking heads, and retrieving news, weather, and web search results. Includes {', '.join(ADDITIONAL_TOOLS)}.",
-}
 
 
 class RateLimit(BaseModel):
