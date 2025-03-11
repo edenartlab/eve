@@ -11,7 +11,7 @@ from ably import AblyRest
 from bson import ObjectId
 from pydantic import BaseModel
 
-from .agent.agent import Agent
+from .agent import Agent
 from .mongo import Collection, Document, get_collection
 
 

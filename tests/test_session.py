@@ -2,9 +2,9 @@ from eve.auth import get_my_eden_user
 from eve.agent.thread import UserMessage, AssistantMessage, Thread
 from eve.agent.run_thread import prompt_thread, async_prompt_thread
 from eve.agent.think import async_think
-from eve.agent.agent import Agent
+from eve.agent import Agent
 
-from eve.agent.agent import Tool
+from eve.agent import Tool
 
 async def test_session():
 

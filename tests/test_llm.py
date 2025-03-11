@@ -2,7 +2,7 @@ from eve.auth import get_my_eden_user
 from eve.agent.thread import UserMessage, AssistantMessage, Thread
 from eve.agent.run_thread import prompt_thread, async_prompt_thread
 from eve.agent.think import async_think
-from eve.agent.agent import Agent
+from eve.agent import Agent
 
 # todo: since prompt_thread handles exceptions, this won't actually fail if there are errors
 def test_prompting():
@@ -54,7 +54,7 @@ def test_prompting2():
         print(msg)
 
 
-from eve.agent.agent import Tool
+from eve.agent import Tool
 
 async def test_sub():
 

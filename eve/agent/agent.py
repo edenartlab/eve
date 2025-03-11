@@ -82,6 +82,7 @@ class Agent(User):
     test_args: Optional[List[Dict[str, Any]]] = None
 
     tools: Optional[Dict[str, Dict]] = {}
+    add_base_tools: Optional[bool] = True
 
     def __init__(self, **data):
         if isinstance(data.get("owner"), str):
@@ -154,17 +155,20 @@ class Agent(User):
         Sets up the agent's tools based on the tools defined in the schema.
         If a model (lora) is set, hardcode it into the tools.
         """
-        tools = schema.get("tools")
+        tools = schema.get("tools") or {}
 
-        # if tools are set explicitly, use those, otherwise use default presets
-        if tools:
-            schema["tools"] = {k: v or {} for k, v in tools.items()}
-        else:
-            schema["tools"] = {k: {} for k in BASE_TOOLS}
+        # if tools are set explicitly, start with them
+        schema["tools"] = {k: v or {} for k, v in tools.items()}
+        
+        # if add_base_tools is set, add the base tools
+        if schema.get("add_base_tools", True):
+            schema["tools"].update({
+                k: {} for k in BASE_TOOLS if k not in schema["tools"]
+            })
 
         return schema
 
-    def get_tools(self, cache=False):
+    def get_tools(self, cache=False, auth_user: str = None):
         global last_tools_update
 
         # if not hasattr(self, "tools") or not self.tools:
@@ -191,12 +195,20 @@ class Agent(User):
                     tool = Tool.from_raw_yaml({"parent_tool": k, **v})
                     agent_tools_cache[self.username][k] = tool
             
-            return agent_tools_cache[self.username]
+            tools = agent_tools_cache[self.username]
         else:
-            return {
+            tools = {
                 k: Tool.from_raw_yaml({"parent_tool": k, **v})
                 for k, v in self.tools.items()
             }
+
+        # remove tools that only the owner can use
+        if str(auth_user) != str(self.owner):
+            print("User is not authorized to use these tools")
+            tools.pop("tweet", None)
+            tools.pop("get_tweets", None)
+
+        return tools
 
     def get_tool(self, tool_name, cache=False):
         return self.get_tools(cache=cache)[tool_name]

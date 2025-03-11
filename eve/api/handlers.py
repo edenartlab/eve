@@ -44,7 +44,7 @@ from eve.agent.run_thread import async_prompt_thread
 from eve.mongo import serialize_document
 from eve.task import Task
 from eve.tool import Tool
-from eve.agent.agent import Agent
+from eve.agent import Agent
 from eve.user import User
 from eve.agent.thread import Thread, UserMessage
 from eve.deploy import Deployment
