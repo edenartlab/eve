@@ -2,7 +2,7 @@ from eve.auth import get_my_eden_user
 from eve.agent.thread import UserMessage, AssistantMessage, Thread
 from eve.agent.run_thread import prompt_thread
 from eve.agent.think import think
-from eve.agent.agent import Agent
+from eve.agent import Agent
 from eve.tool import get_tools_from_mongo
 
 

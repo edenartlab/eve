@@ -2,9 +2,9 @@ from eve.auth import get_my_eden_user
 from eve.agent.thread import UserMessage, AssistantMessage, Thread
 from eve.agent.run_thread import prompt_thread, async_prompt_thread
 from eve.agent.think import async_think
-from eve.agent.agent import Agent
+from eve.agent import Agent
 
-from eve.agent.agent import Tool
+from eve.agent import Tool
 
 async def test_session():
 
@@ -210,3 +210,40 @@ def test_session():
     
     assert thread_for_banny.messages[1].role == "assistant"
     assert thread_for_banny.messages[1].content == "Response"
+
+
+
+
+
+
+
+
+################################################################################
+# Below this is experimental
+
+
+################################################################################
+# Session api tests
+################################################################################
+
+from eve.api.handlers import handle_session_message
+from eve.api.handlers import SessionMessageRequest
+
+async def test_session2():
+    user = get_my_eden_user()
+
+    # Create a new session
+    request = SessionMessageRequest(
+        user_id=str(user.id),
+        user_message=UserMessage(content="eve and banny say hello to each other, then banny requests an image of a banana at a party and eve makes it for him. they then say goodnight to each other and stop."),
+    )
+    
+    result = await handle_session_message(request)
+    
+    print(result)
+
+
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(test_session2())

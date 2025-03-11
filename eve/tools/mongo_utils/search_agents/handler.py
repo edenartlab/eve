@@ -4,7 +4,7 @@ from jinja2 import Template
 from pydantic import BaseModel, Field
 from typing import List
 
-from ....agent.agent import Agent
+from ....agent import Agent
 from ....mongo import get_collection
 # from ... import eden_utils
 

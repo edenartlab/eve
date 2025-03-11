@@ -402,7 +402,7 @@ async def async_prompt(
     print("--------------------------------")
     print(f"Prompting {model} with {len(messages)} messages")
     print(dump_json([m.model_dump() for m in messages]))
-    print("tools", tools.keys())
+    if tools: print("tools", tools.keys())
     print("--------------------------------")
 
     langfuse_context.update_current_observation(input=messages)

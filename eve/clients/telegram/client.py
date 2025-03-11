@@ -17,7 +17,7 @@ from telegram.ext import (
 import asyncio
 
 from ...clients import common
-from ...agent.agent import Agent
+from ...agent import Agent
 from ...agent.llm import UpdateType
 from ...user import User
 from ...eden_utils import prepare_result
