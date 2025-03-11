@@ -22,7 +22,7 @@ models = [
     "gpt-4o-2024-08-06",
 ]
 
-DEFAULT_MODEL = "claude-3-7-sonnet-20250219"
+DEFAULT_MODEL = "gpt-4o-mini"
 
 
 class UpdateType(str, Enum):
