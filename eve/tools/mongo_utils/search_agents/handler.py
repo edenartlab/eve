@@ -4,7 +4,7 @@ from jinja2 import Template
 from pydantic import BaseModel, Field
 from typing import List
 
-from ....agent.agent import Agent
+from ....agent import Agent
 from ....mongo import get_collection
 # from ... import eden_utils
 
@@ -29,7 +29,7 @@ The following agents are created and managed by the user.
 The following agents are public and owned by other users.
 {{docs_public}}
 </Public>
-</Models>
+</Agents>
 
 <Query>
 {{query}}

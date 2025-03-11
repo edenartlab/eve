@@ -15,6 +15,8 @@ async def handler(args: dict, user: str = None, requester: str = None):
     try:
         ratio = "1280:768" if args["ratio"] == "16:9" else "768:1280"
 
+        print("RUNWAY ARGS")
+        print(args)
         task = await client.image_to_video.create(
             model="gen3a_turbo",
             prompt_image=args["prompt_image"],
@@ -32,6 +34,7 @@ async def handler(args: dict, user: str = None, requester: str = None):
             "Another non-200-range status code was received",
             e.status_code,
             e.response,
+            e.response.text
         )
     except Exception as e:
         raise Exception("An unexpected error occurred", e)

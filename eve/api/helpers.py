@@ -21,7 +21,7 @@ from eve.deploy import (
 )
 from eve.tool import Tool
 from eve.user import User
-from eve.agent.agent import Agent
+from eve.agent import Agent
 from eve.agent.thread import Thread
 from eve.agent.tasks import async_title_thread
 from eve.api.api_requests import ChatRequest, UpdateConfig

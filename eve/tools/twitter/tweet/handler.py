@@ -1,4 +1,4 @@
-from eve.deploy import Deployment
+from ....deploy import Deployment
 from ....agent import Agent
 from .. import X
 

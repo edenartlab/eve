@@ -1,8 +1,8 @@
 name: Talking Head
 description: Talking head generated with Hedra
 tip: |-
-  This tool can be used for creating a talking head
-cost_estimate: 200
+  This takes an image of a face and some speech audio and generates a talking head.
+cost_estimate: 100
 output_type: video
 status: stage
 visible: false
@@ -10,16 +10,16 @@ parameters:
   image:
     type: image
     label: Input image
-    description: The image to turn into a talking head
+    description: Face image
     required: true
   audio:
     type: audio
     label: Input audio
-    description: The audio to turn into a talking head
+    description: Speech audio
     required: true
   aspectRatio:
     type: string
     label: Aspect ratio
-    description: The aspect ratio of the video
+    description: Video aspect ratio
     default: '1:1'
     choices: ['16:9', '1:1', '9:16']

@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 
 from ... import load_env
 from ...clients import common
-from ...agent.agent import Agent
+from ...agent import Agent
 from ...agent.llm import UpdateType
 from ...user import User
 from ...eden_utils import prepare_result
@@ -55,7 +55,6 @@ class Eden2Cog(commands.Cog):
         self.discord_channel_allowlist = None
         if not local:
             self.load_deployment_config()
-        self.tools = agent.get_tools()
         self.known_users = {}
         self.known_threads = {}
         if local:

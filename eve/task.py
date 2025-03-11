@@ -13,7 +13,7 @@ from . import sentry_sdk
 # A list of tools that output media but do not result in new Creations
 NON_CREATION_TOOLS = [
     "search_agents", 
-    "search_models"
+    "search_models",
 ]
 
 
@@ -150,8 +150,11 @@ async def _task_handler(func, *args, **kwargs):
                 result = eden_utils.upload_result(result, save_thumbnails=True, save_blurhash=True)
 
                 for output in result["output"]:
+                    filename = output.get("filename")
+                    media_attributes = output.get("mediaAttributes")
+                    
                     # Skip if the tool is a non-creation tool
-                    if not "filename" in result["output"]:
+                    if not filename:
                         continue
 
                     # name = preprocess_result.get("name") or task_args.get("prompt") or args.get("text_input")
@@ -160,13 +163,14 @@ async def _task_handler(func, *args, **kwargs):
                         name = task_args.get("interpolation_prompts") or task_args.get("interpolation_texts")
                         if name:
                             name = " to ".join(name)
+                    
                     new_creation = Creation(
                         user=task.user,
                         requester=task.requester,
                         task=task.id,
                         tool=task.tool,
-                        filename=output['filename'],
-                        mediaAttributes=output['mediaAttributes'],
+                        filename=filename,
+                        mediaAttributes=media_attributes,
                         name=name
                     )
                     new_creation.save()

@@ -2,9 +2,10 @@ name: TTS-Zonos
 description: Text-to-speech using Zonos
 tip: |-
   This tool can be used to generate speech audio from text with advanced control for speaking rate and emotion. This tool has a cold boot which may come at some initial delay.
-cost_estimate: 0.4 * text.length
+cost_estimate: 0.05 * text.length
 output_type: audio
-active: true
+status: prod
+visible: true
 replicate_model: jaaari/zonos:79caaf88e47605d71197442eb35361be922488dfb2d55de8ae757cc73d6d2a15
 handler: replicate
 parameters:
