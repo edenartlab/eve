@@ -171,9 +171,6 @@ class Agent(User):
     def get_tools(self, cache=False, auth_user: str = None):
         global last_tools_update
 
-        # if not hasattr(self, "tools") or not self.tools:
-        #     self.tools = {}
-
         if cache:
             # get latest updatedAt timestamp for tools
             tools = get_collection(Tool.collection_name)

@@ -447,7 +447,14 @@ async def async_run_session(
         tools = agent.get_tools()
         thread = agent.request_thread()
         async for msg in async_prompt_thread(
-            user, agent, thread, user_messages, tools, force_reply=True, use_thinking=False, model=DEFAULT_MODEL
+            user, 
+            agent, 
+            thread, 
+            user_messages, 
+            tools, 
+            force_reply=True, 
+            use_thinking=False, 
+            model=DEFAULT_MODEL
         ):
             print(msg)
 

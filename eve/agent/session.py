@@ -113,8 +113,8 @@ class Session(Document):
     - Holds a list of SessionMessage objects (the superset of user or assistant messages).
     - We can derive a single-agent Thread from it, by picking one agent as 'the assistant.'
     """
-    key: Optional[str] = None
-    title: Optional[str] = None
+    # key: Optional[str] = None
+    # title: Optional[str] = None
 
     # Scenario fields
     scenario: Optional[str] = None
