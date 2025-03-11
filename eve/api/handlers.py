@@ -40,11 +40,11 @@ from eve.eden_utils import prepare_result
 from eve.tools.replicate_tool import replicate_update_task
 from eve.trigger import create_chat_trigger, delete_trigger, Trigger
 from eve.agent.llm import UpdateType
-from eve.agent.run import async_prompt_thread
+from eve.agent.run_thread import async_prompt_thread
 from eve.mongo import serialize_document
 from eve.task import Task
 from eve.tool import Tool
-from eve.agent.agent import Agent
+from eve.agent import Agent
 from eve.user import User
 from eve.agent.thread import Thread, UserMessage
 from eve.deploy import Deployment
@@ -112,6 +112,7 @@ async def run_chat_request(
     user_message: UserMessage,
     update_config: UpdateConfig,
     force_reply: bool,
+    use_thinking: bool,
     model: str,
     user_is_bot: bool = False,
     metadata: Optional[Dict] = None,
@@ -137,6 +138,7 @@ async def run_chat_request(
             user_messages=user_message,
             tools=tools,
             force_reply=force_reply,
+            use_thinking=use_thinking,
             model=model,
             user_is_bot=user_is_bot,
             stream=False,
@@ -189,6 +191,7 @@ async def handle_chat(
         request.user_message,
         request.update_config,
         request.force_reply,
+        request.use_thinking,
         request.model,
         request.user_is_bot,
     )
@@ -211,6 +214,7 @@ async def handle_stream_chat(request: ChatRequest, background_tasks: BackgroundT
                 user_messages=request.user_message,
                 tools=tools,
                 force_reply=request.force_reply,
+                use_thinking=request.use_thinking,
                 model=request.model,
                 user_is_bot=request.user_is_bot,
                 stream=True,
@@ -691,3 +695,152 @@ async def handle_discord_emission(request: Request):
     except Exception as e:
         logger.error("Error handling Discord emission", exc_info=True)
         return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+################################################################################
+# Below this is experimental
+
+################################################################################
+################################################################################
+# Sessions (v2)
+################################################################################
+
+import traceback
+from pydantic import BaseModel
+from eve.agent.session import Session, SessionMessage
+from eve.agent.run_thread import async_run_session
+
+class SessionMessageRequest(BaseModel):
+    user_id: str
+    user_message: UserMessage
+    session_id: Optional[str] = None
+    update_config: Optional[UpdateConfig] = None
+
+
+async def handle_session_message(
+    request: SessionMessageRequest,
+    # background_tasks: BackgroundTasks,
+):
+    print("handle_session_message")
+    print(request)
+
+    user, session = await setup_session(
+        request
+    )
+
+    # background_tasks.add_task(
+    #     run_session_request,
+    #     user,
+    #     session,
+    #     request.user_message,
+    #     request.update_config,
+    # )
+
+    await run_session_request(
+        user,
+        session,
+        request.user_message,
+        request.update_config,
+    )
+
+    return {"session_id": str(session.id)}
+
+
+
+async def setup_session(
+    request: SessionMessageRequest,
+    # cache: bool = False,
+    # background_tasks: BackgroundTasks = None,
+    # metadata: Optional[Dict] = None,
+) -> tuple[User, Session]:
+    try:
+        user = User.from_mongo(request.user_id)
+    except Exception as e:
+        logger.error(f"Error loading user: {traceback.format_exc()}")
+        raise APIError(f"Invalid user_id: {request.user_id}", status_code=400) from e
+
+    # try:
+    #     agent = Agent.from_mongo(request.agent_id, cache=False)
+    # except Exception as e:
+    #     logger.error(f"Error loading agent: {traceback.format_exc()}")
+    #     raise APIError(f"Invalid agent_id: {request.agent_id}", status_code=400) from e
+
+    # tools = agent.get_tools(cache=cache)
+
+    if request.session_id:
+        try:
+            session = Session.from_mongo(request.session_id)
+        except Exception as e:
+            logger.error(f"Error loading thread: {traceback.format_exc()}")
+            raise APIError(
+                f"Invalid thread_id: {request.thread_id}", status_code=400
+            ) from e
+    else:
+        # thread = agent.request_thread(user=user.id, message_limit=25)
+        session = Session(
+            scenario="example scenario",
+            agents=[]
+        )
+        session.save()
+
+    return user, session
+
+
+@observe()
+async def run_session_request(
+    user: User,
+    session: Session,
+    user_message: UserMessage,
+    update_config: UpdateConfig,
+):
+    request_id = str(uuid.uuid4())
+
+    metadata = {
+        "user_id": str(user.id),
+        "session_id": str(session.id),
+        "request_id": request_id,
+        "environment": LANGFUSE_ENV,
+    }
+
+    langfuse_context.update_current_trace(user_id=str(user.id))
+    langfuse_context.update_current_observation(metadata=metadata)
+
+    try:
+        result = await async_run_session(
+            user=user,
+            session=session,
+            user_messages=user_message,
+        )
+        print(result)
+
+    except Exception as e:
+        logger.error("Error in run_session", exc_info=True)
+        update_busy_state(update_config, request_id, False)
+        await emit_update(
+            update_config,
+            {"type": "error", "error": str(e)},
+        )

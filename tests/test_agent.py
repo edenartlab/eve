@@ -1,4 +1,4 @@
-from eve.agent.agent import Agent
+from eve.agent import Agent
 
 def test_agent():
     """Pytest entry point"""

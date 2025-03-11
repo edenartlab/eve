@@ -61,7 +61,7 @@ class ReplicateTool(Tool):
             # Replicate doesn't allow spawning tasks for models without a public version ID.
             # So we spawn a remote task on Modal which awaits the Replicate task
             db = os.getenv("DB", "STAGE").upper()
-            func = modal.Function.lookup(
+            func = modal.Function.from_name(
                 f"api-{db.lower()}",
                 "run_task_replicate", 
                 environment_name="main"
@@ -232,14 +232,12 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
                 output, save_thumbnails=True, save_blurhash=True
             )
             if thumbnails:
-                thumbnail_results = [
+                for thumb in thumbnails:
                     eden_utils.upload_media(
                         thumb, 
                         save_thumbnails=True,
                         save_blurhash=True
-                    ) 
-                    for thumb in thumbnails
-                ]
+                    )
             result = [{"output": [out]} for out in output]
         else:
             output = eden_utils.upload_result(
@@ -296,6 +294,9 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
                         mediaAttributes=output["mediaAttributes"],
                         name=name,
                     )
+                    print("**** 111 here is the creation"  )
+                    print(creation)
+                    print("**** 111 here is the creation")
                     creation.save()
                     result[r]["output"][o]["creation"] = creation.id
 
@@ -310,6 +311,9 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
         task.status = "completed"
         task.result = result
         task.save()
+
+        print("its a saved task")
+        print(result)
 
         return {"status": "completed", "result": result}
 

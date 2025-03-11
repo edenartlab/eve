@@ -529,8 +529,6 @@ async def handler(args: dict, user: str = None, requester: str = None):
         video = video['output'][0]['url']
         videos.append(video)
 
-
-    
     video = await video_concat.async_run({"videos": videos})
     video = eden_utils.prepare_result(video)
     print("video", video)

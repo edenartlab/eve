@@ -1,6 +1,6 @@
 name: Read Twitter
 description: Get tweets from a set of users
-cost_estimate: 1
+cost_estimate: 0.5
 output_type: string
 status: inactive
 visible: false

@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .. import load_env
 from ..deploy import ClientType
-from ..agent.agent import Agent
+from ..agent import Agent
 from ..clients.discord.client import start as start_discord
 from ..clients.telegram.client import start as start_telegram
 from ..clients.farcaster.client import start as start_farcaster
