@@ -27,8 +27,6 @@ class SessionMessage(ChatMessage):
     cast into a UserMessage or AssistantMessage, depending on
     the target agent for whom we are deriving a single-agent Thread.
     """
-    id: ObjectId = Field(default_factory=ObjectId)
-    createdAt: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     sender_id: ObjectId = Field(default_factory=ObjectId)
     role: Literal["user", "assistant"] = Field(default="user")  # placeholder

@@ -1,4 +1,3 @@
-
 """
 document tests
 - setup document schema from yaml

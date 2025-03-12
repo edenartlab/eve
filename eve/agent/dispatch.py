@@ -72,7 +72,6 @@ This is the current situation:
 </Task>""")
 
 
-
 async def async_dispatch(
     session: Session,
     new_message: SessionMessage,
