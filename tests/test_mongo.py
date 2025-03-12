@@ -61,7 +61,20 @@ def test_mongo_document():
 
     assert t.id == t2.id == t3.id
 
-    assert t3 == MongoModelTest(num=7, args={"foo": "hello world"}, user=ObjectId("666666663333366666666666"), id=t2.id, createdAt=t3.createdAt, updatedAt=t3.updatedAt)
+    assert t3 == MongoModelTest(
+        num=7, 
+        args={"foo": "hello world"}, 
+        user=ObjectId("666666663333366666666666"), 
+        id=t2.id, 
+        createdAt=t3.createdAt, 
+        updatedAt=t3.updatedAt
+    )
+
+
+
+
+
+
 
 
 

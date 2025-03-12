@@ -1,13 +1,19 @@
 import os
 import copy
 import yaml
-from pydantic import BaseModel, Field, ConfigDict, ValidationError
 from pymongo import MongoClient
 from pymongo.server_api import ServerApi
 from datetime import datetime, timezone
 from bson import ObjectId
 from typing import Optional, List, Dict, Any, Union
 from sentry_sdk import trace
+from pydantic import (
+    BaseModel,
+    Field,
+    ConfigDict,
+    ValidationError,
+    model_serializer,
+)
 
 
 # Global connection pool
@@ -66,13 +72,21 @@ class Document(BaseModel):
     updatedAt: Optional[datetime] = None
 
     model_config = ConfigDict(
-        json_encoders={
-            ObjectId: str,
-            datetime: lambda v: v.isoformat(),
-        },
+        # json_encoders={
+        #     ObjectId: str,
+        #     datetime: lambda v: v.isoformat(),
+        # },
         populate_by_name=True,
         arbitrary_types_allowed=True,
     )
+
+    @model_serializer
+    def serialize_model(self) -> Dict[str, Any]:
+        model_data = self.model_dump(by_alias=True)
+        return serialize_document(model_data)
+
+
+
 
     @classmethod
     @trace
