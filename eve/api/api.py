@@ -294,8 +294,8 @@ image = (
     .pip_install("numpy<2.0", "torch==2.0.1", "torchvision", "transformers", "Pillow")
     .run_commands(["playwright install"])
     .run_function(download_nsfw_models)
-    .copy_local_dir(str(workflows_dir), "/workflows")
-    .copy_local_file(str(root_dir / "pyproject.toml"), "/root/eve/pyproject.toml")
+    .add_local_dir(str(workflows_dir), "/workflows")
+    .add_local_file(str(root_dir / "pyproject.toml"), "/root/eve/pyproject.toml")
 )
 
 
@@ -437,6 +437,3 @@ async def deploy_client_modal(
         env=env,
         repo_branch=repo_branch,
     )
-
-if __name__ == "__main__":
-    uvicorn.run(web_app, host="0.0.0.0", port=8000, reload=True)
