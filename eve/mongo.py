@@ -72,21 +72,13 @@ class Document(BaseModel):
     updatedAt: Optional[datetime] = None
 
     model_config = ConfigDict(
-        # json_encoders={
-        #     ObjectId: str,
-        #     datetime: lambda v: v.isoformat(),
-        # },
+        json_encoders={
+            ObjectId: str,
+            datetime: lambda v: v.isoformat(),
+        },
         populate_by_name=True,
         arbitrary_types_allowed=True,
     )
-
-    @model_serializer
-    def serialize_model(self) -> Dict[str, Any]:
-        model_data = self.model_dump(by_alias=True)
-        return serialize_document(model_data)
-
-
-
 
     @classmethod
     @trace
@@ -370,3 +362,85 @@ class MongoDocumentNotFound(Exception):
         else:
             self.message = f"Document {kwargs} not found in {collection_name}:{db}"
         super().__init__(self.message)
+
+
+
+
+
+
+
+
+
+###################################
+
+from eve.base import VersionableBaseModel, generate_edit_model, recreate_base_model
+from typing import Annotated
+from pydantic.json_schema import SkipJsonSchema
+
+class VersionableDocument(Document, VersionableBaseModel):
+    id: Annotated[ObjectId, Field(default_factory=ObjectId, alias="_id")]
+    collection_name: SkipJsonSchema[str] = Field(..., exclude=True)
+    # db: SkipJsonSchema[str] = Field(..., exclude=True)
+    # createdAt: datetime = Field(default_factory=lambda: datetime.utcnow().replace(microsecond=0))
+    # updatedAt: Optional[datetime] = None #Field(default_factory=lambda: datetime.utcnow().replace(microsecond=0))
+
+    model_config = ConfigDict(
+        populate_by_name=True,
+        arbitrary_types_allowed=True,
+    )
+
+    def __init__(self, **data):
+        if "instance" in data:
+            instance = data.pop("instance")
+            collection_name = data.pop("collection_name")
+            super().__init__(
+                schema=type(instance),
+                initial=instance,
+                current=instance,
+                collection_name=collection_name,
+                **data,
+            )
+        else:
+            super().__init__(**data)
+
+    @classmethod
+    def load(cls, document_id: str, collection_name: str):
+        collection = get_collection(collection_name)
+        document = collection.find_one({"_id": ObjectId(document_id)})
+        if document is None:
+            raise MongoDocumentNotFound(collection_name, document_id)
+
+        schema = recreate_base_model(document["schema"])
+        initial = schema(**document["initial"])
+        current = schema(**document["current"])
+
+        edits = [generate_edit_model(schema)(**edit) for edit in document["edits"]]
+
+        versionable_data = {
+            "id": document["_id"],
+            "collection_name": collection_name,
+            "createdAt": document['createdAt'],
+            "updatedAt": document['updatedAt'],
+            "schema": schema,
+            "initial": initial,
+            "current": current,
+            "edits": edits,
+        }
+
+        return cls(**versionable_data)
+
+    def save(self, upsert_filter=None):
+        data = self.model_dump(by_alias=True, exclude_none=True)
+        collection = get_collection(self.collection_name)
+
+        document_id = data.get("_id")
+        if upsert_filter:
+            document_id_ = collection.find_one(upsert_filter, {"_id": 1})
+            if document_id_:
+                document_id = document_id_["_id"]
+
+        if document_id:
+            # data['updatedAt'] = datetime.utcnow().replace(microsecond=0)
+            collection.update_one({"_id": document_id}, {"$set": data}, upsert=True)
+        else:
+            collection.insert_one(data)
