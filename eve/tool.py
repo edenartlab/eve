@@ -134,8 +134,7 @@ class Tool(Document, ABC):
         """Get schema for a tool, with detailed performance logging."""
 
         if from_yaml:
-            # YAML path
-            api_files = get_api_files()
+            api_files = get_api_files() # YAML path
 
             if key not in api_files:
                 raise ValueError(f"Tool {key} not found")
@@ -303,8 +302,7 @@ class Tool(Document, ABC):
 
     def _remove_hidden_fields(self, parameters):
         hidden_parameters = [
-            k
-            for k, v in parameters["properties"].items()
+            k for k, v in parameters["properties"].items()
             if self.parameters[k].get("hide_from_agent")
         ]
         for k in hidden_parameters:
@@ -350,7 +348,7 @@ class Tool(Document, ABC):
         if unrecognized_args:
             # raise ValueError(
             print(
-                f"Unrecognized arguments provided for {self.key}: {', '.join(unrecognized_args)}"
+                f"Warning: Unrecognized arguments provided for {self.key}: {', '.join(unrecognized_args)}"
             )
 
         prepared_args = {}
@@ -541,20 +539,6 @@ class Tool(Document, ABC):
 
     def cancel(self, task: Task, force: bool = False):
         return asyncio.run(self.async_cancel(task, force))
-
-    # @classmethod
-    # @trace
-    # def init_handler_cache(cls):
-    #     """Pre-warm the handler cache with all parent-child relationships"""
-    #     global _handler_cache
-
-    #     collection = get_collection(cls.collection_name)
-
-    #     # Get ALL tools and their handlers in one query
-    #     tools = collection.find({}, {"key": 1, "handler": 1})
-
-    #     # Build cache for all tools
-    #     _handler_cache.update({tool["key"]: tool.get("handler") for tool in tools})
 
 
 def get_tools_from_api_files(
