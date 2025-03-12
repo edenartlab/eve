@@ -126,8 +126,8 @@ async def async_anthropic_prompt(
     }
 
     # efficient tool calls feature for claude 3.7
-    if "claude-3-7" in model:
-        prompt["betas"] = ["token-efficient-tools-2025-02-19"]
+    # if "claude-3-7" in model:
+    #     prompt["betas"] = ["token-efficient-tools-2025-02-19"]
 
     # add tools / structure output
     if tools or response_model:

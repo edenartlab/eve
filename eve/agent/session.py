@@ -74,7 +74,8 @@ class SessionMessage(ChatMessage):
         else:
             # All other senders => UserMessage
             # "name" can be a user name or agent label if you like
-            name = target_agent.name
+            name = target_agent.name  # ...
+            
 
             # If message has tool calls, convert them to additional content and attachments
             # if self.tool_calls:
