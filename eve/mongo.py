@@ -12,7 +12,6 @@ from pydantic import (
     Field,
     ConfigDict,
     ValidationError,
-    model_serializer,
 )
 
 
