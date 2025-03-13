@@ -1,0 +1,7 @@
+<Model>
+  <_id>{{_id}}</_id>
+  <name>{{name}}</name>
+  <base_model>{{base_model}}</base_model>
+  <lora_trigger_text>{{lora_trigger_text}}</lora_trigger_text>
+  <created_at>{{createdAt}}</created_at>{{use_when}}
+</Model>

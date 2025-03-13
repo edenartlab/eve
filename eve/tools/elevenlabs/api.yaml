@@ -2,7 +2,7 @@ name: TTS
 description: Text-to-speech with ElevenLabs
 tip: |-
   This tool can be used to generate speech audio from text.
-cost_estimate: 0.2 * text.length
+cost_estimate: 0.05 * text.length
 output_type: audio
 status: prod
 visible: true
@@ -43,6 +43,7 @@ parameters:
       Tao: Tao Ruspoli
       Gene: Gene Kogan
       Dimitri: Dimitri De Jonghe
+      Marzipan: Marzipan
       Little Aerisita: Young, American female with an irresistibly cute and childlike voice that exudes bubbly cheerfulness. Ideal for narrating children's books, anime, and cartoons, this voice brings characters to life with its playful and endearing charm.language: en, descriptive: childish, accent: american, gender: female, age: young, use_case: characters_animation
       Sue: A young female british. A pleasant voice fantastic for all usesaccent: british, descriptive: casual, age: young, gender: female, use_case: narrative_story
       Archer: Conversational, calm British, thirty-something, perfect for an AI agent.language: en, descriptive: calm, accent: british, gender: male, age: middle_aged, use_case: conversational
@@ -73,8 +74,8 @@ parameters:
 
       By default, use Lively Amy for female and Tao for male by default, except when asked to do Middle Eastern, then use tlETan7Okc4pzjD0z62P. When asked to do British, use Archer. Otherwise, use your best judgement.    
     required: true
-    choices: [Aria, Roger, Sarah, Laura, Charlie, George, Callum, River, Liam, Charlotte, Alice, Matilda, Will, Jessica, Eric, Chris, Brian, David Lynch, Daniel, Lily, Bill, Tao, Gene, Dimitri, Little Aerisita, Sue, Archer, Knightley - dapper and deep narrator, Hope - natural conversations, Dakota H, Allison - inviting and velvety British accent, Aria - Sexy Female Villain Voice, Arthur - Energetic American Male Narrator, Natalie , Wyatt- Wise Rustic Cowboy, Freeman, Amelia, Kayla - Urban and Casual, Sevan Bomar - Black Motivational Speaker, Katie Brown - Expressive, Claire, Prakash, James - Mysterious Intriguing, Verdelis, Eliza, Carter the Mountain King, Mia - Clear, Smooth, Professional, Zoe Drake - Professional, Mohammed, Lively Amy]
-    choices_labels: [Aria, Roger, Sarah, Laura, Charlie, George, Callum, River, Liam, Charlotte, Alice, Matilda, Will, Jessica, Eric, Chris, Brian, David Lynch, Daniel, Lily, Bill, Tao, Gene, Dimitri, Little Aerisita, Sue, Archer, Knightley - dapper and deep narrator, Hope - natural conversations, Dakota H, Allison - inviting and velvety British accent, Aria - Sexy Female Villain Voice, Arthur - Energetic American Male Narrator, Natalie , Wyatt- Wise Rustic Cowboy, Freeman, Amelia, Kayla - Urban and Casual, Sevan Bomar - Black Motivational Speaker, Katie Brown - Expressive, Claire, Prakash, James - Mysterious Intriguing, Verdelis, Eliza, Carter the Mountain King, Mia - Clear, Smooth, Professional, Zoe Drake - Professional, Mohammed, Lively Amy]
+    choices: [Aria, Roger, Sarah, Laura, Charlie, George, Callum, River, Liam, Charlotte, Alice, Matilda, Will, Jessica, Eric, Chris, Brian, David Lynch, Daniel, Lily, Bill, Tao, Gene, Dimitri, Marzipan, Little Aerisita, Sue, Archer, Knightley - dapper and deep narrator, Hope - natural conversations, Dakota H, Allison - inviting and velvety British accent, Aria - Sexy Female Villain Voice, Arthur - Energetic American Male Narrator, Natalie , Wyatt- Wise Rustic Cowboy, Freeman, Amelia, Kayla - Urban and Casual, Sevan Bomar - Black Motivational Speaker, Katie Brown - Expressive, Claire, Prakash, James - Mysterious Intriguing, Verdelis, Eliza, Carter the Mountain King, Mia - Clear, Smooth, Professional, Zoe Drake - Professional, Mohammed, Lively Amy]
+    choices_labels: [Aria, Roger, Sarah, Laura, Charlie, George, Callum, River, Liam, Charlotte, Alice, Matilda, Will, Jessica, Eric, Chris, Brian, David Lynch, Daniel, Lily, Bill, Tao, Gene, Dimitri, Marzipan, Little Aerisita, Sue, Archer, Knightley - dapper and deep narrator, Hope - natural conversations, Dakota H, Allison - inviting and velvety British accent, Aria - Sexy Female Villain Voice, Arthur - Energetic American Male Narrator, Natalie , Wyatt- Wise Rustic Cowboy, Freeman, Amelia, Kayla - Urban and Casual, Sevan Bomar - Black Motivational Speaker, Katie Brown - Expressive, Claire, Prakash, James - Mysterious Intriguing, Verdelis, Eliza, Carter the Mountain King, Mia - Clear, Smooth, Professional, Zoe Drake - Professional, Mohammed, Lively Amy]
   stability:
     type: float
     label: Stability

@@ -9,12 +9,14 @@ from typing import Iterator
 
 from ... import eden_utils
 
-eleven = ElevenLabs()
+eleven = ElevenLabs(
+    api_key=os.getenv("ELEVEN_API_KEY")
+)
 
 DEFAULT_VOICE = "XB0fDUnXU5powFXDhCwa"
 
 
-async def handler(args: dict):
+async def handler(args: dict, user: str = None, requester: str = None):
     # print("args", args)
     args["stability"] = args.get("stability", 0.5)
     args["similarity_boost"] = args.get("similarity_boost", 0.75)
@@ -68,7 +70,6 @@ def clone_voice(name, description, voice_urls):
         with NamedTemporaryFile(delete=False) as file:
             file = eden_utils.download_file(url, file.name)
             voice_files.append(file)
-    voice_files = ["/Users/gene/Downloads/verdelis-future of life - isolated.mp3"]
     voice = eleven.clone(name, voice_files, description)    
     for file in voice_files:
         os.remove(file)

@@ -46,7 +46,7 @@ def smart_frame_selection(orig_size, target_size):
             middle_indices = np.linspace(1, orig_size-2, target_size-2).round().astype(int)
             return np.concatenate([[0], middle_indices, [orig_size-1]])
 
-async def handler(args: dict):
+async def handler(args: dict, user: str = None, requester: str = None):
     # Get parameters
     video_url = args["video"]
     target_fps = args.get("target_fps")

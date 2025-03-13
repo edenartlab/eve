@@ -61,9 +61,7 @@ class ReplicateTool(Tool):
             # Replicate doesn't allow spawning tasks for models without a public version ID.
             # So we spawn a remote task on Modal which awaits the Replicate task
             db = os.getenv("DB", "STAGE").upper()
-            func = modal.Function.lookup(
-                # f"remote-replicate-{db}", 
-                # "run_task", 
+            func = modal.Function.from_name(
                 f"api-{db.lower()}",
                 "run_task_replicate", 
                 environment_name="main"
@@ -158,8 +156,6 @@ class ReplicateTool(Tool):
         replicate_model = self._get_replicate_model(args)
         user, model = replicate_model.split("/", 1)
         webhook_url = get_webhook_url() if webhook else None
-        print("THE WEBHOOK URL IS")
-        print(webhook_url)
         webhook_events_filter = ["start", "completed"] if webhook else None
 
         if self.version == "deployment":
@@ -202,15 +198,6 @@ def get_webhook_url():
 def replicate_update_task(task: Task, status, error, output, output_handler):
     output = output if isinstance(output, list) else [output]
 
-    print("!!!!!")
-    print("replicate update task -->")
-    print("task", task)
-    print("status", status)
-    print("error", error)
-    print("output", output)
-    print("output_handler", output_handler)
-    print("!!!!!")
-
     if output and isinstance(output[0], replicate.helpers.FileOutput):
         output_files = []
         for out in output:
@@ -245,14 +232,12 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
                 output, save_thumbnails=True, save_blurhash=True
             )
             if thumbnails:
-                thumbnail_results = [
+                for thumb in thumbnails:
                     eden_utils.upload_media(
                         thumb, 
                         save_thumbnails=True,
                         save_blurhash=True
-                    ) 
-                    for thumb in thumbnails
-                ]
+                    )
             result = [{"output": [out]} for out in output]
         else:
             output = eden_utils.upload_result(
@@ -309,6 +294,9 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
                         mediaAttributes=output["mediaAttributes"],
                         name=name,
                     )
+                    print("**** 111 here is the creation"  )
+                    print(creation)
+                    print("**** 111 here is the creation")
                     creation.save()
                     result[r]["output"][o]["creation"] = creation.id
 
@@ -323,6 +311,9 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
         task.status = "completed"
         task.result = result
         task.save()
+
+        print("its a saved task")
+        print(result)
 
         return {"status": "completed", "result": result}
 

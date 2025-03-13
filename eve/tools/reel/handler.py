@@ -312,7 +312,7 @@ def write_visual_prompts(
 
 
 
-async def handler(args: dict):
+async def handler(args: dict, user: str = None, requester: str = None):
     elevenlabs = Tool.load("elevenlabs")
     musicgen = Tool.load("musicgen")
     flux = Tool.load("flux_dev")
@@ -529,8 +529,6 @@ async def handler(args: dict):
         video = video['output'][0]['url']
         videos.append(video)
 
-
-    
     video = await video_concat.async_run({"videos": videos})
     video = eden_utils.prepare_result(video)
     print("video", video)

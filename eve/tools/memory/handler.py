@@ -111,7 +111,7 @@ async def update_memory_with_llm(
         print("---------------------------------------------------------------------")
 
         prompt = {
-            "model": "claude-3-5-sonnet-latest",
+            "model": "claude-3-7-sonnet-latest",
             "max_tokens": LLM_CALL_MAX_TOKENS,
             "messages": messages,
             "system": "You are an expert at managing agent memories. Respond with a JSON object containing just the updated memory content.",
@@ -131,7 +131,7 @@ async def update_memory_with_llm(
     except Exception as e:
         raise RuntimeError(f"Failed to update memory with LLM: {str(e)}")
 
-async def handler(args: dict):
+async def handler(args: dict, user: str = None, requester: str = None):
     """Handle memory update requests."""
     memory_content = EMPTY_MEMORY_STRING
 

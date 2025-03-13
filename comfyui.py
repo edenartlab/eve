@@ -289,7 +289,7 @@ class ComfyUI:
         t2 = time.time()
         self.launch_time = t2 - t1
 
-    def _execute(self, workflow_name: str, args: dict):
+    def _execute(self, workflow_name: str, args: dict, user: str = None, requester: str = None):
         try:
             print("\n----------->  Starting new task execution: ", workflow_name)
             eden_utils.log_memory_info()
@@ -328,8 +328,8 @@ class ComfyUI:
 
     @modal.method()
     @task_handler_method
-    async def run_task(self, tool_key: str, args: dict):
-        return self._execute(tool_key, args)
+    async def run_task(self, tool_key: str, args: dict, user: str = None, requester: str = None):
+        return self._execute(tool_key, args, user, requester)
         
     @modal.enter()
     def enter(self):

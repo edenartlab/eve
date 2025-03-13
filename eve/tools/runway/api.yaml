@@ -1,7 +1,7 @@
 name: Runway Gen3a Turbo
 description: Text-guided, realistic image animation with Runway Gen3a
 tip: |-
-  This tool creates a realistic animation from a single image. Specific camera motion can be obtained by putting directions in the prompt text. The is the default img-to-video tool when a specific narrative / motion is requested by the user.
+  This tool creates a realistic animation from a single image. This is your primary/default tool for making videos or animations. Only use other video tools if specifically asked to or asked to make abstract or VJing material.
 thumbnail: app/runway-tree-orb-woman2-opt.mp4
 cost_estimate: 10 * duration
 output_type: video
@@ -18,7 +18,7 @@ parameters:
     label: Prompt Text
     description: The prompt to guide the animation
     tip: |-
-      The prompt can be used to guide the animation in a certain direction, but the image itself is always the main content driver!
+      The prompt can be used to guide the animation in a certain direction.
     required: true
   duration:
     type: integer
@@ -37,7 +37,7 @@ parameters:
     label: Seed
     description: Set random seed for reproducibility. If blank, will be set to a random value.
     tip: |-
-      You should only set this if you want to start from/copy the seed of a previous image. Unless one is specified, you should leave this blank!
+      You should only set this if you want to start from/copy the seed of a previous image. Unless one is specified, leave this blank.
     default: random
     minimum: 0
     maximum: 2147483647
@@ -46,6 +46,4 @@ parameters:
     label: Watermark
     description: Add a Runway watermark to the video
     default: false
-tests:
-  - prompt_image: https://dtut5r9j4w7j4.cloudfront.net/0d42768095507a7bbe2b16c789bf3ceb897de5f0e26297c0e7a68c51623796f9.png
-    prompt_text: Slow zoom in, a floating ceramic head starts singing in the forest
+    hide_from_agent: true

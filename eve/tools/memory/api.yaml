@@ -16,7 +16,7 @@ tip: |-
   
   Remember: Memory updates should be rare and meaningful, representing significant shifts in your core behavior or preferences.
   The size of your memory is limited, so overusing this will cause memory clashes.
-cost_estimate: 1
+cost_estimate: 0
 output_type: string
 status: stage
 visible: true

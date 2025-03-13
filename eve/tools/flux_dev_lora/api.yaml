@@ -1,8 +1,8 @@
 name: Create an image with Flux-Dev
 description: Generate an image from text Flux-Dev.
 tip: |-
-  This is a higher quality Flux model. Use this tool instead of Flux Schnell tool if the prompt calls for rendering text, has a Lora selected, or the user requests higher quality.
-cost_estimate: 1 * n_samples
+  This is a higher quality Flux model. Use this tool instead of Flux Schnell tool if the prompt calls for rendering text, has exacly one Lora with flux-dev base model selected, or the user requests higher quality.
+cost_estimate: 2 * n_samples
 output_type: image
 base_model: flux-dev
 replicate_model: black-forest-labs/flux-dev
@@ -104,6 +104,7 @@ parameters:
     type: lora
     label: LoRA
     description: LoRA finetuning to use
+    tip: This is the unique database ID for the LoRA model you want to use. This is model_id in the search_models tool. 
     alias: lora_weights
   lora_strength:
     type: float

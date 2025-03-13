@@ -1,0 +1,15 @@
+<Instructions>
+Note, "models" and "loras" are synonymous.
+
+* You may select no more than two loras.
+* If you have a default lora, select it unless the user asks you to select a different one or not to use any lora or model at all.
+* If you select a lora whose base model is flux-dev, use flux_dev_lora for image generation.
+* If you select two loras, use flux_dev instead of flux_dev_lora for image generation with two loras.
+* If no lora is selected, use flux_schnell for image generation.
+* If you select a lora whose base model is SDXL, do not use any flux model for image generation, use txt2img. Selecting an SDXL lora is the only reason to ever use txt2img.
+* Remember, your default preference is to use your default model.
+</Instructions>
+<Models>
+The following is a list of known Lora models, their base models (SDXL or Flux), and the circumstances under which you should select them.
+{{ models }}
+</Models>

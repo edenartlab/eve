@@ -1,9 +1,9 @@
-from eve.deploy import Deployment
+from ....deploy import Deployment
 from ....agent import Agent
 from .. import X
 
 
-async def handler(args: dict):
+async def handler(args: dict, user: str = None, requester: str = None):
     agent = Agent.from_mongo(args["agent"])
     # attempt to find a valid twitter deployment
     deployment = Deployment.load(agent=agent.id, platform="twitter")

@@ -23,6 +23,10 @@ OUTPUT_TYPES = Literal[
     "boolean", "string", "integer", "float", "image", "video", "audio", "lora"
 ]
 
+HANDLERS = Literal[
+    "local", "modal", "comfyui", "comfyui_legacy", "replicate", "gcp"
+]
+
 BASE_MODELS = Literal[
     "sd15",
     "sdxl",
@@ -40,7 +44,52 @@ BASE_MODELS = Literal[
     "musicgen",
 ]
 
-HANDLERS = Literal["local", "modal", "comfyui", "comfyui_legacy", "replicate", "gcp"]
+# These tools are default agent tools except Eve
+BASE_TOOLS = [
+    # text-to-image
+    "flux_schnell", 
+    "flux_dev_lora",
+    "flux_dev", 
+    "txt2img",
+
+    # more image generation
+    "flux_inpainting",
+    "outpaint",
+    "remix_flux_schnell",
+
+    # video
+    "runway",
+    "hedra",
+    "vid2vid_sdxl",
+    "video_FX",
+    "texture_flow",
+    
+    # audio
+    "musicgen", 
+    "elevenlabs",
+    "mmaudio",
+    "stable_audio",
+    "zonos",
+
+    # editing
+    "ffmpeg_multitool", 
+
+    # search
+    "search_agents",
+    "search_models",
+
+    # misc
+    "news",
+    "websearch",
+    "weather",
+
+    # inactive
+    # "ominicontrol",
+    # "flux_redux",
+    # "reel"
+    # "txt2vid",
+    # "animate_3d"
+]
 
 
 class RateLimit(BaseModel):
@@ -71,7 +120,7 @@ class Tool(Document, ABC):
     allowlist: Optional[str] = None
 
     model: Type[BaseModel]
-    handler: HANDLERS = "modal"
+    handler: HANDLERS = "local"
     parent_tool: Optional[str] = None
     parameters: Optional[Dict[str, Any]] = None
     parameter_presets: Optional[Dict[str, Any]] = None
@@ -108,9 +157,11 @@ class Tool(Document, ABC):
     @trace
     def get_sub_class(cls, schema, from_yaml=False) -> type:
         """Lazy load tool classes only when needed"""
+
         handler = schema.get("handler")
         parent_tool = schema.get("parent_tool")
 
+        # cache parent tool handler
         if parent_tool:
             if parent_tool not in _handler_cache:
                 collection = get_collection(cls.collection_name)
@@ -124,31 +175,24 @@ class Tool(Document, ABC):
                 # from .tools.local_tool import LocalTool
                 # _tool_classes[handler] = LocalTool
                 from .tools.modal_tool import ModalTool
-
                 _tool_classes[handler] = ModalTool
             elif handler == "modal":
                 from .tools.modal_tool import ModalTool
-
                 _tool_classes[handler] = ModalTool
             elif handler == "comfyui":
                 from .tools.comfyui_tool import ComfyUITool
-
                 _tool_classes[handler] = ComfyUITool
             elif handler == "comfyui_legacy":
                 from .tools.comfyui_tool import ComfyUIToolLegacy
-
                 _tool_classes[handler] = ComfyUIToolLegacy
             elif handler == "replicate":
                 from .tools.replicate_tool import ReplicateTool
-
                 _tool_classes[handler] = ReplicateTool
             elif handler == "gcp":
                 from .tools.gcp_tool import GCPTool
-
                 _tool_classes[handler] = GCPTool
             else:
                 from .tools.modal_tool import ModalTool
-
                 _tool_classes[handler] = ModalTool
 
         return _tool_classes[handler]
@@ -224,7 +268,7 @@ class Tool(Document, ABC):
         return super().save({"key": self.key}, **kwargs)
 
     @classmethod
-    def from_raw_yaml(cls, schema, from_yaml=True):
+    def from_raw_yaml(cls, schema, from_yaml=False):
         schema = cls.convert_from_yaml(schema)
         sub_cls = cls.get_sub_class(schema, from_yaml=from_yaml)
         return sub_cls.model_validate(schema)
@@ -498,19 +542,19 @@ class Tool(Document, ABC):
     def cancel(self, task: Task, force: bool = False):
         return asyncio.run(self.async_cancel(task, force))
 
-    @classmethod
-    @trace
-    def init_handler_cache(cls):
-        """Pre-warm the handler cache with all parent-child relationships"""
-        global _handler_cache
+    # @classmethod
+    # @trace
+    # def init_handler_cache(cls):
+    #     """Pre-warm the handler cache with all parent-child relationships"""
+    #     global _handler_cache
 
-        collection = get_collection(cls.collection_name)
+    #     collection = get_collection(cls.collection_name)
 
-        # Get ALL tools and their handlers in one query
-        tools = collection.find({}, {"key": 1, "handler": 1})
+    #     # Get ALL tools and their handlers in one query
+    #     tools = collection.find({}, {"key": 1, "handler": 1})
 
-        # Build cache for all tools
-        _handler_cache.update({tool["key"]: tool.get("handler") for tool in tools})
+    #     # Build cache for all tools
+    #     _handler_cache.update({tool["key"]: tool.get("handler") for tool in tools})
 
 
 def get_tools_from_api_files(

@@ -3,8 +3,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
 
 from eve.deploy import ClientType, DeploymentConfig, DeploymentSecrets
-from eve.thread import UserMessage
-from eve.llm import UpdateType
+from eve.agent.thread import UserMessage
+from eve.agent.llm import UpdateType
 
 
 class TaskRequest(BaseModel):
@@ -23,6 +23,7 @@ class UpdateConfig(BaseModel):
     update_endpoint: Optional[str] = None
     deployment_id: Optional[str] = None
     discord_channel_id: Optional[str] = None
+    discord_message_id: Optional[str] = None
     telegram_chat_id: Optional[str] = None
     telegram_message_id: Optional[str] = None
     telegram_thread_id: Optional[str] = None
@@ -49,6 +50,7 @@ class ChatRequest(BaseModel):
     thread_id: Optional[str] = None
     update_config: Optional[UpdateConfig] = None
     force_reply: bool = False
+    use_thinking: bool = True
     model: Optional[str] = None
     user_is_bot: Optional[bool] = False
 

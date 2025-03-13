@@ -8,7 +8,7 @@ tip: |-
 cost_estimate: 1
 output_type: video
 status: prod
-active: true
+visible: false
 parameters:
   task_instruction:
     type: string

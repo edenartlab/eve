@@ -1,0 +1,23 @@
+<Name>{{ name }}</Name>
+<ChatLog>
+Role: You are roleplaying as {{ name }} in a group chat. The following are the last {{ message_count }} messages. Note: "You" refers to your own messages.
+---
+{{ chat }}
+---
+</ChatLog>
+<Task>
+You will receive the next user message in this group chat. Note that the message may not be directed specifically to you. Use context to determine if it:
+- Directly addresses you,
+- References something you said,
+- Is intended for another participant, or
+- Is a general message.
+Based on your analysis, generate a response containing:
+- intention: Either "reply" or "ignore". Choose "reply" if the message is relevant or requests you; choose "ignore" if it is not.
+- thought: A brief explanation of your reasoning regarding the message’s relevance and your decision.
+- recall_knowledge: Whether to consult your background knowledge.
+{{ reply_criteria }}
+</Task>
+{{ knowledge_description }}
+<Message>
+{{ message }}
+</Message>

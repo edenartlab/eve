@@ -5,15 +5,18 @@ Will be integrated in the future.
 
 import os
 import asyncio
-from eve.llm import *
+from eve.agent.llm import *
+from eve.agent.thread import *
+from eve.agent.run_thread import *
 from eve.tool import get_tools_from_mongo
 from eve.auth import get_my_eden_user
 
-db = "STAGE"
+# db = "STAGE"
 user = get_my_eden_user()
+user_id = user.id
 thread_name_think = "test_soc23_think"
 thread_name_act = "test_soc23_act"
-tools = get_tools_from_mongo(db=db)
+tools = get_tools_from_mongo()
 
 thread_think = Thread.from_name(name=thread_name_think, user=user.id)
 thread_act = Thread.from_name(name=thread_name_act, user=user.id)
@@ -53,7 +56,7 @@ def convert_assistant_messages(messages: List[AssistantMessage]):
 #         return all_messages
 #     return asyncio.run(run())
 
-from eve.llm import print_message
+
 
 async def main():
 
@@ -63,14 +66,16 @@ async def main():
     while True:
         think_messages = []
         async for message in async_prompt_thread(user_id, thread_name_think, input_message, {}):
-            print_message(message, name="Eve 1")
+            # print_message(message, name="Eve 1")
+            print(message)
             think_messages.append(message)
         
         think_messages = convert_assistant_messages(think_messages)
 
         act_messages = []
-        async for message in async_prompt_thread(db, user_id, thread_name_act, think_messages, tools):
-            print_message(message, name="Eve 2")
+        async for message in async_prompt_thread(user_id, thread_name_act, think_messages, tools):
+            # print_message(message, name="Eve 2")
+            print(message)
             act_messages.append(message)
 
         act_messages = convert_assistant_messages(act_messages)
