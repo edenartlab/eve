@@ -16,10 +16,14 @@ from bson.objectid import ObjectId
 
 @Collection("tests")
 class Session(Document):
-	name: str
 	channel: Optional[Channel] = None
+	title: str
 	agents: List[ObjectId] = Field(default_factory=list)
+	scenario: Optional[str] = None
+	current: Optional[ObjectId] = None
 	messages: List[ChatMessage] = Field(default_factory=list)
+	budget: Optional[float] = None
+	spent: Optional[float] = 0
 
 	def get_chat_log(self, limit: int = 25) -> str:
 		chat = ""

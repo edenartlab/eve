@@ -52,7 +52,9 @@ async def test_create_session():
 
     channel = Channel(type="discord", key="1268682080263606443")
 
-    result = await async_create_session(user, channel)
+    prompt = "Eve is applying for a job to work at McDonalds, and Banny is the interviewer."
+
+    result = await async_create_session(user, channel, prompt)
     
     print(result)
 
