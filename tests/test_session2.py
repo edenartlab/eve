@@ -4,7 +4,7 @@ from eve.agent.session import Session, SessionMessage
 
 from eve.auth import get_my_eden_user
 from eve.agent.thread import UserMessage, AssistantMessage, Thread
-from eve.agent2.handlers import async_run_session
+from eve.agent2.handlers import async_receive_message
 
 
 from eve.agent.think import async_think
@@ -18,7 +18,7 @@ from eve.api.handlers import SessionMessageRequest
 
 
 from eve.agent2.handlers import MessageRequest
-from eve.agent2.message import ChatMessage
+from eve.agent2.message import ChatMessage, Channel
 
 
 
@@ -36,7 +36,23 @@ async def test_session2():
         update_config=None
     )
     
-    result = await async_run_session(request)
+    result = await async_receive_message(request)
+    
+    print(result)
+
+
+
+from eve.agent2.session_create import async_create_session
+
+
+
+
+async def test_create_session():
+    user = get_my_eden_user()
+
+    channel = Channel(type="discord", key="1268682080263606443")
+
+    result = await async_create_session(user, channel)
     
     print(result)
 
@@ -44,4 +60,4 @@ async def test_session2():
 
 if __name__ == "__main__":
     import asyncio
-    asyncio.run(test_session2())
+    asyncio.run(test_create_session())

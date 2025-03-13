@@ -78,13 +78,10 @@ async def async_run_dispatcher(
     session: Session,
     message: ChatMessage,
 ):
-    print("this is nice")
 
 
 
-
-    print(session)
-
+    raise Exception("stop here!")
 
     agents = [Agent.from_mongo(a) for a in session.agents]
     agent_names = [a.username for a in agents]
@@ -109,7 +106,7 @@ async def async_run_dispatcher(
     print(prompt)
     print("--------------------------------")
 
-    raise Exception("stop here")
+    
 
     class DispatcherThought(BaseModel):
         """A thought about how to respond to the last message in the chat."""
@@ -140,138 +137,5 @@ async def async_run_dispatcher(
 
 
 
-async def async_dispatch2(
-    session: Session,
-    new_message: ChatMessage,
-):
-    agents = [Agent.from_mongo(a) for a in session.agents]
-    agent_names = [a.username for a in agents]
-    agents_text = "\n".join([agent_template.render(a) for a in agents])
-
-    # generate text blob of chat history
-    chat = ""
-    messages = session.get_messages(25)
-    for msg in messages:
-        content = msg.content
-        if msg.role == "user":
-            if msg.attachments:
-                content += f" (attachments: {msg.attachments})"
-            name = msg.name or "User"
-        elif msg.role == "assistant":
-            name = msg.name or "Assistant"
-            for tc in msg.tool_calls:
-                args = ", ".join([f"{k}={v}" for k, v in tc.args.items()])
-                tc_result = dump_json(tc.result, exclude="blurhash")
-                content += f"\n -> {tc.tool}({args}) -> {tc_result}"
-        time_str = msg.createdAt.strftime("%H:%M")
-        chat += f"<{name} {time_str}> {content}\n"
-
-    latest_user_message = new_message.content
-
-    prompt = dispatcher_template.render(
-        agents=agents_text,
-        scenario=session.scenario,
-        current=session.current,
-        chat_log=chat,
-        latest_message=latest_user_message,
-    )
-
-    class DispatcherThought(BaseModel):
-        """A thought about how to respond to the last message in the chat."""
-
-        speakers: Optional[List[Literal[*agent_names]]] = Field(
-            None,
-            description="An optional list of agents that the dispatcher encourages to spontaneously speak or respond to the last message.",
-        )
-        state: str = Field(
-            ...,
-            description="A description about the current state of the scenario, including a summary of progress towards the goal, and what remains to be done.",
-        )
-        end_condition: bool = Field(
-            ...,
-            description="Only true if scenario is completed.",
-        )
-
-    thought = await async_prompt(
-        [UserMessage(content=prompt)],
-        system_message=f"You are a dispatcher who guides the conversation towards the end goal.",
-        model="gpt-4o-mini",
-        response_model=DispatcherThought,
-    )
-
-    print(thought)
-
-    return thought
-
-
-
-def dispatch(session: Session, new_message: ChatMessage):
-    return asyncio.run(async_dispatch(session, new_message))
-
-
-# async def test_dispatcher():
-
-#     user = get_my_eden_user()
-
-#     agents = [
-#         Agent.load("oppenheimer"),
-#         Agent.load("banny"),
-#         Agent.load("abraham"),
-#     ]
-    
-#     session = Session(
-#         key="test-session",
-#         title="Testing Session",
-#         scenario_setup="A conversation between Eve and Banny",
-#         current_situation="Banny needs help with image generation",
-#         agents=agents,
-#         message_limit=15
-#     )
-
-#     session.messages = [
-#         SessionMessage(
-#             sender_id=user.id,
-#             content="Hello, can someone help me?"
-#         ),
-#         SessionMessage(
-#             sender_id=agents[0].id,
-#             content="Of course! How can I assist you today?"
-#         ),
-#         SessionMessage(
-#             sender_id=user.id,
-#             content="I need an image of a cat"
-#         ),
-#         SessionMessage(
-#             sender_id=agents[1].id,
-#             content="I know about cats! They're fuzzy."
-#         )
-#     ]
-
-
-
-
-
-
-#     # result = await async_run_dispatcher(
-#     #     thread=thread,
-#     #     user_message=messages[0],
-#     #     force_reply=True,
-#     # )
-    
-#     # print(result)
-
-
-
-# import asyncio
-# # asyncio.run(test_sub())
-
-# asyncio.run(test_dispatcher())
-
-
-# """
-
-
-
-# """
-
-
+def dispatch(session: Session, message: ChatMessage):
+    return asyncio.run(async_run_dispatcher(session, message))

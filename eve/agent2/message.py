@@ -1,3 +1,4 @@
+from __future__ import annotations
 import os
 import json
 import magic
@@ -10,167 +11,30 @@ from typing import List, Optional, Dict, Any, Literal, Union
 # from ..mongo import Document, Collection
 # from ..eden_utils import download_file, image_to_base64, prepare_result, dump_json
 
-from eve.mongo import Document, Collection
+from eve.mongo import Document, Collection, get_collection
 from eve.eden_utils import download_file, image_to_base64, prepare_result, dump_json
 
 
-class ToolCall(BaseModel):
-    id: str
-    tool: str
-    args: Dict[str, Any]
 
-    task: Optional[ObjectId] = None
-    status: Optional[
-        Literal["pending", "running", "completed", "failed", "cancelled"]
-    ] = None
-    result: Optional[List[Dict[str, Any]]] = None
-    reactions: Optional[Dict[str, List[ObjectId]]] = None
-    error: Optional[str] = None
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    def get_result(self, schema, truncate_images=False):
-        result = {"status": self.status}
-
-        if self.status == "completed":
-            result["result"] = prepare_result(self.result)
-            file_outputs = [
-                o["url"]
-                for r in result.get("result", [])
-                for o in r.get("output", [])
-                if isinstance(o, dict) and o.get("url")
-            ]
-            file_outputs = [
-                o
-                for o in file_outputs
-                if o and o.endswith((".jpg", ".png", ".webp", ".mp4", ".webm"))
-            ]
-            try:
-                if schema == "openai":
-                    raise ValueError(
-                        "OpenAI does not support image outputs in tool messages :("
-                    )
-
-                files = [
-                    download_file(
-                        url,
-                        os.path.join("/tmp/eden_file_cache/", url.split("/")[-1]),
-                        overwrite=False,
-                    )
-                    for url in file_outputs
-                ]
-
-                if schema == "anthropic":
-                    image_block = [
-                        {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": "image/jpeg",
-                                "data": image_to_base64(
-                                    file_path,
-                                    max_size=512,
-                                    quality=95,
-                                    truncate=truncate_images,
-                                ),
-                            },
-                        }
-                        for file_path in files
-                    ]
-                elif schema == "openai":
-                    image_block = [
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"""data:image/jpeg;base64,{image_to_base64(
-                                file_path, 
-                                max_size=512, 
-                                quality=95, 
-                                truncate=truncate_images
-                            )}"""
-                            },
-                        }
-                        for file_path in files
-                    ]
-
-                if image_block:
-                    content = "Tool results follow. The attached images match the URLs in the order they appear below: "
-                    # content += json.dumps(result["result"])
-                    content += dump_json(result["result"])
-                    text_block = [{"type": "text", "text": content}]
-                    result = text_block + image_block
-                else:
-                    result = dump_json(result)
-
-            except Exception as e:
-                print("Warning: Can not inject image results:", e)
-                result = dump_json(result)
-
-        elif self.status == "failed":
-            result["error"] = self.error
-            result = dump_json(result)
-
-        else:
-            result = dump_json(result)
-
-        return result
-
-    def react(self, user: ObjectId, reaction: str):
-        pass
-
-    @staticmethod
-    def from_openai(tool_call):
-        return ToolCall(
-            id=tool_call.id,
-            tool=tool_call.function.name,
-            args=json.loads(tool_call.function.arguments),
-        )
-
-    @staticmethod
-    def from_anthropic(tool_call):
-        return ToolCall(id=tool_call.id, tool=tool_call.name, args=tool_call.input)
-
-    def openai_call_schema(self):
-        return {
-            "id": self.id,
-            "type": "function",
-            "function": {"name": self.tool, "arguments": json.dumps(self.args)},
-        }
-
-    def anthropic_call_schema(self):
-        return {
-            "type": "tool_use",
-            "id": self.id,
-            "name": self.tool,
-            "input": self.args,
-        }
-
-    def anthropic_result_schema(self, truncate_images=False):
-        # todo: add "is_error": true
-        return {
-            "type": "tool_result",
-            "tool_use_id": self.id,
-            "content": self.get_result(
-                schema="anthropic", truncate_images=truncate_images
-            ),
-        }
-
-    def openai_result_schema(self, truncate_images=False):
-        return {
-            "role": "tool",
-            "name": self.tool,
-            "content": self.get_result(
-                schema="openai", truncate_images=truncate_images
-            ),
-            "tool_call_id": self.id,
-        }
-
+class Channel(BaseModel):
+    type: Literal["eden", "discord", "telegram", "twitter"]
+    key: str
+    
+    def get_messages(self, limit: int = 25):
+        messages = get_collection("messages")
+        messages = messages.find({"channel.key": self.key}).sort("createdAt", -1)
+        if limit:
+            messages = messages.limit(limit)
+        return [ChatMessage(**msg) for msg in messages]
 
 
 @Collection("messages")
 class ChatMessage(Document):
     # id: ObjectId = Field(default_factory=ObjectId)
     # createdAt: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    channel: Optional[Channel] = None
+    session: Optional[ObjectId] = None
+    
     reply_to: Optional[ObjectId] = None
     # hidden: Optional[bool] = False
     sender: ObjectId = None
@@ -181,11 +45,8 @@ class ChatMessage(Document):
     tool_calls: Optional[List[ToolCall]] = []
 
 
-    channel: Optional[ObjectId] = None
-    session: Optional[ObjectId] = None
-
-
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
 
     def react(self, user: ObjectId, reaction: str):
         if reaction not in self.reactions:
@@ -197,7 +58,7 @@ class ChatMessage(Document):
 
     def assistant_message(self):
         return AssistantMessage(**self.model_dump())
-
+    
 
 class UserMessage(ChatMessage):
     role: Literal["user"] = Field(default="user")
@@ -356,6 +217,157 @@ class AssistantMessage(ChatMessage):
             )
         return schema
 
+
+class ToolCall(BaseModel):
+    id: str
+    tool: str
+    args: Dict[str, Any]
+
+    task: Optional[ObjectId] = None
+    status: Optional[
+        Literal["pending", "running", "completed", "failed", "cancelled"]
+    ] = None
+    result: Optional[List[Dict[str, Any]]] = None
+    reactions: Optional[Dict[str, List[ObjectId]]] = None
+    error: Optional[str] = None
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    def get_result(self, schema, truncate_images=False):
+        result = {"status": self.status}
+
+        if self.status == "completed":
+            result["result"] = prepare_result(self.result)
+            file_outputs = [
+                o["url"]
+                for r in result.get("result", [])
+                for o in r.get("output", [])
+                if isinstance(o, dict) and o.get("url")
+            ]
+            file_outputs = [
+                o
+                for o in file_outputs
+                if o and o.endswith((".jpg", ".png", ".webp", ".mp4", ".webm"))
+            ]
+            try:
+                if schema == "openai":
+                    raise ValueError(
+                        "OpenAI does not support image outputs in tool messages :("
+                    )
+
+                files = [
+                    download_file(
+                        url,
+                        os.path.join("/tmp/eden_file_cache/", url.split("/")[-1]),
+                        overwrite=False,
+                    )
+                    for url in file_outputs
+                ]
+
+                if schema == "anthropic":
+                    image_block = [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/jpeg",
+                                "data": image_to_base64(
+                                    file_path,
+                                    max_size=512,
+                                    quality=95,
+                                    truncate=truncate_images,
+                                ),
+                            },
+                        }
+                        for file_path in files
+                    ]
+                elif schema == "openai":
+                    image_block = [
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"""data:image/jpeg;base64,{image_to_base64(
+                                file_path, 
+                                max_size=512, 
+                                quality=95, 
+                                truncate=truncate_images
+                            )}"""
+                            },
+                        }
+                        for file_path in files
+                    ]
+
+                if image_block:
+                    content = "Tool results follow. The attached images match the URLs in the order they appear below: "
+                    # content += json.dumps(result["result"])
+                    content += dump_json(result["result"])
+                    text_block = [{"type": "text", "text": content}]
+                    result = text_block + image_block
+                else:
+                    result = dump_json(result)
+
+            except Exception as e:
+                print("Warning: Can not inject image results:", e)
+                result = dump_json(result)
+
+        elif self.status == "failed":
+            result["error"] = self.error
+            result = dump_json(result)
+
+        else:
+            result = dump_json(result)
+
+        return result
+
+    def react(self, user: ObjectId, reaction: str):
+        pass
+
+    @staticmethod
+    def from_openai(tool_call):
+        return ToolCall(
+            id=tool_call.id,
+            tool=tool_call.function.name,
+            args=json.loads(tool_call.function.arguments),
+        )
+
+    @staticmethod
+    def from_anthropic(tool_call):
+        return ToolCall(id=tool_call.id, tool=tool_call.name, args=tool_call.input)
+
+    def openai_call_schema(self):
+        return {
+            "id": self.id,
+            "type": "function",
+            "function": {"name": self.tool, "arguments": json.dumps(self.args)},
+        }
+
+    def anthropic_call_schema(self):
+        return {
+            "type": "tool_use",
+            "id": self.id,
+            "name": self.tool,
+            "input": self.args,
+        }
+
+    def anthropic_result_schema(self, truncate_images=False):
+        # todo: add "is_error": true
+        return {
+            "type": "tool_result",
+            "tool_use_id": self.id,
+            "content": self.get_result(
+                schema="anthropic", truncate_images=truncate_images
+            ),
+        }
+
+    def openai_result_schema(self, truncate_images=False):
+        return {
+            "role": "tool",
+            "name": self.tool,
+            "content": self.get_result(
+                schema="openai", truncate_images=truncate_images
+            ),
+            "tool_call_id": self.id,
+        }
 
 
 

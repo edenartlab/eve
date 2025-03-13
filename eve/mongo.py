@@ -57,7 +57,26 @@ def get_collection(collection_name: str):
 def Collection(name):
     @trace
     def wrapper(cls):
+        @classmethod
+        def find(cls, query, sort=None, desc=False, limit=None):
+            """Find all documents matching the query"""
+            collection = get_collection(cls.collection_name)
+            docs = collection.find(query)
+            if sort:
+                docs = docs.sort(sort, -1 if desc else 1)
+            if limit:
+                docs = docs.limit(limit)
+            return [cls(**doc) for doc in docs]
+        
+        @classmethod
+        def find_one(cls, query):
+            """Find one document matching the query"""
+            collection = get_collection(cls.collection_name)
+            return cls(**collection.find_one(query))
+
         cls.collection_name = name
+        cls.find = find
+        cls.find_one = find_one
         return cls
 
     return wrapper

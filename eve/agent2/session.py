@@ -8,14 +8,10 @@ from eve.eden_utils import dump_json
 
 from ..mongo import Document, Collection
 from ..api.api_requests import UpdateConfig
-from .message import ChatMessage
+from .message import ChatMessage, Channel
 from bson.objectid import ObjectId
 
 
-class Channel(BaseModel):
-	name: str
-	type: Literal["eden", "discord", "telegram", "twitter"]
-	key: str
 
 
 @Collection("tests")
