@@ -1,7 +1,7 @@
 <div align="center">
   <a href="https://www.eden.art/">
-    <img src="assets/eden.png" alt="Eden Logo" width="250" height="250" style="margin-right: 20px">
-    <img src="assets/eve.jpg" alt="Eve Logo" width="250" height="250">
+    <img src="eve/assets/eden.png" alt="Eden Logo" width="250" height="250" style="margin-right: 20px">
+    <img src="eve/assets/eve.jpg" alt="Eve Logo" width="250" height="250">
   </a>
 </div>
 
