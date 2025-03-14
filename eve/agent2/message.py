@@ -59,6 +59,12 @@ class ChatMessage(Document):
     def assistant_message(self):
         return AssistantMessage(**self.model_dump())
     
+    def to_thread(self, assistant_id: ObjectId):
+        if self.sender == assistant_id:
+            return self.assistant_message()
+        else:
+            return self.user_message()
+    
 
 class UserMessage(ChatMessage):
     role: Literal["user"] = Field(default="user")

@@ -76,14 +76,11 @@ This is the current situation:
 
 async def async_run_dispatcher(
     session: Session,
-    message: ChatMessage,
+    # message: ChatMessage,
 ):
 
-
-
-    raise Exception("stop here!")
-
-    agents = [Agent.from_mongo(a) for a in session.agents]
+    
+    agents = Agent.find({"_id": {"$in": session.agents}})
     agent_names = [a.username for a in agents]
     agents_text = "\n".join([agent_template.render(a) for a in agents])
 
@@ -92,7 +89,7 @@ async def async_run_dispatcher(
     
     print(chat)
 
-    latest_user_message = message.content
+    latest_user_message = "This is the beginning of the session" #message.content
 
     prompt = dispatcher_template.render(
         agents=agents_text,

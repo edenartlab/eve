@@ -12,10 +12,9 @@ from .message import ChatMessage, Channel
 from bson.objectid import ObjectId
 
 
-
-
 @Collection("tests")
 class Session(Document):
+	user: ObjectId
 	channel: Optional[Channel] = None
 	title: str
 	agents: List[ObjectId] = Field(default_factory=list)

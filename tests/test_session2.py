@@ -1,26 +1,137 @@
+from typing import Literal
 from bson import ObjectId
-from eve.agent.session import Session, SessionMessage
-
-
 from eve.auth import get_my_eden_user
-from eve.agent.thread import UserMessage, AssistantMessage, Thread
-from eve.agent2.handlers import async_receive_message
-
-
-from eve.agent.think import async_think
-from eve.agent import Agent
-
-from eve.agent import Tool
-
-
-from eve.api.handlers import handle_session_message
-from eve.api.handlers import SessionMessageRequest
-
-
-from eve.agent2.handlers import MessageRequest
+from eve.agent2.handlers import MessageRequest, async_receive_message
 from eve.agent2.message import ChatMessage, Channel
+from eve.agent2.session_create import async_create_session
+from eve.agent2.session import Session
 
 
+from eve.agent2.dispatcher import async_run_dispatcher
+from eve.agent2.agent import Agent
+
+
+
+
+
+import os
+from eve.user import User
+from eve.agent2 import Agent
+from eve.agent2.message import ChatMessage
+# from eve.tools import Tool
+from eve.eden_utils import load_template
+
+system_template = load_template("system2")
+knowledge_reply_template = load_template("knowledge_reply")
+models_instructions_template = load_template("models_instructions")
+model_template = load_template("model_doc")
+
+
+
+async def test_create_session():
+    user = get_my_eden_user()
+    channel = Channel(type="discord", key="1268682080263606443")
+    prompt = "Eve is applying for a job to work at McDonalds, and Hypotheticards is the interviewer."
+    #result = await async_create_session(user, channel, prompt)
+
+    
+
+    session = Session(
+        id=ObjectId('67d36370787d995afc3471bd'),
+        user=ObjectId('65284b18f8bbb9bff13ebe65'),
+        channel=Channel(type='discord', key='1268682080263606443'),
+        title='Job Interview at McDonalds',
+        agents=[ObjectId('675fd3af79e00297cdac1324'), ObjectId('678c849671f58075bc837456')],
+        scenario="Eve is applying for a job at McDonalds and is having an interview with Hypotheticards, who is the interviewer. The goal of the scenario is for Eve to present her qualifications, skills, and enthusiasm for the job, while Hypotheticards will assess her fit for the position. The scenario will be complete when Hypotheticards provides feedback or a decision on Eve's application.",
+        current=None,
+        messages=[],
+        budget=100.0,
+        spent=0
+    )
+
+    # result2 = await async_run_dispatcher(session)
+    from pydantic import BaseModel, Field
+    from typing import List, Literal, Optional
+
+    class DispatcherThought(BaseModel):
+        """A thought about how to respond to the last message in the chat."""
+
+        speakers: Optional[List[str]] = Field(
+            None,
+            description="An optional list of agents that the dispatcher encourages to spontaneously speak or respond to the last message.",
+        )
+        state: str = Field(
+            ...,
+            description="A description about the current state of the scenario, including a summary of progress towards the goal, and what remains to be done.",
+        )
+        end_condition: bool = Field(
+            ...,
+            description="Only true if scenario is completed.",
+        )
+
+
+    result2 = DispatcherThought(
+        speakers=['eve'],
+        state='The session has just begun, and we are at the inception of a creative discussion. The end goal is to utilize the skills of Eve to create something innovative, possibly using the generative AI platform. There are no unresolved issues yet since the conversation has just started; we need to establish what the user wants to achieve effectively before moving on to the creation process.',
+        end_condition=False
+    )
+
+
+    print(result2)
+
+    if not result2.speakers:
+        return
+
+    speaker = result2.speakers[0]
+    agent = Agent.load(speaker)
+
+
+    
+    
+    await async_prompt_thread2(user, agent, session)
+
+
+"""    
+
+    user
+    agent
+    _ ?
+    mesages ?
+
+
+
+
+    async def async_prompt_thread(
+        user: User,
+        agent: Agent,
+        thread: Thread,
+        user_messages: Union[UserMessage, List[UserMessage]],
+        tools: Dict[str, Tool],
+        force_reply: bool = False,
+        use_thinking: bool = True,
+        model: Literal[tuple(MODELS)] = DEFAULT_MODEL,
+        user_is_bot: bool = False,
+        stream: bool = False,
+    ):
+"""
+    
+    # tools = agent.get_tools()
+    # thread = agent.request_thread()
+    # async for msg in async_prompt_thread(
+    #     user, 
+    #     agent, 
+    #     thread, 
+    #     user_messages, 
+    #     tools, 
+    #     force_reply=True, 
+    #     use_thinking=False, 
+    #     model=DEFAULT_MODEL
+    # ):
+    #     print(msg)
+
+
+
+    
 
 
 async def test_session2():
@@ -31,35 +142,104 @@ async def test_session2():
         user_id=str(user.id),
         session_id=None, #"67d115430deaf0504325447a",
         message=ChatMessage(
-            content="Eve is applying for a job to work at McDonalds, and Banny is the interviewer."
+            content="Eve is applying for a job to work at McDonalds, and Hypotheticards is the interviewer."
         ),
         update_config=None
     )
-    
-    result = await async_receive_message(request)
-    
+
+    result = await async_receive_message(request)    
     print(result)
 
 
 
-from eve.agent2.session_create import async_create_session
+
+from eve.user import User
+from eve.agent2 import Agent
+from eve.agent2.message import ChatMessage
+# from eve.tools import Tool
 
 
 
+from eve.agent2.llm import async_prompt
 
-async def test_create_session():
-    user = get_my_eden_user()
 
-    channel = Channel(type="discord", key="1268682080263606443")
+async def async_prompt_thread2(
+    user: User,
+    agent: Agent,
+    session: Session,
+    # user_messages: Union[UserMessage, List[UserMessage]],
+    # tools: Dict[str, Tool],
+    # force_reply: bool = False,
+    # use_thinking: bool = True,
+    # model: Literal[tuple(MODELS)] = DEFAULT_MODEL,
+    # user_is_bot: bool = False,
+    # stream: bool = False,
+):
 
-    prompt = "Eve is applying for a job to work at McDonalds, and Banny is the interviewer."
+    model = "claude-3-5-haiku-latest"
 
-    result = await async_create_session(user, channel, prompt)
+
+
+    system_message = system_template.render(
+        name=agent.name, 
+        persona=agent.persona, 
+        scenario=session.scenario,
+        current=session.current,
+        manna=session.budget,
+        manna_spent=session.spent,
+        manna_left=session.budget - session.spent,
+    )
+
+
+    print("\n\n\n\n\n================================================")
+    print(system_message)
+    print("================================================\n\n\n\n\n")
+
+
+    # get all messages from session
+    messages = ChatMessage.find({"session": session.id})
+
+    # convert to thread messages
+    messages = [m.to_thread(assistant_id=agent.id) for m in messages]
+
+
+
+    # maybe this should be an arg?
+    last_user_message = messages[-1]
+
+    tools = agent.get_tools()
+
+
     
-    print(result)
 
+
+    content, tool_calls, stop = await async_prompt(
+        messages,
+        system_message=system_message,
+        model=model,
+        tools=tools,
+    )
+
+    # Create assistant message
+    assistant_message = ChatMessage(
+        sender=agent.id,
+        reply_to=last_user_message.id,
+        content=content or "",
+        tool_calls=tool_calls,
+    )
+
+
+    print("--------------------------------")
+    print(assistant_message)
+    print("--------------------------------")
+
+
+
+
+    
 
 
 if __name__ == "__main__":
     import asyncio
     asyncio.run(test_create_session())
+
