@@ -169,7 +169,7 @@ class Agent(User):
 
         models = schema.get("models") or ([
             {"lora": schema.get("model"), "use_when": "This is your default model."}] 
-            if schema.get("model") else None
+            if schema.get("model") else []
         )
         for m in models:
             m["doc"] = Model.from_mongo(m["lora"])
