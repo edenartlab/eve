@@ -48,8 +48,12 @@ class ComfyUITool(Tool):
     @Tool.handle_run
     async def async_run(self, args: Dict):
         db = os.getenv("DB")
+        print("let's run the class")
+        print(f"comfyui-{self.workspace}-{db}")
         cls = modal.Cls.from_name(
-            f"comfyui-{self.workspace}-{db}", "ComfyUI", environment_name="main"
+            f"comfyui-{self.workspace}-{db}", 
+            "ComfyUI", 
+            environment_name="main"
         )
         result = await cls().run.remote.aio(self.parent_tool or self.key, args)
         return result
@@ -58,11 +62,14 @@ class ComfyUITool(Tool):
     @trace
     async def async_start_task(self, task: Task):
         db = os.getenv("DB")
+        print("let's lookup the class")
+        print(f"comfyui-{self.workspace}-{db}")
         cls = modal.Cls.from_name(
             f"comfyui-{self.workspace}-{db}", 
             "ComfyUI", 
             environment_name="main"
         )
+        print("cls", cls)
         job = await cls().run_task.spawn.aio(task)
         return job.object_id
 
@@ -86,7 +93,9 @@ class ComfyUIToolLegacy(ComfyUITool):
     async def async_run(self, args: Dict):
         db = os.getenv("DB")
         cls = modal.Cls.from_name(
-            f"comfyui-{self.key}", "ComfyUI", environment_name="main"
+            f"comfyui-{self.key}", 
+            "ComfyUI", 
+            environment_name="main"
         )
         result = await cls().run.remote.aio(workflow_name=self.key, args=args, env=db)
         result = {"output": result}

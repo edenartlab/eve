@@ -91,6 +91,16 @@ BASE_TOOLS = [
     # "animate_3d"
 ]
 
+FLUX_LORA_TOOLS = [
+    "flux_dev_lora",
+    "flux_dev",
+    "reel"
+]
+
+SDXL_LORA_TOOLS = [
+    "txt2img"
+]
+
 
 class RateLimit(BaseModel):
     period: int
