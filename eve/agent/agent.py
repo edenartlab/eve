@@ -169,13 +169,13 @@ class Agent(User):
 
         models = schema.get("models") or ([
             {"lora": schema.get("model"), "use_when": "This is your default model."}] 
-            if schema.get("model") else None
+            if schema.get("model") else []
         )
         for m in models:
             m["doc"] = Model.from_mongo(m["lora"])
 
         if models:
-            model_configs = [
+            base_models = [
                 {
                     "type": "flux-dev", 
                     "models": [m for m in models if m["doc"].base_model == "flux-dev"],
@@ -188,18 +188,18 @@ class Agent(User):
                 }
             ]
 
-            for config in model_configs:
-                model_list, tools_list = config["models"], config["tools"]
+            for base_model in base_models:
+                model_list, tools_list = base_model["models"], base_model["tools"]
                 
                 if tools_list and model_list:
                     if len(model_list) == 1:
-                        tip = f'Only use "{config["type"]}" models. Set the "lora" argument to the ID of the default lora (ID: {str(model_list[0]["lora"])}, Name: "{model_list[0]["doc"].name}", Description: "{model_list[0]["doc"].lora_trigger_text}"), if the following conditions are true: "{model_list[0]["use_when"]}"). If no lora is desired, leave this blank. If a different lora is desired, use its ID instead.'
+                        tip = f'Only use "{base_model["type"]}" models. Set the "lora" argument to the ID of the default lora (ID: {str(model_list[0]["lora"])}, Name: "{model_list[0]["doc"].name}", Description: "{model_list[0]["doc"].lora_trigger_text}"), if the following conditions are true: "{model_list[0]["use_when"]}"). If no lora is desired, leave this blank. If a different lora is desired, use its ID instead.'
                     else:
                         models_info = " | ".join([
                             f'ID: {m["lora"]}, Name: "{m["doc"].name}", Description: "{m["doc"].lora_trigger_text}", Use When: "{m["use_when"]}"' 
                             for m in model_list
                         ])
-                        tip = f'Only use "{config["type"]}" models. You are can use the following loras under the "Use When" circumstances: {models_info}. To use no lora, leave the "lora" argument blank.'
+                        tip = f'Only use "{base_model["type"]}" models. You are can use the following loras under the "Use When" circumstances: {models_info}. To use no lora, leave the "lora" argument blank.'
                          
                     tip += " If you use a lora, make sure to refer to it in the prompt using its exact Name. Avoid restating the Description in the prompt as it's implicit in the lora already and is redundant."
 

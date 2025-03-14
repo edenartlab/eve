@@ -1,5 +1,7 @@
 from typing import Literal
 from bson import ObjectId
+from eve.agent.llm import UpdateType
+from eve.api.api_requests import UpdateConfig
 from eve.auth import get_my_eden_user
 from eve.agent2.handlers import MessageRequest, async_receive_message
 from eve.agent2.message import ChatMessage, Channel
@@ -49,7 +51,7 @@ async def test_create_session():
         spent=0
     )
 
-    for i in range(5):
+    for i in range(2):
         session = Session.from_mongo(session.id)
 
         result2 = await async_run_dispatcher(session)
@@ -57,7 +59,7 @@ async def test_create_session():
         print("DISPATCHER...")
         print(result2)
 
-        speaker = result2.speakers[0]
+        speaker = result2.speaker #s[0]
         agent = Agent.load(speaker)
         
         await async_prompt_thread2(user, agent, session)
@@ -89,6 +91,7 @@ from eve.agent2 import Agent
 from eve.agent2.message import ChatMessage
 # from eve.tools import Tool
 
+from eve.api.helpers import emit_update
 
 
 from eve.agent2.llm import async_prompt
@@ -180,6 +183,41 @@ async def async_prompt_thread2(
     print(assistant_message)
     print("-------- 234324 ------------------------")
 
+    from eve.mongo import get_collection
+    deployment = get_collection("deployments").find_one({"agent": agent.id})
+    print(deployment["_id"])
+    update_config = UpdateConfig(
+        sub_channel_name=None, 
+        update_endpoint='https://edenartlab--api-stage-fastapi-app.modal.run/emissions/platform/discord', 
+        deployment_id=str(deployment["_id"]), 
+        discord_channel_id='1268682080263606443', 
+        discord_message_id=None,
+    )
+
+
+    update_config = UpdateConfig(
+        sub_channel_name='verdelis_discord_PROD', 
+        update_endpoint='https://edenartlab--api-prod-fastapi-app.modal.run/emissions/platform/discord', 
+        deployment_id=str(deployment["_id"]), 
+        discord_channel_id='1181679778651181067', 
+        discord_message_id='1350031109852758056',
+    )
+
+
+    print(update_config)
+
+
+
+    data = {
+        "type": UpdateType.ASSISTANT_MESSAGE.value,
+        "update_config": update_config.model_dump() if update_config else {},
+    }
+    data["content"] = "this is a test" #assistant_message.content
+
+    print("UDATEDING")
+    print(data)
+    print(update_config)
+    await emit_update(update_config, data)
 
 
 

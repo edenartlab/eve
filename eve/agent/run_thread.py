@@ -441,7 +441,8 @@ async def async_run_session(
     print(result)
 
 
-    speakers = result.speakers or []
+    #speakers = result.speakers or []
+    speakers = [result.speaker] or []
     for speaker in speakers:
         agent = Agent.load(speaker)
         tools = agent.get_tools()
