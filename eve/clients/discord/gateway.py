@@ -4,12 +4,14 @@ import asyncio
 import json
 import logging
 import os
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 import websockets
 import aiohttp
 from ably import AblyRealtime
 from eve import db
 from eve.deploy import Deployment, ClientType
+from eve.user import User
+from eve.agent import Agent
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 
@@ -229,6 +231,10 @@ class DiscordGatewayClient:
         self.ably_client = None
         self.busy_channel = None
 
+        # Add dictionaries to track known users and threads
+        self.known_users = {}
+        self.known_threads = {}
+
     async def heartbeat_loop(self):
         while True:
             await self.ws.send(
@@ -304,6 +310,44 @@ class DiscordGatewayClient:
             )
         return message_content.strip()
 
+    def lookup_thread_and_user(self, data: dict) -> Tuple[str, str]:
+        """
+        Helper function to lookup thread and user for a Discord message.
+
+        Args:
+            data: The Discord message data
+
+        Returns:
+            A tuple containing (thread, user) objects
+        """
+        # Get user ID and name from message data
+        user_id = data.get("author", {}).get("id")
+        username = data.get("author", {}).get("username", "User")
+
+        # Determine if this is a DM or guild message
+        is_dm = data.get("guild_id") is None
+        channel_id = data.get("channel_id")
+
+        # Generate the thread key
+        if is_dm:
+            thread_key = f"discord-dm-{username}-{user_id}"
+        else:
+            guild_id = data.get("guild_id")
+            thread_key = f"discord-{guild_id}-{channel_id}"
+
+        # Lookup thread
+        if thread_key not in self.known_threads:
+            agent = Agent.from_mongo(str(self.deployment.agent))
+            self.known_threads[thread_key] = agent.request_thread(key=thread_key)
+        thread = self.known_threads[thread_key]
+
+        # Lookup user
+        if user_id not in self.known_users:
+            self.known_users[user_id] = User.from_discord(user_id, username)
+        user = self.known_users[user_id]
+
+        return thread, user
+
     async def handle_message(self, data: dict):
         logger.info(
             f"Handling message for deployment {self.deployment.id} with data {data}"
@@ -316,7 +360,7 @@ class DiscordGatewayClient:
             == self.deployment.secrets.discord.application_id
         ):
             print("SKIPPING MESSAGE FROM BOT")
-            print("DEPLOYMENT ID", self.deployment.id)
+            print("DEPLOYMENT ID...", self.deployment.id)
             print("APPLICATION ID", self.deployment.secrets.discord.application_id)
             return
 
@@ -339,6 +383,9 @@ class DiscordGatewayClient:
             if channel_id not in allowed_channels:
                 print("NOT IN ALLOWED CHANNELS")
                 return
+
+        # Get thread and user using the helper function
+        thread, user = self.lookup_thread_and_user(data)
 
         # Process message content
         content = data["content"]
@@ -372,7 +419,8 @@ class DiscordGatewayClient:
 
         chat_request = {
             "agent_id": str(self.deployment.agent),
-            "user_id": str(self.deployment.user),
+            "user_id": str(user.id),
+            "thread_id": str(thread.id),
             "user_message": {
                 "content": content,
                 "role": "user",
