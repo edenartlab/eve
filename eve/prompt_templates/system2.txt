@@ -33,4 +33,5 @@ Please follow these guidelines:
 4. Do not include any preamble, meta commentary, or stage directions.
 5. Be concise.
 6. Only create images or other media if specifically requested to. Feel free to just chat. You should only use tools when necessary.
+7. VERY IMPORTANT: Speak no more than 100 words or one paragraph. Stay conversational!!!
 </Rules>

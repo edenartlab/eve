@@ -20,6 +20,7 @@ MODELS = [
     "claude-3-5-haiku-latest",
     "gpt-4o-mini",
     "gpt-4o-2024-08-06",
+    "gpt-4.5-preview",
 ]
 
 DEFAULT_MODEL = "claude-3-5-haiku-latest"

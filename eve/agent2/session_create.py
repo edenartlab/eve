@@ -56,18 +56,29 @@ async def async_create_session(
     channel: Channel,
     prompt: str
 ):
+    
+    print("A1")
     # get the last 25 messages of the chat
     messages = channel.get_messages(limit=25)
+    print("A2")
     chat = "\n".join([f"({m.createdAt}): {m.content}" for m in messages])
+    print("A3")
 
     # get all agents that are listening to this channel
     deployments = get_collection("deployments").find({f"config.{channel.type}.channel_allowlist.id": channel.key})
+    print("A4")
     eligible_agents = Agent.find({"_id": {"$in": [dep["agent"] for dep in deployments]}})
+    print("A5")
     agent_names = [a.username for a in eligible_agents]
+    print("A6")
     agents_text = "\n".join([agent_template.render(a) for a in eligible_agents])
+    print("A7")
 
     # get the last user message
-    latest_user_message = messages[-1].content
+    if messages:
+        latest_user_message = messages[-1].content
+    else:
+        latest_user_message = "This is the beginning of the scenario."
 
     session_creation_prompt = session_creation_template.render(
         agents=agents_text,
@@ -78,7 +89,7 @@ async def async_create_session(
     print("--------------------------------")
     print(session_creation_prompt)
     print("--------------------------------")
-
+    print("agent names", agent_names)
     class NewSession(BaseModel):
         """A Session is a multi-agent chat involving a group of agents, a scenario, and a budget."""
 

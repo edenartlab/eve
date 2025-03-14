@@ -32,31 +32,39 @@ model_template = load_template("model_doc")
 
 async def test_create_session():
     user = get_my_eden_user()
-    channel = Channel(type="discord", key="1268682080263606443")
-    prompt = "Eve is applying for a job to work at McDonalds, and Hypotheticards is the interviewer."
-    #result = await async_create_session(user, channel, prompt)
+    
+    # channel = Channel(type="discord", key="1268682080263606443")
+    # prompt = "Eve is applying for a job to work at Burger King, and GPTRumors is the interviewer."
+    
+    
+    channel = Channel(type="discord", key="1003581679916548207")
+    #prompt = "Banny is applying for a job to work at Burger King, and Channel Z is the interviewer."
+    prompt = "Banny is and Channel Z are arguing about the hard problem of consciousness."
+    
+    
+    session = await async_create_session(user, channel, prompt)
 
     
 
-    session = Session(
-        id=ObjectId('67d36370787d995afc3471bd'),
-        user=ObjectId('65284b18f8bbb9bff13ebe65'),
-        channel=Channel(type='discord', key='1268682080263606443'),
-        title='Job Interview at McDonalds',
-        agents=[ObjectId('675fd3af79e00297cdac1324'), ObjectId('678c849671f58075bc837456')],
-        scenario="Eve is applying for a job at McDonalds and is having an interview with Hypotheticards, who is the interviewer. The goal of the scenario is for Eve to present her qualifications, skills, and enthusiasm for the job, while Hypotheticards will assess her fit for the position. The scenario will be complete when Hypotheticards provides feedback or a decision on Eve's application.",
-        current=None,
-        messages=[],
-        budget=100.0,
-        spent=0
-    )
+    # session = Session(
+    #     id=ObjectId('67d36370787d995afc3471bd'),
+    #     user=ObjectId('65284b18f8bbb9bff13ebe65'),
+    #     channel=Channel(type='discord', key='1268682080263606443'),
+    #     title='Job Interview at McDonalds',
+    #     agents=[ObjectId('675fd3af79e00297cdac1324'), ObjectId('67707be154b95105ed951d68')],
+    #     scenario="Eve is applying for a job at McDonalds and is having an interview with GPTRumors, who is the interviewer. The goal of the scenario is for Eve to present her qualifications, skills, and enthusiasm for the job, while GPTRumors will assess her fit for the position. The scenario will be complete when GPTRumors provides feedback or a decision on Eve's application.",
+    #     current=None,
+    #     messages=[],
+    #     budget=100.0,
+    #     spent=0
+    # )
 
-    for i in range(2):
+    for i in range(8):
         session = Session.from_mongo(session.id)
 
         result2 = await async_run_dispatcher(session)
         
-        print("DISPATCHER...")
+        print("Dispatcher")
         print(result2)
 
         speaker = result2.speaker #s[0]
@@ -75,7 +83,7 @@ async def test_session2():
         user_id=str(user.id),
         session_id=None, #"67d115430deaf0504325447a",
         message=ChatMessage(
-            content="Eve is applying for a job to work at McDonalds, and Hypotheticards is the interviewer."
+            content="Eve is applying for a job to work at McDonalds, and GPTRumors is the interviewer."
         ),
         update_config=None
     )
@@ -110,116 +118,122 @@ async def async_prompt_thread2(
     # stream: bool = False,
 ):
 
-    model = "claude-3-5-haiku-latest"
+    while True:
+
+        model = "claude-3-5-haiku-latest"
 
 
 
-    system_message = system_template.render(
-        name=agent.name, 
-        persona=agent.persona, 
-        scenario=session.scenario,
-        current=session.current,
-        manna=session.budget,
-        manna_spent=session.spent,
-        manna_left=session.budget - session.spent,
-    )
-
-
-    # print("\n\n\n\n\n================================================")
-    # print(system_message)
-    # print("================================================\n\n\n\n\n")
-
-
-    # get all messages from session
-    messages = ChatMessage.find({"session": session.id}, limit=25)
-
-
-    if not messages:
-        init_message = ChatMessage(
-            sender=user.id,
-            session=session.id,
-            content=system_message,
+        system_message = system_template.render(
+            name=agent.name, 
+            persona=agent.persona, 
+            scenario=session.scenario,
+            current=session.current,
+            manna=session.budget,
+            manna_spent=session.spent,
+            manna_left=session.budget - session.spent,
         )
-        messages.append(init_message)
 
 
-    print("here are all the messages")
-    for m in messages:
-        print(m)
-
-    # convert to thread messages
-    messages = [m.to_thread(assistant_id=agent.id) for m in messages]
+        # print("\n\n\n\n\n================================================")
+        # print(system_message)
+        # print("================================================\n\n\n\n\n")
 
 
-    # maybe this should be an arg?
-    last_user_message = messages[-1]
-
-    tools = {} # agent.get_tools()
+        # get all messages from session
+        messages = ChatMessage.find({"session": session.id}, limit=25)
 
 
-    
+        if not messages:
+            init_message = ChatMessage(
+                sender=user.id,
+                session=session.id,
+                content=system_message,
+            )
+            messages.append(init_message)
 
 
-    content, tool_calls, stop = await async_prompt(
-        messages,
-        system_message=system_message,
-        model=model,
-        tools=tools,
-    )
+        print("here are all the messages")
+        for m in messages:
+            print(m)
 
-    # Create assistant message
-    assistant_message = ChatMessage(
-        sender=agent.id,
-        session=session.id,
-        reply_to=last_user_message.id,
-        content=content or "",
-        tool_calls=tool_calls,
-    )
+        # convert to thread messages
+        messages = [m.to_thread(assistant_id=agent.id) for m in messages]
 
 
-    assistant_message.save()
+        # maybe this should be an arg?
+        last_user_message = messages[-1]
 
-    print("---------- ?234324 ----------------------")
-    print(assistant_message)
-    print("-------- 234324 ------------------------")
-
-    from eve.mongo import get_collection
-    deployment = get_collection("deployments").find_one({"agent": agent.id})
-    print(deployment["_id"])
-    update_config = UpdateConfig(
-        sub_channel_name=None, 
-        update_endpoint='https://edenartlab--api-stage-fastapi-app.modal.run/emissions/platform/discord', 
-        deployment_id=str(deployment["_id"]), 
-        discord_channel_id='1268682080263606443', 
-        discord_message_id=None,
-    )
+        tools = agent.get_tools()
+        tools = {k: v for k, v in tools.items() if k in ["flux_dev_lora"]}
 
 
-    update_config = UpdateConfig(
-        sub_channel_name='verdelis_discord_PROD', 
-        update_endpoint='https://edenartlab--api-prod-fastapi-app.modal.run/emissions/platform/discord', 
-        deployment_id=str(deployment["_id"]), 
-        discord_channel_id='1181679778651181067', 
-        discord_message_id='1350031109852758056',
-    )
+        content, tool_calls, stop = await async_prompt(
+            messages,
+            system_message=system_message,
+            model=model,
+            tools=tools,
+        )
 
 
-    print(update_config)
+        
+
+        # Create assistant message
+        assistant_message = ChatMessage(
+            sender=agent.id,
+            session=session.id,
+            reply_to=last_user_message.id,
+            content=content or "",
+            tool_calls=tool_calls,
+        )
 
 
 
-    data = {
-        "type": UpdateType.ASSISTANT_MESSAGE.value,
-        "update_config": update_config.model_dump() if update_config else {},
-    }
-    data["content"] = "this is a test" #assistant_message.content
 
-    print("UDATEDING")
-    print(data)
-    print(update_config)
-    await emit_update(update_config, data)
+        assistant_message.save()
+
+        print("---------- ?234324 ----------------------")
+        print(assistant_message)
+        print("-------- 234324 ------------------------")
+
+        from eve.mongo import get_collection
+        deployment = get_collection("deployments").find_one({"platform": "discord", "agent": agent.id})
+        print(deployment["_id"])
+        db = os.getenv("DB", "STAGE")
+        update_config = UpdateConfig(
+            sub_channel_name=None,
+            update_endpoint=f'https://edenartlab--api-{db.lower()}-fastapi-app.modal.run/emissions/platform/discord',
+            deployment_id=str(deployment["_id"]),
+            discord_channel_id='1003581679916548207', #'1268682080263606443',
+            discord_message_id='1349850562874708100' #'1350045471162368033',
+        )
+        data = {
+            'type': 'assistant_message',
+            'update_config': update_config.model_dump(),
+            'content': assistant_message.content
+        }
+
+        print(update_config)
+
+        print("THE CONTENT")
+        print(assistant_message.content)
 
 
+
+        # data = {
+        #     "type": UpdateType.ASSISTANT_MESSAGE.value,
+        #     "update_config": update_config.model_dump() if update_config else {},
+        # }
+        # data["content"] = "this is a test" #assistant_message.content
+
+        print("UDAT1212EDING")
+        print(data)
+        print(update_config)
+        await emit_update(update_config, data)
+
+
+        if stop:
+            break
 
     
 
