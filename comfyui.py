@@ -42,6 +42,7 @@ import pathlib
 import tempfile
 import subprocess
 import traceback
+import sys
 
 import eve.eden_utils as eden_utils
 from eve.tool import Tool
@@ -50,8 +51,8 @@ from eve.task import task_handler_method
 from eve.s3 import get_full_url
 
 GPUs = {
-    "A100": modal.gpu.A100(),
-    "A100-80GB": modal.gpu.A100(size="80GB")
+    "A100": "A100-40GB",  # Changed from modal.gpu.A100()
+    "A100-80GB": "A100-80GB"  # Changed from modal.gpu.A100(size="80GB")
 }
 
 if not os.getenv("WORKSPACE"):
@@ -63,22 +64,24 @@ app_name = f"comfyui-{workspace_name}-{db}"
 test_workflows = os.getenv("WORKFLOWS")
 root_workflows_folder = "../private_workflows" if os.getenv("PRIVATE") else "../workflows"
 test_all = True if os.getenv("TEST_ALL") else False
-specific_test = os.getenv("SPECIFIC_TEST") if os.getenv("SPECIFIC_TEST") else ""
+specific_tests = os.getenv("SPECIFIC_TEST").split(",") if os.getenv("SPECIFIC_TEST") else []
 skip_tests = os.getenv("SKIP_TESTS")
+test_inactive = True if os.getenv("TEST_INACTIVE") else False
 
 # Run a bunch of checks to verify input args:
-if test_all and specific_test:
+if test_all and specific_tests:
     print(f"WARNING: can't have both TEST_ALL and SPECIFIC_TEST at the same time...")
     print(f"Running TEST_ALL instead")
-    specific_test = ""
+    specific_tests = []
 
 print("========================================")
 print(f"db: {db}")
 print(f"workspace: {workspace_name}")
 print(f"test_workflows: {test_workflows}")
 print(f"test_all: {test_all}")
-print(f"specific_test: {specific_test}")
+print(f"specific_tests: {specific_tests}")
 print(f"skip_tests: {skip_tests}")
+print(f"test_inactive: {test_inactive}")
 print("========================================")
 
 if not test_workflows and workspace_name and not test_all:
@@ -93,7 +96,17 @@ def install_comfyui():
     subprocess.run(["git", "remote", "add", "--fetch", "origin", "https://github.com/comfyanonymous/ComfyUI"], check=True)
     subprocess.run(["git", "checkout", comfyui_commit_sha], check=True)
     subprocess.run(["pip", "install", "xformers!=0.0.18", "-r", "requirements.txt", "--extra-index-url", "https://download.pytorch.org/whl/cu121"], check=True)
-
+    
+    # Check specific paths
+    paths_to_check = [
+        "main.py",
+        "/root/main.py",
+        os.path.join(os.getcwd(), "main.py")
+    ]
+    print("\nChecking for main.py in various locations:")
+    for path in paths_to_check:
+        print(f"Checking {path}: {'EXISTS' if os.path.exists(path) else 'NOT FOUND'}")
+    print("=====================================\n")
 
 def install_custom_nodes():
     snapshot = json.load(open("/root/workspace/snapshot.json", 'r'))
@@ -231,32 +244,384 @@ def download_files(force_redownload=False):
         except Exception as e:
             raise Exception(f"Error processing {path}: {e}")
 
+def get_workflows():
+    """Get list of workflows to test based on environment variables."""
+    workflows_dir = pathlib.Path(f"/root/workspace/workflows")
+    if not workflows_dir.exists():
+        raise Exception(f"Workflows directory not found: {workflows_dir}")
+        
+    # First get all workflows with workflow_api.json
+    workflow_names = [f.name for f in workflows_dir.iterdir() if f.is_dir() and (f / "workflow_api.json").exists()]
+    
+    # First filter by WORKFLOWS env var if specified
+    test_workflows = os.getenv("WORKFLOWS")
+    if test_workflows:
+        test_workflows = test_workflows.split(",")
+        if not all([w in workflow_names for w in test_workflows]):
+            invalid_workflows = [w for w in test_workflows if w not in workflow_names]
+            raise Exception(f"One or more invalid workflows found: {', '.join(invalid_workflows)}. Available workflows: {', '.join(workflow_names)}")
+        workflow_names = test_workflows
+        print(f"====> Running tests for subset of workflows: {' | '.join(workflow_names)}")
+    else:
+        print(f"====> Running tests for all workflows: {' | '.join(workflow_names)}")
+    
+    # Then filter based on status if TEST_INACTIVE is not set
+    if not os.getenv("TEST_INACTIVE"):
+        filtered_names = []
+        for name in workflow_names:
+            try:
+                tool = Tool.from_yaml(f"/root/workspace/workflows/{name}/api.yaml")
+                if tool.status != "inactive":
+                    filtered_names.append(name)
+            except Exception as e:
+                print(f"Warning: Error reading api.yaml for {name}: {e}")
+                continue
+        workflow_names = filtered_names
+
+    if not workflow_names:
+        raise Exception("No workflows found!")
+        
+    return workflow_names
+
+def get_test_files(workflow):
+    """Get list of test files for a workflow."""
+    # First check if this workflow is in the WORKFLOWS list if specified
+    if os.getenv("WORKFLOWS"):
+        allowed_workflows = os.getenv("WORKFLOWS").split(",")
+        if workflow not in allowed_workflows:
+            return []  # Skip workflows not in the WORKFLOWS list
+            
+    # Now handle TEST_ALL and specific tests for allowed workflows
+    if os.getenv("TEST_ALL"):
+        return glob.glob(f"/root/workspace/workflows/{workflow}/test*.json")
+    elif specific_tests:
+        return [f"/root/workspace/workflows/{workflow}/{test}" for test in specific_tests]
+    else:
+        return [f"/root/workspace/workflows/{workflow}/test.json"]
+
+def test_workflows():
+    """Run all tests for the current workspace."""
+    overall_start_time = time.time()
+    print(f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] Starting test execution")
+
+    if os.getenv("SKIP_TESTS"):
+        print("Skipping tests")
+        return
+            
+    # Only run tests if TEST_ALL or specific tests are specified
+    if not (os.getenv("TEST_ALL") or os.getenv("WORKFLOWS") or os.getenv("SPECIFIC_TEST")):
+        print("No tests specified, skipping tests")
+        return
+
+    test_summary = []
+    failed_tests = []
+    succinct_summary = []
+
+    # Get list of workflows
+    workflow_start = time.time()
+    print(f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] Finding workflows...")
+    workflows = get_workflows()
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Found workflows: {workflows}")
+    print(f"Workflow discovery took {time.time() - workflow_start:.2f}s")
+
+    # Print overview of all tests that will be run
+    print("\n========== TEST EXECUTION PLAN ==========")
+    total_tests = 0
+    for workflow in workflows:
+        test_files = get_test_files(workflow)
+        if test_files:
+            # Check if workflow is inactive before counting it
+            tool = Tool.from_yaml(f"/root/workspace/workflows/{workflow}/api.yaml")
+            if tool.status == "inactive" and not test_inactive:
+                print(f"\nWorkflow: {workflow} (inactive, will be skipped)")
+                continue
+            print(f"\nWorkflow: {workflow}")
+            for test in test_files:
+                print(f"  • {os.path.basename(test)}")
+                total_tests += 1
+    print(f"\nTotal tests to run: {total_tests}")
+    print("========================================\n")
+
+    # Check if we have AWS credentials
+    has_aws_creds = all([
+        os.getenv("AWS_ACCESS_KEY_ID"),
+        os.getenv("AWS_SECRET_ACCESS_KEY"),
+        os.getenv("AWS_REGION_NAME")
+    ])
+    print(f"AWS credentials available: {has_aws_creds}")
+
+    # Create a single ComfyUI instance for all tests
+    server_start = time.time()
+    print(f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] Starting ComfyUI server...")
+    comfyui = ComfyUI()
+    try:
+        comfyui._start()  # This will set server_address and start the server
+        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Server started successfully")
+        print(f"Server startup took {time.time() - server_start:.2f}s")
+    except Exception as e:
+        print(f"Error starting ComfyUI server: {e}")
+        raise
+
+    current_test = 0
+    # For each workflow
+    for workflow_idx, workflow in enumerate(workflows, 1):
+        workflow_test_start = time.time()
+        print(f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] Testing workflow: {workflow}")
+        
+        # Get list of test files
+        test_files = get_test_files(workflow)
+        print(f"Found test files: {test_files}")
+
+        # For each test file
+        for test_idx, test in enumerate(test_files, 1):
+            test_start = time.time()
+
+            try:
+                tool = Tool.from_yaml(f"/root/workspace/workflows/{workflow}/api.yaml")
+                if tool.status == "inactive" and not test_inactive:
+                    print(f"{workflow} is inactive, skipping test")
+                    continue
+
+                current_test += 1
+                print(f"\n\n\n------------------ Test ({current_test}/{total_tests}) - Workflow {workflow_idx}/{len(workflows)} - {workflow} ({test_idx}/{len(test_files)}) ------------------")
+                print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Starting test")
+
+                test_args = json.loads(open(test, "r").read())
+                test_args = tool.prepare_args(test_args)
+                test_name = f"{workflow}_{os.path.basename(test)}"
+                print(f"====> Running test: {test_name}")
+                
+                result = comfyui._execute(workflow, test_args)
+                
+                if has_aws_creds:
+                    try:
+                        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Starting S3 upload...")
+                        s3_start = time.time()
+                        result = eden_utils.upload_result(result)
+                        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] S3 upload successful")
+                        print(f"S3 upload took {time.time() - s3_start:.2f}s")
+                        
+                        # Print individual test summary
+                        print("\n========== TEST SUMMARY ==========")
+                        test_duration = time.time() - test_start
+                        print(f"Test: {test_name}")
+                        print(f"Duration: {test_duration:.2f}s")
+                        print("\nGenerated Files:")
+                        bucket_prefix = "edenartlab-stage-data" if db == "STAGE" else "edenartlab-data"
+                        region = os.getenv("AWS_REGION_NAME", "us-east-1")
+                        
+                        # Store primary output URL for succinct summary
+                        primary_url = None
+                        for output_key, output_files in result.items():
+                            if isinstance(output_files, list):
+                                for output in output_files:
+                                    if isinstance(output, dict):
+                                        filename = output.get('filename')
+                                        if filename:
+                                            s3_url = f"https://{bucket_prefix}.s3.{region}.amazonaws.com/{filename}"
+                                            if output_key == "output" and not primary_url:
+                                                primary_url = s3_url
+                                            print(f"\n{output_key}:")
+                                            print(f"  URL: {s3_url}")
+                                            if 'mediaAttributes' in output:
+                                                for attr, value in output['mediaAttributes'].items():
+                                                    print(f"  {attr}: {value}")
+                                    else:
+                                        print(f"\n{output_key}: {output}")
+                        print("================================\n")
+                        
+                        # Add to succinct summary
+                        succinct_summary.append({
+                            'test': test_name,
+                            'status': 'SUCCESS',
+                            'duration': test_duration,
+                            'url': primary_url
+                        })
+                        
+                    except Exception as e:
+                        print(f"S3 upload failed: {e}")
+                        print("Falling back to local file verification")
+                        # Fall back to local verification
+                        for output_files in result.values():
+                            if isinstance(output_files, list):
+                                for file_path in output_files:
+                                    full_path = os.path.join("/root", file_path)
+                                    if not os.path.exists(full_path):
+                                        raise Exception(f"Output file not found: {full_path}")
+                                    print(f"====> Verified output file exists: {full_path}")
+                else:
+                    print("No AWS credentials available, verifying files locally")
+                    # Local verification only
+                    for output_files in result.values():
+                        if isinstance(output_files, list):
+                            for file_path in output_files:
+                                full_path = os.path.join("/root", file_path)
+                                if not os.path.exists(full_path):
+                                    raise Exception(f"Output file not found: {full_path}")
+                                print(f"====> Verified output file exists: {full_path}")
+                
+                test_duration = time.time() - test_start
+                print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Test completed successfully in {test_duration:.2f}s")
+                
+                # Add to summary
+                summary_entry = {
+                    "workflow": workflow,
+                    "test": os.path.basename(test),
+                    "duration": f"{test_duration:.2f}s",
+                    "outputs": {}
+                }
+                
+                # Add URLs or local paths to summary
+                for output_key, output_files in result.items():
+                    if isinstance(output_files, list):
+                        summary_entry["outputs"][output_key] = output_files
+                    else:
+                        summary_entry["outputs"][output_key] = [output_files]
+                
+                test_summary.append(summary_entry)
+            except Exception as e:
+                error_trace = traceback.format_exc()
+                failed_tests.append({
+                    "workflow": workflow,
+                    "test": os.path.basename(test),
+                    "error": error_trace,
+                    "test_path": test.replace("/root/workspace/workflows/", "")
+                })
+                print(f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] Test failed: {test_name}")
+                print(error_trace)
+                
+                # Add to succinct summary
+                succinct_summary.append({
+                    'test': test_name,
+                    'status': 'FAILED',
+                    'duration': time.time() - test_start,
+                    'error': str(e)
+                })
+                # Continue with next test instead of raising exception here
+                continue
+
+        workflow_duration = time.time() - workflow_test_start
+        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Workflow {workflow} completed in {workflow_duration:.2f}s")
+
+    # Print final summary
+    total_duration = time.time() - overall_start_time
+    print("\n\n========== FINAL TEST EXECUTION SUMMARY ==========")
+    print(f"Total execution time: {total_duration:.2f}s")
+    print(f"Number of tests executed: {len(test_summary)}")
+    print(f"Number of failed tests: {len(failed_tests)}")
+
+    print("\nDetailed test results:")
+    print("----------------------------------------")
+    
+    for entry in test_summary:
+        print(f"\nWorkflow: {entry['workflow']}")
+        print(f"Test: {entry['test']}")
+        print(f"Duration: {entry['duration']}")
+        print("Outputs:")
+        for output_key, outputs in entry["outputs"].items():
+            for output in outputs:
+                if isinstance(output, dict):
+                    filename = output.get('filename')
+                    if filename:
+                        bucket_prefix = "edenartlab-stage-data" if db == "STAGE" else "edenartlab-data"
+                        region = os.getenv("AWS_REGION_NAME", "us-east-1")
+                        s3_url = f"https://{bucket_prefix}.s3.{region}.amazonaws.com/{filename}"
+                        print(f"  {output_key}: {s3_url}")
+                        
+                        if 'mediaAttributes' in output:
+                            for attr, value in output['mediaAttributes'].items():
+                                print(f"    {attr}: {value}")
+                else:
+                    print(f"  {output_key}: {output}")
+        print("----------------------------------------")
+
+    # Print failed tests summary if any
+    if failed_tests:
+        print("\n========== FAILED TESTS SUMMARY ==========")
+        print("\nTests failed:")
+        for failed_test in failed_tests:
+            print(f"    {failed_test['test_path']}")
+        
+        print("\nDetailed failure information:")
+        print("----------------------------------------")
+        for failed_test in failed_tests:
+            print(f"\nWorkflow: {failed_test['workflow']}")
+            print(f"Test: {failed_test['test']}")
+            print("Error Stack Trace:")
+            print(failed_test['error'])
+            print("----------------------------------------")
+
+    # Print ComfyUI reinit timing information
+    if len(test_summary) > 1:
+        print("\n========== COMFYUI REINIT TIMING ==========")
+        print("Reinitializing ComfyUI to check startup time after all files are downloaded...")
+        reinit_start = time.time()
+        comfyui = ComfyUI()
+        try:
+            comfyui._start()
+            reinit_duration = time.time() - reinit_start
+            print(f"ComfyUI reinitialization completed in {reinit_duration:.2f}s")
+        except Exception as e:
+            print(f"Error during ComfyUI reinitialization: {e}")
+        print("----------------------------------------")
+
+    # Print succinct test results at the very end
+    print("\nSuccinct Test Results:")
+    print("----------------------------------------")
+    for result in succinct_summary:
+        if result['status'] == 'SUCCESS':
+            print(f"✓ {result['test']} - {result['duration']:.2f}s")
+            print(f"    {result['url']}")
+        else:
+            print(f"✗ {result['test']} - {result['duration']:.2f}s")
+            print(f"    Error: {result['error']}")
+    print("----------------------------------------")
+        
+    # Only raise the exception at the end after running all tests
+    if failed_tests:
+        raise Exception(f"{len(failed_tests)} test(s) failed. See above for detailed error traces.")
+
 root_dir = Path(__file__).parent
+
+downloads_vol = modal.Volume.from_name(
+    "comfy-downloads", 
+    create_if_missing=True
+)
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .env({"COMFYUI_PATH": "/root", "COMFYUI_MODEL_PATH": "/root/models"}) 
     .env({"TEST_ALL": os.getenv("TEST_ALL")})
     .env({"SPECIFIC_TEST": os.getenv("SPECIFIC_TEST")})
+    .env({"WORKFLOWS": os.getenv("WORKFLOWS")})
     .apt_install("git", "git-lfs", "libgl1-mesa-glx", "libglib2.0-0", "libmagic1", "ffmpeg", "libegl1")
     .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
     .pip_install("diffusers==0.31.0", "psutil")
     .env({"WORKSPACE": workspace_name}) 
-    .copy_local_file(f"{root_workflows_folder}/workspaces/{workspace_name}/snapshot.json", "/root/workspace/snapshot.json")
-    .copy_local_file(f"{root_workflows_folder}/workspaces/{workspace_name}/downloads.json", "/root/workspace/downloads.json")
-    .run_function(install_comfyui) #, force_build=True)
-    .run_function(install_custom_nodes, gpu=modal.gpu.A100())
+    .add_local_python_source("eve", copy=True)
+    # First copy of workflow files
+    .add_local_dir(f"{root_workflows_folder}/workspaces/{workspace_name}", "/root/workspace", copy=True)
+    .add_local_file(f"{root_workflows_folder}/workspaces/{workspace_name}/downloads.json", "/root/workspace/downloads.json", copy=True)
+    .add_local_file(f"{root_workflows_folder}/workspaces/{workspace_name}/snapshot.json", "/root/workspace/snapshot.json", copy=True)
+    .run_function(install_comfyui)
+    .run_function(install_custom_nodes, gpu="A100")
     .pip_install("moviepy==1.0.3")
-    .copy_local_dir(f"{root_workflows_folder}/workspaces/{workspace_name}", "/root/workspace")
-    .env({"WORKFLOWS": test_workflows, "SKIP_TESTS": skip_tests})
+    .run_function(download_files, volumes={"/data": downloads_vol})
+    # Second copy of workflow files after downloads
+    .add_local_dir(f"{root_workflows_folder}/workspaces/{workspace_name}", "/root/workspace", copy=True)
+    .run_function(
+        test_workflows, 
+        gpu="A100", 
+        volumes={"/data": downloads_vol},
+        secrets=[
+            modal.Secret.from_name("eve-secrets"),
+            modal.Secret.from_name(f"eve-secrets-{db}")
+        ]
+    )
+    .env({"SKIP_TESTS": skip_tests})
 )
 
-gpu = modal.gpu.A100()
-
-downloads_vol = modal.Volume.from_name(
-    "comfy-downloads", 
-    create_if_missing=True
-)
+gpu = "A100"
 
 app = modal.App(
     name=app_name, 
@@ -277,7 +642,9 @@ app = modal.App(
     timeout=3600,
 )
 class ComfyUI:
-    
+    def __init__(self):
+        self.server_address = "127.0.0.1:8188"
+        
     def _start(self, port=8188):
         print("Start server")
         t1 = time.time()
@@ -334,76 +701,6 @@ class ComfyUI:
     @modal.enter()
     def enter(self):
         self._start()
-
-    @modal.build()
-    def downloads(self):
-        download_files()
-            
-    @modal.build()
-    def test_workflows(self):
-        if os.getenv("SKIP_TESTS"):
-            print("Skipping tests")
-            return
-            
-        print(" ==== TESTING WORKFLOWS ====")
-        
-        t1 = time.time()
-        self._start()
-        t2 = time.time()
-        
-        results = {"_performance": {"launch": t2 - t1}}
-        workflows_dir = pathlib.Path("/root/workspace/workflows")
-        workflow_names = [f.name for f in workflows_dir.iterdir() if f.is_dir()]
-        test_workflows = os.getenv("WORKFLOWS")
-        if test_workflows:
-            test_workflows = test_workflows.split(",")
-            if not all([w in workflow_names for w in test_workflows]):
-                raise Exception(f"One or more invalid workflows found: {', '.join(test_workflows)}")
-            workflow_names = test_workflows
-            print(f"====> Running tests for subset of workflows: {' | '.join(workflow_names)}")
-        else:
-            print(f"====> Running tests for all workflows: {' | '.join(workflow_names)}")
-
-        if not workflow_names:
-            raise Exception("No workflows found!")
-
-        for workflow in workflow_names:
-            test_all = os.getenv("TEST_ALL", False)
-            if test_all:
-                tests = glob.glob(f"/root/workspace/workflows/{workflow}/test*.json")
-            elif specific_test:
-                tests = [f"/root/workspace/workflows/{workflow}/{specific_test}"]
-            else:
-                tests = [f"/root/workspace/workflows/{workflow}/test.json"]
-            print(f"====> Running tests for {workflow}: ", tests)
-            for i, test in enumerate(tests):
-                print(f"\n\n\n------------------ Running test {i+1} of {len(tests)} ------------------")
-                tool = Tool.from_yaml(f"/root/workspace/workflows/{workflow}/api.yaml")
-                if tool.status == "inactive":
-                    print(f"{workflow} is inactive, skipping test")
-                    continue
-                test_args = json.loads(open(test, "r").read())
-                test_args = tool.prepare_args(test_args)
-                test_name = f"{workflow}_{os.path.basename(test)}"
-                print(f"====> Running test: {test_name}")
-                t1 = time.time()
-                result = self._execute(workflow, test_args)
-                result = eden_utils.upload_result(result)
-                result = eden_utils.prepare_result(result)
-                print(f"====> Final media url: {result}")
-                t2 = time.time()       
-                results[test_name] = result
-                results["_performance"][test_name] = t2 - t1
-
-        with open("_test_results_.json", "w") as f:
-            json.dump(results, f, indent=4)
-
-    @modal.method()
-    def print_test_results(self):
-        with open("_test_results_.json", "r") as f:
-            results = json.load(f)
-        print("\n\n\n============ Test Results ============")
-        print(json.dumps(results, indent=4))
 
     def _is_server_running(self):
         try:
@@ -731,7 +1028,7 @@ class ComfyUI:
         embedding_triggers = {"lora": None, "lora2": None}
         lora_trigger_texts = {"lora": None, "lora2": None}
 
-        # download and transport files        
+        # First pass: Download and process all files        
         for key, param in tool.model.model_fields.items():
             metadata = param.json_schema_extra or {}
             file_type = metadata.get('file_type')
@@ -749,7 +1046,9 @@ class ComfyUI:
                     ] if urls else None
                 else:
                     url = validate_url(args.get(key))
-                    args[key] = eden_utils.download_file(url, f"/root/input/{self._url_to_filename(url)}") if url else None
+                    local_path = eden_utils.download_file(url, f"/root/input/{self._url_to_filename(url)}") if url else None
+                    print(f"Downloaded {url} to {local_path}")
+                    args[key] = local_path
             
             elif file_type == "lora":
                 lora_id = args.get(key)
@@ -764,15 +1063,12 @@ class ComfyUI:
                 
                 models = get_collection("models3")
                 lora = models.find_one({"_id": ObjectId(lora_id)})
-                #print("found lora:\n", lora)
 
                 if not lora:
                     raise Exception(f"Lora {key} with id: {lora_id} not found in DB {db}!")
 
                 base_model = lora.get("base_model")
                 lora_url = lora.get("checkpoint")
-                #lora_name = lora.get("name")
-                #pretrained_model = lora.get("args").get("sd_model_version")
 
                 if not lora_url:
                     raise Exception(f"Lora {lora_id} has no checkpoint")
@@ -795,8 +1091,8 @@ class ComfyUI:
 
                 args[key] = lora_filename
 
+        # Second pass: Inject the downloaded files and other parameters into workflow
         for key, comfyui in tool.comfyui_map.items():
-            
             value = args.get(key)
             if value is None:
                 continue
@@ -829,13 +1125,12 @@ class ComfyUI:
 
                 print("====> Final updated prompt for workflow: ", value)
 
+            # Handle preprocessing
             if comfyui.preprocessing is not None:
                 if comfyui.preprocessing == "csv":
                     value = ",".join(value)
-
                 elif comfyui.preprocessing == "concat":
                     value = ";\n".join(value)
-
                 elif comfyui.preprocessing == "folder":
                     temp_subfolder = tempfile.mkdtemp(dir="/root/input")
                     if isinstance(value, list):
@@ -847,15 +1142,14 @@ class ComfyUI:
                         shutil.copy(value, temp_subfolder)
                     value = temp_subfolder
 
-            print("comfyui mapping")
-            print(comfyui)
-
+            print(f"Injecting {key} = {value}")
             node_id, field, subfield = str(comfyui.node_id), str(comfyui.field), str(comfyui.subfield)
             subfields = [s.strip() for s in subfield.split(",")]
             for subfield in subfields:
                 print("inject", node_id, field, subfield, " = ", value)
-                workflow[node_id][field][subfield] = value  
+                workflow[node_id][field][subfield] = value
 
+            # Handle remaps
             for remap in comfyui.remap or []:
                 subfields = [s.strip() for s in str(remap.subfield).split(",")]
                 for subfield in subfields:
@@ -869,4 +1163,4 @@ class ComfyUI:
 @app.local_entrypoint()
 def run():
     comfyui = ComfyUI()
-    comfyui.print_test_results.remote()
+    return comfyui

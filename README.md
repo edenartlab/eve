@@ -1,93 +1,33 @@
-# Eve
+<div align="center">
+  <a href="https://www.eden.art/">
+    <img src="assets/eden.png" alt="Eden Logo" width="250" height="250" style="margin-right: 20px">
+    <img src="assets/eve.jpg" alt="Eve Logo" width="250" height="250">
+  </a>
+</div>
 
-Eve is a **framework for building creative assistants**, leveraging open-source generative tools to provide a flexible and scalable development environment.
+## 🚧 Under Construction 🚧
 
-## Running Eve with Docker
+**Note: This repository is under heavy active development. Expect frequent changes and updates as we evolve the platform.**
 
-This guide provides two options for running Eve using Docker: **a standalone container** and **a full setup with Docker Compose**.
+## 🌱 Introduction
 
-### Option 1. Running a Single Container
------
+Welcome to Eve, the core repository powering [Eden.art](https://www.eden.art/)'s creative AI assistants. This codebase enables the development of autonomous digital artists capable of understanding, creating, and iterating on visual content through natural conversation.
 
-#### Prerequisites
+Eve provides the foundation for building AI agents like our flagship creative assistant [Eve](https://beta.eden.art/chat/eve), which leverages a suite of open-source AI tools to transform ideas into visual art.
 
-* [Install Docker Compose](https://docs.docker.com/compose/install/)
-* Clone this repository:
+## 🎯 Goal
 
-        git clone -b local-mongo --single-branch https://github.com/edenartlab/eve.git
+Our mission is to democratize the creation of powerful creative AI agents. Eve makes it possible for anyone to build, customize, and deploy autonomous digital artists powered by open-source AI technologies.
 
-#### Building and Running the Container
+## 🤝 Contribute Your Tools
 
-1. Navigate to the project directory
+Join our ecosystem by contributing your own tools and workflows:
 
-        cd eve
+- [Eden.art Node Suite for ComfyUI](https://github.com/edenartlab/eden_comfy_pipelines) - Production-ready ComfyUI nodes that power our platform
+- [Eden.art Workflows](https://github.com/edenartlab/workflows) - Our in-production ComfyUI workflow repository
 
-2. Build the Docker image
+We invite you to contribute workflows that will become accessible to all creative agents in Eden's ecosystem!
 
-        docker build -t eden-eve .
-    
-3. Run the container
+## Agent Deploy Wiki
 
-        docker run -d -p 8000:8000 --name eve-container eden-eve
-
-#### Accessing the Container
-
-        docker exec -i -t eve-container /bin/bash
-
-### Option 2: Running Eve with MongoDB using Docker Compose
------
-
-For a complete setup including a **MongoDB instance**, use docker-compose to orchestrate multiple services.
-
-Below is the `docker-compose.yml` used for this setup
-
-```yaml
-version: "3.9"
-
-services:
-  eve-server:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        - PYTHON_VERSION=3.12
-    container_name: eve-server
-    ports:
-      - "8000:8000"
-    depends_on:
-      - mongo
-    volumes:
-      - eve-data:/eve
-
-  mongo:
-    image: mongo:latest
-    container_name: mongo
-    environment:
-      - MONGO_INITDB_ROOT_USERNAME=admin
-      - MONGO_INITDB_ROOT_PASSWORD=admin
-    ports:
-      - "27017:27017"
-    restart: always
-    volumes:
-      - mongo-data:/data/db
-
-volumes:
-  eve-data:
-    driver: local
-  mongo-data:
-    driver: local
-```
-
-#### Running the Full Setup
-
-1. Ensure you have [Docker Compose installed](https://docs.docker.com/compose/install/)
-
-2. Clone this repository (if you haven't already)
-
-        git clone -b local-mongo --single-branch https://github.com/edenartlab/eve.git
-
-3. Start all services
-
-        docker-compose up -d
-
-This will start both **Eve** and **MongoDB**, with Eve accessible at http://localhost:8000.
+[Get started with Eve](https://github.com/edenartlab/eve/wiki)
