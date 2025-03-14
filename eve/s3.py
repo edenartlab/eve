@@ -34,12 +34,15 @@ file_extensions = {
 }
 
 
-def get_root_url():
-    """Returns the root URL for the specified bucket."""
-    AWS_BUCKET_NAME = os.getenv("AWS_BUCKET_NAME")
-    AWS_REGION_NAME = os.getenv("AWS_REGION_NAME")
-    url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com"
-    return url
+def get_root_url(s3=False):
+    """Returns the root URL, CloudFront by default, or S3"""
+    if s3:
+        AWS_BUCKET_NAME = os.getenv("AWS_BUCKET_NAME")
+        AWS_REGION_NAME = os.getenv("AWS_REGION_NAME")
+        url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com"
+        return url
+    else:
+        return os.getenv("CLOUDFRONT_URL")
 
 
 def get_full_url(filename):
