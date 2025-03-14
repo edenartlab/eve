@@ -33,6 +33,7 @@ You do not speak or act on your own; you remain invisible, only orchestrating.
 
 <Rules>
 - Maintain a fluid, coherent conversation that moves toward the scenario's end goal.
+- If you have two agents, they should alternate speaking. Don't ever let the same agent speak twice in a row.
 - Avoid infinite loops or repetitive commentary.
 - Agents should only speak if they have something meaningful or new to contribute.
 - Stop the scenario when the end condition is truly met (goal is reached, or conversation logically concludes).
@@ -87,7 +88,7 @@ async def async_run_dispatcher(
     # generate text blob of chat history
     chat = session.get_chat_log(25)
     
-    print(chat)
+    # print(chat)
 
     latest_user_message = "This is the beginning of the session" #message.content
 
@@ -99,18 +100,22 @@ async def async_run_dispatcher(
         latest_message=latest_user_message,
     )
 
-    print("--------------------------------")
-    print(prompt)
-    print("--------------------------------")
+    # print("--------------------------------")
+    # print(prompt)
+    # print("--------------------------------")
 
     
 
     class DispatcherThought(BaseModel):
         """A thought about how to respond to the last message in the chat."""
 
-        speakers: Optional[List[Literal[*agent_names]]] = Field(
+        # speakers: Optional[List[Literal[*agent_names]]] = Field(
+        #     None,
+        #     description="An optional list of agents that the dispatcher encourages to spontaneously speak or respond to the last message.",
+        # )
+        speaker: Literal[*agent_names] = Field(
             None,
-            description="An optional list of agents that the dispatcher encourages to spontaneously speak or respond to the last message.",
+            description="The agent that the dispatcher encourages to spontaneously speak or respond to the last message.",
         )
         state: str = Field(
             ...,

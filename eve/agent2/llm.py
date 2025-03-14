@@ -156,10 +156,10 @@ async def async_anthropic_prompt(
     # print(json.dumps(prompt["tools"], indent=2))
     # print("--------------------------------")
 
-    print("-----------RESPONSE USAGE---------------------")
-    print(f"Time taken: {time.time() - start_time} seconds")
-    print(response.usage)
-    print("--------------------------------")
+    # print("-----------RESPONSE USAGE---------------------")
+    # print(f"Time taken: {time.time() - start_time} seconds")
+    # print(response.usage)
+    # print("--------------------------------")
 
     # Get token usage
     input_tokens = response.usage.input_tokens + getattr(
@@ -399,11 +399,11 @@ async def async_prompt(
     Non-streaming LLM call => returns (content, tool_calls, stop).
     """
 
-    print("--------------------------------")
-    print(f"Prompting {model} with {len(messages)} messages")
-    print(dump_json([m.model_dump() for m in messages]))
-    if tools: print("tools", tools.keys())
-    print("--------------------------------")
+    # print("--------------------------------")
+    # print(f"Prompting {model} with {len(messages)} messages")
+    # print(dump_json([m.model_dump() for m in messages]))
+    # if tools: print("tools", tools.keys())
+    # print("--------------------------------")
 
     langfuse_context.update_current_observation(input=messages)
 

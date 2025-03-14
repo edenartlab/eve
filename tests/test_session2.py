@@ -49,89 +49,20 @@ async def test_create_session():
         spent=0
     )
 
-    # result2 = await async_run_dispatcher(session)
-    from pydantic import BaseModel, Field
-    from typing import List, Literal, Optional
+    for i in range(5):
+        session = Session.from_mongo(session.id)
 
-    class DispatcherThought(BaseModel):
-        """A thought about how to respond to the last message in the chat."""
+        result2 = await async_run_dispatcher(session)
+        
+        print("DISPATCHER...")
+        print(result2)
 
-        speakers: Optional[List[str]] = Field(
-            None,
-            description="An optional list of agents that the dispatcher encourages to spontaneously speak or respond to the last message.",
-        )
-        state: str = Field(
-            ...,
-            description="A description about the current state of the scenario, including a summary of progress towards the goal, and what remains to be done.",
-        )
-        end_condition: bool = Field(
-            ...,
-            description="Only true if scenario is completed.",
-        )
+        speaker = result2.speakers[0]
+        agent = Agent.load(speaker)
+        
+        await async_prompt_thread2(user, agent, session)
 
 
-    result2 = DispatcherThought(
-        speakers=['eve'],
-        state='The session has just begun, and we are at the inception of a creative discussion. The end goal is to utilize the skills of Eve to create something innovative, possibly using the generative AI platform. There are no unresolved issues yet since the conversation has just started; we need to establish what the user wants to achieve effectively before moving on to the creation process.',
-        end_condition=False
-    )
-
-
-    print(result2)
-
-    if not result2.speakers:
-        return
-
-    speaker = result2.speakers[0]
-    agent = Agent.load(speaker)
-
-
-    
-    
-    await async_prompt_thread2(user, agent, session)
-
-
-"""    
-
-    user
-    agent
-    _ ?
-    mesages ?
-
-
-
-
-    async def async_prompt_thread(
-        user: User,
-        agent: Agent,
-        thread: Thread,
-        user_messages: Union[UserMessage, List[UserMessage]],
-        tools: Dict[str, Tool],
-        force_reply: bool = False,
-        use_thinking: bool = True,
-        model: Literal[tuple(MODELS)] = DEFAULT_MODEL,
-        user_is_bot: bool = False,
-        stream: bool = False,
-    ):
-"""
-    
-    # tools = agent.get_tools()
-    # thread = agent.request_thread()
-    # async for msg in async_prompt_thread(
-    #     user, 
-    #     agent, 
-    #     thread, 
-    #     user_messages, 
-    #     tools, 
-    #     force_reply=True, 
-    #     use_thinking=False, 
-    #     model=DEFAULT_MODEL
-    # ):
-    #     print(msg)
-
-
-
-    
 
 
 async def test_session2():
@@ -191,23 +122,36 @@ async def async_prompt_thread2(
     )
 
 
-    print("\n\n\n\n\n================================================")
-    print(system_message)
-    print("================================================\n\n\n\n\n")
+    # print("\n\n\n\n\n================================================")
+    # print(system_message)
+    # print("================================================\n\n\n\n\n")
 
 
     # get all messages from session
-    messages = ChatMessage.find({"session": session.id})
+    messages = ChatMessage.find({"session": session.id}, limit=25)
+
+
+    if not messages:
+        init_message = ChatMessage(
+            sender=user.id,
+            session=session.id,
+            content=system_message,
+        )
+        messages.append(init_message)
+
+
+    print("here are all the messages")
+    for m in messages:
+        print(m)
 
     # convert to thread messages
     messages = [m.to_thread(assistant_id=agent.id) for m in messages]
 
 
-
     # maybe this should be an arg?
     last_user_message = messages[-1]
 
-    tools = agent.get_tools()
+    tools = {} # agent.get_tools()
 
 
     
@@ -223,15 +167,18 @@ async def async_prompt_thread2(
     # Create assistant message
     assistant_message = ChatMessage(
         sender=agent.id,
+        session=session.id,
         reply_to=last_user_message.id,
         content=content or "",
         tool_calls=tool_calls,
     )
 
 
-    print("--------------------------------")
+    assistant_message.save()
+
+    print("---------- ?234324 ----------------------")
     print(assistant_message)
-    print("--------------------------------")
+    print("-------- 234324 ------------------------")
 
 
 
