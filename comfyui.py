@@ -89,26 +89,40 @@ if not test_workflows and workspace_name and not test_all:
     print("!!!! WARNING: You are deploying a workspace without TEST_ALL !!!!")
     print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n")
 
+
 def install_comfyui():
+    os.chdir("/root")
     snapshot = json.load(open("/root/workspace/snapshot.json", 'r'))
     comfyui_commit_sha = snapshot["comfyui"]
-    subprocess.run(["git", "init", "."], check=True)
-    subprocess.run(["git", "remote", "add", "--fetch", "origin", "https://github.com/comfyanonymous/ComfyUI"], check=True)
-    subprocess.run(["git", "checkout", comfyui_commit_sha], check=True)
-    subprocess.run(["pip", "install", "xformers!=0.0.18", "-r", "requirements.txt", "--extra-index-url", "https://download.pytorch.org/whl/cu121"], check=True)
+
+    print(f"Initializing git repository in {os.getcwd()}")
+    result = subprocess.run(["git", "init", "."], check=True, capture_output=True)
+    print(f"Git init output: {result.stdout.decode()}")
     
-    # Check specific paths
-    paths_to_check = [
-        "main.py",
-        "/root/main.py",
-        os.path.join(os.getcwd(), "main.py")
-    ]
-    print("\nChecking for main.py in various locations:")
-    for path in paths_to_check:
-        print(f"Checking {path}: {'EXISTS' if os.path.exists(path) else 'NOT FOUND'}")
-    print("=====================================\n")
+    print(f"Adding ComfyUI remote and fetching")
+    result = subprocess.run(["git", "remote", "add", "--fetch", "origin", "https://github.com/comfyanonymous/ComfyUI"], check=True, capture_output=True)
+    print(f"Git remote add output: {result.stdout.decode()}")
+    
+    print(f"Checking out commit: {comfyui_commit_sha}")
+    result = subprocess.run(["git", "checkout", comfyui_commit_sha], check=True, capture_output=True)
+    print(f"Git checkout output: {result.stdout.decode()}")
+
+    subprocess.run(["pip", "install", "xformers!=0.0.18", "-r", "requirements.txt", "--extra-index-url", "https://download.pytorch.org/whl/cu121"], check=True)
+    # List all files and directories in the current directory:
+    print("Current directory structure:")
+    for root, dirs, files in os.walk("."):
+        level = root.replace(os.getcwd(), '').count(os.sep)
+        indent = ' ' * 4 * (level)
+        print(f"{indent}{os.path.basename(root)}/")
+        subindent = ' ' * 4 * (level + 1)
+        for f in files:
+            print(f"{subindent}{f}")
+    print("ComfyUI installation completed successfully")
+
 
 def install_custom_nodes():
+    os.chdir("/root")
+    
     snapshot = json.load(open("/root/workspace/snapshot.json", 'r'))
     custom_nodes = snapshot["git_custom_nodes"]
     for url, node in custom_nodes.items():
@@ -117,6 +131,24 @@ def install_custom_nodes():
     post_install_commands = snapshot.get("post_install_commands", [])
     for cmd in post_install_commands:
         os.system(cmd)
+
+    # Check for ControlFlowUtils helper.py and set DEBUG_MODE to False
+    try:
+        helper_path = os.path.join(os.environ.get("COMFYUI_PATH", "/root"), "custom_nodes/ControlFlowUtils/helper.py")
+        if os.path.exists(helper_path):
+            print(f"Found ControlFlowUtils helper.py at {helper_path}, checking for DEBUG_MODE")
+            with open(helper_path, 'r') as f:
+                content = f.read()
+            
+            if 'DEBUG_MODE = True' in content:
+                print("Setting DEBUG_MODE to False in ControlFlowUtils helper.py")
+                content = content.replace('DEBUG_MODE = True', 'DEBUG_MODE = False')
+                with open(helper_path, 'w') as f:
+                    f.write(content)
+            else:
+                print("DEBUG_MODE is already set to False or not found in ControlFlowUtils helper.py")
+    except:
+        pass
 
 def install_custom_node_with_retries(url, hash, max_retries=3): 
     for attempt in range(max_retries + 1):
@@ -139,7 +171,7 @@ def install_custom_node_with_retries(url, hash, max_retries=3):
 
 def install_custom_node(url, hash):
     repo_name = url.split("/")[-1].split(".")[0]
-    repo_path = f"custom_nodes/{repo_name}"
+    repo_path = os.path.join("/root", "custom_nodes", repo_name)
     if os.path.exists(repo_path):
         return
     repo = git.Repo.clone_from(url, repo_path)
@@ -649,7 +681,16 @@ class ComfyUI:
         print("Start server")
         t1 = time.time()
         self.server_address = f"127.0.0.1:{port}"
-        cmd = f"python main.py --dont-print-server --listen --port {port}"
+        os.chdir("/root")
+        
+        # Check if main.py exists
+        if not os.path.exists("/root/main.py"):
+            print("ERROR: main.py not found in /root directory!")
+            print("Current directory:", os.getcwd())
+            print("Directory contents:", os.listdir())
+            raise FileNotFoundError("main.py not found in /root directory")
+            
+        cmd = f"python /root/main.py --dont-print-server --listen --port {port}"
         subprocess.Popen(cmd, shell=True)
         while not self._is_server_running():
             time.sleep(1)
@@ -658,7 +699,9 @@ class ComfyUI:
 
     def _execute(self, workflow_name: str, args: dict, user: str = None, requester: str = None):
         try:
-            print("\n----------->  Starting new task execution: ", workflow_name)
+            print("\n" + "=" * 60)
+            print(f"{' ' * 10}STARTING NEW TASK: {workflow_name}{' ' * 10}")
+            print("=" * 60 + "\n")
             eden_utils.log_memory_info()
             tool_path = f"/root/workspace/workflows/{workflow_name}"
             tool = Tool.from_yaml(f"{tool_path}/api.yaml")
@@ -1028,6 +1071,11 @@ class ComfyUI:
         embedding_triggers = {"lora": None, "lora2": None}
         lora_trigger_texts = {"lora": None, "lora2": None}
 
+        # Check if this is the flux_double_character workflow
+        is_flux_double_character = tool.key == "flux_double_character"
+        if is_flux_double_character:
+            print("====> DETECTED flux_double_character workflow")
+
         # First pass: Download and process all files        
         for key, param in tool.model.model_fields.items():
             metadata = param.json_schema_extra or {}
@@ -1090,6 +1138,11 @@ class ComfyUI:
                         lora_trigger_texts[key] = lora.get("args", {}).get("caption_prefix")
 
                 args[key] = lora_filename
+
+        # For flux_double_character, extract trigger texts and inject them
+        if is_flux_double_character and "flux" in base_model:
+            args["trigger_1"] = lora_trigger_texts.get("lora")
+            args["trigger_2"] = lora_trigger_texts.get("lora2")
 
         # Second pass: Inject the downloaded files and other parameters into workflow
         for key, comfyui in tool.comfyui_map.items():

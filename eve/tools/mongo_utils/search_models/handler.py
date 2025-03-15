@@ -71,7 +71,8 @@ async def handler(args: dict, user: str = None, requester: str = None):
     counter = 1
     docs = {}
     collection = get_collection(Model.collection_name)
-    for doc in collection.find({"base_model": "flux-dev", "deleted": {"$ne": True}}):
+    # for doc in collection.find({"base_model": "flux-dev", "deleted": {"$ne": True}}):
+    for doc in collection.find({"deleted": {"$ne": True}}):
         id = str(doc["_id"])
         doc["_id"] = counter        
         docs[str(counter)] = {
