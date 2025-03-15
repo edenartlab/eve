@@ -89,26 +89,40 @@ if not test_workflows and workspace_name and not test_all:
     print("!!!! WARNING: You are deploying a workspace without TEST_ALL !!!!")
     print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n")
 
+
 def install_comfyui():
+    os.chdir("/root")
     snapshot = json.load(open("/root/workspace/snapshot.json", 'r'))
     comfyui_commit_sha = snapshot["comfyui"]
-    subprocess.run(["git", "init", "."], check=True)
-    subprocess.run(["git", "remote", "add", "--fetch", "origin", "https://github.com/comfyanonymous/ComfyUI"], check=True)
-    subprocess.run(["git", "checkout", comfyui_commit_sha], check=True)
-    subprocess.run(["pip", "install", "xformers!=0.0.18", "-r", "requirements.txt", "--extra-index-url", "https://download.pytorch.org/whl/cu121"], check=True)
+
+    print(f"Initializing git repository in {os.getcwd()}")
+    result = subprocess.run(["git", "init", "."], check=True, capture_output=True)
+    print(f"Git init output: {result.stdout.decode()}")
     
-    # Check specific paths
-    paths_to_check = [
-        "main.py",
-        "/root/main.py",
-        os.path.join(os.getcwd(), "main.py")
-    ]
-    print("\nChecking for main.py in various locations:")
-    for path in paths_to_check:
-        print(f"Checking {path}: {'EXISTS' if os.path.exists(path) else 'NOT FOUND'}")
-    print("=====================================\n")
+    print(f"Adding ComfyUI remote and fetching")
+    result = subprocess.run(["git", "remote", "add", "--fetch", "origin", "https://github.com/comfyanonymous/ComfyUI"], check=True, capture_output=True)
+    print(f"Git remote add output: {result.stdout.decode()}")
+    
+    print(f"Checking out commit: {comfyui_commit_sha}")
+    result = subprocess.run(["git", "checkout", comfyui_commit_sha], check=True, capture_output=True)
+    print(f"Git checkout output: {result.stdout.decode()}")
+
+    subprocess.run(["pip", "install", "xformers!=0.0.18", "-r", "requirements.txt", "--extra-index-url", "https://download.pytorch.org/whl/cu121"], check=True)
+    # List all files and directories in the current directory:
+    print("Current directory structure:")
+    for root, dirs, files in os.walk("."):
+        level = root.replace(os.getcwd(), '').count(os.sep)
+        indent = ' ' * 4 * (level)
+        print(f"{indent}{os.path.basename(root)}/")
+        subindent = ' ' * 4 * (level + 1)
+        for f in files:
+            print(f"{subindent}{f}")
+    print("ComfyUI installation completed successfully")
+
 
 def install_custom_nodes():
+    os.chdir("/root")
+    
     snapshot = json.load(open("/root/workspace/snapshot.json", 'r'))
     custom_nodes = snapshot["git_custom_nodes"]
     for url, node in custom_nodes.items():
@@ -157,7 +171,7 @@ def install_custom_node_with_retries(url, hash, max_retries=3):
 
 def install_custom_node(url, hash):
     repo_name = url.split("/")[-1].split(".")[0]
-    repo_path = f"custom_nodes/{repo_name}"
+    repo_path = os.path.join("/root", "custom_nodes", repo_name)
     if os.path.exists(repo_path):
         return
     repo = git.Repo.clone_from(url, repo_path)
@@ -667,7 +681,16 @@ class ComfyUI:
         print("Start server")
         t1 = time.time()
         self.server_address = f"127.0.0.1:{port}"
-        cmd = f"python main.py --dont-print-server --listen --port {port}"
+        os.chdir("/root")
+        
+        # Check if main.py exists
+        if not os.path.exists("/root/main.py"):
+            print("ERROR: main.py not found in /root directory!")
+            print("Current directory:", os.getcwd())
+            print("Directory contents:", os.listdir())
+            raise FileNotFoundError("main.py not found in /root directory")
+            
+        cmd = f"python /root/main.py --dont-print-server --listen --port {port}"
         subprocess.Popen(cmd, shell=True)
         while not self._is_server_running():
             time.sleep(1)
@@ -676,11 +699,9 @@ class ComfyUI:
 
     def _execute(self, workflow_name: str, args: dict, user: str = None, requester: str = None):
         try:
-            print("\n--------------------------------------------------------")
-            print("---------------------------------------------------------")
-            print(f"------->  Starting new task: {workflow_name} <--------")
-            print("---------------------------------------------------------")
-            print("---------------------------------------------------------\n")
+            print("\n" + "=" * 60)
+            print(f"{' ' * 10}STARTING NEW TASK: {workflow_name}{' ' * 10}")
+            print("=" * 60 + "\n")
             eden_utils.log_memory_info()
             tool_path = f"/root/workspace/workflows/{workflow_name}"
             tool = Tool.from_yaml(f"{tool_path}/api.yaml")
