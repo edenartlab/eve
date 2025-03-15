@@ -24,6 +24,67 @@ class MessageRequest(BaseModel):
 """
 
 
+"""
+
+Channel
+
+Session
+- channel
+
+ChatMessage
+- channel
+- session
+
+Handlers
+- receive user message (cancel)
+  - if session
+    - run dispatch
+  - if no session
+    - check if agent mentioned
+    - (optional) run dispatch (if >1 agent), run think otherwise
+      - use knowledge T/F
+      - extended history
+- run dispatcher (or think)
+  - run prompt (emit update)
+  - schedule next dispatch 
+
+- create new session
+
+
+Events
+- on new user message -> receive user message
+  - maybe create and schedule new session (tool?)
+
+
+Session Handling
+- new session triggers while loop
+- delay between speakers
+- run dispatcher between
+  - dispatcher schedules next speaker
+
+
+
+Types
+- group chat (dispatcher)
+- DM (no dispatcher, no think)
+
+
+if agent mentioned, DM'd, or replied to
+ - skip dispatcher
+ - think
+    - use knowledge T/F
+    - extended history
+ - tools
+    - edit constitution (memories)
+    - search_db
+
+
+
+"""
+
+
+
+
 
 
 # @sentry_transaction(op="llm.prompt", name="async_prompt_thread")
