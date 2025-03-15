@@ -118,6 +118,24 @@ def install_custom_nodes():
     for cmd in post_install_commands:
         os.system(cmd)
 
+    # Check for ControlFlowUtils helper.py and set DEBUG_MODE to False
+    try:
+        helper_path = os.path.join(os.environ.get("COMFYUI_PATH", "/root"), "custom_nodes/ControlFlowUtils/helper.py")
+        if os.path.exists(helper_path):
+            print(f"Found ControlFlowUtils helper.py at {helper_path}, checking for DEBUG_MODE")
+            with open(helper_path, 'r') as f:
+                content = f.read()
+            
+            if 'DEBUG_MODE = True' in content:
+                print("Setting DEBUG_MODE to False in ControlFlowUtils helper.py")
+                content = content.replace('DEBUG_MODE = True', 'DEBUG_MODE = False')
+                with open(helper_path, 'w') as f:
+                    f.write(content)
+            else:
+                print("DEBUG_MODE is already set to False or not found in ControlFlowUtils helper.py")
+    except:
+        pass
+
 def install_custom_node_with_retries(url, hash, max_retries=3): 
     for attempt in range(max_retries + 1):
         try:
@@ -1032,6 +1050,11 @@ class ComfyUI:
         embedding_triggers = {"lora": None, "lora2": None}
         lora_trigger_texts = {"lora": None, "lora2": None}
 
+        # Check if this is the flux_double_character workflow
+        is_flux_double_character = tool.key == "flux_double_character"
+        if is_flux_double_character:
+            print("====> DETECTED flux_double_character workflow")
+
         # First pass: Download and process all files        
         for key, param in tool.model.model_fields.items():
             metadata = param.json_schema_extra or {}
@@ -1094,6 +1117,11 @@ class ComfyUI:
                         lora_trigger_texts[key] = lora.get("args", {}).get("caption_prefix")
 
                 args[key] = lora_filename
+
+        # For flux_double_character, extract trigger texts and inject them
+        if is_flux_double_character and "flux" in base_model:
+            args["trigger_1"] = lora_trigger_texts.get("lora")
+            args["trigger_2"] = lora_trigger_texts.get("lora2")
 
         # Second pass: Inject the downloaded files and other parameters into workflow
         for key, comfyui in tool.comfyui_map.items():
