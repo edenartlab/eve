@@ -676,9 +676,9 @@ class ComfyUI:
 
     def _execute(self, workflow_name: str, args: dict, user: str = None, requester: str = None):
         try:
-            print("\n-------------------------------------------------------")
+            print("\n--------------------------------------------------------")
             print("---------------------------------------------------------")
-            print(f"------->  Starting new task: {workflow_name} <-------")
+            print(f"------->  Starting new task: {workflow_name} <--------")
             print("---------------------------------------------------------")
             print("---------------------------------------------------------\n")
             eden_utils.log_memory_info()
