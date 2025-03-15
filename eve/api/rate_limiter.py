@@ -15,10 +15,7 @@ class RateLimiter:
 
     async def check_create_rate_limit(self, user: User, tool: Tool) -> bool:
         async with self._lock:
-            # Check if user has unlimited access
-            if "freeTools" in (user.featureFlags or []):
-                return True
-
+            
             # Check if tool has rate limits
             if not tool.rate_limits:
                 return True
