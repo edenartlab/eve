@@ -63,6 +63,16 @@ parameters:
     label: Custom Trigger Text
     description: Custom text to visually describe and trigger your model (leave this empty unless you know what you're doing!)
     required: false
+  custom_validation_prompts:
+    type: array
+    items:
+      type: string
+    min_length: 0
+    max_length: 4
+    label: Custom validation prompts
+    description: |-
+      4 custom text prompts to test your model after training. If left empty, these will be auto-generated.
+    required: false
   seed:
     type: integer
     label: Seed
