@@ -1037,8 +1037,8 @@ class ComfyUI:
             metadata = param.json_schema_extra or {}
             file_type = metadata.get('file_type')
             is_array = metadata.get('is_array')
-            print(f"Parsing {key}, param: {param}")
-
+            if key not in ['tip']:
+                print(f"Parsing {key}, param: {param}")
             if file_type and any(t in ["image", "video", "audio"] for t in file_type.split("|")):
                 if not args.get(key):
                     continue
