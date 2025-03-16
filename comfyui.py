@@ -658,7 +658,11 @@ class ComfyUI:
 
     def _execute(self, workflow_name: str, args: dict, user: str = None, requester: str = None):
         try:
-            print("\n----------->  Starting new task execution: ", workflow_name)
+            print("\n-------------------------------------------------------")
+            print("---------------------------------------------------------")
+            print(f"------->  Starting new task: {workflow_name} <-------")
+            print("---------------------------------------------------------")
+            print("---------------------------------------------------------\n")
             eden_utils.log_memory_info()
             tool_path = f"/root/workspace/workflows/{workflow_name}"
             tool = Tool.from_yaml(f"{tool_path}/api.yaml")
@@ -1033,8 +1037,8 @@ class ComfyUI:
             metadata = param.json_schema_extra or {}
             file_type = metadata.get('file_type')
             is_array = metadata.get('is_array')
-            print(f"Parsing {key}, param: {param}")
-
+            if key not in ['tip']:
+                print(f"Parsing {key}, param: {param}")
             if file_type and any(t in ["image", "video", "audio"] for t in file_type.split("|")):
                 if not args.get(key):
                     continue
