@@ -421,7 +421,9 @@ def test_workflows():
                     continue
 
                 current_test += 1
+                successful_tests = current_test - 1 - len(failed_tests)
                 print(f"\n\n\n------------------ Test ({current_test}/{total_tests}) - Workflow {workflow_idx}/{len(workflows)} - {workflow} ({test_idx}/{len(test_files)}) ------------------")
+                print(f"Progress: {successful_tests} successful, {len(failed_tests)} failed tests so far")
                 
                 test_args = json.loads(open(test, "r").read())
                 test_args = tool.prepare_args(test_args)
