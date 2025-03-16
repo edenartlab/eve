@@ -43,6 +43,7 @@ import tempfile
 import subprocess
 import traceback
 import sys
+import socket
 
 import eve.eden_utils as eden_utils
 from eve.tool import Tool
@@ -112,11 +113,14 @@ def install_comfyui():
     print("Current directory structure:")
     for root, dirs, files in os.walk("."):
         level = root.replace(os.getcwd(), '').count(os.sep)
-        indent = ' ' * 4 * (level)
-        print(f"{indent}{os.path.basename(root)}/")
-        subindent = ' ' * 4 * (level + 1)
-        for f in files:
-            print(f"{subindent}{f}")
+        if level <= 1:
+            indent = ' ' * 4 * (level)
+            print(f"{indent}{os.path.basename(root)}/")
+            subindent = ' ' * 4 * (level + 1)
+            for f in files:
+                print(f"{subindent}{f}")
+        if level >= 1:
+            dirs.clear()  # This prevents os.walk from recursing deeper
     print("ComfyUI installation completed successfully")
 
 
@@ -678,37 +682,76 @@ class ComfyUI:
         self.server_address = "127.0.0.1:8188"
         
     def _start(self, port=8188):
-        print("Start server")
+        print("DEBUG: Starting ComfyUI server...")
         t1 = time.time()
         self.server_address = f"127.0.0.1:{port}"
-        os.chdir("/root")
-        
-        # Check if main.py exists
-        if not os.path.exists("/root/main.py"):
-            print("ERROR: main.py not found in /root directory!")
-            print("Current directory:", os.getcwd())
-            print("Directory contents:", os.listdir())
-            raise FileNotFoundError("main.py not found in /root directory")
-            
         cmd = f"python /root/main.py --dont-print-server --listen --port {port}"
         subprocess.Popen(cmd, shell=True)
         while not self._is_server_running():
-            time.sleep(1)
+            time.sleep(0.5)
         t2 = time.time()
         self.launch_time = t2 - t1
+        print(f"DEBUG: ComfyUI server started in {self.launch_time:.2f}s")
 
     def _execute(self, workflow_name: str, args: dict, user: str = None, requester: str = None):
         try:
             print("\n" + "=" * 60)
             print(f"{' ' * 10}STARTING NEW TASK: {workflow_name}{' ' * 10}")
             print("=" * 60 + "\n")
+            
+            # Debug: Perform detailed health check of ComfyUI server
+            print("DEBUG: Performing detailed ComfyUI server health check...")
+            server_check_start = time.time()
+            health_info = self._check_server_health()
+            server_check_time = time.time() - server_check_start
+            
+            if health_info["is_running"]:
+                print(f"DEBUG: ComfyUI server is running at {self.server_address} (health check took {server_check_time:.3f}s)")
+                print(f"DEBUG: Response times: {health_info['response_times']}")
+                
+                if health_info["queue_status"]:
+                    queue_info = health_info["queue_status"]
+                    print(f"DEBUG: Queue status - Running: {queue_info.get('running_size', 'N/A')}, Pending: {queue_info.get('pending_size', 'N/A')}")
+                
+                if health_info["system_stats"]:
+                    stats = health_info["system_stats"]
+                    print(f"DEBUG: System stats - RAM: {stats.get('ram', 'N/A')}, VRAM: {stats.get('vram', 'N/A')}")
+            else:
+                print(f"DEBUG: WARNING - ComfyUI server is NOT running at {self.server_address}!")
+                if "error" in health_info:
+                    print(f"DEBUG: Health check error: {health_info['error']}")
+                    
+                print("DEBUG: Attempting to restart server...")
+                try:
+                    self._start()
+                    print("DEBUG: Server restarted successfully")
+                    # Verify server health after restart
+                    health_info = self._check_server_health()
+                    if not health_info["is_running"]:
+                        raise Exception("Server restart failed - still not responding")
+                except Exception as e:
+                    print(f"DEBUG: Failed to restart server: {e}")
+                    raise Exception(f"ComfyUI server is not running and restart failed: {e}")
+            
             eden_utils.log_memory_info()
             tool_path = f"/root/workspace/workflows/{workflow_name}"
             tool = Tool.from_yaml(f"{tool_path}/api.yaml")
             workflow = json.load(open(f"{tool_path}/workflow_api.json", 'r'))
             self._validate_comfyui_args(workflow, tool)
             workflow = self._inject_args_into_workflow(workflow, tool, args)
+            
+            # Debug: Check server again before queuing prompt
+            health_info = self._check_server_health()
+            if not health_info["is_running"]:
+                print("DEBUG: ERROR - Server not responding before queuing prompt!")
+                raise Exception("ComfyUI server stopped responding before queuing prompt")
+            
+            print("DEBUG: Queuing prompt to ComfyUI server...")
+            queue_start = time.time()
             prompt_id = self._queue_prompt(workflow)['prompt_id']
+            queue_time = time.time() - queue_start
+            print(f"DEBUG: Prompt queued successfully (took {queue_time:.3f}s), prompt_id: {prompt_id}")
+            
             outputs = self._get_outputs(prompt_id)
             output = outputs[str(tool.comfyui_output_node_id)]
             if not output:
@@ -747,10 +790,34 @@ class ComfyUI:
 
     def _is_server_running(self):
         try:
+            start_time = time.time()
             url = f"http://{self.server_address}/history/123"
-            with urllib.request.urlopen(url) as response:
-                return response.status == 200
-        except URLError:
+            
+            with urllib.request.urlopen(urllib.request.Request(url), timeout=5) as response:
+                response_time = time.time() - start_time
+                is_running = response.status == 200
+                
+                if is_running:
+                    print(f"DEBUG: Server check successful - response time: {response_time:.3f}s")
+                else:
+                    print(f"DEBUG: Server responded with unexpected status: {response.status}")
+                
+                return is_running
+                
+        except urllib.error.URLError as e:
+            response_time = time.time() - start_time
+            print(f"DEBUG: Server check failed - URLError after {response_time:.3f}s: {e}")
+            if hasattr(e, 'reason'):
+                print(f"DEBUG: Failure reason: {e.reason}")
+            return False
+        except socket.timeout:
+            response_time = time.time() - start_time
+            print(f"DEBUG: Server check timed out after {response_time:.3f}s")
+            return False
+        except Exception as e:
+            response_time = time.time() - start_time
+            print(f"DEBUG: Server check failed with unexpected error after {response_time:.3f}s: {e}")
+            print(f"DEBUG: Error type: {type(e).__name__}")
             return False
 
     def _queue_prompt(self, prompt):
@@ -956,7 +1023,7 @@ class ComfyUI:
         print("tl destination folder", destination_folder)
 
         if os.path.exists(destination_folder):
-            print("Lora bundle already extracted. Skipping.")
+            print("LORA bundle already extracted, skipping download")
         else:
             try:
                 lora_tarfile = eden_utils.download_file(lora_url, f"/root/downloads/{lora_filename}")
@@ -969,7 +1036,7 @@ class ComfyUI:
                 raise IOError(f"Failed to extract tar file: {e}")
 
         extracted_files = os.listdir(destination_folder)
-        print("tl, extracted files", extracted_files)
+        print(f"Found {len(extracted_files)} files in LORA bundle")
 
         # Find lora and embeddings files using regex
         lora_pattern = re.compile(r'.*_lora\.safetensors$')
@@ -990,15 +1057,15 @@ class ComfyUI:
 
         # hack to correct for older lora naming convention
         if not lora_filename:
-            print("Lora file not found with standard naming convention. Searching for alternative...")
+            print("Searching for alternative LORA file naming convention...")
             lora_filename = next((f for f in extracted_files if f.endswith('.safetensors') and 'embedding' not in f.lower()), None)
             if not lora_filename:
                 raise FileNotFoundError(f"Unable to find a lora *.safetensors file in {extracted_files}")
             
-        print("tl, lora mode:", lora_mode)
-        print("tl, lora filename:", lora_filename)
-        print("tl, embeddings filename:", embeddings_filename)
-        print("tl, embedding_trigger:", embedding_trigger)
+        print(f"LORA mode: {lora_mode}")
+        print(f"Using LORA file: {lora_filename}")
+        print(f"Using embeddings file: {embeddings_filename}")
+        print(f"Embedding trigger: {embedding_trigger}")
 
         for file in [lora_filename, embeddings_filename]:
             if str(file) not in extracted_files:
@@ -1081,7 +1148,7 @@ class ComfyUI:
             metadata = param.json_schema_extra or {}
             file_type = metadata.get('file_type')
             is_array = metadata.get('is_array')
-            print(f"Parsing {key}, param: {param}")
+            print(f"Processing parameter: {key} (type: {file_type or 'standard'})")
 
             if file_type and any(t in ["image", "video", "audio"] for t in file_type.split("|")):
                 if not args.get(key):
@@ -1107,7 +1174,7 @@ class ComfyUI:
                     print(f"DISABLING {key}")
                     continue
                 
-                print(f"Found {key} LORA ID: ", lora_id)
+                print(f"Found {key} LORA ID: {lora_id}")
                 
                 models = get_collection("models3")
                 lora = models.find_one({"_id": ObjectId(lora_id)})
@@ -1207,10 +1274,61 @@ class ComfyUI:
                 subfields = [s.strip() for s in str(remap.subfield).split(",")]
                 for subfield in subfields:
                     output_value = remap.map.get(value)
-                    print("remap", str(remap.node_id), remap.field, subfield, " = ", output_value)
-                    workflow[str(remap.node_id)][remap.field][subfield] = output_value
+                    if output_value is not None:
+                        print(f"Remapping {key}={value} to {remap.node_id}.{remap.field}.{subfield}={output_value}")
+                        workflow[str(remap.node_id)][remap.field][subfield] = output_value
 
         return workflow
+
+    def _check_server_health(self):
+        """
+        Perform a detailed health check of the ComfyUI server.
+        Returns a dictionary with health information or None if the check fails.
+        """
+        health_info = {
+            "is_running": False,
+            "queue_status": None,
+            "system_stats": None,
+            "response_times": {}
+        }
+        
+        try:
+            # Check if server is running
+            start_time = time.time()
+            url = f"http://{self.server_address}/history/123"
+            with urllib.request.urlopen(urllib.request.Request(url), timeout=5) as response:
+                response_time = time.time() - start_time
+                health_info["is_running"] = response.status == 200
+                health_info["response_times"]["history"] = response_time
+                
+            # Check queue status
+            if health_info["is_running"]:
+                start_time = time.time()
+                url = f"http://{self.server_address}/queue"
+                with urllib.request.urlopen(urllib.request.Request(url), timeout=5) as response:
+                    response_time = time.time() - start_time
+                    health_info["response_times"]["queue"] = response_time
+                    if response.status == 200:
+                        queue_data = json.loads(response.read())
+                        health_info["queue_status"] = queue_data
+                        
+            # Check system stats
+            if health_info["is_running"]:
+                start_time = time.time()
+                url = f"http://{self.server_address}/system_stats"
+                with urllib.request.urlopen(urllib.request.Request(url), timeout=5) as response:
+                    response_time = time.time() - start_time
+                    health_info["response_times"]["system_stats"] = response_time
+                    if response.status == 200:
+                        stats_data = json.loads(response.read())
+                        health_info["system_stats"] = stats_data
+            
+            return health_info
+            
+        except Exception as e:
+            print(f"DEBUG: Health check failed: {e}")
+            health_info["error"] = str(e)
+            return health_info
 
 
 @app.local_entrypoint()
