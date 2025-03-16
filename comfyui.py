@@ -702,35 +702,41 @@ class ComfyUI:
             print(f"{' ' * 10}STARTING NEW TASK: {workflow_name}{' ' * 10}")
             print("=" * 60 + "\n")
             
-            # Debug: Perform detailed health check of ComfyUI server
-            print("DEBUG: Performing detailed ComfyUI server health check...")
+            # Debug: Get detailed server stats
+            print("DEBUG: Getting detailed ComfyUI server stats...")
             server_check_start = time.time()
-            health_info = self._check_server_health()
+            server_stats = self.get_server_stats()
             server_check_time = time.time() - server_check_start
             
-            if health_info["is_running"]:
-                print(f"DEBUG: ComfyUI server is running at {self.server_address} (health check took {server_check_time:.3f}s)")
-                print(f"DEBUG: Response times: {health_info['response_times']}")
+            # Check if we got valid stats without error
+            if "error" not in server_stats:
+                print(f"DEBUG: ComfyUI server is running at {self.server_address} (stats check took {server_check_time:.3f}s)")
                 
-                if health_info["queue_status"]:
-                    queue_info = health_info["queue_status"]
-                    print(f"DEBUG: Queue status - Running: {queue_info.get('running_size', 'N/A')}, Pending: {queue_info.get('pending_size', 'N/A')}")
+                # Print memory usage if available
+                if server_stats.get("memory_usage"):
+                    mem = server_stats["memory_usage"]
+                    print(f"DEBUG: VRAM Usage: {mem['vram_used_gb']:.2f}GB / {mem['vram_total_gb']:.2f}GB ({mem['vram_utilization']:.1f}%)")
                 
-                if health_info["system_stats"]:
-                    stats = health_info["system_stats"]
-                    print(f"DEBUG: System stats - RAM: {stats.get('ram', 'N/A')}, VRAM: {stats.get('vram', 'N/A')}")
+                # Print queue information if available
+                if server_stats.get("queue"):
+                    queue = server_stats["queue"]
+                    print(f"DEBUG: Queue status - Running: {queue.get('running_size', 'N/A')}, Pending: {queue.get('pending_size', 'N/A')}")
+                
+                # Print processing times if available
+                if server_stats.get("processing_times"):
+                    times = server_stats["processing_times"]
+                    print(f"DEBUG: Recent processing times - Avg: {times['average']:.2f}s, Min: {times['min']:.2f}s, Max: {times['max']:.2f}s")
             else:
                 print(f"DEBUG: WARNING - ComfyUI server is NOT running at {self.server_address}!")
-                if "error" in health_info:
-                    print(f"DEBUG: Health check error: {health_info['error']}")
+                print(f"DEBUG: Stats check error: {server_stats['error']}")
                     
                 print("DEBUG: Attempting to restart server...")
                 try:
                     self._start()
                     print("DEBUG: Server restarted successfully")
-                    # Verify server health after restart
-                    health_info = self._check_server_health()
-                    if not health_info["is_running"]:
+                    # Verify server stats after restart
+                    server_stats = self.get_server_stats()
+                    if "error" in server_stats:
                         raise Exception("Server restart failed - still not responding")
                 except Exception as e:
                     print(f"DEBUG: Failed to restart server: {e}")
@@ -744,8 +750,8 @@ class ComfyUI:
             workflow = self._inject_args_into_workflow(workflow, tool, args)
             
             # Debug: Check server again before queuing prompt
-            health_info = self._check_server_health()
-            if not health_info["is_running"]:
+            server_stats = self.get_server_stats()
+            if "error" in server_stats:
                 print("DEBUG: ERROR - Server not responding before queuing prompt!")
                 raise Exception("ComfyUI server stopped responding before queuing prompt")
             
@@ -1283,56 +1289,67 @@ class ComfyUI:
 
         return workflow
 
-    def _check_server_health(self):
+    def get_server_stats(self):
         """
-        Perform a detailed health check of the ComfyUI server.
-        Returns a dictionary with health information or None if the check fails.
+        Get comprehensive operational statistics from the ComfyUI server
         """
-        health_info = {
-            "is_running": False,
-            "queue_status": None,
-            "system_stats": None,
-            "response_times": {}
+        base_url = f"http://{self.server_address}"
+        stats = {
+            "system": None,
+            "queue": None,
+            "history": None,
+            "memory_usage": None,
+            "processing_times": None
         }
         
         try:
-            # Check if server is running
-            start_time = time.time()
-            url = f"http://{self.server_address}/history/123"
-            with urllib.request.urlopen(urllib.request.Request(url), timeout=5) as response:
-                response_time = time.time() - start_time
-                health_info["is_running"] = response.status == 200
-                health_info["response_times"]["history"] = response_time
+            # Get system statistics
+            response = urllib.request.urlopen(f"{base_url}/system_stats", timeout=5)
+            if response.status == 200:
+                stats["system"] = json.loads(response.read())
                 
-            # Check queue status
-            if health_info["is_running"]:
-                start_time = time.time()
-                url = f"http://{self.server_address}/queue"
-                with urllib.request.urlopen(urllib.request.Request(url), timeout=5) as response:
-                    response_time = time.time() - start_time
-                    health_info["response_times"]["queue"] = response_time
-                    if response.status == 200:
-                        queue_data = json.loads(response.read())
-                        health_info["queue_status"] = queue_data
-                        
-            # Check system stats
-            if health_info["is_running"]:
-                start_time = time.time()
-                url = f"http://{self.server_address}/system_stats"
-                with urllib.request.urlopen(urllib.request.Request(url), timeout=5) as response:
-                    response_time = time.time() - start_time
-                    health_info["response_times"]["system_stats"] = response_time
-                    if response.status == 200:
-                        stats_data = json.loads(response.read())
-                        health_info["system_stats"] = stats_data
+                # Extract useful memory metrics
+                if stats["system"] and "devices" in stats["system"]:
+                    for device in stats["system"]["devices"]:
+                        if device["type"] == "cuda":
+                            vram_total = device.get("vram_total", 0)
+                            vram_free = device.get("vram_free", 0)
+                            stats["memory_usage"] = {
+                                "vram_total_gb": round(vram_total / (1024**3), 2),
+                                "vram_used_gb": round((vram_total - vram_free) / (1024**3), 2),
+                                "vram_utilization": round((vram_total - vram_free) / vram_total * 100, 2) if vram_total > 0 else 0
+                            }
             
-            return health_info
+            # Get queue information
+            response = urllib.request.urlopen(f"{base_url}/queue", timeout=5)
+            if response.status == 200:
+                stats["queue"] = json.loads(response.read())
             
+            # Get recent history (last 5 items)
+            response = urllib.request.urlopen(f"{base_url}/history?max_items=5", timeout=5)
+            if response.status == 200:
+                history_data = json.loads(response.read())
+                stats["history"] = history_data
+                
+                # Calculate average processing times if history exists
+                if history_data and len(history_data) > 0:
+                    processing_times = []
+                    for item in history_data:
+                        if "exec_info" in item and "execution_time" in item["exec_info"]:
+                            processing_times.append(item["exec_info"]["execution_time"])
+                    
+                    if processing_times:
+                        stats["processing_times"] = {
+                            "average": sum(processing_times) / len(processing_times),
+                            "min": min(processing_times),
+                            "max": max(processing_times),
+                            "samples": len(processing_times)
+                        }
+            
+            return stats
+        
         except Exception as e:
-            print(f"DEBUG: Health check failed: {e}")
-            health_info["error"] = str(e)
-            return health_info
-
+            return {"error": str(e)}
 
 @app.local_entrypoint()
 def run():
