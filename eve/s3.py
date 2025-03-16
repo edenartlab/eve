@@ -33,6 +33,16 @@ file_extensions = {
     "application/zip": ".zip",
 }
 
+def get_root_url(s3=False):
+    """Returns the root URL, CloudFront by default, or S3"""
+    if s3:
+        db = os.getenv("DB", "STAGE").upper()
+        AWS_BUCKET_NAME = os.getenv(f"AWS_BUCKET_NAME_{db}")
+        AWS_REGION_NAME = os.getenv("AWS_REGION_NAME")
+        url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com"
+        return url
+    else:
+        return os.getenv("CLOUDFRONT_URL")
 
 def get_root_url(s3=False):
     """Returns the root URL, CloudFront by default, or S3"""

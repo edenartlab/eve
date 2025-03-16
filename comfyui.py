@@ -316,7 +316,9 @@ def get_workflows():
 
     if not workflow_names:
         raise Exception("No workflows found!")
-        
+    
+    # Sort workflow names alphabetically to ensure consistent test order
+    workflow_names.sort()
     return workflow_names
 
 def get_test_files(workflow):
@@ -385,7 +387,7 @@ def test_workflows():
         os.getenv("AWS_REGION_NAME")
     ])
     print(f"AWS credentials available: {has_aws_creds}")
-
+    
     # Create a single ComfyUI instance for all tests
     server_start = time.time()
     print(f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] Starting ComfyUI server...")
@@ -420,8 +422,7 @@ def test_workflows():
 
                 current_test += 1
                 print(f"\n\n\n------------------ Test ({current_test}/{total_tests}) - Workflow {workflow_idx}/{len(workflows)} - {workflow} ({test_idx}/{len(test_files)}) ------------------")
-                print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Starting test")
-
+                
                 test_args = json.loads(open(test, "r").read())
                 test_args = tool.prepare_args(test_args)
                 test_name = f"{workflow}_{os.path.basename(test)}"
