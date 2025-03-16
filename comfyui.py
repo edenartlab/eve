@@ -977,6 +977,7 @@ class ComfyUI:
         return user_prompt, lora_prompt
     
     def _inject_embedding_mentions_flux(self, text, embedding_trigger, lora_trigger_text):
+        orig_text = text.copy()
         if not embedding_trigger:  # Handles both None and empty string
             if lora_trigger_text:
                 text = re.sub(r'(<concept>)', lora_trigger_text, text, flags=re.IGNORECASE)
@@ -991,6 +992,11 @@ class ComfyUI:
         if lora_trigger_text:
             if lora_trigger_text not in text:
                 text = f"{lora_trigger_text}, {text}"
+
+        print(f"Performed FLUX LoRA trigger injection:")
+        print(orig_text)
+        print("Changed to:")
+        print(text)
 
         return text
 
@@ -1147,17 +1153,11 @@ class ComfyUI:
         embedding_triggers = {"lora": None, "lora2": None}
         lora_trigger_texts = {"lora": None, "lora2": None}
 
-        # Check if this is the flux_double_character workflow
-        is_flux_double_character = tool.key == "flux_double_character"
-        if is_flux_double_character:
-            print("====> DETECTED flux_double_character workflow")
-
         # First pass: Download and process all files        
         for key, param in tool.model.model_fields.items():
             metadata = param.json_schema_extra or {}
             file_type = metadata.get('file_type')
             is_array = metadata.get('is_array')
-            print(f"Processing parameter: {key} (type: {file_type or 'standard'})")
 
             if file_type and any(t in ["image", "video", "audio"] for t in file_type.split("|")):
                 if not args.get(key):
@@ -1216,9 +1216,11 @@ class ComfyUI:
                 args[key] = lora_filename
 
         # For flux_double_character, extract trigger texts and inject them
-        if is_flux_double_character and "flux" in base_model:
+        if tool.key == "flux_double_character":
             args["trigger_1"] = lora_trigger_texts.get("lora")
             args["trigger_2"] = lora_trigger_texts.get("lora2")
+            args["use_lora"]  = True
+            args["use_lora2"] = True
 
         # Second pass: Inject the downloaded files and other parameters into workflow
         for key, comfyui in tool.comfyui_map.items():
@@ -1240,7 +1242,6 @@ class ComfyUI:
                                 embedding_triggers[lora_key],
                                 lora_trigger_texts[lora_key]
                             )
-                            print(f"====> INJECTED {lora_key} TRIGGER TEXT", value)
                 elif base_model == "sdxl":  
                     if embedding_trigger:
                         lora_strength = args.get("lora_strength", 0.7)
