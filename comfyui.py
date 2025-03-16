@@ -977,7 +977,7 @@ class ComfyUI:
         return user_prompt, lora_prompt
     
     def _inject_embedding_mentions_flux(self, text, embedding_trigger, lora_trigger_text):
-        orig_text = text.copy()
+        orig_text = orig_text = str(text)
         if not embedding_trigger:  # Handles both None and empty string
             if lora_trigger_text:
                 text = re.sub(r'(<concept>)', lora_trigger_text, text, flags=re.IGNORECASE)
