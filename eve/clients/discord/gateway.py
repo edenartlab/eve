@@ -350,7 +350,7 @@ class DiscordGatewayClient:
 
     async def handle_message(self, data: dict):
         logger.info(
-            f"Handling message for deployment {self.deployment.id} with data {data}"
+            f"Handling message 4 deployment {self.deployment.id} with data {data}"
         )
 
         # Skip messages from the bot itself
