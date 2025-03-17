@@ -427,9 +427,9 @@ class Tool(Document, ABC):
                 args = self.prepare_args(args)
                 sentry_sdk.add_breadcrumb(category="handle_start_task", data=args)
                 cost = self.calculate_cost(args)
-                user = User.from_mongo(user_id)
-                if "freeTools" in (user.featureFlags or []):
-                    cost = 0
+                # user = User.from_mongo(user_id)
+                # if "freeTools" in (user.featureFlags or []):
+                #     cost = 0
                 requester = User.from_mongo(requester_id)
                 requester.check_manna(cost)
 
