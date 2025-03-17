@@ -24,7 +24,7 @@ MODELS = [
 
 DEFAULT_MODEL = "gpt-4o-mini"
 
-DEFAULT_MODEL = "claude-3-7-sonnet-latest"
+DEFAULT_MODEL = "claude-3-7-haiku-latest"
 
 
 class UpdateType(str, Enum):
@@ -393,7 +393,7 @@ async def async_openai_prompt_stream(
 async def async_prompt(
     messages: List[Union[UserMessage, AssistantMessage]],
     system_message: Optional[str],
-    model: Literal[tuple(MODELS)] = "claude-3-7-sonnet-latest",
+    model: Literal[tuple(MODELS)] = "claude-3-7-haiku-latest",
     response_model: Optional[type[BaseModel]] = None,
     tools: Dict[str, Tool] = {},
 ) -> Tuple[str, List[ToolCall], bool]:
