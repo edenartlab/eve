@@ -20,10 +20,8 @@ DB=PROD WORKSPACE=txt2img modal deploy comfyui.py
 DB=PROD WORKSPACE=video modal deploy comfyui.py
 DB=PROD WORKSPACE=video2 modal deploy comfyui.py
 DB=PROD WORKSPACE=video_mochi modal deploy comfyui.py
-
 """
 
-from urllib.error import URLError
 from bson import ObjectId
 from pprint import pprint
 from pathlib import Path
@@ -43,6 +41,7 @@ import tempfile
 import subprocess
 import traceback
 import sys
+import socket
 
 import eve.eden_utils as eden_utils
 from eve.tool import Tool
@@ -89,26 +88,43 @@ if not test_workflows and workspace_name and not test_all:
     print("!!!! WARNING: You are deploying a workspace without TEST_ALL !!!!")
     print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n")
 
+
 def install_comfyui():
+    os.chdir("/root")
     snapshot = json.load(open("/root/workspace/snapshot.json", 'r'))
     comfyui_commit_sha = snapshot["comfyui"]
-    subprocess.run(["git", "init", "."], check=True)
-    subprocess.run(["git", "remote", "add", "--fetch", "origin", "https://github.com/comfyanonymous/ComfyUI"], check=True)
-    subprocess.run(["git", "checkout", comfyui_commit_sha], check=True)
-    subprocess.run(["pip", "install", "xformers!=0.0.18", "-r", "requirements.txt", "--extra-index-url", "https://download.pytorch.org/whl/cu121"], check=True)
+
+    print(f"Initializing git repository in {os.getcwd()}")
+    result = subprocess.run(["git", "init", "."], check=True, capture_output=True)
+    print(f"Git init output: {result.stdout.decode()}")
     
-    # Check specific paths
-    paths_to_check = [
-        "main.py",
-        "/root/main.py",
-        os.path.join(os.getcwd(), "main.py")
-    ]
-    print("\nChecking for main.py in various locations:")
-    for path in paths_to_check:
-        print(f"Checking {path}: {'EXISTS' if os.path.exists(path) else 'NOT FOUND'}")
-    print("=====================================\n")
+    print(f"Adding ComfyUI remote and fetching")
+    result = subprocess.run(["git", "remote", "add", "--fetch", "origin", "https://github.com/comfyanonymous/ComfyUI"], check=True, capture_output=True)
+    print(f"Git remote add output: {result.stdout.decode()}")
+    
+    print(f"Checking out commit: {comfyui_commit_sha}")
+    result = subprocess.run(["git", "checkout", comfyui_commit_sha], check=True, capture_output=True)
+    print(f"Git checkout output: {result.stdout.decode()}")
+
+    subprocess.run(["pip", "install", "xformers!=0.0.18", "-r", "requirements.txt", "--extra-index-url", "https://download.pytorch.org/whl/cu121"], check=True)
+    # List all files and directories in the current directory:
+    print("Current directory structure:")
+    for root, dirs, files in os.walk("."):
+        level = root.replace(os.getcwd(), '').count(os.sep)
+        if level <= 1:
+            indent = ' ' * 4 * (level)
+            print(f"{indent}{os.path.basename(root)}/")
+            subindent = ' ' * 4 * (level + 1)
+            for f in files:
+                print(f"{subindent}{f}")
+        if level >= 1:
+            dirs.clear()  # This prevents os.walk from recursing deeper
+    print("ComfyUI installation completed successfully")
+
 
 def install_custom_nodes():
+    os.chdir("/root")
+    
     snapshot = json.load(open("/root/workspace/snapshot.json", 'r'))
     custom_nodes = snapshot["git_custom_nodes"]
     for url, node in custom_nodes.items():
@@ -117,6 +133,24 @@ def install_custom_nodes():
     post_install_commands = snapshot.get("post_install_commands", [])
     for cmd in post_install_commands:
         os.system(cmd)
+
+    # Check for ControlFlowUtils helper.py and set DEBUG_MODE to False
+    try:
+        helper_path = os.path.join(os.environ.get("COMFYUI_PATH", "/root"), "custom_nodes/ControlFlowUtils/helper.py")
+        if os.path.exists(helper_path):
+            print(f"Found ControlFlowUtils helper.py at {helper_path}, checking for DEBUG_MODE")
+            with open(helper_path, 'r') as f:
+                content = f.read()
+            
+            if 'DEBUG_MODE = True' in content:
+                print("Setting DEBUG_MODE to False in ControlFlowUtils helper.py")
+                content = content.replace('DEBUG_MODE = True', 'DEBUG_MODE = False')
+                with open(helper_path, 'w') as f:
+                    f.write(content)
+            else:
+                print("DEBUG_MODE is already set to False or not found in ControlFlowUtils helper.py")
+    except:
+        pass
 
 def install_custom_node_with_retries(url, hash, max_retries=3): 
     for attempt in range(max_retries + 1):
@@ -139,7 +173,7 @@ def install_custom_node_with_retries(url, hash, max_retries=3):
 
 def install_custom_node(url, hash):
     repo_name = url.split("/")[-1].split(".")[0]
-    repo_path = f"custom_nodes/{repo_name}"
+    repo_path = os.path.join("/root", "custom_nodes", repo_name)
     if os.path.exists(repo_path):
         return
     repo = git.Repo.clone_from(url, repo_path)
@@ -280,7 +314,9 @@ def get_workflows():
 
     if not workflow_names:
         raise Exception("No workflows found!")
-        
+    
+    # Sort workflow names alphabetically to ensure consistent test order
+    workflow_names.sort()
     return workflow_names
 
 def get_test_files(workflow):
@@ -349,7 +385,7 @@ def test_workflows():
         os.getenv("AWS_REGION_NAME")
     ])
     print(f"AWS credentials available: {has_aws_creds}")
-
+    
     # Create a single ComfyUI instance for all tests
     server_start = time.time()
     print(f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] Starting ComfyUI server...")
@@ -383,9 +419,10 @@ def test_workflows():
                     continue
 
                 current_test += 1
+                successful_tests = current_test - 1 - len(failed_tests)
                 print(f"\n\n\n------------------ Test ({current_test}/{total_tests}) - Workflow {workflow_idx}/{len(workflows)} - {workflow} ({test_idx}/{len(test_files)}) ------------------")
-                print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Starting test")
-
+                print(f"Progress: {successful_tests} successful, {len(failed_tests)} failed tests so far")
+                
                 test_args = json.loads(open(test, "r").read())
                 test_args = tool.prepare_args(test_args)
                 test_name = f"{workflow}_{os.path.basename(test)}"
@@ -646,30 +683,82 @@ class ComfyUI:
         self.server_address = "127.0.0.1:8188"
         
     def _start(self, port=8188):
-        print("Start server")
+        print("DEBUG: Starting ComfyUI server...")
         t1 = time.time()
         self.server_address = f"127.0.0.1:{port}"
-        cmd = f"python main.py --dont-print-server --listen --port {port}"
+        cmd = f"python /root/main.py --dont-print-server --listen --port {port}"
         subprocess.Popen(cmd, shell=True)
         while not self._is_server_running():
-            time.sleep(1)
+            time.sleep(0.5)
         t2 = time.time()
         self.launch_time = t2 - t1
+        print(f"DEBUG: ComfyUI server started in {self.launch_time:.2f}s")
 
     def _execute(self, workflow_name: str, args: dict, user: str = None, requester: str = None):
         try:
-            print("\n-------------------------------------------------------")
-            print("---------------------------------------------------------")
-            print(f"------->  Starting new task: {workflow_name} <-------")
-            print("---------------------------------------------------------")
-            print("---------------------------------------------------------\n")
+            print("\n" + "=" * 60)
+            print(f"{' ' * 10}STARTING NEW TASK: {workflow_name}{' ' * 10}")
+            print("=" * 60 + "\n")
+            
+            # Debug: Get detailed server stats
+            print("DEBUG: Getting detailed ComfyUI server stats...")
+            server_check_start = time.time()
+            server_stats = self.get_server_stats()
+            server_check_time = time.time() - server_check_start
+            
+            # Check if we got valid stats without error
+            if "error" not in server_stats:
+                print(f"DEBUG: ComfyUI server is running at {self.server_address} (stats check took {server_check_time:.3f}s)")
+                
+                # Print memory usage if available
+                if server_stats.get("memory_usage"):
+                    mem = server_stats["memory_usage"]
+                    print(f"DEBUG: VRAM Usage: {mem['vram_used_gb']:.2f}GB / {mem['vram_total_gb']:.2f}GB ({mem['vram_utilization']:.1f}%)")
+                
+                # Print queue information if available
+                if server_stats.get("queue"):
+                    queue = server_stats["queue"]
+                    print(f"DEBUG: Queue status - Running: {queue.get('running_size', 'N/A')}, Pending: {queue.get('pending_size', 'N/A')}")
+                
+                # Print processing times if available
+                if server_stats.get("processing_times"):
+                    times = server_stats["processing_times"]
+                    print(f"DEBUG: Recent processing times - Avg: {times['average']:.2f}s, Min: {times['min']:.2f}s, Max: {times['max']:.2f}s")
+            else:
+                print(f"DEBUG: WARNING - ComfyUI server is NOT running at {self.server_address}!")
+                print(f"DEBUG: Stats check error: {server_stats['error']}")
+                    
+                print("DEBUG: Attempting to restart server...")
+                try:
+                    self._start()
+                    print("DEBUG: Server restarted successfully")
+                    # Verify server stats after restart
+                    server_stats = self.get_server_stats()
+                    if "error" in server_stats:
+                        raise Exception("Server restart failed - still not responding")
+                except Exception as e:
+                    print(f"DEBUG: Failed to restart server: {e}")
+                    raise Exception(f"ComfyUI server is not running and restart failed: {e}")
+            
             eden_utils.log_memory_info()
             tool_path = f"/root/workspace/workflows/{workflow_name}"
             tool = Tool.from_yaml(f"{tool_path}/api.yaml")
             workflow = json.load(open(f"{tool_path}/workflow_api.json", 'r'))
             self._validate_comfyui_args(workflow, tool)
             workflow = self._inject_args_into_workflow(workflow, tool, args)
+            
+            # Debug: Check server again before queuing prompt
+            server_stats = self.get_server_stats()
+            if "error" in server_stats:
+                print("DEBUG: ERROR - Server not responding before queuing prompt!")
+                raise Exception("ComfyUI server stopped responding before queuing prompt")
+            
+            print("DEBUG: Queuing prompt to ComfyUI server...")
+            queue_start = time.time()
             prompt_id = self._queue_prompt(workflow)['prompt_id']
+            queue_time = time.time() - queue_start
+            print(f"DEBUG: Prompt queued successfully (took {queue_time:.3f}s), prompt_id: {prompt_id}")
+            
             outputs = self._get_outputs(prompt_id)
             output = outputs[str(tool.comfyui_output_node_id)]
             if not output:
@@ -708,10 +797,34 @@ class ComfyUI:
 
     def _is_server_running(self):
         try:
+            start_time = time.time()
             url = f"http://{self.server_address}/history/123"
-            with urllib.request.urlopen(url) as response:
-                return response.status == 200
-        except URLError:
+            
+            with urllib.request.urlopen(urllib.request.Request(url), timeout=5) as response:
+                response_time = time.time() - start_time
+                is_running = response.status == 200
+                
+                if is_running:
+                    print(f"DEBUG: Server check successful - response time: {response_time:.3f}s")
+                else:
+                    print(f"DEBUG: Server responded with unexpected status: {response.status}")
+                
+                return is_running
+                
+        except urllib.error.URLError as e:
+            response_time = time.time() - start_time
+            print(f"DEBUG: Server check failed - URLError after {response_time:.3f}s: {e}")
+            if hasattr(e, 'reason'):
+                print(f"DEBUG: Failure reason: {e.reason}")
+            return False
+        except socket.timeout:
+            response_time = time.time() - start_time
+            print(f"DEBUG: Server check timed out after {response_time:.3f}s")
+            return False
+        except Exception as e:
+            response_time = time.time() - start_time
+            print(f"DEBUG: Server check failed with unexpected error after {response_time:.3f}s: {e}")
+            print(f"DEBUG: Error type: {type(e).__name__}")
             return False
 
     def _queue_prompt(self, prompt):
@@ -862,6 +975,7 @@ class ComfyUI:
         return user_prompt, lora_prompt
     
     def _inject_embedding_mentions_flux(self, text, embedding_trigger, lora_trigger_text):
+        orig_text = orig_text = str(text)
         if not embedding_trigger:  # Handles both None and empty string
             if lora_trigger_text:
                 text = re.sub(r'(<concept>)', lora_trigger_text, text, flags=re.IGNORECASE)
@@ -876,6 +990,11 @@ class ComfyUI:
         if lora_trigger_text:
             if lora_trigger_text not in text:
                 text = f"{lora_trigger_text}, {text}"
+
+        print(f"Performed FLUX LoRA trigger injection:")
+        print(orig_text)
+        print("Changed to:")
+        print(text)
 
         return text
 
@@ -917,7 +1036,7 @@ class ComfyUI:
         print("tl destination folder", destination_folder)
 
         if os.path.exists(destination_folder):
-            print("Lora bundle already extracted. Skipping.")
+            print("LORA bundle already extracted, skipping download")
         else:
             try:
                 lora_tarfile = eden_utils.download_file(lora_url, f"/root/downloads/{lora_filename}")
@@ -930,7 +1049,7 @@ class ComfyUI:
                 raise IOError(f"Failed to extract tar file: {e}")
 
         extracted_files = os.listdir(destination_folder)
-        print("tl, extracted files", extracted_files)
+        print(f"Found {len(extracted_files)} files in LORA bundle")
 
         # Find lora and embeddings files using regex
         lora_pattern = re.compile(r'.*_lora\.safetensors$')
@@ -951,15 +1070,15 @@ class ComfyUI:
 
         # hack to correct for older lora naming convention
         if not lora_filename:
-            print("Lora file not found with standard naming convention. Searching for alternative...")
+            print("Searching for alternative LORA file naming convention...")
             lora_filename = next((f for f in extracted_files if f.endswith('.safetensors') and 'embedding' not in f.lower()), None)
             if not lora_filename:
                 raise FileNotFoundError(f"Unable to find a lora *.safetensors file in {extracted_files}")
             
-        print("tl, lora mode:", lora_mode)
-        print("tl, lora filename:", lora_filename)
-        print("tl, embeddings filename:", embeddings_filename)
-        print("tl, embedding_trigger:", embedding_trigger)
+        print(f"LORA mode: {lora_mode}")
+        print(f"Using LORA file: {lora_filename}")
+        print(f"Using embeddings file: {embeddings_filename}")
+        print(f"Embedding trigger: {embedding_trigger}")
 
         for file in [lora_filename, embeddings_filename]:
             if str(file) not in extracted_files:
@@ -1037,8 +1156,6 @@ class ComfyUI:
             metadata = param.json_schema_extra or {}
             file_type = metadata.get('file_type')
             is_array = metadata.get('is_array')
-            if key not in ['tip']:
-                print(f"Parsing {key}, param: {param}")
             if file_type and any(t in ["image", "video", "audio"] for t in file_type.split("|")):
                 if not args.get(key):
                     continue
@@ -1063,7 +1180,7 @@ class ComfyUI:
                     print(f"DISABLING {key}")
                     continue
                 
-                print(f"Found {key} LORA ID: ", lora_id)
+                print(f"Found {key} LORA ID: {lora_id}")
                 
                 models = get_collection("models3")
                 lora = models.find_one({"_id": ObjectId(lora_id)})
@@ -1095,6 +1212,13 @@ class ComfyUI:
 
                 args[key] = lora_filename
 
+        # For flux_double_character, extract trigger texts and inject them
+        if tool.key == "flux_double_character":
+            args["trigger_1"] = lora_trigger_texts.get("lora")
+            args["trigger_2"] = lora_trigger_texts.get("lora2")
+            args["use_lora"]  = True
+            args["use_lora2"] = True
+
         # Second pass: Inject the downloaded files and other parameters into workflow
         for key, comfyui in tool.comfyui_map.items():
             value = args.get(key)
@@ -1115,7 +1239,6 @@ class ComfyUI:
                                 embedding_triggers[lora_key],
                                 lora_trigger_texts[lora_key]
                             )
-                            print(f"====> INJECTED {lora_key} TRIGGER TEXT", value)
                 elif base_model == "sdxl":  
                     if embedding_trigger:
                         lora_strength = args.get("lora_strength", 0.7)
@@ -1158,11 +1281,73 @@ class ComfyUI:
                 subfields = [s.strip() for s in str(remap.subfield).split(",")]
                 for subfield in subfields:
                     output_value = remap.map.get(value)
-                    print("remap", str(remap.node_id), remap.field, subfield, " = ", output_value)
-                    workflow[str(remap.node_id)][remap.field][subfield] = output_value
+                    if output_value is not None:
+                        print(f"Remapping {key}={value} to {remap.node_id}.{remap.field}.{subfield}={output_value}")
+                        workflow[str(remap.node_id)][remap.field][subfield] = output_value
 
         return workflow
 
+    def get_server_stats(self):
+        """
+        Get comprehensive operational statistics from the ComfyUI server
+        """
+        base_url = f"http://{self.server_address}"
+        stats = {
+            "system": None,
+            "queue": None,
+            "history": None,
+            "memory_usage": None,
+            "processing_times": None
+        }
+        
+        try:
+            # Get system statistics
+            response = urllib.request.urlopen(f"{base_url}/system_stats", timeout=5)
+            if response.status == 200:
+                stats["system"] = json.loads(response.read())
+                
+                # Extract useful memory metrics
+                if stats["system"] and "devices" in stats["system"]:
+                    for device in stats["system"]["devices"]:
+                        if device["type"] == "cuda":
+                            vram_total = device.get("vram_total", 0)
+                            vram_free = device.get("vram_free", 0)
+                            stats["memory_usage"] = {
+                                "vram_total_gb": round(vram_total / (1024**3), 2),
+                                "vram_used_gb": round((vram_total - vram_free) / (1024**3), 2),
+                                "vram_utilization": round((vram_total - vram_free) / vram_total * 100, 2) if vram_total > 0 else 0
+                            }
+            
+            # Get queue information
+            response = urllib.request.urlopen(f"{base_url}/queue", timeout=5)
+            if response.status == 200:
+                stats["queue"] = json.loads(response.read())
+            
+            # Get recent history (last 5 items)
+            response = urllib.request.urlopen(f"{base_url}/history?max_items=5", timeout=5)
+            if response.status == 200:
+                history_data = json.loads(response.read())
+                stats["history"] = history_data
+                
+                # Calculate average processing times if history exists
+                if history_data and len(history_data) > 0:
+                    processing_times = []
+                    for item in history_data:
+                        if "exec_info" in item and "execution_time" in item["exec_info"]:
+                            processing_times.append(item["exec_info"]["execution_time"])
+                    
+                    if processing_times:
+                        stats["processing_times"] = {
+                            "average": sum(processing_times) / len(processing_times),
+                            "min": min(processing_times),
+                            "max": max(processing_times),
+                            "samples": len(processing_times)
+                        }
+            
+            return stats
+        
+        except Exception as e:
+            return {"error": str(e)}
 
 @app.local_entrypoint()
 def run():
