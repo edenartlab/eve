@@ -1062,7 +1062,7 @@ class ComfyUI:
         if training_args_filename:
             with open(os.path.join(destination_folder, training_args_filename), "r") as f:
                 training_args = json.load(f)
-                lora_mode = training_args["concept_mode"]
+                lora_mode = training_args.get("concept_mode", training_args.get("mode", "style"))
                 embedding_trigger = training_args["name"]
         else:
             lora_mode = None
