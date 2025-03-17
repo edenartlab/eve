@@ -20,10 +20,8 @@ DB=PROD WORKSPACE=txt2img modal deploy comfyui.py
 DB=PROD WORKSPACE=video modal deploy comfyui.py
 DB=PROD WORKSPACE=video2 modal deploy comfyui.py
 DB=PROD WORKSPACE=video_mochi modal deploy comfyui.py
-
 """
 
-from urllib.error import URLError
 from bson import ObjectId
 from pprint import pprint
 from pathlib import Path
