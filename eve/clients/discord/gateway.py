@@ -45,6 +45,7 @@ image = (
     )
     .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
     .env({"DB": db})
+    .env({"SENTRY_DSN": None})
 )
 
 
