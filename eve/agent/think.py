@@ -120,7 +120,8 @@ async def async_think(
     thought = await async_prompt(
         [UserMessage(content=prompt)],
         system_message=f"You analyze the chat on behalf of {agent.name} and generate a thought.",
-        model="gpt-4o-mini",
+        # model="gpt-4o-mini",
+        model="claude-3-5-haiku-latest",
         response_model=ChatThought,
     )
 
