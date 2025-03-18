@@ -6,6 +6,7 @@ from typing import List, Literal, Optional
 
 from ..eden_utils import dump_json
 from ..mongo import Document, Collection
+from ..user import User
 from ..api.api_requests import UpdateConfig
 from .message import ChatMessage, Channel
 
@@ -21,11 +22,13 @@ class Session(Document):
 	# messages: List[ChatMessage] = Field(default_factory=list)
 	budget: Optional[float] = None
 	spent: Optional[float] = 0
+	cursor: Optional[ObjectId] = None
+
 
 	def get_chat_log(self, limit: int = 25) -> str:
 		chat = ""
 		
-		from ..user import User
+		
 		messages = ChatMessage.find({"session": self.id}, sort="createdAt", limit=25)
 		senders = User.find({"_id": {"$in": [message.sender for message in messages]}})
 		senders = {sender.id: sender.username for sender in senders}
