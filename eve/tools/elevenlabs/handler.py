@@ -16,7 +16,7 @@ eleven = ElevenLabs(
 DEFAULT_VOICE = "XB0fDUnXU5powFXDhCwa"
 
 
-async def handler(args: dict, user: str = None, requester: str = None):
+async def handler(args: dict, user: str = None, agent: str = None):
     # print("args", args)
     args["stability"] = args.get("stability", 0.5)
     args["similarity_boost"] = args.get("similarity_boost", 0.75)

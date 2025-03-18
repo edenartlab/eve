@@ -214,7 +214,7 @@ async def generate_lora_thumbnails():
             if thumbnail:
                 task_id = ObjectId(model["task"])
                 models.update_one(
-                    {"_id": model["_id"]}, {"$set": {"thumbnail": thumbnail}}
+                    {"_id": model["_id"]}, {"$set": {"thumbnail": thumbnail, "thumbnail_prompts": prompts}}
                 )
                 tasks.update_one(
                     {
