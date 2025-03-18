@@ -303,7 +303,7 @@ async def async_prompt_agent(
         last_user_message = messages[-1]
 
         tools = agent.get_tools()
-        tools = {k: v for k, v in tools.items() if k in ["flux_dev_lora", "outpaint"]}
+        #tools = {k: v for k, v in tools.items() if k in ["flux_dev_lora", "outpaint"]}
 
         # if not has_flux_dev_lora:
         #     tools.pop("flux_dev_lora", None)
