@@ -39,6 +39,10 @@ def load_handler(name):
             from .mongo_utils.search_agents.handler import handler
             handlers[name] = handler
 
+        elif name == "create_session":
+            from .mongo_utils.create_session.handler import handler
+            handlers[name] = handler
+
         elif name == "search_models":
             from .mongo_utils.search_models.handler import handler
             handlers[name] = handler

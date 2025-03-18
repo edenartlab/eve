@@ -244,7 +244,8 @@ async def async_playout_session(session: Session):
     user = User.from_mongo(session.user)
     session = Session.from_mongo(session.id)
 
-    while True:
+    # while True:
+    for i in range(7):
         dispatch = await async_run_dispatcher(session)
         agent = Agent.load(dispatch.speaker)
         await async_prompt_agent(user, agent, session)
