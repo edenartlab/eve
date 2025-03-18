@@ -43,5 +43,5 @@ async def handler(args: dict, user: str = None, agent: str = None):
     await async_playout_session(session)
     
     return {
-        "output": "success"
+        "output": "https://edenartlab-stage-data.s3.amazonaws.com/d158dc1e5c62479489c1c3d119dd211bd56ba86a127359f7476990ec9e081cba.jpg"
     }
