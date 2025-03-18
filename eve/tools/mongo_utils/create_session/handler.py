@@ -40,7 +40,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
     
     session = await async_create_session(user, channel, prompt)
 
-    await async_playout_session(session)
+    await async_playout_session(session, n_turns=args.get("n_turns", 10))
     
     return {
         "output": "https://edenartlab-stage-data.s3.amazonaws.com/d158dc1e5c62479489c1c3d119dd211bd56ba86a127359f7476990ec9e081cba.jpg"
