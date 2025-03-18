@@ -240,12 +240,12 @@ from eve.agent2.llm import async_prompt
 from eve.api.helpers import emit_update
 
 
-async def async_playout_session(session: Session):
+async def async_playout_session(session: Session, n_turns: int = 10):
     user = User.from_mongo(session.user)
     session = Session.from_mongo(session.id)
 
     # while True:
-    for i in range(7):
+    for i in range(n_turns):
         dispatch = await async_run_dispatcher(session)
         agent = Agent.load(dispatch.speaker)
         await async_prompt_agent(user, agent, session)
@@ -265,7 +265,7 @@ async def async_prompt_agent(
 
         model = "claude-3-5-haiku-latest"
         # model = "gpt-4.5-preview"
-        # model = "claude-3-7-sonnet-latest"
+        model = "claude-3-7-sonnet-latest"
 
 
 
@@ -420,8 +420,8 @@ async def async_prompt_agent(
             sub_channel_name=None,
             update_endpoint=f'https://edenartlab--api-{db.lower()}-fastapi-app.modal.run/emissions/platform/discord',
             deployment_id=str(deployment["_id"]),
-            discord_channel_id='1268682080263606443', #'1268682080263606443',
-            discord_message_id='1350048991915802675' #'1350045471162368033',
+            discord_channel_id='1003581679916548207', #'1268682080263606443',
+            discord_message_id='1351473271065018410' #'1350045471162368033',
         )
         data = {
             'type': 'assistant_message',
