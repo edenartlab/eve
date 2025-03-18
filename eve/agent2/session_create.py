@@ -8,7 +8,7 @@ from .message import UserMessage
 from .session import Session, Channel
 from .llm import async_prompt
 from .agent import Agent
-
+from .message import get_chat_log
 
 
 agent_template = Template("""<Agent>
@@ -33,13 +33,13 @@ Only the following agents are allowed to be involved in this scenario. Do not in
 {{agents}}
 </EligibleAgents>
 
-<ChatLog>
 {{chat_log}}
-</ChatLog>
 
-<NewMessage>
-{{latest_message}}
-</NewMessage>
+<Prompt>
+This is the requested prompt for the new scenario.
+
+{{prompt}}
+</Prompt>
 
 <Task>
 1. Decide which agents are involved in this scenario. These are the primary actors in the scenario.
@@ -50,48 +50,41 @@ Only the following agents are allowed to be involved in this scenario. Do not in
  - If the user requests a specific amount of manna, just do that.
 </Task>""")
 
+chat_log_template = Template("""
+<ChatLog>
+This is the prior context of the channel. This may or may not be relevant to the prompt.
+
+{{chat_log}}
+</ChatLog>
+""")
+
 
 async def async_create_session(
     user: User,
     channel: Channel,
     prompt: str
 ):
-    
-    print("A1")
-    # get the last 25 messages of the chat
-    messages = channel.get_messages(limit=25)
-    print("A2")
-    chat = "\n".join([f"({m.createdAt}): {m.content}" for m in messages])
-    print("A3")
+    messages = channel.get_messages(limit=50)
+    chat_log = get_chat_log(messages)
 
     # get all agents that are listening to this channel
     deployments = get_collection("deployments").find({f"config.{channel.type}.channel_allowlist.id": channel.key})
-    print("A4")
     eligible_agents = Agent.find({"_id": {"$in": [dep["agent"] for dep in deployments]}})
-    print("A5")
     agent_names = [a.username for a in eligible_agents]
-    print("A6")
     agents_text = "\n".join([agent_template.render(a) for a in eligible_agents])
-    print("A7")
-
-    # get the last user message
-    if messages:
-        latest_user_message = messages[-1].content
-    else:
-        latest_user_message = "This is the beginning of the scenario."
 
     session_creation_prompt = session_creation_template.render(
         agents=agents_text,
-        chat_log=chat,
-        latest_message=latest_user_message,
+        chat_log=chat_log_template.render(chat_log=chat_log) if chat_log else "",
+        prompt=prompt,
     )
 
-    print("--------------------------------")
+    print("111 --------------------------------")
     print(session_creation_prompt)
-    print("--------------------------------")
+    print("111 --------------------------------")
     print("agent names", agent_names)
 
-    
+
     class NewSession(BaseModel):
         """A Session is a multi-agent chat involving a group of agents, a scenario, and a budget."""
 
@@ -113,8 +106,8 @@ async def async_create_session(
         )
 
     new_session = await async_prompt(
-        messages=[UserMessage(content=prompt)],
-        system_message="You are a scenario creator who creates new multi-agent scenarios.",
+        messages=[UserMessage(content=session_creation_prompt)],
+        system_message="You are a creative writer who creates new multi-agent scenarios.",
         model="gpt-4o-mini",
         response_model=NewSession,
     )
@@ -132,6 +125,5 @@ async def async_create_session(
         budget=new_session.budget,
     )
     new_session.save()
-    print("!!!")
 
     return new_session

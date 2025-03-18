@@ -7,8 +7,7 @@ from ..eden_utils import dump_json
 from .llm import async_prompt
 from .agent import Agent
 # from .thread import UserMessage
-from .message import ChatMessage, UserMessage
-from .session import Session
+from .message import ChatMessage, UserMessage, Session, get_chat_log
 
 
 agent_template = Template("""<Agent>
@@ -24,11 +23,7 @@ agent_template = Template("""<Agent>
 
 dispatcher_template = Template("""
 <Summary>
-You are the Dispatcher. You orchestrate this multi-agent scenario by deciding:
-- Which agent(s) should speak next (if any)
-- The current state of the scenario (progress, unresolved issues, next steps)
-- Whether the scenario is complete
-You do not speak or act on your own; you remain invisible, only orchestrating.
+You are the Dispatcher. You orchestrate this multi-agent scenario by deciding which agent should speak next and giving them a hint about the overall status of the scenario they are in and what they should do to move closer towards the final goal. You do not speak or act on your own; you remain invisible, only orchestrating.
 </Summary>
 
 <Rules>
@@ -42,26 +37,12 @@ You do not speak or act on your own; you remain invisible, only orchestrating.
 <Agents>
 {{agents}}
 </Agents>
-
-<Scenario>
-This is the original premise of the scenario:
                                
 {{scenario}}
-</Scenario>
-
-<Current>
-This is the current situation:
-                               
 {{current}}
-</Current>
-
-<ChatLog>
-{{chat_log}}
-</ChatLog>
-
-<NewMessage>
-{{latest_message}}
-</NewMessage>
+{{processed_chat}}
+{{new_chat}}
+{{manna_info}}
 
 <Task>
 1. Decide which agents, if any, should speak next in response to the new message or the current situation.
@@ -73,53 +54,91 @@ This is the current situation:
  - end_condition: true if the scenario is complete, false otherwise
 </Task>""")
 
+scenario_template = Template("""
+<Scenario>
+{{scenario}}
+</Scenario>
+""")
+
+current_template = Template("""
+<Current>
+This is a summary of the current state of the scenario with respect to what's happened, what remains to be done.
+
+{{current}}
+</Current>
+""")
+
+processed_chat_template = Template("""
+<ChatLog>
+This is the log of the messages that have been previously considered already.
+
+{{chat_log}}
+</ChatLog>
+""")
+
+new_chat_template = Template("""
+<NewMessages>
+The following messages have been received since the last message was processed:
+
+{{new_chat}}
+</NewMessages>
+""")
+
+manna_info_template = Template("""
+<Manna>
+All actions cost manna. 1 manna is roughly equivalent to 1 chat message or one text-to-image generation, while video or model generation is more expensive, getting to the 50-100 range.
+
+Manna budgeted for this scenario: {{ manna }}
+Manna spent so far: {{ manna_spent }}
+Manna left: {{ manna - manna_spent }}
+                               
+Make sure you are on track to finish the scenario before you run out of manna. If you are starting to run low, gently guide the agents towards concluding the scenario.
+</Manna>
+""")
+
 
 
 async def async_run_dispatcher(
     session: Session,
-    # message: ChatMessage,
 ):
-
-    
+    # get agents
     agents = Agent.find({"_id": {"$in": session.agents}})
     agent_names = [a.username for a in agents]
     agents_text = "\n".join([agent_template.render(a) for a in agents])
 
-    # generate text blob of chat history
-    chat = session.get_chat_log(25)
-    
-    # print(chat)
+    # convert chat history to text
+    messages = ChatMessage.find({"session": session.id}, sort="createdAt", limit=50)
+    last_processed_message = next((m for m in messages if m.id == session.cursor), None)
+    processed_messages = [m for m in messages if m.createdAt <= last_processed_message.createdAt] if last_processed_message else []
+    processed_chat_log = get_chat_log(processed_messages)
+    new_messages = [m for m in messages if m.createdAt > last_processed_message.createdAt] if last_processed_message else messages
+    new_chat_log = get_chat_log(new_messages)
 
-    latest_user_message = "This is the beginning of the session" #message.content
-
+    # assemble dispatcher prompt
     prompt = dispatcher_template.render(
         agents=agents_text,
-        scenario="session.scenario",
-        current="session.current",
-        chat_log=chat,
-        latest_message=latest_user_message,
+        scenario=scenario_template.render(scenario=session.scenario) if session.scenario else "",
+        current=current_template.render(current=session.current) if session.current else "",
+        processed_chat=processed_chat_template.render(chat_log=processed_chat_log) if processed_chat_log else "",
+        new_chat=new_chat_template.render(new_chat=new_chat_log) if new_chat_log else "",
+        manna_info=manna_info_template.render(manna=session.budget, manna_spent=session.spent) if session.budget else ""
     )
 
-    # print("--------------------------------")
-    # print(prompt)
-    # print("--------------------------------")
+    print("--------------------------------")
+    print(prompt)
+    print("--------------------------------")
 
     
-
     class DispatcherThought(BaseModel):
         """A thought about how to respond to the last message in the chat."""
 
-        # speakers: Optional[List[Literal[*agent_names]]] = Field(
-        #     None,
-        #     description="An optional list of agents that the dispatcher encourages to spontaneously speak or respond to the last message.",
-        # )
         speaker: Literal[*agent_names] = Field(
             None,
             description="The agent that the dispatcher encourages to spontaneously speak or respond to the last message.",
         )
-        state: str = Field(
+        hint: str = Field(
             ...,
-            description="A description about the current state of the scenario, including a summary of progress towards the goal, and what remains to be done.",
+            description="A hint to the chosen speaker about how to respond.",
         )
         end_condition: bool = Field(
             ...,

@@ -8,11 +8,16 @@ from pydantic import BaseModel, Field
 from pydantic.config import ConfigDict
 from typing import List, Optional, Dict, Any, Literal, Union
 
+
+from ..eden_utils import download_file, image_to_base64, prepare_result, dump_json
+from ..mongo import Document, Collection, get_collection
+from ..user import User
+from ..api.api_requests import UpdateConfig
+
+
 # from ..mongo import Document, Collection
 # from ..eden_utils import download_file, image_to_base64, prepare_result, dump_json
 
-from eve.mongo import Document, Collection, get_collection
-from eve.eden_utils import download_file, image_to_base64, prepare_result, dump_json
 
 
 
@@ -76,9 +81,26 @@ class UserMessage(ChatMessage):
         # start with original message content
         content = self.content or ""
 
-        # let claude see names
+        # Let claude see names
         if self.name and schema == "anthropic":
             content = f"<User>{self.name}</User>\n\n{content}"
+
+        # If this message contains tool calls, extract media from them and add to attachments
+        if self.tool_calls:
+            tool_attachments = []
+            for tool_call in self.tool_calls:
+                print("HERE IS THE TOOL CALL")
+                print(tool_call)
+                result = tool_call.result.copy() #prepare_result(tool_call.result)
+                print("HERE IS THE RESULT")
+                print(result)
+                if result["status"] == "completed":
+                    for r in prepare_result(result["result"]):
+                        for o in r.get("output", []):
+                            if o.get("url"):
+                                tool_attachments.append(o["url"])
+            if tool_attachments:
+                self.attachments.extend(tool_attachments)
 
         if self.attachments:
             # append attachments info (url and type) to content
@@ -230,98 +252,106 @@ class ToolCall(BaseModel):
     args: Dict[str, Any]
 
     task: Optional[ObjectId] = None
-    status: Optional[
-        Literal["pending", "running", "completed", "failed", "cancelled"]
-    ] = None
-    result: Optional[List[Dict[str, Any]]] = None
+    # status: Optional[
+    #     Literal["pending", "running", "completed", "failed", "cancelled"]
+    # ] = None
+    # result: Optional[List[Dict[str, Any]]] = None
+    result: Optional[Dict[str, Any]] = None
     reactions: Optional[Dict[str, List[ObjectId]]] = None
-    error: Optional[str] = None
+    # error: Optional[str] = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def get_result(self, schema, truncate_images=False):
-        result = {"status": self.status}
+        # result = {"status": self.status}
 
-        if self.status == "completed":
-            result["result"] = prepare_result(self.result)
-            file_outputs = [
-                o["url"]
-                for r in result.get("result", [])
-                for o in r.get("output", [])
-                if isinstance(o, dict) and o.get("url")
-            ]
-            file_outputs = [
-                o
-                for o in file_outputs
-                if o and o.endswith((".jpg", ".png", ".webp", ".mp4", ".webm"))
-            ]
-            try:
-                if schema == "openai":
-                    raise ValueError(
-                        "OpenAI does not support image outputs in tool messages :("
-                    )
+        # if self.status == "completed":
+        # if True:
+        # result["result"] = prepare_result(self.result)
+        print("THE R :) ESULT!!!!")
+        result = self.result.copy()
+        result["result"] = prepare_result(result["result"])
+        print(result)
 
-                files = [
-                    download_file(
-                        url,
-                        os.path.join("/tmp/eden_file_cache/", url.split("/")[-1]),
-                        overwrite=False,
-                    )
-                    for url in file_outputs
+        file_outputs = [
+            o["url"]
+            for r in result.get("result", [])
+            # for r in result
+            for o in r.get("output", [])
+            if isinstance(o, dict) and o.get("url")
+        ]
+        file_outputs = [
+            o
+            for o in file_outputs
+            if o and o.endswith((".jpg", ".png", ".webp", ".mp4", ".webm"))
+        ]
+        try:
+            if schema == "openai":
+                raise ValueError(
+                    "OpenAI does not support image outputs in tool messages :("
+                )
+
+            files = [
+                download_file(
+                    url,
+                    os.path.join("/tmp/eden_file_cache/", url.split("/")[-1]),
+                    overwrite=False,
+                )
+                for url in file_outputs
+            ]
+
+            if schema == "anthropic":
+                image_block = [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/jpeg",
+                            "data": image_to_base64(
+                                file_path,
+                                max_size=512,
+                                quality=95,
+                                truncate=truncate_images,
+                            ),
+                        },
+                    }
+                    for file_path in files
+                ]
+            elif schema == "openai":
+                image_block = [
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"""data:image/jpeg;base64,{image_to_base64(
+                            file_path, 
+                            max_size=512, 
+                            quality=95, 
+                            truncate=truncate_images
+                        )}"""
+                        },
+                    }
+                    for file_path in files
                 ]
 
-                if schema == "anthropic":
-                    image_block = [
-                        {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": "image/jpeg",
-                                "data": image_to_base64(
-                                    file_path,
-                                    max_size=512,
-                                    quality=95,
-                                    truncate=truncate_images,
-                                ),
-                            },
-                        }
-                        for file_path in files
-                    ]
-                elif schema == "openai":
-                    image_block = [
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"""data:image/jpeg;base64,{image_to_base64(
-                                file_path, 
-                                max_size=512, 
-                                quality=95, 
-                                truncate=truncate_images
-                            )}"""
-                            },
-                        }
-                        for file_path in files
-                    ]
-
-                if image_block:
-                    content = "Tool results follow. The attached images match the URLs in the order they appear below: "
-                    # content += json.dumps(result["result"])
-                    content += dump_json(result["result"])
-                    text_block = [{"type": "text", "text": content}]
-                    result = text_block + image_block
-                else:
-                    result = dump_json(result)
-
-            except Exception as e:
-                print("Warning: Can not inject image results:", e)
+            if image_block:
+                content = "Tool results follow. The attached images match the URLs in the order they appear below: "
+                # content += json.dumps(result["result"])
+                content += dump_json(result)
+                text_block = [{"type": "text", "text": content}]
+                result = text_block + image_block
+            else:
                 result = dump_json(result)
 
-        elif self.status == "failed":
-            result["error"] = self.error
+        except Exception as e:
+            print("Warning: Can not inject image results:", e)
             result = dump_json(result)
 
-        else:
-            result = dump_json(result)
+        # elif self.status == "failed":
+        #     # result["error"] = self.error
+        #     result = dump_json(result)
+
+        # else:
+        #     result = dump_json(result)
 
         return result
 
@@ -376,35 +406,41 @@ class ToolCall(BaseModel):
         }
 
 
-
-# m = ChatMessage(
-#     sender=ObjectId("666666663333366666666666"),
-#     content="hello world",
-#     attachments=["https://example.com/image.jpg"],
-# )
-
-# # m.save()
-
-# m = ChatMessage.from_mongo("67d1000722b8af0042eab8d1")
-# # print(m)
-
-
-# print("--------------------------------")
-# m2 = m.user_message()
-# print(m2)
-# print("=====")
-
-# m3 = m.assistant_message()
-# print(m3)
+@Collection("tests")
+class Session(Document):
+	user: ObjectId
+	channel: Optional[Channel] = None
+	title: str
+	agents: List[ObjectId] = Field(default_factory=list)
+	scenario: Optional[str] = None
+	current: Optional[ObjectId] = None
+	# messages: List[ChatMessage] = Field(default_factory=list)
+	budget: Optional[float] = None
+	spent: Optional[float] = 0
+	cursor: Optional[ObjectId] = None
 
 
-# print(m2.openai_schema())
+def get_chat_log(
+    messages: List[ChatMessage], 
+    you_id: Optional[ObjectId] = None, 
+) -> str:
+    senders = User.find({"_id": {"$in": [message.sender for message in messages]}})
+    senders = {sender.id: sender.username for sender in senders}
+    
+    chat = ""
+    for message in messages:
+        content = message.content
+        name = senders[message.sender]
+        if message.attachments:
+            content += f" (attachments: {message.attachments})"
+        for tc in message.tool_calls:
+            args = ", ".join([f"{k}={v}" for k, v in tc.args.items()])
+            tc_result = dump_json(tc.result, exclude="blurhash")
+            content += f"\n -> {tc.tool}({args}) -> {tc_result}"
+        time_str = message.createdAt.strftime("%H:%M")
+        if you_id and message.sender == you_id:
+            chat += f"<{name} (You) {time_str}> {content}\n"
+        else:
+            chat += f"<{name} {time_str}> {content}\n"
 
-
-
-class SessionMessage(ChatMessage):
-    sender_id: ObjectId = Field(default_factory=ObjectId)
-    role: Literal["user", "assistant"] = Field(default="user")  # placeholder
-
-    attachments: Optional[List[str]] = []
-    tool_calls: Optional[List[ToolCall]] = []
+    return chat
