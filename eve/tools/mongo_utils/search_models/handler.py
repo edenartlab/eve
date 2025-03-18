@@ -88,7 +88,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
         (doc for doc in docs.values() if not doc["owned"] and doc["public"]),
         key=lambda x: x["used"], 
         reverse=True
-    )
+    )[:10]  # limit to only 10 public docs
 
     docs_owned = "\n".join(model_template.render(doc["doc"]) for doc in docs_owned)
     docs_public = "\n".join(model_template.render(doc["doc"]) for doc in docs_public)
