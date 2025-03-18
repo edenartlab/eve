@@ -1,0 +1,14 @@
+name: Create session
+description: Create a multi-agent session
+tip: This tool is used to create and run a multi-agent multi-turn session among multiple named agents.
+cost_estimate: 0
+output_type: image
+status: prod
+visible: false
+parameters:
+  prompt:
+    type: string
+    label: Prompt
+    description: Prompt
+    tip: A prompt describing the scenario you want to create and the agents in it.
+    required: true
