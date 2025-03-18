@@ -20,7 +20,7 @@ NON_CREATION_TOOLS = [
 @Collection("creations3")
 class Creation(Document):
     user: ObjectId
-    requester: ObjectId
+    agent: ObjectId
     task: ObjectId
     tool: str
     filename: str
@@ -33,8 +33,8 @@ class Creation(Document):
     def __init__(self, **data):
         if isinstance(data.get('user'), str):
             data['user'] = ObjectId(data['user'])
-        if isinstance(data.get('requesteder'), str):
-            data['requester'] = ObjectId(data['requester'])
+        if isinstance(data.get('agent'), str):
+            data['agent'] = ObjectId(data['agent'])
         if isinstance(data.get('task'), str):
             data['task'] = ObjectId(data['task'])
         super().__init__(**data)
@@ -43,7 +43,7 @@ class Creation(Document):
 @Collection("tasks3")
 class Task(Document):
     user: ObjectId
-    requester: ObjectId
+    agent: ObjectId
     tool: str
     parent_tool: Optional[str] = None
     output_type: str
@@ -59,8 +59,8 @@ class Task(Document):
     def __init__(self, **data):
         if isinstance(data.get('user'), str):
             data['user'] = ObjectId(data['user'])
-        if isinstance(data.get('requester'), str):
-            data['requester'] = ObjectId(data['requester'])
+        if isinstance(data.get('agent'), str):
+            data['agent'] = ObjectId(data['agent'])
         super().__init__(**data)
 
     @classmethod
@@ -74,7 +74,7 @@ class Task(Document):
     def spend_manna(self):
         if self.cost == 0:
             return
-        manna = Manna.load(self.requester)
+        manna = Manna.load(self.user)
         manna.spend(self.cost)
         Transaction(
             manna=manna.id,
@@ -86,7 +86,7 @@ class Task(Document):
     def refund_manna(self):
         n_samples = self.args.get("n_samples", 1)
         refund_amount = (self.cost or 0) * (n_samples - len(self.result or [])) / n_samples
-        manna = Manna.load(self.requester)
+        manna = Manna.load(self.user)
         manna.refund(refund_amount)
         Transaction(
             manna=manna.id,
@@ -139,7 +139,7 @@ async def _task_handler(func, *args, **kwargs):
                 task_args["seed"] = task_args["seed"] + i
 
             # Run both functions concurrently
-            main_task = func(*args[:-1], task.parent_tool or task.tool, task_args, user=task.user, requester=task.requester)
+            main_task = func(*args[:-1], task.parent_tool or task.tool, task_args, user=task.user, agent=task.agent)
             preprocess_task = _preprocess_task(task)
 
             # preprocess_task is just a stub. it will allow us to parallelize pre-processing tasks that dont want to hold up the main task
@@ -166,7 +166,7 @@ async def _task_handler(func, *args, **kwargs):
                     
                     new_creation = Creation(
                         user=task.user,
-                        requester=task.requester,
+                        agent=task.agent,
                         task=task.id,
                         tool=task.tool,
                         filename=filename,

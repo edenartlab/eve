@@ -2,7 +2,7 @@ from ....agent import Agent
 from .. import X
 
 
-async def handler(args: dict, user: str = None, requester: str = None):
+async def handler(args: dict, user: str = None, agent: str = None):
     agent = Agent.load(args["agent"])
     x = X(agent)
 

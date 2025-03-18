@@ -3,7 +3,7 @@ from PIL import Image
 # from ... import eden_utils
 
 
-async def handler(args: dict, user: str = None, requester: str = None):
+async def handler(args: dict, user: str = None, agent: str = None):
     from .... import eden_utils
     
     image_url = args.get("image")

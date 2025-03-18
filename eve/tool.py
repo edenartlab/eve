@@ -409,8 +409,8 @@ class Tool(Document, ABC):
 
         async def async_wrapper(
             self,
-            requester_id: str,
             user_id: str,
+            agent_id: str,
             args: Dict,
             mock: bool = False,
         ):
@@ -422,8 +422,8 @@ class Tool(Document, ABC):
                 # user = User.from_mongo(user_id)
                 # if "freeTools" in (user.featureFlags or []):
                 #     cost = 0
-                requester = User.from_mongo(requester_id)
-                requester.check_manna(cost)
+                user = User.from_mongo(user_id)
+                user.check_manna(cost)
 
             except Exception as e:
                 print(traceback.format_exc())
@@ -432,7 +432,7 @@ class Tool(Document, ABC):
             # create task and set to pending
             task = Task(
                 user=user_id,
-                requester=requester_id,
+                agent=agent_id,
                 tool=self.key,
                 parent_tool=self.parent_tool,
                 output_type=self.output_type,
@@ -533,30 +533,14 @@ class Tool(Document, ABC):
     def run(self, args: Dict, mock: bool = False):
         return asyncio.run(self.async_run(args, mock))
 
-    def start_task(
-        self, requester_id: str, user_id: str, args: Dict, mock: bool = False
-    ):
-        return asyncio.run(self.async_start_task(requester_id, user_id, args, mock))
+    def start_task(self, user_id: str, agent_id: str, args: Dict, mock: bool = False):
+        return asyncio.run(self.async_start_task(user_id, agent_id, args, mock))
 
     def wait(self, task: Task):
         return asyncio.run(self.async_wait(task))
 
     def cancel(self, task: Task, force: bool = False):
         return asyncio.run(self.async_cancel(task, force))
-
-    # @classmethod
-    # @trace
-    # def init_handler_cache(cls):
-    #     """Pre-warm the handler cache with all parent-child relationships"""
-    #     global _handler_cache
-
-    #     collection = get_collection(cls.collection_name)
-
-    #     # Get ALL tools and their handlers in one query
-    #     tools = collection.find({}, {"key": 1, "handler": 1})
-
-    #     # Build cache for all tools
-    #     _handler_cache.update({tool["key"]: tool.get("handler") for tool in tools})
 
 
 def get_tools_from_api_files(

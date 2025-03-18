@@ -261,7 +261,7 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
                     model = Model(
                         name=task.args["name"],
                         user=task.user,
-                        requester=task.requester,
+                        agent=task.agent,
                         task=task.id,
                         thumbnail=thumbnail.get("filename"),
                         args=task.args,
@@ -287,7 +287,7 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
                     name = task.args.get("prompt")
                     creation = Creation(
                         user=task.user,
-                        requester=task.requester,
+                        agent=task.agent,
                         task=task.id,
                         tool=task.tool,
                         filename=output["filename"],

@@ -58,13 +58,8 @@ class SearchResults(BaseModel):
     )
 
 
-async def handler(args: dict, user: str = None, requester: str = None):
-    
-    searcher = requester
-
-    print("SEARCH FOR THE SEARCHER", searcher)
-
-    
+async def handler(args: dict, user: str = None, agent: str = None):
+    searcher = user
     query = args.get("query")
     
     # Get all documents
