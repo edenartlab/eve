@@ -131,7 +131,7 @@ async def update_memory_with_llm(
     except Exception as e:
         raise RuntimeError(f"Failed to update memory with LLM: {str(e)}")
 
-async def handler(args: dict, user: str = None, requester: str = None):
+async def handler(args: dict, user: str = None, agent: str = None):
     """Handle memory update requests."""
     memory_content = EMPTY_MEMORY_STRING
 

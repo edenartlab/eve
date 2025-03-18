@@ -8,7 +8,7 @@ base_model: flux-dev
 replicate_model: black-forest-labs/flux-dev
 replicate_model_substitutions:
   lora: black-forest-labs/flux-dev-lora
-thumbnail: app/flux-dev.png
+thumbnail: app/flux-dev.jpg
 handler: replicate
 parameters:
   prompt:

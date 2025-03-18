@@ -69,7 +69,9 @@ async def handle_create(request: TaskRequest):
 
     print("### run the tool ###")
     result = await tool.async_start_task(
-        requester_id=request.user_id, user_id=request.user_id, args=request.args
+        user_id=request.user_id, 
+        agent_id=None, 
+        args=request.args
     )
 
     print("### return the result ###")

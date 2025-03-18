@@ -23,9 +23,7 @@ OUTPUT_TYPES = Literal[
     "boolean", "string", "integer", "float", "image", "video", "audio", "lora"
 ]
 
-HANDLERS = Literal[
-    "local", "modal", "comfyui", "comfyui_legacy", "replicate", "gcp"
-]
+HANDLERS = Literal["local", "modal", "comfyui", "comfyui_legacy", "replicate", "gcp"]
 
 BASE_MODELS = Literal[
     "sd15",
@@ -47,42 +45,35 @@ BASE_MODELS = Literal[
 # These tools are default agent tools except Eve
 BASE_TOOLS = [
     # text-to-image
-    "flux_schnell", 
+    "flux_schnell",
     "flux_dev_lora",
-    "flux_dev", 
+    "flux_dev",
     "txt2img",
-
     # more image generation
     "flux_inpainting",
     "outpaint",
     "remix_flux_schnell",
-
     # video
     "runway",
     "hedra",
     "vid2vid_sdxl",
     "video_FX",
     "texture_flow",
-    
     # audio
-    "musicgen", 
+    "musicgen",
     "elevenlabs",
     "mmaudio",
     "stable_audio",
     "zonos",
-
     # editing
-    "ffmpeg_multitool", 
-
+    "ffmpeg_multitool",
     # search
     "search_agents",
     "search_models",
-
     # misc
     "news",
     "websearch",
     "weather",
-
     # inactive
     # "ominicontrol",
     # "flux_redux",
@@ -91,15 +82,9 @@ BASE_TOOLS = [
     # "animate_3d"
 ]
 
-FLUX_LORA_TOOLS = [
-    "flux_dev_lora",
-    "flux_dev",
-    "reel"
-]
+FLUX_LORA_TOOLS = ["flux_dev_lora", "flux_dev", "reel"]
 
-SDXL_LORA_TOOLS = [
-    "txt2img"
-]
+SDXL_LORA_TOOLS = ["txt2img"]
 
 
 class RateLimit(BaseModel):
@@ -184,24 +169,31 @@ class Tool(Document, ABC):
                 # from .tools.local_tool import LocalTool
                 # _tool_classes[handler] = LocalTool
                 from .tools.modal_tool import ModalTool
+
                 _tool_classes[handler] = ModalTool
             elif handler == "modal":
                 from .tools.modal_tool import ModalTool
+
                 _tool_classes[handler] = ModalTool
             elif handler == "comfyui":
                 from .tools.comfyui_tool import ComfyUITool
+
                 _tool_classes[handler] = ComfyUITool
             elif handler == "comfyui_legacy":
                 from .tools.comfyui_tool import ComfyUIToolLegacy
+
                 _tool_classes[handler] = ComfyUIToolLegacy
             elif handler == "replicate":
                 from .tools.replicate_tool import ReplicateTool
+
                 _tool_classes[handler] = ReplicateTool
             elif handler == "gcp":
                 from .tools.gcp_tool import GCPTool
+
                 _tool_classes[handler] = GCPTool
             else:
                 from .tools.modal_tool import ModalTool
+
                 _tool_classes[handler] = ModalTool
 
         return _tool_classes[handler]
@@ -415,8 +407,8 @@ class Tool(Document, ABC):
 
         async def async_wrapper(
             self,
-            requester_id: str,
             user_id: str,
+            agent_id: str,
             args: Dict,
             mock: bool = False,
         ):
@@ -428,8 +420,8 @@ class Tool(Document, ABC):
                 # user = User.from_mongo(user_id)
                 # if "freeTools" in (user.featureFlags or []):
                 #     cost = 0
-                requester = User.from_mongo(requester_id)
-                requester.check_manna(cost)
+                user = User.from_mongo(user_id)
+                user.check_manna(cost)
 
             except Exception as e:
                 print(traceback.format_exc())
@@ -438,7 +430,7 @@ class Tool(Document, ABC):
             # create task and set to pending
             task = Task(
                 user=user_id,
-                requester=requester_id,
+                agent=agent_id,
                 tool=self.key,
                 parent_tool=self.parent_tool,
                 output_type=self.output_type,
@@ -539,10 +531,8 @@ class Tool(Document, ABC):
     def run(self, args: Dict, mock: bool = False):
         return asyncio.run(self.async_run(args, mock))
 
-    def start_task(
-        self, requester_id: str, user_id: str, args: Dict, mock: bool = False
-    ):
-        return asyncio.run(self.async_start_task(requester_id, user_id, args, mock))
+    def start_task(self, user_id: str, agent_id: str, args: Dict, mock: bool = False):
+        return asyncio.run(self.async_start_task(user_id, agent_id, args, mock))
 
     def wait(self, task: Task):
         return asyncio.run(self.async_wait(task))

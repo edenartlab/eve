@@ -18,11 +18,11 @@ from .thread import UserMessage, AssistantMessage, ToolCall
 MODELS = [
     "claude-3-7-sonnet-latest",
     "claude-3-5-haiku-latest",
+    "gpt-4o",
     "gpt-4o-mini",
-    "gpt-4o-2024-08-06",
 ]
 
-DEFAULT_MODEL = "gpt-4o-mini"
+DEFAULT_MODEL = os.getenv("DEFAULT_AGENT_MODEL", "claude-3-5-haiku-latest")
 
 
 class UpdateType(str, Enum):
@@ -391,7 +391,7 @@ async def async_openai_prompt_stream(
 async def async_prompt(
     messages: List[Union[UserMessage, AssistantMessage]],
     system_message: Optional[str],
-    model: Literal[tuple(MODELS)] = "gpt-4o-mini",
+    model: Literal[tuple(MODELS)] = DEFAULT_MODEL,
     response_model: Optional[type[BaseModel]] = None,
     tools: Dict[str, Tool] = {},
 ) -> Tuple[str, List[ToolCall], bool]:
