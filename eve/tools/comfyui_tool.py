@@ -61,8 +61,8 @@ class ComfyUITool(Tool):
     @Tool.handle_start_task
     @trace
     async def async_start_task(self, task: Task):
-        requester = User.from_mongo(task.requester)
-        is_subscriber = requester.subscriptionTier and requester.subscriptionTier > 0
+        user = User.from_mongo(task.user)
+        is_subscriber = user.subscriptionTier and user.subscriptionTier > 0
         modal_class = "ComfyUIPremium" if is_subscriber else "ComfyUIBasic"
         
         db = os.getenv("DB")

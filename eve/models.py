@@ -1,5 +1,5 @@
 from bson import ObjectId
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 from .mongo import Document, Collection
 
@@ -11,10 +11,12 @@ class Model(Document):
     agent: Optional[ObjectId] = None
     task: ObjectId
     thumbnail: str
+    thumbnail_prompts: Optional[List[str]] = None
     public: bool = False
     deleted: bool = False
     args: Dict[str, Any]
     checkpoint: str
+    checkpoint_versions: Optional[Dict[str, Any]] = None
     base_model: str
     lora_trigger_text: Optional[str] = None
     lora_model: Optional[str] = None
