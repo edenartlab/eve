@@ -240,12 +240,12 @@ from eve.agent2.llm import async_prompt
 from eve.api.helpers import emit_update
 
 
-async def async_playout_session(session: Session):
+async def async_playout_session(session: Session, n_turns: int = 10):
     user = User.from_mongo(session.user)
     session = Session.from_mongo(session.id)
 
     # while True:
-    for i in range(10):
+    for i in range(n_turns):
         dispatch = await async_run_dispatcher(session)
         agent = Agent.load(dispatch.speaker)
         await async_prompt_agent(user, agent, session)
