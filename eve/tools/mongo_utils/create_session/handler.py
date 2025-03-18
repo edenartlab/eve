@@ -33,7 +33,7 @@ from eve.agent2.agent import Agent
     
 async def handler(args: dict, user: str = None, agent: str = None):
     user = get_my_eden_user()
-    channel = Channel(type="discord", key="1268682080263606443")
+    channel = Channel(type="discord", key="1003581679916548207")
     #prompt = "Eve is applying for a job to work at McDonalds, and GPTRumors is the interviewer."
     # prompt = "Eve and Mycos are competing to see who can generate the most outlandish image with Flux-Schnell. They keep one-upping each other. Make sure they alternate speaking. After Mycos speaks, Eve goes next, and vice-versa."
     prompt = args["prompt"]
