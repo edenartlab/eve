@@ -3,31 +3,6 @@ from typing import Optional, List, Dict, Any, Union
 from eve.base import VersionableBaseModel, generate_edit_model, apply_edit
 
 
-"""
-base tests
-- generate_edit_model: produces correct edit model, with annotations
-- apply_edit: correct edit, preserves annotations
-- versionable model: versions correctly, reconstructs version
-
-mongo model tests
-- mongo model: saves, updates, loads
-- versionable mongo model: saves, updates, loads, versions correctly, reconstructs version
-- misc/all: targets correct env
-
-tool tests
-- load basemodel from yaml
-- save basemodel to yaml (?)
-- generates correct llm schema
-
-document tests
-- setup document schema from yaml
-- edit document
-- save, version, load document
-
-
-"""
-
-
 class InnerModel(BaseModel):
     """
     This is an inner model which is contained in a TestModel

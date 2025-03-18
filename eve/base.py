@@ -1,4 +1,5 @@
 import copy
+import warnings
 from pydantic import BaseModel, Field, create_model
 from typing import (
     Any,
@@ -7,12 +8,11 @@ from typing import (
     List,
     Dict,
     Union,
-    get_origin,
-    get_args,
     Literal,
     Tuple,
+    get_origin,
+    get_args,
 )
-import warnings
 
 from . import eden_utils
 
@@ -444,83 +444,3 @@ def parse_schema(schema: dict) -> Tuple[Dict[str, Tuple[Type, Any]], dict]:
         model_config["json_schema_extra"] = {"examples": schema["examples"]}
 
     return fields, model_config
-
-
-##### Old, deprecated
-from pydantic import ConfigDict
-from pydantic.json_schema import SkipJsonSchema
-from bson import ObjectId
-from datetime import datetime
-from typing import Annotated
-
-
-class VersionableMongoModel(VersionableBaseModel):
-    id: Annotated[ObjectId, Field(default_factory=ObjectId, alias="_id")]
-    collection_name: SkipJsonSchema[str] = Field(..., exclude=True)
-    db: SkipJsonSchema[str] = Field(..., exclude=True)
-    # createdAt: datetime = Field(default_factory=lambda: datetime.utcnow().replace(microsecond=0))
-    # updatedAt: Optional[datetime] = None #Field(default_factory=lambda: datetime.utcnow().replace(microsecond=0))
-
-    model_config = ConfigDict(
-        populate_by_name=True,
-        arbitrary_types_allowed=True,
-    )
-
-    def __init__(self, **data):
-        if "instance" in data:
-            instance = data.pop("instance")
-            collection_name = data.pop("collection_name")
-            db = data.pop("db")
-            super().__init__(
-                schema=type(instance),
-                initial=instance,
-                current=instance,
-                collection_name=collection_name,
-                db=db,
-                **data,
-            )
-        else:
-            super().__init__(**data)
-
-    @classmethod
-    def load(cls, document_id: str, collection_name: str, db: str):
-        collection = get_collection(collection_name, db)
-        document = collection.find_one({"_id": ObjectId(document_id)})
-        if document is None:
-            raise MongoDocumentNotFound(collection_name, db, document_id)
-
-        schema = recreate_base_model(document["schema"])
-        initial = schema(**document["initial"])
-        current = schema(**document["current"])
-
-        edits = [generate_edit_model(schema)(**edit) for edit in document["edits"]]
-
-        versionable_data = {
-            "id": document["_id"],
-            "collection_name": collection_name,
-            "db": db,
-            # "createdAt": document['createdAt'],
-            # "updatedAt": document['updatedAt'],
-            "schema": schema,
-            "initial": initial,
-            "current": current,
-            "edits": edits,
-        }
-
-        return cls(**versionable_data)
-
-    def save(self, upsert_filter=None):
-        data = self.model_dump(by_alias=True, exclude_none=True)
-        collection = get_collection(self.collection_name, self.db)
-
-        document_id = data.get("_id")
-        if upsert_filter:
-            document_id_ = collection.find_one(upsert_filter, {"_id": 1})
-            if document_id_:
-                document_id = document_id_["_id"]
-
-        if document_id:
-            # data['updatedAt'] = datetime.utcnow().replace(microsecond=0)
-            collection.update_one({"_id": document_id}, {"$set": data}, upsert=True)
-        else:
-            collection.insert_one(data)

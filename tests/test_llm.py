@@ -107,5 +107,31 @@ async def test_dispatch_run():
     print(result)
 
 
+def test_system():
+    user = get_my_eden_user()
+
+    messages = [
+        # UserMessage(name="jim", content="i have an apple."),
+        # UserMessage(name="kate", content="the capital of france is paris?"),
+        # UserMessage(name="morgan", content="what is even going on here? im so confused."),
+        UserMessage(name="kate", content="eve, how do i make a picture of a cat?"),
+    ]
+
+    agent = Agent.load("eve")
+    tools = agent.get_tools()
+    thread = agent.request_thread()
+
+    for msg in prompt_thread(
+        user=user,
+        agent=agent,
+        thread=thread,
+        user_messages=messages,
+        tools=tools,
+        model="gpt-4o-mini"
+    ):
+        print(msg)
+
+
+
 import asyncio
-asyncio.run(test_dispatch_run())
+test_system()

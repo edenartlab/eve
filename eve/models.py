@@ -29,4 +29,3 @@ class Model(Document):
         if isinstance(data.get("task"), str):
             data["task"] = ObjectId(data["task"])
         super().__init__(**data)
-

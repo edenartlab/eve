@@ -119,11 +119,11 @@ class Deployment(Document):
         collection = cls.get_collection()
         collection.create_index([("agent", 1), ("platform", 1)], unique=True)
 
-    @classmethod
-    def find(cls, query):
-        """Find all deployments matching the query"""
-        collection = get_collection(cls.collection_name)
-        return [cls(**doc) for doc in collection.find(query)]
+    # @classmethod
+    # def find(cls, query):
+    #     """Find all deployments matching the query"""
+    #     collection = get_collection(cls.collection_name)
+    #     return [cls(**doc) for doc in collection.find(query)]
 
     @classmethod
     def delete_deployment(cls, agent_id: ObjectId, platform: str):
