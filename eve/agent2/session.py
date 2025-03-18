@@ -1,15 +1,13 @@
+from bson.objectid import ObjectId
 from typing import Optional, Literal, List
 from pydantic import BaseModel, Field
 from jinja2 import Template
 from typing import List, Literal, Optional
 
-from eve.agent.dispatch import async_dispatch
-from eve.eden_utils import dump_json
-
+from ..eden_utils import dump_json
 from ..mongo import Document, Collection
 from ..api.api_requests import UpdateConfig
 from .message import ChatMessage, Channel
-from bson.objectid import ObjectId
 
 
 @Collection("tests")

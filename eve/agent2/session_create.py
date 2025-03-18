@@ -90,6 +90,8 @@ async def async_create_session(
     print(session_creation_prompt)
     print("--------------------------------")
     print("agent names", agent_names)
+
+    
     class NewSession(BaseModel):
         """A Session is a multi-agent chat involving a group of agents, a scenario, and a budget."""
 
