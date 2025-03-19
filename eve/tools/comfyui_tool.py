@@ -37,7 +37,7 @@ class ComfyUITool(Tool):
 
     @classmethod
     def handle_exception_routing(cls, user: User):
-        if str(user._id) == "66867ea4056de0f554a34a77":
+        if str(user.userId) == "user_2imKNsVVMWARIxJOVSr7d3Un2Pc":
             return "ComfyUITempleAbyss"
         return None
 
