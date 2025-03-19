@@ -11,6 +11,8 @@ from typing import Optional, List, Dict, Any, Type, Literal
 from datetime import datetime, timezone
 from instructor.function_calls import openai_schema
 
+from eve.api.rate_limiter import RateLimiter
+
 from . import sentry_sdk
 from . import eden_utils
 from .base import parse_schema
@@ -129,7 +131,7 @@ class Tool(Document, ABC):
         """Get schema for a tool, with detailed performance logging."""
 
         if from_yaml:
-            api_files = get_api_files() # YAML path
+            api_files = get_api_files()  # YAML path
 
             if key not in api_files:
                 raise ValueError(f"Tool {key} not found")
@@ -304,7 +306,8 @@ class Tool(Document, ABC):
 
     def _remove_hidden_fields(self, parameters):
         hidden_parameters = [
-            k for k, v in parameters["properties"].items()
+            k
+            for k, v in parameters["properties"].items()
             if self.parameters[k].get("hide_from_agent")
         ]
         for k in hidden_parameters:
@@ -417,15 +420,17 @@ class Tool(Document, ABC):
                 args = self.prepare_args(args)
                 sentry_sdk.add_breadcrumb(category="handle_start_task", data=args)
                 cost = self.calculate_cost(args)
-                # user = User.from_mongo(user_id)
-                # if "freeTools" in (user.featureFlags or []):
-                #     cost = 0
                 user = User.from_mongo(user_id)
                 user.check_manna(cost)
 
             except Exception as e:
                 print(traceback.format_exc())
                 raise Exception(f"Task submission failed: {str(e)}. No manna deducted.")
+
+            # Check rate limit before creating the task
+            if os.environ.get("FF_RATE_LIMITS") == "yes":
+                rate_limiter = RateLimiter()
+                await rate_limiter.check_manna_spend_rate_limit(user)
 
             # create task and set to pending
             task = Task(
