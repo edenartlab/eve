@@ -54,8 +54,6 @@ from eve.api.helpers import get_eden_creation_url
 logger = logging.getLogger(__name__)
 db = os.getenv("DB", "STAGE").upper()
 
-USE_RATE_LIMITS = os.getenv("USE_RATE_LIMITS", "false").lower() == "true"
-
 
 @handle_errors
 async def handle_create(request: TaskRequest):
@@ -69,9 +67,7 @@ async def handle_create(request: TaskRequest):
 
     print("### run the tool ###")
     result = await tool.async_start_task(
-        user_id=request.user_id, 
-        agent_id=None, 
-        args=request.args
+        user_id=request.user_id, agent_id=None, args=request.args
     )
 
     print("### return the result ###")
