@@ -1670,6 +1670,21 @@ class ComfyUIBasic(ComfyUI):
         super().__init__()
 
 
+@app.cls(
+    image=image,
+    gpu=gpu,
+    cpu=8.0,
+    volumes={"/data": downloads_vol},
+    concurrency_limit=50,
+    container_idle_timeout=60,
+    keep_warm=0,
+    timeout=3600,
+)
+class ComfyUITempleAbyss(ComfyUI):
+    def __init__(self):
+        super().__init__()
+
+
 @app.local_entrypoint()
 def run():
     comfyui = ComfyUI()
