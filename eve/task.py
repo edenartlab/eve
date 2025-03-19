@@ -14,6 +14,7 @@ from . import sentry_sdk
 NON_CREATION_TOOLS = [
     "search_agents",
     "search_models",
+    "create_session"
 ]
 
 
@@ -44,6 +45,7 @@ class Creation(Document):
 class Task(Document):
     user: ObjectId
     agent: Optional[ObjectId] = None
+    thread: Optional[ObjectId] = None
     tool: str
     parent_tool: Optional[str] = None
     output_type: str
