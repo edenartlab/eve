@@ -36,6 +36,12 @@ class ComfyUITool(Tool):
     comfyui_map: Dict[str, ComfyUIInfo] = Field(default_factory=dict)
 
     @classmethod
+    def handle_exception_routing(cls, user: User):
+        if str(user._id) == "66867ea4056de0f554a34a77":
+            return "ComfyUITempleAbyss"
+        return None
+
+    @classmethod
     def convert_from_yaml(cls, schema: dict, file_path: str = None) -> dict:
         schema["comfyui_map"] = {}
         for field, props in schema.get("parameters", {}).items():
@@ -62,9 +68,11 @@ class ComfyUITool(Tool):
     @trace
     async def async_start_task(self, task: Task):
         user = User.from_mongo(task.user)
+        special_class = self.handle_exception_routing(user)
         is_subscriber = user.subscriptionTier and user.subscriptionTier > 0
-        modal_class = "ComfyUIPremium" if is_subscriber else "ComfyUIBasic"
-        
+        normal_class = "ComfyUIPremium" if is_subscriber else "ComfyUIBasic"
+        modal_class = special_class or normal_class
+
         db = os.getenv("DB")
         print("let's lookup the class")
         print(f"comfyui-{self.workspace}-{db}")
