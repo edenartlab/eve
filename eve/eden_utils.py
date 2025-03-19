@@ -15,6 +15,7 @@ import tempfile
 import blurhash
 import subprocess
 import replicate
+import boto3
 import shlex
 import subprocess
 import numpy as np
@@ -29,6 +30,7 @@ from PIL import Image, ImageFont, ImageDraw
 from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from . import s3
+
 
 class CommandValidator:
     """Simple validator to ensure basic command security"""
@@ -231,6 +233,17 @@ def get_media_attributes(file):
 
 
 def download_file(url, local_filepath, overwrite=False):
+    """
+    Download a file from a URL to a local filepath, with special handling for AWS S3 URLs.
+    
+    Args:
+        url: URL to download from
+        local_filepath: Local path to save the file to
+        overwrite: Whether to overwrite existing files
+    
+    Returns:
+        str: Path to the downloaded file
+    """
     local_filepath = pathlib.Path(local_filepath)
     local_filepath.parent.mkdir(parents=True, exist_ok=True)
 
@@ -241,6 +254,35 @@ def download_file(url, local_filepath, overwrite=False):
         print(f"Downloading file from {url} to {local_filepath}")
 
     try:
+        # Parse S3 URL to extract bucket and key
+        s3_pattern = r'https://([^.]+)\.s3(?:\.([^.]+))?\.amazonaws\.com/(.+)'
+        s3_match = re.match(s3_pattern, url)
+        
+        if s3_match:
+            # This is an S3 URL
+            bucket_name = s3_match.group(1)
+            region = s3_match.group(2) or os.getenv("AWS_REGION_NAME", "us-east-1")
+            key = s3_match.group(3)
+            
+            print(f"Detected S3 URL - Bucket: {bucket_name}, Region: {region}, Key: {key}")
+            
+            # Use boto3 to download with credentials
+            s3_client = boto3.client(
+                "s3",
+                aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+                aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+                region_name=region,
+            )
+            
+            try:
+                print(f"Downloading {key} from S3 bucket {bucket_name}")
+                s3_client.download_file(bucket_name, key, str(local_filepath))
+                return str(local_filepath)
+            except Exception as s3_error:
+                print(f"S3 download error: {s3_error}")
+                # Fall back to standard HTTP request below
+        
+        # For CloudFront or standard HTTP requests
         with httpx.stream("GET", url, follow_redirects=True) as response:
             if response.status_code == 404:
                 raise FileNotFoundError(f"No file found at {url}")
@@ -249,23 +291,33 @@ def download_file(url, local_filepath, overwrite=False):
                     f"Failed to download from {url}. Status code: {response.status_code}"
                 )
 
-            total = int(response.headers["Content-Length"])
-            with open(local_filepath, "wb") as f, tqdm(
-                total=total, unit_scale=True, unit_divisor=1024, unit="B"
-            ) as progress:
-                num_bytes_downloaded = response.num_bytes_downloaded
-                for data in response.iter_bytes():
-                    f.write(data)
-                    progress.update(
-                        response.num_bytes_downloaded - num_bytes_downloaded
-                    )
+            # Get content length if available
+            total = int(response.headers.get("Content-Length", "0"))
+            
+            if total == 0:
+                # If Content-Length not provided, read all at once
+                content = response.read()
+                with open(local_filepath, "wb") as f:
+                    f.write(content)
+            else:
+                # Stream with progress bar if Content-Length available
+                with open(local_filepath, "wb") as f, tqdm(
+                    total=total, unit_scale=True, unit_divisor=1024, unit="B"
+                ) as progress:
                     num_bytes_downloaded = response.num_bytes_downloaded
+                    for data in response.iter_bytes():
+                        f.write(data)
+                        progress.update(
+                            response.num_bytes_downloaded - num_bytes_downloaded
+                        )
+                        num_bytes_downloaded = response.num_bytes_downloaded
+                        
         return str(local_filepath)
+        
     except httpx.HTTPStatusError as e:
         raise Exception(f"HTTP error: {e}")
     except Exception as e:
         raise Exception(f"Error downloading file: {e}")
-
 
 def exponential_backoff(
     func,

@@ -1,18 +1,18 @@
+import asyncio
+import traceback
 from bson import ObjectId
 from typing import Dict, Any, Optional, Literal, List
 from functools import wraps
 from datetime import datetime, timezone
-import asyncio
-import traceback
 
-from .user import User, Manna, Transaction
+from .user import Manna, Transaction
 from .mongo import Document, Collection
 from . import eden_utils
 from . import sentry_sdk
 
 # A list of tools that output media but do not result in new Creations
 NON_CREATION_TOOLS = [
-    "search_agents", 
+    "search_agents",
     "search_models",
 ]
 
@@ -20,7 +20,7 @@ NON_CREATION_TOOLS = [
 @Collection("creations3")
 class Creation(Document):
     user: ObjectId
-    requester: ObjectId
+    agent: Optional[ObjectId] = None
     task: ObjectId
     tool: str
     filename: str
@@ -31,19 +31,19 @@ class Creation(Document):
     deleted: bool = False
 
     def __init__(self, **data):
-        if isinstance(data.get('user'), str):
-            data['user'] = ObjectId(data['user'])
-        if isinstance(data.get('requesteder'), str):
-            data['requester'] = ObjectId(data['requester'])
-        if isinstance(data.get('task'), str):
-            data['task'] = ObjectId(data['task'])
+        if isinstance(data.get("user"), str):
+            data["user"] = ObjectId(data["user"])
+        if isinstance(data.get("agent"), str):
+            data["agent"] = ObjectId(data["agent"])
+        if isinstance(data.get("task"), str):
+            data["task"] = ObjectId(data["task"])
         super().__init__(**data)
 
 
 @Collection("tasks3")
 class Task(Document):
     user: ObjectId
-    requester: ObjectId
+    agent: Optional[ObjectId] = None
     tool: str
     parent_tool: Optional[str] = None
     output_type: str
@@ -51,16 +51,18 @@ class Task(Document):
     mock: bool = False
     cost: float = None
     handler_id: Optional[str] = None
-    status: Literal["pending", "running", "completed", "failed", "cancelled"] = "pending"
+    status: Literal["pending", "running", "completed", "failed", "cancelled"] = (
+        "pending"
+    )
     error: Optional[str] = None
     result: Optional[List[Dict[str, Any]]] = None
     performance: Optional[Dict[str, Any]] = {}
 
     def __init__(self, **data):
-        if isinstance(data.get('user'), str):
-            data['user'] = ObjectId(data['user'])
-        if isinstance(data.get('requester'), str):
-            data['requester'] = ObjectId(data['requester'])
+        if isinstance(data.get("user"), str):
+            data["user"] = ObjectId(data["user"])
+        if isinstance(data.get("agent"), str):
+            data["agent"] = ObjectId(data["agent"])
         super().__init__(**data)
 
     @classmethod
@@ -68,25 +70,27 @@ class Task(Document):
         tasks = cls.get_collection()
         task = tasks.find_one({"handler_id": handler_id})
         if not task:
-            raise Exception("Task not found")    
+            raise Exception("Task not found")
         return cls.from_mongo(task["_id"])
 
     def spend_manna(self):
         if self.cost == 0:
             return
-        manna = Manna.load(self.requester)
+        manna = Manna.load(self.user)
         manna.spend(self.cost)
         Transaction(
             manna=manna.id,
             task=self.id,
-            amount=self.cost,
+            amount=-self.cost,
             type="spend",
         ).save()
 
     def refund_manna(self):
         n_samples = self.args.get("n_samples", 1)
-        refund_amount = (self.cost or 0) * (n_samples - len(self.result or [])) / n_samples
-        manna = Manna.load(self.requester)
+        refund_amount = (
+            (self.cost or 0) * (n_samples - len(self.result or [])) / n_samples
+        )
+        manna = Manna.load(self.user)
         manna.refund(refund_amount)
         Transaction(
             manna=manna.id,
@@ -95,10 +99,12 @@ class Task(Document):
             type="refund",
         ).save()
 
+
 def task_handler_func(func):
     @wraps(func)
     async def wrapper(task: Task):
         return await _task_handler(func, task)
+
     return wrapper
 
 
@@ -106,6 +112,7 @@ def task_handler_method(func):
     @wraps(func)
     async def wrapper(self, task: Task):
         return await _task_handler(func, self, task)
+
     return wrapper
 
 
@@ -121,11 +128,8 @@ async def _task_handler(func, *args, **kwargs):
     start_time = datetime.now(timezone.utc)
     queue_time = (start_time - task.createdAt).total_seconds()
 
-    task.update(
-        status="running",
-        performance={"waitTime": queue_time}
-    )
-    
+    task.update(status="running", performance={"waitTime": queue_time})
+
     results = []
     task_update = {}
     n_samples = task.args.get("n_samples", 1)
@@ -139,20 +143,32 @@ async def _task_handler(func, *args, **kwargs):
                 task_args["seed"] = task_args["seed"] + i
 
             # Run both functions concurrently
-            main_task = func(*args[:-1], task.parent_tool or task.tool, task_args, user=task.user, requester=task.requester)
+            main_task = func(
+                *args[:-1],
+                task.parent_tool or task.tool,
+                task_args,
+                user=task.user,
+                agent=task.agent,
+            )
             preprocess_task = _preprocess_task(task)
 
             # preprocess_task is just a stub. it will allow us to parallelize pre-processing tasks that dont want to hold up the main task
             result, _ = await asyncio.gather(main_task, preprocess_task)
 
             if output_type in ["image", "video", "audio", "lora"] and is_creation_tool:
-                result["output"] = result["output"] if isinstance(result["output"], list) else [result["output"]]
-                result = eden_utils.upload_result(result, save_thumbnails=True, save_blurhash=True)
+                result["output"] = (
+                    result["output"]
+                    if isinstance(result["output"], list)
+                    else [result["output"]]
+                )
+                result = eden_utils.upload_result(
+                    result, save_thumbnails=True, save_blurhash=True
+                )
 
                 for output in result["output"]:
                     filename = output.get("filename")
                     media_attributes = output.get("mediaAttributes")
-                    
+
                     # Skip if the tool is a non-creation tool
                     if not filename:
                         continue
@@ -160,18 +176,20 @@ async def _task_handler(func, *args, **kwargs):
                     # name = preprocess_result.get("name") or task_args.get("prompt") or args.get("text_input")
                     name = task_args.get("prompt") or task_args.get("text_input")
                     if not name:
-                        name = task_args.get("interpolation_prompts") or task_args.get("interpolation_texts")
+                        name = task_args.get("interpolation_prompts") or task_args.get(
+                            "interpolation_texts"
+                        )
                         if name:
                             name = " to ".join(name)
-                    
+
                     new_creation = Creation(
                         user=task.user,
-                        requester=task.requester,
+                        agent=task.agent,
                         task=task.id,
                         tool=task.tool,
                         filename=filename,
                         mediaAttributes=media_attributes,
-                        name=name
+                        name=name,
                     )
                     new_creation.save()
                     output["creation"] = new_creation.id
@@ -179,16 +197,10 @@ async def _task_handler(func, *args, **kwargs):
             results.extend([result])
 
             if i == n_samples - 1:
-                task_update = {
-                    "status": "completed", 
-                    "result": results
-                }
+                task_update = {"status": "completed", "result": results}
 
             else:
-                task_update = {
-                    "status": "running", 
-                    "result": results
-                }
+                task_update = {"status": "running", "result": results}
                 task.update(**task_update)
 
         return task_update.copy()
@@ -200,15 +212,15 @@ async def _task_handler(func, *args, **kwargs):
         task_update = {
             "status": "failed",
             "error": str(error),
-        }        
+        }
         task.refund_manna()
-        
+
         return task_update.copy()
 
     finally:
         run_time = datetime.now(timezone.utc) - start_time
         task_update["performance"] = {
             "waitTime": queue_time,
-            "runTime": run_time.total_seconds()
+            "runTime": run_time.total_seconds(),
         }
         task.update(**task_update)

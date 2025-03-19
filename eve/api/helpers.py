@@ -95,16 +95,26 @@ def serialize_for_json(obj):
 
 async def emit_update(update_config: Optional[UpdateConfig], data: dict):
     print("EMIT UPDATE CONFIG:", update_config)
+
+
+
     print("EMIT UPDATE DATA:", data)
     if not update_config:
         return
 
     if update_config.update_endpoint:
+        print("EMUP 1")
         await emit_http_update(update_config, data)
+        print("EMUP 2")
     elif update_config.sub_channel_name:
+        print("EMUP 3")
         try:
             client = AblyRest(os.getenv("ABLY_PUBLISHER_KEY"))
+            print("EMUP 4")
+            print(client)
             channel = client.channels.get(update_config.sub_channel_name)
+            print("EMUP 5")
+            print(channel)
             await channel.publish(update_config.sub_channel_name, data)
         except Exception as e:
             logger.error(f"Failed to publish to Ably: {str(e)}")

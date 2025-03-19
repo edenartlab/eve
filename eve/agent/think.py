@@ -47,6 +47,7 @@ async def async_think(
     thread: Thread,
     user_message: UserMessage,
     force_reply: bool = True,
+    model: str = "claude-3-5-haiku-latest",
 ):
 
     class ChatThought(BaseModel):
@@ -120,8 +121,7 @@ async def async_think(
     thought = await async_prompt(
         [UserMessage(content=prompt)],
         system_message=f"You analyze the chat on behalf of {agent.name} and generate a thought.",
-        # model="gpt-4o-mini",
-        model="claude-3-5-haiku-latest",
+        model=model,
         response_model=ChatThought,
     )
 
@@ -135,8 +135,9 @@ def think(
     agent: Agent, 
     thread: Thread, 
     user_message: UserMessage, 
-    force_reply: bool = True
+    force_reply: bool = True,
+    model: str = "claude-3-5-haiku-latest",
 ):
     return asyncio.run(
-        async_think(agent, thread, user_message, force_reply)
+        async_think(agent, thread, user_message, force_reply, model)
     )

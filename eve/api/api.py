@@ -392,9 +392,9 @@ async def run(tool_key: str, args: dict):
     image=image, concurrency_limit=10, allow_concurrent_inputs=4, timeout=3600
 )
 @task_handler_func
-async def run_task(tool_key: str, args: dict, user: str = None, requester: str = None):
+async def run_task(tool_key: str, args: dict, user: str = None, agent: str = None):
     handler = load_handler(tool_key)
-    return await handler(args, user, requester)
+    return await handler(args, user, agent)
 
 
 @app.function(

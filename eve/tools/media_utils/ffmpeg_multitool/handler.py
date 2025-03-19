@@ -339,7 +339,7 @@ def validate_and_prepare_media(args: Dict[str, Any], tmp_dir: Optional[str] = No
         shutil.rmtree(tmp_dir, ignore_errors=True)
         raise
 
-async def handler(args: dict, user: str = None, requester: str = None):
+async def handler(args: dict, user: str = None, agent: str = None):
     """Main handler function for processing media files and generating FFmpeg commands"""
     if not isinstance(args, dict):
         raise TypeError("Args must be a dictionary")

@@ -1,9 +1,9 @@
-name: Agent model trainer (FLUX LoRA)
-description: Train a visual model with your images
+name: FLUX model trainer (LoRA)
+description: Train a custom model with your images (pro)
 tip: |-
-  This will create a LoRA model from a base Flux-dev which captures and integrates the style, human face, or object represented in the training data.
+  This will create a LoRA model using FLUX which captures and integrates the style, character, face or object represented in the training data.
 thumbnail: app/flux_trainer_opt.jpg
-cost_estimate: 0.2 * max_train_steps
+cost_estimate: 0.1 * max_train_steps
 base_model: flux-dev
 output_type: lora
 gpu: A100
@@ -62,6 +62,16 @@ parameters:
     type: string
     label: Custom Trigger Text
     description: Custom text to visually describe and trigger your model (leave this empty unless you know what you're doing!)
+    required: false
+  custom_validation_prompts:
+    type: array
+    items:
+      type: string
+    min_length: 0
+    max_length: 4
+    label: Custom validation prompts
+    description: |-
+      4 custom text prompts to test your model after training. If left empty, these will be auto-generated.
     required: false
   seed:
     type: integer

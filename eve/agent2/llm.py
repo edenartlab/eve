@@ -12,17 +12,18 @@ from langfuse.openai import openai
 
 from ..tool import Tool
 from ..eden_utils import dump_json
-from .thread import UserMessage, AssistantMessage, ToolCall
+from .message import ToolCall, UserMessage, AssistantMessage
 
 
 MODELS = [
     "claude-3-7-sonnet-latest",
     "claude-3-5-haiku-latest",
-    "gpt-4o",
     "gpt-4o-mini",
+    "gpt-4o-2024-08-06",
+    "gpt-4.5-preview",
 ]
 
-DEFAULT_MODEL = os.getenv("DEFAULT_AGENT_MODEL", "claude-3-5-haiku-latest")
+DEFAULT_MODEL = "claude-3-5-haiku-latest"
 
 
 class UpdateType(str, Enum):
@@ -156,10 +157,10 @@ async def async_anthropic_prompt(
     # print(json.dumps(prompt["tools"], indent=2))
     # print("--------------------------------")
 
-    print("-----------RESPONSE USAGE---------------------")
-    print(f"Time taken: {time.time() - start_time} seconds")
-    print(response.usage)
-    print("--------------------------------")
+    # print("-----------RESPONSE USAGE---------------------")
+    # print(f"Time taken: {time.time() - start_time} seconds")
+    # print(response.usage)
+    # print("--------------------------------")
 
     # Get token usage
     input_tokens = response.usage.input_tokens + getattr(
@@ -391,7 +392,7 @@ async def async_openai_prompt_stream(
 async def async_prompt(
     messages: List[Union[UserMessage, AssistantMessage]],
     system_message: Optional[str],
-    model: Literal[tuple(MODELS)] = DEFAULT_MODEL,
+    model: Literal[tuple(MODELS)] = "gpt-4o-mini",
     response_model: Optional[type[BaseModel]] = None,
     tools: Dict[str, Tool] = {},
 ) -> Tuple[str, List[ToolCall], bool]:
@@ -399,11 +400,11 @@ async def async_prompt(
     Non-streaming LLM call => returns (content, tool_calls, stop).
     """
 
-    print("--------------------------------")
-    print(f"Prompting {model} with {len(messages)} messages")
-    print(dump_json([m.model_dump() for m in messages]))
-    if tools: print("tools", tools.keys())
-    print("--------------------------------")
+    # print("--------------------------------")
+    # print(f"Prompting {model} with {len(messages)} messages")
+    # print(dump_json([m.model_dump() for m in messages]))
+    # if tools: print("tools", tools.keys())
+    # print("--------------------------------")
 
     langfuse_context.update_current_observation(input=messages)
 

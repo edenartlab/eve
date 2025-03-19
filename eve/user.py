@@ -1,7 +1,12 @@
 from bson import ObjectId
 from typing import Optional, Literal, List
 
-from .mongo import Document, Collection, get_collection, MongoDocumentNotFound
+from .mongo import (
+    Document, 
+    Collection, 
+    MongoDocumentNotFound,
+    get_collection, 
+)
 
 
 @Collection("mannas")

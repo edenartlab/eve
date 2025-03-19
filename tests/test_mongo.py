@@ -1,4 +1,10 @@
 """
+document tests
+- setup document schema from yaml
+- edit document
+- save, version, load document
+
+
 Todo:
 VersionableMongoModel.load(t1.id, collection_name="stories")
 -> schema = recreate_base_model(document['schema'])
@@ -18,9 +24,10 @@ it gets {'base_model_field': FieldInfo(annotation=Union[Any, NoneType], required
 from pydantic import Field
 from typing import Dict, Any
 from bson import ObjectId
+from pydantic import BaseModel, Field
+from typing import Optional, List, Dict, Any, Union
 
-from eve.mongo import Document, Collection#, VersionableMongoModel
-from test_base import TestModel, InnerModel
+from eve.mongo import Document, Collection, VersionableDocument
 
 
 
@@ -61,107 +68,108 @@ def test_mongo_document():
 
     assert t.id == t2.id == t3.id
 
-    assert t3 == MongoModelTest(num=7, args={"foo": "hello world"}, user=ObjectId("666666663333366666666666"), id=t2.id, createdAt=t3.createdAt, updatedAt=t3.updatedAt)
+    assert t3 == MongoModelTest(
+        num=7, 
+        args={"foo": "hello world"}, 
+        user=ObjectId("666666663333366666666666"), 
+        id=t2.id, 
+        createdAt=t3.createdAt, 
+        updatedAt=t3.updatedAt
+    )
 
 
+def test_versionable_document():
 
-"""
-Todo: VersionableDocument
-"""
-def _test_versionable_base_model():
-    """
-    Test versionable base model saving, loading, and applying edits
-    """
 
-    t1 = VersionableMongoModel(
+    class InnerModel(BaseModel):
+        """
+        This is an inner model which is contained in a TestModel
+        """
+        
+        string_field: Optional[str] = Field(None, description="Another optional string field in inner model")
+        number_field: Optional[int] = Field(None, description="Another optional number field in inner model")
+
+    class TestModel(BaseModel):
+        """
+        This is a pydantic base model
+        """
+
+        string_field: str = Field(..., description="A string field")
+        string_list_field: Optional[List[str]] = Field(None, description="An optional string list field")
+        dict_field: Optional[Dict[str, Any]] = Field(None, description="An optional dictionary field")
+        base_model_field: Optional[InnerModel] = Field(None, description="An optional base model field")
+
+
+    t1 = VersionableDocument(
         instance = TestModel(
             string_field="hello world 11", 
             string_list_field=["test1", "test2"], 
             dict_field={"test3": "test4"},
             base_model_field=InnerModel(string_field="test5", number_field=7)
         ),
-        collection_name="stories",
+        collection_name="tests",
     )
 
     t1.save()
 
-    TestModelEdit = t1.get_edit_model()
-
-    t1_edit = TestModelEdit(
-        edit_string_field="test6",
-        add_string_list_field={"index": 1, "value": "test8"},
-        edit_dict_field={"test3": "test11"},
-        add_dict_field={"test12": "test13"},
-        edit_base_model_field={"string_field": "test14"}
-    )
-
-    t1.apply_edit(t1_edit)
-    
-    t1.save()
-
-    t1_expected = TestModel(
-        string_field="test6",
-        string_list_field=["test1", "test8", "test2"],
-        dict_field={"test3": "test11", "test12": "test13"},
+    assert t1.current == TestModel(
+        string_field="hello world 11", 
+        string_list_field=["test1", "test2"], 
+        dict_field={"test3": "test4"},
         base_model_field=InnerModel(
-            string_field="test14", 
+            string_field="test5", 
             number_field=7
         )
     )
 
-    assert t1.current == t1_expected
+    TestModelEdit = t1.get_edit_model()
 
-    print("T2 a")
-    print(t1.id)
-    t2 = VersionableMongoModel.load(t1.id, collection_name="stories")
-    print(t2)
-    print("T2 b")
-
-    t2_edit = TestModelEdit(
-        edit_string_field="test4999",
-        add_string_list_field={"index": 1, "value": "test4"},
-        add_dict_field={"test4": "test56"},
-        edit_base_model_field={"string_field": "test6", "number_field": 3}
+    t1.apply_edit(
+        TestModelEdit(
+            add_string_list_field={"index": 0, "value": "test3"},
+            add_dict_field={"test2": "test3"},
+        )
     )
 
-    t2.apply_edit(t2_edit)
+    assert t1.current == TestModel(
+        string_field="hello world 11", 
+        string_list_field=["test3", "test1", "test2"], 
+        dict_field={"test3": "test4", "test2": "test3"},
+        base_model_field=InnerModel(
+            string_field="test5", 
+            number_field=7
+        )
+    )
 
-    t2_expected = TestModel(
+    t1.save()
+
+    t1.apply_edit(
+        TestModelEdit(
+            edit_string_field="test4999",
+            add_string_list_field={"index": 1, "value": "test4"},
+            add_dict_field={"test4": "test56"},
+            edit_base_model_field={"string_field": "test6", "number_field": 3}
+        )
+    )
+
+    t1.save()
+
+    assert t1.current == TestModel(
         string_field="test4999",
-        string_list_field=["test1", "test4", "test8", "test2"],
-        dict_field={"test3": "test11", "test12": "test13", "test4": "test56"},
-        base_model_field=InnerModel(string_field="test6", number_field=3)
+        string_list_field=["test3", "test4", "test1", "test2"],
+        dict_field={"test3": "test4", "test2": "test3", "test4": "test56"},
+        base_model_field=InnerModel(
+            string_field="test6", 
+            number_field=3
+        )
     )
 
-    assert t2.current.model_dump() == t2_expected.model_dump()
-    
-    # t2.save()
+    t1.save()
 
-    # print("T3 a")
-    # t3 = VersionableMongoModel.load(t1.id, collection_name="stories")
-    # print(t3)
-    # print("T3 b")
+    # Todo: this is still not working correctly
+    t2 = VersionableDocument.load(t1.id, collection_name="tests")
 
-    # t3_edit = TestModelEdit(
-    #     edit_string_list_field={"index": 1, "value": "test99"},
-    #     remove_dict_field="test2",
-    #     edit_base_model_field={"string_field": "test72", "number_field": 4}
-    # )
+    assert t2.current == t1.current
 
-    # t3.apply_edit(t3_edit)
-
-    # t3_expected = TestModel(
-    #     string_field="test4999",
-    #     string_list_field=["test1", "test99", "test8", "test2"],
-    #     dict_field={"test3": "test11", "test12": "test13","test4": "test56"},
-    #     base_model_field=InnerModel(string_field="test72", number_field=4) 
-    # )
-
-    # assert t3.current.model_dump() == t3_expected.model_dump()
-
-    # t3.save()
-
-    # t4 = VersionableMongoModel.load(t1.id, collection_name="stories")
-
-    # assert t4.current.model_dump() == t3_expected.model_dump()
+    # assert t2.current.model_dump() == t2_expected.model_dump()
 

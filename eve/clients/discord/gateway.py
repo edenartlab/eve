@@ -45,6 +45,7 @@ image = (
     )
     .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
     .env({"DB": db})
+    .env({"SENTRY_DSN": None})
 )
 
 
@@ -350,7 +351,7 @@ class DiscordGatewayClient:
 
     async def handle_message(self, data: dict):
         logger.info(
-            f"Handling message for deployment {self.deployment.id} with data {data}"
+            f"Handling message 4 deployment {self.deployment.id} with data {data}"
         )
 
         # Skip messages from the bot itself
@@ -474,14 +475,14 @@ class DiscordGatewayClient:
                     channel_id = data.get("channel_id")
                     is_busy = data.get("is_busy", False)
 
-                    if channel_id:
-                        if is_busy:
-                            await self.typing_manager.start_typing(channel_id)
-                        else:
-                            await self.typing_manager.stop_typing(channel_id)
-                            # Double-check after a short delay to ensure typing has stopped
-                            await asyncio.sleep(0.5)
-                            await self.typing_manager.stop_typing(channel_id)
+                    # if channel_id:
+                    #     if is_busy:
+                    #         await self.typing_manager.start_typing(channel_id)
+                    #     else:
+                    #         await self.typing_manager.stop_typing(channel_id)
+                    #         # Double-check after a short delay to ensure typing has stopped
+                    #         await asyncio.sleep(0.5)
+                    #         await self.typing_manager.stop_typing(channel_id)
 
                 except Exception as e:
                     logger.error(f"Error handling busy state update: {e}")
