@@ -472,7 +472,7 @@ class Tool(Document, ABC):
                     handler_id = await start_task_function(self, task)
                     task.update(handler_id=handler_id)
 
-                if "free_tools" in user.featureFlags:
+                if "free_tools" in (user.featureFlags or []):
                     print("THIS SHOULD NOT BE SPENT BY THT USER FREE TOOLS!")
                 task.spend_manna()
 

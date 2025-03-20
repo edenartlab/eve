@@ -90,7 +90,7 @@ class User(Document):
 
     def check_manna(self, amount: float):
         print("load manna for user", self.id)
-        if "free_tools" in self.featureFlags:
+        if "free_tools" in (self.featureFlags or []):
             print("THIS SHOULD BE FREE TOOLS!")
         manna = Manna.load(self.id)
         print("manna here", manna)
