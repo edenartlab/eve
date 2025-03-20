@@ -14,6 +14,7 @@ from . import sentry_sdk
 NON_CREATION_TOOLS = [
     "search_agents",
     "search_models",
+    "search_collections",
     "create_session"
 ]
 
@@ -81,6 +82,8 @@ class CreationsCollection(Document):
     def add_creation(self, creation: ObjectId):
         if creation not in self.creations:
             self.creations.append(creation)
+        if len(self.creations) == 1:
+            self.coverCreation = self.creations[0]
         self.save()
 
     def remove_creation(self, creation: ObjectId):

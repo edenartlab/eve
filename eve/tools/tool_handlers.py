@@ -47,6 +47,10 @@ def load_handler(name):
             from .mongo_utils.search_models.handler import handler
             handlers[name] = handler
 
+        elif name == "search_collections":
+            from .mongo_utils.search_collections.handler import handler
+            handlers[name] = handler
+
         elif name == "get_tweets":
             from .twitter.get_tweets.handler import handler
             handlers[name] = handler
@@ -91,4 +95,7 @@ def load_handler(name):
             from .weather.handler import handler
             handlers[name] = handler
     
+
+    print("HERE ARE THE HANDLERS", handlers.keys())
+
     return handlers[name]
