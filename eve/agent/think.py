@@ -49,6 +49,10 @@ async def async_think(
     force_reply: bool = True,
     model: str = "claude-3-5-haiku-latest",
 ):
+    
+    print("================================================")
+    print("thinking for agent", agent.name)
+    print("================================================")
 
     class ChatThought(BaseModel):
         """A response to a chat message."""
@@ -118,12 +122,16 @@ async def async_think(
         reply_criteria=reply_criteria,
     )
 
+    print("==", agent.name, prompt)
+
     thought = await async_prompt(
         [UserMessage(content=prompt)],
         system_message=f"You analyze the chat on behalf of {agent.name} and generate a thought.",
         model=model,
         response_model=ChatThought,
     )
+
+    print("==", agent.name, thought)
 
     if force_reply:
         thought.intention = "reply"
