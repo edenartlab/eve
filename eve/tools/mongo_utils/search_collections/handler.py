@@ -33,7 +33,7 @@ The following collections are public and owned by other users.
 </Query>
 
 <Task>
-Analyze these collections and return only the ones that are relevant to this search query. You should prefer the collections made by the user, and if none are found, expand your search to public collections. Do not return more than 3 collections.
+Analyze these collections and return only the ones that are relevant to this search query. You should prefer the collections made by the user, and if none are found, expand your search to public collections. Important: Do *not* return more than {{num_results}} collections. Only the most relevant.
 
 Explain why each result matches the query criteria.
 </Task>""")
@@ -63,12 +63,12 @@ class SearchResults(BaseModel):
 async def handler(args: dict, user: str = None, agent: str = None):
     searcher = user
     query = args.get("query")
+    num_results = args.get("results", 5)
     
     # Get all documents
     counter = 1
     docs = {}
     collection = CreationsCollection.get_collection()
-    creations = Creation.get_collection()
     for doc in collection.find({"deleted": {"$ne": True}}):
         id = str(doc["_id"])
         doc["_id"] = counter       
@@ -99,7 +99,8 @@ async def handler(args: dict, user: str = None, agent: str = None):
     prompt = search_collections_template.render(
         docs_owned=docs_owned, 
         docs_public=docs_public, 
-        query=query
+        query=query,
+        num_results=num_results
     )
 
     print("--------------------------------")

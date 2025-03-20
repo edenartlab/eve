@@ -73,6 +73,7 @@ BASE_TOOLS = [
     "search_agents",
     "search_models",
     "search_collections",
+    "add_to_collection",
     # misc
     "news",
     "websearch",

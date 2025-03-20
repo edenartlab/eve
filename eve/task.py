@@ -15,6 +15,7 @@ NON_CREATION_TOOLS = [
     "search_agents",
     "search_models",
     "search_collections",
+    "add_to_collection",
     "create_session"
 ]
 
@@ -80,6 +81,7 @@ class CreationsCollection(Document):
         return cls(**document)
     
     def add_creation(self, creation: ObjectId):
+        creation = ObjectId(creation) if isinstance(creation, str) else creation
         if creation not in self.creations:
             self.creations.append(creation)
         if len(self.creations) == 1:

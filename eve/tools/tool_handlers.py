@@ -51,6 +51,10 @@ def load_handler(name):
             from .mongo_utils.search_collections.handler import handler
             handlers[name] = handler
 
+        elif name == "add_to_collection":
+            from .mongo_utils.add_to_collection.handler import handler
+            handlers[name] = handler
+
         elif name == "get_tweets":
             from .twitter.get_tweets.handler import handler
             handlers[name] = handler

@@ -12,3 +12,11 @@ parameters:
     description: Search query
     tip: Describe in natural language which collections you are searching for
     required: true
+  results:
+    type: number
+    label: Results
+    description: The number of results to return
+    tip: The number of results to return
+    default: 5
+    minimum: 1
+    maximum: 10
