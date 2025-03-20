@@ -1484,14 +1484,15 @@ class ComfyUI:
             # if there's a lora, replace mentions with embedding name
             if key == "prompt":
                 if "flux" in base_model:
-                    for lora_key in ["lora", "lora2"]:
-                        if args.get(f"use_{lora_key}", False):
-                            lora_strength = args.get(f"{lora_key}_strength", 0.7)
-                            value = self._inject_embedding_mentions_flux(
-                                value,
-                                embedding_triggers[lora_key],
-                                lora_trigger_texts[lora_key],
-                            )
+                    if not (('subj_1' in value) and ('subj_2' in value) and (tool.key == "flux_double_character")):
+                        for lora_key in ["lora", "lora2"]:
+                            if args.get(f"use_{lora_key}", False):
+                                lora_strength = args.get(f"{lora_key}_strength", 0.7)
+                                value = self._inject_embedding_mentions_flux(
+                                    value,
+                                    embedding_triggers[lora_key],
+                                    lora_trigger_texts[lora_key],
+                                )
                 elif base_model == "sdxl":
                     if embedding_trigger:
                         lora_strength = args.get("lora_strength", 0.7)
