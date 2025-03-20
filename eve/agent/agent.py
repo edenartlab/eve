@@ -244,7 +244,7 @@ class Agent(User):
 
         # remove tools that only the owner can use
         if str(auth_user) != str(self.owner):
-            print("User is not authorized to use these tools")
+            print("User is not authorized to use twitter tools")
             tools.pop("tweet", None)
             tools.pop("get_tweets", None)
 

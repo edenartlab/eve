@@ -28,7 +28,7 @@ class Creation(Document):
     mediaAttributes: Optional[Dict[str, Any]] = None
     name: Optional[str] = None
     attributes: Optional[Dict[str, Any]] = None
-    public: bool = False
+    public: bool = True
     deleted: bool = False
 
     def __init__(self, **data):
@@ -39,6 +39,54 @@ class Creation(Document):
         if isinstance(data.get("task"), str):
             data["task"] = ObjectId(data["task"])
         super().__init__(**data)
+
+
+@Collection("collections3")
+class CreationsCollection(Document):
+    user: ObjectId
+    name: str
+    creations: Optional[List[ObjectId]] = []
+    contributors: Optional[List[ObjectId]] = []
+    description: Optional[str] = None
+    deleted: bool = False
+    public: bool = True
+    coverCreation: Optional[ObjectId] = None
+
+    def __init__(self, **data):
+        if isinstance(data.get("user"), str):
+            data["user"] = ObjectId(data["user"])
+        if isinstance(data.get("agent"), str):
+            data["agent"] = ObjectId(data["agent"])
+        data["creations"] = [
+            ObjectId(creation) if isinstance(creation, str) else creation 
+            for creation in data.get("creations", [])
+        ]
+        data["contributors"] = [
+            ObjectId(contributor) if isinstance(contributor, str) else contributor 
+            for contributor in data.get("contributors", [])
+        ]
+        super().__init__(**data)
+
+    @classmethod
+    def load(cls, name, user, create_if_missing=False):
+        document = cls.get_collection().find_one({"name": name, "user": user})
+        if not document:
+            if create_if_missing:
+                document = cls(name=name, user=user)
+                document.save()
+            else:
+                raise Exception("Collection not found")
+        return cls(**document)
+    
+    def add_creation(self, creation: ObjectId):
+        if creation not in self.creations:
+            self.creations.append(creation)
+        self.save()
+
+    def remove_creation(self, creation: ObjectId):
+        if creation in self.creations:
+            self.creations.remove(creation)
+        self.save()
 
 
 @Collection("tasks3")

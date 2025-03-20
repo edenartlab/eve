@@ -345,15 +345,15 @@ async def cancel_stuck_tasks_fn():
         sentry_sdk.capture_exception(e)
 
 
-@app.function(
-    image=image, concurrency_limit=1, schedule=modal.Period(minutes=15), timeout=3600
-)
-async def run_nsfw_detection_fn():
-    try:
-        await run_nsfw_detection()
-    except Exception as e:
-        print(f"Error running nsfw detection: {e}")
-        sentry_sdk.capture_exception(e)
+# @app.function(
+#     image=image, concurrency_limit=1, schedule=modal.Period(minutes=15), timeout=3600
+# )
+# async def run_nsfw_detection_fn():
+#     try:
+#         await run_nsfw_detection()
+#     except Exception as e:
+#         print(f"Error running nsfw detection: {e}")
+#         sentry_sdk.capture_exception(e)
 
 
 @app.function(
