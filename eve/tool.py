@@ -417,6 +417,8 @@ class Tool(Document, ABC):
             args: Dict,
             mock: bool = False,
         ):
+            print("***** STARTING TASK *****")
+
             try:
                 # validate args and user manna balance
                 args = self.prepare_args(args)
