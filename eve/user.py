@@ -92,6 +92,7 @@ class User(Document):
         print("load manna for user", self.id)
         if "free_tools" in (self.featureFlags or []):
             print("THIS SHOULD BE FREE TOOLS!")
+            return
         manna = Manna.load(self.id)
         print("manna here", manna)
         total_balance = manna.balance + manna.subscriptionBalance
