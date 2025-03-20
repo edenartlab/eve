@@ -1,14 +1,14 @@
 from eve.agent import Agent
 
 def test_agent():
-    """Pytest entry point"""
-
-    agent = Agent.load("banny")
+    agent = Agent.load("verdelis")
     tools = agent.get_tools()
-    print("the agent's tools are: ", tools.keys())
+    print("tools", tools.keys())
 
     tool = tools["flux_dev_lora"]
     result = tool.run({
-        "prompt": "banny in a hotel"
+        "prompt": "verdelis is in a library"
     })
     print(result)
+
+    assert result["status"] == "completed"
