@@ -1,6 +1,7 @@
 from ....task import CreationsCollection, Creation
 from ....tool import Tool
 
+
 async def handler(args: dict, user: str = None, agent: str = None):
     query = args.get("query")
     tool = Tool.load("search_collections")
