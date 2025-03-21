@@ -417,8 +417,6 @@ class Tool(Document, ABC):
             args: Dict,
             mock: bool = False,
         ):
-            print("***** STARTING TASK *****")
-
             try:
                 # validate args and user manna balance
                 args = self.prepare_args(args)
@@ -473,7 +471,7 @@ class Tool(Document, ABC):
                     task.update(handler_id=handler_id)
 
                 if "free_tools" not in (user.featureFlags or []):
-                    print("THIS SHOULD NOT BE SPENT BY THT USER FREE TOOLS!")
+                    print("free manna for task", task.id, "for user", user.id)
                     task.spend_manna()
 
             except Exception as e:
