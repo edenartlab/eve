@@ -194,17 +194,17 @@ class Agent(User):
                 if tools_list and model_list:
                     if len(model_list) == 1:
                         tip = f'Only use "{base_model["type"]}" models. Set the "lora" argument to the ID of the default lora (ID: {str(model_list[0]["lora"])}, Name: "{model_list[0]["doc"].name}", Description: "{model_list[0]["doc"].lora_trigger_text}"), if the following conditions are true: "{model_list[0]["use_when"]}"). If no lora is desired, leave this blank. If a different lora is desired, use its ID instead.'
-                        default_lora = model_list[0]["doc"]["_id"]
+                        default_lora = model_list[0]["doc"].id
                     else:
                         models_info = " | ".join([
                             f'ID: {m["lora"]}, Name: "{m["doc"].name}", Description: "{m["doc"].lora_trigger_text}", Use When: "{m["use_when"]}"' 
                             for m in model_list
                         ])
                         tip = f'Only use "{base_model["type"]}" models. You are can use the following loras under the "Use When" circumstances: {models_info}. To use no lora, leave the "lora" argument blank.'
-                        default_lora = model_list[0]["doc"]["_id"]
+                        default_lora = model_list[0]["doc"].id
                         for model in model_list:
                             if "default" in model["use_when"].lower():
-                                default_lora = model["doc"]["_id"]
+                                default_lora = model["doc"].id
                                 break
                     
                     print("732647246723 !!!", default_lora)
