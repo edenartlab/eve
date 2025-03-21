@@ -94,7 +94,10 @@ def submit_job(
                     "accelerator_type": GPUs[gpu],
                     "accelerator_count": gpu_count,
                 },
-                "replica_count": 1,
+                "disk_spec": {
+                    "boot_disk_type": "pd-ssd",
+                    "boot_disk_size_gb": 200
+                },                "replica_count": 1,
                 "container_spec": {
                     "image_uri": gcr_image_uri,
                     "args": [
