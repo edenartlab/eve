@@ -7,6 +7,7 @@ import os
 from typing import Dict, Optional, Tuple
 import websockets
 import aiohttp
+import uuid
 from ably import AblyRealtime
 from eve import db
 from eve.deploy import Deployment, ClientType
@@ -350,8 +351,10 @@ class DiscordGatewayClient:
         return thread, user
 
     async def handle_message(self, data: dict):
+        # Create a trace ID from deployment ID and message ID
+        trace_id = f"{self.deployment.id}-{data['id']}"
         logger.info(
-            f"Handling message 4 deployment {self.deployment.id} with data {data}"
+            f"[trace:{trace_id}] Handling message for deployment {self.deployment.id} with data {data}"
         )
 
         # Skip messages from the bot itself
@@ -360,15 +363,20 @@ class DiscordGatewayClient:
             data.get("author", {}).get("id")
             == self.deployment.secrets.discord.application_id
         ):
-            print("SKIPPING MESSAGE FROM BOT")
-            print("DEPLOYMENT ID...", self.deployment.id)
-            print("APPLICATION ID", self.deployment.secrets.discord.application_id)
+            logger.info(f"[trace:{trace_id}] SKIPPING MESSAGE FROM BOT")
+            logger.info(f"[trace:{trace_id}] DEPLOYMENT ID...", self.deployment.id)
+            logger.info(
+                f"[trace:{trace_id}] APPLICATION ID",
+                self.deployment.secrets.discord.application_id,
+            )
             return
 
         # Fetch fresh deployment data to get the latest allowlist
         fresh_deployment = Deployment.from_mongo(str(self.deployment.id))
         if not fresh_deployment or not fresh_deployment.config:
-            logger.info(f"No config found for deployment {self.deployment.id}")
+            logger.info(
+                f"[trace:{trace_id}] No config found for deployment {self.deployment.id}"
+            )
             return
 
         channel_id = str(data["channel_id"])
@@ -378,11 +386,11 @@ class DiscordGatewayClient:
             allowed_channels = [
                 item.id for item in fresh_deployment.config.discord.channel_allowlist
             ]
-            print("ALLOWED CHANNELS", allowed_channels)
-            print("CHANNEL ID", channel_id)
+            logger.info(f"[trace:{trace_id}] ALLOWED CHANNELS: {allowed_channels}")
+            logger.info(f"[trace:{trace_id}] CHANNEL ID: {channel_id}")
 
             if channel_id not in allowed_channels:
-                print("NOT IN ALLOWED CHANNELS")
+                logger.info(f"[trace:{trace_id}] NOT IN ALLOWED CHANNELS")
                 return
 
         # Get thread and user using the helper function
@@ -438,8 +446,14 @@ class DiscordGatewayClient:
             "force_reply": force_reply,
         }
 
-        print("CHAT REQUEST", chat_request)
-        print("SENDING TO", f"{os.getenv('EDEN_API_URL')}/chat")
+        logger.info(f"[trace:{trace_id}] CHAT REQUEST", chat_request)
+        logger.info(
+            f"[trace:{trace_id}] SENDING TO", f"{os.getenv('EDEN_API_URL')}/chat"
+        )
+
+        logger.info(
+            f"[trace:{trace_id}] Sending chat request for deployment {self.deployment.id}"
+        )
 
         async with aiohttp.ClientSession() as session:
             async with session.post(
@@ -450,11 +464,16 @@ class DiscordGatewayClient:
                     "Content-Type": "application/json",
                     "X-Client-Platform": "discord",
                     "X-Client-Deployment-Id": str(self.deployment.id),
+                    "X-Trace-Id": trace_id,
                 },
             ) as response:
                 if response.status != 200:
                     logger.error(
-                        f"Failed to process chat request: {await response.text()}"
+                        f"[trace:{trace_id}] Failed to process chat request: {await response.text()}"
+                    )
+                else:
+                    logger.info(
+                        f"[trace:{trace_id}] Successfully sent chat request for deployment {self.deployment.id}"
                     )
 
     async def setup_ably(self):
@@ -527,12 +546,15 @@ class DiscordGatewayClient:
                             self._last_sequence = data["s"]
 
                         if data["op"] == GatewayOpCode.DISPATCH:
-                            logger.info(
-                                f"Dispatch event for deployment {self.deployment.id}"
-                            )
                             if data["t"] == GatewayEvent.MESSAGE_CREATE:
+                                # For message creation, use deployment ID and message ID for trace ID
+                                message_id = data["d"].get("id", "unknown")
+                                msg_trace_id = f"{self.deployment.id}-{message_id}"
                                 logger.info(
-                                    f"Handling message create event for deployment {self.deployment.id}"
+                                    f"[trace:{msg_trace_id}] Dispatch event for deployment {self.deployment.id}"
+                                )
+                                logger.info(
+                                    f"[trace:{msg_trace_id}] Handling message create event for deployment {self.deployment.id}"
                                 )
                                 await self.handle_message(data["d"])
                             elif data["t"] == GatewayEvent.READY:
@@ -572,13 +594,20 @@ class GatewayManager:
 
     async def reload_client(self, deployment_id: str):
         """Reload a gateway client with fresh deployment data"""
-        logger.info(f"Reloading gateway client for deployment {deployment_id}")
+        reload_trace_id = (
+            f"{deployment_id}-reload-{int(asyncio.get_event_loop().time())}"
+        )
+        logger.info(
+            f"[trace:{reload_trace_id}] Reloading gateway client for deployment {deployment_id}"
+        )
 
         # First stop and remove the existing client if it exists
         if deployment_id in self.clients:
             client = self.clients.pop(deployment_id)
             client.stop()
-            logger.info(f"Stopped existing client for deployment {deployment_id}")
+            logger.info(
+                f"[trace:{reload_trace_id}] Stopped existing client for deployment {deployment_id}"
+            )
 
             # Add a small delay to ensure cleanup
             await asyncio.sleep(1)
@@ -593,7 +622,7 @@ class GatewayManager:
             # Start the new client
             asyncio.create_task(client.connect())
             logger.info(
-                f"Successfully reloaded gateway client for deployment {deployment_id} with fresh data"
+                f"[trace:{reload_trace_id}] Successfully reloaded gateway client for deployment {deployment_id} with fresh data"
             )
 
             # Log the updated channel allowlist for debugging
@@ -606,10 +635,12 @@ class GatewayManager:
                     item.id for item in deployment.config.discord.channel_allowlist
                 ]
                 logger.info(
-                    f"Updated allowlist for deployment {deployment_id}: {allowed_channels}"
+                    f"[trace:{reload_trace_id}] Updated allowlist for deployment {deployment_id}: {allowed_channels}"
                 )
         else:
-            logger.error(f"Failed to reload - deployment not found: {deployment_id}")
+            logger.error(
+                f"[trace:{reload_trace_id}] Failed to reload - deployment not found: {deployment_id}"
+            )
 
     async def setup_ably(self):
         """Set up Ably subscription for gateway commands"""
@@ -624,13 +655,19 @@ class GatewayManager:
                 # Continue with existing command handling
                 command = data.get("command")
                 deployment_id = data.get("deployment_id")
+                # Generate trace ID for command handling with deployment ID and timestamp
+                cmd_trace_id = (
+                    f"{deployment_id}-cmd-{int(asyncio.get_event_loop().time())}"
+                )
 
                 if not command or not deployment_id:
-                    logger.warning(f"Missing command or deployment_id: {data}")
+                    logger.warning(
+                        f"[trace:{cmd_trace_id}] Missing command or deployment_id: {data}"
+                    )
                     return
 
                 logger.info(
-                    f"Received command: {command} for deployment: {deployment_id}"
+                    f"[trace:{cmd_trace_id}] Received command: {command} for deployment: {deployment_id}"
                 )
 
                 if command == "start":
@@ -638,12 +675,20 @@ class GatewayManager:
                     deployment = Deployment.from_mongo(deployment_id)
                     if deployment:
                         await self.start_client(deployment)
+                        logger.info(
+                            f"[trace:{cmd_trace_id}] Started client for deployment: {deployment_id}"
+                        )
                     else:
-                        logger.error(f"Deployment not found: {deployment_id}")
+                        logger.error(
+                            f"[trace:{cmd_trace_id}] Deployment not found: {deployment_id}"
+                        )
 
                 elif command == "stop":
                     # Stop an existing gateway client
                     await self.stop_client(deployment_id)
+                    logger.info(
+                        f"[trace:{cmd_trace_id}] Stopped client for deployment: {deployment_id}"
+                    )
 
                 # Add Telegram-specific commands
                 elif command == "register_telegram":
@@ -653,12 +698,20 @@ class GatewayManager:
                         self.telegram_typing_manager.register_deployment(
                             deployment_id, token
                         )
+                        logger.info(
+                            f"[trace:{cmd_trace_id}] Registered Telegram deployment: {deployment_id}"
+                        )
                     else:
-                        logger.error(f"Missing token for Telegram registration: {data}")
+                        logger.error(
+                            f"[trace:{cmd_trace_id}] Missing token for Telegram registration: {data}"
+                        )
 
                 elif command == "unregister_telegram":
                     # Unregister a Telegram deployment
                     self.telegram_typing_manager.unregister_deployment(deployment_id)
+                    logger.info(
+                        f"[trace:{cmd_trace_id}] Unregistered Telegram deployment: {deployment_id}"
+                    )
 
             except Exception as e:
                 logger.error(f"Error handling Ably message: {e}")

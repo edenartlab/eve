@@ -72,6 +72,8 @@ BASE_TOOLS = [
     # search
     "search_agents",
     "search_models",
+    "search_collections",
+    "add_to_collection",
     # misc
     "news",
     "websearch",
@@ -468,7 +470,9 @@ class Tool(Document, ABC):
                     handler_id = await start_task_function(self, task)
                     task.update(handler_id=handler_id)
 
-                task.spend_manna()
+                if "free_tools" not in (user.featureFlags or []):
+                    print("free manna for task", task.id, "for user", user.id)
+                    task.spend_manna()
 
             except Exception as e:
                 print(traceback.format_exc())

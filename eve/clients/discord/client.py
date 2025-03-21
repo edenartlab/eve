@@ -177,15 +177,14 @@ class Eden2Cog(commands.Cog):
                     elif update_type == UpdateType.TOOL_COMPLETE:
                         result = data.get("result", {})
                         result["result"] = prepare_result(result["result"])
-                        outputs = result["result"][0]["output"]
                         urls = [
-                            output["url"] for output in outputs[:4] if "url" in output
-                        ]  # Get up to 4 URLs with valid urls
+                            output["url"] for output in result["result"] for output in output["output"] if "url" in output
+                        ]  # Get all URLs from all elements in result["result"]
 
                         # Get creation ID from the first output
                         creation_id = None
-                        if isinstance(outputs, list) and len(outputs) > 0:
-                            creation_id = str(outputs[0].get("creation"))
+                        if isinstance(result["result"], list) and len(result["result"]) > 0:
+                            creation_id = str(result["result"][0].get("creation"))
 
                         if creation_id:
                             eden_url = common.get_eden_creation_url(creation_id)

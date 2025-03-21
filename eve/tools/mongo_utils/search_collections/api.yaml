@@ -1,0 +1,22 @@
+name: Search for Collections
+description: Search database for collections
+tip: Use this tool to search for collections based on a query. The collection_id field is the unique ID for the collection. Do not return more than 10 results.
+cost_estimate: 0
+output_type: image
+status: prod
+visible: false
+parameters:
+  query:
+    type: string
+    label: Query
+    description: Search query
+    tip: Describe in natural language which collections you are searching for
+    required: true
+  results:
+    type: number
+    label: Results
+    description: The number of results to return
+    tip: The number of results to return
+    default: 5
+    minimum: 1
+    maximum: 10
