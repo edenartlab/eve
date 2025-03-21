@@ -6,11 +6,10 @@ output_type: image
 status: prod
 visible: false
 parameters:
-  query:
+  collection_id:
     type: string
-    label: Query
-    description: Search query
-    tip: Describe in natural language which collection you are searching for to add the creation to
+    label: Collection ID
+    description: The ID of the collection to add the creation to
     required: true
   creation_id:
     type: string
