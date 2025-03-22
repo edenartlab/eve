@@ -50,6 +50,7 @@ class UserMessage(ChatMessage):
             attachment_files = []
             attachment_errors = []
             for attachment in self.attachments:
+                print("downloading attachment", attachment)
                 try:
                     attachment_file = download_file(
                         attachment,
@@ -58,7 +59,9 @@ class UserMessage(ChatMessage):
                         ),
                         overwrite=False,
                     )
+                    print("downloaded attachment", attachment_file)
                     mime_type = magic.from_file(attachment_file, mime=True)
+                    print("mime type", mime_type)
                     if "video" in mime_type:
                         attachment_lines.append(
                             f"* {attachment} (The asset is a video, the corresponding image attachment is its first frame.)"
@@ -68,10 +71,11 @@ class UserMessage(ChatMessage):
                         attachment_lines.append(f"* {attachment}")
                         attachment_files.append(attachment_file)
                     else:
-                        attachment_errors.append(
+                        attachment_lines.append(
                             f"* {attachment}: (Mime type: {mime_type})"
                         )
                 except Exception as e:
+                    print("error downloading attachment", e)
                     attachment_errors.append(f"* {attachment}: {str(e)}")
 
             attachments = ""

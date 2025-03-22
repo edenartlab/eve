@@ -14,7 +14,7 @@ from .agent import Agent
 import os
 from eve.user import User
 from eve.agent2 import Agent
-from eve.agent2.message import ChatMessage
+from eve.agent2.message import ChatMessage  
 # from eve.tools import Tool
 from eve.eden_utils import load_template
 

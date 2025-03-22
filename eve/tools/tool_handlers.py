@@ -31,6 +31,10 @@ def load_handler(name):
             from .media_utils.ffmpeg_multitool.handler import handler
             handlers[name] = handler
 
+        elif name == "media_editor":
+            from .media_utils.media_editor.handler import handler
+            handlers[name] = handler
+
         elif name == "time_remapping":
             from .media_utils.time_remapping.handler import handler
             handlers[name] = handler
@@ -98,8 +102,5 @@ def load_handler(name):
         elif name == "weather":
             from .weather.handler import handler
             handlers[name] = handler
-    
-
-    print("HERE ARE THE HANDLERS", handlers.keys())
 
     return handlers[name]

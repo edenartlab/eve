@@ -169,7 +169,7 @@ def get_voice_summary():
         name = voice.name
         description = voice.description or ""
         labels = voice.labels or {}
-        description = description or ""
+        description = (description or "") + ", "
         description += ", ".join([f"{k}: {v}" for k, v in labels.items()])    
         full_description += f"{name}: {description}\n"
     
