@@ -22,33 +22,6 @@ from ....user import User
 from ....agent.llm import async_prompt
 
 
-
-result_template = Template("""<Name>{{ name }}</Name>
-<ChatLog>
-Role: You are roleplaying as {{ name }} in a group chat. The following are the last {{ message_count }} messages. Note: "You" refers to your own messages.
----
-{{ chat }}
----
-</ChatLog>
-<Task>
-You will receive the next user message in this group chat. Note that the message may not be directed specifically to you. Use context to determine if it:
-- Directly addresses you,
-- References something you said,
-- Is intended for another participant, or
-- Is a general message.
-Based on your analysis, generate a response containing:
-- intention: Either "reply" or "ignore". Choose "reply" if the message is relevant or requests you; choose "ignore" if it is not.
-- thought: A brief explanation of your reasoning regarding the message’s relevance and your decision.
-- recall_knowledge: Whether to consult your background knowledge.
-{{ reply_criteria }}
-</Task>
-{{ knowledge_description }}
-<Message>
-{{ message }}
-</Message>
-""")
-
-
 class MediaResults(BaseModel):
     """A collection of media files resulting from the media editor's tools."""
 
@@ -70,25 +43,36 @@ async def handler(args: dict, user: str = None, agent: str = None):
     agent = Agent.load("media-editor")
     tools = agent.get_tools(cache=True)
     thread = agent.request_thread()
+
+    message = UserMessage(
+        content=args["instructions"],
+        attachments=args["media_files"]
+    )
+
+    print("\n\n\n========= init message ========")
+    print(message)
     
     async for msg in async_prompt_thread(
         user, 
         agent, 
         thread, 
-        UserMessage(
-            content=args["instructions"],
-            attachments=args["media_files"]
-        ),
+        message,
         tools, 
         force_reply=True, 
         use_thinking=False, 
         model="claude-3-7-sonnet-latest"
     ):
-        print("\n\n\n===========")
+        print("\n\n===========")
         print(msg)
 
 
     prompt = "Given the initial instructions and the subsequent results, output all the resulting media files as a list of urls if the task was successful, otherwise output a string explaining the error."
+
+    print("\n\n\n========= THE FINAL MESSAGES ========")
+    for m in thread.get_messages() + [UserMessage(content=prompt)]:
+        print()
+        print(m)
+
 
     media_results = await async_prompt(
         thread.get_messages() + [UserMessage(content=prompt)],
