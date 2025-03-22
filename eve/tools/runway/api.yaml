@@ -26,12 +26,14 @@ parameters:
     description: The duration of the video in seconds
     default: 5
     choices: [5, 10]
+    required: true
   ratio:
     type: string
     label: Ratio
     description: The aspect ratio of the video
     default: '9:16'
     choices: ['16:9', '9:16']
+    required: true
   seed:
     type: integer
     label: Seed
