@@ -49,7 +49,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
         attachments=args["media_files"]
     )
 
-    print("\n\n\n========= init message ========")
+    print("\n\n\n========= init mess 2age ========")
     print(message)
     print("--------------------------------")
     print(message.anthropic_schema())
