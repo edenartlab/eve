@@ -71,7 +71,7 @@ class UserMessage(ChatMessage):
                         attachment_lines.append(f"* {attachment}")
                         attachment_files.append(attachment_file)
                     else:
-                        attachment_errors.append(
+                        attachment_lines.append(
                             f"* {attachment}: (Mime type: {mime_type})"
                         )
                 except Exception as e:
