@@ -25,7 +25,7 @@ knowledge_reply_template = load_template("knowledge_reply")
 models_instructions_template = load_template("models_instructions")
 model_template = load_template("model_doc")
 
-USE_THINKING = os.getenv("USE_THINKING", "false").lower() == "true"
+USE_THINKING = False #os.getenv("USE_THINKING", "false").lower() == "true"
 
 # _models_cache: Dict[str, Dict[str, Model]] = {} # todo
 
