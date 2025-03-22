@@ -773,7 +773,7 @@ image = (
     )
     .run_function(install_comfyui)
     .run_function(install_custom_nodes, gpu="A100")
-    .pip_install("moviepy==1.0.3", "accelerate==1.4.0", "peft==0.14.0")
+    .pip_install("moviepy==1.0.3", "accelerate==1.4.0", "peft==0.14.0", "transformers==4.49.0")
     .run_function(download_files, volumes={"/data": downloads_vol}, secrets=[
             modal.Secret.from_name("eve-secrets"),
             modal.Secret.from_name(f"eve-secrets-{db}"),
