@@ -167,6 +167,11 @@ class Tool(Document, ABC):
                 _handler_cache[parent_tool] = parent.get("handler") if parent else None
             handler = _handler_cache[parent_tool]
 
+
+
+        print("LET US LOAD", handler, schema.get("key"))
+
+
         # Lazy load the tool class if we haven't seen this handler before
         if handler not in _tool_classes:
             if handler == "local":

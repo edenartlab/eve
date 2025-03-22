@@ -1,5 +1,7 @@
 name: Media Editor
-description: A generic tool that can edit, convert, and composite multimedia.
+description: A general purpose media editing tool that can edit, convert, extract, and composite multimedia.
+tip: |-
+  This tool is a self-contained tool that can do editing operations on input media files. Editing operations include things like cutting, cropping, shifting, etc, no generative tasks here. It does not generate any media itself. Use it when asked to do things like extract or recombine media tracks, cut or crop, merge or split media files, etc.
 cost_estimate: 1
 output_type: video
 status: prod
@@ -8,7 +10,7 @@ parameters:
   instructions:
     type: string
     label: Task instructions
-    description: Provide instructions for the task to be performed on the provided media files.
+    description: Provide comprehensive instructions for the task to be performed on the provided media files. Make sure to include any prior context which is relevant for the media editor to understand the task.
     required: true
   media_files:
     type: array
@@ -19,4 +21,5 @@ parameters:
         - type: audio
     label: Media files
     description: Media URLs
+    tip: These are URLs to downloadable media files. Only accepts videos, audio, and images.
     required: true

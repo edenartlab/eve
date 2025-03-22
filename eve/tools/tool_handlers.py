@@ -102,8 +102,5 @@ def load_handler(name):
         elif name == "weather":
             from .weather.handler import handler
             handlers[name] = handler
-    
-
-    print("HERE ARE THE HANDLERS", handlers.keys())
 
     return handlers[name]
