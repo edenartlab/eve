@@ -49,7 +49,6 @@ Based on your analysis, generate a response containing:
 """)
 
 
-
 class MediaResults(BaseModel):
     """A collection of media files resulting from the media editor's tools."""
 
@@ -83,8 +82,9 @@ async def handler(args: dict, user: str = None, agent: str = None):
         tools, 
         force_reply=True, 
         use_thinking=False, 
-        model="gpt-4o-mini"
+        model="claude-3-7-sonnet-latest"
     ):
+        print("\n\n\n===========")
         print(msg)
 
 
@@ -96,7 +96,6 @@ async def handler(args: dict, user: str = None, agent: str = None):
         model="gpt-4o-mini",
         response_model=MediaResults,
     )
-
 
     print("======= media results")
     print(media_results)
