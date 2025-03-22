@@ -51,6 +51,8 @@ async def handler(args: dict, user: str = None, agent: str = None):
 
     print("\n\n\n========= init message ========")
     print(message)
+    print("--------------------------------")
+    print(message.anthropic_schema())
     
     async for msg in async_prompt_thread(
         user, 
@@ -68,10 +70,15 @@ async def handler(args: dict, user: str = None, agent: str = None):
 
     prompt = "Given the initial instructions and the subsequent results, output all the resulting media files as a list of urls if the task was successful, otherwise output a string explaining the error."
 
+    prompt += " Note, when you receive urls as attachments, including audio files, you should assume they are all valid files and pass those urls onward directly to any tools that take them. You do *NOT* need to 'see' the audio files or download them, simply pass them onward."
+
     print("\n\n\n========= THE FINAL MESSAGES ========")
-    for m in thread.get_messages() + [UserMessage(content=prompt)]:
+    all_messages = thread.get_messages() + [UserMessage(content=prompt)]
+    for m in all_messages:
         print()
         print(m)
+
+    
 
 
     media_results = await async_prompt(
