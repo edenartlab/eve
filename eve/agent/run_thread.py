@@ -156,6 +156,7 @@ async def async_prompt_thread(
         return
 
     # Thinking step
+    use_thinking = False
     if use_thinking:
         print("Thinking...")
 
