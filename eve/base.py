@@ -384,6 +384,7 @@ def parse_props(field: str, props: dict) -> Tuple[Type, dict, dict]:
         type_annotation = create_model(field, __config__=model_config, **fields)
     elif props["type"] == "array":
         json_schema_extra["is_array"] = True
+        print("props", props)
         if props["items"]["type"] == "object":
             fields, model_config = parse_schema(props["items"])
             item_type = create_model(f"{field}Item", __config__=model_config, **fields)
