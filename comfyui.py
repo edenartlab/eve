@@ -773,8 +773,11 @@ image = (
     )
     .run_function(install_comfyui)
     .run_function(install_custom_nodes, gpu="A100")
-    .pip_install("moviepy==1.0.3")
-    .run_function(download_files, volumes={"/data": downloads_vol})
+    .pip_install("moviepy==1.0.3", "accelerate==1.4.0", "peft==0.14.0")
+    .run_function(download_files, volumes={"/data": downloads_vol}, secrets=[
+            modal.Secret.from_name("eve-secrets"),
+            modal.Secret.from_name(f"eve-secrets-{db}"),
+        ])
     # Second copy of workflow files after downloads
     .add_local_dir(
         f"{root_workflows_folder}/workspaces/{workspace_name}",
@@ -1484,7 +1487,7 @@ class ComfyUI:
             # if there's a lora, replace mentions with embedding name
             if key == "prompt":
                 if "flux" in base_model:
-                    if not (('subj_1' in value) and ('subj_2' in value) and (tool.key == "flux_double_character")):
+                    if not (('subj_1' in value) and ('subj_2' in value) and (tool.key == "flux_double_character")): # Skip trigger injection 
                         for lora_key in ["lora", "lora2"]:
                             if args.get(f"use_{lora_key}", False):
                                 lora_strength = args.get(f"{lora_key}_strength", 0.7)
