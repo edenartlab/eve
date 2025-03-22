@@ -20,6 +20,7 @@ MODELS = [
     "claude-3-5-haiku-latest",
     "gpt-4o",
     "gpt-4o-mini",
+    "o1-mini",
 ]
 
 DEFAULT_MODEL = os.getenv("DEFAULT_AGENT_MODEL", "claude-3-5-haiku-latest")
@@ -259,7 +260,7 @@ async def async_openai_prompt(
         raise ValueError("OPENAI_API_KEY env is not set")
 
     messages_json = [item for msg in messages for item in msg.openai_schema()]
-    if system_message:
+    if system_message and model != "o1-mini":  # o1 does not support system messages
         messages_json = [{"role": "system", "content": system_message}] + messages_json
 
     openai_client = openai.AsyncOpenAI()
@@ -277,7 +278,7 @@ async def async_openai_prompt(
             else None
         )
         response = await openai_client.chat.completions.create(
-            model="gpt-4o-mini", messages=messages_json, tools=tools
+            model=model, messages=messages_json, tools=tools
         )
         response = response.choices[0]
         content = response.message.content or ""

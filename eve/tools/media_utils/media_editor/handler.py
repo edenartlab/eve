@@ -78,9 +78,6 @@ async def handler(args: dict, user: str = None, agent: str = None):
         print()
         print(m)
 
-    
-
-
     media_results = await async_prompt(
         thread.get_messages() + [UserMessage(content=prompt)],
         system_message=agent.persona,
