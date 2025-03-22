@@ -1,0 +1,22 @@
+name: Media Editor
+description: A generic tool that can edit, convert, and composite multimedia.
+cost_estimate: 1
+output_type: video
+status: prod
+visible: false
+parameters:
+  instructions:
+    type: string
+    label: Task instructions
+    description: Provide instructions for the task to be performed on the provided media files.
+    required: true
+  media_files:
+    type: array
+    items:
+      anyOf: 
+        - type: image
+        - type: video
+        - type: audio
+    label: Media files
+    description: Media URLs
+    required: true

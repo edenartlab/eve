@@ -68,7 +68,7 @@ BASE_TOOLS = [
     "stable_audio",
     "zonos",
     # editing
-    "ffmpeg_multitool",
+    "media_editor",
     # search
     "search_agents",
     "search_models",
@@ -170,11 +170,10 @@ class Tool(Document, ABC):
         # Lazy load the tool class if we haven't seen this handler before
         if handler not in _tool_classes:
             if handler == "local":
-                # from .tools.local_tool import LocalTool
-                # _tool_classes[handler] = LocalTool
-                from .tools.modal_tool import ModalTool
-
-                _tool_classes[handler] = ModalTool
+                from .tools.local_tool import LocalTool
+                
+                _tool_classes[handler] = LocalTool
+                
             elif handler == "modal":
                 from .tools.modal_tool import ModalTool
 

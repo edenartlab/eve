@@ -67,7 +67,7 @@ tools:
   weather:
   stable_audio:
   mmaudio:
-  ffmpeg_multitool:
+  media_editor:
   musicgen:
   audio_split_stems:
   ominicontrol:
