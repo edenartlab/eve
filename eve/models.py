@@ -16,7 +16,7 @@ class Model(Document):
     deleted: bool = False
     args: Dict[str, Any]
     checkpoint: str
-    checkpoint_versions: Optional[Dict[str, Any]] = None
+    checkpoint_versions: Optional[List[Dict[str, Any]]] = None
     base_model: str
     lora_trigger_text: Optional[str] = None
     lora_model: Optional[str] = None

@@ -3,7 +3,7 @@ from .. import X
 
 
 async def handler(args: dict, user: str = None, agent: str = None):
-    agent = Agent.load(args["agent"])
+    agent = Agent.load(agent)
     x = X(agent)
 
     mentions = x.fetch_mentions()
