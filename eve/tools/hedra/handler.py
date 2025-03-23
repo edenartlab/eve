@@ -31,10 +31,16 @@ async def handler(args: dict, user: str = None, agent: str = None):
         image_response = requests.post(
             f"{HEDRA_BASE_URL}/v1/portrait", 
             headers={'X-API-KEY': HEDRA_API_KEY}, 
-            files={'file': open(image_path, 'rb')}
+            files={'file': open(image_path, 'rb')},
+            json={
+                "aspectRatio": args["aspectRatio"]
+            }
         )
         if not image_response.ok:
             raise Exception(f"Failed to upload image: {image_response.text}")
+
+
+        print("THE IMAGE RESPONSE", image_response.json())
 
         # print({
         #     "avatarImage": image_response.json()["url"],

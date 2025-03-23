@@ -495,6 +495,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
     for i in range(num_clips):
         image = await flux.async_run(flux_args[i])
         image = eden_utils.prepare_result(image)
+        print("IMAGE ==1", image)
         output_url = image['output'][0]["url"]
         images.append(output_url)
     # images =['https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/6af97716cf3a4703877576e07823d5c6492a0355c2c7a55148b8f6a4cc8d97a7.png', 'https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/4bbcee84993883fe767502a29cdbe615e5f16b962de5d92a77e50ca466ef6564.png']
