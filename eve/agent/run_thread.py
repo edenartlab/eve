@@ -14,7 +14,6 @@ from ..mongo import get_collection
 from ..models import Model
 from ..tool import Tool
 from ..user import User
-from ..api.rate_limiter import RateLimiter
 from .agent import Agent
 from .thread import UserMessage, AssistantMessage, ToolCall, Thread
 from .llm import async_prompt, async_prompt_stream, UpdateType, MODELS, DEFAULT_MODEL
@@ -26,10 +25,9 @@ knowledge_reply_template = load_template("knowledge_reply")
 models_instructions_template = load_template("models_instructions")
 model_template = load_template("model_doc")
 
-USE_RATE_LIMITS = os.getenv("USE_RATE_LIMITS", "false").lower() == "true"
-USE_THINKING = os.getenv("USE_THINKING", "false").lower() == "true"
+USE_THINKING = False #os.getenv("USE_THINKING", "false").lower() == "true"
 
-#_models_cache: Dict[str, Dict[str, Model]] = {} # todo
+# _models_cache: Dict[str, Dict[str, Model]] = {} # todo
 
 
 # todo: `msg.error` not `msg.message.error`
@@ -152,16 +150,13 @@ async def async_prompt_thread(
     )
     user_message_id = user_messages[-1].id
 
-    # Rate limiting
-    if USE_RATE_LIMITS:
-        await RateLimiter.check_chat_rate_limit(user.id, None)
-
     # Apply bot-specific limits
     if user_is_bot:
         print("Bot message, stopping")
         return
 
     # Thinking step
+    use_thinking = False
     if use_thinking:
         print("Thinking...")
 
@@ -217,15 +212,18 @@ async def async_prompt_thread(
     # Get text describing models
     if agent.models or agent.model:
         models_collection = get_collection(Model.collection_name)
-        models = agent.models or [{
-            "lora": agent.model, 
-            "use_when": "This is the default Lora model"
-        }]
+        models = agent.models or [
+            {"lora": agent.model, "use_when": "This is the default Lora model"}
+        ]
         models = {m["lora"]: m for m in models}
-        model_docs = models_collection.find({"_id": {"$in": list(models.keys())}, "deleted": {"$ne": True}})
+        model_docs = models_collection.find(
+            {"_id": {"$in": list(models.keys())}, "deleted": {"$ne": True}}
+        )
         model_docs = list(model_docs or [])
         for doc in model_docs:
-            doc["use_when"] = f'\n<use_when>{models[ObjectId(doc["_id"])].get("use_when", "This is the default Lora model")}</use_when>'
+            doc["use_when"] = (
+                f'\n<use_when>{models[ObjectId(doc["_id"])].get("use_when", "This is the default Lora model")}</use_when>'
+            )
         models_list = "\n".join(model_template.render(doc) for doc in model_docs)
         models_instructions = models_instructions_template.render(models=models_list)
     else:
@@ -237,7 +235,7 @@ async def async_prompt_thread(
     while True:
         try:
             messages = thread.get_messages(25)
-            
+
             # If knowledge requested, prepend with full knowledge text
             if thought.get("recall_knowledge") and agent.knowledge:
                 knowledge = knowledge_reply_template.render(knowledge=agent.knowledge)
@@ -245,8 +243,8 @@ async def async_prompt_thread(
                 knowledge = ""
 
             system_message = system_template.render(
-                name=agent.name, 
-                persona=agent.persona, 
+                name=agent.name,
+                persona=agent.persona,
                 knowledge=knowledge,
                 models_instructions=models_instructions,
             )
@@ -399,7 +397,15 @@ def prompt_thread(
     user_is_bot: bool = False,
 ):
     async_gen = async_prompt_thread(
-        user, agent, thread, user_messages, tools, force_reply, use_thinking, model, user_is_bot
+        user,
+        agent,
+        thread,
+        user_messages,
+        tools,
+        force_reply,
+        use_thinking,
+        model,
+        user_is_bot,
     )
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)

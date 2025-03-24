@@ -194,19 +194,32 @@ class Agent(User):
                 if tools_list and model_list:
                     if len(model_list) == 1:
                         tip = f'Only use "{base_model["type"]}" models. Set the "lora" argument to the ID of the default lora (ID: {str(model_list[0]["lora"])}, Name: "{model_list[0]["doc"].name}", Description: "{model_list[0]["doc"].lora_trigger_text}"), if the following conditions are true: "{model_list[0]["use_when"]}"). If no lora is desired, leave this blank. If a different lora is desired, use its ID instead.'
+                        default_lora = model_list[0]["doc"].id
                     else:
                         models_info = " | ".join([
                             f'ID: {m["lora"]}, Name: "{m["doc"].name}", Description: "{m["doc"].lora_trigger_text}", Use When: "{m["use_when"]}"' 
                             for m in model_list
                         ])
                         tip = f'Only use "{base_model["type"]}" models. You are can use the following loras under the "Use When" circumstances: {models_info}. To use no lora, leave the "lora" argument blank.'
+                        default_lora = model_list[0]["doc"].id
+                        for model in model_list:
+                            if "default" in model["use_when"].lower():
+                                default_lora = model["doc"].id
+                                break
+                    
+                    print("732647246723 !!!", default_lora)
                          
                     tip += " If you use a lora, make sure to refer to it in the prompt using its exact Name. Avoid restating the Description in the prompt as it's implicit in the lora already and is redundant."
 
                     # Update all related tools with the tip
                     for tool in tools_list:
                         schema["tools"][tool] = {
-                            "parameters": {"lora": {"tip": tip}}
+                            "parameters": {
+                                "lora": {
+                                    "tip": tip, 
+                                    "default": str(default_lora)
+                                }
+                            }
                         }
 
         return schema
@@ -244,7 +257,7 @@ class Agent(User):
 
         # remove tools that only the owner can use
         if str(auth_user) != str(self.owner):
-            print("User is not authorized to use these tools")
+            print("User is not authorized to use twitter tools")
             tools.pop("tweet", None)
             tools.pop("get_tweets", None)
 

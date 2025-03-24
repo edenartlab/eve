@@ -222,7 +222,7 @@ def run(ctx, tool: str, db: str):
     help="Run tasks against API (If not set, will run tools directly)",
 )
 @click.option("--parallel", is_flag=True, help="Run tests in parallel threads")
-@click.option("--save", is_flag=True, default=True, help="Save test results")
+@click.option("--save", is_flag=True, default=False, help="Save test results")
 @click.option("--mock", is_flag=True, default=False, help="Mock test results")
 @click.argument("tools", nargs=-1, required=False)
 def test(

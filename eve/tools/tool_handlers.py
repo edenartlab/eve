@@ -31,6 +31,10 @@ def load_handler(name):
             from .media_utils.ffmpeg_multitool.handler import handler
             handlers[name] = handler
 
+        elif name == "media_editor":
+            from .media_utils.media_editor.handler import handler
+            handlers[name] = handler
+
         elif name == "time_remapping":
             from .media_utils.time_remapping.handler import handler
             handlers[name] = handler
@@ -45,6 +49,14 @@ def load_handler(name):
 
         elif name == "search_models":
             from .mongo_utils.search_models.handler import handler
+            handlers[name] = handler
+
+        elif name == "search_collections":
+            from .mongo_utils.search_collections.handler import handler
+            handlers[name] = handler
+
+        elif name == "add_to_collection":
+            from .mongo_utils.add_to_collection.handler import handler
             handlers[name] = handler
 
         elif name == "get_tweets":
@@ -90,5 +102,5 @@ def load_handler(name):
         elif name == "weather":
             from .weather.handler import handler
             handlers[name] = handler
-    
+
     return handlers[name]

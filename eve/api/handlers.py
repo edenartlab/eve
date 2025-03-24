@@ -54,8 +54,6 @@ from eve.api.helpers import get_eden_creation_url
 logger = logging.getLogger(__name__)
 db = os.getenv("DB", "STAGE").upper()
 
-USE_RATE_LIMITS = os.getenv("USE_RATE_LIMITS", "false").lower() == "true"
-
 
 @handle_errors
 async def handle_create(request: TaskRequest):
@@ -69,9 +67,7 @@ async def handle_create(request: TaskRequest):
 
     print("### run the tool ###")
     result = await tool.async_start_task(
-        user_id=request.user_id, 
-        agent_id=None, 
-        args=request.args
+        user_id=request.user_id, agent_id=None, args=request.args
     )
 
     print("### return the result ###")
@@ -590,6 +586,14 @@ async def handle_discord_emission(request: Request):
                 content={"error": "Deployment ID and channel ID are required"},
             )
 
+        payload = {}
+        if message_id:
+            payload["message_reference"] = {
+                "message_id": message_id,
+                "channel_id": channel_id,
+                "fail_if_not_exists": False,
+            }
+
         # Find deployment
         deployment = Deployment.from_mongo(ObjectId(deployment_id))
         if not deployment:
@@ -607,31 +611,7 @@ async def handle_discord_emission(request: Request):
             if update_type == UpdateType.ASSISTANT_MESSAGE:
                 content = data.get("content")
                 if content:
-                    payload = {
-                        "content": content,
-                        "message_reference": {
-                            "message_id": message_id,
-                            "channel_id": channel_id,
-                            "fail_if_not_exists": False,
-                        },
-                    }
-
-                    async with session.post(
-                        f"https://discord.com/api/v10/channels/{channel_id}/messages",
-                        headers=headers,
-                        json=payload,
-                    ) as response:
-                        if response.status != 200:
-                            error_text = await response.text()
-                            logger.error(
-                                f"Failed to send Discord message: {error_text}"
-                            )
-                            return JSONResponse(
-                                status_code=500,
-                                content={
-                                    "error": f"Failed to send message: {error_text}"
-                                },
-                            )
+                    payload["content"] = content
 
             elif update_type == UpdateType.TOOL_COMPLETE:
                 result = data.get("result", {})
@@ -652,15 +632,7 @@ async def handle_discord_emission(request: Request):
                 # Prepare message content with URLs
                 content = "\n".join(urls)
 
-                # Basic message payload
-                payload = {
-                    "content": content,
-                    "message_reference": {
-                        "message_id": message_id,
-                        "channel_id": channel_id,
-                        "fail_if_not_exists": False,
-                    },
-                }
+                payload["content"] = content
 
                 # Add components for Eden link if creation_id exists
                 if creation_id:
@@ -679,18 +651,18 @@ async def handle_discord_emission(request: Request):
                         }
                     ]
 
-                async with session.post(
-                    f"https://discord.com/api/v10/channels/{channel_id}/messages",
-                    headers=headers,
-                    json=payload,
-                ) as response:
-                    if response.status != 200:
-                        error_text = await response.text()
-                        logger.error(f"Failed to send Discord message: {error_text}")
-                        return JSONResponse(
-                            status_code=500,
-                            content={"error": f"Failed to send message: {error_text}"},
-                        )
+            async with session.post(
+                f"https://discord.com/api/v10/channels/{channel_id}/messages",
+                headers=headers,
+                json=payload,
+            ) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    logger.error(f"Failed to send Discord message: {error_text}")
+                    return JSONResponse(
+                        status_code=500,
+                        content={"error": f"Failed to send message: {error_text}"},
+                    )
 
         return JSONResponse(status_code=200, content={"ok": True})
 

@@ -166,10 +166,11 @@ def test_versionable_document():
 
     t1.save()
 
-    # Todo: this is still not working correctly
+    # Todo: this doesn't load subclasses
     t2 = VersionableDocument.load(t1.id, collection_name="tests")
 
     assert t2.current == t1.current
 
+    # this will fail as a result of the above
     # assert t2.current.model_dump() == t2_expected.model_dump()
 

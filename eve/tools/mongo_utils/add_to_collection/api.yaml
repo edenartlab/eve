@@ -1,0 +1,18 @@
+name: Add to Collection
+description: Add a creation to a Collection that is in the database
+tip: Use this tool to add a creation to a collection based on a search query.
+cost_estimate: 0
+output_type: image
+status: prod
+visible: false
+parameters:
+  collection_id:
+    type: string
+    label: Collection ID
+    description: The ID of the collection to add the creation to
+    required: true
+  creation_id:
+    type: string
+    label: Creation ID
+    description: The ID of the creation to add to the collection
+    required: true

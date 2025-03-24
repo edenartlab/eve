@@ -14,7 +14,7 @@ from .agent import Agent
 import os
 from eve.user import User
 from eve.agent2 import Agent
-from eve.agent2.message import ChatMessage
+from eve.agent2.message import ChatMessage  
 # from eve.tools import Tool
 from eve.eden_utils import load_template
 
@@ -320,7 +320,6 @@ async def async_prompt_agent(
             tools=tools,
         )
 
-
         # attachments = []
         if tool_calls:
             for tool_call in tool_calls:
@@ -330,23 +329,10 @@ async def async_prompt_agent(
 
                 # Start task
                 task = await tool.async_start_task(user.id, agent.id, tool_call.args)
-                print("BBB1")
                 result = await tool.async_wait(task)
-                print("888 result")
-                print(result)
-                tool_call.result = result
-                # print(result)
-                # print("BBB2")
-                # print("BBB3")
-                # print("THE RESULT")
-                # print(result)
-                print("BBB4")
-                # tool_call.status = result["status"]
-                tool_call.task = task.id
-                # tool_call.error = result["error"]
-                # tool_call.result = result["result"]
 
-                print("BBB5")
+                tool_call.result = result
+                tool_call.task = task.id
 
                 print(tool_call)
 

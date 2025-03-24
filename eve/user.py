@@ -89,6 +89,9 @@ class User(Document):
     farcasterUsername: Optional[str] = None
 
     def check_manna(self, amount: float):
+        if "free_tools" in (self.featureFlags or []):
+            print("free manna for user", self.id)
+            return
         manna = Manna.load(self.id)
         total_balance = manna.balance + manna.subscriptionBalance
         if total_balance < amount:

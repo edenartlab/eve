@@ -28,7 +28,7 @@ async def trigger_fn():
 
     user_message = {
         "content": trigger_message.format(task=trigger["message"]),
-        "hidden": True,
+        # "hidden": True,
     }
 
     chat_request = {

@@ -3,10 +3,10 @@ import warnings
 from pydantic import BaseModel, Field, create_model
 from typing import (
     Any,
-    Optional,
-    Type,
     List,
     Dict,
+    Optional,
+    Type,
     Union,
     Literal,
     Tuple,
@@ -384,7 +384,24 @@ def parse_props(field: str, props: dict) -> Tuple[Type, dict, dict]:
         type_annotation = create_model(field, __config__=model_config, **fields)
     elif props["type"] == "array":
         json_schema_extra["is_array"] = True
-        if props["items"]["type"] == "object":
+
+        if "anyOf" in props["items"]:
+            # Handle arrays with multiple allowed item types
+            item_types = []
+            file_types = []
+            
+            for item_option in props["items"]["anyOf"]:
+                item_type = get_python_type(item_option)
+                item_types.append(item_type)
+                
+                if item_option["type"] in ["image", "video", "audio", "lora", "zip"]:
+                    file_types.append(item_option["type"])
+            
+            if file_types:
+                json_schema_extra["file_type"] = "|".join(file_types)
+            
+            item_type = Union[tuple(item_types)]
+        elif props["items"]["type"] == "object":
             fields, model_config = parse_schema(props["items"])
             item_type = create_model(f"{field}Item", __config__=model_config, **fields)
         else:

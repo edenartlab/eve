@@ -5,11 +5,6 @@ output_type: string
 status: inactive
 visible: false
 parameters:
-  agent:
-    type: string
-    label: Agent
-    description: The agent to use to get tweets.
-    required: true
   users:
     type: array
     label: Users

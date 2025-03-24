@@ -11,6 +11,8 @@ from typing import Optional, List, Dict, Any, Type, Literal
 from datetime import datetime, timezone
 from instructor.function_calls import openai_schema
 
+from eve.api.rate_limiter import RateLimiter
+
 from . import sentry_sdk
 from . import eden_utils
 from .base import parse_schema
@@ -66,10 +68,12 @@ BASE_TOOLS = [
     "stable_audio",
     "zonos",
     # editing
-    "ffmpeg_multitool",
+    "media_editor",
     # search
     "search_agents",
     "search_models",
+    "search_collections",
+    "add_to_collection",
     # misc
     "news",
     "websearch",
@@ -129,7 +133,7 @@ class Tool(Document, ABC):
         """Get schema for a tool, with detailed performance logging."""
 
         if from_yaml:
-            api_files = get_api_files() # YAML path
+            api_files = get_api_files()  # YAML path
 
             if key not in api_files:
                 raise ValueError(f"Tool {key} not found")
@@ -163,14 +167,18 @@ class Tool(Document, ABC):
                 _handler_cache[parent_tool] = parent.get("handler") if parent else None
             handler = _handler_cache[parent_tool]
 
+
+
+        print("LET US LOAD", handler, schema.get("key"))
+
+
         # Lazy load the tool class if we haven't seen this handler before
         if handler not in _tool_classes:
             if handler == "local":
-                # from .tools.local_tool import LocalTool
-                # _tool_classes[handler] = LocalTool
-                from .tools.modal_tool import ModalTool
-
-                _tool_classes[handler] = ModalTool
+                from .tools.local_tool import LocalTool
+                
+                _tool_classes[handler] = LocalTool
+                
             elif handler == "modal":
                 from .tools.modal_tool import ModalTool
 
@@ -304,7 +312,8 @@ class Tool(Document, ABC):
 
     def _remove_hidden_fields(self, parameters):
         hidden_parameters = [
-            k for k, v in parameters["properties"].items()
+            k
+            for k, v in parameters["properties"].items()
             if self.parameters[k].get("hide_from_agent")
         ]
         for k in hidden_parameters:
@@ -417,15 +426,17 @@ class Tool(Document, ABC):
                 args = self.prepare_args(args)
                 sentry_sdk.add_breadcrumb(category="handle_start_task", data=args)
                 cost = self.calculate_cost(args)
-                # user = User.from_mongo(user_id)
-                # if "freeTools" in (user.featureFlags or []):
-                #     cost = 0
                 user = User.from_mongo(user_id)
                 user.check_manna(cost)
 
             except Exception as e:
                 print(traceback.format_exc())
                 raise Exception(f"Task submission failed: {str(e)}. No manna deducted.")
+
+            # Check rate limit before creating the task
+            if os.environ.get("FF_RATE_LIMITS") == "yes":
+                rate_limiter = RateLimiter()
+                await rate_limiter.check_manna_spend_rate_limit(user)
 
             # create task and set to pending
             task = Task(
@@ -463,7 +474,9 @@ class Tool(Document, ABC):
                     handler_id = await start_task_function(self, task)
                     task.update(handler_id=handler_id)
 
-                task.spend_manna()
+                if "free_tools" not in (user.featureFlags or []):
+                    print("free manna for task", task.id, "for user", user.id)
+                    task.spend_manna()
 
             except Exception as e:
                 print(traceback.format_exc())
