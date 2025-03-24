@@ -412,7 +412,6 @@ async def run_task_replicate(task: Task):
 
 @app.function(
     image=image,
-    keep_warm=1,
     concurrency_limit=10,
     container_idle_timeout=60,
     allow_concurrent_inputs=10,
