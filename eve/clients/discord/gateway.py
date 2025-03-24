@@ -198,7 +198,6 @@ class TelegramTypingManager:
             async with aiohttp.ClientSession() as session:
                 url = f"https://api.telegram.org/bot{token}/sendChatAction"
                 payload = {"chat_id": chat_id, "action": "typing"}
-
                 if thread_id:
                     payload["message_thread_id"] = thread_id
 
