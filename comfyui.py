@@ -761,16 +761,6 @@ image = (
         "/root/workspace",
         copy=True,
     )
-    .add_local_file(
-        f"{root_workflows_folder}/workspaces/{workspace_name}/downloads.json",
-        "/root/workspace/downloads.json",
-        copy=True,
-    )
-    .add_local_file(
-        f"{root_workflows_folder}/workspaces/{workspace_name}/snapshot.json",
-        "/root/workspace/snapshot.json",
-        copy=True,
-    )
     .run_function(install_comfyui)
     .run_function(install_custom_nodes, gpu="A100")
     .pip_install("moviepy==1.0.3", "accelerate==1.4.0", "peft==0.14.0", "transformers==4.49.0")
@@ -818,7 +808,7 @@ class ComfyUI:
         cmd = f"python /root/main.py --dont-print-server --listen --port {port}"
         subprocess.Popen(cmd, shell=True)
         while not self._is_server_running():
-            time.sleep(0.5)
+            time.sleep(1.0)
         t2 = time.time()
         self.launch_time = t2 - t1
         print(f"DEBUG: ComfyUI server started in {self.launch_time:.2f}s")
@@ -970,11 +960,8 @@ class ComfyUI:
 
         except urllib.error.URLError as e:
             response_time = time.time() - start_time
-            print(
-                f"DEBUG: Server check failed - URLError after {response_time:.3f}s: {e}"
-            )
             if hasattr(e, "reason"):
-                print(f"DEBUG: Failure reason: {e.reason}")
+                print(f"DEBUG: Failure reason: {e.reason}, time: {response_time}")
             return False
         except socket.timeout:
             response_time = time.time() - start_time
