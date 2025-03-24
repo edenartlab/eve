@@ -131,6 +131,8 @@ async def run_chat_request(
     langfuse_context.update_current_trace(user_id=str(user.id))
     langfuse_context.update_current_observation(metadata=metadata)
 
+    is_client_platform = True if update_config else False
+
     try:
         async for update in async_prompt_thread(
             user=user,
@@ -143,6 +145,7 @@ async def run_chat_request(
             model=model,
             user_is_bot=user_is_bot,
             stream=False,
+            is_client_platform=is_client_platform,
         ):
             print("UPDATE", update)
             data = {

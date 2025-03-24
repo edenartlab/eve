@@ -167,18 +167,15 @@ class Tool(Document, ABC):
                 _handler_cache[parent_tool] = parent.get("handler") if parent else None
             handler = _handler_cache[parent_tool]
 
-
-
         print("LET US LOAD", handler, schema.get("key"))
-
 
         # Lazy load the tool class if we haven't seen this handler before
         if handler not in _tool_classes:
             if handler == "local":
                 from .tools.local_tool import LocalTool
-                
+
                 _tool_classes[handler] = LocalTool
-                
+
             elif handler == "modal":
                 from .tools.modal_tool import ModalTool
 
@@ -420,6 +417,7 @@ class Tool(Document, ABC):
             agent_id: str,
             args: Dict,
             mock: bool = False,
+            is_client_platform: bool = False,
         ):
             try:
                 # validate args and user manna balance
@@ -435,8 +433,14 @@ class Tool(Document, ABC):
 
             # Check rate limit before creating the task
             if os.environ.get("FF_RATE_LIMITS") == "yes":
+                print("XXX checking rate limit")
+                print("XXX agent_id", agent_id)
+                print("XXX is_client_platform", is_client_platform)
                 rate_limiter = RateLimiter()
-                await rate_limiter.check_manna_spend_rate_limit(user)
+                if agent_id and is_client_platform:
+                    await rate_limiter.check_agent_rate_limit(user, agent_id)
+                else:
+                    await rate_limiter.check_manna_spend_rate_limit(user)
 
             # create task and set to pending
             task = Task(

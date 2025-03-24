@@ -25,7 +25,7 @@ knowledge_reply_template = load_template("knowledge_reply")
 models_instructions_template = load_template("models_instructions")
 model_template = load_template("model_doc")
 
-USE_THINKING = False #os.getenv("USE_THINKING", "false").lower() == "true"
+USE_THINKING = False  # os.getenv("USE_THINKING", "false").lower() == "true"
 
 # _models_cache: Dict[str, Dict[str, Model]] = {} # todo
 
@@ -68,6 +68,7 @@ async def process_tool_call(
     tools: Dict[str, Tool],
     user_id: str,
     agent_id: str,
+    is_client_platform: bool = False,
 ) -> ThreadUpdate:
     """Process a single tool call and return the appropriate ThreadUpdate"""
 
@@ -78,7 +79,9 @@ async def process_tool_call(
             raise Exception(f"Tool {tool_call.tool} not found.")
 
         # Start task
-        task = await tool.async_start_task(user_id, agent_id, tool_call.args)
+        task = await tool.async_start_task(
+            user_id, agent_id, tool_call.args, is_client_platform
+        )
 
         # Update tool call with task id and status
         thread.update_tool_call(
@@ -143,6 +146,7 @@ async def async_prompt_thread(
     model: Literal[tuple(MODELS)] = DEFAULT_MODEL,
     user_is_bot: bool = False,
     stream: bool = False,
+    is_client_platform: bool = False,
 ):
     model = model or DEFAULT_MODEL
     user_messages = (
@@ -368,6 +372,7 @@ async def async_prompt_thread(
                     tools,
                     user.id,
                     agent.id,
+                    is_client_platform,
                 )
                 for idx, tool_call in batch
             ]
@@ -395,6 +400,7 @@ def prompt_thread(
     use_thinking: bool = USE_THINKING,
     model: Literal[tuple(MODELS)] = DEFAULT_MODEL,
     user_is_bot: bool = False,
+    is_client_platform: bool = False,
 ):
     async_gen = async_prompt_thread(
         user,
@@ -406,6 +412,7 @@ def prompt_thread(
         use_thinking,
         model,
         user_is_bot,
+        is_client_platform=is_client_platform,
     )
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
