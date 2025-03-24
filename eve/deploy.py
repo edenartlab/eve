@@ -39,6 +39,8 @@ class AllowlistItem(BaseModel):
 
 
 class DeploymentSettingsDiscord(BaseModel):
+    oauth_client_id: Optional[str] = None
+    oauth_url: Optional[str] = None
     channel_allowlist: Optional[List[AllowlistItem]] = None
 
 
@@ -97,6 +99,7 @@ class Deployment(Document):
     agent: ObjectId
     user: ObjectId
     platform: ClientType
+    valid: Optional[bool] = None
     secrets: Optional[DeploymentSecrets]
     config: Optional[DeploymentConfig]
 
@@ -315,7 +318,16 @@ async def modify_secrets(secrets: DeploymentSecrets, platform: ClientType):
                     print(application_id)
                     if application_id:
                         secrets.discord.application_id = application_id
-    return secrets
+                        # Create OAuth URL with the same permissions integer
+                        permissions_integer = "309237771264"
+                        oauth_url = f"https://discord.com/oauth2/authorize?client_id={application_id}&permissions={permissions_integer}&integration_type=0&scope=bot"
+                        # Update the deployment config with the OAuth URL and client ID
+                        return secrets, {
+                            "oauth_client_id": application_id,
+                            "oauth_url": oauth_url,
+                            "valid": True,
+                        }
+    return secrets, None
 
 
 async def deploy_client(

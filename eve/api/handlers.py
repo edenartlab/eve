@@ -35,6 +35,9 @@ from eve.deploy import (
     deploy_client,
     modify_secrets,
     stop_client,
+    DeploymentConfig,
+    DeploymentSettingsDiscord,
+    ClientType,
 )
 from eve.eden_utils import prepare_result
 from eve.tools.replicate_tool import replicate_update_task
@@ -256,8 +259,9 @@ async def handle_deployment_create(request: CreateDeploymentRequest):
     if not agent:
         raise APIError(f"Agent not found: {agent.id}", status_code=404)
 
-    secrets = await modify_secrets(request.secrets, request.platform)
+    secrets, config_updates = await modify_secrets(request.secrets, request.platform)
 
+    # Create the deployment object
     deployment = Deployment(
         agent=agent.id,
         user=ObjectId(request.user),
@@ -265,6 +269,21 @@ async def handle_deployment_create(request: CreateDeploymentRequest):
         secrets=secrets,
         config=request.config,
     )
+
+    # Update config with any platform-specific settings from modify_secrets
+    if config_updates and request.platform == ClientType.DISCORD:
+        if not deployment.config:
+            deployment.config = DeploymentConfig()
+        if not deployment.config.discord:
+            deployment.config.discord = DeploymentSettingsDiscord()
+
+        # Set the OAuth URL and client ID
+        deployment.config.discord.oauth_client_id = config_updates.get(
+            "oauth_client_id"
+        )
+        deployment.config.discord.oauth_url = config_updates.get("oauth_url")
+        deployment.valid = config_updates.get("valid", False)
+
     deployment.save(
         upsert_filter={"agent": agent.id, "platform": request.platform.value}
     )
