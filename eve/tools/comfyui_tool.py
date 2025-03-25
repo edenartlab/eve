@@ -88,6 +88,8 @@ class ComfyUITool(Tool):
         fc = modal.functions.FunctionCall.from_id(task.handler_id)
         await fc.get.aio()
         task.reload()
+        print("wait 53453")
+        print("TASK IS", task)
         return task.model_dump(include={"status", "error", "result"})
 
     @Tool.handle_cancel

@@ -91,6 +91,7 @@ async def process_tool_call(
         )
 
         # Wait for task to complete
+        print("TYOPE OF TOIOL", type(tool))
         result = await tool.async_wait(task)
 
         print("RESULT OF THE TASK IS 555", result)

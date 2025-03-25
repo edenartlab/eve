@@ -72,6 +72,7 @@ class ReplicateTool(Tool):
 
     @Tool.handle_wait
     async def async_wait(self, task: Task):
+        print("wait 121212")
         if self.version is None:
             fc = modal.functions.FunctionCall.from_id(task.handler_id)
             await fc.get.aio()
@@ -216,6 +217,7 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
         return {"status": "failed", "error": error}
 
     elif status == "canceled":
+        print("CANCEL 4444")
         task.update(status="cancelled")
         task.refund_manna()
         return {"status": "cancelled"}
