@@ -1,0 +1,58 @@
+name: Generate Video
+description: Generate a video from text and an optional input image with Kling v1.6 Pro
+tip: |-
+  Kling is the highest quality video generation model available, especially for when dynamic motion is needed.
+cost_estimate: 10 * duration
+output_type: video
+thumbnail: app/flux-schnell.jpg
+base_model: kling
+replicate_model: kwaivgi/kling-v1.6-pro
+thumbnail: app/flux-schnell.png
+active: true
+visible: true
+handler: replicate
+parameters:
+  prompt:
+    type: string
+    label: Prompt
+    description: Text prompt
+    tip: |-
+      Describe the video you want to generate in detail.
+    required: true
+  negative_prompt:
+    type: string
+    label: Negative prompt
+    description: Negative text prompt
+    tip: |-
+      Optionally describe anything you do *not* want in the video.
+  aspect_ratio:
+    type: string
+    label: Aspect ratio
+    description: Aspect ratio width/height
+    default: "1:1"
+    choices: ["16:9", "1:1", "9:16"]
+    required: true
+  start_image:
+    type: image
+    label: Starting image
+    description: First frame of the video to use as a keyframe
+    required: true
+  end_image:
+    type: image
+    label: Ending image
+    description: Last frame of the video to use as a keyframe
+  cfg_scale:
+    type: float
+    label: Guidance scale
+    description: |-
+      Flexibility in video generation; The higher the value, the lower the model's degree of flexibility, and the stronger the relevance to the user's prompt.
+    default: 0.5
+    minimum: 0
+    maximum: 1
+    step: 0.01
+  duration:
+    type: integer
+    label: Duration
+    description: Duration of the video in seconds
+    default: 5
+    choices: [5, 10]
