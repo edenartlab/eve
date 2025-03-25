@@ -93,7 +93,13 @@ async def process_tool_call(
         # Wait for task to complete
         result = await tool.async_wait(task)
 
-        thread.update_tool_call(assistant_message.id, tool_call_index, result)
+        print("RESULT OF THE TASK IS", result)
+
+        thread.update_tool_call(
+            assistant_message.id, 
+            tool_call_index, 
+            result
+        )
 
         # Task completed
         if result["status"] == "completed":
