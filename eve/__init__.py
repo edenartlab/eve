@@ -96,16 +96,8 @@ def load_env(db):
 
 
 def verify_env():
-    AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
-    AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
-    AWS_REGION_NAME = os.getenv("AWS_REGION_NAME")
     MONGO_URI = os.getenv("MONGO_URI")
-
-    if not all([AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION_NAME]):
-        print(
-            "WARNING: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and AWS_REGION_NAME must be set in the environment"
-        )
-
+    
     if not MONGO_URI:
         print("WARNING: MONGO_URI must be set in the environment")
 
