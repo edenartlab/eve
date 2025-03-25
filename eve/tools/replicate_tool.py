@@ -43,10 +43,16 @@ class ReplicateTool(Tool):
         else:
             replicate_model = self._get_replicate_model(args)
             args = self._format_args_for_replicate(args)
-            result = {"output": replicate.run(replicate_model, input=args)}
+            output = replicate.run(replicate_model, input=args)
+            
+            if output and isinstance(output, replicate.helpers.FileOutput):
+                suffix = ".mp4" if self.output_type == "video" else ".webp"
+                with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as temp_file:
+                    temp_file.write(output.read())
+                output = temp_file.name
+            result = {"output": output}
 
         result = eden_utils.upload_result(result)
-        print("return replicate tool", result)
         return result
 
     @Tool.handle_start_task

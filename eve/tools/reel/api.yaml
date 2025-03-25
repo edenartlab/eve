@@ -4,6 +4,7 @@ cost_estimate: 500
 output_type: video
 base_model: flux-dev
 status: stage
+handler: modal
 visible: false
 parameters:
   prompt:

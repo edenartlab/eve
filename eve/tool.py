@@ -42,6 +42,7 @@ BASE_MODELS = Literal[
     "mmaudio",
     "librosa",
     "musicgen",
+    "kling",
 ]
 
 # These tools are default agent tools except Eve
@@ -114,7 +115,8 @@ class Tool(Document, ABC):
     resolutions: Optional[List[str]] = None
     base_model: Optional[BASE_MODELS] = None
 
-    status: Optional[Literal["inactive", "stage", "prod"]] = "stage"
+    #status: Optional[Literal["inactive", "stage", "prod"]] = "stage"
+    active: Optional[bool] = True
     visible: Optional[bool] = True
     allowlist: Optional[str] = None
 
