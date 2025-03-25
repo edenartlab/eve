@@ -30,6 +30,7 @@ from PIL import Image, ImageFont, ImageDraw
 from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from . import s3
+from . import storage
 
 
 class CommandValidator:
@@ -157,7 +158,7 @@ def upload_result(result, save_thumbnails=False, save_blurhash=False):
 
 
 def upload_media(output, save_thumbnails=True, save_blurhash=True):
-    file_url, sha = s3.upload_file(output)
+    file_url, sha = storage.upload_file(output)
     filename = file_url.split("/")[-1]
 
     media_attributes, thumbnail = get_media_attributes(output)
