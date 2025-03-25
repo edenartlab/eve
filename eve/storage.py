@@ -27,7 +27,7 @@ file_extensions = {
 
 def get_root_url(filename):
     """Returns the root URL"""
-    base_folder = os.getenv("LOCAL_FOLDER", "storage")
+    base_folder = os.getenv("LOCAL_STORAGE", "storage")
     mime_type, _ = mimetypes.guess_type(filename) or "application/octet-stream"
     subfolder = subfolder = get_folder_by_mime_type(mime_type)
     return os.path.join(base_folder, subfolder)
@@ -149,7 +149,7 @@ def get_folder_by_mime_type(mime_type: str) -> str:
 
 
 def save_file(buffer: Union[bytes, io.BytesIO], file_name: str, mime_type: str):
-    base_folder = os.getenv("LOCAL_FOLDER", "storage")
+    base_folder = os.getenv("LOCAL_STORAGE", "storage")
     subfolder = get_folder_by_mime_type(mime_type)
     storage_path = os.path.join(base_folder, subfolder)
 
