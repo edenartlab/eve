@@ -403,6 +403,7 @@ class Tool(Document, ABC):
                 print(traceback.format_exc())
                 result = {"status": "failed", "error": str(e)}
                 sentry_sdk.capture_exception(e)
+            print("RESULT OF THE HANDLE RUN IS 222", result)
             return result
 
         return async_wrapper

@@ -46,6 +46,7 @@ class ReplicateTool(Tool):
             result = {"output": replicate.run(replicate_model, input=args)}
 
         result = eden_utils.upload_result(result)
+        print("return replicate tool", result)
         return result
 
     @Tool.handle_start_task
@@ -75,7 +76,9 @@ class ReplicateTool(Tool):
             fc = modal.functions.FunctionCall.from_id(task.handler_id)
             await fc.get.aio()
             task.reload()
-            return task.model_dump(include={"status", "error", "result"})
+            z = task.model_dump(include={"status", "error", "result"})
+            print("Z IS", z)
+            return z
         else:
             prediction = await replicate.predictions.async_get(task.handler_id)
             status = "starting"
@@ -90,6 +93,7 @@ class ReplicateTool(Tool):
                         self.output_handler,
                     )
                     if result["status"] in ["failed", "cancelled", "completed"]:
+                        print("RESULT OF THE WAIT IS", result)
                         return result
                 await asyncio.sleep(0.5)
                 prediction.reload()
