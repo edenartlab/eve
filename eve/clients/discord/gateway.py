@@ -425,6 +425,9 @@ class DiscordGatewayClient:
         ):
             force_reply = True
 
+        content = content or "..."
+        print("CONTENT IS", content)
+
         chat_request = {
             "agent_id": str(self.deployment.agent),
             "user_id": str(user.id),
