@@ -134,7 +134,7 @@ def prepare_result(result, summarize=False):
             result["mediaAttributes"].pop("blurhash", None)
         if "filename" in result:
             filename = result.pop("filename")
-            url = s3.get_full_url(filename)
+            url = storage.get_full_url(filename)
             if summarize:
                 return url
             else:
