@@ -1,6 +1,5 @@
 import os
 import io
-import boto3
 import hashlib
 import mimetypes
 import magic
@@ -39,13 +38,7 @@ def get_full_url(filename):
 
 
 def upload_file_from_url(url, name=None, file_type=None):
-    """Uploads a file to an S3 bucket by downloading it to a temporary file and uploading it to S3."""
-
-    AWS_BUCKET_NAME = os.getenv("AWS_BUCKET_NAME")
-    if f"{AWS_BUCKET_NAME}.s3." in url and ".amazonaws.com" in url:
-        # file is already uploaded
-        filename = url.split("/")[-1].split(".")[0]
-        return url, filename
+    """Saves a file into local storage by downloading it to a temporary file and saving it into local."""
 
     with requests.get(url, stream=True) as r:
         r.raise_for_status()
@@ -58,7 +51,7 @@ def upload_file_from_url(url, name=None, file_type=None):
 
 
 def upload_file(file, name=None, file_type=None):
-    """Uploads a file to an S3 bucket and returns the file URL."""
+    """Saves a file into local storage and returns the file URL."""
 
     if isinstance(file, replicate.helpers.FileOutput):
         file = file.read()
@@ -79,7 +72,7 @@ def upload_file(file, name=None, file_type=None):
 
 
 def upload_buffer(buffer, name=None, file_type=None):
-    """Uploads a buffer to an S3 bucket and returns the file URL."""
+    """Saves a buffer into local storage and returns the file URL."""
 
     assert (
         file_type
@@ -100,8 +93,6 @@ def upload_buffer(buffer, name=None, file_type=None):
 
     if isinstance(buffer, Iterator):
         buffer = b"".join(buffer)
-
-    # print(f"Uploading file to S3: {name}{file_type}")
 
     # Get file extension from mimetype
     mime_type = magic.from_buffer(buffer, mime=True)
@@ -202,25 +193,3 @@ def upload(data: any, name=None, file_type=None):
         return upload_buffer(data, name, file_type)
     else:
         return upload_file(data, name, file_type)
-
-
-def copy_file_to_bucket(source_bucket, dest_bucket, source_key, dest_key=None):
-    """
-    S3 server-side copy of a file from one bucket to another.
-    """
-    if dest_key is None:
-        dest_key = source_key
-
-    copy_source = {"Bucket": source_bucket, "Key": source_key}
-
-    file_url = f"https://{dest_bucket}.s3.amazonaws.com/{dest_key}"
-
-    try:
-        s3.head_object(Bucket=dest_bucket, Key=dest_key)
-    except s3.exceptions.ClientError as e:
-        if e.response["Error"]["Code"] == "404":
-            s3.copy_object(CopySource=copy_source, Bucket=dest_bucket, Key=dest_key)
-        else:
-            raise e
-
-    return file_url
