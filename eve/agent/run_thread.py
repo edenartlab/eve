@@ -75,6 +75,7 @@ async def process_tool_call(
     try:
         # Get tool
         tool = tools.get(tool_call.tool)
+        print("TOOL IS !!", tool)
         if not tool:
             raise Exception(f"Tool {tool_call.tool} not found.")
 
@@ -95,6 +96,7 @@ async def process_tool_call(
         result = await tool.async_wait(task)
 
         print("RESULT OF THE TASK IS 555", result)
+        result = {"status": "completed", "output": result}
 
         thread.update_tool_call(
             assistant_message.id, 
