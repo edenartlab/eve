@@ -318,7 +318,6 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
 
         return {"status": "completed", "result": result}
 
-
 def check_replicate_api_token():
     if not os.getenv("REPLICATE_API_TOKEN"):
         raise Exception("REPLICATE_API_TOKEN is not set")
