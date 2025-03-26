@@ -52,39 +52,47 @@ BASE_TOOLS = [
     "flux_dev_lora",
     "flux_dev",
     "txt2img",
+    
     # more image generation
     "flux_inpainting",
     "outpaint",
     "remix_flux_schnell",
+    
     # video
     "runway",
     "hedra",
     "vid2vid_sdxl",
     "video_FX",
     "texture_flow",
+    
     # audio
     "musicgen",
     "elevenlabs",
     "mmaudio",
     "stable_audio",
     "zonos",
+    
     # editing
     "media_editor",
+    
     # search
     "search_agents",
     "search_models",
     "search_collections",
     "add_to_collection",
+    
     # misc
     "news",
     "websearch",
     "weather",
+    
     # inactive
     # "ominicontrol",
     # "flux_redux",
     # "reel"
     # "txt2vid",
     # "animate_3d"
+    # "kling_pro"
 ]
 
 FLUX_LORA_TOOLS = ["flux_dev_lora", "flux_dev", "reel"]
@@ -168,8 +176,6 @@ class Tool(Document, ABC):
                 parent = collection.find_one({"key": parent_tool}, {"handler": 1})
                 _handler_cache[parent_tool] = parent.get("handler") if parent else None
             handler = _handler_cache[parent_tool]
-
-        print("LET US LOAD", handler, schema.get("key"))
 
         # Lazy load the tool class if we haven't seen this handler before
         if handler not in _tool_classes:
@@ -374,6 +380,7 @@ class Tool(Document, ABC):
 
         try:
             self.model(**prepared_args)
+        
         except ValidationError as e:
             print(traceback.format_exc())
             error_str = eden_utils.get_human_readable_error(e.errors())
@@ -397,15 +404,15 @@ class Tool(Document, ABC):
                     if isinstance(result["output"], list)
                     else [result["output"]]
                 )
-                sentry_sdk.add_breadcrumb(category="handle_run", data=result)
                 result = eden_utils.upload_result(result)
-                sentry_sdk.add_breadcrumb(category="handle_run", data=result)
                 result["status"] = "completed"
+                sentry_sdk.add_breadcrumb(category="handle_run", data=result)
+                
             except Exception as e:
                 print(traceback.format_exc())
                 result = {"status": "failed", "error": str(e)}
                 sentry_sdk.capture_exception(e)
-            print("RESULT OF THE HANDLE RUN IS 222", result)
+
             return result
 
         return async_wrapper
@@ -436,9 +443,7 @@ class Tool(Document, ABC):
 
             # Check rate limit before creating the task
             if os.environ.get("FF_RATE_LIMITS") == "yes":
-                print("XXX checking rate limit")
-                print("XXX agent_id", agent_id)
-                print("XXX is_client_platform", is_client_platform)
+                print("checking rate limit", agent_id, is_client_platform)
                 rate_limiter = RateLimiter()
                 if agent_id and is_client_platform:
                     await rate_limiter.check_agent_rate_limit(user, agent_id)

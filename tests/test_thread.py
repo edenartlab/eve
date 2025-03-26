@@ -102,16 +102,16 @@ def test_thread():
     print("Thread tests completed s1uccessfully")
 
 
-def test_llm():
+def test_prompt_thread():
     user = get_my_eden_user()
 
     agent = Agent.load("eve")
     tools = agent.get_tools()
-    thread = agent.request_thread(key=f"test")
+    thread = agent.request_thread(key="test")
 
     messages = [
         UserMessage(
-            content="eve, make another picture of a fancy dog"
+            content="eve, make another picture of a fancy dog using flux_schnell"
         )
     ]
 

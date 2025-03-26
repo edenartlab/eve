@@ -31,8 +31,6 @@ class Channel(BaseModel):
 
 @Collection("messages")
 class ChatMessage(Document):
-    # id: ObjectId = Field(default_factory=ObjectId)
-    # createdAt: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     channel: Optional[Channel] = None
     session: Optional[ObjectId] = None
     
@@ -45,9 +43,7 @@ class ChatMessage(Document):
     attachments: Optional[List[str]] = []
     tool_calls: Optional[List[ToolCall]] = []
 
-
     model_config = ConfigDict(arbitrary_types_allowed=True)
-
 
     def react(self, user: ObjectId, reaction: str):
         if reaction not in self.reactions:
@@ -264,7 +260,7 @@ class ToolCall(BaseModel):
         # if self.status == "completed":
         # if True:
         # result["result"] = prepare_result(self.result)
-        print("THE R :) ESULT!!!!")
+        print("THE RESULT!!!! :) :) :)")
         result = self.result.copy()
 
         if result["status"] == "completed":
@@ -342,7 +338,7 @@ class ToolCall(BaseModel):
                 result = dump_json(result)
 
         except Exception as e:
-            print("Warning: Can not inject image results:", e)
+            # print("Warning: Can not inject image results:", e)
             result = dump_json(result)
 
         # elif self.status == "failed":

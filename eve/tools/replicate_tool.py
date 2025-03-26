@@ -78,14 +78,11 @@ class ReplicateTool(Tool):
 
     @Tool.handle_wait
     async def async_wait(self, task: Task):
-        print("wait 121212")
         if self.version is None:
             fc = modal.functions.FunctionCall.from_id(task.handler_id)
             await fc.get.aio()
             task.reload()
-            z = task.model_dump(include={"status", "error", "result"})
-            print("Z IS", z)
-            return z
+            return task.model_dump(include={"status", "error", "result"})
         else:
             prediction = await replicate.predictions.async_get(task.handler_id)
             status = "starting"
@@ -100,7 +97,6 @@ class ReplicateTool(Tool):
                         self.output_handler,
                     )
                     if result["status"] in ["failed", "cancelled", "completed"]:
-                        print("RESULT OF THE WAIT IS", result)
                         return result
                 await asyncio.sleep(0.5)
                 prediction.reload()
@@ -223,7 +219,6 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
         return {"status": "failed", "error": error}
 
     elif status == "canceled":
-        print("CANCEL 4444")
         task.update(status="cancelled")
         task.refund_manna()
         return {"status": "cancelled"}
@@ -306,9 +301,6 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
                         mediaAttributes=output["mediaAttributes"],
                         name=name,
                     )
-                    print("**** 111 here is the creation"  )
-                    print(creation)
-                    print("**** 111 here is the creation")
                     creation.save()
                     result[r]["output"][o]["creation"] = creation.id
 
@@ -323,9 +315,6 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
         task.status = "completed"
         task.result = result
         task.save()
-
-        print("its a saved task")
-        print(result)
 
         return {"status": "completed", "result": result}
 
