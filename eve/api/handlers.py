@@ -367,8 +367,8 @@ async def handle_trigger_create(request: CreateTriggerRequest):
         schedule=request.schedule.to_cron_dict(),
         platform=request.platform,
         channel={
-            "id": request.channel_id,
-            "note": request.channel_note,
+            "id": request.channel.id,
+            "note": request.channel.note,
         },
         message=request.message,
         update_config=request.update_config.model_dump()
