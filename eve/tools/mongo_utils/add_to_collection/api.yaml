@@ -3,8 +3,9 @@ description: Add a creation to a Collection that is in the database
 tip: Use this tool to add a creation to a collection based on a search query.
 cost_estimate: 0
 output_type: image
-status: prod
+active: true
 visible: false
+handler: modal
 parameters:
   collection_id:
     type: string

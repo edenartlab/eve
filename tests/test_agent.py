@@ -8,7 +8,7 @@ def test_agent():
     tool = tools["flux_dev_lora"]
     result = tool.run({
         "prompt": "verdelis is in a library"
-    })
+    }, mock=True)
     print(result)
 
     assert result["status"] == "completed"

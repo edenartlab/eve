@@ -2,7 +2,8 @@ name: Image paste
 description: Concatenate several images into a horizontal strip
 cost_estimate: 0.1
 output_type: image
-status: stage
+active: true
+handler: modal
 visible: false
 parameters:
   images:

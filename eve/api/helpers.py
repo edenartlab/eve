@@ -96,8 +96,6 @@ def serialize_for_json(obj):
 async def emit_update(update_config: Optional[UpdateConfig], data: dict):
     print("EMIT UPDATE CONFIG:", update_config)
 
-
-
     print("EMIT UPDATE DATA:", data)
     if not update_config:
         return

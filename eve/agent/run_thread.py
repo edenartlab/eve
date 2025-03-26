@@ -74,13 +74,12 @@ async def process_tool_call(
     try:
         # Get tool
         tool = tools.get(tool_call.tool)
-        print("TOOL IS !!", tool)
         if not tool:
             raise Exception(f"Tool {tool_call.tool} not found.")
 
         # Start task
         task = await tool.async_start_task(
-            user_id, agent_id, tool_call.args, is_client_platform
+            user_id, agent_id, tool_call.args, False, is_client_platform
         )
 
         # Update tool call with task id and status
@@ -91,11 +90,7 @@ async def process_tool_call(
         )
 
         # Wait for task to complete
-        print("TYOPE OF TOIOL", type(tool))
         result = await tool.async_wait(task)
-
-        print("RESULT OF THE TASK IS 555", result)
-        result = {"status": "completed", "output": result}
 
         thread.update_tool_call(
             assistant_message.id, 
@@ -182,8 +177,6 @@ async def async_prompt_thread(
         thought = thought.model_dump()
 
     else:
-        print("Skipping thinking, default to classic behavior")
-
         # Check mentions
         agent_mentioned = any(
             re.search(
@@ -191,7 +184,6 @@ async def async_prompt_thread(
             )
             for msg in user_messages
         )
-        print("Agent mentioned", agent_mentioned)
 
         # When there's no thinking, reply if mentioned or forced, and include all tools
         thought = {
@@ -250,7 +242,9 @@ async def async_prompt_thread(
 
             # If knowledge requested, prepend with full knowledge text
             if thought.get("recall_knowledge") and agent.knowledge:
-                knowledge = knowledge_reply_template.render(knowledge=agent.knowledge)
+                knowledge = knowledge_reply_template.render(
+                    knowledge=agent.knowledge
+                )
             else:
                 knowledge = ""
 
@@ -289,7 +283,8 @@ async def async_prompt_thread(
                             continue
                         content_chunks.append(content)
                         yield ThreadUpdate(
-                            type=UpdateType.ASSISTANT_TOKEN, text=content
+                            type=UpdateType.ASSISTANT_TOKEN, 
+                            text=content
                         )
 
                     # Tool call
@@ -339,7 +334,8 @@ async def async_prompt_thread(
             # Yield update
             if not agent.mute:
                 yield ThreadUpdate(
-                    type=UpdateType.ASSISTANT_MESSAGE, message=assistant_message
+                    type=UpdateType.ASSISTANT_MESSAGE, 
+                    message=assistant_message
                 )
 
         except Exception as e:
@@ -360,7 +356,9 @@ async def async_prompt_thread(
 
             # Yield error message
             yield ThreadUpdate(
-                type=UpdateType.ERROR, message=assistant_message, error=str(e)
+                type=UpdateType.ERROR, 
+                message=assistant_message, 
+                error=str(e)
             )
 
             # Stop thread

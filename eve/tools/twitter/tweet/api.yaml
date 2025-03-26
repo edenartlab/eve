@@ -2,7 +2,8 @@ name: Tweet
 description: Make a tweet on Twitter
 cost_estimate: 1
 output_type: string
-status: inactive
+active: true
+handler: modal
 visible: false
 parameters:
   content:

@@ -2,7 +2,8 @@ name: Image crop
 description: Crop an image
 cost_estimate: 0.1
 output_type: image
-status: stage
+active: true
+handler: modal
 visible: false
 parameters:
   image:

@@ -1,3 +1,78 @@
+"""
+
+import json
+from pydantic import Field, BaseModel
+from typing import Dict, Any, Optional, List, Literal
+from bson import ObjectId
+from eve.mongo import Document, Collection
+
+from eve.eden_utils import load_template
+from eve.llm import async_prompt``
+
+MAX_MEMORY_WORDS = 200
+LLM_CALL_MAX_TOKENS = MAX_MEMORY_WORDS*2
+EMPTY_MEMORY_STRING = "[Empty agent memory]"
+
+# Load templates
+memory_think_template = load_template("memory_think")
+
+
+class MemoryThought(BaseModel):
+    
+    
+    intention: Literal["ignore", "update"] = Field(
+        ..., 
+        description="Ignore if instruction is irrelevant to memory, update if instruction contains meaningful behavioral changes"
+    )
+    thought: str = Field(
+        ...,
+        description="A brief thought about what relevance, if any, the instruction has to agent memory, and a justification of your intention."
+    )
+    updated_memory: Optional[str] = Field(
+        description="The updated memory content that incorporates the new instruction. Only provided if intention is 'update'."
+    )
+
+// ... existing AgentMemory and get_or_create_memory code ...
+
+async def think_memory_update(
+    current_memory: str,
+    instruction: str,
+    max_mem_words: int
+) -> MemoryThought:
+    
+    if not instruction.strip():
+        raise ValueError("Instruction cannot be empty")
+        
+    try:
+        # Sanitize inputs
+        current_memory = current_memory.strip() if current_memory else EMPTY_MEMORY_STRING
+        instruction = instruction.strip()
+
+        # Generate prompt using template
+        prompt = memory_think_template.render(
+            current_memory=current_memory,
+            instruction=instruction,
+            max_mem_words=max_mem_words
+        )
+
+        # Use high-level async_prompt function
+        thought = await async_prompt(
+            messages=[{"role": "user", "content": prompt}],
+            system_message="You are an expert at managing agent memories. Evaluate if the instruction warrants a memory update.",
+            model="claude-3-7-sonnet-20250219",
+            response_model=MemoryThought
+        )
+        
+        return thought
+
+    except Exception as e:
+        raise RuntimeError(f"Failed to evaluate memory update: {str(e)}")
+
+// ... rest of existing handler code ...
+
+"""
+
+
 import json
 import requests
 from pydantic import Field, BaseModel

@@ -233,7 +233,7 @@ class ToolCall(BaseModel):
                     result = dump_json(result)
 
             except Exception as e:
-                print("Warning: Can not inject image results:", e)
+                #print("Warning: Can not inject image results:", e)
                 result = dump_json(result)
 
         elif self.status == "failed":

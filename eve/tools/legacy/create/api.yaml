@@ -2,7 +2,8 @@ key: legacy_create
 name: SDXL Create (Legacy)
 description: SDXL Text-to-Image (2022))
 parent_tool: legacy_sdxl_pipelines
-status: stage
+active: true
+handler: modal
 parameters:
   mode:
     default: create

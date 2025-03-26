@@ -23,7 +23,7 @@ MODELS = [
     "gpt-4.5-preview",
 ]
 
-DEFAULT_MODEL = "claude-3-5-haiku-latest"
+DEFAULT_MODEL = os.getenv("DEFAULT_AGENT_MODEL", "claude-3-5-haiku-latest")
 
 
 class UpdateType(str, Enum):
@@ -392,7 +392,7 @@ async def async_openai_prompt_stream(
 async def async_prompt(
     messages: List[Union[UserMessage, AssistantMessage]],
     system_message: Optional[str],
-    model: Literal[tuple(MODELS)] = "gpt-4o-mini",
+    model: Literal[tuple(MODELS)] = DEFAULT_MODEL,
     response_model: Optional[type[BaseModel]] = None,
     tools: Dict[str, Tool] = {},
 ) -> Tuple[str, List[ToolCall], bool]:

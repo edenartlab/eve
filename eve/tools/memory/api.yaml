@@ -18,7 +18,8 @@ tip: |-
   The size of your memory is limited, so overusing this will cause memory clashes.
 cost_estimate: 0
 output_type: string
-status: stage
+active: false
+handler: modal
 visible: true
 parameters:
   instruction:
