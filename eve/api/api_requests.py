@@ -81,15 +81,6 @@ class CronSchedule(BaseModel):
         return {k: v for k, v in self.model_dump().items() if v is not None}
 
 
-class CreateTriggerRequest(BaseModel):
-    agent_id: str
-    message: str
-    schedule: CronSchedule
-    update_config: UpdateConfig
-    thread_id: Optional[str] = None
-    ephemeral: Optional[bool] = False
-
-
 class DeleteTriggerRequest(BaseModel):
     id: str
 
@@ -97,6 +88,17 @@ class DeleteTriggerRequest(BaseModel):
 class AllowedChannel(BaseModel):
     id: str
     note: str
+
+
+class CreateTriggerRequest(BaseModel):
+    agent_id: str
+    message: str
+    schedule: CronSchedule
+    platform: ClientType
+    channel: AllowedChannel
+    update_config: UpdateConfig
+    thread_id: Optional[str] = None
+    ephemeral: Optional[bool] = False
 
 
 class AgentDeploymentConfig(BaseModel):

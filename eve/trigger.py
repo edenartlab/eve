@@ -24,6 +24,8 @@ class Trigger(Document):
     user: ObjectId
     agent: ObjectId
     thread: ObjectId
+    platform: str
+    channel: Dict[str, Any]
     schedule: Dict[str, Any]
     message: str
     update_config: Dict[str, Any]

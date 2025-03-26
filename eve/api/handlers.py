@@ -365,6 +365,11 @@ async def handle_trigger_create(request: CreateTriggerRequest):
         agent=ObjectId(agent.id),
         thread=thread.id,
         schedule=request.schedule.to_cron_dict(),
+        platform=request.platform,
+        channel={
+            "id": request.channel_id,
+            "note": request.channel_note,
+        },
         message=request.message,
         update_config=request.update_config.model_dump()
         if request.update_config
