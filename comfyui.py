@@ -367,7 +367,7 @@ def get_workflows():
         for name in workflow_names:
             try:
                 tool = Tool.from_yaml(f"/root/workspace/workflows/{name}/api.yaml")
-                if tool.status != "inactive":
+                if tool.active:
                     filtered_names.append(name)
             except Exception as e:
                 print(f"Warning: Error reading api.yaml for {name}: {e}")
@@ -436,7 +436,7 @@ def test_workflows():
         if test_files:
             # Check if workflow is inactive before counting it
             tool = Tool.from_yaml(f"/root/workspace/workflows/{workflow}/api.yaml")
-            if tool.status == "inactive" and not test_inactive:
+            if not tool.active and not test_inactive:
                 print(f"\nWorkflow: {workflow} (inactive, will be skipped)")
                 continue
             print(f"\nWorkflow: {workflow}")
@@ -484,7 +484,7 @@ def test_workflows():
 
             try:
                 tool = Tool.from_yaml(f"/root/workspace/workflows/{workflow}/api.yaml")
-                if tool.status == "inactive" and not test_inactive:
+                if not tool.active and not test_inactive:
                     print(f"{workflow} is inactive, skipping test")
                     continue
 

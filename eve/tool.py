@@ -606,7 +606,7 @@ def get_tools_from_mongo(
                 tool = Tool.from_schema(tool, from_yaml=False)
                 if cache:
                     _tool_cache[tool.key] = tool
-            if tool.status != "inactive" and not include_inactive:
+            if tool.active and not include_inactive:
                 if tool.key in found_tools:
                     raise ValueError(f"Duplicate tool {tool.key} found.")
                 found_tools[tool.key] = tool

@@ -459,7 +459,8 @@ class VersionableDocument(Document, VersionableBaseModel):
                 document_id = document_id_["_id"]
 
         if document_id:
-            # data['updatedAt'] = datetime.utcnow().replace(microsecond=0)
+            data['updatedAt'] = datetime.now(timezone.utc)
             collection.update_one({"_id": document_id}, {"$set": data}, upsert=True)
         else:
+            data['updatedAt'] = None
             collection.insert_one(data)
