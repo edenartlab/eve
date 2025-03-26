@@ -1,6 +1,5 @@
 import click
 from ..s3 import upload_file
-from .. import load_env
 
 @click.command()
 @click.option(
@@ -12,8 +11,6 @@ from .. import load_env
 @click.argument("files", nargs=-1, required=False)
 def upload(db: str, files: tuple):
     """Upload agents to mongo"""
-    
-    load_env(db)
     
     for file in files:
         try:

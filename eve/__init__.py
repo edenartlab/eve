@@ -1,59 +1,92 @@
 import logging
-from dotenv import load_dotenv
 from pathlib import Path
-from pydantic import SecretStr
 import os
-import sentry_sdk
-from langfuse.decorators import langfuse_context
-
+from dotenv import load_dotenv
 
 home_dir = str(Path.home())
-
-EDEN_API_KEY = None
-
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 db = os.getenv("DB", "STAGE").upper()
-
+EDEN_API_KEY = None
 LANGFUSE_ENV = os.getenv("LANGFUSE_ENV", "production" if db == "PROD" else "staging")
 
 
-def setup_langfuse():
-    langfuse_private_key = os.getenv("LANGFUSE_SECRET_KEY")
-    if not langfuse_private_key:
-        return
+def setup_eve():
+    def setup_langfuse():
+        langfuse_private_key = os.getenv("LANGFUSE_SECRET_KEY")
+        if not langfuse_private_key:
+            print("Skipping langfuse setup because LANGFUSE_SECRET_KEY is not set")
+            return
 
-    print(f"Setting up langfuse for {LANGFUSE_ENV}")
-    langfuse_context.configure(environment=LANGFUSE_ENV)
+        from langfuse.decorators import langfuse_context
+
+        print(f"Setting up langfuse for {LANGFUSE_ENV}")
+        langfuse_context.configure(environment=LANGFUSE_ENV)
+
+    def setup_sentry():
+        sentry_dsn = os.getenv("SENTRY_DSN")
+        if not sentry_dsn:
+            print("Skipping sentry setup because SENTRY_DSN is not set")
+            return
+
+        import sentry_sdk
+
+        # Determine environment
+        sentry_env = os.getenv(
+            "SENTRY_ENV", "production" if db == "PROD" else "staging"
+        )
+        print(f"Setting up sentry for {sentry_env}")
+
+        # Set sampling rates
+        traces_sample_rate = 1.0 if os.getenv("SENTRY_ENV") else 0.01
+        profiles_sample_rate = 1.0 if os.getenv("SENTRY_ENV") else 0.01
+        print(f"Traces sample rate: {traces_sample_rate}")
+        print(f"Profiles sample rate: {profiles_sample_rate}")
+
+        sentry_sdk.init(
+            dsn=sentry_dsn,
+            traces_sample_rate=traces_sample_rate,
+            profiles_sample_rate=profiles_sample_rate,
+            environment=sentry_env,
+            debug=True if os.getenv("SENTRY_ENV") == "jmill-dev" else False,
+            _experiments={
+                "continuous_profiling_auto_start": True
+                if os.getenv("SENTRY_ENV")
+                else False,
+            },
+        )
+
+    if os.getenv("SETUP_SENTRY") == "no":
+        print("Skipping sentry setup because SETUP_SENTRY is no")
+    else:
+        setup_sentry()
+
+    if os.getenv("SETUP_LANGFUSE") == "no":
+        print("Skipping langfuse setup because SETUP_LANGFUSE is no")
+    else:
+        setup_langfuse()
 
 
-def setup_sentry():
-    sentry_dsn = os.getenv("SENTRY_DSN")
-    if not sentry_dsn:
-        return
+def verify_env():
+    AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
+    AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
+    AWS_REGION_NAME = os.getenv("AWS_REGION_NAME")
+    MONGO_URI = os.getenv("MONGO_URI")
 
-    # Determine environment
-    sentry_env = os.getenv("SENTRY_ENV", "production" if db == "PROD" else "staging")
-    print(f"Setting up sentry for {sentry_env}")
+    if not all([AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION_NAME]):
+        print(
+            "WARNING: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and AWS_REGION_NAME must be set in the environment"
+        )
 
-    # Set sampling rates
-    traces_sample_rate = 1.0 if os.getenv("SENTRY_ENV") else 0.01
-    profiles_sample_rate = 1.0 if os.getenv("SENTRY_ENV") else 0.01
-    print(f"Traces sample rate: {traces_sample_rate}")
-    print(f"Profiles sample rate: {profiles_sample_rate}")
+    if not MONGO_URI:
+        print("WARNING: MONGO_URI must be set in the environment")
 
-    sentry_sdk.init(
-        dsn=sentry_dsn,
-        traces_sample_rate=traces_sample_rate,
-        profiles_sample_rate=profiles_sample_rate,
-        environment=sentry_env,
-        debug=True if os.getenv("SENTRY_ENV") == "jmill-dev" else False,
-        _experiments={
-            "continuous_profiling_auto_start": True
-            if os.getenv("SENTRY_ENV")
-            else False,
-        },
+
+if db not in ["STAGE", "PROD", "WEB3-STAGE", "WEB3-PROD"]:
+    raise Exception(
+        f"Invalid environment: {db}. Must be STAGE, PROD, WEB3-STAGE, or WEB3-PROD"
     )
 
 
@@ -82,12 +115,8 @@ def load_env(db):
     elif os.path.exists(env_file):
         load_dotenv(env_file, override=True)
 
-    # start sentry and langfuse
-    setup_sentry()
-    setup_langfuse()
-
     # load api keys
-    EDEN_API_KEY = SecretStr(os.getenv("EDEN_API_KEY", ""))
+    EDEN_API_KEY = str(os.getenv("EDEN_API_KEY", ""))
 
     if not EDEN_API_KEY:
         print("WARNING: EDEN_API_KEY is not set")
@@ -95,24 +124,5 @@ def load_env(db):
     verify_env()
 
 
-def verify_env():
-    AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
-    AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
-    AWS_REGION_NAME = os.getenv("AWS_REGION_NAME")
-    MONGO_URI = os.getenv("MONGO_URI")
-
-    if not all([AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION_NAME]):
-        print(
-            "WARNING: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and AWS_REGION_NAME must be set in the environment"
-        )
-
-    if not MONGO_URI:
-        print("WARNING: MONGO_URI must be set in the environment")
-
-
-if db not in ["STAGE", "PROD", "WEB3-STAGE", "WEB3-PROD"]:
-    raise Exception(
-        f"Invalid environment: {db}. Must be STAGE, PROD, WEB3-STAGE, or WEB3-PROD"
-    )
-
 load_env(db)
+setup_eve()

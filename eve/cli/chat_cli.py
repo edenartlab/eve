@@ -10,7 +10,6 @@ import traceback
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from .. import load_env
 from ..agent.llm import UserMessage, UpdateType
 from ..agent.run_thread import async_prompt_thread
 from ..agent import Agent
@@ -139,8 +138,6 @@ async def async_chat(agent_name, new_thread=True, debug=False):
 @click.argument("agent", required=True, default="eve")
 def chat(db: str, thread: str, agent: str, debug: bool):
     """Chat with an agent"""
-
-    load_env(db)
 
     try:
         asyncio.run(async_chat(agent, thread, debug))
