@@ -5,6 +5,7 @@ cost_estimate: 0
 output_type: image
 status: prod
 visible: false
+handler: modal
 parameters:
   prompt:
     type: string

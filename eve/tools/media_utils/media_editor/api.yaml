@@ -6,6 +6,7 @@ cost_estimate: 1
 output_type: video
 status: prod
 visible: false
+handler: modal
 parameters:
   instructions:
     type: string

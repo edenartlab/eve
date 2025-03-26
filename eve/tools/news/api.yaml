@@ -4,6 +4,7 @@ cost_estimate: 0.5
 output_type: string
 status: prod
 visible: false
+handler: modal
 parameters:
   subject:
     type: string

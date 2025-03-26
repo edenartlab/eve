@@ -4,6 +4,7 @@ tip: |-
   This takes an image of a face and some speech audio and generates a talking head.
 cost_estimate: 100
 output_type: video
+handler: modal
 status: stage
 visible: false
 parameters:
