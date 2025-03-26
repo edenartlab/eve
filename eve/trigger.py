@@ -55,32 +55,22 @@ async def create_chat_trigger(
     trigger_id: str,
 ) -> None:
     """Creates a Modal scheduled function with the provided cron schedule"""
-    try:
-        with modal.enable_output():
-            schedule_dict = schedule
-            cron_string = f"{schedule_dict.get('minute', '*')} {schedule_dict.get('hour', '*')} {schedule_dict.get('day', '*')} {schedule_dict.get('month', '*')} {schedule_dict.get('day_of_week', '*')}"
-            trigger_app.function(
-                schedule=modal.Cron(cron_string),
-                image=create_image(trigger_id),
-                secrets=[
-                    modal.Secret.from_name("eve-secrets", environment_name="main"),
-                    modal.Secret.from_name(
-                        f"eve-secrets-{db}", environment_name="main"
-                    ),
-                ],
-            )(trigger_fn)
-            modal.runner.deploy_app(
-                trigger_app, name=f"{trigger_id}", environment_name=TRIGGER_ENV_NAME
-            )
+    with modal.enable_output():
+        schedule_dict = schedule
+        cron_string = f"{schedule_dict.get('minute', '*')} {schedule_dict.get('hour', '*')} {schedule_dict.get('day', '*')} {schedule_dict.get('month', '*')} {schedule_dict.get('day_of_week', '*')}"
+        trigger_app.function(
+            schedule=modal.Cron(cron_string),
+            image=create_image(trigger_id),
+            secrets=[
+                modal.Secret.from_name("eve-secrets", environment_name="main"),
+                modal.Secret.from_name(f"eve-secrets-{db}", environment_name="main"),
+            ],
+        )(trigger_fn)
+        modal.runner.deploy_app(
+            trigger_app, name=f"{trigger_id}", environment_name=TRIGGER_ENV_NAME
+        )
 
-            logger.info(
-                f"Created Modal trigger {trigger_id} with schedule: {cron_string}"
-            )
-
-    except Exception as e:
-        error_msg = f"Failed to create Modal trigger: {str(e)}"
-        logger.error(error_msg)
-        raise Exception(error_msg)
+        logger.info(f"Created Modal trigger {trigger_id} with schedule: {cron_string}")
 
 
 async def delete_trigger(trigger_id: str) -> None:

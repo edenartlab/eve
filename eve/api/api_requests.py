@@ -83,11 +83,10 @@ class CronSchedule(BaseModel):
 
 class CreateTriggerRequest(BaseModel):
     agent_id: str
-    user_id: str
     message: str
-    thread_id: Optional[str] = None
     schedule: CronSchedule
-    update_config: Optional[UpdateConfig] = None
+    update_config: UpdateConfig
+    thread_id: Optional[str] = None
     ephemeral: Optional[bool] = False
 
 

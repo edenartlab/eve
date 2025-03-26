@@ -21,7 +21,6 @@ from eve.api.runner_tasks import (
     cancel_stuck_tasks,
     download_nsfw_models,
     generate_lora_thumbnails,
-    run_nsfw_detection,
     rotate_agent_metadata,
 )
 from eve.task import task_handler_func, Task
