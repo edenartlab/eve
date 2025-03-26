@@ -357,12 +357,12 @@ async def handle_trigger_create(request: CreateTriggerRequest):
         trigger_id=trigger_id,
     )
 
-    thread = agent.request_thread(user=ObjectId(request.user_id), key=trigger_id)
+    thread = agent.request_thread(user=ObjectId(user.id), key=trigger_id)
 
     trigger = Trigger(
         trigger_id=trigger_id,
-        user=ObjectId(request.user_id),
-        agent=ObjectId(request.agent_id),
+        user=ObjectId(user.id),
+        agent=ObjectId(agent.id),
         thread=thread.id,
         schedule=request.schedule.to_cron_dict(),
         message=request.message,
