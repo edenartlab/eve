@@ -58,6 +58,7 @@ This is the prior context of the channel. This may or may not be relevant to the
 </ChatLog>
 """)
 
+from datetime import datetime, timedelta
 
 async def async_create_session(
     user: User,
@@ -67,9 +68,19 @@ async def async_create_session(
     messages = channel.get_messages(limit=50)
     chat_log = get_chat_log(messages)
 
+
+    usernames = ["dr-mibbit", "hai-dai", "jordan", "jaimill", "xander2", "chebel-01", "vincent", "gene2"]
+
     # get all agents that are listening to this channel
     deployments = get_collection("deployments").find({f"config.{channel.type}.channel_allowlist.id": channel.key})
-    eligible_agents = Agent.find({"_id": {"$in": [dep["agent"] for dep in deployments]}})
+    #eligible_agents = Agent.find({"_id": {"$in": [dep["agent"] for dep in deployments]}})
+    eligible_agents = Agent.find({"type": "agent", "createdAt": {"$gt": datetime.now() - timedelta(days=30)}})
+    # eligible_agents = Agent.find({"type": "agent", "username": {"$in": usernames}})
+
+
+
+    print("ALL THE ELIGIBLE AGENTS", eligible_agents)
+
     agent_names = [a.username for a in eligible_agents]
     agents_text = "\n".join([agent_template.render(a) for a in eligible_agents])
 

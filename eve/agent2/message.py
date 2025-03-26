@@ -266,7 +266,10 @@ class ToolCall(BaseModel):
         # result["result"] = prepare_result(self.result)
         print("THE R :) ESULT!!!!")
         result = self.result.copy()
-        result["result"] = prepare_result(result["result"])
+
+        if result["status"] == "completed":
+            result["result"] = prepare_result(result["result"])
+
         print(result)
 
         file_outputs = [

@@ -246,8 +246,22 @@ async def async_playout_session(session: Session, n_turns: int = 10):
 
     # while True:
     for i in range(n_turns):
+        print(f"--- dispatching turn {i} ---")
         dispatch = await async_run_dispatcher(session)
+        print("HERE IS THE SPEAKER")
+        print(dispatch.speaker)
         agent = Agent.load(dispatch.speaker)
+        print("HERE IS THE AGENT")
+        print(agent)
+        print(agent.model)
+        print(agent.models)
+        print("---234234")
+        tools = agent.get_tools()
+        print("AVAILABLE TOOLS")
+        print(tools.keys())
+        print("available flux_dev_lora", tools.get("flux_dev_lora", None))
+        # raise Exception("STOP")
+        
         await async_prompt_agent(user, agent, session)
         await asyncio.sleep(1)
 
@@ -264,8 +278,8 @@ async def async_prompt_agent(
     if True:
 
         model = "claude-3-5-haiku-latest"
-        # model = "gpt-4.5-preview"
-        model = "claude-3-7-sonnet-latest"
+        model = "gpt-4.5-preview"
+        # model = "claude-3-7-sonnet-latest"
 
 
 
@@ -302,7 +316,18 @@ async def async_prompt_agent(
         # maybe this should be an arg?
         last_user_message = messages[-1]
 
+
+        print("======= &*(((())))=========")
+        # print(agent)
+        print(agent.model)
+        print(agent.models)
         tools = agent.get_tools()
+        print("============8678677====")
+        # print(tools)
+        print("=============53434 ===")
+        print("available flux_dev_lora", tools.get("flux_dev_lora", None))
+
+        print("================")
         #tools = {k: v for k, v in tools.items() if k in ["flux_dev_lora", "outpaint"]}
 
         # if not has_flux_dev_lora:
@@ -398,24 +423,24 @@ async def async_prompt_agent(
         print(assistant_message)
         print("----345---- 234324 ------------------------")
 
-        from eve.mongo import get_collection
-        deployment = get_collection("deployments").find_one({"platform": "discord", "agent": agent.id})
-        print(deployment["_id"])
-        db = os.getenv("DB", "STAGE")
-        update_config = UpdateConfig(
-            sub_channel_name=None,
-            update_endpoint=f'https://edenartlab--api-{db.lower()}-fastapi-app.modal.run/emissions/platform/discord',
-            deployment_id=str(deployment["_id"]),
-            discord_channel_id='1003581679916548207', #'1268682080263606443',
-            discord_message_id='1351473271065018410' #'1350045471162368033',
-        )
-        data = {
-            'type': 'assistant_message',
-            'update_config': update_config.model_dump(),
-            'content': full_content
-        }
+        # from eve.mongo import get_collection
+        # deployment = get_collection("deployments").find_one({"platform": "discord", "agent": agent.id})
+        # print(deployment["_id"])
+        # db = os.getenv("DB", "STAGE")
+        # update_config = UpdateConfig(
+        #     sub_channel_name=None,
+        #     update_endpoint=f'https://edenartlab--api-{db.lower()}-fastapi-app.modal.run/emissions/platform/discord',
+        #     deployment_id=str(deployment["_id"]),
+        #     discord_channel_id='1003581679916548207', #'1268682080263606443',
+        #     discord_message_id='1351473271065018410' #'1350045471162368033',
+        # )
+        # data = {
+        #     'type': 'assistant_message',
+        #     'update_config': update_config.model_dump(),
+        #     'content': full_content
+        # }
 
-        print(update_config)
+        # print(update_config)
 
         print("THE CONTENT")
         print(assistant_message.content)
@@ -429,9 +454,9 @@ async def async_prompt_agent(
         # data["content"] = "this is a test" #assistant_message.content
 
         print("UDAT1231231212EDING")
-        print(data)
-        print(update_config)
-        await emit_update(update_config, data)
+        # print(data)
+        # print(update_config)
+        # await emit_update(update_config, data)
 
 
         # if stop:
