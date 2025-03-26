@@ -4,10 +4,9 @@ tip: |-
   Kling is the highest quality video generation model available, especially for when dynamic motion is needed.
 cost_estimate: 10 * duration
 output_type: video
-thumbnail: app/flux-schnell.jpg
 base_model: kling
 replicate_model: kwaivgi/kling-v1.6-pro
-thumbnail: app/flux-schnell.png
+thumbnail: app/kling.mp4
 active: true
 visible: true
 handler: replicate
