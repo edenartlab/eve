@@ -4,7 +4,6 @@ import traceback
 import multiprocessing
 from pathlib import Path
 
-from .. import load_env
 from ..deploy import ClientType
 from ..agent import Agent
 from ..clients.discord.client import start as start_discord
@@ -42,7 +41,6 @@ from ..clients.farcaster.client import start as start_farcaster
 def start(agent: str, db: str, platforms: tuple, local: bool):
     """Start one or more clients from database configuration"""
     try:
-        load_env(db)
         env = db.lower()
 
         # Get agent from DB
@@ -138,8 +136,6 @@ def start(agent: str, db: str, platforms: tuple, local: bool):
 def api(host: str, port: int, reload: bool, db: str):
     """Start the Eve API server"""
     import uvicorn
-
-    load_env(db)
 
     click.echo(
         click.style(f"Starting API server on {host}:{port} with DB={db}...", fg="blue")

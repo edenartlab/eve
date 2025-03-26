@@ -11,7 +11,6 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 
-from ... import load_env
 from ...clients import common
 from ...agent import Agent
 from ...agent.llm import UpdateType
@@ -487,6 +486,5 @@ if __name__ == "__main__":
     parser.add_argument("--local", help="Run locally", action="store_true")
     args = parser.parse_args()
 
-    load_env(args.db)
     bot, bot_token = init(args.env, args.local)
     bot.run(bot_token)

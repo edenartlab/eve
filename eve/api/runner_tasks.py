@@ -12,8 +12,9 @@ from PIL import Image
 from io import BytesIO
 import aiohttp
 import os
+import sentry_sdk
 
-from eve import sentry_sdk, eden_utils
+from eve import eden_utils
 from eve.agent import Agent, refresh_agent
 from eve.deploy import Deployment
 from eve.task import Task
@@ -214,7 +215,8 @@ async def generate_lora_thumbnails():
             if thumbnail:
                 task_id = ObjectId(model["task"])
                 models.update_one(
-                    {"_id": model["_id"]}, {"$set": {"thumbnail": thumbnail, "thumbnail_prompts": prompts}}
+                    {"_id": model["_id"]},
+                    {"$set": {"thumbnail": thumbnail, "thumbnail_prompts": prompts}},
                 )
                 tasks.update_one(
                     {
