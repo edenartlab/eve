@@ -80,7 +80,7 @@ async def process_tool_call(
 
         # Start task
         task = await tool.async_start_task(
-            user_id, agent_id, tool_call.args, is_client_platform
+            user_id, agent_id, tool_call.args, False, is_client_platform
         )
 
         # Update tool call with task id and status
@@ -92,9 +92,6 @@ async def process_tool_call(
 
         # Wait for task to complete
         result = await tool.async_wait(task)
-
-        print("RESULT OF THE TASK IS 555", result)
-        # result = {"status": "completed", "output": result}
 
         thread.update_tool_call(
             assistant_message.id, 
