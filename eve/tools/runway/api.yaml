@@ -7,7 +7,7 @@ cost_estimate: 10 * duration
 output_type: video
 base_mopel: runway
 handler: modal
-status: prod
+active: true
 parameters:
   prompt_image:
     type: image

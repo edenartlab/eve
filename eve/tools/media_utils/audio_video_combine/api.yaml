@@ -2,7 +2,8 @@ name: Combine audio and video
 description: Combine audio and video
 cost_estimate: 0.1
 output_type: video
-status: stage
+active: true
+handler: modal
 visible: false
 parameters:
   video:

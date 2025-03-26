@@ -2,7 +2,8 @@ name: Meme generator
 description: Make memes
 output_type: image
 cost_estimate: 5
-status: inactive
+active: false
+handler: modal
 visible: false
 parameters:
   prompt:

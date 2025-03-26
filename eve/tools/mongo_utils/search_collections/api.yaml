@@ -3,7 +3,8 @@ description: Search database for collections
 tip: Use this tool to search for collections based on a query. The collection_id field is the unique ID for the collection. Do not return more than 10 results.
 cost_estimate: 0
 output_type: image
-status: prod
+active: true
+handler: modal
 visible: false
 parameters:
   query:

@@ -3,7 +3,7 @@ description: Create a multi-agent session
 tip: This tool is used to create and run a multi-agent multi-turn session among multiple named agents. Note, you do NOT need to run search_agents to find the agents. Just trust the user and submit the requested names to the tool call.
 cost_estimate: 0
 output_type: image
-status: prod
+active: true
 visible: false
 handler: modal
 parameters:

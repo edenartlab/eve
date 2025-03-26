@@ -4,7 +4,7 @@ tip: |-
   This tool can be used to generate speech audio from text.
 cost_estimate: 0.05 * text.length
 output_type: audio
-status: prod
+active: true
 visible: true
 parameters:
   text:

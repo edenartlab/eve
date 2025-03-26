@@ -1,7 +1,7 @@
 key: legacy_controlnet
 name: SDXL Controlnet (Legacy)
 description: Guide your creation with the shape of a control image (2022))
-status: stage
+active: true
 parent_tool: legacy_sdxl_pipelines
 parameters:
   mode:
