@@ -1,6 +1,8 @@
 import logging
 import os
 import subprocess
+import pytz
+from datetime import datetime
 from typing import Dict, Any
 from bson import ObjectId
 import modal
@@ -59,7 +61,44 @@ async def create_chat_trigger(
     """Creates a Modal scheduled function with the provided cron schedule"""
     with modal.enable_output():
         schedule_dict = schedule
-        cron_string = f"{schedule_dict.get('minute', '*')} {schedule_dict.get('hour', '*')} {schedule_dict.get('day', '*')} {schedule_dict.get('month', '*')} {schedule_dict.get('day_of_week', '*')}"
+
+        # Get hour and minute from schedule
+        hour = schedule_dict.get("hour", "*")
+        minute = schedule_dict.get("minute", "*")
+        timezone_str = schedule_dict.get("timezone")
+
+        # If we have specific hour/minute values and a timezone, convert to UTC
+        if timezone_str and hour != "*" and minute != "*":
+            try:
+                # Convert to integers for calculation
+                hour_int = int(hour)
+                minute_int = int(minute)
+
+                # Create a datetime object with the scheduled time in the specified timezone
+                user_tz = pytz.timezone(timezone_str)
+                now = datetime.now()
+                local_dt = user_tz.localize(
+                    datetime(now.year, now.month, now.day, hour_int, minute_int)
+                )
+
+                # Convert to UTC
+                utc_dt = local_dt.astimezone(pytz.UTC)
+
+                # Update hour and minute to UTC values
+                hour = str(utc_dt.hour)
+                minute = str(utc_dt.minute)
+
+                logger.info(
+                    f"Converted schedule from {timezone_str} to UTC: {hour_int}:{minute_int} -> {hour}:{minute}"
+                )
+            except Exception as e:
+                logger.error(
+                    f"Error converting timezone: {str(e)}. Using original values."
+                )
+
+        # Create cron string with potentially adjusted values
+        cron_string = f"{minute} {hour} {schedule_dict.get('day', '*')} {schedule_dict.get('month', '*')} {schedule_dict.get('day_of_week', '*')}"
+
         trigger_app.function(
             schedule=modal.Cron(cron_string),
             image=create_image(trigger_id),
@@ -72,7 +111,10 @@ async def create_chat_trigger(
             trigger_app, name=f"{trigger_id}", environment_name=TRIGGER_ENV_NAME
         )
 
-        logger.info(f"Created Modal trigger {trigger_id} with schedule: {cron_string}")
+        timezone_info = f" (converted from {timezone_str})" if timezone_str else ""
+        logger.info(
+            f"Created Modal trigger {trigger_id} with schedule: {cron_string}{timezone_info}"
+        )
 
 
 async def delete_trigger(trigger_id: str) -> None:
