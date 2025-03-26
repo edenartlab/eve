@@ -342,14 +342,21 @@ async def handle_deployment_delete(request: DeleteDeploymentRequest):
 
 @handle_errors
 async def handle_trigger_create(request: CreateTriggerRequest):
-    trigger_id = f"{request.user_id}_{request.agent_id}_{int(time.time())}"
+    agent = Agent.from_mongo(ObjectId(request.agent_id))
+    if not agent:
+        raise APIError(f"Agent not found: {request.agent_id}", status_code=404)
+
+    user = User.from_mongo(ObjectId(agent.owner))
+    if not user:
+        raise APIError(f"User not found: {agent.owner}", status_code=404)
+
+    trigger_id = f"{str(user.id)}_{request.agent_id}_{int(time.time())}"
 
     await create_chat_trigger(
         schedule=request.schedule.to_cron_dict(),
         trigger_id=trigger_id,
     )
 
-    agent = Agent.from_mongo(ObjectId(request.agent_id))
     thread = agent.request_thread(user=ObjectId(request.user_id), key=trigger_id)
 
     trigger = Trigger(
