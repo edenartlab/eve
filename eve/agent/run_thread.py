@@ -79,7 +79,12 @@ async def process_tool_call(
 
         # Start task
         task = await tool.async_start_task(
-            user_id, agent_id, tool_call.args, False, is_client_platform
+            user_id, 
+            agent_id, 
+            tool_call.args, 
+            mock=False, 
+            public=True, 
+            is_client_platform=is_client_platform
         )
 
         # Update tool call with task id and status

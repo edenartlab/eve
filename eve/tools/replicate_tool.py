@@ -300,6 +300,7 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
                         filename=output["filename"],
                         mediaAttributes=output["mediaAttributes"],
                         name=name,
+                        public=task.public,
                     )
                     creation.save()
                     result[r]["output"][o]["creation"] = creation.id

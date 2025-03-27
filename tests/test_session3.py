@@ -31,21 +31,29 @@ model_template = load_template("model_doc")
 
 
 """
-Tests
-- test_session
-  - create session
-  - run dispatcher
-  - run session (once)
-  - run session (play out)
-- test_agent
-  - think
-  - prompt agent
-  - test cancel prompt
- 
+
+old flow - receive message, prompt agent, stop
+
+sessions
+ - create session
+ - advance session (run dispatcher, schedule next speaker, prompt agent)
+ - playout whole session (N x advance session)
+
 
 
 """
+
+
 from eve.agent2.handlers import async_playout_session
+
+
+
+
+
+
+
+
+
 
 async def test_session():
     user = get_my_eden_user()

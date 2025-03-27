@@ -107,9 +107,10 @@ class Task(Document):
     mock: bool = False
     cost: float = None
     handler_id: Optional[str] = None
-    status: Literal["pending", "running", "completed", "failed", "cancelled"] = (
-        "pending"
-    )
+    status: Literal[
+        "pending", "running", "completed", "failed", "cancelled"
+    ] = "pending"
+    public: bool = False
     error: Optional[str] = None
     result: Optional[List[Dict[str, Any]]] = None
     performance: Optional[Dict[str, Any]] = {}
@@ -246,6 +247,7 @@ async def _task_handler(func, *args, **kwargs):
                         filename=filename,
                         mediaAttributes=media_attributes,
                         name=name,
+                        public=task.public,
                     )
                     new_creation.save()
                     output["creation"] = new_creation.id

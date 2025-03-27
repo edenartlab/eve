@@ -2,6 +2,7 @@ import logging
 from pathlib import Path
 import os
 from dotenv import load_dotenv
+from pydantic import SecretStr
 
 home_dir = str(Path.home())
 logging.basicConfig(
@@ -120,6 +121,8 @@ def load_env(db):
 
     if not EDEN_API_KEY:
         print("WARNING: EDEN_API_KEY is not set")
+    else:
+        EDEN_API_KEY = SecretStr(EDEN_API_KEY)
 
     verify_env()
 

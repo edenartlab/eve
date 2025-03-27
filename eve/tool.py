@@ -426,6 +426,7 @@ class Tool(Document, ABC):
             user_id: str,
             agent_id: str,
             args: Dict,
+            public: bool = False,
             mock: bool = False,
             is_client_platform: bool = False,
         ):
@@ -460,6 +461,7 @@ class Tool(Document, ABC):
                 args=args,
                 mock=mock,
                 cost=cost,
+                public=public,
             )
             task.save()
             sentry_sdk.add_breadcrumb(
@@ -470,7 +472,7 @@ class Tool(Document, ABC):
             try:
                 if mock:
                     handler_id = eden_utils.random_string()
-                    output = {"output": eden_utils.mock_image(args)}
+                    output = [{"output": [eden_utils.mock_image(args)]}]
                     result = eden_utils.upload_result(output)
                     task.update(
                         handler_id=handler_id,
@@ -556,8 +558,8 @@ class Tool(Document, ABC):
     def run(self, args: Dict, mock: bool = False):
         return asyncio.run(self.async_run(args, mock))
 
-    def start_task(self, user_id: str, agent_id: str, args: Dict, mock: bool = False):
-        return asyncio.run(self.async_start_task(user_id, agent_id, args, mock))
+    def start_task(self, user_id: str, agent_id: str, args: Dict, mock: bool = False, public: bool = False):
+        return asyncio.run(self.async_start_task(user_id, agent_id, args, mock, public))
 
     def wait(self, task: Task):
         return asyncio.run(self.async_wait(task))
