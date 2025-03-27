@@ -27,7 +27,7 @@ parameters:
   aspect_ratio:
     type: string
     label: Aspect ratio
-    description: Aspect ratio width/height
+    description: Width/height (ignored when using a starting image)
     default: "1:1"
     choices: ["16:9", "1:1", "9:16"]
     required: true
