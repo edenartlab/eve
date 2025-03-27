@@ -452,6 +452,17 @@ class Tool(Document, ABC):
                 else:
                     await rate_limiter.check_manna_spend_rate_limit(user)
 
+            # Run prompt enhancements if any
+            # try:
+            #     params = {k: v for k, v in self.parameters.items() if v.get("enhancement_prompt")}
+            #     if params:
+            #         from .agent.enhance import enhance_prompt
+            #         for p in params:
+            #             args[p] = await enhance_prompt(params[p]["enhancement_prompt"], args[p])             
+            # except Exception as e:
+            #     print(traceback.format_exc())
+            #     print("error running prompt enhancements", e)
+
             # create task and set to pending
             task = Task(
                 user=user_id,

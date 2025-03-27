@@ -16,11 +16,61 @@ parameters:
     required: true
   prompt_text:
     type: string
+    required: true
     label: Prompt Text
     description: The prompt to guide the animation
     tip: |-
       The prompt can be used to guide the animation in a certain direction.
-    required: true
+    enhancement_prompt: |-
+      1) Be visually descriptive, not conversational or command-based.
+
+      Conversation or instructions may negatively impact results.
+
+      Bad: can you please make me a video about two friends eating a birthday cake?
+      Good: two friends eat birthday cake.
+
+      Bad: add a dog to the image
+      Good: a dog playfully runs across the field from out of frame
+
+      2) Use visual details, not abstract or conceptual
+
+      Bad: a man hacking into the mainframe.
+      Good: a man vigorously typing on the keyboard.
+
+      3) Use positive phrasing
+
+      Negative phrasing (e.g. "don't include a dog") may have the opposite of the intended effect.
+
+      Bad: no clouds in the sky. no subject motion.
+      Good: clear blue sky. subtle and minimal subject motion.
+
+      4) Apply to one visual item at a time
+
+      Do not include multiple scenes or a series of shots in a single prompt. The prompt should apply to one a single scene.
+
+      5) Include camera motion, action / dynamics, and aesthetic
+
+      Some keywords that might describe camera styles: low angle, high angle, overhead, FPV, hand-held, wide angle, close-up, macro cinematography, over the shoulder, tracking, establishing wide, 50mm lens, SnorriCam, realistic documentary, camcorder.
+
+      Lighting styles: Diffused lighting, silhouette, lens flare, back lit, Venetian lighting.
+
+      Movement speeds: dynamic motion, slow motion, fast motion, timelapse
+
+      Movement types: grows, emerges, explodes, ascends, undulates, warps, transforms, ripples, shatters, unfolds, vortex.
+
+      Style and aesthetic: Moody, cinematic, iridescent, home video VHS, glitchcore.
+
+      Text style: Bold, graffiti, neon, varsity, embroidery.
+                                      
+      Technical film terms can be helpful, including lighting terms, camera specifications, lens types/effects, etc. For example:sharp focus, photorealistic, RAW footage, 16mm, color graded Portra 400 film, ultra realistic, cinematic film, subsurface scattering, ray tracing, volumetric lighting.
+
+      6) Very important: When given an input image alongside the text, have the prompt simply describe the movement or dynamics you want in the video. You *do not* need to describe the contents of the image. You should omit a description of the content of the image, since this is redundant.
+
+      For example, if your image features a character, you might say "Woman cheerfully poses, her hands forming a peace sign."
+
+      When you wave a prompt image, you should mostly focus on camera motion and subject dynamics (i.e. the action or movement of the subject).
+                                                                      
+      7) Do not include hateful, unsafe, offensive, or NSFW references in the prompt. If the prompt is unsafe, you should try to rewrite it in a safer or more wholesome way.
   duration:
     type: integer
     label: Duration
