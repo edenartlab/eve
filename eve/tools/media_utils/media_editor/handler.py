@@ -9,41 +9,49 @@ from ....agent.run_thread import async_prompt_thread
 from ....agent.thread import UserMessage
 from ....agent.llm import async_prompt
 
+MODEL = "gpt-4o-mini"
 
-prompt_template = Template("""<Rules>
-You are given a set of attachments (URLs to media files), along with a request to do some media editing operations on those input files.
-                           
-You have these three tools:
-1) video_concat - concatenate two or more videos together into a longer video
-2) audio_video_combine - overlay an audio track onto a video track (which may or may not have pre-existing audio)
-3) ffmpeg_multitool - a general purpose tool which uses ffmpeg to do more complex tasks that the above tools cannot or fail to do.
+prompt_template = Template("""You have been provided a set of attachments (URLs to media files), along with a request to perform certain media editing tasks. You have access to three specialized tools:
 
-You should generally prefer to use the video_concat and audio_video_combine tools whenever possible, and only fall back to ffmpeg_multitool.
-                           
-Note, these tools all accept the original URLs as inputs. Images and frames from videos are provided to you merely for your convenience, but you should pass on the URLs to the tools.
-</Rules>
+video_concat – Concatenate two or more videos into a longer video.
+
+audio_video_combine – Overlay or mix an audio track onto a video track (the video may or may not already have audio).
+
+ffmpeg_multitool – A general-purpose FFmpeg-based tool for any complex operations not handled by the first two tools.
+
+Please follow these guidelines:
+
+Whenever possible, prefer using video_concat and audio_video_combine.
+
+Only use ffmpeg_multitool if the first two tools cannot achieve the desired result.
+
+These tools accept the original file URLs as inputs (even though image thumbnails/previews might be provided for your reference).
+
+You must adhere to the instructions given under the Task section below.
+
 <Task>
 Instructions from the user:
-
+                           
 {{ instructions }}
+
+In your response, outline how you will solve the user’s request using the available tools, ensuring you respect the preferences and constraints described above.
 </Task>""")
 
 
 class MediaResults(BaseModel):
-    """A collection of media files resulting from the media editor's tools."""
+    """Represents the outcome of a media editing process."""
 
     results: Optional[List[str]] = Field(
         ...,
-        description="A list of urls to media files to return to the user.",
+        description="A list of URLs referencing the output media files."
     )
     error: Optional[str] = Field(
         None,
-        description="Return an error message if and only if the media editor failed to accomplish the task.",
+        description="An error message if the media editing process fails, otherwise None."
     )
-    
 
 async def handler(args: dict, user: str = None, agent: str = None):
-    print("THE USER IS", user)
+    
     if not user:
         user = get_my_eden_user()
     else:
@@ -81,7 +89,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
         pass
 
 
-    prompt = "Given the initial instructions and the subsequent results, output all the resulting media files as a list of urls if the task was successful, otherwise output a string explaining the error."
+    prompt = "Based on the initial instructions and the editor's output, please provide one of the following:\n\n1. A JSON-compatible list of the resulting media file URLs, if successful.\n2. A string describing the error, if the process failed."
 
     print("\n\n\n=================")
     all_messages = thread.get_messages() + [UserMessage(content=prompt)]
@@ -91,7 +99,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
     media_results = await async_prompt(
         messages=all_messages,
         system_message=agent.persona,
-        model="gpt-4o-mini",
+        model=MODEL,
         response_model=MediaResults,
     )
 

@@ -4,7 +4,7 @@ tip: |-
   This tool can be used to generate speech audio from text.
 cost_estimate: 0.05 * text.length
 output_type: audio
-status: prod
+active: true
 visible: true
 parameters:
   text:
@@ -70,11 +70,12 @@ parameters:
       Maria Clara: Maria Clara, language: en
       Koi: Koi, accent: en-chinese, language: en
       Joey: Joey, language: en
+      Colton: Colton, language: en
 
       By default, use Lively Amy for female and Tao for male by default, except when asked to do Middle Eastern, then use tlETan7Okc4pzjD0z62P. When asked to do British, use Archer. Otherwise, use your best judgement.    
     required: true
-    choices: [Aria, Roger, Sarah, Laura, Charlie, George, Callum, River, Liam, Charlotte, Alice, Matilda, Will, Jessica, Eric, Chris, Brian, Daniel, Lily, Bill, Maggi, Tao, Gene, Little Aerisita, Marzipan, Sofy, Meredith, Lucy, Jmill, Sue, Knightley - dapper and deep narrator, Boots, Jordan, Wyatt- Wise Rustic Cowboy, Freeman, Amelia, Dimitri, Katie Brown - Expressive, Jero Wiku, James - Mysterious Intriguing, Gandala, David Lynch, Jack, Verdelis, Carter the Mountain King, Mohammed, Ben, Maria Clara, Koi, Joey]
-    choices_labels: [Aria, Roger, Sarah, Laura, Charlie, George, Callum, River, Liam, Charlotte, Alice, Matilda, Will, Jessica, Eric, Chris, Brian, Daniel, Lily, Bill, Maggi, Tao, Gene, Little Aerisita, Marzipan, Sofy, Meredith, Lucy, Jmill, Sue, Knightley - dapper and deep narrator, Boots, Jordan, Wyatt- Wise Rustic Cowboy, Freeman, Amelia, Dimitri, Katie Brown - Expressive, Jero Wiku, James - Mysterious Intriguing, Gandala, David Lynch, Jack, Verdelis, Carter the Mountain King, Mohammed, Ben, Maria Clara, Koi, Joey]
+    choices: [Aria, Roger, Sarah, Laura, Charlie, George, Callum, River, Liam, Charlotte, Alice, Matilda, Will, Jessica, Eric, Chris, Brian, Daniel, Lily, Bill, Maggi, Tao, Gene, Little Aerisita, Marzipan, Sofy, Meredith, Lucy, Jmill, Sue, Knightley - dapper and deep narrator, Boots, Jordan, Wyatt- Wise Rustic Cowboy, Freeman, Amelia, Dimitri, Katie Brown - Expressive, Jero Wiku, James - Mysterious Intriguing, Gandala, David Lynch, Jack, Verdelis, Carter the Mountain King, Mohammed, Ben, Maria Clara, Koi, Joey, Colton]
+    choices_labels: [Aria, Roger, Sarah, Laura, Charlie, George, Callum, River, Liam, Charlotte, Alice, Matilda, Will, Jessica, Eric, Chris, Brian, Daniel, Lily, Bill, Maggi, Tao, Gene, Little Aerisita, Marzipan, Sofy, Meredith, Lucy, Jmill, Sue, Knightley - dapper and deep narrator, Boots, Jordan, Wyatt- Wise Rustic Cowboy, Freeman, Amelia, Dimitri, Katie Brown - Expressive, Jero Wiku, James - Mysterious Intriguing, Gandala, David Lynch, Jack, Verdelis, Carter the Mountain King, Mohammed, Ben, Maria Clara, Koi, Joey, Colton]
   stability:
     type: float
     label: Stability

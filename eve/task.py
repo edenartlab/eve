@@ -8,7 +8,8 @@ from datetime import datetime, timezone
 from .user import Manna, Transaction
 from .mongo import Document, Collection
 from . import eden_utils
-from . import sentry_sdk
+import sentry_sdk
+
 
 # A list of tools that output media but do not result in new Creations
 NON_CREATION_TOOLS = [
@@ -16,7 +17,7 @@ NON_CREATION_TOOLS = [
     "search_models",
     "search_collections",
     "add_to_collection",
-    "create_session"
+    "create_session",
 ]
 
 
@@ -60,11 +61,11 @@ class CreationsCollection(Document):
         if isinstance(data.get("agent"), str):
             data["agent"] = ObjectId(data["agent"])
         data["creations"] = [
-            ObjectId(creation) if isinstance(creation, str) else creation 
+            ObjectId(creation) if isinstance(creation, str) else creation
             for creation in data.get("creations", [])
         ]
         data["contributors"] = [
-            ObjectId(contributor) if isinstance(contributor, str) else contributor 
+            ObjectId(contributor) if isinstance(contributor, str) else contributor
             for contributor in data.get("contributors", [])
         ]
         super().__init__(**data)
@@ -79,7 +80,7 @@ class CreationsCollection(Document):
             else:
                 raise Exception("Collection not found")
         return cls(**document)
-    
+
     def add_creation(self, creation: ObjectId):
         creation = ObjectId(creation) if isinstance(creation, str) else creation
         if creation not in self.creations:
@@ -106,9 +107,10 @@ class Task(Document):
     mock: bool = False
     cost: float = None
     handler_id: Optional[str] = None
-    status: Literal["pending", "running", "completed", "failed", "cancelled"] = (
-        "pending"
-    )
+    status: Literal[
+        "pending", "running", "completed", "failed", "cancelled"
+    ] = "pending"
+    public: bool = False
     error: Optional[str] = None
     result: Optional[List[Dict[str, Any]]] = None
     performance: Optional[Dict[str, Any]] = {}
@@ -245,6 +247,7 @@ async def _task_handler(func, *args, **kwargs):
                         filename=filename,
                         mediaAttributes=media_attributes,
                         name=name,
+                        public=task.public,
                     )
                     new_creation.save()
                     output["creation"] = new_creation.id

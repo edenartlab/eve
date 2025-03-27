@@ -4,8 +4,9 @@ tip: |-
   This tool is a self-contained tool that can do editing operations on input media files. Editing operations include things like cutting, cropping, shifting, etc, no generative tasks here. It does not generate any media itself. Use it when asked to do things like extract or recombine media tracks, cut or crop, merge or split media files, etc.
 cost_estimate: 1
 output_type: video
-status: prod
+active: true
 visible: false
+handler: modal
 parameters:
   instructions:
     type: string

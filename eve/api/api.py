@@ -21,7 +21,6 @@ from eve.api.runner_tasks import (
     cancel_stuck_tasks,
     download_nsfw_models,
     generate_lora_thumbnails,
-    run_nsfw_detection,
     rotate_agent_metadata,
 )
 from eve.task import task_handler_func, Task
@@ -311,9 +310,9 @@ image = (
         "libgtk-3-0",
     )
     .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
-    .pip_install("numpy<2.0", "torch==2.0.1", "torchvision", "transformers", "Pillow")
+    # .pip_install("numpy<2.0", "torch==2.0.1", "torchvision", "transformers", "Pillow")
     .run_commands(["playwright install"])
-    .run_function(download_nsfw_models)
+    # .run_function(download_nsfw_models)
     .add_local_dir(str(workflows_dir), "/workflows")
     .add_local_file(str(root_dir / "pyproject.toml"), "/eve/pyproject.toml")
     .add_local_python_source("eve")
@@ -412,7 +411,6 @@ async def run_task_replicate(task: Task):
 
 @app.function(
     image=image,
-    keep_warm=1,
     concurrency_limit=10,
     container_idle_timeout=60,
     allow_concurrent_inputs=10,

@@ -20,7 +20,7 @@ description: This model represents a person with their details like name, age, h
 tip: Widgets are good for some things
 output_type: image
 cost_estimate: 50
-# status: inactive
+active: false
 comfyui_output_node_id: 161
 comfyui_intermediate_outputs:
   controlnet_signal: 323

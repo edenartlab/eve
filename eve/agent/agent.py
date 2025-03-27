@@ -74,6 +74,7 @@ class Agent(User):
     knowledge: Optional[str] = None
     knowledge_summary: Optional[str] = None
     knowledge_description: Optional[KnowledgeDescription] = None
+    voice: Optional[str] = None
     refreshed_at: Optional[datetime] = None
 
     mute: Optional[bool] = False
@@ -207,8 +208,6 @@ class Agent(User):
                                 default_lora = model["doc"].id
                                 break
                     
-                    print("732647246723 !!!", default_lora)
-                         
                     tip += " If you use a lora, make sure to refer to it in the prompt using its exact Name. Avoid restating the Description in the prompt as it's implicit in the lora already and is redundant."
 
                     # Update all related tools with the tip

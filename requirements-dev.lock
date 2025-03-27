@@ -399,6 +399,8 @@ python-magic==0.4.27
     # via eve
 python-telegram-bot==21.9
     # via eve
+pytz==2025.2
+    # via eve
 pyunormalize==16.0.0
     # via web3
 pyyaml==6.0.2

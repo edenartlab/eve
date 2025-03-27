@@ -4,8 +4,9 @@ tip: |-
   The returns a raw text dump of the page and a few of its linked urls, no visual content.
 cost_estimate: 0.5
 output_type: string
-status: prod
+active: true
 visible: true
+handler: modal
 parameters:
   url:
     type: string

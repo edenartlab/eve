@@ -2,7 +2,7 @@ key: legacy_remix
 name: Remix (Legacy)
 description: Generate a remix of an image (2022-2024)
 output_type: image
-status: stage
+active: true
 parent_tool: legacy_sdxl_pipelines
 parameters:
   mode:

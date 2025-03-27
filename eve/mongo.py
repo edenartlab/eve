@@ -72,7 +72,6 @@ def Collection(name):
         def find_one(cls, query):
             """Find one document matching the query"""
             collection = get_collection(cls.collection_name)
-            print("the query for ", collection.name, query)
             return cls(**collection.find_one(query))
 
         cls.collection_name = name
@@ -459,7 +458,8 @@ class VersionableDocument(Document, VersionableBaseModel):
                 document_id = document_id_["_id"]
 
         if document_id:
-            # data['updatedAt'] = datetime.utcnow().replace(microsecond=0)
+            data['updatedAt'] = datetime.now(timezone.utc)
             collection.update_one({"_id": document_id}, {"$set": data}, upsert=True)
         else:
+            data['updatedAt'] = None
             collection.insert_one(data)

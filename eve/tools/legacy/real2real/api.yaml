@@ -3,7 +3,7 @@ name: SDXL Real-to-Real (Legacy)
 description: Create a video interpolation between two images (2022-2024)
 cost_estimate: n_frames * 2
 output_type: video
-status: stage
+active: true
 replicate_model: edenartlab/sdxl-pipelines
 version: 29ac229daa39d34209d4ba9b1a812beaa9e31ff5c138839051cc10aa54d6360e
 parent_tool: legacy_sdxl_pipelines

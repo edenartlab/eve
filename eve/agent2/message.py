@@ -20,21 +20,21 @@ from ..api.api_requests import UpdateConfig
 class Channel(BaseModel):
     type: Literal["eden", "discord", "telegram", "twitter"]
     key: str
+    # dm: Optional[bool] = False
+    # agents: Optional[List[ObjectId]] = []
     
-    def get_messages(self, limit: int = 25):
-        messages = get_collection("messages")
-        messages = messages.find({"channel.key": self.key}).sort("createdAt", -1)
-        if limit:
-            messages = messages.limit(limit)
-        return [ChatMessage(**msg) for msg in messages]
+    # def get_messages(self, limit: int = 25):
+    #     messages = get_collection("messages")
+    #     messages = messages.find({"channel.key": self.key}).sort("createdAt", -1)
+    #     if limit:
+    #         messages = messages.limit(limit)
+    #     return [ChatMessage(**msg) for msg in messages]
 
 
 @Collection("messages")
 class ChatMessage(Document):
-    # id: ObjectId = Field(default_factory=ObjectId)
-    # createdAt: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    channel: Optional[Channel] = None
-    session: Optional[ObjectId] = None
+    # channel: Optional[Channel] = None
+    session: ObjectId
     
     reply_to: Optional[ObjectId] = None
     # hidden: Optional[bool] = False
@@ -45,9 +45,7 @@ class ChatMessage(Document):
     attachments: Optional[List[str]] = []
     tool_calls: Optional[List[ToolCall]] = []
 
-
     model_config = ConfigDict(arbitrary_types_allowed=True)
-
 
     def react(self, user: ObjectId, reaction: str):
         if reaction not in self.reactions:
@@ -78,7 +76,7 @@ class UserMessage(ChatMessage):
         content = self.content or ""
 
         # Let claude see names
-        if self.name and schema == "anthropic":
+        if self.name and schema == "anthropic" and content:
             content = f"<User>{self.name}</User>\n\n{content}"
 
         # If this message contains tool calls, extract media from them and add to attachments
@@ -151,8 +149,8 @@ class UserMessage(ChatMessage):
                                 max_size=512,
                                 quality=95,
                                 truncate=truncate_images,
-                            ),
-                        },
+                            )
+                        }
                     }
                     for file_path in attachment_files
                 ]
@@ -161,14 +159,15 @@ class UserMessage(ChatMessage):
                     {
                         "type": "image_url",
                         "image_url": {
-                            "url": f"""data:image/jpeg;base64,{image_to_base64(
-                            file_path, 
-                            max_size=512, 
-                            quality=95, 
-                            truncate=truncate_images
-                            
-                        )}"""
-                        },
+                            "url": f"data:image/jpeg;base64,{
+                                image_to_base64(
+                                    file_path, 
+                                    max_size=512, 
+                                    quality=95, 
+                                    truncate=truncate_images
+                                )
+                            }"
+                        }
                     }
                     for file_path in attachment_files
                 ]
@@ -248,25 +247,18 @@ class ToolCall(BaseModel):
     args: Dict[str, Any]
 
     task: Optional[ObjectId] = None
-    # status: Optional[
-    #     Literal["pending", "running", "completed", "failed", "cancelled"]
-    # ] = None
-    # result: Optional[List[Dict[str, Any]]] = None
     result: Optional[Dict[str, Any]] = None
     reactions: Optional[Dict[str, List[ObjectId]]] = None
-    # error: Optional[str] = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    def get_result(self, schema, truncate_images=False):
-        # result = {"status": self.status}
 
-        # if self.status == "completed":
-        # if True:
-        # result["result"] = prepare_result(self.result)
-        print("THE R :) ESULT!!!!")
+    def get_result(self, schema, truncate_images=False):
         result = self.result.copy()
-        result["result"] = prepare_result(result["result"])
+
+        if result["status"] == "completed":
+            result["result"] = prepare_result(result["result"])
+
         print(result)
 
         file_outputs = [
@@ -318,12 +310,14 @@ class ToolCall(BaseModel):
                     {
                         "type": "image_url",
                         "image_url": {
-                            "url": f"""data:image/jpeg;base64,{image_to_base64(
-                            file_path, 
-                            max_size=512, 
-                            quality=95, 
-                            truncate=truncate_images
-                        )}"""
+                            "url": f"data:image/jpeg;base64,{
+                                image_to_base64(
+                                    file_path, 
+                                    max_size=512, 
+                                    quality=95, 
+                                    truncate=truncate_images
+                                )
+                            }"
                         },
                     }
                     for file_path in files
@@ -331,23 +325,15 @@ class ToolCall(BaseModel):
 
             if image_block:
                 content = "Tool results follow. The attached images match the URLs in the order they appear below: "
-                # content += json.dumps(result["result"])
-                content += dump_json(result)
+                content += dump_json(result, exclude="blurhash")
                 text_block = [{"type": "text", "text": content}]
                 result = text_block + image_block
             else:
-                result = dump_json(result)
+                result = dump_json(result, exclude="blurhash")
 
         except Exception as e:
-            print("Warning: Can not inject image results:", e)
-            result = dump_json(result)
-
-        # elif self.status == "failed":
-        #     # result["error"] = self.error
-        #     result = dump_json(result)
-
-        # else:
-        #     result = dump_json(result)
+            # print("Warning: Can not inject image results:", e)
+            result = dump_json(result, exclude="blurhash")
 
         return result
 
@@ -364,13 +350,20 @@ class ToolCall(BaseModel):
 
     @staticmethod
     def from_anthropic(tool_call):
-        return ToolCall(id=tool_call.id, tool=tool_call.name, args=tool_call.input)
+        return ToolCall(
+            id=tool_call.id, 
+            tool=tool_call.name, 
+            args=tool_call.input
+        )
 
     def openai_call_schema(self):
         return {
             "id": self.id,
             "type": "function",
-            "function": {"name": self.tool, "arguments": json.dumps(self.args)},
+            "function": {
+                "name": self.tool, 
+                "arguments": json.dumps(self.args)
+            },
         }
 
     def anthropic_call_schema(self):
@@ -387,7 +380,8 @@ class ToolCall(BaseModel):
             "type": "tool_result",
             "tool_use_id": self.id,
             "content": self.get_result(
-                schema="anthropic", truncate_images=truncate_images
+                schema="anthropic", 
+                truncate_images=truncate_images
             ),
         }
 
@@ -396,7 +390,8 @@ class ToolCall(BaseModel):
             "role": "tool",
             "name": self.tool,
             "content": self.get_result(
-                schema="openai", truncate_images=truncate_images
+                schema="openai", 
+                truncate_images=truncate_images
             ),
             "tool_call_id": self.id,
         }

@@ -12,7 +12,7 @@ from datetime import datetime
 from dotenv import dotenv_values
 from pydantic import SecretStr, Field, BaseModel, ConfigDict
 
-from ..tool import Tool, BASE_TOOLS
+from ..tool import Tool, BASE_TOOLS, FLUX_LORA_TOOLS, SDXL_LORA_TOOLS
 from ..mongo import Collection, get_collection
 from ..user import User, Manna
 from ..models import Model
@@ -74,11 +74,12 @@ class Agent(User):
     knowledge: Optional[str] = None
     knowledge_summary: Optional[str] = None
     knowledge_description: Optional[KnowledgeDescription] = None
+    voice: Optional[str] = None
     refreshed_at: Optional[datetime] = None
 
     mute: Optional[bool] = False
     reply_criteria: Optional[str] = None
-    model: Optional[ObjectId] = None # deprecated
+    model: Optional[ObjectId] = None  # deprecated
     models: Optional[List[Dict[str, Any]]] = None
     test_args: Optional[List[Dict[str, Any]]] = None
 
@@ -160,12 +161,69 @@ class Agent(User):
 
         # if tools are set explicitly, start with them
         schema["tools"] = {k: v or {} for k, v in tools.items()}
-        
+
         # if add_base_tools is set, add the base tools
         if schema.get("add_base_tools", True):
-            schema["tools"].update({
-                k: {} for k in BASE_TOOLS if k not in schema["tools"]
-            })
+            schema["tools"].update(
+                {k: {} for k in BASE_TOOLS if k not in schema["tools"]}
+            )
+
+        models = schema.get("models") or (
+            [{"lora": schema.get("model"), "use_when": "This is your default model."}]
+            if schema.get("model")
+            else []
+        )
+        for m in models:
+            m["doc"] = Model.from_mongo(m["lora"])
+
+        if models:
+            base_models = [
+                {
+                    "type": "flux-dev",
+                    "models": [m for m in models if m["doc"].base_model == "flux-dev"],
+                    "tools": [
+                        t for t in schema["tools"].keys() if t in FLUX_LORA_TOOLS
+                    ],
+                },
+                {
+                    "type": "sdxl",
+                    "models": [m for m in models if m["doc"].base_model == "sdxl"],
+                    "tools": [
+                        t for t in schema["tools"].keys() if t in SDXL_LORA_TOOLS
+                    ],
+                },
+            ]
+
+            for base_model in base_models:
+                model_list, tools_list = base_model["models"], base_model["tools"]
+
+                if tools_list and model_list:
+                    if len(model_list) == 1:
+                        tip = f'Only use "{base_model["type"]}" models. Set the "lora" argument to the ID of the default lora (ID: {str(model_list[0]["lora"])}, Name: "{model_list[0]["doc"].name}", Description: "{model_list[0]["doc"].lora_trigger_text}"), if the following conditions are true: "{model_list[0]["use_when"]}"). If no lora is desired, leave this blank. If a different lora is desired, use its ID instead.'
+                        default_lora = model_list[0]["doc"].id
+                    else:
+                        models_info = " | ".join(
+                            [
+                                f'ID: {m["lora"]}, Name: "{m["doc"].name}", Description: "{m["doc"].lora_trigger_text}", Use When: "{m["use_when"]}"'
+                                for m in model_list
+                            ]
+                        )
+                        tip = f'Only use "{base_model["type"]}" models. You are can use the following loras under the "Use When" circumstances: {models_info}. To use no lora, leave the "lora" argument blank.'
+                        default_lora = model_list[0]["doc"].id
+                        for model in model_list:
+                            if "default" in model["use_when"].lower():
+                                default_lora = model["doc"].id
+                                break
+
+                    tip += " If you use a lora, make sure to refer to it in the prompt using its exact Name. Avoid restating the Description in the prompt as it's implicit in the lora already and is redundant."
+
+                    # Update all related tools with the tip
+                    for tool in tools_list:
+                        schema["tools"][tool] = {
+                            "parameters": {
+                                "lora": {"tip": tip, "default": str(default_lora)}
+                            }
+                        }
 
         return schema
 
@@ -176,10 +234,13 @@ class Agent(User):
             # get latest updatedAt timestamp for tools
             tools = get_collection(Tool.collection_name)
             timestamps = tools.find({}, {"updatedAt": 1})
-            last_tools_update_ = max((doc.get('updatedAt') for doc in timestamps if doc.get('updatedAt')), default=None)
+            last_tools_update_ = max(
+                (doc.get("updatedAt") for doc in timestamps if doc.get("updatedAt")),
+                default=None,
+            )
             if last_tools_update is None:
                 last_tools_update = last_tools_update_
-            
+
             # reset cache if outdated
             cache_outdated = last_tools_update < last_tools_update_
             last_tools_update = max(last_tools_update, last_tools_update_)
@@ -192,7 +253,7 @@ class Agent(User):
                 if k not in agent_tools_cache[self.username]:
                     tool = Tool.from_raw_yaml({"parent_tool": k, **v})
                     agent_tools_cache[self.username][k] = tool
-            
+
             tools = agent_tools_cache[self.username]
         else:
             tools = {
@@ -328,7 +389,7 @@ async def generate_agent_knowledge_description(agent: Agent):
     """
 
     system_message = "You receive a description of an agent, along with a large document of information the agent must memorize, and you come up with instructions for the agent on when they should consult the reference document."
-    
+
     knowledge_template = load_template("knowledge_summarize")
 
     prompt = knowledge_template.render(

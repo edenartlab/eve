@@ -43,7 +43,14 @@ class ReplicateTool(Tool):
         else:
             replicate_model = self._get_replicate_model(args)
             args = self._format_args_for_replicate(args)
-            result = {"output": replicate.run(replicate_model, input=args)}
+            output = replicate.run(replicate_model, input=args)
+            
+            if output and isinstance(output, replicate.helpers.FileOutput):
+                suffix = ".mp4" if self.output_type == "video" else ".webp"
+                with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as temp_file:
+                    temp_file.write(output.read())
+                output = temp_file.name
+            result = {"output": output}
 
         result = eden_utils.upload_result(result)
         return result
@@ -293,10 +300,8 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
                         filename=output["filename"],
                         mediaAttributes=output["mediaAttributes"],
                         name=name,
+                        public=task.public,
                     )
-                    print("**** 111 here is the creation"  )
-                    print(creation)
-                    print("**** 111 here is the creation")
                     creation.save()
                     result[r]["output"][o]["creation"] = creation.id
 
@@ -312,11 +317,7 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
         task.result = result
         task.save()
 
-        print("its a saved task")
-        print(result)
-
         return {"status": "completed", "result": result}
-
 
 def check_replicate_api_token():
     if not os.getenv("REPLICATE_API_TOKEN"):

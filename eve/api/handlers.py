@@ -35,6 +35,9 @@ from eve.deploy import (
     deploy_client,
     modify_secrets,
     stop_client,
+    DeploymentConfig,
+    DeploymentSettingsDiscord,
+    ClientType,
 )
 from eve.eden_utils import prepare_result
 from eve.tools.replicate_tool import replicate_update_task
@@ -67,7 +70,10 @@ async def handle_create(request: TaskRequest):
 
     print("### run the tool ###")
     result = await tool.async_start_task(
-        user_id=request.user_id, agent_id=None, args=request.args
+        user_id=request.user_id, 
+        agent_id=None, 
+        args=request.args, 
+        public=request.public
     )
 
     print("### return the result ###")
@@ -128,6 +134,8 @@ async def run_chat_request(
     langfuse_context.update_current_trace(user_id=str(user.id))
     langfuse_context.update_current_observation(metadata=metadata)
 
+    is_client_platform = True if update_config else False
+
     try:
         async for update in async_prompt_thread(
             user=user,
@@ -140,6 +148,7 @@ async def run_chat_request(
             model=model,
             user_is_bot=user_is_bot,
             stream=False,
+            is_client_platform=is_client_platform,
         ):
             print("UPDATE", update)
             data = {
@@ -256,8 +265,9 @@ async def handle_deployment_create(request: CreateDeploymentRequest):
     if not agent:
         raise APIError(f"Agent not found: {agent.id}", status_code=404)
 
-    secrets = await modify_secrets(request.secrets, request.platform)
+    secrets, config_updates = await modify_secrets(request.secrets, request.platform)
 
+    # Create the deployment object
     deployment = Deployment(
         agent=agent.id,
         user=ObjectId(request.user),
@@ -265,6 +275,21 @@ async def handle_deployment_create(request: CreateDeploymentRequest):
         secrets=secrets,
         config=request.config,
     )
+
+    # Update config with any platform-specific settings from modify_secrets
+    if config_updates and request.platform == ClientType.DISCORD:
+        if not deployment.config:
+            deployment.config = DeploymentConfig()
+        if not deployment.config.discord:
+            deployment.config.discord = DeploymentSettingsDiscord()
+
+        # Set the OAuth URL and client ID
+        deployment.config.discord.oauth_client_id = config_updates.get(
+            "oauth_client_id"
+        )
+        deployment.config.discord.oauth_url = config_updates.get("oauth_url")
+        deployment.valid = config_updates.get("valid", False)
+
     deployment.save(
         upsert_filter={"agent": agent.id, "platform": request.platform.value}
     )
@@ -320,22 +345,34 @@ async def handle_deployment_delete(request: DeleteDeploymentRequest):
 
 @handle_errors
 async def handle_trigger_create(request: CreateTriggerRequest):
-    trigger_id = f"{request.user_id}_{request.agent_id}_{int(time.time())}"
+    agent = Agent.from_mongo(ObjectId(request.agent_id))
+    if not agent:
+        raise APIError(f"Agent not found: {request.agent_id}", status_code=404)
+
+    user = User.from_mongo(ObjectId(agent.owner))
+    if not user:
+        raise APIError(f"User not found: {agent.owner}", status_code=404)
+
+    trigger_id = f"{str(user.id)}_{request.agent_id}_{int(time.time())}"
 
     await create_chat_trigger(
         schedule=request.schedule.to_cron_dict(),
         trigger_id=trigger_id,
     )
 
-    agent = Agent.from_mongo(ObjectId(request.agent_id))
-    thread = agent.request_thread(user=ObjectId(request.user_id), key=trigger_id)
+    thread = agent.request_thread(user=ObjectId(user.id), key=trigger_id)
 
     trigger = Trigger(
         trigger_id=trigger_id,
-        user=ObjectId(request.user_id),
-        agent=ObjectId(request.agent_id),
+        user=ObjectId(user.id),
+        agent=ObjectId(agent.id),
         thread=thread.id,
         schedule=request.schedule.to_cron_dict(),
+        platform=request.platform,
+        channel={
+            "id": request.channel.id,
+            "note": request.channel.note,
+        },
         message=request.message,
         update_config=request.update_config.model_dump()
         if request.update_config

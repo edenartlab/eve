@@ -50,6 +50,7 @@ dependencies = [
     "apscheduler>=3.11.0",
     "modal>=0.73.61",
     "langfuse>=2.59.7",
+    "pytz>=2025.2",
 ]
 
 [build-system]

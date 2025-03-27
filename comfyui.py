@@ -367,7 +367,7 @@ def get_workflows():
         for name in workflow_names:
             try:
                 tool = Tool.from_yaml(f"/root/workspace/workflows/{name}/api.yaml")
-                if tool.status != "inactive":
+                if tool.active:
                     filtered_names.append(name)
             except Exception as e:
                 print(f"Warning: Error reading api.yaml for {name}: {e}")
@@ -436,7 +436,7 @@ def test_workflows():
         if test_files:
             # Check if workflow is inactive before counting it
             tool = Tool.from_yaml(f"/root/workspace/workflows/{workflow}/api.yaml")
-            if tool.status == "inactive" and not test_inactive:
+            if not tool.active and not test_inactive:
                 print(f"\nWorkflow: {workflow} (inactive, will be skipped)")
                 continue
             print(f"\nWorkflow: {workflow}")
@@ -484,7 +484,7 @@ def test_workflows():
 
             try:
                 tool = Tool.from_yaml(f"/root/workspace/workflows/{workflow}/api.yaml")
-                if tool.status == "inactive" and not test_inactive:
+                if not tool.active and not test_inactive:
                     print(f"{workflow} is inactive, skipping test")
                     continue
 
@@ -761,20 +761,13 @@ image = (
         "/root/workspace",
         copy=True,
     )
-    .add_local_file(
-        f"{root_workflows_folder}/workspaces/{workspace_name}/downloads.json",
-        "/root/workspace/downloads.json",
-        copy=True,
-    )
-    .add_local_file(
-        f"{root_workflows_folder}/workspaces/{workspace_name}/snapshot.json",
-        "/root/workspace/snapshot.json",
-        copy=True,
-    )
     .run_function(install_comfyui)
     .run_function(install_custom_nodes, gpu="A100")
-    .pip_install("moviepy==1.0.3")
-    .run_function(download_files, volumes={"/data": downloads_vol})
+    .pip_install("moviepy==1.0.3", "accelerate==1.4.0", "peft==0.14.0", "transformers==4.49.0")
+    .run_function(download_files, volumes={"/data": downloads_vol}, secrets=[
+            modal.Secret.from_name("eve-secrets"),
+            modal.Secret.from_name(f"eve-secrets-{db}"),
+        ])
     # Second copy of workflow files after downloads
     .add_local_dir(
         f"{root_workflows_folder}/workspaces/{workspace_name}",
@@ -815,7 +808,7 @@ class ComfyUI:
         cmd = f"python /root/main.py --dont-print-server --listen --port {port}"
         subprocess.Popen(cmd, shell=True)
         while not self._is_server_running():
-            time.sleep(0.5)
+            time.sleep(1.0)
         t2 = time.time()
         self.launch_time = t2 - t1
         print(f"DEBUG: ComfyUI server started in {self.launch_time:.2f}s")
@@ -967,11 +960,8 @@ class ComfyUI:
 
         except urllib.error.URLError as e:
             response_time = time.time() - start_time
-            print(
-                f"DEBUG: Server check failed - URLError after {response_time:.3f}s: {e}"
-            )
             if hasattr(e, "reason"):
-                print(f"DEBUG: Failure reason: {e.reason}")
+                print(f"DEBUG: Failure reason: {e.reason}, time: {response_time}")
             return False
         except socket.timeout:
             response_time = time.time() - start_time
@@ -1484,7 +1474,7 @@ class ComfyUI:
             # if there's a lora, replace mentions with embedding name
             if key == "prompt":
                 if "flux" in base_model:
-                    if not (('subj_1' in value) and ('subj_2' in value) and (tool.key == "flux_double_character")):
+                    if not (('subj_1' in value) and ('subj_2' in value) and (tool.key == "flux_double_character")): # Skip trigger injection 
                         for lora_key in ["lora", "lora2"]:
                             if args.get(f"use_{lora_key}", False):
                                 lora_strength = args.get(f"{lora_key}_strength", 0.7)

@@ -10,10 +10,10 @@ from pydantic import BaseModel, create_model, ValidationError
 from typing import Optional, List, Dict, Any, Type, Literal
 from datetime import datetime, timezone
 from instructor.function_calls import openai_schema
+import sentry_sdk
 
 from eve.api.rate_limiter import RateLimiter
 
-from . import sentry_sdk
 from . import eden_utils
 from .base import parse_schema
 from .user import User
@@ -42,6 +42,7 @@ BASE_MODELS = Literal[
     "mmaudio",
     "librosa",
     "musicgen",
+    "kling",
 ]
 
 # These tools are default agent tools except Eve
@@ -51,39 +52,48 @@ BASE_TOOLS = [
     "flux_dev_lora",
     "flux_dev",
     "txt2img",
+    
     # more image generation
     "flux_inpainting",
     "outpaint",
     "remix_flux_schnell",
+    
     # video
     "runway",
+    "kling_pro",
     "hedra",
     "vid2vid_sdxl",
     "video_FX",
     "texture_flow",
+    
     # audio
     "musicgen",
     "elevenlabs",
     "mmaudio",
     "stable_audio",
     "zonos",
+    
     # editing
     "media_editor",
+    
     # search
     "search_agents",
     "search_models",
     "search_collections",
     "add_to_collection",
+    
     # misc
     "news",
     "websearch",
     "weather",
+    
     # inactive
     # "ominicontrol",
     # "flux_redux",
     # "reel"
     # "txt2vid",
     # "animate_3d"
+    # "kling_pro"
 ]
 
 FLUX_LORA_TOOLS = ["flux_dev_lora", "flux_dev", "reel"]
@@ -114,7 +124,8 @@ class Tool(Document, ABC):
     resolutions: Optional[List[str]] = None
     base_model: Optional[BASE_MODELS] = None
 
-    status: Optional[Literal["inactive", "stage", "prod"]] = "stage"
+    #status: Optional[Literal["inactive", "stage", "prod"]] = "stage"
+    active: Optional[bool] = True
     visible: Optional[bool] = True
     allowlist: Optional[str] = None
 
@@ -167,18 +178,13 @@ class Tool(Document, ABC):
                 _handler_cache[parent_tool] = parent.get("handler") if parent else None
             handler = _handler_cache[parent_tool]
 
-
-
-        print("LET US LOAD", handler, schema.get("key"))
-
-
         # Lazy load the tool class if we haven't seen this handler before
         if handler not in _tool_classes:
             if handler == "local":
                 from .tools.local_tool import LocalTool
-                
+
                 _tool_classes[handler] = LocalTool
-                
+
             elif handler == "modal":
                 from .tools.modal_tool import ModalTool
 
@@ -375,6 +381,7 @@ class Tool(Document, ABC):
 
         try:
             self.model(**prepared_args)
+        
         except ValidationError as e:
             print(traceback.format_exc())
             error_str = eden_utils.get_human_readable_error(e.errors())
@@ -398,14 +405,15 @@ class Tool(Document, ABC):
                     if isinstance(result["output"], list)
                     else [result["output"]]
                 )
-                sentry_sdk.add_breadcrumb(category="handle_run", data=result)
                 result = eden_utils.upload_result(result)
-                sentry_sdk.add_breadcrumb(category="handle_run", data=result)
                 result["status"] = "completed"
+                sentry_sdk.add_breadcrumb(category="handle_run", data=result)
+                
             except Exception as e:
                 print(traceback.format_exc())
                 result = {"status": "failed", "error": str(e)}
                 sentry_sdk.capture_exception(e)
+
             return result
 
         return async_wrapper
@@ -419,7 +427,9 @@ class Tool(Document, ABC):
             user_id: str,
             agent_id: str,
             args: Dict,
+            public: bool = False,
             mock: bool = False,
+            is_client_platform: bool = False,
         ):
             try:
                 # validate args and user manna balance
@@ -435,8 +445,23 @@ class Tool(Document, ABC):
 
             # Check rate limit before creating the task
             if os.environ.get("FF_RATE_LIMITS") == "yes":
+                print("checking rate limit", agent_id, is_client_platform)
                 rate_limiter = RateLimiter()
-                await rate_limiter.check_manna_spend_rate_limit(user)
+                if agent_id and is_client_platform:
+                    await rate_limiter.check_agent_rate_limit(user, agent_id)
+                else:
+                    await rate_limiter.check_manna_spend_rate_limit(user)
+
+            # Run prompt enhancements if any
+            # try:
+            #     params = {k: v for k, v in self.parameters.items() if v.get("enhancement_prompt")}
+            #     if params:
+            #         from .agent.enhance import enhance_prompt
+            #         for p in params:
+            #             args[p] = await enhance_prompt(params[p]["enhancement_prompt"], args[p])             
+            # except Exception as e:
+            #     print(traceback.format_exc())
+            #     print("error running prompt enhancements", e)
 
             # create task and set to pending
             task = Task(
@@ -448,6 +473,7 @@ class Tool(Document, ABC):
                 args=args,
                 mock=mock,
                 cost=cost,
+                public=public,
             )
             task.save()
             sentry_sdk.add_breadcrumb(
@@ -458,7 +484,7 @@ class Tool(Document, ABC):
             try:
                 if mock:
                     handler_id = eden_utils.random_string()
-                    output = {"output": eden_utils.mock_image(args)}
+                    output = [{"output": [eden_utils.mock_image(args)]}]
                     result = eden_utils.upload_result(output)
                     task.update(
                         handler_id=handler_id,
@@ -544,8 +570,8 @@ class Tool(Document, ABC):
     def run(self, args: Dict, mock: bool = False):
         return asyncio.run(self.async_run(args, mock))
 
-    def start_task(self, user_id: str, agent_id: str, args: Dict, mock: bool = False):
-        return asyncio.run(self.async_start_task(user_id, agent_id, args, mock))
+    def start_task(self, user_id: str, agent_id: str, args: Dict, mock: bool = False, public: bool = False):
+        return asyncio.run(self.async_start_task(user_id, agent_id, args, mock, public))
 
     def wait(self, task: Task):
         return asyncio.run(self.async_wait(task))
@@ -598,7 +624,7 @@ def get_tools_from_mongo(
                 tool = Tool.from_schema(tool, from_yaml=False)
                 if cache:
                     _tool_cache[tool.key] = tool
-            if tool.status != "inactive" and not include_inactive:
+            if tool.active and not include_inactive:
                 if tool.key in found_tools:
                     raise ValueError(f"Duplicate tool {tool.key} found.")
                 found_tools[tool.key] = tool

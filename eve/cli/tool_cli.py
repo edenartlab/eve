@@ -3,7 +3,6 @@ import random
 import asyncio
 import traceback
 
-from .. import load_env
 from ..eden_utils import save_test_results, prepare_result, dump_json, CLICK_COLORS
 from ..auth import get_my_eden_user
 from ..tool import Tool, get_tools_from_mongo, get_tools_from_api_files, get_api_files
@@ -74,8 +73,6 @@ def tool():
 def update(db: str, names: tuple):
     """Upload tools to mongo"""
 
-    load_env(db)
-
     api_files = get_api_files()
     tools_order = {t: index for index, t in enumerate(api_tools_order)}
 
@@ -125,8 +122,6 @@ def update(db: str, names: tuple):
 def remove(db: str, names: tuple):
     """Upload tools to mongo"""
 
-    load_env(db)
-
     confirm = click.confirm(
         f"Are you sure you want to remove {len(names)} following tools from {db}?",
         default=False,
@@ -161,8 +156,6 @@ def remove(db: str, names: tuple):
 @click.pass_context
 def run(ctx, tool: str, db: str):
     """Create with a tool. Args are passed as --key=value or --key value"""
-
-    load_env(db)
 
     tool = Tool.load(key=tool)
 
@@ -230,8 +223,6 @@ def test(
 ):
     """Test multiple tools with their test args"""
 
-    load_env(db)
-
     async def async_test_tool(tool, api):
         color = random.choice(CLICK_COLORS)
         click.echo(click.style(f"\n\nTesting {tool.key}:", fg=color, bold=True))
@@ -240,7 +231,11 @@ def test(
         if api:
             user = get_my_eden_user()
             task = await tool.async_start_task(
-                user_id=user.id, agent_id=None, args=tool.test_args, mock=mock
+                user_id=user.id, 
+                agent_id=None, 
+                args=tool.test_args, 
+                mock=mock, 
+                public=False
             )
             result = await tool.async_wait(task)
         else:

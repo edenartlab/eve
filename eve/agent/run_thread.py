@@ -1,5 +1,4 @@
 import re
-import os
 import asyncio
 import traceback
 import functools
@@ -25,7 +24,7 @@ knowledge_reply_template = load_template("knowledge_reply")
 models_instructions_template = load_template("models_instructions")
 model_template = load_template("model_doc")
 
-USE_THINKING = False #os.getenv("USE_THINKING", "false").lower() == "true"
+USE_THINKING = False  # os.getenv("USE_THINKING", "false").lower() == "true"
 
 # _models_cache: Dict[str, Dict[str, Model]] = {} # todo
 
@@ -68,6 +67,7 @@ async def process_tool_call(
     tools: Dict[str, Tool],
     user_id: str,
     agent_id: str,
+    is_client_platform: bool = False,
 ) -> ThreadUpdate:
     """Process a single tool call and return the appropriate ThreadUpdate"""
 
@@ -78,7 +78,14 @@ async def process_tool_call(
             raise Exception(f"Tool {tool_call.tool} not found.")
 
         # Start task
-        task = await tool.async_start_task(user_id, agent_id, tool_call.args)
+        task = await tool.async_start_task(
+            user_id, 
+            agent_id, 
+            tool_call.args, 
+            mock=False, 
+            public=True, 
+            is_client_platform=is_client_platform
+        )
 
         # Update tool call with task id and status
         thread.update_tool_call(
@@ -90,7 +97,11 @@ async def process_tool_call(
         # Wait for task to complete
         result = await tool.async_wait(task)
 
-        thread.update_tool_call(assistant_message.id, tool_call_index, result)
+        thread.update_tool_call(
+            assistant_message.id, 
+            tool_call_index, 
+            result
+        )
 
         # Task completed
         if result["status"] == "completed":
@@ -143,6 +154,7 @@ async def async_prompt_thread(
     model: Literal[tuple(MODELS)] = DEFAULT_MODEL,
     user_is_bot: bool = False,
     stream: bool = False,
+    is_client_platform: bool = False,
 ):
     model = model or DEFAULT_MODEL
     user_messages = (
@@ -170,8 +182,6 @@ async def async_prompt_thread(
         thought = thought.model_dump()
 
     else:
-        print("Skipping thinking, default to classic behavior")
-
         # Check mentions
         agent_mentioned = any(
             re.search(
@@ -179,7 +189,6 @@ async def async_prompt_thread(
             )
             for msg in user_messages
         )
-        print("Agent mentioned", agent_mentioned)
 
         # When there's no thinking, reply if mentioned or forced, and include all tools
         thought = {
@@ -238,7 +247,9 @@ async def async_prompt_thread(
 
             # If knowledge requested, prepend with full knowledge text
             if thought.get("recall_knowledge") and agent.knowledge:
-                knowledge = knowledge_reply_template.render(knowledge=agent.knowledge)
+                knowledge = knowledge_reply_template.render(
+                    knowledge=agent.knowledge
+                )
             else:
                 knowledge = ""
 
@@ -277,7 +288,8 @@ async def async_prompt_thread(
                             continue
                         content_chunks.append(content)
                         yield ThreadUpdate(
-                            type=UpdateType.ASSISTANT_TOKEN, text=content
+                            type=UpdateType.ASSISTANT_TOKEN, 
+                            text=content
                         )
 
                     # Tool call
@@ -327,7 +339,8 @@ async def async_prompt_thread(
             # Yield update
             if not agent.mute:
                 yield ThreadUpdate(
-                    type=UpdateType.ASSISTANT_MESSAGE, message=assistant_message
+                    type=UpdateType.ASSISTANT_MESSAGE, 
+                    message=assistant_message
                 )
 
         except Exception as e:
@@ -348,7 +361,9 @@ async def async_prompt_thread(
 
             # Yield error message
             yield ThreadUpdate(
-                type=UpdateType.ERROR, message=assistant_message, error=str(e)
+                type=UpdateType.ERROR, 
+                message=assistant_message, 
+                error=str(e)
             )
 
             # Stop thread
@@ -368,6 +383,7 @@ async def async_prompt_thread(
                     tools,
                     user.id,
                     agent.id,
+                    is_client_platform,
                 )
                 for idx, tool_call in batch
             ]
@@ -395,6 +411,7 @@ def prompt_thread(
     use_thinking: bool = USE_THINKING,
     model: Literal[tuple(MODELS)] = DEFAULT_MODEL,
     user_is_bot: bool = False,
+    is_client_platform: bool = False,
 ):
     async_gen = async_prompt_thread(
         user,
@@ -406,6 +423,7 @@ def prompt_thread(
         use_thinking,
         model,
         user_is_bot,
+        is_client_platform=is_client_platform,
     )
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)

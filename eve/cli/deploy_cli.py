@@ -7,7 +7,6 @@ from dotenv import dotenv_values
 import os
 
 from eve.deploy import ClientType
-from .. import load_env
 
 root_dir = Path(__file__).parent.parent.parent
 
@@ -44,8 +43,6 @@ def api_request(method, endpoint, json=None):
 def deploy(agent: str, platform: str, db: str):
     """Deploy a Modal client for an agent."""
     try:
-        load_env(db)
-
         api_request(
             "POST",
             "/deployments/create",
@@ -123,7 +120,6 @@ def deploy(agent: str, platform: str, db: str):
 def configure(agent: str, db: str):
     """Configure agent deployment from .env file (both secrets and config)."""
     try:
-        load_env(db)
         env = "stage" if db == "STAGE" else "prod"
 
         env_file = root_dir / "eve" / "agents" / env / agent / ".env"
@@ -189,8 +185,6 @@ def configure(agent: str, db: str):
 def stop(agent: str, platform: str, db: str):
     """Stop a Modal client for an agent."""
     try:
-        load_env(db)
-
         api_request(
             "POST",
             "/deployments/delete",

@@ -7,8 +7,8 @@ import os
 from typing import Dict, Optional, Tuple
 import websockets
 import aiohttp
-import uuid
 from ably import AblyRealtime
+
 from eve import db
 from eve.deploy import Deployment, ClientType
 from eve.user import User
@@ -25,6 +25,7 @@ app = modal.App(
     secrets=[
         modal.Secret.from_name("eve-secrets", environment_name="main"),
         modal.Secret.from_name(f"eve-secrets-{db}", environment_name="main"),
+        modal.Secret.from_name("eve-secrets-gateway", environment_name="main"),
     ],
 )
 
@@ -46,7 +47,6 @@ image = (
     )
     .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
     .env({"DB": db})
-    .env({"SENTRY_DSN": None})
 )
 
 
@@ -198,7 +198,6 @@ class TelegramTypingManager:
             async with aiohttp.ClientSession() as session:
                 url = f"https://api.telegram.org/bot{token}/sendChatAction"
                 payload = {"chat_id": chat_id, "action": "typing"}
-
                 if thread_id:
                     payload["message_thread_id"] = thread_id
 
@@ -426,6 +425,9 @@ class DiscordGatewayClient:
         ):
             force_reply = True
 
+        content = content or "..."
+        print("CONTENT IS", content)
+
         chat_request = {
             "agent_id": str(self.deployment.agent),
             "user_id": str(user.id),
@@ -545,6 +547,22 @@ class DiscordGatewayClient:
                         if data.get("s"):
                             self._last_sequence = data["s"]
 
+                        # Check for authentication failures
+                        if data.get("op") == GatewayOpCode.INVALID_SESSION:
+                            # Check the close code if available
+                            close_code = data.get("d", {}).get("code", 0)
+                            if close_code == 4004 or "Authentication failed" in str(
+                                data
+                            ):
+                                logger.error(
+                                    f"Authentication failed for deployment {self.deployment.id}: {data}"
+                                )
+                                # Mark the deployment as invalid in the database
+                                self._mark_deployment_invalid()
+                                # Stop reconnection attempts
+                                self._reconnect = False
+                                break
+
                         if data["op"] == GatewayOpCode.DISPATCH:
                             if data["t"] == GatewayEvent.MESSAGE_CREATE:
                                 # For message creation, use deployment ID and message ID for trace ID
@@ -566,13 +584,56 @@ class DiscordGatewayClient:
                                     f"Gateway connected for deployment {self.deployment.id}"
                                 )
 
+            except websockets.exceptions.ConnectionClosedError as e:
+                logger.error(
+                    f"Gateway connection closed for deployment {self.deployment.id}: {e}"
+                )
+                # Check for authentication failure (code 4004)
+                if e.code == 4004 or "Authentication failed" in str(e):
+                    logger.error(
+                        f"Authentication failed for deployment {self.deployment.id}: {e}"
+                    )
+                    # Mark the deployment as invalid in the database
+                    self._mark_deployment_invalid()
+                    # Stop reconnection attempts
+                    self._reconnect = False
+                    break
+                if self.heartbeat_task:
+                    self.heartbeat_task.cancel()
+                await asyncio.sleep(5)
             except Exception as e:
                 logger.error(
                     f"Gateway connection error for deployment {self.deployment.id}: {e}"
                 )
+                # Check if this is an authentication failure
+                if "4004" in str(e) or "Authentication failed" in str(e):
+                    logger.error(
+                        f"Authentication failed for deployment {self.deployment.id}, marking as invalid"
+                    )
+                    # Mark the deployment as invalid in the database
+                    self._mark_deployment_invalid()
+                    # Stop reconnection attempts
+                    self._reconnect = False
+                    break
                 if self.heartbeat_task:
                     self.heartbeat_task.cancel()
                 await asyncio.sleep(5)
+
+    def _mark_deployment_invalid(self):
+        """Mark the deployment as invalid in the database"""
+        try:
+            # Fetch fresh deployment data to avoid overwriting other changes
+            deployment = Deployment.from_mongo(str(self.deployment.id))
+            if deployment:
+                deployment.valid = False
+                deployment.save()
+                logger.info(
+                    f"Marked deployment {self.deployment.id} as invalid due to authentication failure"
+                )
+        except Exception as e:
+            logger.error(
+                f"Failed to mark deployment {self.deployment.id} as invalid: {e}"
+            )
 
     def stop(self):
         self._reconnect = False
@@ -615,6 +676,13 @@ class GatewayManager:
         # Get fresh deployment data from database
         deployment = Deployment.from_mongo(deployment_id)
         if deployment:
+            # Check if the deployment is marked as invalid
+            if deployment.valid is False:
+                logger.info(
+                    f"[trace:{reload_trace_id}] Skipping invalid deployment {deployment_id}"
+                )
+                return
+
             # Create a completely new client with the fresh data
             client = DiscordGatewayClient(deployment)
             self.clients[deployment_id] = client
@@ -674,10 +742,16 @@ class GatewayManager:
                     # Start a new gateway client
                     deployment = Deployment.from_mongo(deployment_id)
                     if deployment:
-                        await self.start_client(deployment)
-                        logger.info(
-                            f"[trace:{cmd_trace_id}] Started client for deployment: {deployment_id}"
-                        )
+                        # Skip if the deployment is marked as invalid
+                        if deployment.valid is False:
+                            logger.info(
+                                f"[trace:{cmd_trace_id}] Skipping invalid deployment: {deployment_id}"
+                            )
+                        else:
+                            await self.start_client(deployment)
+                            logger.info(
+                                f"[trace:{cmd_trace_id}] Started client for deployment: {deployment_id}"
+                            )
                     else:
                         logger.error(
                             f"[trace:{cmd_trace_id}] Deployment not found: {deployment_id}"
@@ -761,6 +835,11 @@ class GatewayManager:
         """Load all Discord HTTP deployments from database"""
         deployments = Deployment.find({"platform": ClientType.DISCORD.value})
         for deployment in deployments:
+            # Skip deployments that are marked as invalid
+            if deployment.valid is False:
+                logger.info(f"Skipping invalid deployment {deployment.id}")
+                continue
+
             if deployment.secrets and deployment.secrets.discord.token:
                 await self.start_client(deployment)
 
@@ -784,6 +863,11 @@ class GatewayManager:
         deployment_id = str(deployment.id)
         if deployment_id in self.clients:
             logger.info(f"Gateway client for deployment {deployment_id} already exists")
+            return
+
+        # Check if the deployment is marked as invalid
+        if deployment.valid is False:
+            logger.info(f"Skipping invalid deployment {deployment_id}")
             return
 
         client = DiscordGatewayClient(deployment)
