@@ -1,9 +1,9 @@
 name: Runway Gen3a Turbo
 description: Text-guided, realistic image animation with Runway Gen3a
 tip: |-
-  This tool creates a realistic animation from a single image. This is your primary/default tool for making videos or animations. Only use other video tools if specifically asked to or asked to make abstract or VJing material.
+  This tool creates a realistic animation from a single image. This is your primary/default tool for making videos or animations. It is the fastest image-to-video tool available. Only use other video tools if specifically asked to or asked to make abstract or VJing material.
 thumbnail: app/runway-tree-orb-woman2-opt.mp4
-cost_estimate: 10 * duration
+cost_estimate: 7.5 * duration
 output_type: video
 base_mopel: runway
 handler: modal

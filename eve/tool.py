@@ -60,6 +60,7 @@ BASE_TOOLS = [
     
     # video
     "runway",
+    "kling_pro",
     "hedra",
     "vid2vid_sdxl",
     "video_FX",
