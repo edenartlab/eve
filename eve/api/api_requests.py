@@ -11,6 +11,7 @@ class TaskRequest(BaseModel):
     tool: str
     args: dict
     user_id: str
+    public: bool = False
 
 
 class CancelRequest(BaseModel):
