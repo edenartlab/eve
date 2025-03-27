@@ -23,28 +23,32 @@ knowledge_reply_template = load_template("knowledge_reply")
 models_instructions_template = load_template("models_instructions")
 model_template = load_template("model_doc")
 
-
-
-
 db = os.getenv("DB", "STAGE")
 
-# todo: force-reply, use-thinking, model, user-is-bot
-class MessageRequest(BaseModel):
-    user_id: str
-    session_id: Optional[str] = None
-    message: ChatMessage
-    update_config: Optional[UpdateConfig] = None    
-    # force_reply: bool = False
-    # use_thinking: bool = True
-    # model: Optional[str] = None
-    # user_is_bot: Optional[bool] = False
+
+
 
 
 """
-"""
 
+Types
 
-"""
+no dispatcher
+- eden chat (1 on 1), discord/telegram DM
+- always reply
+
+dispatcher
+- multi agents (1+ users)
+- on_message, add to context
+   - auto_reply T/F
+   - scheduled 
+
+types of sessions
+- 1 on chat (auto-reply)
+- multi-agent + multi-user chat (dispatcher)
+- 1 agent thought stream (dispatcher = consciousness)
+
+----
 
 Channel
 
@@ -54,6 +58,8 @@ Session
 ChatMessage
 - channel
 - session
+
+---
 
 Handlers
 - receive user message (cancel)
@@ -111,20 +117,29 @@ from .message import Channel
 class MessageRequest(BaseModel):
     user_id: str
     channel_id: str
-    session_id: Optional[str] = None
     message: ChatMessage
-    update_config: Optional[UpdateConfig] = None    
-    # force_reply: bool = False
-    # use_thinking: bool = True
-    # model: Optional[str] = None
-    # user_is_bot: Optional[bool] = False
-
-
-
 
 async def async_receive_message(
     request: MessageRequest
 ):  
+    user = User.from_mongo(request.user_id)
+    channel = Channel.from_mongo(request.channel_id)
+
+    if not channel.agents:
+        return
+
+    if channel.dm:
+        agent = Agent.load(channel.agents[0])
+        # await async_prompt_agent(user, agent, session)
+    
+    else:
+        result = await async_run_dispatcher(session, request.message)
+        # run dispatcher
+
+        pass
+
+
+
     """
     message
     channel
@@ -278,7 +293,7 @@ async def async_prompt_agent(
     if True:
 
         model = "claude-3-5-haiku-latest"
-        model = "gpt-4.5-preview"
+        # model = "gpt-4.5-preview"
         # model = "claude-3-7-sonnet-latest"
 
 

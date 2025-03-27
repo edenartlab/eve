@@ -20,6 +20,8 @@ from ..api.api_requests import UpdateConfig
 class Channel(BaseModel):
     type: Literal["eden", "discord", "telegram", "twitter"]
     key: str
+    # dm: Optional[bool] = False
+    # agents: Optional[List[ObjectId]] = []
     
     def get_messages(self, limit: int = 25):
         messages = get_collection("messages")
@@ -74,7 +76,7 @@ class UserMessage(ChatMessage):
         content = self.content or ""
 
         # Let claude see names
-        if self.name and schema == "anthropic":
+        if self.name and schema == "anthropic" and content:
             content = f"<User>{self.name}</User>\n\n{content}"
 
         # If this message contains tool calls, extract media from them and add to attachments
@@ -330,23 +332,15 @@ class ToolCall(BaseModel):
 
             if image_block:
                 content = "Tool results follow. The attached images match the URLs in the order they appear below: "
-                # content += json.dumps(result["result"])
-                content += dump_json(result)
+                content += dump_json(result, exclude="blurhash")
                 text_block = [{"type": "text", "text": content}]
                 result = text_block + image_block
             else:
-                result = dump_json(result)
+                result = dump_json(result, exclude="blurhash")
 
         except Exception as e:
             # print("Warning: Can not inject image results:", e)
-            result = dump_json(result)
-
-        # elif self.status == "failed":
-        #     # result["error"] = self.error
-        #     result = dump_json(result)
-
-        # else:
-        #     result = dump_json(result)
+            result = dump_json(result, exclude="blurhash")
 
         return result
 
@@ -363,7 +357,11 @@ class ToolCall(BaseModel):
 
     @staticmethod
     def from_anthropic(tool_call):
-        return ToolCall(id=tool_call.id, tool=tool_call.name, args=tool_call.input)
+        return ToolCall(
+            id=tool_call.id, 
+            tool=tool_call.name, 
+            args=tool_call.input
+        )
 
     def openai_call_schema(self):
         return {
@@ -386,7 +384,8 @@ class ToolCall(BaseModel):
             "type": "tool_result",
             "tool_use_id": self.id,
             "content": self.get_result(
-                schema="anthropic", truncate_images=truncate_images
+                schema="anthropic", 
+                truncate_images=truncate_images
             ),
         }
 
@@ -395,7 +394,8 @@ class ToolCall(BaseModel):
             "role": "tool",
             "name": self.tool,
             "content": self.get_result(
-                schema="openai", truncate_images=truncate_images
+                schema="openai", 
+                truncate_images=truncate_images
             ),
             "tool_call_id": self.id,
         }
