@@ -74,6 +74,7 @@ class Agent(User):
     knowledge: Optional[str] = None
     knowledge_summary: Optional[str] = None
     knowledge_description: Optional[KnowledgeDescription] = None
+    voice: Optional[str] = None
     refreshed_at: Optional[datetime] = None
 
     mute: Optional[bool] = False
