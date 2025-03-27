@@ -35,7 +35,6 @@ class LocalTool(Tool):
             del self._tasks[task.handler_id]
             return result
         except asyncio.CancelledError:
-            print("CANCEL 222")
             return {"status": "cancelled"}
 
     @Tool.handle_cancel

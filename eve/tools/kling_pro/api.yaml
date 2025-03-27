@@ -55,3 +55,4 @@ parameters:
     description: Duration of the video in seconds
     default: 5
     choices: [5, 10]
+    required: true

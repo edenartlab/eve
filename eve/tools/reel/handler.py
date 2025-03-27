@@ -317,6 +317,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
     musicgen = Tool.load("musicgen")
     flux = Tool.load("flux_dev")
     runway = Tool.load("runway")
+    kling_pro = Tool.load("kling_pro")
     video_concat = Tool.load("video_concat")
     audio_video_combine = Tool.load("audio_video_combine")
 
@@ -518,11 +519,17 @@ async def handler(args: dict, user: str = None, agent: str = None):
             "duration": str(durations[i]),
             "ratio": "16:9" if orientation == "landscape" else "9:16"
         })
-        video = await runway.async_run({
-            "prompt_image": image,
-            "prompt_text": flux_args[i]["prompt"],
+        # video = await runway.async_run({
+        #     "prompt_image": image,
+        #     "prompt_text": flux_args[i]["prompt"],
+        #     "duration": durations[i],
+        #     "ratio": "16:9" if orientation == "landscape" else "9:16"
+        # })
+        video = await kling_pro.async_run({
+            "start_image": image,
+            "prompt": flux_args[i]["prompt"],
             "duration": durations[i],
-            "ratio": "16:9" if orientation == "landscape" else "9:16"
+            "aspect_ratio": "16:9" if orientation == "landscape" else "9:16"
         })
         print("video!!", video)
         video = eden_utils.prepare_result(video)
