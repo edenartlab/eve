@@ -57,6 +57,7 @@ BASE_TOOLS = [
     "flux_inpainting",
     "outpaint",
     "remix_flux_schnell",
+    "flux_double_character",
     
     # video
     "runway",
