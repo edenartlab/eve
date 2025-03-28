@@ -32,8 +32,8 @@ async def handler(args: dict, user: str = None, agent: str = None):
             f"{HEDRA_BASE_URL}/v1/portrait", 
             headers={'X-API-KEY': HEDRA_API_KEY}, 
             files={'file': open(image_path, 'rb')},
-            json={
-                "aspectRatio": args["aspectRatio"]
+            params={
+                "aspect_ratio": args["aspectRatio"]
             }
         )
         if not image_response.ok:
