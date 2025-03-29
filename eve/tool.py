@@ -43,6 +43,9 @@ BASE_MODELS = Literal[
     "librosa",
     "musicgen",
     "kling",
+    "svd-xt",
+    "wan21",
+    "ltxv",
 ]
 
 # These tools are default agent tools except Eve
