@@ -128,6 +128,7 @@ def install_comfyui():
             "pip",
             "install",
             "xformers!=0.0.18",
+            "sageattn",
             "-r",
             "requirements.txt",
             "--extra-index-url",
