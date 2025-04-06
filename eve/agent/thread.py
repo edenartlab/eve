@@ -18,6 +18,7 @@ class ChatMessage(BaseModel):
     reply_to: Optional[ObjectId] = None
     hidden: Optional[bool] = False # hides trigger messages from llm
     reactions: Optional[Dict[str, List[ObjectId]]] = {}
+    pinned: Optional[bool] = False
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
