@@ -411,7 +411,7 @@ async def async_prompt(
     Non-streaming LLM call => returns (content, tool_calls, stop).
     """
 
-    print(" =958934835==>>> lets use openrouter")
+    print(" =958934835==>>> lets use openrouter", model)
     print(os.getenv("OPENROUTER_API_KEY"))
 
     # print("--------------------------------")
