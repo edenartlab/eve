@@ -21,7 +21,10 @@ MODELS = [
     "gpt-4o",
     "gpt-4o-mini",
     "o1-mini",
-    "google/gemini-2.0-flash-001"
+    
+    
+    "google/gemini-2.0-flash-001",
+    "anthropic/claude-3.7-sonnet"
 ]
 
 DEFAULT_MODEL = os.getenv("DEFAULT_AGENT_MODEL", "claude-3-5-haiku-latest")
@@ -419,7 +422,13 @@ async def async_prompt(
 
     langfuse_context.update_current_observation(input=messages)
 
-    if model.startswith("claude"):
+    if model == "anthropic/claude-3.7-sonnet":
+        print(" == =>>> lets use ANTHJROPPIC")
+        return await async_openrouter_prompt(
+            messages, system_message, model, response_model, tools
+        )
+
+    elif model.startswith("claude"):
         # Use the non-stream Anthropics helper
         return await async_anthropic_prompt(
             messages, system_message, model, response_model, tools
@@ -538,7 +547,7 @@ async def async_openrouter_prompt(
     response_model: Optional[type[BaseModel]] = None,
     tools: Dict[str, Tool] = {},
 ):
-    print(" =234234==>>> lets use openrouter")
+    print(" =234234==>>> lets use openrouter", model)
     print(model)
 
     if not os.getenv("OPENROUTER_API_KEY"):
