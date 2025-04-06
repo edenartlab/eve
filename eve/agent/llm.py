@@ -409,6 +409,7 @@ async def async_prompt(
     """
 
     print(" =958934835==>>> lets use openrouter")
+    print(os.getenv("OPENROUTER_API_KEY"))
 
     # print("--------------------------------")
     # print(f"Prompting {model} with {len(messages)} messages")
