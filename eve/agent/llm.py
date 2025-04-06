@@ -425,7 +425,7 @@ async def async_prompt(
             messages, system_message, model, response_model, tools
         )
     elif model == "google/gemini-2.0-flash-001":
-        print(" ===>>> lets use google gemini")
+        print(" == =>>> lets use google gemini")
         return await async_openrouter_prompt(
             messages, system_message, model, response_model, tools
         )
