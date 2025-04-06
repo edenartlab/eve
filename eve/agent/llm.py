@@ -126,6 +126,13 @@ async def async_anthropic_prompt(
         ],
     }
 
+    print("=-=-=-=-= model -=-=-=-=-=-=-=-=-=-=-=")
+    print(model)
+    print(os.getenv("DEFAULT_AGENT_MODEL"))
+    print("--------------------------------")
+    print(DEFAULT_MODEL)
+    print("=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=")
+
     # efficient tool calls feature for claude 3.7
     # if "claude-3-7" in model:
     #     prompt["betas"] = ["token-efficient-tools-2025-02-19"]
