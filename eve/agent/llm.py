@@ -408,6 +408,8 @@ async def async_prompt(
     Non-streaming LLM call => returns (content, tool_calls, stop).
     """
 
+    print(" =958934835==>>> lets use openrouter")
+
     # print("--------------------------------")
     # print(f"Prompting {model} with {len(messages)} messages")
     # print(dump_json([m.model_dump() for m in messages]))
