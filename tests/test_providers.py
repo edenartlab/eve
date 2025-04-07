@@ -1,5 +1,6 @@
 from eve.agent.thread import UserMessage
 from eve.agent.llm import anthropic_prompt, openai_prompt, openrouter_prompt
+from eve.tool import Tool
 
 
 def test_anthropic():
@@ -20,11 +21,23 @@ def test_openai():
 
 def test_openrouter():
     messages = [
-        UserMessage(content="Who created you? Who trained you?")
+        UserMessage(content="make a picture of a fancy cat. be creative.")
     ]
+
+    tools = {
+        "flux_schnell": Tool.load("flux_schnell"),
+        "runway": Tool.load("runway")
+    }
+    
+
     content, tool_calls, stop = openrouter_prompt(
         messages=messages,
-        model="google/gemini-2.0-flash-001"
+        model="google/gemini-2.0-flash-001",
+        tools=tools
     )
+    
     print(content, tool_calls, stop)
 
+
+if __name__ == "__main__":
+    test_openrouter()

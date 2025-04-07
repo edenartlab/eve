@@ -577,6 +577,38 @@ async def async_openrouter_prompt(
             if tools
             else None
         )
+
+        print("HERE ARE THE TOOLS")
+        print(json.dumps(tools, indent=2))
+
+        print("HERE ARE THE TOOLS")
+        print(model)
+
+        # tools2 = [
+        #     {
+        #         "type": "function",
+        #         "function": {
+        #             "name": "search_gutenberg_books",
+        #             "description": "Search for books in the Project Gutenberg library based on specified search terms",
+        #             "parameters": {
+        #                 "type": "object",
+        #                 "properties": {
+        #                     "search_terms": {
+        #                         "type": "array",
+        #                         "items": {
+        #                         "type": "string"
+        #                         },
+        #                         "description": "List of search terms to find books in the Gutenberg library (e.g. ['dickens', 'great'] to search for books by Dickens with 'great' in the title)"
+        #                     }
+        #                 },
+        #                 "required": ["search_terms"]
+        #             }
+        #         }
+        #     }
+        # ]
+
+        # print("HERE ARE THE TOOLS", tools)
+
         response = await openai_client.chat.completions.create(
             model=model, messages=messages_json, tools=tools
         )
