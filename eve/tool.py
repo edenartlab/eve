@@ -222,12 +222,17 @@ class Tool(Document, ABC):
         Convert the schema into the format expected by the model.
         """
 
+        from_yaml = False
+
         key = schema.get("key") or schema.get("parent_tool") or file_path.split("/")[-2]
         parent_tool = schema.get("parent_tool")
         if parent_tool:
-            parent_schema = cls._get_schema(parent_tool, from_yaml=True)
+            parent_schema = cls._get_schema(parent_tool, from_yaml=from_yaml)
             parent_schema["parameter_presets"] = schema.pop("parameters", {})
-            parent_parameters = parent_schema.pop("parameters", {})
+            if not from_yaml:
+                parent_parameters = {
+                    p["name"]: {**(p.pop("schema")), **p} for p in parent_schema.pop("parameters", [])
+                }
             for k, v in parent_schema["parameter_presets"].items():
                 if k in parent_parameters:
                     parent_parameters[k].update(v)

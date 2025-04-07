@@ -76,7 +76,10 @@ async def setup_chat(
             "thread_id": str(thread.id),
         }
         background_tasks.add_task(
-            async_title_thread, thread, request.user_message, metadata=metadata
+            async_title_thread, 
+            thread, 
+            request.user_message, 
+            metadata=metadata
         )
 
     return user, agent, thread, tools

@@ -21,6 +21,10 @@ MODELS = [
     "gpt-4o",
     "gpt-4o-mini",
     "o1-mini",
+    
+    
+    "google/gemini-2.0-flash-001",
+    "anthropic/claude-3.7-sonnet"
 ]
 
 DEFAULT_MODEL = os.getenv("DEFAULT_AGENT_MODEL", "claude-3-5-haiku-latest")
@@ -106,7 +110,7 @@ def calculate_anthropic_model_cost(
 @observe(as_type="generation")
 async def async_anthropic_prompt(
     messages: List[Union[UserMessage, AssistantMessage]],
-    system_message: Optional[str],
+    system_message: Optional[str] = "You are a helpful assistant.",
     model: Literal[tuple(MODELS)] = "claude-3-5-haiku-latest",
     response_model: Optional[type[BaseModel]] = None,
     tools: Dict[str, Tool] = {},
@@ -204,7 +208,7 @@ async def async_anthropic_prompt(
 @observe(as_type="generation")
 async def async_anthropic_prompt_stream(
     messages: List[Union[UserMessage, AssistantMessage]],
-    system_message: Optional[str],
+    system_message: Optional[str] = "You are a helpful assistant.",
     model: Literal[tuple(MODELS)] = "claude-3-5-haiku-latest",
     response_model: Optional[type[BaseModel]] = None,
     tools: Dict[str, Tool] = {},
@@ -406,7 +410,6 @@ async def async_prompt(
     """
     Non-streaming LLM call => returns (content, tool_calls, stop).
     """
-
     # print("--------------------------------")
     # print(f"Prompting {model} with {len(messages)} messages")
     # print(dump_json([m.model_dump() for m in messages]))
@@ -415,13 +418,26 @@ async def async_prompt(
 
     langfuse_context.update_current_observation(input=messages)
 
-    if model.startswith("claude"):
+    if model == "anthropic/claude-3.7-sonnet":
+        print("OpenRouter -> Anthropic")
+        return await async_openrouter_prompt(
+            messages, system_message, model, response_model, tools
+        )
+
+    elif model.startswith("claude"):
+        print("Anthropic -> Anthropic")
         # Use the non-stream Anthropics helper
         return await async_anthropic_prompt(
             messages, system_message, model, response_model, tools
         )
+    elif model == "google/gemini-2.0-flash-001":
+        print("OpenRouter -> Gemini")
+        return await async_openrouter_prompt(
+            messages, system_message, model, response_model, tools
+        )
     else:
         # Use existing OpenAI path
+        print("OpenAI -> OpenAI")
         return await async_openai_prompt(
             messages, system_message, model, response_model, tools
         )
@@ -475,19 +491,116 @@ async def async_prompt_stream(
         yield chunk
 
 
-def anthropic_prompt(messages, system_message, model, response_model=None, tools=None):
+def anthropic_prompt(
+    messages, 
+    system_message="You are a helpful assistant.", 
+    model="claude-3-5-haiku-latest", 
+    response_model=None, 
+    tools=None
+):
     return asyncio.run(
-        async_anthropic_prompt(messages, system_message, model, response_model, tools)
+        async_anthropic_prompt(
+            messages, system_message, model, response_model, tools
+        )
     )
 
 
-def openai_prompt(messages, system_message, model, response_model=None, tools=None):
+def openai_prompt(
+    messages, 
+    system_message="You are a helpful assistant.", 
+    model="gpt-4o-mini", 
+    response_model=None, 
+    tools=None
+):
     return asyncio.run(
-        async_openai_prompt(messages, system_message, model, response_model, tools)
+        async_openai_prompt(
+            messages, system_message, model, response_model, tools
+        )
     )
 
 
-def prompt(messages, system_message, model, response_model=None, tools=None):
+def prompt(
+    messages, 
+    system_message="You are a helpful assistant.", 
+    model="claude-3-5-haiku-latest", 
+    response_model=None, 
+    tools=None
+):
     return asyncio.run(
         async_prompt(messages, system_message, model, response_model, tools)
+    )
+
+
+
+
+
+
+
+
+@observe()
+async def async_openrouter_prompt(
+    messages: List[Union[UserMessage, AssistantMessage]],
+    system_message: Optional[str] = "You are a helpful assistant.",
+    model: Literal[tuple(MODELS)] = "gpt-4o-mini",
+    response_model: Optional[type[BaseModel]] = None,
+    tools: Dict[str, Tool] = {},
+):
+    print("Use openrouter", model)
+
+    if not os.getenv("OPENROUTER_API_KEY"):
+        raise ValueError("OPENROUTER_API_KEY env is not set")
+
+    messages_json = [item for msg in messages for item in msg.openai_schema()]
+    # if system_message and model != "o1-mini":  # o1 does not support system messages
+    #     messages_json = [{"role": "system", "content": system_message}] + messages_json
+
+    #openai_client = openai.AsyncOpenAI()
+
+    openai_client = openai.AsyncOpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=os.getenv("OPENROUTER_API_KEY"),
+    )
+
+    if response_model:
+        response = await openai_client.beta.chat.completions.parse(
+            model=model, messages=messages_json, response_format=response_model
+        )
+        return response.choices[0].message.parsed
+
+    else:
+        tools = (
+            [t.openai_schema(exclude_hidden=True) for t in tools.values()]
+            if tools
+            else None
+        )
+
+        response = await openai_client.chat.completions.create(
+            model=model, messages=messages_json, tools=tools
+        )
+        response = response.choices[0]
+        content = response.message.content or ""
+        tool_calls = [
+            ToolCall.from_openai(t) for t in response.message.tool_calls or []
+        ]
+        stop = response.finish_reason == "stop"
+
+        return content, tool_calls, stop
+
+
+
+def openrouter_prompt(
+    messages, 
+    system_message="You are a helpful assistant.", 
+    model="gpt-4o-mini", 
+    response_model=None, 
+    tools=None
+):
+    return asyncio.run(
+        async_openrouter_prompt(
+            messages, 
+            system_message, 
+            model, 
+            response_model, 
+            tools
+        )
     )
