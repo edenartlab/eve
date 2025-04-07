@@ -410,10 +410,6 @@ async def async_prompt(
     """
     Non-streaming LLM call => returns (content, tool_calls, stop).
     """
-
-    print(" =958934835==>>> lets use openrouter", model)
-    print(os.getenv("OPENROUTER_API_KEY"))
-
     # print("--------------------------------")
     # print(f"Prompting {model} with {len(messages)} messages")
     # print(dump_json([m.model_dump() for m in messages]))
@@ -423,23 +419,25 @@ async def async_prompt(
     langfuse_context.update_current_observation(input=messages)
 
     if model == "anthropic/claude-3.7-sonnet":
-        print(" == =>>> lets use ANTHJROPPIC")
+        print("OpenRouter -> Anthropic")
         return await async_openrouter_prompt(
             messages, system_message, model, response_model, tools
         )
 
     elif model.startswith("claude"):
+        print("Anthropic -> Anthropic")
         # Use the non-stream Anthropics helper
         return await async_anthropic_prompt(
             messages, system_message, model, response_model, tools
         )
     elif model == "google/gemini-2.0-flash-001":
-        print(" == =>>> lets use google gemini")
+        print("OpenRouter -> Gemini")
         return await async_openrouter_prompt(
             messages, system_message, model, response_model, tools
         )
     else:
         # Use existing OpenAI path
+        print("OpenAI -> OpenAI")
         return await async_openai_prompt(
             messages, system_message, model, response_model, tools
         )
@@ -547,8 +545,7 @@ async def async_openrouter_prompt(
     response_model: Optional[type[BaseModel]] = None,
     tools: Dict[str, Tool] = {},
 ):
-    print(" =234234==>>> lets use openrouter", model)
-    print(model)
+    print("Use openrouter", model)
 
     if not os.getenv("OPENROUTER_API_KEY"):
         raise ValueError("OPENROUTER_API_KEY env is not set")
@@ -564,7 +561,6 @@ async def async_openrouter_prompt(
         api_key=os.getenv("OPENROUTER_API_KEY"),
     )
 
-
     if response_model:
         response = await openai_client.beta.chat.completions.parse(
             model=model, messages=messages_json, response_format=response_model
@@ -577,37 +573,6 @@ async def async_openrouter_prompt(
             if tools
             else None
         )
-
-        print("HERE ARE THE TOOLS")
-        print(json.dumps(tools, indent=2))
-
-        print("HERE ARE THE TOOLS")
-        print(model)
-
-        # tools2 = [
-        #     {
-        #         "type": "function",
-        #         "function": {
-        #             "name": "search_gutenberg_books",
-        #             "description": "Search for books in the Project Gutenberg library based on specified search terms",
-        #             "parameters": {
-        #                 "type": "object",
-        #                 "properties": {
-        #                     "search_terms": {
-        #                         "type": "array",
-        #                         "items": {
-        #                         "type": "string"
-        #                         },
-        #                         "description": "List of search terms to find books in the Gutenberg library (e.g. ['dickens', 'great'] to search for books by Dickens with 'great' in the title)"
-        #                     }
-        #                 },
-        #                 "required": ["search_terms"]
-        #             }
-        #         }
-        #     }
-        # ]
-
-        # print("HERE ARE THE TOOLS", tools)
 
         response = await openai_client.chat.completions.create(
             model=model, messages=messages_json, tools=tools
@@ -632,6 +597,10 @@ def openrouter_prompt(
 ):
     return asyncio.run(
         async_openrouter_prompt(
-            messages, system_message, model, response_model, tools
+            messages, 
+            system_message, 
+            model, 
+            response_model, 
+            tools
         )
     )
