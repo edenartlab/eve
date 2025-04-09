@@ -18,7 +18,7 @@ def setup_eve():
     def setup_langfuse():
         langfuse_private_key = os.getenv("LANGFUSE_SECRET_KEY")
         if not langfuse_private_key:
-            print("Skipping langfuse setup because LANGFUSE_SECRET_KEY is not set")
+            # print("Skipping langfuse setup because LANGFUSE_SECRET_KEY is not set")
             return
 
         from langfuse.decorators import langfuse_context
@@ -29,7 +29,7 @@ def setup_eve():
     def setup_sentry():
         sentry_dsn = os.getenv("SENTRY_DSN")
         if not sentry_dsn:
-            print("Skipping sentry setup because SENTRY_DSN is not set")
+            # print("Skipping sentry setup because SENTRY_DSN is not set")
             return
 
         import sentry_sdk
@@ -60,12 +60,14 @@ def setup_eve():
         )
 
     if os.getenv("SETUP_SENTRY") == "no":
-        print("Skipping sentry setup because SETUP_SENTRY is no")
+        # print("Skipping sentry setup because SETUP_SENTRY is no")
+        pass
     else:
         setup_sentry()
 
     if os.getenv("SETUP_LANGFUSE") == "no":
-        print("Skipping langfuse setup because SETUP_LANGFUSE is no")
+        # print("Skipping langfuse setup because SETUP_LANGFUSE is no")
+        pass
     else:
         setup_langfuse()
 

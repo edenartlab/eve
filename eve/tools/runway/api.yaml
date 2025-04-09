@@ -1,5 +1,5 @@
-name: Runway Gen3a Turbo
-description: Text-guided, realistic image animation with Runway Gen3a
+name: Runway
+description: Text-guided, realistic image animation with Runway Gen 4 Turbo or Gen 3 Alpha Turbo
 tip: |-
   This tool creates a realistic animation from a single image. This is your primary/default tool for making videos or animations. It is the fastest image-to-video tool available. Only use other video tools if specifically asked to or asked to make abstract or VJing material.
 thumbnail: app/runway-tree-orb-woman2-opt.mp4
@@ -71,6 +71,11 @@ parameters:
       When you wave a prompt image, you should mostly focus on camera motion and subject dynamics (i.e. the action or movement of the subject).
                                                                       
       7) Do not include hateful, unsafe, offensive, or NSFW references in the prompt. If the prompt is unsafe, you should try to rewrite it in a safer or more wholesome way.
+  prompt_enhance:
+    type: boolean
+    label: Enhance prompt
+    description: Enhance the prompt according to Runway's prompting guide
+    default: true
   duration:
     type: integer
     label: Duration
@@ -82,9 +87,15 @@ parameters:
     type: string
     label: Ratio
     description: The aspect ratio of the video
-    default: '9:16'
-    choices: ['16:9', '9:16']
+    default: '16:9'
+    choices: ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16', '9:21']
     required: true
+  model:
+    type: string
+    label: Model
+    description: Runway base model
+    default: gen4_turbo
+    choices: [gen3a_turbo, gen4_turbo]
   seed:
     type: integer
     label: Seed
@@ -94,9 +105,4 @@ parameters:
     default: random
     minimum: 0
     maximum: 2147483647
-  watermark:
-    type: boolean
-    label: Watermark
-    description: Add a Runway watermark to the video
-    default: false
-    hide_from_agent: true
+  

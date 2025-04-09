@@ -82,31 +82,26 @@ Now convert this prompt to fit the style guide. Aim for 12-25 words.
 
 
 async def enhance_prompt(prompt_text: str):
-    try:
-        class PromptText(BaseModel):
-            """An enhanced prompt text for video generation."""
+    class PromptText(BaseModel):
+        """An enhanced prompt text for video generation."""
 
-            prompt: str = Field(
-                ...,
-                description="Generated prompt conforming to Runway prompting guide.",
-            )
-
-        prompt = prompt_enhance_prompt.render(
-            user_prompt=prompt_text
+        prompt: str = Field(
+            ...,
+            description="Generated prompt conforming to Runway prompting guide.",
         )
 
-        result = await async_prompt(
-            [UserMessage(content=prompt)],
-            system_message=f"You are a prompt engineer who enhances prompts for video generation. You convert possibly faulty instructions into better prompts.",
-            model="gpt-4o", # "gpt-4o-mini"
-            response_model=PromptText,
-        )
+    prompt = prompt_enhance_prompt.render(
+        user_prompt=prompt_text
+    )
 
-        return result.prompt
-    
-    except Exception as e:
-        print(f"Error enhancing prompt: {e}")
-        return prompt_text
+    result = await async_prompt(
+        [UserMessage(content=prompt)],
+        system_message=f"You are a prompt engineer who enhances prompts for video generation. You convert possibly faulty instructions into better prompts.",
+        model="gpt-4o", # "gpt-4o-mini"
+        response_model=PromptText,
+    )
+
+    return result.prompt
 
 
 async def handler(args: dict, user: str = None, agent: str = None):
@@ -115,9 +110,15 @@ async def handler(args: dict, user: str = None, agent: str = None):
 
     prompt_text = args["prompt_text"]
     print("original prompt:", prompt_text)
-    prompt_text = await enhance_prompt(prompt_text)
-    print("enhanced prompt:", prompt_text)
-
+    
+    if args.get("prompt_enhance") == True:
+        try:
+            prompt_text = await enhance_prompt(prompt_text)
+            print("enhanced prompt:", prompt_text)
+        except Exception as e:
+            print(f"Error enhancing prompt: {e}")
+            print("falling back to original prompt")
+        
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=0, max=15),
@@ -127,17 +128,34 @@ async def handler(args: dict, user: str = None, agent: str = None):
     async def create_image_to_video():
         nonlocal unsafe_content_error
         try:
-            ratio = "1280:768" if args["ratio"] == "16:9" else "768:1280"
+            model = args.get("model", "gen3a_turbo")
+
+            if model == "gen3a_turbo":
+                ratio = "1280:768" if args["ratio"] == "16:9" else "768:1280"
             
+            elif model == "gen4_turbo":
+                if args["ratio"] == "21:9":
+                    ratio = "1584:672"
+                elif args["ratio"] == "16:9":
+                    ratio = "1280:720"
+                elif args["ratio"] == "4:3":
+                    ratio = "1104:832"
+                elif args["ratio"] == "1:1":
+                    ratio = "960:960"
+                elif args["ratio"] == "3:4":
+                    ratio = "832:1104"
+                elif args["ratio"] == "9:16":
+                    ratio = "720:1280"
+                
             print("Runway args", args)
             
             return await client.image_to_video.create(
-                model="gen3a_turbo",
+                model=model,
                 prompt_image=args["prompt_image"],
                 prompt_text=prompt_text[:512],
                 duration=int(args["duration"]),
                 ratio=ratio,
-                watermark=False,
+                # watermark=False,
             )
 
         except runwayml.APIConnectionError as e:
@@ -175,7 +193,6 @@ async def handler(args: dict, user: str = None, agent: str = None):
         
         except Exception as e:
             raise Exception("An unexpected error occurred", e)
-
 
     try:
         task = await create_image_to_video()    
