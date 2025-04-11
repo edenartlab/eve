@@ -411,7 +411,7 @@ rpds-py==0.22.3
     # via referencing
 rsa==4.9
     # via google-auth
-runwayml==2.1.4
+runwayml==3.0.0
     # via eve
 s3transfer==0.10.4
     # via boto3
