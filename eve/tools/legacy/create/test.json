@@ -1,3 +1,5 @@
 {
-    "prompt": "the cat in the hat"
+    "prompt": "<concept> on the moon",
+    "use_lora": true,
+    "lora": "65616df80c11a3d5d3baf555"
 }

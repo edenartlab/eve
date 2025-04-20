@@ -73,25 +73,25 @@ parameters:
     choice_labels: [SDXL, Juggernaut XL2]
     default: juggernaut_XL2
   
-  # use_lora:
-  #   type: boolean
-  #   label: Use LoRA
-  #   description: Whether to use a LoRA finetuning
-  #   default: false
-  # lora:
-  #   type: lora
-  #   label: LoRA
-  #   description: (optional) URL of Lora finetuning
-  #   visible_if: use_lora
-  # lora_scale:
-  #   type: float
-  #   label: Lora Scale
-  #   description: Lora scale (how much of the Lora finetuning to apply)
-  #   default: 0.7
-  #   minimum: 0
-  #   maximum: 1.5
-  #   step: 0.01
-  #   visible_if: use_lora
+  use_lora:
+    type: boolean
+    label: Use LoRA
+    description: Whether to use a LoRA finetuning
+    default: false
+  lora:
+    type: lora
+    label: LoRA
+    description: (optional) URL of Lora finetuning
+    visible_if: use_lora
+  lora_scale:
+    type: float
+    label: Lora Scale
+    description: Lora scale (how much of the Lora finetuning to apply)
+    default: 0.7
+    minimum: 0
+    maximum: 1.5
+    step: 0.01
+    visible_if: use_lora
   
   use_init_image:
     type: boolean
