@@ -6,6 +6,7 @@ import traceback
 from ..eden_utils import save_test_results, prepare_result, dump_json, CLICK_COLORS
 from ..auth import get_my_eden_user
 from ..tool import Tool, get_tools_from_mongo, get_tools_from_api_files, get_api_files
+from .. import load_env
 
 
 api_tools_order = [
@@ -72,6 +73,8 @@ def tool():
 @click.argument("names", nargs=-1, required=False)
 def update(db: str, names: tuple):
     """Upload tools to mongo"""
+
+    load_env(db)
 
     api_files = get_api_files()
     tools_order = {t: index for index, t in enumerate(api_tools_order)}

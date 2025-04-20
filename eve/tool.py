@@ -25,7 +25,9 @@ OUTPUT_TYPES = Literal[
     "boolean", "string", "integer", "float", "image", "video", "audio", "lora"
 ]
 
-HANDLERS = Literal["local", "modal", "comfyui", "comfyui_legacy", "replicate", "gcp"]
+HANDLERS = Literal[
+    "local", "modal", "comfyui", "comfyui_legacy", "replicate", "gcp"
+]
 
 BASE_MODELS = Literal[
     "sd15",
@@ -94,7 +96,7 @@ BASE_TOOLS = [
     # inactive
     # "ominicontrol",
     # "flux_redux",
-    # "reel"
+    "reel",
     # "txt2vid",
     # "animate_3d"
     # "kling_pro"

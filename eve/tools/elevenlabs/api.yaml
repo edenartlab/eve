@@ -73,11 +73,12 @@ parameters:
       Colton: Colton, language: en
       Vincent: Vincent, language: en
       Chebel: Chebel, language: en, accent: portuguese
-
+      Solar Sam: Solar Sam, language: en
+      
       By default, use Lively Amy for female and Tao for male by default, except when asked to do Middle Eastern, then use tlETan7Okc4pzjD0z62P. When asked to do British, use Archer. Otherwise, use your best judgement.    
     required: true
-    choices: [Aria, Roger, Sarah, Laura, Charlie, George, Callum, River, Liam, Charlotte, Alice, Matilda, Will, Jessica, Eric, Chris, Brian, Daniel, Lily, Bill, Maggi, Tao, Gene, Little Aerisita, Marzipan, Sofy, Meredith, Lucy, Jmill, Sue, Knightley - dapper and deep narrator, Boots, Jordan, Wyatt- Wise Rustic Cowboy, Freeman, Amelia, Dimitri, Katie Brown - Expressive, Jero Wiku, James - Mysterious Intriguing, Gandala, David Lynch, Jack, Verdelis, Carter the Mountain King, Mohammed, Ben, Maria Clara, Koi, Joey, Colton, Vincent, Chebel]
-    choices_labels: [Aria, Roger, Sarah, Laura, Charlie, George, Callum, River, Liam, Charlotte, Alice, Matilda, Will, Jessica, Eric, Chris, Brian, Daniel, Lily, Bill, Maggi, Tao, Gene, Little Aerisita, Marzipan, Sofy, Meredith, Lucy, Jmill, Sue, Knightley - dapper and deep narrator, Boots, Jordan, Wyatt- Wise Rustic Cowboy, Freeman, Amelia, Dimitri, Katie Brown - Expressive, Jero Wiku, James - Mysterious Intriguing, Gandala, David Lynch, Jack, Verdelis, Carter the Mountain King, Mohammed, Ben, Maria Clara, Koi, Joey, Colton, Vincent, Chebel]
+    choices: [Aria, Roger, Sarah, Laura, Charlie, George, Callum, River, Liam, Charlotte, Alice, Matilda, Will, Jessica, Eric, Chris, Brian, Daniel, Lily, Bill, Maggi, Tao, Gene, Little Aerisita, Marzipan, Sofy, Meredith, Lucy, Jmill, Sue, Knightley - dapper and deep narrator, Boots, Jordan, Wyatt- Wise Rustic Cowboy, Freeman, Amelia, Dimitri, Katie Brown - Expressive, Jero Wiku, James - Mysterious Intriguing, Gandala, David Lynch, Jack, Verdelis, Carter the Mountain King, Mohammed, Ben, Maria Clara, Koi, Joey, Colton, Vincent, Chebel, Solar Sam]
+    choices_labels: [Aria, Roger, Sarah, Laura, Charlie, George, Callum, River, Liam, Charlotte, Alice, Matilda, Will, Jessica, Eric, Chris, Brian, Daniel, Lily, Bill, Maggi, Tao, Gene, Little Aerisita, Marzipan, Sofy, Meredith, Lucy, Jmill, Sue, Knightley - dapper and deep narrator, Boots, Jordan, Wyatt- Wise Rustic Cowboy, Freeman, Amelia, Dimitri, Katie Brown - Expressive, Jero Wiku, James - Mysterious Intriguing, Gandala, David Lynch, Jack, Verdelis, Carter the Mountain King, Mohammed, Ben, Maria Clara, Koi, Joey, Colton, Vincent, Chebel, Solar Sam]
   stability:
     type: float
     label: Stability

@@ -294,7 +294,7 @@ workflows_dir = root_dir / ".." / "workflows"
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    .env({"DB": db, "MODAL_SERVE": os.getenv("MODAL_SERVE")})
+    .env({"DB": db, "MODAL_SERVE": os.getenv("MODAL_SERVE", "False")})
     .apt_install(
         "git",
         "libmagic1",
