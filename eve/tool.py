@@ -151,7 +151,6 @@ class Tool(Document, ABC):
 
         if from_yaml:
             api_files = get_api_files()  # YAML path
-
             if key not in api_files:
                 raise ValueError(f"Tool {key} not found")
 
@@ -663,7 +662,10 @@ def get_api_files(root_dir: str = None) -> List[str]:
         for root, _, files in os.walk(root_dir):
             if "api.yaml" in files and "test.json" in files:
                 api_file = os.path.join(root, "api.yaml")
-                api_files[os.path.relpath(root).split("/")[-1]] = api_file
+                key = os.path.relpath(root).split("/")[-1]
+                if "legacy" in root:
+                    key = f"legacy_{key}"
+                api_files[key] = api_file
 
     return api_files
 
