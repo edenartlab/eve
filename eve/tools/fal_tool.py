@@ -62,6 +62,8 @@ class FalTool(Tool):
         check_fal_api_token()
         request_id = task.handler_id
         
+        last_print_time = 0 # Initialize timer
+        
         while True:
             status = fal_client.status(self.fal_endpoint, request_id, with_logs=self.with_logs)
             
@@ -78,6 +80,11 @@ class FalTool(Tool):
             elif status.status == "PROCESSING":
                 task.status = "running"
                 task.save()
+                # Print running status only every 2 seconds
+                current_time = asyncio.get_event_loop().time()
+                if current_time - last_print_time >= 2.0:
+                    print("running...") 
+                    last_print_time = current_time
                 
             elif status.status == "COMPLETED":
                 result = fal_client.result(self.fal_endpoint, request_id)
@@ -87,7 +94,7 @@ class FalTool(Tool):
                 task.save()
                 return {"status": "completed", "result": processed_result}
             
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.5) # Poll every 0.5 seconds
 
     @Tool.handle_cancel
     async def async_cancel(self, task: Task):
@@ -167,6 +174,8 @@ class FalTool(Tool):
                     save_thumbnails=True,
                     save_blurhash=True
                 )
+                # Print the result from upload_result to see the structure and final URL
+                print(f"Uploaded FAL URL {url} to Eden: {uploaded_data}")
                 processed_outputs.append(uploaded_data)
             except Exception as e:
                  logger.error(f"Failed to upload result URL {url}: {e}")
