@@ -1,10 +1,10 @@
-name: fal/lipsync
-description: Synchronizes the lip movements in a video with a given audio track using Fal AI.
+name: LipSync (FAL)
+description: Synchronizes the lip movements in a video with a given audio track.
 handler: fal
 fal_endpoint: fal-ai/sync-lipsync/v2
 output_handler: normal
 output_type: video
-cost_estimate: '1'
+cost_estimate: '50'
 
 parameters:
   video_url:
