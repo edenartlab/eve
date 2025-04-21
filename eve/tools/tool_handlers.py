@@ -103,4 +103,8 @@ def load_handler(name):
             from .weather.handler import handler
             handlers[name] = handler
 
+        elif name == "fal":
+            from .fal_tool import FalTool
+            handlers[name] = FalTool
+
     return handlers[name]
