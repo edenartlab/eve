@@ -1,0 +1,8 @@
+{
+    "interpolation_prompts": [
+        "the cat in the hat", 
+        "the dog in the hat"
+    ],
+    "n_frames": 24
+}
+

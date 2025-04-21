@@ -4,6 +4,7 @@ description: Create a video interpolation between two prompts (2022-2024)
 cost_estimate: n_frames * 2
 output_type: video
 active: true
+visible: true
 handler: modal
 replicate_model: edenartlab/sdxl-pipelines
 version: 29ac229daa39d34209d4ba9b1a812beaa9e31ff5c138839051cc10aa54d6360e
