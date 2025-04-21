@@ -210,6 +210,10 @@ class Tool(Document, ABC):
                 from .tools.gcp_tool import GCPTool
 
                 _tool_classes[handler] = GCPTool
+            elif handler == "fal":
+                from .tools.fal_tool import FalTool
+                
+                _tool_classes[handler] = FalTool
             else:
                 from .tools.modal_tool import ModalTool
 

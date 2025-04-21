@@ -51,6 +51,7 @@ dependencies = [
     "modal>=0.73.61",
     "langfuse>=2.59.7",
     "pytz>=2025.2",
+    "fal-client==0.5.9",
 ]
 
 [build-system]

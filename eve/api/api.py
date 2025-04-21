@@ -396,15 +396,9 @@ async def rotate_agent_metadata_fn():
     timeout=3600
 )
 async def run(tool_key: str, args: dict):
-    from eve.tools.tool import Tool
-    from eve.tools.tool_handlers import load_handler
-    from eve import eden_utils
-    tool = Tool.load(tool_key)
-    handler_name = tool.config.get('handler', tool_key)
-    handler = load_handler(handler_name)
+    handler = load_handler(tool_key)
     result = await handler(args)
     return eden_utils.upload_result(result)
-
 
 @app.function(
     image=image, 
