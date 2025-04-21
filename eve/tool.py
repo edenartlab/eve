@@ -26,7 +26,7 @@ OUTPUT_TYPES = Literal[
 ]
 
 HANDLERS = Literal[
-    "local", "modal", "comfyui", "comfyui_legacy", "replicate", "gcp"
+    "local", "modal", "comfyui", "comfyui_legacy", "replicate", "gcp", "fal"
 ]
 
 BASE_MODELS = Literal[
@@ -250,14 +250,23 @@ class Tool(Document, ABC):
         )
         schema["model"] = model
 
+        # Populate parameters from input_schema for saving
+        if "input_schema" in schema and "properties" in schema["input_schema"]:
+            schema["parameters"] = schema["input_schema"].get("properties")
+
         # cast any numbers to strings
         if "cost_estimate" in schema:
             schema["cost_estimate"] = str(schema["cost_estimate"])
 
         if file_path:
             test_file = file_path.replace("api.yaml", "test.json")
-            with open(test_file, "r") as f:
-                schema["test_args"] = json.load(f)
+            # Check if test file exists before attempting to load
+            if os.path.exists(test_file):
+                with open(test_file, "r") as f:
+                    schema["test_args"] = json.load(f)
+            else:
+                # Set to None or an empty dict if test file is optional/missing
+                schema["test_args"] = None
 
         return schema
 
