@@ -57,11 +57,21 @@ async def trigger_fn():
         current_time = datetime.now(timezone.utc)
         end_date_str = trigger["schedule"]["end_date"]
 
-        # Handle both Z and +00:00 format
-        if end_date_str.endswith("Z"):
-            end_date_str = end_date_str.replace("Z", "+00:00")
+        # Parse the date string and ensure it's timezone aware
+        try:
+            # If using fromisoformat, the timezone info should be preserved
+            end_date = datetime.fromisoformat(end_date_str)
 
-        end_date = datetime.fromisoformat(end_date_str)
+            # If somehow end_date is still naive, make it timezone aware
+            if end_date.tzinfo is None:
+                end_date = end_date.replace(tzinfo=timezone.utc)
+        except ValueError:
+            # Fallback parsing if there's a format issue
+            if end_date_str.endswith("Z"):
+                end_date_str = end_date_str.replace("Z", "+00:00")
+            end_date = datetime.fromisoformat(end_date_str)
+            if end_date.tzinfo is None:
+                end_date = end_date.replace(tzinfo=timezone.utc)
 
         print(f"Current time: {current_time}")
         print(f"End date: {end_date}")
