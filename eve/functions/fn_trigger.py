@@ -53,9 +53,9 @@ async def trigger_fn():
 
     print(f"Chat request successful: {response.json()}")
 
-    if trigger["end_date"]:
+    if trigger["schedule"].get("end_date"):
         current_time = datetime.now(timezone.utc)
-        end_date_str = trigger["end_date"]
+        end_date_str = trigger["schedule"]["end_date"]
 
         # Handle both Z and +00:00 format
         if end_date_str.endswith("Z"):
