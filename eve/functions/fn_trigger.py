@@ -2,7 +2,6 @@ import os
 import requests
 import asyncio
 from datetime import datetime, timezone
-from eve.trigger import delete_trigger
 
 trigger_message = """<AdminMessage>
 You have received a request from an admin to run a scheduled task. The instructions for the task are below. In your response, do not ask for clarification, just do the task. Do not acknowledge receipt of this message, as no one else in the chat can see it and the admin is absent. Simply follow whatever instructions are below.
@@ -71,7 +70,16 @@ async def trigger_fn():
             print(
                 f"Trigger end date {end_date} has passed. Deleting trigger {trigger_id}"
             )
-            await delete_trigger(trigger_id)
+            response = requests.post(
+                f"{api_url}/triggers/delete",
+                headers={"Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}"},
+                json={"id": trigger_id},
+            )
+
+            if not response.ok:
+                raise Exception(
+                    f"Failed to delete trigger: {response.status_code} - {response.text}"
+                )
 
 
 def trigger_fn_sync():
