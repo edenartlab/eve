@@ -430,6 +430,7 @@ async def handle_trigger_get(trigger_id: str):
         raise APIError(f"Trigger not found: {trigger_id}", status_code=404)
 
     return {
+        "id": str(trigger.id),
         "user": str(trigger.user),
         "agent": str(trigger.agent),
         "thread": str(trigger.thread),

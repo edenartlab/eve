@@ -54,7 +54,8 @@ async def trigger_fn():
     print(f"Chat request successful: {response.json()}")
 
     if trigger["schedule"].get("end_date"):
-        current_time = datetime.now(timezone.utc)
+        # Get current time and round to the minute (set seconds and microseconds to 0)
+        current_time = datetime.now(timezone.utc).replace(second=0, microsecond=0)
         end_date_str = trigger["schedule"]["end_date"]
 
         # Parse the date string and ensure it's timezone aware
@@ -73,8 +74,11 @@ async def trigger_fn():
             if end_date.tzinfo is None:
                 end_date = end_date.replace(tzinfo=timezone.utc)
 
-        print(f"Current time: {current_time}")
-        print(f"End date: {end_date}")
+        # Round end_date to minute precision
+        end_date = end_date.replace(second=0, microsecond=0)
+
+        print(f"Current time (rounded): {current_time}")
+        print(f"End date (rounded): {end_date}")
 
         if current_time > end_date:
             print(
@@ -83,7 +87,7 @@ async def trigger_fn():
             response = requests.post(
                 f"{api_url}/triggers/delete",
                 headers={"Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}"},
-                json={"id": trigger_id},
+                json={"id": trigger["id"]},
             )
 
             if not response.ok:
