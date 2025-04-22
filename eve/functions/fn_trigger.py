@@ -54,8 +54,8 @@ async def trigger_fn():
     print(f"Chat request successful: {response.json()}")
 
     if trigger["schedule"].get("end_date"):
-        # Get current time and round to the minute (set seconds and microseconds to 0)
-        current_time = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+        # Get current time with full precision
+        current_time = datetime.now(timezone.utc)
         end_date_str = trigger["schedule"]["end_date"]
 
         # Parse the date string and ensure it's timezone aware
@@ -74,10 +74,10 @@ async def trigger_fn():
             if end_date.tzinfo is None:
                 end_date = end_date.replace(tzinfo=timezone.utc)
 
-        # Round end_date to minute precision
+        # Only round end_date to minute precision
         end_date = end_date.replace(second=0, microsecond=0)
 
-        print(f"Current time (rounded): {current_time}")
+        print(f"Current time: {current_time}")
         print(f"End date (rounded): {end_date}")
 
         if current_time > end_date:
