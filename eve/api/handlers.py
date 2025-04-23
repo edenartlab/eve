@@ -364,7 +364,7 @@ async def handle_trigger_create(
     background_tasks.add_task(
         async_title_thread,
         thread,
-        request.message,
+        UserMessage(content=request.message),
         metadata={
             "user_id": str(user.id),
             "agent_id": str(agent.id),
