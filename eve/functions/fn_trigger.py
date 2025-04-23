@@ -36,7 +36,7 @@ async def trigger_fn():
         "agent_id": trigger["agent"],
         "thread_id": trigger["thread"],
         "user_message": user_message,
-        "update_config": trigger["update_config"],
+        "update_config": trigger.get("update_config", None),
         "force_reply": True,
     }
 

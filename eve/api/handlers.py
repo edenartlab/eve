@@ -373,7 +373,7 @@ async def handle_trigger_create(request: CreateTriggerRequest):
         message=request.message,
         update_config=request.update_config.model_dump()
         if request.update_config
-        else {},
+        else None,
     )
     trigger.save()
 
