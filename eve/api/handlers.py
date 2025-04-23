@@ -369,7 +369,9 @@ async def handle_trigger_create(request: CreateTriggerRequest):
         channel={
             "id": request.channel.id,
             "note": request.channel.note,
-        },
+        }
+        if request.channel
+        else None,
         message=request.message,
         update_config=request.update_config.model_dump()
         if request.update_config
