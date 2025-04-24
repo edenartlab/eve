@@ -21,20 +21,20 @@ async def handler(args: dict, user: str = None, agent: str = None):
     valid_args["moderation"] = "low" 
 
     if user and 'user' not in valid_args:
-         valid_args['user'] = user
+         valid_args['user'] = str(user)
 
     try:
         print(f"Calling OpenAI Images API (gpt-image-1) with args: {valid_args}")
         response = await client.images.generate(**valid_args)
 
         output = []
-        for item in response.data:
+        for i, item in enumerate(response.data):
             image_bytes = base64.b64decode(item.b64_json)
-            with open("image.jpg", "wb") as f:
+            temp_file_name = f"image_{i}.jpg"
+            with open(temp_file_name, "wb") as f:
                 f.write(image_bytes)
-            output.append("image.jpg")
+            output.append(temp_file_name)
 
-        print("OUTPUT IS:", output)
         return {"output": output}
 
     except Exception as e:

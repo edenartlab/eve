@@ -95,7 +95,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
     valid_args["model"] = "gpt-image-1" # Explicitly set the model
 
     if user and 'user' not in valid_args:
-         valid_args['user'] = user
+         valid_args['user'] = str(user)
 
     image_paths = valid_args.pop('image', []) # Expecting a list of paths
     mask_path = valid_args.pop('mask', None)
