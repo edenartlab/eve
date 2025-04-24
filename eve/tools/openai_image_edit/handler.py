@@ -1,3 +1,4 @@
+import base64
 import os
 from openai import AsyncOpenAI
 import asyncio
@@ -132,13 +133,13 @@ async def handler(args: dict, user: str = None, agent: str = None):
 
         response = await client.images.edit(**valid_args)
 
-        output_data = []
-        for item in response.data:
-            item_data = {"b64_json": item.b64_json}
-            output_data.append(item_data)
-
-        n_requested = valid_args.get('n', 1)
-        output = output_data[0] if len(output_data) == 1 and n_requested == 1 else output_data
+        output = []
+        for i, item in enumerate(response.data):
+            image_bytes = base64.b64decode(item.b64_json)
+            temp_file_name = f"image_{i}.jpg"
+            with open(temp_file_name, "wb") as f:
+                f.write(image_bytes)
+            output.append(temp_file_name)
 
         return {"output": output}
 
