@@ -1,0 +1,46 @@
+name: openai_image_edit
+description: Creates an edited or extended image given one or more source images and a prompt, using OpenAI's gpt-image-1 model.
+tip: |-
+  This endpoint can take a mask image to enable inpainting but can also be used to combine context from multiple images into a single image.
+output_type: image
+cost_estimate: 2
+handler: modal
+
+parameters:
+  image:
+    type: array
+    items:
+      type: image
+    required: true
+    description: The image(s) to edit. Must be png, webp, or jpg files less than 25MB each.
+    min_length: 1
+    max_length: 10 # OpenAI supports up to 10 images in the request? Need to verify
+  prompt:
+    type: string
+    required: true
+    description: A text description of the desired edits. Max length 32000 characters.
+  mask:
+    type: image
+    required: false
+    description: An optional image mask. Fully transparent areas indicate where the image should be edited. Must be a PNG file, less than 4MB, and have the same dimensions as the first input image.
+  n:
+    type: integer
+    required: false
+    default: 1
+    description: The number of edited images to generate (1-10). Defaults to 1.
+  quality:
+    type: string
+    required: false
+    default: medium
+    enum: ["high", "medium", "low", "auto"]
+    description: The quality of the edited image (high, medium, low, auto). Defaults to auto.
+  size:
+    type: string
+    required: false
+    default: auto
+    enum: ["1024x1024", "1536x1024", "1024x1536", "auto"]
+    description: The size of the generated images. Must be one of '1024x1024', '1536x1024' (landscape), '1024x1536' (portrait), or 'auto'. Defaults to auto.
+  user:
+    type: string
+    required: false
+    description: A unique identifier representing your end-user for enabling per-user content monitoring.
