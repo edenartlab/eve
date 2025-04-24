@@ -5,9 +5,13 @@ tip: |-
 output_type: image
 cost_estimate: 2
 handler: modal
+thumbnail: app/openai_edit.jpg
+visible: true
+active: true
 
 parameters:
   image:
+    label: Input Image(s)
     type: array
     items:
       type: image
@@ -16,31 +20,39 @@ parameters:
     min_length: 1
     max_length: 10 # OpenAI supports up to 10 images in the request? Need to verify
   prompt:
+    label: Prompt
     type: string
     required: true
     description: A text description of the desired edits. Max length 32000 characters.
   mask:
+    label: Mask (optional)
     type: image
     required: false
-    description: An optional image mask. Fully transparent areas indicate where the image should be edited. Must be a PNG file, less than 4MB, and have the same dimensions as the first input image.
+    description: An optional image mask. White areas indicate where the image should be edited. Must be a PNG file, less than 4MB, and have the same dimensions as the first input image.
   n:
+    label: Number of Samples
     type: integer
     required: false
     default: 1
     description: The number of edited images to generate (1-10). Defaults to 1.
   quality:
+    label: Quality
     type: string
     required: false
     default: medium
     enum: ["high", "medium", "low", "auto"]
     description: The quality of the edited image (high, medium, low, auto). Defaults to auto.
   size:
+    label: Size
     type: string
     required: false
     default: auto
     enum: ["1024x1024", "1536x1024", "1024x1536", "auto"]
     description: The size of the generated images. Must be one of '1024x1024', '1536x1024' (landscape), '1024x1536' (portrait), or 'auto'. Defaults to auto.
   user:
+    label: User ID
     type: string
     required: false
+    hide_from_ui: true
+    hide_from_agent: true
     description: A unique identifier representing your end-user for enabling per-user content monitoring.
