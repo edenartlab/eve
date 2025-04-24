@@ -148,6 +148,7 @@ class FalTool(Tool):
             output_urls = []
         elif isinstance(raw_output_value, str):
             output_urls = [raw_output_value] # Single URL
+            logger.info(f"Extracted single URL: {output_urls}")
         elif isinstance(raw_output_value, list):
             # If the path points to a list, assume it's a list of output URLs
             output_urls = [item for item in raw_output_value if isinstance(item, str)]
@@ -169,13 +170,15 @@ class FalTool(Tool):
             try:
                 # upload_result expects a dict structure. We wrap the single URL.
                 # It will upload the URL and return metadata.
+                logger.info(f"Attempting to upload FAL URL to Eden: {url}")
                 uploaded_data = eden_utils.upload_result(
                     {"output": url}, # Pass the URL directly for uploading
                     save_thumbnails=True,
                     save_blurhash=True
                 )
                 # Print the result from upload_result to see the structure and final URL
-                print(f"Uploaded FAL URL {url} to Eden: {uploaded_data}")
+                logger.info(f"Uploaded FAL URL {url} to Eden: {uploaded_data}")
+                print(f"DEBUG: uploaded_data for {url}: {uploaded_data}") # <<< ADDED FOR DEBUGGING
                 processed_outputs.append(uploaded_data)
             except Exception as e:
                  logger.error(f"Failed to upload result URL {url}: {e}")
@@ -214,6 +217,11 @@ class FalTool(Tool):
 
         return final_result_structure # Return the structured result with creation IDs
 
+    # Override the base class method to add debugging before returning
+    async def wait(self, task: Task):
+        result_data = await self.async_wait(task)
+        print(f"DEBUG: Final result structure from async_wait: {result_data}") # <<< ADDED FOR DEBUGGING
+        return result_data
 
 def get_webhook_url():
     env = {
