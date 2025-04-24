@@ -1,0 +1,48 @@
+name: openai_image_generate
+description: Generate images using OpenAI's gpt-image-1 model.
+output_type: image
+cost_estimate: 2
+handler: modal
+
+parameters:
+  prompt:
+    type: string
+    required: true
+    description: A text description of the desired image(s). Max length 32000 characters.
+  n:
+    type: integer
+    required: false
+    default: 1
+    description: The number of images to generate (1-10). Defaults to 1.
+  quality:
+    type: string
+    required: false
+    default: medium
+    enum: ["high", "medium", "low", "auto"]
+    description: The quality of the image (high, medium, low, auto). 'auto' selects the best quality. Defaults to auto.
+  size:
+    type: string
+    required: false
+    default: auto
+    description: The size of the generated images. Must be one of '1024x1024', '1536x1024' (landscape), '1024x1536' (portrait), or 'auto'. Defaults to auto.
+  user:
+    type: string
+    required: false
+    description: A unique identifier representing your end-user for enabling per-user content monitoring.
+  background:
+    type: string
+    required: false
+    default: auto
+    enum: ["transparent", "opaque", "auto"]
+    description: Set background transparency (transparent, opaque, auto). 'transparent' requires output_format='png' or 'webp'. Defaults to auto.
+  output_compression:
+    type: integer
+    required: false
+    default: 90
+    description: Compression level (0-100) for webp/jpeg formats. Defaults to 90.
+  output_format:
+    type: string
+    required: false
+    default: png
+    enum: ["png", "jpeg", "webp"]
+    description: Output format for the generated image (png, jpeg, webp). Defaults to png. gpt-image-1 always returns images as base64-encoded data.

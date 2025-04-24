@@ -103,4 +103,12 @@ def load_handler(name):
             from .weather.handler import handler
             handlers[name] = handler
 
+        elif name == "openai_image_generate":
+            from .openai_image_generate.handler import handler
+            handlers[name] = handler
+
+        elif name == "openai_image_edit":
+            from .openai_image_edit.handler import handler
+            handlers[name] = handler
+
     return handlers[name]
