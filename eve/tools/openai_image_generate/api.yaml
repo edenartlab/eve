@@ -63,8 +63,8 @@ parameters:
     hide_from_agent: true
     type: integer
     required: false
-    default: 90
-    description: Compression level (0-100) for webp/jpeg formats. Defaults to 90.
+    default: 100
+    description: Compression level (0-100) for webp/jpeg formats. Defaults to 100.
   output_format:
     label: output_format
     type: string
