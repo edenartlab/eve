@@ -27,6 +27,12 @@ async def handler(args: dict, user: str = None, agent: str = None):
     if "n_samples" in valid_args:
         valid_args["n"] = valid_args.pop("n_samples")
 
+    if valid_args['background'] == 'transparent':
+        valid_args['output_format'] = 'png'
+
+    if valid_args['output_format'] == 'png':
+        valid_args['compression'] = 100
+
     try:
         print(f"Calling OpenAI Images API (gpt-image-1) with args: {valid_args}")
         response = await client.images.generate(**valid_args)
