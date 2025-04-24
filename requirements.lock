@@ -283,7 +283,7 @@ numpy==2.2.0
     # via shapely
 oauthlib==3.2.2
     # via requests-oauthlib
-openai==1.57.2
+openai==1.76.0
     # via eve
     # via instructor
 packaging==24.2

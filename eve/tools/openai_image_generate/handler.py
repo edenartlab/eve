@@ -23,6 +23,10 @@ async def handler(args: dict, user: str = None, agent: str = None):
     if user and 'user' not in valid_args:
          valid_args['user'] = str(user)
 
+    # Rename n_samples to n for OpenAI API
+    if "n_samples" in valid_args:
+        valid_args["n"] = valid_args.pop("n_samples")
+
     try:
         print(f"Calling OpenAI Images API (gpt-image-1) with args: {valid_args}")
         response = await client.images.generate(**valid_args)

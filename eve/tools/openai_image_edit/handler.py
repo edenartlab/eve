@@ -131,6 +131,10 @@ async def handler(args: dict, user: str = None, agent: str = None):
             mask_content = all_processed_bytes[-1] # Mask content is the last one if it exists
             valid_args['mask'] = mask_content
 
+        # Rename n_samples to n for OpenAI API
+        if "n_samples" in valid_args:
+            valid_args["n"] = valid_args.pop("n_samples")
+
         response = await client.images.edit(**valid_args)
 
         output = []

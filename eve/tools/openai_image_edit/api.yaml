@@ -3,7 +3,7 @@ description: Creates an edited or extended image given one or more source images
 tip: |-
   This endpoint can take a mask image to enable inpainting but can also be used to combine context from multiple images into a single image.
 output_type: image
-cost_estimate: 2
+cost_estimate: 4
 handler: modal
 thumbnail: app/openai_edit.jpg
 visible: true
@@ -23,31 +23,45 @@ parameters:
     label: Prompt
     type: string
     required: true
-    description: A text description of the desired edits. Max length 32000 characters.
+    description: A description of what you want the model to do with your images.
+    tip: |-
+      Max length 32000 characters.
   mask:
     label: Mask (optional)
     type: image
     required: false
     description: An optional image mask. White areas indicate where the image should be edited. Must be a PNG file, less than 4MB, and have the same dimensions as the first input image.
-  n:
-    label: Number of Samples
+  n_samples:
     type: integer
-    required: false
+    label: Number of samples
+    description: Number of samples to generate
+    tip: |-
+      This is the number of tries to generate for the prompt. 
+      If you get a request for n_samples > 1, you are still using a *single* prompt for the whole set.
     default: 1
-    description: The number of edited images to generate (1-10). Defaults to 1.
+    minimum: 1
+    maximum: 4
   quality:
     label: Quality
     type: string
     required: false
     default: medium
-    enum: ["high", "medium", "low", "auto"]
+    choices:
+      - high
+      - medium
+      - low
+      - auto
     description: The quality of the edited image (high, medium, low, auto). Defaults to auto.
   size:
     label: Size
     type: string
     required: false
     default: auto
-    enum: ["1024x1024", "1536x1024", "1024x1536", "auto"]
+    choices:
+      - 1024x1024
+      - 1536x1024
+      - 1024x1536
+      - auto
     description: The size of the generated images. Must be one of '1024x1024', '1536x1024' (landscape), '1024x1536' (portrait), or 'auto'. Defaults to auto.
   user:
     label: User ID
