@@ -6,6 +6,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
     """
     Handles the image generation request using the OpenAI API (gpt-image-1 only).
     """
+
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise ValueError("OPENAI_API_KEY environment variable not set.")
@@ -31,7 +32,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
         valid_args['output_format'] = 'png'
 
     if valid_args['output_format'] == 'png':
-        valid_args['compression'] = 100
+        valid_args['output_compression'] = 100
 
     try:
         print(f"Calling OpenAI Images API (gpt-image-1) with args: {valid_args}")

@@ -124,12 +124,20 @@ async def handler(args: dict, user: str = None, agent: str = None):
 
         # Assign preprocessed image bytes
         image_contents = all_processed_bytes[:len(image_preprocess_tasks)]
-        valid_args['image'] = image_contents
 
-        # Assign preprocessed mask bytes if it was processed
+        # Assign preprocessed image bytes with appropriate mimetype
+        image_tuples = []
+        for i, img_bytes in enumerate(image_contents):
+            # Provide filename, bytes, and content type
+            image_tuples.append((f"image_{i}.webp", img_bytes, "image/webp")) 
+        
+        valid_args['image'] = image_tuples # Pass list of tuples
+
+        # Assign preprocessed mask bytes if it was processed, also as a tuple
         if mask_preprocess_task:
-            mask_content = all_processed_bytes[-1] # Mask content is the last one if it exists
-            valid_args['mask'] = mask_content
+            mask_content = all_processed_bytes[-1] # Mask content is the last one
+            # Provide filename, bytes, and content type for the mask
+            valid_args['mask'] = ("mask.webp", mask_content, "image/webp") 
 
         # Rename n_samples to n for OpenAI API
         if "n_samples" in valid_args:
