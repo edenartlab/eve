@@ -1,0 +1,29 @@
+key: legacy_img2vid
+name: SDXL Image-to-Video ComfyUI (Legacy)
+description: Generate videos from text prompts (2022)
+active: true
+visible: true
+output_type: video
+parent_tool: eden-comfyui
+
+parameters:
+  mode:
+    default: img2vid
+    hide_from_agent: true
+    hide_from_ui: true
+
+  prompt:
+    hide_from_agent: true
+    hide_from_ui: true
+
+  input_video:
+    hide_from_agent: true
+    hide_from_ui: true
+
+  interpolation_prompts:
+    hide_from_agent: true
+    hide_from_ui: true
+
+  mask_images:
+    hide_from_agent: true
+    hide_from_ui: true

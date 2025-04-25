@@ -3,7 +3,7 @@ import os
 import subprocess
 import pytz
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from bson import ObjectId
 import modal
 import modal.runner
@@ -27,10 +27,10 @@ class Trigger(Document):
     agent: ObjectId
     thread: ObjectId
     platform: str
-    channel: Dict[str, Any]
+    channel: Optional[Dict[str, Any]]
     schedule: Dict[str, Any]
     message: str
-    update_config: Dict[str, Any]
+    update_config: Optional[Dict[str, Any]]
 
     def __init__(self, **data):
         if isinstance(data.get("user"), str):
@@ -39,6 +39,10 @@ class Trigger(Document):
             data["agent"] = ObjectId(data["agent"])
         if isinstance(data.get("thread"), str):
             data["thread"] = ObjectId(data["thread"])
+        if data.get("channel") is None:
+            data["channel"] = None
+        if data.get("update_config") is None:
+            data["update_config"] = None
         super().__init__(**data)
 
 

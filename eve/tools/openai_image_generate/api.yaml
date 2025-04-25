@@ -1,0 +1,86 @@
+name: openai_image_generate
+description: Generate images using OpenAI's gpt-image-1 model.
+output_type: image
+cost_estimate: 4
+handler: modal
+thumbnail: app/openai_generate.jpg
+visible: true
+active: true
+
+parameters:
+  prompt:
+    label: Prompt
+    type: string
+    required: true
+    description: A visual description of your desired image.
+    tip: |-
+      Max length 32000 characters.
+  n_samples:
+    type: integer
+    label: Number of samples
+    description: Number of samples to generate
+    tip: |-
+      This is the number of tries to generate for the prompt. 
+      If you get a request for n_samples > 1, you are still using a *single* prompt for the whole set.
+    default: 1
+    minimum: 1
+    maximum: 4
+  quality:
+    label: quality
+    type: string
+    required: false
+    default: medium
+    choices:
+      - high
+      - medium
+      - low
+      - auto
+    description: The quality of the image (high, medium, low, auto). 'auto' selects the best quality. Defaults to auto.
+  size:
+    label: size
+    type: string
+    required: false
+    default: auto
+    choices:
+      - 1024x1024
+      - 1536x1024
+      - 1024x1536
+      - auto
+    description: The size of the generated images. Must be one of '1024x1024', '1536x1024' (landscape), '1024x1536' (portrait), or 'auto'. Defaults to auto.
+  background:
+    label: background
+    type: string
+    required: false
+    default: auto
+    choices:
+      - transparent
+      - opaque
+      - auto
+    description: Set background transparency (transparent, opaque, auto). 'transparent' requires output_format='png' or 'webp'. Defaults to auto.
+  output_compression:
+    label: output_compression
+    hide_from_ui: true
+    hide_from_agent: true
+    type: integer
+    required: false
+    default: 100
+    description: Compression level (0-100) for webp/jpeg formats. Defaults to 100.
+  output_format:
+    label: output_format
+    type: string
+    hide_from_ui: true
+    hide_from_agent: true
+    required: false
+    default: png
+    choices:
+      - png
+      - jpeg
+      - webp
+    description: Output format for the generated image (png, jpeg, webp). Defaults to png. gpt-image-1 always returns images as base64-encoded data.
+  user:
+    label: user
+    type: string
+    required: false
+    hide_from_ui: true
+    hide_from_agent: true
+    description: A unique identifier representing your end-user for enabling per-user content monitoring.

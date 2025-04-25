@@ -1,0 +1,77 @@
+key: legacy_txt2vid
+name: SDXL Text-to-Video ComfyUI (Legacy)
+description: Generate videos from text prompts (2022)
+active: true
+visible: true
+output_type: video
+parent_tool: eden-comfyui
+
+parameters:
+  mode:
+    default: txt2vid
+    hide_from_agent: true
+    hide_from_ui: true
+
+  prompt:
+    hide_from_agent: true
+    hide_from_ui: true
+
+  interpolation_prompts:
+    required: true
+
+  input_video:
+    hide_from_agent: true
+    hide_from_ui: true
+  input_images:
+    hide_from_agent: true
+    hide_from_ui: true
+  style_images:
+    hide_from_agent: true
+    hide_from_ui: true
+
+  mask_images:
+    hide_from_agent: true
+    hide_from_ui: true
+  mask_prompts:
+    hide_from_agent: true
+    hide_from_ui: true
+
+
+  ip_adapter_weight:
+    hide_from_agent: true
+    hide_from_ui: true
+
+  motion_scale:
+    hide_from_agent: true
+    hide_from_ui: true
+
+  control_method:
+    hide_from_agent: true
+    hide_from_ui: true
+
+  controlnet_strength:
+    hide_from_agent: true
+    hide_from_ui: true
+
+  denoise_strength:
+    hide_from_agent: true
+    hide_from_ui: true
+
+  blend_value:
+    hide_from_agent: true
+    hide_from_ui: true
+
+  loop:
+    hide_from_agent: true
+    hide_from_ui: true
+
+  guidance_scale:
+    hide_from_agent: true
+    hide_from_ui: true
+  
+  n_samples:
+    default: 1
+    minimum: 1
+    maximum: 1
+    hide_from_agent: true
+    hide_from_ui: true

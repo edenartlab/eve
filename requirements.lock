@@ -128,6 +128,8 @@ eth-utils==4.1.1
     # via web3
 eval-type-backport==0.2.0
     # via clerk-backend-api
+fal-client==0.5.9
+    # via eve
 farcaster==0.7.11
     # via eve
 fastapi==0.115.6
@@ -206,11 +208,14 @@ httpx==0.27.2
     # via clerk-backend-api
     # via elevenlabs
     # via eve
+    # via fal-client
     # via langfuse
     # via openai
     # via python-telegram-bot
     # via replicate
     # via runwayml
+httpx-sse==0.4.0
+    # via fal-client
 hyperframe==6.0.1
     # via h2
 idna==3.10
@@ -278,7 +283,7 @@ numpy==2.2.0
     # via shapely
 oauthlib==3.2.2
     # via requests-oauthlib
-openai==1.57.2
+openai==1.76.0
     # via eve
     # via instructor
 packaging==24.2

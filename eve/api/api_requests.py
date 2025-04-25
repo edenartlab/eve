@@ -96,8 +96,8 @@ class CreateTriggerRequest(BaseModel):
     message: str
     schedule: CronSchedule
     platform: ClientType
-    channel: AllowedChannel
-    update_config: UpdateConfig
+    channel: Optional[AllowedChannel] = None
+    update_config: Optional[UpdateConfig] = None
     thread_id: Optional[str] = None
     ephemeral: Optional[bool] = False
 

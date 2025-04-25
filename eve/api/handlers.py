@@ -11,6 +11,7 @@ import aiohttp
 
 from langfuse.decorators import observe, langfuse_context
 from eve import LANGFUSE_ENV
+from eve.agent.tasks import async_title_thread
 from eve.api.errors import handle_errors, APIError
 from eve.api.api_requests import (
     CancelRequest,
@@ -70,10 +71,7 @@ async def handle_create(request: TaskRequest):
 
     print("### run the tool ###")
     result = await tool.async_start_task(
-        user_id=request.user_id, 
-        agent_id=None, 
-        args=request.args, 
-        public=request.public
+        user_id=request.user_id, agent_id=None, args=request.args, public=request.public
     )
 
     print("### return the result ###")
@@ -344,7 +342,9 @@ async def handle_deployment_delete(request: DeleteDeploymentRequest):
 
 
 @handle_errors
-async def handle_trigger_create(request: CreateTriggerRequest):
+async def handle_trigger_create(
+    request: CreateTriggerRequest, background_tasks: BackgroundTasks
+):
     agent = Agent.from_mongo(ObjectId(request.agent_id))
     if not agent:
         raise APIError(f"Agent not found: {request.agent_id}", status_code=404)
@@ -361,6 +361,16 @@ async def handle_trigger_create(request: CreateTriggerRequest):
     )
 
     thread = agent.request_thread(user=ObjectId(user.id), key=trigger_id)
+    background_tasks.add_task(
+        async_title_thread,
+        thread,
+        UserMessage(content=request.message),
+        metadata={
+            "user_id": str(user.id),
+            "agent_id": str(agent.id),
+            "thread_id": str(thread.id),
+        },
+    )
 
     trigger = Trigger(
         trigger_id=trigger_id,
@@ -372,11 +382,13 @@ async def handle_trigger_create(request: CreateTriggerRequest):
         channel={
             "id": request.channel.id,
             "note": request.channel.note,
-        },
+        }
+        if request.channel
+        else None,
         message=request.message,
         update_config=request.update_config.model_dump()
         if request.update_config
-        else {},
+        else None,
     )
     trigger.save()
 
@@ -433,11 +445,13 @@ async def handle_trigger_get(trigger_id: str):
         raise APIError(f"Trigger not found: {trigger_id}", status_code=404)
 
     return {
+        "id": str(trigger.id),
         "user": str(trigger.user),
         "agent": str(trigger.agent),
         "thread": str(trigger.thread),
         "message": trigger.message,
         "update_config": trigger.update_config,
+        "schedule": trigger.schedule,
     }
 
 

@@ -28,6 +28,7 @@ class ClientType(Enum):
     TWITTER = "twitter"
     TELEGRAM_MODAL = "telegram_modal"
     DISCORD_MODAL = "discord_modal"
+    WEB = "web"
 
 
 modal_platforms = [ClientType.DISCORD_MODAL, ClientType.TELEGRAM_MODAL]

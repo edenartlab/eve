@@ -26,7 +26,7 @@ OUTPUT_TYPES = Literal[
 ]
 
 HANDLERS = Literal[
-    "local", "modal", "comfyui", "comfyui_legacy", "replicate", "gcp"
+    "local", "modal", "comfyui", "comfyui_legacy", "replicate", "gcp", "fal"
 ]
 
 BASE_MODELS = Literal[
@@ -151,7 +151,6 @@ class Tool(Document, ABC):
 
         if from_yaml:
             api_files = get_api_files()  # YAML path
-
             if key not in api_files:
                 raise ValueError(f"Tool {key} not found")
 
@@ -211,6 +210,10 @@ class Tool(Document, ABC):
                 from .tools.gcp_tool import GCPTool
 
                 _tool_classes[handler] = GCPTool
+            elif handler == "fal":
+                from .tools.fal_tool import FalTool
+                
+                _tool_classes[handler] = FalTool
             else:
                 from .tools.modal_tool import ModalTool
 
@@ -251,14 +254,23 @@ class Tool(Document, ABC):
         )
         schema["model"] = model
 
+        # Populate parameters from input_schema for saving
+        if "input_schema" in schema and "properties" in schema["input_schema"]:
+            schema["parameters"] = schema["input_schema"].get("properties")
+
         # cast any numbers to strings
         if "cost_estimate" in schema:
             schema["cost_estimate"] = str(schema["cost_estimate"])
 
         if file_path:
             test_file = file_path.replace("api.yaml", "test.json")
-            with open(test_file, "r") as f:
-                schema["test_args"] = json.load(f)
+            # Check if test file exists before attempting to load
+            if os.path.exists(test_file):
+                with open(test_file, "r") as f:
+                    schema["test_args"] = json.load(f)
+            else:
+                # Set to None or an empty dict if test file is optional/missing
+                schema["test_args"] = None
 
         return schema
 
@@ -663,7 +675,10 @@ def get_api_files(root_dir: str = None) -> List[str]:
         for root, _, files in os.walk(root_dir):
             if "api.yaml" in files and "test.json" in files:
                 api_file = os.path.join(root, "api.yaml")
-                api_files[os.path.relpath(root).split("/")[-1]] = api_file
+                key = os.path.relpath(root).split("/")[-1]
+                if "legacy" in root:
+                    key = f"legacy_{key}"
+                api_files[key] = api_file
 
     return api_files
 

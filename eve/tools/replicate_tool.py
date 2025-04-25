@@ -27,8 +27,11 @@ class ReplicateTool(Tool):
     @Tool.handle_run
     async def async_run(self, args: Dict):
         check_replicate_api_token()
+        
         if self.version:
             args = self._format_args_for_replicate(args)
+            print("THE ARGS ARE:", args)
+            # raise Exception("Not implem123123222nted")
             prediction = await self._create_prediction(args, webhook=False)
             prediction.wait()
             if self.output_handler == "eden":
@@ -43,6 +46,8 @@ class ReplicateTool(Tool):
         else:
             replicate_model = self._get_replicate_model(args)
             args = self._format_args_for_replicate(args)
+            print("THE ARGS ARE:", args)
+            # raise Exception("N123ot impleme222nted")
             output = replicate.run(replicate_model, input=args)
             
             if output and isinstance(output, replicate.helpers.FileOutput):
@@ -109,21 +114,25 @@ class ReplicateTool(Tool):
     def _format_args_for_replicate(self, args: dict):
         new_args = args.copy()
         new_args = {k: v for k, v in new_args.items() if v is not None}
+        print("NEW ARGS ARE:", new_args)
         for field in self.model.model_fields.keys():
             parameter = self.parameters[field]
             is_array = parameter.get("type") == "array"
             is_number = parameter.get("type") in ["integer", "float"]
             alias = parameter.get("alias")
             lora = parameter.get("type") == "lora"
+            print("LORA IS:", lora)
 
             if field in new_args:
                 if lora:
                     loras = get_collection(Model.collection_name)
+                    print("args", field, args[field])
                     lora_doc = (
                         loras.find_one({"_id": ObjectId(args[field])})
                         if args[field]
                         else None
                     )
+                    print("searcg lora doc", lora_doc)
                     if lora_doc:
                         lora_url = s3.get_full_url(lora_doc.get("checkpoint"))
                         lora_name = lora_doc.get("name")

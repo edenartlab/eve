@@ -1,0 +1,31 @@
+name: LipSync (FAL)
+description: Synchronizes the lip movements in a video with a given audio track.
+handler: fal
+fal_endpoint: fal-ai/sync-lipsync/v2
+output_type: video
+output_handler: normal
+cost_estimate: '50'
+
+parameters:
+  video_url:
+    type: string
+    description: URL of the input video file.
+    format: uri
+    required: true
+  audio_url:
+    type: string
+    description: URL of the input audio file.
+    format: uri
+    required: true
+  sync_mode:
+    type: string
+    description: Lipsync mode when audio and video durations are out of sync.
+    enum:
+      - cut_off
+      - loop
+      - bounce
+      - silence
+      - remap
+    default: cut_off
+
+output_schema: ["video", "url"]
