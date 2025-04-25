@@ -355,7 +355,6 @@ class DiscordGatewayClient:
         logger.info(
             f"[trace:{trace_id}] Handling message for deployment {self.deployment.id} with data {data}"
         )
-        
 
         # Skip messages from the bot itself
         print("AUTHOR ID", data.get("author", {}).get("id"))
@@ -420,23 +419,23 @@ class DiscordGatewayClient:
 
         # # Check if this is a direct mention or reply to the bot
         force_reply = False
+
+        # Determine if the current message author is a bot
+        user_is_bot = data.get("author", {}).get("bot", False)
+
+        # Check if the bot is mentioned in the message
+        print("MENTIONS", data.get("mentions"))
+        print(
+            "MY APPLICATION ID",
+            self.deployment.secrets.discord.application_id,
+            "AND MY USERNAME",
+            data.get("author", {}).get("username"),
+        )
         if data.get("mentions") and any(
             mention.get("id") == self.deployment.secrets.discord.application_id
             for mention in data.get("mentions", [])
         ):
             force_reply = True
-
-        user_is_bot = data.get("author", {}).get("bot", False)
-
-        # Also force reply if the message is a reply to the bot
-        referenced_message = data.get("referenced_message")
-        if not force_reply and referenced_message:
-            ref_author_id = referenced_message.get("author", {}).get("id")
-            if (
-                ref_author_id == self.deployment.secrets.discord.application_id
-                and not user_is_bot
-            ):
-                force_reply = True
 
         content = content or "..."
         print("CONTENT IS", content)
