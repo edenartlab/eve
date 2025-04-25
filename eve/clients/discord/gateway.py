@@ -355,6 +355,7 @@ class DiscordGatewayClient:
         logger.info(
             f"[trace:{trace_id}] Handling message for deployment {self.deployment.id} with data {data}"
         )
+        
 
         # Skip messages from the bot itself
         print("AUTHOR ID", data.get("author", {}).get("id"))
