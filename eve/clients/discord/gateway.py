@@ -425,6 +425,18 @@ class DiscordGatewayClient:
         ):
             force_reply = True
 
+        user_is_bot = data.get("author", {}).get("bot", False)
+
+        # Also force reply if the message is a reply to the bot
+        referenced_message = data.get("referenced_message")
+        if not force_reply and referenced_message:
+            ref_author_id = referenced_message.get("author", {}).get("id")
+            if (
+                ref_author_id == self.deployment.secrets.discord.application_id
+                and not user_is_bot
+            ):
+                force_reply = True
+
         content = content or "..."
         print("CONTENT IS", content)
 
@@ -444,7 +456,7 @@ class DiscordGatewayClient:
                 "discord_message_id": str(data["id"]),
                 "update_endpoint": f"{os.getenv('EDEN_API_URL')}/emissions/platform/discord",
             },
-            "user_is_bot": data.get("author", {}).get("bot", False),
+            "user_is_bot": user_is_bot,
             "force_reply": force_reply,
         }
 
