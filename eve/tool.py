@@ -100,6 +100,9 @@ BASE_TOOLS = [
     # "txt2vid",
     # "animate_3d"
     # "kling_pro"
+
+    "openai_image_edit",
+    "openai_image_generate",
 ]
 
 FLUX_LORA_TOOLS = ["flux_dev_lora", "flux_dev", "reel"]
