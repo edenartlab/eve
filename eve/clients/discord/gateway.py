@@ -592,6 +592,17 @@ class DiscordGatewayClient:
                                     f"Ready event for deployment {self.deployment.id}"
                                 )
                                 self._session_id = data["d"]["session_id"]
+
+                                # Set application_id if not already set
+                                if not self.deployment.secrets.discord.application_id:
+                                    self.deployment.secrets.discord.application_id = (
+                                        data["d"]["application"]["id"]
+                                    )
+                                    self.deployment.save()
+                                    logger.info(
+                                        f"Set application_id to {self.deployment.secrets.discord.application_id} for deployment {self.deployment.id}"
+                                    )
+
                                 logger.info(
                                     f"Gateway connected for deployment {self.deployment.id}"
                                 )
