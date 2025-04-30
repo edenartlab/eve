@@ -45,6 +45,8 @@ from eve.api.handlers import (
     handle_trigger_delete,
     handle_twitter_update,
     handle_trigger_get,
+    handle_agent_tools_update,
+    handle_agent_tools_delete,
 )
 from eve.api.api_requests import (
     CancelRequest,
@@ -56,6 +58,8 @@ from eve.api.api_requests import (
     PlatformUpdateRequest,
     TaskRequest,
     UpdateDeploymentRequest,
+    AgentToolsUpdateRequest,
+    AgentToolsDeleteRequest,
 )
 from eve.api.helpers import pre_modal_setup, busy_state
 
@@ -256,6 +260,20 @@ async def emissions_telegram(
 @web_app.get("/triggers/{trigger_id}")
 async def trigger_get(trigger_id: str, _: dict = Depends(auth.authenticate_admin)):
     return await handle_trigger_get(trigger_id)
+
+
+@web_app.post("/agent/tools/update")
+async def agent_tools_update(
+    request: AgentToolsUpdateRequest, _: dict = Depends(auth.authenticate_admin)
+):
+    return await handle_agent_tools_update(request)
+
+
+@web_app.post("/agent/tools/delete")
+async def agent_tools_delete(
+    request: AgentToolsDeleteRequest, _: dict = Depends(auth.authenticate_admin)
+):
+    return await handle_agent_tools_delete(request)
 
 
 @web_app.exception_handler(RequestValidationError)

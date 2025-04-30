@@ -24,6 +24,8 @@ from eve.api.api_requests import (
     PlatformUpdateRequest,
     UpdateConfig,
     UpdateDeploymentRequest,
+    AgentToolsUpdateRequest,
+    AgentToolsDeleteRequest,
 )
 from eve.api.helpers import (
     emit_update,
@@ -45,7 +47,7 @@ from eve.tools.replicate_tool import replicate_update_task
 from eve.trigger import create_chat_trigger, delete_trigger, Trigger
 from eve.agent.llm import UpdateType
 from eve.agent.run_thread import async_prompt_thread
-from eve.mongo import serialize_document
+from eve.mongo import get_collection, serialize_document
 from eve.task import Task
 from eve.tool import Tool
 from eve.agent import Agent
@@ -720,3 +722,31 @@ async def handle_discord_emission(request: Request):
     except Exception as e:
         logger.error("Error handling Discord emission", exc_info=True)
         return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@handle_errors
+async def handle_agent_tools_update(request: AgentToolsUpdateRequest):
+    agent = Agent.from_mongo(ObjectId(request.agent_id))
+    if not agent:
+        raise APIError(f"Agent not found: {request.agent_id}", status_code=404)
+    # Upsert tools
+    tools = agent.tools or {}
+    tools.update(request.tools)
+    update = {"tools": tools, "add_base_tools": True}
+    agents = get_collection("users3")
+    agents.update_one({"_id": agent.id}, {"$set": update})
+    return {"tools": tools}
+
+
+@handle_errors
+async def handle_agent_tools_delete(request: AgentToolsDeleteRequest):
+    agent = Agent.from_mongo(ObjectId(request.agent_id))
+    if not agent:
+        raise APIError(f"Agent not found: {request.agent_id}", status_code=404)
+    tools = agent.tools or {}
+    for tool in request.tools:
+        tools.pop(tool, None)
+    update = {"tools": tools}
+    agents = get_collection("users3")
+    agents.update_one({"_id": agent.id}, {"$set": update})
+    return {"tools": tools}
