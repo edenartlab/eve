@@ -21,10 +21,8 @@ MODELS = [
     "gpt-4o",
     "gpt-4o-mini",
     "o1-mini",
-    
-    
     "google/gemini-2.0-flash-001",
-    "anthropic/claude-3.7-sonnet"
+    "anthropic/claude-3.7-sonnet",
 ]
 
 DEFAULT_MODEL = os.getenv("DEFAULT_AGENT_MODEL", "claude-3-5-haiku-latest")
@@ -81,7 +79,7 @@ def calculate_anthropic_model_cost(
             "output": output_cost,
             "total": total_cost,
         }
-    
+
     # Claude 3.5 Haiku
     elif model == "claude-3-5-haiku-latest":
         # Prices per million tokens ($X/MTok)
@@ -130,13 +128,6 @@ async def async_anthropic_prompt(
         ],
     }
 
-    print("=-=-=-=-= model -=-=-=-=-=-=-=-=-=-=-=")
-    print(model)
-    print(os.getenv("DEFAULT_AGENT_MODEL"))
-    print("--------------------------------")
-    print(DEFAULT_MODEL)
-    print("=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=")
-
     # efficient tool calls feature for claude 3.7
     # if "claude-3-7" in model:
     #     prompt["betas"] = ["token-efficient-tools-2025-02-19"]
@@ -147,7 +138,8 @@ async def async_anthropic_prompt(
             t.anthropic_schema(exclude_hidden=True) for t in (tools or {}).values()
         ]
         if response_model:
-            tool_schemas.append(openai_schema(response_model).anthropic_schema)
+            anthropic_schema = openai_schema(response_model).anthropic_schema
+            tool_schemas.append(anthropic_schema)
             prompt["tool_choice"] = {"type": "tool", "name": response_model.__name__}
 
         # cache tools
@@ -155,18 +147,12 @@ async def async_anthropic_prompt(
 
         prompt["tools"] = tool_schemas
 
-    import json
     import time
 
     start_time = time.time()
 
     # call Anthropic
     response = await anthropic_client.messages.create(**prompt)
-
-    
-    # print("-----------PROMPT---------------------")
-    # print(json.dumps(prompt["tools"], indent=2))
-    # print("--------------------------------")
 
     print("-----------RESPONSE USAGE---------------------")
     print(f"Time taken: {time.time() - start_time} seconds")
@@ -181,7 +167,9 @@ async def async_anthropic_prompt(
     cached_tokens = getattr(response.usage, "cache_read_input_tokens", 0)
 
     # Calculate cost
-    cost = calculate_anthropic_model_cost(model, input_tokens, output_tokens, cached_tokens)
+    cost = calculate_anthropic_model_cost(
+        model, input_tokens, output_tokens, cached_tokens
+    )
 
     # Update Langfuse observation with usage and cost details
     langfuse_context.update_current_observation(
@@ -410,11 +398,6 @@ async def async_prompt(
     """
     Non-streaming LLM call => returns (content, tool_calls, stop).
     """
-    # print("--------------------------------")
-    # print(f"Prompting {model} with {len(messages)} messages")
-    # print(dump_json([m.model_dump() for m in messages]))
-    # if tools: print("tools", tools.keys())
-    # print("--------------------------------")
 
     langfuse_context.update_current_observation(input=messages)
 
@@ -492,49 +475,39 @@ async def async_prompt_stream(
 
 
 def anthropic_prompt(
-    messages, 
-    system_message="You are a helpful assistant.", 
-    model="claude-3-5-haiku-latest", 
-    response_model=None, 
-    tools=None
+    messages,
+    system_message="You are a helpful assistant.",
+    model="claude-3-5-haiku-latest",
+    response_model=None,
+    tools=None,
 ):
     return asyncio.run(
-        async_anthropic_prompt(
-            messages, system_message, model, response_model, tools
-        )
+        async_anthropic_prompt(messages, system_message, model, response_model, tools)
     )
 
 
 def openai_prompt(
-    messages, 
-    system_message="You are a helpful assistant.", 
-    model="gpt-4o-mini", 
-    response_model=None, 
-    tools=None
+    messages,
+    system_message="You are a helpful assistant.",
+    model="gpt-4o-mini",
+    response_model=None,
+    tools=None,
 ):
     return asyncio.run(
-        async_openai_prompt(
-            messages, system_message, model, response_model, tools
-        )
+        async_openai_prompt(messages, system_message, model, response_model, tools)
     )
 
 
 def prompt(
-    messages, 
-    system_message="You are a helpful assistant.", 
-    model="claude-3-5-haiku-latest", 
-    response_model=None, 
-    tools=None
+    messages,
+    system_message="You are a helpful assistant.",
+    model="claude-3-5-haiku-latest",
+    response_model=None,
+    tools=None,
 ):
     return asyncio.run(
         async_prompt(messages, system_message, model, response_model, tools)
     )
-
-
-
-
-
-
 
 
 @observe()
@@ -554,7 +527,7 @@ async def async_openrouter_prompt(
     # if system_message and model != "o1-mini":  # o1 does not support system messages
     #     messages_json = [{"role": "system", "content": system_message}] + messages_json
 
-    #openai_client = openai.AsyncOpenAI()
+    # openai_client = openai.AsyncOpenAI()
 
     openai_client = openai.AsyncOpenAI(
         base_url="https://openrouter.ai/api/v1",
@@ -587,20 +560,13 @@ async def async_openrouter_prompt(
         return content, tool_calls, stop
 
 
-
 def openrouter_prompt(
-    messages, 
-    system_message="You are a helpful assistant.", 
-    model="gpt-4o-mini", 
-    response_model=None, 
-    tools=None
+    messages,
+    system_message="You are a helpful assistant.",
+    model="gpt-4o-mini",
+    response_model=None,
+    tools=None,
 ):
     return asyncio.run(
-        async_openrouter_prompt(
-            messages, 
-            system_message, 
-            model, 
-            response_model, 
-            tools
-        )
+        async_openrouter_prompt(messages, system_message, model, response_model, tools)
     )

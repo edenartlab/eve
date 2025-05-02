@@ -6,9 +6,8 @@ import openai
 import instructor
 from datetime import timezone
 from pathlib import Path
-from jinja2 import Template
 from bson import ObjectId
-from typing import Optional, Literal, Any, Dict, List, ClassVar
+from typing import Optional, Literal, Any, Dict, List
 from datetime import datetime
 from dotenv import dotenv_values
 from pydantic import SecretStr, Field, BaseModel, ConfigDict

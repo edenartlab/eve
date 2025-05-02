@@ -58,7 +58,7 @@ async def setup_chat(
         logger.error(f"Error loading agent: {traceback.format_exc()}")
         raise APIError(f"Invalid agent_id: {request.agent_id}", status_code=400) from e
 
-    tools = agent.get_tools(cache=cache)
+    tools = agent.get_tools(cache=cache, auth_user=request.user_id)
 
     if request.thread_id:
         try:
@@ -76,10 +76,7 @@ async def setup_chat(
             "thread_id": str(thread.id),
         }
         background_tasks.add_task(
-            async_title_thread, 
-            thread, 
-            request.user_message, 
-            metadata=metadata
+            async_title_thread, thread, request.user_message, metadata=metadata
         )
 
     return user, agent, thread, tools
@@ -294,7 +291,6 @@ def update_busy_state(update_config: UpdateConfig, request_id: str, busy: bool):
         timestamps = busy_state.get(timestamps_key)
         if timestamps is None or not isinstance(timestamps, dict):
             timestamps = {}
-
 
         if busy:
             # Add this request to the busy list if not already present
