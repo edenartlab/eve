@@ -1,5 +1,6 @@
 {
     "image": "https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/62946527441201f82e0e3d667fda480e176e9940a2e04f4e54c5230665dfc6f6.jpg",
     "audio": "https://dtut5r9j4w7j4.cloudfront.net/f1bd76f13b362fdbdefcf6e5d8faedd21b411313294175980595571158fe530d.mp3",
-    "aspectRatio": "16:9"
+    "aspectRatio": "16:9",
+    "prompt": "A talking head"
 }

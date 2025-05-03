@@ -1,13 +1,33 @@
 import os
+import time
+import logging
 import requests
 import asyncio
 import tempfile
 from ... import eden_utils
 
 
+logger = logging.getLogger()
+logging.basicConfig(level=logging.INFO)
+
+
+class Session(requests.Session):
+    def __init__(self, api_key: str):
+        super().__init__()
+
+        self.base_url: str = "https://api.hedra.com/web-app/public"
+        self.headers["x-api-key"] = api_key
+
+    # @override
+    def prepare_request(self, request: requests.Request) -> requests.PreparedRequest:
+        request.url = f"{self.base_url}{request.url}"
+
+        return super().prepare_request(request)
+
+
 async def handler(args: dict, user: str = None, agent: str = None):
     HEDRA_API_KEY = os.getenv("HEDRA_API_KEY")
-    HEDRA_BASE_URL = "https://mercury.dev.dream-ai.com/api"
+    session = Session(api_key=HEDRA_API_KEY)
 
     # Create temp files with appropriate extensions
     temp_image = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
@@ -15,81 +35,96 @@ async def handler(args: dict, user: str = None, agent: str = None):
     
     try:
         # Download files using eden_utils
-        image_path = eden_utils.download_file(args["image"], temp_image.name, overwrite=True)
-        audio_path = eden_utils.download_file(args["audio"], temp_audio.name, overwrite=True)
+        image = eden_utils.download_file(args["image"], temp_image.name, overwrite=True)
+        audio_file = eden_utils.download_file(args["audio"], temp_audio.name, overwrite=True)
         
-        # Upload audio file
-        audio_response = requests.post(
-            f"{HEDRA_BASE_URL}/v1/audio", 
-            headers={'X-API-KEY': HEDRA_API_KEY}, 
-            files={'file': open(audio_path, 'rb')}
-        )
-        if not audio_response.ok:
-            raise Exception(f"Failed to upload audio: {audio_response.text}")
-        
-        # Upload image file
-        image_response = requests.post(
-            f"{HEDRA_BASE_URL}/v1/portrait", 
-            headers={'X-API-KEY': HEDRA_API_KEY}, 
-            files={'file': open(image_path, 'rb')},
-            params={
-                "aspect_ratio": args["aspectRatio"]
-            }
+        logger.info("testing against %s", session.base_url)
+        model_id = session.get("/models").json()[0]["id"]
+        logger.info("got model id %s", model_id)
+
+        image_response = session.post(
+            "/assets",
+            json={"name": os.path.basename(image), "type": "image"},
         )
         if not image_response.ok:
-            raise Exception(f"Failed to upload image: {image_response.text}")
-
-
-        print("THE IMAGE RESPONSE", image_response.json())
-
-        # print({
-        #     "avatarImage": image_response.json()["url"],
-        #     "audioSource": "audio",
-        #     "voiceUrl": audio_response.json()["url"],
-        #     "aspectRatio": args["aspectRatio"]
-        # })
-
-        # Do portrait
-        video_response = requests.post(
-            f"{HEDRA_BASE_URL}/v1/characters", 
-            headers={'X-API-KEY': HEDRA_API_KEY}, 
-            json={
-                "avatarImage": image_response.json()["url"],
-                "audioSource": "audio",
-                "voiceUrl": audio_response.json()["url"],
-                "aspectRatio": args["aspectRatio"]
-            }
-        )
-        if not video_response.ok:
-            raise Exception(f"Failed to create character: {video_response.text}")
-
-        print(video_response.json())
-        project_id = video_response.json()["jobId"]
-        
-        # Poll for completion
-        while True:
-            project_status = requests.get(
-                f"{HEDRA_BASE_URL}/v1/projects/{project_id}", 
-                headers={'X-API-KEY': HEDRA_API_KEY}
+            logger.error(
+                "error creating image: %d %s",
+                image_response.status_code,
+                image_response.json(),
             )
-            
-            if not project_status.ok:
-                raise Exception(f"Failed to get project status: {project_status.text}")
+        image_id = image_response.json()["id"]
+        with open(image, "rb") as f:
+            session.post(f"/assets/{image_id}/upload", files={"file": f}).raise_for_status()
+        logger.info("uploaded image %s", image_id)
 
-            status = project_status.json()["status"]
-            
-            if status == "Completed":
+        audio_id = session.post(
+            "/assets", json={"name": os.path.basename(audio_file), "type": "audio"}
+        ).json()["id"]
+        with open(audio_file, "rb") as f:
+            session.post(f"/assets/{audio_id}/upload", files={"file": f}).raise_for_status()
+        logger.info("uploaded audio %s", audio_id)
+
+        generation_request_data = {
+            "type": "video",
+            "ai_model_id": model_id,
+            "start_keyframe_id": image_id,
+            "audio_id": audio_id,
+            "generated_video_inputs": {
+                "text_prompt": args["prompt"],
+                "resolution": args["resolution"],
+                "aspect_ratio": args["aspectRatio"],
+            },
+        }
+
+        # Add optional parameters if provided
+        # if duration is not None:
+        #     generation_request_data["generated_video_inputs"]["duration_ms"] = int(duration * 1000)
+        # if seed is not None:
+        #     generation_request_data["generated_video_inputs"]["seed"] = seed
+
+        generation_response = session.post(
+            "/generations", json=generation_request_data
+        ).json()
+        logger.info(generation_response)
+        generation_id = generation_response["id"]
+        while True:
+            status_response = session.get(f"/generations/{generation_id}/status").json()
+            logger.info("status response %s", status_response)
+            status = status_response["status"]
+
+            # --- Check for completion or error to break the loop ---
+            if status in ["complete", "error"]:
+                break
+
+            time.sleep(5)
+
+        # --- Process final status (download or log error) ---
+        if status == "complete" and status_response.get("url"):
+            download_url = status_response["url"]
+            # Use asset_id for filename if available, otherwise use generation_id
+            output_filename_base = status_response.get("asset_id", generation_id)
+            output_filename = f"{output_filename_base}.mp4"
+            logger.info(f"Generation complete. Downloading video from {download_url} to {output_filename}")
+            try:
+                # Use a fresh requests get, not the session, as the URL is likely presigned S3
+                # with requests.get(download_url, stream=True) as r:
+                #     r.raise_for_status() # Check if the request was successful
+                #     with open(output_filename, 'wb') as f:
+                #         for chunk in r.iter_content(chunk_size=8192):
+                #             f.write(chunk)
+                # logger.info(f"Successfully downloaded video to {output_filename}")
                 return {
-                    "output": project_status.json()["videoUrl"]
+                    "output": download_url
                 }
-            elif status == "Failed" or status == "Cancelled" or status == "Error":
-                raise Exception(f"Project failed: {project_status.json().get('error', 'Unknown error')}")
-            elif status == "InProgress":
-                print("Project in progress")
-            else:
-                print(f"Project status: {status}")
-            
-            await asyncio.sleep(10)
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Failed to download video: {e}")
+            except IOError as e:
+                logger.error(f"Failed to save video file: {e}")
+        elif status == "error":
+            logger.error(f"Video generation failed: {status_response.get('error_message', 'Unknown error')}")
+        else:
+            # This case might happen if loop breaks unexpectedly or API changes
+            logger.warning(f"Video generation finished with status '{status}' but no download URL was found.")
             
     finally:
         os.unlink(temp_image.name)
