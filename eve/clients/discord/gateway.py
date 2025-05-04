@@ -47,6 +47,7 @@ image = (
     )
     .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
     .env({"DB": db})
+    .env({"LOCAL_API_URL": os.getenv("LOCAL_API_URL")})
 )
 
 
@@ -446,13 +447,15 @@ class DiscordGatewayClient:
         self.known_users = {}
         self.known_threads = {}
 
+    @property
+    def api_url(self) -> str:
+        """Get the API URL, preferring LOCAL_API_URL if set."""
+        return os.getenv("LOCAL_API_URL") or os.getenv("EDEN_API_URL")
+
     async def heartbeat_loop(self):
         while True:
             await self.ws.send(
                 json.dumps({"op": GatewayOpCode.HEARTBEAT, "d": self._last_sequence})
-            )
-            logger.info(
-                f"Sent heartbeat for deployment {self.deployment.id} with interval {self.heartbeat_interval}"
             )
             await asyncio.sleep(self.heartbeat_interval / 1000)
 
@@ -563,7 +566,7 @@ class DiscordGatewayClient:
         # Create a trace ID from deployment ID and message ID
         trace_id = f"{self.deployment.id}-{data['id']}"
         logger.info(
-            f"[trace:{trace_id}] Handling message for deployment {self.deployment.id} with data {data}"
+            f"[trace:{trace_id}] Handling message for deployment {self.deployment.id}"
         )
 
         # Skip messages from the bot itself
@@ -663,14 +666,14 @@ class DiscordGatewayClient:
                 "deployment_id": str(self.deployment.id),
                 "discord_channel_id": channel_id,
                 "discord_message_id": str(data["id"]),
-                "update_endpoint": f"{os.getenv('EDEN_API_URL')}/emissions/platform/discord",
+                "update_endpoint": f"{self.api_url}/emissions/platform/discord",
             },
             "user_is_bot": user_is_bot,
             "force_reply": force_reply,
         }
 
         logger.info(f"[trace:{trace_id}] CHAT REQUEST", chat_request)
-        logger.info(f"[trace:{trace_id}] SENDING TO {os.getenv('EDEN_API_URL')}/chat")
+        logger.info(f"[trace:{trace_id}] SENDING TO {self.api_url}/chat")
 
         logger.info(
             f"[trace:{trace_id}] Sending chat request for deployment {self.deployment.id}"
@@ -678,7 +681,7 @@ class DiscordGatewayClient:
 
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                f"{os.getenv('EDEN_API_URL')}/chat",
+                f"{self.api_url}/chat",
                 json=chat_request,
                 headers={
                     "Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}",
@@ -796,9 +799,6 @@ class DiscordGatewayClient:
                         await self.identify()
 
                     async for message in ws:
-                        logger.info(
-                            f"Received message for deployment {self.deployment.id}"
-                        )
                         data = json.loads(message)
 
                         if data.get("s"):

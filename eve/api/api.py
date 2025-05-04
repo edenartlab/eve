@@ -469,97 +469,91 @@ async def cleanup_stale_busy_states():
     """Clean up any stale busy states in the shared modal.Dict"""
     try:
         current_time = time.time()
-        stale_threshold = 300  # 5 minutes (Consider making this configurable)
+        stale_threshold = 300
         logger.info("Starting stale busy state cleanup...")
-
-        keys_to_delete = []
-        keys_to_update = {}  # Use a dict to store updates per key
 
         # Get all keys from the dictionary first
         all_keys = list(busy_state_dict.keys())  # This is not atomic but necessary
+        all_values = list(busy_state_dict.values())
         print(f"Checking keys: {all_keys}")
+        print(f"Checking values: {all_values}")
 
         for key in all_keys:
             try:
-                # Lock only for the duration of processing this key
-                with busy_state_dict.atomic():
-                    current_state = busy_state_dict.get(key)
-                    # Check if state exists and is a dictionary with expected structure
-                    if (
-                        not current_state
-                        or not isinstance(current_state, dict)
-                        or not all(
-                            k in current_state
-                            for k in ["requests", "timestamps", "context_map"]
-                        )
-                    ):
-                        logger.warning(
-                            f"Removing invalid/stale state for key {key}: {current_state}"
-                        )
-                        # Delete directly within the atomic block if possible and safe
-                        if key in busy_state_dict:
-                            del busy_state_dict[key]
-                        continue
+                # Get current state
+                current_state = busy_state_dict.get(key)
+                # Check if state exists and is a dictionary with expected structure
+                if (
+                    not current_state
+                    or not isinstance(current_state, dict)
+                    or not all(
+                        k in current_state
+                        for k in ["requests", "timestamps", "context_map"]
+                    )
+                ):
+                    logger.warning(
+                        f"Removing invalid/stale state for key {key}: {current_state}"
+                    )
+                    # Delete directly if possible and safe
+                    if key in busy_state_dict:
+                        busy_state_dict.pop(key)
+                    continue
 
-                    requests = current_state.get("requests", [])
-                    timestamps = current_state.get("timestamps", {})
-                    context_map = current_state.get("context_map", {})
+                requests = current_state.get("requests", [])
+                timestamps = current_state.get("timestamps", {})
+                context_map = current_state.get("context_map", {})
 
-                    # Ensure correct types after retrieval
-                    requests = list(requests)
-                    timestamps = dict(timestamps)
-                    context_map = dict(context_map)
+                # Ensure correct types after retrieval
+                requests = list(requests)
+                timestamps = dict(timestamps)
+                context_map = dict(context_map)
 
-                    stale_requests = []
-                    active_requests = []
-                    updated_timestamps = {}
-                    updated_context_map = {}
+                stale_requests = []
+                active_requests = []
+                updated_timestamps = {}
+                updated_context_map = {}
 
-                    # Iterate over a copy of request IDs
-                    for request_id in list(requests):
-                        timestamp = timestamps.get(request_id, 0)
-                        if current_time - timestamp > stale_threshold:
-                            stale_requests.append(request_id)
-                            logger.info(
-                                f"Marking request {request_id} as stale for key {key} (age: {current_time - timestamp:.1f}s)."
-                            )
-                        else:
-                            active_requests.append(request_id)
-                            if request_id in timestamps:
-                                updated_timestamps[request_id] = timestamps[request_id]
-                            if request_id in context_map:
-                                updated_context_map[request_id] = context_map[
-                                    request_id
-                                ]
-
-                    # If any requests were found to be stale, update the state
-                    if stale_requests:
+                # Iterate over a copy of request IDs
+                for request_id in list(requests):
+                    timestamp = timestamps.get(request_id, 0)
+                    if current_time - timestamp > stale_threshold:
+                        stale_requests.append(request_id)
                         logger.info(
-                            f"Cleaning up {len(stale_requests)} stale requests for {key}. Original count: {len(requests)}"
+                            f"Marking request {request_id} as stale for key {key} (age: {current_time - timestamp:.1f}s)."
                         )
-                        # Update the state in the modal.Dict
-                        if not active_requests:
-                            # If no active requests left, remove the whole key
-                            logger.info(
-                                f"Removing key '{key}' as no active requests remain after cleanup."
-                            )
-                            if (
-                                key in busy_state_dict
-                            ):  # Check existence before deleting
-                                del busy_state_dict[key]
-                        else:
-                            # Otherwise, update with cleaned lists/dicts
-                            new_state = {
-                                "requests": active_requests,
-                                "timestamps": updated_timestamps,
-                                "context_map": updated_context_map,
-                            }
-                            busy_state_dict[key] = new_state
-                            logger.info(
-                                f"Updated state for key '{key}'. Active requests: {len(active_requests)}"
-                            )
-                    # else: # No stale requests found for this key
-                    #    logger.debug(f"No stale requests found for key '{key}'.")
+                    else:
+                        active_requests.append(request_id)
+                        if request_id in timestamps:
+                            updated_timestamps[request_id] = timestamps[request_id]
+                        if request_id in context_map:
+                            updated_context_map[request_id] = context_map[request_id]
+
+                # If any requests were found to be stale, update the state
+                if stale_requests:
+                    logger.info(
+                        f"Cleaning up {len(stale_requests)} stale requests for {key}. Original count: {len(requests)}"
+                    )
+                    # Update the state in the modal.Dict
+                    if not active_requests:
+                        # If no active requests left, remove the whole key
+                        logger.info(
+                            f"Removing key '{key}' as no active requests remain after cleanup."
+                        )
+                        if key in busy_state_dict:  # Check existence before deleting
+                            busy_state_dict.pop(key)
+                    else:
+                        # Otherwise, update with cleaned lists/dicts
+                        new_state = {
+                            "requests": active_requests,
+                            "timestamps": updated_timestamps,
+                            "context_map": updated_context_map,
+                        }
+                        busy_state_dict.put(key, new_state)
+                        logger.info(
+                            f"Updated state for key '{key}'. Active requests: {len(active_requests)}"
+                        )
+                # else: # No stale requests found for this key
+                #    logger.debug(f"No stale requests found for key '{key}'.")
             except KeyError:
                 logger.warning(
                     f"Key {key} was deleted concurrently during cleanup processing."

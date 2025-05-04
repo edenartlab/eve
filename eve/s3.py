@@ -33,21 +33,12 @@ file_extensions = {
     "application/zip": ".zip",
 }
 
+
 def get_root_url(s3=False):
     """Returns the root URL, CloudFront by default, or S3"""
     if s3:
         db = os.getenv("DB", "STAGE").upper()
         AWS_BUCKET_NAME = os.getenv(f"AWS_BUCKET_NAME_{db}")
-        AWS_REGION_NAME = os.getenv("AWS_REGION_NAME")
-        url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com"
-        return url
-    else:
-        return os.getenv("CLOUDFRONT_URL")
-
-def get_root_url(s3=False):
-    """Returns the root URL, CloudFront by default, or S3"""
-    if s3:
-        AWS_BUCKET_NAME = os.getenv("AWS_BUCKET_NAME")
         AWS_REGION_NAME = os.getenv("AWS_REGION_NAME")
         url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com"
         return url
@@ -85,7 +76,7 @@ def upload_file(file, name=None, file_type=None):
         file = file.read()
         file_bytes = io.BytesIO(file)
         return upload_buffer(file_bytes, name, file_type)
-    
+
     elif isinstance(file, str):
         if file.endswith(".safetensors"):
             file_type = ".safetensors"

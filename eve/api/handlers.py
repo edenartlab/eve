@@ -176,7 +176,7 @@ async def run_chat_request(
 
         # If the loop finishes without error, mark as processed
         request_processed = True
-        update_busy_state(update_config, request_id, False)
+        await update_busy_state(update_config, request_id, False)
 
     except Exception as e:
         logger.error("Error in run_prompt", exc_info=True)
@@ -688,6 +688,7 @@ async def handle_discord_emission(request: Request):
                     return JSONResponse(status_code=200, content={"ok": True})
 
                 result["result"] = prepare_result(result["result"])
+                print("RESULT", result)
                 outputs = result["result"][0]["output"]
                 urls = [
                     output["url"] for output in outputs[:4] if "url" in output

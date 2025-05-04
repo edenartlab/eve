@@ -95,24 +95,16 @@ def serialize_for_json(obj):
 
 
 async def emit_update(update_config: Optional[UpdateConfig], data: dict):
-    print("EMIT UPDATE CONFIG:", update_config)
-
-    print("EMIT UPDATE DATA:", data)
     if not update_config:
         return
 
     if update_config.update_endpoint:
-        print("EMUP 1")
         await emit_http_update(update_config, data)
-        print("EMUP 2")
     elif update_config.sub_channel_name:
-        print("EMUP 3")
         try:
             client = AblyRest(os.getenv("ABLY_PUBLISHER_KEY"))
-            print("EMUP 4")
             print(client)
             channel = client.channels.get(update_config.sub_channel_name)
-            print("EMUP 5")
             print(channel)
             await channel.publish(update_config.sub_channel_name, data)
         except Exception as e:
@@ -238,9 +230,9 @@ def get_eden_creation_url(creation_id: str):
 
 def get_ably_client() -> Optional[AblyRest]:
     """Initializes and returns an AblyRest client."""
-    api_key = os.getenv("ABLY_SUBSCRIBER_KEY")
+    api_key = os.getenv("ABLY_PUBLISHER_KEY")
     if not api_key:
-        logger.error("ABLY_SUBSCRIBER_KEY not found in environment.")
+        logger.error("ABLY_PUBLISHER_KEY not found in environment.")
         return None
     try:
         # Use AblyRest for publishing
@@ -328,6 +320,7 @@ async def update_busy_state(update_config, request_id: str, is_busy: bool):
     # Handle Pydantic model or dict
     if hasattr(update_config, "model_dump"):
         config_dict = update_config.model_dump(exclude_unset=True)
+
     elif isinstance(update_config, dict):
         config_dict = update_config
     else:
@@ -366,56 +359,53 @@ async def update_busy_state(update_config, request_id: str, is_busy: bool):
     )
 
     try:
-        # Atomically update the state in modal.Dict
-        with busy_state_dict.atomic():
-            # Fetch the current state for the key, initializing if it doesn't exist or is corrupted
-            current_state = busy_state_dict.get(key, {})
-            if not isinstance(current_state, dict) or not all(
-                k in current_state for k in ["requests", "timestamps", "context_map"]
-            ):
-                logger.warning(
-                    f"Invalid state found for key {key}, reinitializing. State: {current_state}"
-                )
-                current_state = {"requests": [], "timestamps": {}, "context_map": {}}
+        # Get current state
+        current_state = busy_state_dict.get(key, {})
+        if not isinstance(current_state, dict) or not all(
+            k in current_state for k in ["requests", "timestamps", "context_map"]
+        ):
+            logger.warning(
+                f"Invalid state found for key {key}, reinitializing. State: {current_state}"
+            )
+            current_state = {"requests": [], "timestamps": {}, "context_map": {}}
 
-            requests = current_state.get("requests", [])
-            timestamps = current_state.get("timestamps", {})
-            context_map = current_state.get(
-                "context_map", {}
-            )  # Stores context per request_id
+        requests = current_state.get("requests", [])
+        timestamps = current_state.get("timestamps", {})
+        context_map = current_state.get("context_map", {})
 
-            # Make copies to modify, ensure correct types
-            requests = list(requests)
-            timestamps = dict(timestamps)
-            context_map = dict(context_map)
+        # Make copies to modify, ensure correct types
+        requests = list(requests)
+        timestamps = dict(timestamps)
+        context_map = dict(context_map)
 
-            was_overall_busy = len(requests) > 0
+        was_overall_busy = len(requests) > 0
 
-            # --- Update state based on is_busy ---
-            if is_busy:
-                if request_id not in requests:
-                    requests.append(request_id)
-                timestamps[request_id] = time.time()
-                # Store context associated with this specific request_id
-                context_map[request_id] = context
-            else:
-                # Request finished, remove it
-                if request_id in requests:
-                    requests.remove(request_id)
-                timestamps.pop(request_id, None)
-                # Remove context for this finished request
-                context_map.pop(request_id, None)
+        # --- Update state based on is_busy ---
+        if is_busy:
+            if request_id not in requests:
+                requests.append(request_id)
+            timestamps[request_id] = time.time()
+            # Store context associated with this specific request_id
+            context_map[request_id] = context
+        else:
+            # Request finished, remove it
+            if request_id in requests:
+                requests.remove(request_id)
+            timestamps.pop(request_id, None)
+            # Remove context for this finished request
+            context_map.pop(request_id, None)
 
-            # --- Persist updated state ---
-            busy_state_dict[key] = {
-                "requests": requests,
-                "timestamps": timestamps,
-                "context_map": context_map,
-            }
-            # Log the updated state for debugging
-            logger.debug(f"Persisted state for key '{key}': {busy_state_dict[key]}")
+        # --- Persist updated state ---
+        new_state = {
+            "requests": requests,
+            "timestamps": timestamps,
+            "context_map": context_map,
+        }
+        busy_state_dict.put(key, new_state)
+        # Log the updated state for debugging
+        logger.debug(f"Persisted state for key '{key}': {new_state}")
 
-        # --- Publish state change to Ably outside the atomic block ---
+        # --- Publish state change to Ably ---
         now_is_overall_busy = len(requests) > 0
 
         # Determine if Ably publish is needed based on the *specific context* of this update
