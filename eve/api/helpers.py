@@ -30,8 +30,9 @@ from eve.deploy import Deployment
 logger = logging.getLogger(__name__)
 
 db = os.getenv("DB", "STAGE").upper()
-busy_state = modal.Dict.from_name(f"busy-state-{db}", create_if_missing=True)
-busy_state.clear()
+busy_state_dict = modal.Dict.from_name(
+    f"busy-state-store-{db.lower()}", create_if_missing=True
+)
 
 
 async def get_update_channel(
@@ -235,193 +236,212 @@ def get_eden_creation_url(creation_id: str):
     return f"https://{root_url}/creations/{creation_id}"
 
 
-def update_busy_state(update_config: UpdateConfig, request_id: str, busy: bool):
-    """
-    Update the busy state for a deployment.
+def get_ably_client() -> Optional[AblyRest]:
+    """Initializes and returns an AblyRest client."""
+    api_key = os.getenv("ABLY_SUBSCRIBER_KEY")
+    if not api_key:
+        logger.error("ABLY_SUBSCRIBER_KEY not found in environment.")
+        return None
+    try:
+        # Use AblyRest for publishing
+        return AblyRest(api_key)
+    except Exception as e:
+        logger.error(f"Failed to initialize Ably client: {e}")
+        return None
 
-    Args:
-        update_config: The update configuration containing platform and deployment_id
-        request_id: Unique identifier for this request
-        busy: True to add this request to busy state, False to remove it
-    """
-    if not update_config or not update_config.deployment_id:
+
+async def publish_busy_state(key: str, is_busy: bool, context: dict):
+    """Publishes the busy state to the appropriate Ably channel."""
+    ably = get_ably_client()
+    if not ably:
+        logger.warning(f"Ably client not available, cannot publish state for {key}")
         return
 
-    # Determine platform from update_endpoint
+    try:
+        # Extract platform/IDs from key (e.g., "deployment_id.platform")
+        if "." not in key:
+            logger.error(f"Invalid key format for publishing busy state: {key}")
+            return
+
+        deployment_id, platform = key.split(".", 1)
+        # Construct the channel name the gateway/client subscribes to
+        channel_name = f"busy-state-{platform}-{deployment_id}"
+        channel = ably.channels.get(channel_name)
+
+        payload = {"is_busy": is_busy}
+        platform_context_key = None
+        platform_context_value = None
+
+        # Add relevant context for the platform listener
+        if platform == "discord":
+            channel_id = context.get("discord_channel_id")
+            if channel_id:
+                payload["channel_id"] = str(channel_id)  # Ensure string
+                platform_context_key = "channel_id"
+                platform_context_value = str(channel_id)
+            else:
+                # If no channel_id, the gateway listener might ignore the stop signal
+                logger.warning(
+                    f"Missing discord_channel_id in context for key {key} - stop signal might be ignored by gateway."
+                )
+                # Send anyway, maybe the gateway has logic for deployment-level stop?
+
+        elif platform == "telegram":
+            chat_id = context.get("telegram_chat_id")
+            thread_id = context.get("telegram_thread_id")
+            if chat_id:
+                payload["chat_id"] = str(chat_id)  # Ensure string
+                platform_context_key = "chat_id"
+                platform_context_value = str(chat_id)
+                if thread_id:
+                    payload["thread_id"] = str(thread_id)  # Ensure string
+                    # Use chat_id_thread_id for more specific logging if needed
+                    platform_context_value = f"{chat_id}_{thread_id}"
+
+            else:
+                logger.warning(f"Missing telegram_chat_id in context for key {key}")
+
+        # Add other platforms if needed
+
+        log_context = (
+            f" for {platform} context {platform_context_key}={platform_context_value}"
+            if platform_context_key
+            else ""
+        )
+        logger.info(
+            f"Publishing to Ably channel '{channel_name}': {payload}{log_context}"
+        )
+        await channel.publish("update", payload)
+
+    except Exception as e:
+        logger.error(
+            f"Failed to publish busy state to Ably for key {key}: {e}", exc_info=True
+        )
+
+
+async def update_busy_state(update_config, request_id: str, is_busy: bool):
+    """Updates the busy state in modal.Dict and publishes to Ably."""
+    if not update_config:
+        logger.warning("Cannot update busy state: update_config is missing.")
+        return
+
+    # Handle Pydantic model or dict
+    if hasattr(update_config, "model_dump"):
+        config_dict = update_config.model_dump(exclude_unset=True)
+    elif isinstance(update_config, dict):
+        config_dict = update_config
+    else:
+        logger.warning(
+            f"Cannot update busy state: Invalid update_config type {type(update_config)}."
+        )
+        return
+
+    deployment_id = config_dict.get("deployment_id")
     platform = None
-    if update_config.update_endpoint:
-        platform = update_config.update_endpoint.split("/")[-1]
+    context = {}  # Store channel/chat IDs for this specific update
 
-    if not platform or not update_config.deployment_id:
+    # Determine platform and context from the update_config
+    discord_channel_id = config_dict.get("discord_channel_id")
+    telegram_chat_id = config_dict.get("telegram_chat_id")
+
+    if discord_channel_id:
+        platform = "discord"
+        context["discord_channel_id"] = discord_channel_id
+    elif telegram_chat_id:
+        platform = "telegram"
+        context["telegram_chat_id"] = telegram_chat_id
+        if config_dict.get("telegram_thread_id"):
+            context["telegram_thread_id"] = config_dict["telegram_thread_id"]
+    # Add other platforms based on their unique identifiers in update_config
+
+    if not deployment_id or not platform:
+        logger.warning(
+            f"Cannot determine deployment_id or platform for busy state. Config: {config_dict}, Request ID: {request_id}"
+        )
         return
 
-    deployment_id = update_config.deployment_id
+    key = f"{deployment_id}.{platform}"
+    logger.info(
+        f"Updating busy state for key '{key}', request_id '{request_id}', is_busy={is_busy}, context={context}"
+    )
 
-    # Get channel ID based on platform
-    channel_id = None
-    if platform == "discord" and update_config.discord_channel_id:
-        channel_id = update_config.discord_channel_id
-    elif platform == "telegram" and update_config.telegram_chat_id:
-        # For telegram, combine chat_id and thread_id if thread_id exists
-        if update_config.telegram_thread_id:
-            channel_id = (
-                f"{update_config.telegram_chat_id}_{update_config.telegram_thread_id}"
+    try:
+        # Atomically update the state in modal.Dict
+        with busy_state_dict.atomic():
+            # Fetch the current state for the key, initializing if it doesn't exist or is corrupted
+            current_state = busy_state_dict.get(key, {})
+            if not isinstance(current_state, dict) or not all(
+                k in current_state for k in ["requests", "timestamps", "context_map"]
+            ):
+                logger.warning(
+                    f"Invalid state found for key {key}, reinitializing. State: {current_state}"
+                )
+                current_state = {"requests": [], "timestamps": {}, "context_map": {}}
+
+            requests = current_state.get("requests", [])
+            timestamps = current_state.get("timestamps", {})
+            context_map = current_state.get(
+                "context_map", {}
+            )  # Stores context per request_id
+
+            # Make copies to modify, ensure correct types
+            requests = list(requests)
+            timestamps = dict(timestamps)
+            context_map = dict(context_map)
+
+            was_overall_busy = len(requests) > 0
+
+            # --- Update state based on is_busy ---
+            if is_busy:
+                if request_id not in requests:
+                    requests.append(request_id)
+                timestamps[request_id] = time.time()
+                # Store context associated with this specific request_id
+                context_map[request_id] = context
+            else:
+                # Request finished, remove it
+                if request_id in requests:
+                    requests.remove(request_id)
+                timestamps.pop(request_id, None)
+                # Remove context for this finished request
+                context_map.pop(request_id, None)
+
+            # --- Persist updated state ---
+            busy_state_dict[key] = {
+                "requests": requests,
+                "timestamps": timestamps,
+                "context_map": context_map,
+            }
+            # Log the updated state for debugging
+            logger.debug(f"Persisted state for key '{key}': {busy_state_dict[key]}")
+
+        # --- Publish state change to Ably outside the atomic block ---
+        now_is_overall_busy = len(requests) > 0
+
+        # Determine if Ably publish is needed based on the *specific context* of this update
+        publish_needed = False
+        if is_busy:
+            # Publish 'start typing' for this context.
+            publish_needed = True
+            await publish_busy_state(key, True, context)
+        else:
+            # Publish 'stop typing' for this context.
+            publish_needed = True
+            await publish_busy_state(key, False, context)
+            # Check if this was the *last* request for this key. If so, we could potentially
+            # publish an overall stop, but relying on individual context stops is safer.
+
+        if publish_needed:
+            logger.info(
+                f"State transition for key '{key}': was_overall_busy={was_overall_busy}, now_is_overall_busy={now_is_overall_busy}. Published is_busy={is_busy} for context {context}."
             )
         else:
-            channel_id = update_config.telegram_chat_id
-    elif platform == "farcaster" and update_config.farcaster_author_fid:
-        channel_id = str(update_config.farcaster_author_fid)
-    elif platform == "twitter" and update_config.twitter_tweet_to_reply_id:
-        channel_id = update_config.twitter_tweet_to_reply_id
-
-    # If we couldn't determine a channel ID, fall back to deployment-only key
-    if not channel_id:
-        # Create the key for this deployment's busy state
-        deployment_key = f"{deployment_id}.{platform}"
-    else:
-        # Create a channel-specific key
-        deployment_key = f"{deployment_id}.{platform}.{channel_id}"
-
-    try:
-        # Get current requests list or initialize empty list
-        current_requests = busy_state.get(deployment_key, [])
-
-        # Get or initialize timestamps dict - make sure it's a dict, not a list
-        timestamps_key = f"{deployment_key}_timestamps"
-        timestamps = busy_state.get(timestamps_key)
-        if timestamps is None or not isinstance(timestamps, dict):
-            timestamps = {}
-
-        if busy:
-            # Add this request to the busy list if not already present
-            if request_id not in current_requests:
-                current_requests.append(request_id)
-                # Must explicitly update the Dict with the modified list
-                busy_state[deployment_key] = current_requests
-
-                # Update timestamp for this request
-                timestamps[request_id] = time.time()
-                busy_state[timestamps_key] = timestamps
-
-                print(f"Added request {request_id} to busy state for {deployment_key}")
-
-                # If this is the first request and platform is discord, emit a typing update
-                if (
-                    len(current_requests) == 1
-                    and platform == "discord"
-                    and update_config.discord_channel_id
-                ):
-                    asyncio.create_task(
-                        emit_typing_update(
-                            deployment_id, update_config.discord_channel_id, True
-                        )
-                    )
-                # If this is the first request and platform is telegram, emit a typing update
-                elif (
-                    len(current_requests) == 1
-                    and platform == "telegram"
-                    and update_config.telegram_chat_id
-                ):
-                    asyncio.create_task(
-                        emit_telegram_typing_update(
-                            deployment_id,
-                            update_config.telegram_chat_id,
-                            update_config.telegram_thread_id,
-                            True,
-                        )
-                    )
-        else:
-            # Remove this request from the busy list if present
-            if request_id in current_requests:
-                current_requests.remove(request_id)
-                # Must explicitly update the Dict with the modified list
-                busy_state[deployment_key] = current_requests
-
-                # Remove timestamp for this request
-                if request_id in timestamps:
-                    del timestamps[request_id]
-                    busy_state[timestamps_key] = timestamps
-
-                print(
-                    f"Removed request {request_id} from busy state for {deployment_key}"
-                )
-
-                # If this was the last request and platform is discord, emit an update
-                if (
-                    not current_requests
-                    and platform == "discord"
-                    and update_config.discord_channel_id
-                ):
-                    asyncio.create_task(
-                        emit_typing_update(
-                            deployment_id, update_config.discord_channel_id, False
-                        )
-                    )
-                # If this was the last request and platform is telegram, emit an update
-                elif (
-                    not current_requests
-                    and platform == "telegram"
-                    and update_config.telegram_chat_id
-                ):
-                    asyncio.create_task(
-                        emit_telegram_typing_update(
-                            deployment_id,
-                            update_config.telegram_chat_id,
-                            update_config.telegram_thread_id,
-                            False,
-                        )
-                    )
-
-        # Log the current state
-        print(
-            f"Current busy state for {deployment_key}: {busy_state.get(deployment_key, [])}"
-        )
+            logger.info(
+                f"No state change detected requiring Ably publish for key '{key}', context {context}."
+            )
 
     except Exception as e:
-        logger.error(f"Error updating busy state: {str(e)}")
-        logger.error(traceback.format_exc())
-
-
-async def emit_typing_update(deployment_id: str, channel_id: str, is_busy: bool):
-    """Emit a typing update to Ably for Discord channels"""
-    try:
-        from ably import AblyRest
-
-        client = AblyRest(os.getenv("ABLY_PUBLISHER_KEY"))
-        channel = client.channels.get(f"busy-state-discord-{deployment_id}")
-
-        await channel.publish("update", {"channel_id": channel_id, "is_busy": is_busy})
-
-        logger.info(f"Emitted typing update for channel {channel_id}: busy={is_busy}")
-    except Exception as e:
-        logger.error(f"Failed to emit typing update: {str(e)}")
-        logger.error(traceback.format_exc())
-
-
-async def emit_telegram_typing_update(
-    deployment_id: str, chat_id: str, thread_id: Optional[str], is_busy: bool
-):
-    """Emit a typing update to Ably for Telegram chats"""
-    try:
-        from ably import AblyRest
-
-        client = AblyRest(os.getenv("ABLY_PUBLISHER_KEY"))
-        # Use the same channel name format as in gateway.py
-        channel = client.channels.get(f"busy-state-telegram-{db}")
-
-        await channel.publish(
-            "update",
-            {
-                "deployment_id": deployment_id,
-                "chat_id": chat_id,
-                "thread_id": thread_id,
-                "is_busy": is_busy,
-            },
+        logger.error(
+            f"Error updating busy state for key {key}, request_id {request_id}: {e}",
+            exc_info=True,
         )
-
-        logger.info(
-            f"Emitted Telegram typing update for chat {chat_id}: busy={is_busy}"
-        )
-    except Exception as e:
-        logger.error(f"Failed to emit Telegram typing update: {str(e)}")
-        logger.error(traceback.format_exc())

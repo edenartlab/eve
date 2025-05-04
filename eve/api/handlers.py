@@ -135,6 +135,9 @@ async def run_chat_request(
     langfuse_context.update_current_observation(metadata=metadata)
 
     is_client_platform = True if update_config else False
+    request_processed = (
+        False  # Flag to ensure stop signal isn't sent prematurely on error
+    )
 
     try:
         async for update in async_prompt_thread(
@@ -157,7 +160,7 @@ async def run_chat_request(
             }
 
             if update.type == UpdateType.START_PROMPT:
-                update_busy_state(update_config, request_id, True)
+                await update_busy_state(update_config, request_id, True)
             elif update.type == UpdateType.ASSISTANT_MESSAGE:
                 data["content"] = update.message.content
             elif update.type == UpdateType.TOOL_COMPLETE:
@@ -166,16 +169,32 @@ async def run_chat_request(
             elif update.type == UpdateType.ERROR:
                 data["error"] = update.error if hasattr(update, "error") else None
             elif update.type == UpdateType.END_PROMPT:
-                update_busy_state(update_config, request_id, False)
+                await update_busy_state(update_config, request_id, False)
+                request_processed = True  # Mark as processed
+
             await emit_update(update_config, data)
+
+        # If the loop finishes without error, mark as processed
+        request_processed = True
+        update_busy_state(update_config, request_id, False)
 
     except Exception as e:
         logger.error("Error in run_prompt", exc_info=True)
-        update_busy_state(update_config, request_id, False)
+        # Update busy state immediately on error
+        await update_busy_state(update_config, request_id, False)
+        request_processed = True  # Mark as processed even on error to prevent finally block double-sending
         await emit_update(
             update_config,
-            {"type": "error", "error": str(e)},
+            {"type": UpdateType.ERROR.value, "error": str(e)},
         )
+    finally:
+        # Ensure busy state is set to False if it hasn't been already
+        # by END_PROMPT or the except block.
+        if not request_processed:
+            logger.warning(
+                f"run_chat_request for {request_id} finished without END_PROMPT or error, ensuring busy state is cleared."
+            )
+            await update_busy_state(update_config, request_id, False)
 
 
 async def handle_chat(
