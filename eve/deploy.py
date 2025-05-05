@@ -458,11 +458,19 @@ async def deploy_client_twitter(deployment: Deployment, secrets: DeploymentSecre
     if not agent:
         raise Exception("Agent not found")
 
-    # Add Twitter tool to agent's tools
+    # Add Twitter tools to agent's tools
     if not agent.tools:
         agent.tools = {}
 
     agent.tools["tweet"] = {
+        "parameters": {"agent": {"default": str(agent.id), "hide_from_agent": True}}
+    }
+
+    agent.tools["mentions"] = {
+        "parameters": {"agent": {"default": str(agent.id), "hide_from_agent": True}}
+    }
+
+    agent.tools["search"] = {
         "parameters": {"agent": {"default": str(agent.id), "hide_from_agent": True}}
     }
 
@@ -523,8 +531,10 @@ async def stop_client_modal(agent: Agent, platform: ClientType):
 
 
 async def stop_client_twitter(agent: Agent):
-    if agent.tools and "tweet" in agent.tools:
-        agent.tools.pop("tweet")
+    if agent.tools:
+        for tool in ["tweet", "mentions", "search"]:
+            if tool in agent.tools:
+                agent.tools.pop(tool)
         agent.save()
 
 

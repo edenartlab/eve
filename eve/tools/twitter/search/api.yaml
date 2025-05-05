@@ -1,0 +1,28 @@
+name: SearchTweets
+description: Search for tweets on Twitter
+cost_estimate: 1
+output_type: array
+active: true
+handler: modal
+visible: false
+parameters:
+  query:
+    type: string
+    label: Search Query
+    description: The search query to find tweets
+    required: true
+  start_time:
+    type: string
+    label: Start Time
+    description: Optional ISO 8601 timestamp to get tweets after this time
+    required: false
+  end_time:
+    type: string
+    label: End Time
+    description: Optional ISO 8601 timestamp to get tweets before this time
+    required: false
+  granularity:
+    type: string
+    label: Granularity
+    description: The granularity for the search counts results (minute, hour, day)
+    required: false

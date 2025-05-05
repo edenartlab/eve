@@ -1,0 +1,13 @@
+name: GetMentions
+description: Get recent mentions on Twitter
+cost_estimate: 1
+output_type: array
+active: true
+handler: modal
+visible: false
+parameters:
+  start_time:
+    type: string
+    label: Start Time
+    description: Optional ISO 8601 timestamp to get mentions after this time
+    required: false
