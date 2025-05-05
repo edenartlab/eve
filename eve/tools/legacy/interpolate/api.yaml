@@ -1,6 +1,6 @@
 key: legacy_interpolate
 name: SDXL Interpolate (Legacy)
-description: Create a video interpolation between two prompts (2022-2024)
+description: Create a video interpolation between multiple prompts (2022-2024)
 cost_estimate: n_frames * 2
 output_type: video
 active: true

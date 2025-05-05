@@ -76,6 +76,7 @@ parameters:
   width:
     type: integer
     label: Width
+    required: true
     description: Output width in pixels
     default: 1280
     minimum: 512
@@ -84,6 +85,7 @@ parameters:
   height:
     type: integer
     label: Height
+    required: true
     description: Output height in pixels
     default: 1280
     minimum: 512
@@ -91,7 +93,7 @@ parameters:
 
   n_frames:
     type: integer
-    label: Number of Frames
+    label: Number of Frames
     description: Total frames (txt2vid / vid2vid / img2vid)
     default: 40
     minimum: 16
@@ -108,7 +110,7 @@ parameters:
 
   motion_scale:
     type: float
-    label: Motion Scale
+    label: Motion Scale
     description: AnimateDiff motion scale
     default: 1.1
     minimum: 0.0

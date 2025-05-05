@@ -54,6 +54,7 @@ parameters:
   width:
     type: integer
     label: Width
+    required: true
     description: Width in pixels
     default: 1024
     minimum: 512
@@ -61,6 +62,7 @@ parameters:
   height:
     type: integer
     label: Height
+    required: true
     description: Height in pixels
     default: 1024
     minimum: 512
@@ -69,9 +71,9 @@ parameters:
     type: string
     label: Checkpoint
     description: Which Stable Diffusion checkpoint to use
-    choices: [sdxl-v1.0, juggernaut_XL2]
-    choice_labels: [SDXL, Juggernaut XL2]
-    default: juggernaut_XL2
+    choices: [eden:eden-v1, juggernaut_XL2]
+    choices_labels: [eden:eden-v1, Juggernaut_XL2]
+    default: Juggernaut_XL2
   
   use_lora:
     type: boolean
@@ -183,7 +185,7 @@ parameters:
     description: Total number of frames for video modes
     default: 40
     minimum: 3
-    maximum: 1000
+    maximum: 264
   loop:
     type: boolean
     label: Loop
