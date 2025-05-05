@@ -1,4 +1,4 @@
-name: GetMentions
+name: Twitter Mentions
 description: Get recent mentions on Twitter
 cost_estimate: 1
 output_type: array

@@ -461,6 +461,7 @@ async def deploy_client_twitter(deployment: Deployment, secrets: DeploymentSecre
     # Add Twitter tools to agent's tools
     if not agent.tools:
         agent.tools = {}
+        agent.add_base_tools = True
 
     agent.tools["tweet"] = {
         "parameters": {"agent": {"default": str(agent.id), "hide_from_agent": True}}

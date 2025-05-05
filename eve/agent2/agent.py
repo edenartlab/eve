@@ -23,6 +23,7 @@ from ..eden_utils import load_template
 
 last_tools_update = None
 agent_tools_cache = {}
+OWNER_ONLY_TOOLS = ["tweet", ""]
 
 
 class KnowledgeDescription(BaseModel):
