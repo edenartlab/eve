@@ -467,11 +467,11 @@ async def deploy_client_twitter(deployment: Deployment, secrets: DeploymentSecre
         "parameters": {"agent": {"default": str(agent.id), "hide_from_agent": True}}
     }
 
-    agent.tools["mentions"] = {
+    agent.tools["twitter_mentions"] = {
         "parameters": {"agent": {"default": str(agent.id), "hide_from_agent": True}}
     }
 
-    agent.tools["search"] = {
+    agent.tools["twitter_search"] = {
         "parameters": {"agent": {"default": str(agent.id), "hide_from_agent": True}}
     }
 
