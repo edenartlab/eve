@@ -14,7 +14,6 @@ async def handler(args: dict):
         "query": args["query"],
         "start_time": args.get("start_time"),
         "end_time": args.get("end_time"),
-        "granularity": args.get("granularity", "hour"),
     }
 
     # Remove None values
