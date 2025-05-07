@@ -19,4 +19,4 @@ async def handler(args: dict):
         response = x.post(text=args.get("content"))
     tweet_id = response.get("data", {}).get("id")
     url = f"https://x.com/{deployment.config.twitter.username}/status/{tweet_id}"
-    return {"output": url}
+    return url
