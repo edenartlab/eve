@@ -180,6 +180,8 @@ def run(ctx, tool: str, db: str):
                 args[key] = True
         i += 1
 
+    print(args)
+
     result = tool.run(args)
     color = random.choice(CLICK_COLORS)
     if result.get("error"):
@@ -234,11 +236,11 @@ def test(
         if api:
             user = get_my_eden_user()
             task = await tool.async_start_task(
-                user_id=user.id, 
-                agent_id=None, 
-                args=tool.test_args, 
-                mock=mock, 
-                public=False
+                user_id=user.id,
+                agent_id=None,
+                args=tool.test_args,
+                mock=mock,
+                public=False,
             )
             result = await tool.async_wait(task)
         else:
