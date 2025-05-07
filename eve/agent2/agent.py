@@ -5,12 +5,13 @@ import openai
 import instructor
 from datetime import timezone
 from pathlib import Path
-from jinja2 import Template
 from bson import ObjectId
-from typing import Optional, Literal, Any, Dict, List, ClassVar
+from typing import Optional, Literal, Any, Dict, List
 from datetime import datetime
 from dotenv import dotenv_values
 from pydantic import SecretStr, Field, BaseModel, ConfigDict
+
+from eve.agent.thread import Thread
 
 from ..tool import Tool, BASE_TOOLS, FLUX_LORA_TOOLS, SDXL_LORA_TOOLS
 from ..mongo import Collection, get_collection
@@ -23,7 +24,7 @@ from ..eden_utils import load_template
 
 last_tools_update = None
 agent_tools_cache = {}
-OWNER_ONLY_TOOLS = ["tweet", ""]
+OWNER_ONLY_TOOLS = ["tweet", "twitter_mentions", "twitter_search"]
 
 
 class KnowledgeDescription(BaseModel):
