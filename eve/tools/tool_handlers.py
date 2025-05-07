@@ -2,7 +2,7 @@ handlers = {}
 
 
 def load_handler(name):
-    if name not in handlers:
+    if name not in handlers.keys():
         if name == "example_tool":
             from .example_tool.handler import handler
 
