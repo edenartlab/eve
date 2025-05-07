@@ -22,7 +22,7 @@ async def handler(args: dict):
 
     response = x._make_request(
         "get",
-        "https://api.twitter.com/2/tweets/counts/recent",
+        "https://api.twitter.com/2/tweets/search/recent",
         oauth=False,
         headers={"Authorization": f"Bearer {x.bearer_token}"},
         params=params,
