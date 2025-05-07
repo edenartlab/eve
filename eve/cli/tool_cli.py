@@ -180,8 +180,6 @@ def run(ctx, tool: str, db: str):
                 args[key] = True
         i += 1
 
-    print(args)
-
     result = tool.run(args)
     color = random.choice(CLICK_COLORS)
     if result.get("error"):
