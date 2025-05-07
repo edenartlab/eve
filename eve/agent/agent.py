@@ -22,6 +22,7 @@ from .thread import Thread
 
 last_tools_update = None
 agent_tools_cache = {}
+OWNER_ONLY_TOOLS = ["tweet", "twitter_mentions", "twitter_search"]
 
 
 class KnowledgeDescription(BaseModel):
@@ -274,8 +275,8 @@ class Agent(User):
 
         # remove tools that only the owner can use
         if str(auth_user) != str(self.owner):
-            tools.pop("tweet", None)
-            tools.pop("get_tweets", None)
+            for tool in OWNER_ONLY_TOOLS:
+                tools.pop(tool, None)
 
         return tools
 
