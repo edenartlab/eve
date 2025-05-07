@@ -6,6 +6,11 @@ active: true
 handler: modal
 visible: false
 parameters:
+  agent:
+    type: string
+    label: Agent
+    description: The agent to use to make the tweet.
+    required: true
   content:
     type: string
     label: Tweet
