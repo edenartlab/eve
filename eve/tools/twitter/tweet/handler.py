@@ -3,7 +3,7 @@ from ....agent import Agent
 from .. import X
 
 
-async def handler(args: dict):
+async def handler(args: dict, user: str = None, agent: str = None):
     agent = Agent.from_mongo(args.get("agent"))
     deployment = Deployment.load(agent=agent.id, platform="twitter")
     if not deployment:
