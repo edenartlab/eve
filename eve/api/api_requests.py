@@ -124,3 +124,13 @@ class UpdateDeploymentRequest(BaseModel):
 class DeleteDeploymentRequest(BaseModel):
     agent: str
     platform: ClientType
+
+
+class AgentToolsUpdateRequest(BaseModel):
+    agent_id: str
+    tools: Dict[str, Dict]
+
+
+class AgentToolsDeleteRequest(BaseModel):
+    agent_id: str
+    tools: List[str]

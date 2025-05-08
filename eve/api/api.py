@@ -19,7 +19,6 @@ import asyncio
 from eve import auth, db, eden_utils
 from eve.api.runner_tasks import (
     cancel_stuck_tasks,
-    download_nsfw_models,
     generate_lora_thumbnails,
     rotate_agent_metadata,
 )
@@ -45,6 +44,8 @@ from eve.api.handlers import (
     handle_trigger_delete,
     handle_twitter_update,
     handle_trigger_get,
+    handle_agent_tools_update,
+    handle_agent_tools_delete,
 )
 from eve.api.api_requests import (
     CancelRequest,
@@ -56,13 +57,17 @@ from eve.api.api_requests import (
     PlatformUpdateRequest,
     TaskRequest,
     UpdateDeploymentRequest,
+    AgentToolsUpdateRequest,
+    AgentToolsDeleteRequest,
 )
-from eve.api.helpers import pre_modal_setup, busy_state
+from eve.api.helpers import pre_modal_setup, busy_state_dict
 
 
 app_name = f"api-{db.lower()}"
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("ably").setLevel(logging.INFO if db != "PROD" else logging.WARNING)
+
+logger = logging.getLogger(__name__)
 
 
 def load_watch_thread():
@@ -258,6 +263,20 @@ async def trigger_get(trigger_id: str, _: dict = Depends(auth.authenticate_admin
     return await handle_trigger_get(trigger_id)
 
 
+@web_app.post("/agent/tools/update")
+async def agent_tools_update(
+    request: AgentToolsUpdateRequest, _: dict = Depends(auth.authenticate_admin)
+):
+    return await handle_agent_tools_update(request)
+
+
+@web_app.post("/agent/tools/delete")
+async def agent_tools_delete(
+    request: AgentToolsDeleteRequest, _: dict = Depends(auth.authenticate_admin)
+):
+    return await handle_agent_tools_delete(request)
+
+
 @web_app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     print(f"Validation error on {request.url}:")
@@ -447,75 +466,108 @@ async def deploy_client_modal(
     image=image, concurrency_limit=1, schedule=modal.Period(minutes=2), timeout=3600
 )
 async def cleanup_stale_busy_states():
-    """Clean up any stale busy states that might be lingering"""
+    """Clean up any stale busy states in the shared modal.Dict"""
     try:
         current_time = time.time()
         stale_threshold = 300
+        logger.info("Starting stale busy state cleanup...")
 
-        # Get all keys in the busy_state dict
-        all_keys = list(busy_state.keys())
-        print(f"All keys: {all_keys}")
+        # Get all keys from the dictionary first
+        all_keys = list(busy_state_dict.keys())  # This is not atomic but necessary
+        all_values = list(busy_state_dict.values())
+        print(f"Checking keys: {all_keys}")
+        print(f"Checking values: {all_values}")
 
         for key in all_keys:
-            # Get the timestamps for this key
-            timestamps = busy_state.get(f"{key}_timestamps", {})
+            try:
+                # Get current state
+                current_state = busy_state_dict.get(key)
+                # Check if state exists and is a dictionary with expected structure
+                if (
+                    not current_state
+                    or not isinstance(current_state, dict)
+                    or not all(
+                        k in current_state
+                        for k in ["requests", "timestamps", "context_map"]
+                    )
+                ):
+                    logger.warning(
+                        f"Removing invalid/stale state for key {key}: {current_state}"
+                    )
+                    # Delete directly if possible and safe
+                    if key in busy_state_dict:
+                        busy_state_dict.pop(key)
+                    continue
 
-            # Get the request IDs for this key
-            requests = busy_state.get(key, [])
+                requests = current_state.get("requests", [])
+                timestamps = current_state.get("timestamps", {})
+                context_map = current_state.get("context_map", {})
 
-            # Check each request ID
-            stale_requests = []
-            for request_id in requests:
-                timestamp = timestamps.get(request_id, 0)
-                if current_time - timestamp > stale_threshold:
-                    stale_requests.append(request_id)
+                # Ensure correct types after retrieval
+                requests = list(requests)
+                timestamps = dict(timestamps)
+                context_map = dict(context_map)
 
-            # Remove stale requests
-            if stale_requests:
-                print(f"Cleaning up {len(stale_requests)} stale requests for {key}")
-                print(f"Requests: {requests}")
-                print(f"Stale requests: {stale_requests}")
-                updated_requests = [r for r in requests if r not in stale_requests]
-                busy_state[key] = updated_requests
+                stale_requests = []
+                active_requests = []
+                updated_timestamps = {}
+                updated_context_map = {}
 
-                # Also update timestamps
-                updated_timestamps = {
-                    k: v for k, v in timestamps.items() if k not in stale_requests
-                }
-                busy_state[f"{key}_timestamps"] = updated_timestamps
+                # Iterate over a copy of request IDs
+                for request_id in list(requests):
+                    timestamp = timestamps.get(request_id, 0)
+                    if current_time - timestamp > stale_threshold:
+                        stale_requests.append(request_id)
+                        logger.info(
+                            f"Marking request {request_id} as stale for key {key} (age: {current_time - timestamp:.1f}s)."
+                        )
+                    else:
+                        active_requests.append(request_id)
+                        if request_id in timestamps:
+                            updated_timestamps[request_id] = timestamps[request_id]
+                        if request_id in context_map:
+                            updated_context_map[request_id] = context_map[request_id]
 
-                print(f"Cleaned up {len(stale_requests)} stale requests for {key}")
+                # If any requests were found to be stale, update the state
+                if stale_requests:
+                    logger.info(
+                        f"Cleaning up {len(stale_requests)} stale requests for {key}. Original count: {len(requests)}"
+                    )
+                    # Update the state in the modal.Dict
+                    if not active_requests:
+                        # If no active requests left, remove the whole key
+                        logger.info(
+                            f"Removing key '{key}' as no active requests remain after cleanup."
+                        )
+                        if key in busy_state_dict:  # Check existence before deleting
+                            busy_state_dict.pop(key)
+                    else:
+                        # Otherwise, update with cleaned lists/dicts
+                        new_state = {
+                            "requests": active_requests,
+                            "timestamps": updated_timestamps,
+                            "context_map": updated_context_map,
+                        }
+                        busy_state_dict.put(key, new_state)
+                        logger.info(
+                            f"Updated state for key '{key}'. Active requests: {len(active_requests)}"
+                        )
+                # else: # No stale requests found for this key
+                #    logger.debug(f"No stale requests found for key '{key}'.")
+            except KeyError:
+                logger.warning(
+                    f"Key {key} was deleted concurrently during cleanup processing."
+                )
+                continue  # Key was likely deleted by another process or previous step
+            except Exception as key_e:
+                logger.error(
+                    f"Error processing key '{key}' during cleanup: {key_e}",
+                    exc_info=True,
+                )
+                # Decide how to handle errors: skip key, mark for later deletion, etc.
+                # For now, just log and continue to avoid breaking the whole job.
 
-                # If this was a Discord or Telegram deployment, emit typing stop
-                if "discord" in key or "telegram" in key:
-                    deployment_id, platform = key.split(".")
-
-                    if platform == "discord":
-                        # Find any channel IDs associated with this deployment
-                        from eve.api.helpers import emit_typing_update
-
-                        for channel_id in busy_state.get(f"{key}_channels", []):
-                            asyncio.create_task(
-                                emit_typing_update(deployment_id, channel_id, False)
-                            )
-
-                    elif platform == "telegram":
-                        # Find any chat IDs associated with this deployment
-                        from eve.api.helpers import emit_telegram_typing_update
-
-                        for chat_key in busy_state.get(f"{key}_chats", []):
-                            if "_" in chat_key:
-                                chat_id, thread_id = chat_key.split("_", 1)
-                            else:
-                                chat_id, thread_id = chat_key, None
-
-                            asyncio.create_task(
-                                emit_telegram_typing_update(
-                                    deployment_id, chat_id, thread_id, False
-                                )
-                            )
-
-        print("Finished cleaning up stale busy states")
+        logger.info("Finished cleaning up stale busy states.")
     except Exception as e:
-        print(f"Error cleaning up stale busy states: {e}")
+        logger.error(f"Error in cleanup_stale_busy_states job: {e}", exc_info=True)
         sentry_sdk.capture_exception(e)

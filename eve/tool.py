@@ -22,7 +22,7 @@ from .mongo import Document, Collection, get_collection
 from sentry_sdk import trace
 
 OUTPUT_TYPES = Literal[
-    "boolean", "string", "integer", "float", "image", "video", "audio", "lora"
+    "boolean", "string", "integer", "float", "array", "image", "video", "audio", "lora"
 ]
 
 HANDLERS = Literal[
@@ -57,13 +57,11 @@ BASE_TOOLS = [
     "flux_dev_lora",
     "flux_dev",
     "txt2img",
-    
     # more image generation
     "flux_inpainting",
     "outpaint",
     "remix_flux_schnell",
     "flux_double_character",
-    
     # video
     "runway",
     "kling_pro",
@@ -71,28 +69,23 @@ BASE_TOOLS = [
     "vid2vid_sdxl",
     "video_FX",
     "texture_flow",
-    
     # audio
     "musicgen",
     "elevenlabs",
     "mmaudio",
     "stable_audio",
     "zonos",
-    
     # editing
     "media_editor",
-    
     # search
     "search_agents",
     "search_models",
     "search_collections",
     "add_to_collection",
-    
     # misc
     "news",
     "websearch",
     "weather",
-    
     # inactive
     # "ominicontrol",
     # "flux_redux",
@@ -100,7 +93,6 @@ BASE_TOOLS = [
     # "txt2vid",
     # "animate_3d"
     # "kling_pro"
-
     "openai_image_edit",
     "openai_image_generate",
 ]
@@ -133,7 +125,7 @@ class Tool(Document, ABC):
     resolutions: Optional[List[str]] = None
     base_model: Optional[BASE_MODELS] = None
 
-    #status: Optional[Literal["inactive", "stage", "prod"]] = "stage"
+    # status: Optional[Literal["inactive", "stage", "prod"]] = "stage"
     active: Optional[bool] = True
     visible: Optional[bool] = True
     allowlist: Optional[str] = None
@@ -215,7 +207,7 @@ class Tool(Document, ABC):
                 _tool_classes[handler] = GCPTool
             elif handler == "fal":
                 from .tools.fal_tool import FalTool
-                
+
                 _tool_classes[handler] = FalTool
             else:
                 from .tools.modal_tool import ModalTool
@@ -239,7 +231,8 @@ class Tool(Document, ABC):
             parent_schema["parameter_presets"] = schema.pop("parameters", {})
             if not from_yaml:
                 parent_parameters = {
-                    p["name"]: {**(p.pop("schema")), **p} for p in parent_schema.pop("parameters", [])
+                    p["name"]: {**(p.pop("schema")), **p}
+                    for p in parent_schema.pop("parameters", [])
                 }
             for k, v in parent_schema["parameter_presets"].items():
                 if k in parent_parameters:
@@ -407,7 +400,7 @@ class Tool(Document, ABC):
 
         try:
             self.model(**prepared_args)
-        
+
         except ValidationError as e:
             print(traceback.format_exc())
             error_str = eden_utils.get_human_readable_error(e.errors())
@@ -434,7 +427,7 @@ class Tool(Document, ABC):
                 result = eden_utils.upload_result(result)
                 result["status"] = "completed"
                 sentry_sdk.add_breadcrumb(category="handle_run", data=result)
-                
+
             except Exception as e:
                 print(traceback.format_exc())
                 result = {"status": "failed", "error": str(e)}
@@ -484,7 +477,7 @@ class Tool(Document, ABC):
             #     if params:
             #         from .agent.enhance import enhance_prompt
             #         for p in params:
-            #             args[p] = await enhance_prompt(params[p]["enhancement_prompt"], args[p])             
+            #             args[p] = await enhance_prompt(params[p]["enhancement_prompt"], args[p])
             # except Exception as e:
             #     print(traceback.format_exc())
             #     print("error running prompt enhancements", e)
@@ -596,7 +589,14 @@ class Tool(Document, ABC):
     def run(self, args: Dict, mock: bool = False):
         return asyncio.run(self.async_run(args, mock))
 
-    def start_task(self, user_id: str, agent_id: str, args: Dict, mock: bool = False, public: bool = False):
+    def start_task(
+        self,
+        user_id: str,
+        agent_id: str,
+        args: Dict,
+        mock: bool = False,
+        public: bool = False,
+    ):
         return asyncio.run(self.async_start_task(user_id, agent_id, args, mock, public))
 
     def wait(self, task: Task):

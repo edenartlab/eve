@@ -1,0 +1,18 @@
+name: Twitter Mentions
+description: Get recent mentions on Twitter
+cost_estimate: 1
+output_type: array
+active: true
+handler: modal
+visible: false
+parameters:
+  agent:
+    type: string
+    label: Agent
+    description: The agent to use to get mentions.
+    required: true
+  start_time:
+    type: string
+    label: Start Time
+    description: Optional ISO 8601 timestamp to get mentions after this time
+    required: false

@@ -4,6 +4,7 @@ description: Generate videos from text prompts (2022)
 active: true
 visible: true
 output_type: video
+cost_estimate: '1.0 * n_frames * (width + height)/(2*512) * (steps/25)'
 parent_tool: eden-comfyui
 
 parameters:
@@ -22,9 +23,11 @@ parameters:
   input_video:
     hide_from_agent: true
     hide_from_ui: true
+
   input_images:
     hide_from_agent: true
     hide_from_ui: true
+
   style_images:
     hide_from_agent: true
     hide_from_ui: true
@@ -32,16 +35,12 @@ parameters:
   mask_images:
     hide_from_agent: true
     hide_from_ui: true
+
   mask_prompts:
     hide_from_agent: true
     hide_from_ui: true
 
-
   ip_adapter_weight:
-    hide_from_agent: true
-    hide_from_ui: true
-
-  motion_scale:
     hide_from_agent: true
     hide_from_ui: true
 

@@ -24,6 +24,8 @@ from eve.api.api_requests import (
     PlatformUpdateRequest,
     UpdateConfig,
     UpdateDeploymentRequest,
+    AgentToolsUpdateRequest,
+    AgentToolsDeleteRequest,
 )
 from eve.api.helpers import (
     emit_update,
@@ -45,7 +47,7 @@ from eve.tools.replicate_tool import replicate_update_task
 from eve.trigger import create_chat_trigger, delete_trigger, Trigger
 from eve.agent.llm import UpdateType
 from eve.agent.run_thread import async_prompt_thread
-from eve.mongo import serialize_document
+from eve.mongo import get_collection, serialize_document
 from eve.task import Task
 from eve.tool import Tool
 from eve.agent import Agent
@@ -133,6 +135,9 @@ async def run_chat_request(
     langfuse_context.update_current_observation(metadata=metadata)
 
     is_client_platform = True if update_config else False
+    request_processed = (
+        False  # Flag to ensure stop signal isn't sent prematurely on error
+    )
 
     try:
         async for update in async_prompt_thread(
@@ -155,7 +160,7 @@ async def run_chat_request(
             }
 
             if update.type == UpdateType.START_PROMPT:
-                update_busy_state(update_config, request_id, True)
+                await update_busy_state(update_config, request_id, True)
             elif update.type == UpdateType.ASSISTANT_MESSAGE:
                 data["content"] = update.message.content
             elif update.type == UpdateType.TOOL_COMPLETE:
@@ -164,25 +169,38 @@ async def run_chat_request(
             elif update.type == UpdateType.ERROR:
                 data["error"] = update.error if hasattr(update, "error") else None
             elif update.type == UpdateType.END_PROMPT:
-                update_busy_state(update_config, request_id, False)
+                await update_busy_state(update_config, request_id, False)
+                request_processed = True  # Mark as processed
+
             await emit_update(update_config, data)
+
+        # If the loop finishes without error, mark as processed
+        request_processed = True
+        await update_busy_state(update_config, request_id, False)
 
     except Exception as e:
         logger.error("Error in run_prompt", exc_info=True)
-        update_busy_state(update_config, request_id, False)
+        # Update busy state immediately on error
+        await update_busy_state(update_config, request_id, False)
+        request_processed = True  # Mark as processed even on error to prevent finally block double-sending
         await emit_update(
             update_config,
-            {"type": "error", "error": str(e)},
+            {"type": UpdateType.ERROR.value, "error": str(e)},
         )
+    finally:
+        # Ensure busy state is set to False if it hasn't been already
+        # by END_PROMPT or the except block.
+        if not request_processed:
+            logger.warning(
+                f"run_chat_request for {request_id} finished without END_PROMPT or error, ensuring busy state is cleared."
+            )
+            await update_busy_state(update_config, request_id, False)
 
 
 async def handle_chat(
     request: ChatRequest,
     background_tasks: BackgroundTasks,
 ):
-    print("handle_chat")
-    print(request)
-
     user, agent, thread, tools = await setup_chat(
         request, cache=True, background_tasks=background_tasks
     )
@@ -670,6 +688,7 @@ async def handle_discord_emission(request: Request):
                     return JSONResponse(status_code=200, content={"ok": True})
 
                 result["result"] = prepare_result(result["result"])
+                print("RESULT", result)
                 outputs = result["result"][0]["output"]
                 urls = [
                     output["url"] for output in outputs[:4] if "url" in output
@@ -720,3 +739,31 @@ async def handle_discord_emission(request: Request):
     except Exception as e:
         logger.error("Error handling Discord emission", exc_info=True)
         return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@handle_errors
+async def handle_agent_tools_update(request: AgentToolsUpdateRequest):
+    agent = Agent.from_mongo(ObjectId(request.agent_id))
+    if not agent:
+        raise APIError(f"Agent not found: {request.agent_id}", status_code=404)
+    # Upsert tools
+    tools = agent.tools or {}
+    tools.update(request.tools)
+    update = {"tools": tools, "add_base_tools": True}
+    agents = get_collection("users3")
+    agents.update_one({"_id": agent.id}, {"$set": update})
+    return {"tools": tools}
+
+
+@handle_errors
+async def handle_agent_tools_delete(request: AgentToolsDeleteRequest):
+    agent = Agent.from_mongo(ObjectId(request.agent_id))
+    if not agent:
+        raise APIError(f"Agent not found: {request.agent_id}", status_code=404)
+    tools = agent.tools or {}
+    for tool in request.tools:
+        tools.pop(tool, None)
+    update = {"tools": tools}
+    agents = get_collection("users3")
+    agents.update_one({"_id": agent.id}, {"$set": update})
+    return {"tools": tools}

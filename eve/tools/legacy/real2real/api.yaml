@@ -1,7 +1,7 @@
 key: legacy_real2real
 name: SDXL Real-to-Real (Legacy)
-description: Create a video interpolation between two images (2022-2024)
-cost_estimate: n_frames * 2
+description: Create a video interpolation between multiple images (2022-2024)
+cost_estimate: n_frames * 1.5 * (steps/30)
 output_type: video
 active: true
 visible: true
@@ -18,6 +18,16 @@ parameters:
     required: false
     hide_from_agent: true
     hide_from_ui: true
+
+  interpolation_prompts:
+    hide_from_agent: true
+    hide_from_ui: true
+  text_inputs_to_interpolate:
+    hide_from_agent: true
+    hide_from_ui: true
+  interpolation_prompt_weights:
+    hide_from_agent: true
+    hide_from_ui: true
   
   init_image_strength:
     default: 0.05
@@ -31,24 +41,29 @@ parameters:
   ip_image_strength:
     hide_from_ui: true
     hide_from_agent: true
+
+  use_audio_file:
+    hide_from_ui: true
+    hide_from_agent: true
+  audio_file:
+    hide_from_ui: true
+    hide_from_agent: true
   
   use_interpolation_init_images:
     default: true
     hide_from_ui: true
     hide_from_agent: true
+
   interpolation_init_images:
     required: true
     visible_if: ""
+
   interpolation_init_images_power:
     visible_if: ""
   interpolation_init_images_min_strength:
     visible_if: ""
   interpolation_init_images_max_strength:
     visible_if: ""
-    
-  seed:
-    hide_from_ui: true
-    hide_from_agent: true
 
   steps:
     default: 30

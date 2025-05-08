@@ -96,7 +96,6 @@ class RateLimiter:
             highest_limit = max(limits, key=lambda x: x.spend)
             highest_limits.append(highest_limit)
 
-        print("XXX highest_limits", highest_limits)
         return highest_limits
 
     async def _check_against_limits(self, highest_limits, pipeline):
@@ -105,10 +104,8 @@ class RateLimiter:
         Raises APIError if any limit is exceeded.
         """
         for limit in highest_limits:
-            print("XXX limit", limit)
             result = list(Task.get_collection().aggregate(pipeline(limit)))
             total_spend = result[0]["total_spend"] if result else 0
-            print("XXX total_spend", total_spend)
             if total_spend >= limit.spend:
                 period_minutes = limit.period // 60
                 period_display = (
