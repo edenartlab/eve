@@ -22,7 +22,7 @@ from .thread import Thread
 
 last_tools_update = None
 agent_tools_cache = {}
-OWNER_ONLY_TOOLS = ["tweet", "twitter_mentions", "twitter_search"]
+OWNER_ONLY_TOOLS = ["tweet", "twitter_mentions", "twitter_search", "discord_search"]
 
 
 class KnowledgeDescription(BaseModel):
