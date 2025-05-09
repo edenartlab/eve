@@ -28,7 +28,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
         # Get messages from relevant channels
         messages = []
         for channel_info in allowed_channels:
-            channel_id = channel_info["id"]
+            channel_id = channel_info.get("id")
             channel_note = channel_info.get("note", "").lower()
 
             # Skip channels that don't match the query in their note
