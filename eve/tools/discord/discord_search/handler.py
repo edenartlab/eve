@@ -38,7 +38,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
             try:
                 channel = await client.fetch_channel(int(channel_id))
 
-                # Get last 100 messages or messages from last 24 hours
+                # Get last 10 messages or messages from last 24 hours
                 async for message in channel.history(limit=10):
                     messages.append(
                         {
