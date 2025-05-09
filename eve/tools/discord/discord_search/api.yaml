@@ -1,0 +1,12 @@
+name: discord_search
+description: Search for messages in Discord channels based on channel notes and time range
+parameters:
+  query:
+    type: string
+    description: Search query to match against channel notes
+    required: true
+  agent:
+    type: string
+    description: Agent ID
+    required: true
+    hide_from_agent: true
