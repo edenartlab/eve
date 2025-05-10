@@ -6,7 +6,7 @@ cost_estimate: 100
 output_type: video
 handler: modal
 active: true
-visible: false
+visible: true
 parameters:
   image:
     type: image

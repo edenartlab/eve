@@ -5,7 +5,7 @@ output_type: video
 base_model: flux-dev
 active: true
 handler: modal
-visible: false
+visible: true
 parameters:
   prompt:
     type: string
