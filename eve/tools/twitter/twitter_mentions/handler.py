@@ -15,7 +15,10 @@ async def handler(args: dict, user: str = None, agent: str = None):
 
     # Format the response to include relevant tweet data
     tweets = []
+    print("Tweet mentions")
     for tweet in response.get("data", []):
+        print("--------------------------------")
+        print(tweet["id"], tweet["text"])
         tweets.append(
             {
                 "id": tweet["id"],

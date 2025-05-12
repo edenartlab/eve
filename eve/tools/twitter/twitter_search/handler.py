@@ -27,4 +27,6 @@ async def handler(args: dict, user: str = None, agent: str = None):
         params=params,
     )
 
+    print("Twitter search response", response.json())
+
     return {"output": response.json()}
