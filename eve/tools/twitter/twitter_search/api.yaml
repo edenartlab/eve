@@ -6,11 +6,6 @@ active: true
 handler: modal
 visible: false
 parameters:
-  agent:
-    type: string
-    label: Agent
-    description: The agent to use to search for tweets.
-    required: true
   query:
     type: string
     label: Search Query
