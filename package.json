@@ -1,0 +1,17 @@
+{
+  "name": "eve",
+  "version": "1.0.0",
+  "description": "Eve is a creative assistant building framework wrapping open-source generative tools.",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {},
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@playwright/test": "^1.50.1",
+    "@types/node": "^22.13.1"
+  }
+}
