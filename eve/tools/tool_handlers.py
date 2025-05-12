@@ -88,6 +88,11 @@ def load_handler(name):
 
             handlers[name] = handler
 
+        elif name == "discord_search":
+            from .discord.discord_search.handler import handler
+
+            handlers[name] = handler
+
         elif name == "news":
             from .news.handler import handler
 

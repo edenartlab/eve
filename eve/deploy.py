@@ -403,6 +403,7 @@ def deploy_client_modal(
 async def deploy_client_discord(deployment: Deployment, secrets: DeploymentSecrets):
     """
     For HTTP-based Discord bots, we verify the token and notify the gateway service via Ably.
+    Also adds discord_search tool to agent's tools.
     """
     try:
         ably_client = AblyRest(os.getenv("ABLY_PUBLISHER_KEY"))
@@ -412,6 +413,22 @@ async def deploy_client_discord(deployment: Deployment, secrets: DeploymentSecre
             "command", {"command": "start", "deployment_id": str(deployment.id)}
         )
         print(f"Sent start command for deployment {deployment.id} via Ably")
+
+        # Add discord_search tool to agent's tools
+        agent = Agent.from_mongo(deployment.agent)
+        if not agent:
+            raise Exception("Agent not found")
+
+        if not agent.tools:
+            agent.tools = {}
+            agent.add_base_tools = True
+
+        agent.tools["discord_search"] = {
+            "parameters": {"agent": {"default": str(agent.id), "hide_from_agent": True}}
+        }
+
+        agent.save()
+
     except Exception as e:
         print(f"Failed to notify gateway service: {e}")
         raise Exception("Failed to start gateway client")
@@ -507,6 +524,14 @@ async def stop_client_discord(deployment: Deployment):
                 {"command": "stop", "deployment_id": str(deployment.id)},
             )
             print(f"Sent stop command for deployment {deployment.id} via Ably")
+
+            # Remove discord_search tool from agent's tools
+            agent = Agent.from_mongo(deployment.agent)
+            if agent and agent.tools:
+                if "discord_search" in agent.tools:
+                    agent.tools.pop("discord_search")
+                agent.save()
+
         except Exception as e:
             print(f"Failed to notify gateway service: {e}")
 

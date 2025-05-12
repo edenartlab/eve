@@ -1,0 +1,21 @@
+name: discord_search
+description: Search for messages in Discord channels based on channel notes and time range
+tip: |-
+  This tool allows an agent to search for messages in Discord channels based on channel notes and time range.
+  Only use this tool when the user explicitly requests a search for messages in Discord channels.
+  Do not use this tool for other purposes.
+cost_estimate: 0
+output_type: array
+active: true
+handler: modal
+visible: false
+parameters:
+  query:
+    type: string
+    description: Search query to match against channel notes
+    required: true
+  agent:
+    type: string
+    description: Agent ID
+    required: true
+    hide_from_agent: true
