@@ -22,7 +22,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
                 "text": tweet["text"],
                 "author_id": tweet["author_id"],
                 "created_at": tweet.get("created_at"),
-                "url": f"https://x.com/{deployment.config.twitter.username}/status/{tweet['id']}",
+                "url": f"https://x.com/{tweet['username']}/status/{tweet['id']}",
             }
         )
 
