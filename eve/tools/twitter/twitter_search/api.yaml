@@ -21,8 +21,3 @@ parameters:
     label: End Time
     description: Optional ISO 8601 timestamp to get tweets before this time
     required: false
-  granularity:
-    type: string
-    label: Granularity
-    description: The granularity for the search counts results (minute, hour, day)
-    required: false
