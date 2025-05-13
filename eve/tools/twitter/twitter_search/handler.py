@@ -1,3 +1,4 @@
+from eve.agent.thread import UserMessage
 from ....deploy import Deployment
 from ....agent import Agent
 from .. import X
@@ -40,7 +41,9 @@ Example:
 The query should be constructed using these operators when applicable."""
 
     messages = [
-        {"role": "user", "content": f"Parse this Twitter search query: {args['query']}"}
+        UserMessage(
+            role="user", content=f"Parse this Twitter search query: {args['query']}"
+        ),
     ]
 
     parsed_query = await async_prompt(
