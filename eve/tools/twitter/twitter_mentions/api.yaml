@@ -6,11 +6,6 @@ active: true
 handler: modal
 visible: false
 parameters:
-  agent:
-    type: string
-    label: Agent
-    description: The agent to use to get mentions.
-    required: true
   start_time:
     type: string
     label: Start Time

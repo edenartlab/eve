@@ -4,7 +4,7 @@ from .. import X
 
 
 async def handler(args: dict, user: str = None, agent: str = None):
-    agent = Agent.from_mongo(args.get("agent"))
+    agent = Agent.from_mongo(agent)
     deployment = Deployment.load(agent=agent.id, platform="twitter")
     if not deployment:
         raise Exception("No valid twitter deployments found")
@@ -19,4 +19,9 @@ async def handler(args: dict, user: str = None, agent: str = None):
         response = x.post(text=args.get("content"))
     tweet_id = response.get("data", {}).get("id")
     url = f"https://x.com/{deployment.config.twitter.username}/status/{tweet_id}"
-    return url
+    return {
+        "output": [{
+            "id": tweet_id,
+            "url": url
+        }]
+    }
