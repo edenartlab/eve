@@ -753,7 +753,7 @@ image = (
         "libegl1",
     )
     .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
-    .pip_install("diffusers==0.31.0", "psutil")
+    .pip_install("diffusers==0.31.0", "psutil", "flet==0.27.6")
     .env({"WORKSPACE": workspace_name})
     .add_local_python_source("eve", copy=True)
     # First copy of workflow files
@@ -764,7 +764,7 @@ image = (
     )
     .run_function(install_comfyui)
     .run_function(install_custom_nodes, gpu="A100")
-    .pip_install("moviepy==1.0.3", "accelerate==1.4.0", "peft==0.14.0", "transformers==4.49.0")
+    .pip_install("moviepy==1.0.3", "accelerate==1.4.0", "peft==0.14.0", "transformers==4.49.0", "flet==0.27.6")
     .run_function(download_files, volumes={"/data": downloads_vol}, secrets=[
             modal.Secret.from_name("eve-secrets"),
             modal.Secret.from_name(f"eve-secrets-{db}"),
