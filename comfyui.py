@@ -299,38 +299,81 @@ def handle_file_download(url, vol_path, comfy_path, force=False):
 def download_files(force_redownload=False):
     """
     Main function to process downloads from downloads.json.
+    If a source URL appears multiple times, it's downloaded once to the persistent
+    volume path corresponding to its first encountered key in downloads.json.
+    Subsequent entries for the same URL will have their comfy_path symlinked
+    to this single downloaded copy.
+    The force_redownload flag refreshes the content of this first download.
 
     Args:
         force_redownload (bool): If True, force redownload and overwrite existing files.
     """
     downloads = json.load(open("/root/workspace/downloads.json", "r"))
+    # Maps actual_source_url to its persistent_vol_path where it was first downloaded/cloned.
+    downloaded_source_registry = {}
 
-    for path, source in downloads.items():
-        comfy_path = pathlib.Path("/root") / path
-        vol_path = pathlib.Path("/data") / path
+    for path_key, source_identifier in downloads.items():
+        comfy_path = pathlib.Path("/root") / path_key  # Target path in ComfyUI's view (e.g., /root/models/...)
+        # persistent_vol_path is the path on /data IF this entry causes a download.
+        # It's derived from path_key, implying a unique storage location per downloads.json key if downloaded directly by this entry.
+        current_entry_persistent_vol_path = pathlib.Path("/data") / path_key
 
-        # Skip if target already exists and force_redownload is False
-        if (comfy_path.is_file() or comfy_path.is_dir()) and not force_redownload:
-            print(f"Path already exists at {comfy_path}, skipping")
+        # If comfy_path already exists (e.g., from a previous run) and we are not forcing a redownload for this entry,
+        # we can skip processing it. The optimization is primarily for downloads within a single fresh run.
+        if comfy_path.exists() and not force_redownload:
+            print(f"Comfy path {comfy_path} already exists and not forcing redownload, skipping processing for this entry.")
+            # Note: If this comfy_path was for a URL that *will* appear again, and this skip prevents
+            # populating downloaded_source_registry, the later occurrence might download it.
+            # This is acceptable; the main goal is to avoid duplicate downloads for URLs processed *within the same run*.
+            # For a truly clean state ensuring all symlinks, clear /root and /data before run.
             continue
 
         try:
-            if source.startswith("git clone "):
-                # Extract the repository URL after "git clone "
-                repo_url = source[10:].strip()
-                handle_repo_download(
-                    repo_url, vol_path, comfy_path, force=force_redownload
-                )
-            else:
-                handle_file_download(
-                    source, vol_path, comfy_path, force=force_redownload
-                )
+            is_git_clone = source_identifier.startswith("git clone ")
+            actual_source_url = source_identifier[10:].strip() if is_git_clone else source_identifier
 
+            if actual_source_url in downloaded_source_registry:
+                # This source URL has already been processed (downloaded/cloned) in this run.
+                original_persistent_path = downloaded_source_registry[actual_source_url]
+                
+                print(f"Source '{actual_source_url}' already processed to persistent path '{original_persistent_path}'.")
+                if force_redownload:
+                    # The content at original_persistent_path should have been refreshed by its first encounter if force_redownload is true.
+                    print(f"Force_redownload is True; ensuring symlink from '{comfy_path}' to refreshed content at '{original_persistent_path}'.")
+                else:
+                    print(f"Creating symlink from '{comfy_path}' to '{original_persistent_path}'.")
+                
+                # Ensure the comfy_path for *this* entry symlinks to the one true persistent copy.
+                # Force symlink creation to overwrite existing file/symlink at comfy_path if necessary.
+                create_symlink(original_persistent_path, comfy_path, is_directory=original_persistent_path.is_dir(), force=True)
+            else:
+                # This is the first time this actual_source_url is being processed in this run.
+                # It needs to be downloaded/cloned. It will be stored at current_entry_persistent_vol_path.
+                # This path then becomes the canonical persistent path for this actual_source_url in the registry.
+                print(f"Processing source '{actual_source_url}' for the first time in this run.")
+                print(f"It will be stored at persistent path: '{current_entry_persistent_vol_path}'.")
+                print(f"ComfyUI path will be: '{comfy_path}'.")
+
+                if is_git_clone:
+                    # handle_repo_download clones to current_entry_persistent_vol_path and symlinks comfy_path to it.
+                    handle_repo_download(actual_source_url, current_entry_persistent_vol_path, comfy_path, force=force_redownload)
+                else:
+                    # handle_file_download downloads to current_entry_persistent_vol_path and symlinks comfy_path to it.
+                    handle_file_download(actual_source_url, current_entry_persistent_vol_path, comfy_path, force=force_redownload)
+
+                # Register this source URL and its actual persistent storage path.
+                downloaded_source_registry[actual_source_url] = current_entry_persistent_vol_path
+                print(f"Registered '{actual_source_url}' to persistent path '{current_entry_persistent_vol_path}'.")
+
+            # Final check: the comfy_path must exist after processing.
             if not comfy_path.exists():
-                raise Exception(f"No file/directory found at {comfy_path}")
+                # This could happen if create_symlink failed silently or handle_x_download didn't create the symlink.
+                raise Exception(f"ComfyUI path {comfy_path} was not found after processing source {source_identifier}. Expected it to be a symlink or file.")
 
         except Exception as e:
-            raise Exception(f"Error processing {path}: {e}")
+            # Provide context for which item failed.
+            detailed_error = traceback.format_exc()
+            raise Exception(f"Error processing download item with key '{path_key}' (source: '{source_identifier}'): {e}\nFull Traceback:\n{detailed_error}")
 
 
 def get_workflows():
