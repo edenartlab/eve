@@ -52,6 +52,8 @@ parameters:
   learning_rate:
     type: float
     label: Learning rate
+    hide_from_ui: true
+    hide_from_agent: true
     description: |-
       Learning rate for training. Higher values converge faster but too high might cause overfitting. Low values are more accurate but take more training steps.
     default: 0.5e-04
