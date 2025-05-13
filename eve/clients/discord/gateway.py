@@ -556,6 +556,7 @@ class DiscordGatewayClient:
         thread = self.known_threads[thread_key]
 
         # Lookup user
+        
         if user_id not in self.known_users:
             self.known_users[user_id] = User.from_discord(user_id, username)
         user = self.known_users[user_id]
