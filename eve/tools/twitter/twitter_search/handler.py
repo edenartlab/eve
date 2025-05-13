@@ -47,6 +47,7 @@ The query should be constructed using these operators when applicable."""
         messages=messages,
         system_message=system_message,
         response_model=TwitterSearchQuery,
+        model="gpt-4o",
     )
 
     x = X(deployment)
