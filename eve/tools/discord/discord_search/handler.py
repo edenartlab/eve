@@ -1,6 +1,21 @@
 from ....deploy import Deployment
 from ....agent import Agent
+from ....agent.thread import UserMessage
+from ....agent.llm import async_prompt
+from pydantic import BaseModel
 import discord
+from datetime import datetime, timedelta
+from typing import Optional
+
+
+class ChannelSearchParams(BaseModel):
+    channel_id: str
+    message_limit: Optional[int] = None
+    time_window_hours: Optional[int] = None
+
+
+class DiscordSearchQuery(BaseModel):
+    channels: list[ChannelSearchParams]
 
 
 async def handler(args: dict):
@@ -18,6 +33,41 @@ async def handler(args: dict):
     if not allowed_channels:
         raise Exception("No channels configured for this deployment")
 
+    # Use LLM to parse the search query and determine search parameters
+    system_message = """You are a Discord search query parser. Your task is to:
+1. Analyze the query to determine which channels to search and their specific parameters
+2. For each channel, determine if we should fetch a specific number of messages or use a time window
+3. Return a structured query object with a list of channels and their search parameters
+
+Example channel notes might include:
+- "general discussion"
+- "announcements"
+- "tech support"
+- "random"
+
+Example queries:
+"Show me recent tech support messages" -> Search in tech support channels, last 10 messages
+"Get all announcements from the last 24 hours" -> Search in announcement channels, last 24 hours
+"Show me the last 5 messages from general discussion" -> Search in general channels, last 5 messages
+
+You must return a list of ChannelSearchParams objects, each containing:
+- channel_id: The ID of the channel to search
+- message_limit: Optional number of messages to fetch
+- time_window_hours: Optional time window in hours
+
+At least one of message_limit or time_window_hours must be specified for each channel."""
+
+    messages = [
+        UserMessage(role="user", content=f"Parse this Discord search query: {query}"),
+    ]
+
+    parsed_query = await async_prompt(
+        messages=messages,
+        system_message=system_message,
+        response_model=DiscordSearchQuery,
+        model="gpt-4o",
+    )
+
     # Create Discord client
     client = discord.Client(intents=discord.Intents.default())
 
@@ -27,20 +77,21 @@ async def handler(args: dict):
 
         # Get messages from relevant channels
         messages = []
-        for channel_info in allowed_channels:
-            channel_id = channel_info.id
-            channel_note = channel_info.note
-            channel_note_str = str(channel_note).lower()
-
-            # Skip channels that don't match the query in their note
-            if query.lower() not in channel_note_str:
-                continue
-
+        for channel_params in parsed_query.channels:
             try:
-                channel = await client.fetch_channel(int(channel_id))
+                channel = await client.fetch_channel(int(channel_params.channel_id))
 
-                # Get last 10 messages or messages from last 24 hours
-                async for message in channel.history(limit=10):
+                # Determine time window if specified
+                after = None
+                if channel_params.time_window_hours:
+                    after = datetime.utcnow() - timedelta(
+                        hours=channel_params.time_window_hours
+                    )
+
+                # Get messages based on parsed parameters
+                async for message in channel.history(
+                    limit=channel_params.message_limit, after=after
+                ):
                     messages.append(
                         {
                             "id": str(message.id),
@@ -53,7 +104,9 @@ async def handler(args: dict):
                         }
                     )
             except Exception as e:
-                print(f"Error fetching messages from channel {channel_id}: {e}")
+                print(
+                    f"Error fetching messages from channel {channel_params.channel_id}: {e}"
+                )
                 continue
 
         return {"output": messages}
