@@ -3,8 +3,8 @@ from ....agent import Agent
 from .. import X
 
 
-async def handler(args: dict, user: str = None, agent: str = None):
-    agent = Agent.from_mongo(agent)
+async def handler(args: dict):
+    agent = Agent.from_mongo(args["agent"])
     deployment = Deployment.load(agent=agent.id, platform="twitter")
     if not deployment:
         raise Exception("No valid twitter deployments found")
