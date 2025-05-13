@@ -50,6 +50,8 @@ The query should be constructed using these operators when applicable."""
         model="gpt-4o",
     )
 
+    print("Parsed query", parsed_query)
+
     x = X(deployment)
     params = {
         "query": parsed_query.query,
