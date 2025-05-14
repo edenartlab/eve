@@ -12,95 +12,22 @@ from datetime import datetime, timezone
 from instructor.function_calls import openai_schema
 import sentry_sdk
 
-from eve.agent.agent import Agent
-from eve.api.rate_limiter import RateLimiter
-
+# Import Tool constants from the new module
+from .tool_constants import (
+    OUTPUT_TYPES,
+    HANDLERS,
+    BASE_MODELS,
+)
 from . import eden_utils
 from .base import parse_schema
 from .user import User
 from .task import Task
 from .mongo import Document, Collection, get_collection
+from .api.rate_limiter import RateLimiter
 from sentry_sdk import trace
 
-OUTPUT_TYPES = Literal[
-    "boolean", "string", "integer", "float", "array", "image", "video", "audio", "lora"
-]
-
-HANDLERS = Literal[
-    "local", "modal", "comfyui", "comfyui_legacy", "replicate", "gcp", "fal"
-]
-
-BASE_MODELS = Literal[
-    "sd15",
-    "sdxl",
-    "sd3",
-    "sd35",
-    "flux-dev",
-    "flux-schnell",
-    "hellomeme",
-    "stable-audio-open",
-    "inspyrenet-rembg",
-    "mochi-preview",
-    "runway",
-    "mmaudio",
-    "librosa",
-    "musicgen",
-    "kling",
-    "svd-xt",
-    "wan21",
-    "ltxv",
-]
-
-# These tools are default agent tools except Eve
-BASE_TOOLS = [
-    # text-to-image
-    "flux_schnell",
-    "flux_dev_lora",
-    "flux_dev",
-    "txt2img",
-    # more image generation
-    "flux_inpainting",
-    "outpaint",
-    "remix_flux_schnell",
-    "flux_double_character",
-    # video
-    "runway",
-    "kling_pro",
-    "hedra",
-    "vid2vid_sdxl",
-    "video_FX",
-    "texture_flow",
-    # audio
-    "musicgen",
-    "elevenlabs",
-    "mmaudio",
-    "stable_audio",
-    "zonos",
-    # editing
-    "media_editor",
-    # search
-    "search_agents",
-    "search_models",
-    "search_collections",
-    "add_to_collection",
-    # misc
-    "news",
-    "websearch",
-    "weather",
-    # inactive
-    # "ominicontrol",
-    # "flux_redux",
-    "reel",
-    # "txt2vid",
-    # "animate_3d"
-    # "kling_pro"
-    "openai_image_edit",
-    "openai_image_generate",
-]
-
-FLUX_LORA_TOOLS = ["flux_dev_lora", "flux_dev", "reel"]
-
-SDXL_LORA_TOOLS = ["txt2img"]
+# Forward declaration of Agent type to avoid circular import
+Agent = Any  # This will be properly imported when needed in functions
 
 
 class RateLimit(BaseModel):
@@ -460,8 +387,7 @@ class Tool(Document, ABC):
                 if agent_id:
                     agent = Agent.from_mongo(agent_id)
                     if agent.owner_pays and is_client_platform:
-                        paying_user_id = agent.owner
-                        paying_user = User.from_mongo(paying_user_id)
+                        paying_user = User.from_mongo(agent.owner)
                     else:
                         paying_user = user
                 else:
@@ -492,7 +418,7 @@ class Tool(Document, ABC):
                 mock=mock,
                 cost=cost,
                 public=public,
-                paying_user=paying_user_id,
+                paying_user=paying_user.id,
             )
             task.save()
             sentry_sdk.add_breadcrumb(

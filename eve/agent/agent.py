@@ -12,7 +12,12 @@ from datetime import datetime
 from dotenv import dotenv_values
 from pydantic import SecretStr, Field, BaseModel, ConfigDict
 
-from ..tool import Tool, BASE_TOOLS, FLUX_LORA_TOOLS, SDXL_LORA_TOOLS
+from ..tool_constants import (
+    BASE_TOOLS,
+    FLUX_LORA_TOOLS,
+    SDXL_LORA_TOOLS,
+    OWNER_ONLY_TOOLS,
+)
 from ..mongo import Collection, get_collection
 from ..models import Model
 from ..user import User, Manna
@@ -22,7 +27,6 @@ from .thread import Thread
 
 last_tools_update = None
 agent_tools_cache = {}
-OWNER_ONLY_TOOLS = ["tweet", "twitter_mentions", "twitter_search", "discord_search"]
 
 
 class KnowledgeDescription(BaseModel):
@@ -246,6 +250,10 @@ class Agent(User):
 
         if cache:
             # get latest updatedAt timestamp for tools
+            from ..tool import (
+                Tool,
+            )  # Import Tool class when needed to avoid circular imports
+
             tools = get_collection(Tool.collection_name)
             timestamps = tools.find({}, {"updatedAt": 1})
             last_tools_update_ = max(
@@ -270,6 +278,9 @@ class Agent(User):
 
             tools = agent_tools_cache[self.username]
         else:
+            # Import Tool class when needed to avoid circular imports
+            from ..tool import Tool
+
             tools = {
                 k: Tool.from_raw_yaml({"parent_tool": k, **v})
                 for k, v in self.tools.items()
