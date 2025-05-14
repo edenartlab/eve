@@ -19,6 +19,7 @@ from .tool_constants import (
     BASE_MODELS,
 )
 from . import eden_utils
+from .agent.agent import Agent
 from .base import parse_schema
 from .user import User
 from .task import Task
