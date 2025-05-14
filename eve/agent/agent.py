@@ -86,6 +86,8 @@ class Agent(User):
     tools: Optional[Dict[str, Dict]] = {}
     add_base_tools: Optional[bool] = True
 
+    owner_pays: Optional[bool] = False
+
     def __init__(self, **data):
         if isinstance(data.get("owner"), str):
             data["owner"] = ObjectId(data["owner"])

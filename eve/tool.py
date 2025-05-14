@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from instructor.function_calls import openai_schema
 import sentry_sdk
 
+from eve.agent.agent import Agent
 from eve.api.rate_limiter import RateLimiter
 
 from . import eden_utils
@@ -451,13 +452,23 @@ class Tool(Document, ABC):
             is_client_platform: bool = False,
         ):
             try:
-                # validate args and user manna balance
                 args = self.prepare_args(args)
                 sentry_sdk.add_breadcrumb(category="handle_start_task", data=args)
                 cost = self.calculate_cost(args)
                 user = User.from_mongo(user_id)
-                user.check_manna(cost)
 
+                if agent_id:
+                    agent = Agent.from_mongo(agent_id)
+                    if agent.owner_pays and is_client_platform:
+                        paying_user_id = agent.owner
+                        paying_user = User.from_mongo(paying_user_id)
+                    else:
+                        paying_user = user
+                else:
+                    paying_user = user
+
+                # validate args and user manna balance
+                paying_user.check_manna(cost)
             except Exception as e:
                 print(traceback.format_exc())
                 raise Exception(f"Task submission failed: {str(e)}. No manna deducted.")
@@ -471,18 +482,6 @@ class Tool(Document, ABC):
                 else:
                     await rate_limiter.check_manna_spend_rate_limit(user)
 
-            # Run prompt enhancements if any
-            # try:
-            #     params = {k: v for k, v in self.parameters.items() if v.get("enhancement_prompt")}
-            #     if params:
-            #         from .agent.enhance import enhance_prompt
-            #         for p in params:
-            #             args[p] = await enhance_prompt(params[p]["enhancement_prompt"], args[p])
-            # except Exception as e:
-            #     print(traceback.format_exc())
-            #     print("error running prompt enhancements", e)
-
-            # create task and set to pending
             task = Task(
                 user=user_id,
                 agent=agent_id,
@@ -493,6 +492,7 @@ class Tool(Document, ABC):
                 mock=mock,
                 cost=cost,
                 public=public,
+                paying_user=paying_user_id,
             )
             task.save()
             sentry_sdk.add_breadcrumb(
@@ -519,8 +519,7 @@ class Tool(Document, ABC):
                     handler_id = await start_task_function(self, task)
                     task.update(handler_id=handler_id)
 
-                if "free_tools" not in (user.featureFlags or []):
-                    print("free manna for task", task.id, "for user", user.id)
+                if "free_tools" not in (paying_user.featureFlags or []):
                     task.spend_manna()
 
             except Exception as e:
