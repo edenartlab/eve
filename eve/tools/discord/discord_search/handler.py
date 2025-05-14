@@ -1,3 +1,4 @@
+from eve.user import User
 from ....deploy import Deployment
 from ....agent import Agent
 from ....agent.thread import UserMessage
@@ -18,7 +19,7 @@ class DiscordSearchQuery(BaseModel):
     channels: list[ChannelSearchParams]
 
 
-async def handler(args: dict):
+async def handler(args: dict, user: User, agent: Agent):
     agent = Agent.from_mongo(args["agent"])
     deployment = Deployment.load(agent=agent.id, platform="discord")
     if not deployment:

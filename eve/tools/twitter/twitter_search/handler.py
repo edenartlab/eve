@@ -1,3 +1,4 @@
+from eve.user import User
 from eve.agent.thread import UserMessage
 from ....deploy import Deployment
 from ....agent import Agent
@@ -10,7 +11,7 @@ class TwitterSearchQuery(BaseModel):
     query: str
 
 
-async def handler(args: dict):
+async def handler(args: dict, user: User, agent: Agent):
     agent = Agent.from_mongo(args["agent"])
     deployment = Deployment.load(agent=agent.id, platform="twitter")
     if not deployment:
