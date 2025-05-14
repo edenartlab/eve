@@ -27,9 +27,6 @@ from .mongo import Document, Collection, get_collection
 from .api.rate_limiter import RateLimiter
 from sentry_sdk import trace
 
-# Forward declaration of Agent type to avoid circular import
-Agent = Any  # This will be properly imported when needed in functions
-
 
 class RateLimit(BaseModel):
     period: int
