@@ -30,13 +30,13 @@ async def handler(args: dict):
 
     # Get allowed channels from deployment config
     allowed_channels = deployment.config.discord.channel_allowlist
-    if not allowed_channels:
+    read_access_channels = deployment.config.discord.read_access_channels
+    all_channels = allowed_channels + read_access_channels
+    if not all_channels:
         raise Exception("No channels configured for this deployment")
 
     # Create a mapping of channel notes to their IDs
-    channel_map = {
-        str(channel.note).lower(): channel.id for channel in allowed_channels
-    }
+    channel_map = {str(channel.note).lower(): channel.id for channel in all_channels}
 
     # Use LLM to parse the search query and determine search parameters
     system_message = """You are a Discord search query parser. Your task is to:
