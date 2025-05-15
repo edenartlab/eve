@@ -1,0 +1,26 @@
+{
+    "prompt": "Epic cinematic trailer music, orchestral, with powerful brass and choir, 120 BPM",
+    "lyrics": "In a world of dragons,\nA hero will rise,\nTo save us all.",
+    "audio_duration": 30,
+    "infer_step": 50,
+    "guidance_scale": 7.5,
+    "scheduler_type": "dpmpp_2m_sde",
+    "cfg_type": "text_lyric", 
+    "omega_scale": 1.0,
+    "manual_seeds": "42, 123",
+    "guidance_interval": 0.9,
+    "guidance_interval_decay": 0.9,
+    "min_guidance_scale": 1.5,
+    "use_erg_tag": true,
+    "use_erg_lyric": true,
+    "use_erg_diffusion": true,
+    "oss_steps": "20,30,40",
+    "guidance_scale_text": 3.0,
+    "guidance_scale_lyric": 2.5,
+
+    "checkpoint_path": "/app/checkpoints/acestep_model",
+    "bf16": true,
+    "torch_compile": false,
+    "cpu_offload": false,
+    "overlapped_decode": false
+} 

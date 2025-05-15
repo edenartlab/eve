@@ -1,0 +1,88 @@
+name: ACE-Step Musicgen
+description: Generates music using the ACE-Step model based on a prompt, lyrics, and various generation parameters.
+cost_estimate: 10 * audio_duration * (infer_step/27)
+output_type: audio
+base_model: acestep
+active: true
+handler: modal
+visible: true
+parameters:
+  prompt:
+    type: string
+    label: Prompt (Tags)
+    description: "Text prompt describing the desired music (e.g., genre, mood, instruments). Support tags, descriptions, and scene. Use commas to separate different tags. Examples from AI music generation community."
+    required: true
+    default: "funk, pop, soul, rock, melodic, guitar, drums, bass, keyboard, percussion, 105 BPM, energetic, upbeat, groovy, vibrant, dynamic"
+  lyrics:
+    type: string
+    label: Lyrics
+    description: "Optional lyrics for the music. Can be multi-line. Support lyric structure tags like [verse], [chorus], and [bridge]. Use [instrumental] or [inst] for instrumental music."
+    default: ""
+    required: false
+  audio_duration:
+    type: float
+    label: Audio Duration (seconds)
+    description: Desired duration of the generated audio in seconds.
+    required: true
+    minimum: 5.0
+    maximum: 240.0
+    default: 30.0
+    step: 0.25
+  infer_step:
+    type: integer
+    label: Inference Steps
+    description: Number of inference steps for the diffusion model.
+    default: 27
+    minimum: 10
+    maximum: 60
+  guidance_scale:
+    type: float
+    label: Guidance Scale
+    description: Controls how much the generation adheres to the prompt. When guidance_scale_lyric > 1 and guidance_scale_text > 1, this global guidance scale might not be applied.
+    default: 15.0
+    minimum: 0.0
+    maximum: 30.0
+    step: 0.1
+  guidance_scale_text:
+    type: float
+    label: Guidance Scale (Text)
+    description: Specific guidance scale for text component. It can only apply to CFG. Suggested start: text=5.0, lyric=1.5.
+    default: 0.0
+    minimum: 0.0
+    maximum: 10.0
+    step: 0.1
+  guidance_scale_lyric:
+    type: float
+    label: Guidance Scale (Lyric)
+    description: "Specific guidance scale for lyric component."
+    default: 0.0
+    minimum: 0.0
+    maximum: 10.0
+    step: 0.1
+  manual_seeds:
+    type: string
+    label: Manual Seeds
+    description: Comma-separated list of seeds (e.g., "123,456"). Use "-1" or leave empty for random. Seed for the generation.
+    default: null
+  scheduler_type:
+    type: string
+    label: Scheduler Type
+    description: "Scheduler type for the generation. 'euler' is recommended. 'heun' takes more time. 'pingpong' uses SDE. Options: ['euler', 'heun', 'pingpong']"
+    default: "euler"
+    required: false
+    enum: ["euler", "heun", "pingpong"]
+  cfg_type:
+    type: string
+    label: CFG Type
+    description: "CFG type for the generation. 'apg' is recommended. 'cfg' and 'cfg_star' are similar. Options: ['cfg', 'apg', 'cfg_star']"
+    default: "apg"
+    required: false
+    enum: ["cfg", "apg", "cfg_star"]
+  omega_scale:
+    type: float
+    label: Granularity Scale
+    description: "Granularity scale for the generation. Higher values can reduce artifacts."
+    default: 10.0
+    minimum: -100.0
+    maximum: 100.0
+    step: 0.1
