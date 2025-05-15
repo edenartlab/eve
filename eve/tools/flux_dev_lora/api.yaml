@@ -4,6 +4,7 @@ tip: |-
   This is a higher quality Flux model. Use this tool instead of Flux Schnell tool if the prompt calls for rendering text, has exacly one Lora with flux-dev base model selected, or the user requests higher quality.
 cost_estimate: 2 * n_samples
 output_type: image
+visible: false
 base_model: flux-dev
 replicate_model: black-forest-labs/flux-dev
 replicate_model_substitutions:
