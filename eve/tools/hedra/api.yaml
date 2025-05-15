@@ -5,6 +5,7 @@ tip: |-
 cost_estimate: 100
 output_type: video
 handler: modal
+thumbnail: app/hedra_opt.mp4
 active: true
 visible: true
 parameters:
