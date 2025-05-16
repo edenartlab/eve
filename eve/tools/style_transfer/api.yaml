@@ -46,8 +46,10 @@ parameters:
 
   # remove width/height considerations
   size_from_input:
+    default: true
     hide_from_ui: true
   enforce_SDXL_resolution:
+    default: true
     hide_from_ui: true
   width:
     hide_from_ui: true
