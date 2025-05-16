@@ -3,6 +3,7 @@ name: SDXL Text-to-Video ComfyUI (Legacy)
 description: Generate videos from text prompts (2022)
 active: true
 visible: true
+thumbnail: app/eden_logo_trans.png
 output_type: video
 cost_estimate: '1.0 * n_frames * (width + height)/(2*512) * (steps/25)'
 parent_tool: eden-comfyui

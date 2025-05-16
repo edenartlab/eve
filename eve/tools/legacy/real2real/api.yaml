@@ -5,6 +5,7 @@ cost_estimate: n_frames * 1.5 * (steps/30)
 output_type: video
 active: true
 visible: true
+thumbnail: app/eden_logo_trans.png
 replicate_model: edenartlab/sdxl-pipelines
 version: 29ac229daa39d34209d4ba9b1a812beaa9e31ff5c138839051cc10aa54d6360e
 parent_tool: legacy_sdxl_pipelines

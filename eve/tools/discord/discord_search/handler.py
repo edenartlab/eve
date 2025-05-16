@@ -1,3 +1,4 @@
+from eve.user import User
 from ....deploy import Deployment
 from ....agent import Agent
 from ....agent.thread import UserMessage
@@ -18,7 +19,7 @@ class DiscordSearchQuery(BaseModel):
     channels: list[ChannelSearchParams]
 
 
-async def handler(args: dict):
+async def handler(args: dict, user: User, agent: Agent):
     agent = Agent.from_mongo(args["agent"])
     deployment = Deployment.load(agent=agent.id, platform="discord")
     if not deployment:
@@ -30,13 +31,13 @@ async def handler(args: dict):
 
     # Get allowed channels from deployment config
     allowed_channels = deployment.config.discord.channel_allowlist
-    if not allowed_channels:
+    read_access_channels = deployment.config.discord.read_access_channels
+    all_channels = allowed_channels + read_access_channels
+    if not all_channels:
         raise Exception("No channels configured for this deployment")
 
     # Create a mapping of channel notes to their IDs
-    channel_map = {
-        str(channel.note).lower(): channel.id for channel in allowed_channels
-    }
+    channel_map = {str(channel.note).lower(): channel.id for channel in all_channels}
 
     # Use LLM to parse the search query and determine search parameters
     system_message = """You are a Discord search query parser. Your task is to:

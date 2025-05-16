@@ -107,13 +107,14 @@ class Task(Document):
     mock: bool = False
     cost: float = None
     handler_id: Optional[str] = None
-    status: Literal[
-        "pending", "running", "completed", "failed", "cancelled"
-    ] = "pending"
+    status: Literal["pending", "running", "completed", "failed", "cancelled"] = (
+        "pending"
+    )
     public: bool = False
     error: Optional[str] = None
     result: Optional[List[Dict[str, Any]]] = None
     performance: Optional[Dict[str, Any]] = {}
+    paying_user: Optional[ObjectId] = None
 
     def __init__(self, **data):
         if isinstance(data.get("user"), str):
@@ -133,7 +134,7 @@ class Task(Document):
     def spend_manna(self):
         if self.cost == 0:
             return
-        manna = Manna.load(self.user)
+        manna = Manna.load(self.paying_user or self.user)
         manna.spend(self.cost)
         Transaction(
             manna=manna.id,
@@ -147,7 +148,7 @@ class Task(Document):
         refund_amount = (
             (self.cost or 0) * (n_samples - len(self.result or [])) / n_samples
         )
-        manna = Manna.load(self.user)
+        manna = Manna.load(self.paying_user or self.user)
         manna.refund(refund_amount)
         Transaction(
             manna=manna.id,
