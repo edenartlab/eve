@@ -53,7 +53,7 @@ BASE_TOOLS = [
     "video_FX",
     "texture_flow",
     # audio
-    "musicgen",
+    "ace_step_musicgen",
     "elevenlabs",
     "mmaudio",
     "stable_audio",
