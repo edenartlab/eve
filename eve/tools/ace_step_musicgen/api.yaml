@@ -1,0 +1,101 @@
+name: Musicgen (Ace Step)
+description: Generate music from text prompt using Ace Step model
+cost_estimate: 0.5 * duration * (number_of_steps/27)
+output_type: audio
+handler: replicate
+replicate_model: lucataco/ace-step
+base_model: musicgen
+thumbnail: app/audio-opt.mp4
+version: 280fc4f9ee507577f880a167f639c02622421d8fecf492454320311217b688f1
+output_handler: normal
+parameters:
+  tags:
+    type: string
+    label: Tags (Prompt)
+    description: Text prompts to guide music generation (e.g., genre, mood, instruments, BPM). Supports tags, descriptions, and scenes. Use commas to separate different tags. E.g., 'synth-pop, electronic, pop, synthesizer, drums, bass, piano, 128 BPM, energetic, uplifting, modern'
+    required: true
+  lyrics:
+    type: string
+    label: Lyrics
+    default: ""
+    description: Optional lyrics for the music. Can be multi-line. Use [verse], [chorus], and [bridge] to separate different parts of the lyrics. Use [instrumental] or [inst] to generate instrumental music.
+    required: false
+  duration:
+    type: integer
+    label: Duration
+    description: Desired duration of the generated audio in seconds.
+    default: 30
+    minimum: 1
+    maximum: 240
+    step: 1
+  seed:
+    type: integer
+    label: Seed
+    description: Seed for the generation. Set for reproducibility. If blank, a random value will be used.
+    default: random
+    minimum: 0
+    maximum: 2147483647
+  number_of_steps:
+    type: integer
+    label: Number Of Steps
+    description: Number of inference steps.
+    default: 40
+    minimum: 10
+    maximum: 100
+    step: 1
+  granularity_scale:
+    type: float
+    label: Granularity Scale
+    description: Omega scale for APG guidance (granularity scale), or similar for other CFG types. Higher values can reduce artifacts.
+    default: 10.0
+    minimum: -100.0
+    maximum: 100.0
+    step: 0.1
+  guidance_interval:
+    type: float
+    label: Guidance Interval
+    description: Guidance interval.
+    default: 0.5
+    minimum: 0.0
+    maximum: 1.0
+    step: 0.01
+  guidance_interval_decay:
+    type: float
+    label: Guidance Interval Decay
+    description: Guidance interval decay.
+    default: 0.0
+    minimum: 0.0
+    maximum: 1.0
+    step: 0.01
+  guidance_scale:
+    type: float
+    label: Guidance Scale
+    description: Overall guidance scale. Controls how much the generation adheres to the prompt. Note that when lyric_guidance_scale > 1 and tag_guidance_scale > 1, this global guidance scale might not be applied.
+    default: 15.0
+    minimum: 0.0
+    maximum: 30.0
+    step: 0.1
+  min_guidance_scale:
+    type: float
+    label: Min Guidance Scale
+    description: Minimum guidance scale.
+    default: 3.0
+    minimum: 0.0
+    maximum: 100.0
+    step: 0.1
+  tag_guidance_scale:
+    type: float
+    label: Tag Guidance Scale
+    description: Guidance scale for tags (text prompt). This is the specific guidance scale for the text component and typically applies to CFG. A suggested starting point could be around 5.0 (especially if lyric guidance is around 1.5).
+    default: 0.0
+    minimum: 0.0
+    maximum: 10.0
+    step: 0.1
+  lyric_guidance_scale:
+    type: float
+    label: Lyric Guidance Scale
+    description: Specific guidance scale for the lyric component.
+    default: 0.0
+    minimum: 0.0
+    maximum: 10.0
+    step: 0.1
