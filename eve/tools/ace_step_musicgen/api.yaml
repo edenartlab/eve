@@ -1,6 +1,6 @@
 name: Musicgen (Ace Step)
 description: Generate music from text prompt using Ace Step model
-cost_estimate: 0.5 * duration * (number_of_steps/27)
+cost_estimate: 0.2 * duration * (number_of_steps/60)
 output_type: audio
 handler: replicate
 replicate_model: lucataco/ace-step
@@ -17,7 +17,7 @@ parameters:
   lyrics:
     type: string
     label: Lyrics
-    default: ""
+    default: "[inst]"
     description: Optional lyrics for the music. Can be multi-line. Use [verse], [chorus], and [bridge] to separate different parts of the lyrics. Use [instrumental] or [inst] to generate instrumental music.
     required: false
   duration:
@@ -38,10 +38,10 @@ parameters:
   number_of_steps:
     type: integer
     label: Number Of Steps
-    description: Number of inference steps.
-    default: 40
+    description: Number of inference steps. (More can improve quality but will increase cost/latency.)
+    default: 60
     minimum: 10
-    maximum: 100
+    maximum: 200
     step: 1
   granularity_scale:
     type: float
