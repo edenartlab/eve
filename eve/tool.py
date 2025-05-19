@@ -383,11 +383,11 @@ class Tool(Document, ABC):
                 user = User.from_mongo(user_id)
                 print("JMILL TEST")
                 print("AGENT_ID", agent_id)
-                print("AGENT.OWNER_PAYS", agent.owner_pays)
-                print("IS_CLIENT_PLATFORM", is_client_platform)
 
                 if agent_id:
                     agent = Agent.from_mongo(agent_id)
+                    print("AGENT.OWNER_PAYS", agent.owner_pays)
+                    print("IS_CLIENT_PLATFORM", is_client_platform)
                     if agent.owner_pays and is_client_platform:
                         paying_user = User.from_mongo(agent.owner)
                     else:
