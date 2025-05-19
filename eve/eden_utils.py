@@ -453,6 +453,42 @@ def image_to_base64(file_path, max_size, quality=95, truncate=False):
         data = data[:64] + "..."
     return data
 
+from safetensors.torch import load_file, save_file
+def convert_pti_to_safetensors(input_path: str, output_path: str):
+    try:
+        data = load_file(input_path) 
+    except Exception as e:
+        print(f"❌ Failed to load {input_path} with safetensors: {e}")
+        return False
+
+    # Expected mapping from .pti → .safetensors SDXL format
+    key_map = {
+        "text_encoders_0": "clip_l",  # 768-dim
+        "text_encoders_1": "clip_g",  # 1280-dim
+    }
+
+    remapped = {}
+    for k, v in data.items():
+        if k not in key_map:
+            print(f"⚠️ Unexpected key '{k}' in {input_path}. Expected only {list(key_map.keys())}. Skipping this key.")
+            continue
+
+        new_key = key_map[k]
+        remapped[new_key] = v
+
+    if not remapped:
+        print(f"❌ No valid keys found for conversion in {input_path}. Output file not saved.")
+        return False
+
+    try:
+        save_file(remapped, output_path)
+        print(f"✅ Converted {input_path} → {output_path}")
+        for k, v in remapped.items():
+            print(f"  {k}: shape {v.shape}, dtype {v.dtype}")
+        return True
+    except Exception as e:
+        print(f"❌ Failed to save converted file to {output_path}: {e}")
+        return False
 
 def deep_filter(current, changes):
     if not isinstance(current, dict) or not isinstance(changes, dict):
