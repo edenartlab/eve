@@ -807,7 +807,7 @@ image = (
     )
     .run_function(install_comfyui)
     .run_function(install_custom_nodes, gpu="A100")
-    .pip_install("moviepy==1.0.3", "accelerate==1.4.0", "peft==0.14.0", "transformers==4.49.0", "flet==0.27.6")
+    .pip_install("moviepy==1.0.3", "accelerate==1.4.0", "peft==0.14.0", "transformers==4.49.0", "flet==0.27.6", "safetensors==0.5.3")
     .run_function(download_files, volumes={"/data": downloads_vol}, secrets=[
             modal.Secret.from_name("eve-secrets"),
             modal.Secret.from_name(f"eve-secrets-{db}"),
@@ -1247,8 +1247,8 @@ class ComfyUI:
         if not re.match(r"^https?://", lora_url):
             raise ValueError(f"Lora URL Invalid: {lora_url}")
 
-        lora_filename = lora_url.split("/")[-1]
-        name = lora_filename.split(".")[0]
+        lora_tar_filename = lora_url.split("/")[-1]
+        name = lora_tar_filename.split(".")[0]  # e.g., 'hotmale' from 'hotmale.tar.gz'
         destination_folder = os.path.join(downloads_folder, name)
         print("tl destination folder", destination_folder)
 
@@ -1256,92 +1256,156 @@ class ComfyUI:
             print("LORA bundle already extracted, skipping download")
         else:
             try:
-                lora_tarfile = eden_utils.download_file(
-                    lora_url, f"/root/downloads/{lora_filename}"
+                lora_tarfile_path = eden_utils.download_file(
+                    lora_url, f"/root/downloads/{lora_tar_filename}"
                 )
-                if not os.path.exists(lora_tarfile):
+                if not os.path.exists(lora_tarfile_path):
                     raise FileNotFoundError(
-                        f"The LoRA tar file {lora_tarfile} does not exist."
+                        f"The LoRA tar file {lora_tarfile_path} does not exist."
                     )
-                with tarfile.open(lora_tarfile, "r:*") as tar:
+                with tarfile.open(lora_tarfile_path, "r:*") as tar:
                     tar.extractall(path=destination_folder)
                     print("Extraction complete.")
             except Exception as e:
                 raise IOError(f"Failed to extract tar file: {e}")
 
         extracted_files = os.listdir(destination_folder)
-        print(f"Found {len(extracted_files)} files in LORA bundle")
+        print(f"Found {len(extracted_files)} files in LORA bundle: {extracted_files}")
 
-        # Find lora and embeddings files using regex
+        lora_filename = None
+        embeddings_filename = None
+
+        # 1. Standard patterns first
         lora_pattern = re.compile(r".*_lora\.safetensors$")
+        lora_filename = next((f for f in extracted_files if lora_pattern.match(f)), None)
+        
         embeddings_pattern = re.compile(r".*_embeddings\.safetensors$")
+        embeddings_filename = next((f for f in extracted_files if embeddings_pattern.match(f)), None)
 
-        lora_filename = next(
-            (f for f in extracted_files if lora_pattern.match(f)), None
-        )
-        embeddings_filename = next(
-            (f for f in extracted_files if embeddings_pattern.match(f)), None
-        )
-        training_args_filename = next(
-            (f for f in extracted_files if f == "training_args.json"), None
-        )
+        if lora_filename: print(f"Found standard LoRA file: {lora_filename}")
+        if embeddings_filename: print(f"Found standard embeddings file: {embeddings_filename}")
 
-        if training_args_filename:
-            with open(
-                os.path.join(destination_folder, training_args_filename), "r"
-            ) as f:
-                training_args = json.load(f)
-                lora_mode = training_args.get(
-                    "concept_mode", training_args.get("mode", "style")
-                )
-                embedding_trigger = training_args["name"]
-        else:
-            lora_mode = None
-            embedding_trigger = embeddings_filename.split("_embeddings.safetensors")[0]
-
-        # hack to correct for older lora naming convention
+        # 2. Fallbacks for lora_filename if not found by standard pattern
         if not lora_filename:
-            print("Searching for alternative LORA file naming convention...")
+            print("Standard LoRA file pattern not matched. Trying fallbacks for LoRA file...")
+            # Fallback 2a: General *.safetensors that isn't an embeddings file
             lora_filename = next(
                 (
                     f
                     for f in extracted_files
-                    if f.endswith(".safetensors") and "embedding" not in f.lower()
+                    if f.endswith(".safetensors") 
+                    and not embeddings_pattern.match(f) # Not a standard embedding
+                    and (not embeddings_filename or f != embeddings_filename) # Not the one already found as standard embedding
+                    and "embedding" not in f.lower() # General check against "embedding" in name
+                    and "embeddings" not in f.lower()
                 ),
                 None,
             )
-            if not lora_filename:
-                raise FileNotFoundError(
-                    f"Unable to find a lora *.safetensors file in {extracted_files}"
-                )
+            if lora_filename:
+                print(f"Found LoRA file by general .safetensors fallback: {lora_filename}")
+            else:
+                # Fallback 2b: Specific 'lora.safetensors' for very old format
+                if 'lora.safetensors' in extracted_files:
+                    lora_filename = 'lora.safetensors'
+                    print(f"Found LoRA file by specific name 'lora.safetensors': {lora_filename}")
+
+        # 3. Fallbacks for embeddings_filename if not found by standard pattern
+        if not embeddings_filename:
+            print("Standard embeddings file pattern not matched. Trying fallbacks for embeddings file...")
+            # Fallback 3a: Specific 'embeddings.pti'
+            if 'embeddings.pti' in extracted_files:
+                embeddings_filename = 'embeddings.pti'
+                print(f"Found embeddings file by specific name 'embeddings.pti': {embeddings_filename}")
+            elif 'embedding.pti' in extracted_files: # Also check singular version
+                embeddings_filename = 'embedding.pti'
+                print(f"Found embeddings file by specific name 'embedding.pti': {embeddings_filename}")
+            # Fallback 3b: (No generic .safetensors fallback for embeddings to avoid ambiguity with other files)
+
+        # Convert .pti to .safetensors if necessary
+        if embeddings_filename and embeddings_filename.endswith('.pti'):
+            print(f"Found .pti embeddings file: {embeddings_filename}. Attempting conversion.")
+            base_embedding_name = embeddings_filename[:-4] # Remove .pti
+            converted_embeddings_filename = base_embedding_name + ".safetensors"
+            
+            input_pti_path = os.path.join(destination_folder, embeddings_filename)
+            output_safetensors_path = os.path.join(destination_folder, converted_embeddings_filename)
+
+            conversion_success = eden_utils.convert_pti_to_safetensors(input_pti_path, output_safetensors_path)
+            if conversion_success:
+                print(f"Successfully converted {embeddings_filename} to {converted_embeddings_filename}")
+                if converted_embeddings_filename not in extracted_files:
+                    extracted_files.append(converted_embeddings_filename)
+                embeddings_filename = converted_embeddings_filename
+            else:
+                print(f"Conversion of {embeddings_filename} failed. Check logs.")
+
+        # --- Determine lora_mode and embedding_trigger ---
+        training_args_filename = next((f for f in extracted_files if f == "training_args.json"), None)
+        lora_mode = "style"
+        embedding_trigger = None
+
+        if training_args_filename:
+            print(f"Found training_args.json: {training_args_filename}")
+            with open(os.path.join(destination_folder, training_args_filename), "r") as f:
+                training_args = json.load(f)
+                lora_mode = training_args.get("concept_mode", training_args.get("mode", "style"))
+                embedding_trigger = training_args.get("name")
+                if not embedding_trigger:
+                    print(f"Warning: 'name' for embedding_trigger not found in training_args.json. Will use archive name '{name}'.")
+                    embedding_trigger = name 
+        else:
+            print("training_args.json not found.")
+            lora_mode = "style" # Default lora_mode if no training_args.json
+            embedding_trigger = name # Default trigger to archive name
+            print(f"Defaulting lora_mode to '{lora_mode}' and embedding_trigger to archive name '{embedding_trigger}' due to missing training_args.json.")
+
+
+        # --- Final checks for file existence ---
+        if not lora_filename:
+            raise FileNotFoundError(
+                f"Unable to find a suitable LoRA file (e.g., *_lora.safetensors or lora.safetensors) in extracted files: {extracted_files}"
+            )
+        
+        if lora_filename not in extracted_files : # Should not happen if logic above is correct
+             raise FileNotFoundError(f"LoRA file '{lora_filename}' was determined but not in extracted files: {extracted_files}")
+
+
+        if embeddings_filename and embeddings_filename not in extracted_files:
+             raise FileNotFoundError(f"Embeddings file '{embeddings_filename}' was determined but not in extracted files: {extracted_files}")
+
+        # If no embeddings file was found, but LoRA mode suggests it's needed (not 'style'), raise an error.
+        if not embeddings_filename and lora_mode and lora_mode != "style":
+            raise FileNotFoundError(
+                f"LoRA mode is '{lora_mode}', which typically requires an embeddings file, but none was found in package {extracted_files}. "
+                f"Searched for standard patterns (e.g. *_embeddings.safetensors) and fallbacks (e.g. embeddings.pti)."
+            )
 
         print(f"LORA mode: {lora_mode}")
         print(f"Using LORA file: {lora_filename}")
-        print(f"Using embeddings file: {embeddings_filename}")
+        if embeddings_filename:
+            print(f"Using embeddings file: {embeddings_filename}")
+        else:
+            print("No embeddings file will be used (e.g., for style LoRA or if not found and mode allows).")
         print(f"Embedding trigger: {embedding_trigger}")
 
-        for file in [lora_filename, embeddings_filename]:
-            if str(file) not in extracted_files:
-                raise FileNotFoundError(
-                    f"Required file {file} does not exist in the extracted files: {extracted_files}"
-                )
-
+        # --- File operations ---
         if not os.path.exists(loras_folder):
             os.makedirs(loras_folder)
         if not os.path.exists(embeddings_folder):
             os.makedirs(embeddings_folder)
 
-        # copy lora file to loras folder
+        # Copy lora file to loras folder
         lora_path = os.path.join(destination_folder, lora_filename)
         lora_copy_path = os.path.join(loras_folder, lora_filename)
         shutil.copy(lora_path, lora_copy_path)
-        print(f"LoRA {lora_path} has been moved to {lora_copy_path}")
+        print(f"LoRA {lora_path} has been copied to {lora_copy_path}")
 
-        # copy embedding file to embeddings folder
-        embeddings_path = os.path.join(destination_folder, embeddings_filename)
-        embeddings_copy_path = os.path.join(embeddings_folder, embeddings_filename)
-        shutil.copy(embeddings_path, embeddings_copy_path)
-        print(f"Embeddings {embeddings_path} has been moved to {embeddings_copy_path}")
+        # Copy embedding file to embeddings folder (if it exists and was found)
+        if embeddings_filename:
+            embeddings_path = os.path.join(destination_folder, embeddings_filename)
+            embeddings_copy_path = os.path.join(embeddings_folder, embeddings_filename)
+            shutil.copy(embeddings_path, embeddings_copy_path)
+            print(f"Embeddings {embeddings_path} has been copied to {embeddings_copy_path}")
 
         return lora_filename, embeddings_filename, embedding_trigger, lora_mode
 

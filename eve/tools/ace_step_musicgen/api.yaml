@@ -1,5 +1,6 @@
 name: Musicgen (Ace Step)
-description: Generate music from text prompt using Ace Step model
+description: Generate music from text prompt using Ace Step model. 
+tip: This model is faster and cheaper than the original musicgen but not always as good. This model can however generate lyrics.
 cost_estimate: 0.2 * duration * (number_of_steps/60)
 output_type: audio
 handler: replicate
