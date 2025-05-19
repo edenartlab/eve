@@ -12,94 +12,20 @@ from datetime import datetime, timezone
 from instructor.function_calls import openai_schema
 import sentry_sdk
 
-from eve.api.rate_limiter import RateLimiter
-
+# Import Tool constants from the new module
+from .tool_constants import (
+    OUTPUT_TYPES,
+    HANDLERS,
+    BASE_MODELS,
+)
 from . import eden_utils
+from .agent.agent import Agent
 from .base import parse_schema
 from .user import User
 from .task import Task
 from .mongo import Document, Collection, get_collection
+from .api.rate_limiter import RateLimiter
 from sentry_sdk import trace
-
-OUTPUT_TYPES = Literal[
-    "boolean", "string", "integer", "float", "array", "image", "video", "audio", "lora"
-]
-
-HANDLERS = Literal[
-    "local", "modal", "comfyui", "comfyui_legacy", "replicate", "gcp", "fal"
-]
-
-BASE_MODELS = Literal[
-    "sd15",
-    "sdxl",
-    "sd3",
-    "sd35",
-    "flux-dev",
-    "flux-schnell",
-    "hellomeme",
-    "stable-audio-open",
-    "inspyrenet-rembg",
-    "mochi-preview",
-    "runway",
-    "mmaudio",
-    "librosa",
-    "musicgen",
-    "kling",
-    "svd-xt",
-    "wan21",
-    "ltxv",
-]
-
-# These tools are default agent tools except Eve
-BASE_TOOLS = [
-    # text-to-image
-    "flux_schnell",
-    "flux_dev_lora",
-    "flux_dev",
-    "txt2img",
-    # more image generation
-    "flux_inpainting",
-    "outpaint",
-    "remix_flux_schnell",
-    "flux_double_character",
-    # video
-    "runway",
-    "kling_pro",
-    "hedra",
-    "vid2vid_sdxl",
-    "video_FX",
-    "texture_flow",
-    # audio
-    "musicgen",
-    "elevenlabs",
-    "mmaudio",
-    "stable_audio",
-    "zonos",
-    # editing
-    "media_editor",
-    # search
-    "search_agents",
-    "search_models",
-    "search_collections",
-    "add_to_collection",
-    # misc
-    "news",
-    "websearch",
-    "weather",
-    # inactive
-    # "ominicontrol",
-    # "flux_redux",
-    "reel",
-    # "txt2vid",
-    # "animate_3d"
-    # "kling_pro"
-    "openai_image_edit",
-    "openai_image_generate",
-]
-
-FLUX_LORA_TOOLS = ["flux_dev_lora", "flux_dev", "reel"]
-
-SDXL_LORA_TOOLS = ["txt2img"]
 
 
 class RateLimit(BaseModel):
@@ -451,13 +377,22 @@ class Tool(Document, ABC):
             is_client_platform: bool = False,
         ):
             try:
-                # validate args and user manna balance
                 args = self.prepare_args(args)
                 sentry_sdk.add_breadcrumb(category="handle_start_task", data=args)
                 cost = self.calculate_cost(args)
                 user = User.from_mongo(user_id)
-                user.check_manna(cost)
 
+                if agent_id:
+                    agent = Agent.from_mongo(agent_id)
+                    if agent.owner_pays and is_client_platform:
+                        paying_user = User.from_mongo(agent.owner)
+                    else:
+                        paying_user = user
+                else:
+                    paying_user = user
+
+                # validate args and user manna balance
+                paying_user.check_manna(cost)
             except Exception as e:
                 print(traceback.format_exc())
                 raise Exception(f"Task submission failed: {str(e)}. No manna deducted.")
@@ -471,18 +406,6 @@ class Tool(Document, ABC):
                 else:
                     await rate_limiter.check_manna_spend_rate_limit(user)
 
-            # Run prompt enhancements if any
-            # try:
-            #     params = {k: v for k, v in self.parameters.items() if v.get("enhancement_prompt")}
-            #     if params:
-            #         from .agent.enhance import enhance_prompt
-            #         for p in params:
-            #             args[p] = await enhance_prompt(params[p]["enhancement_prompt"], args[p])
-            # except Exception as e:
-            #     print(traceback.format_exc())
-            #     print("error running prompt enhancements", e)
-
-            # create task and set to pending
             task = Task(
                 user=user_id,
                 agent=agent_id,
@@ -493,6 +416,7 @@ class Tool(Document, ABC):
                 mock=mock,
                 cost=cost,
                 public=public,
+                paying_user=paying_user.id,
             )
             task.save()
             sentry_sdk.add_breadcrumb(
@@ -519,8 +443,7 @@ class Tool(Document, ABC):
                     handler_id = await start_task_function(self, task)
                     task.update(handler_id=handler_id)
 
-                if "free_tools" not in (user.featureFlags or []):
-                    print("free manna for task", task.id, "for user", user.id)
+                if "free_tools" not in (paying_user.featureFlags or []):
                     task.spend_manna()
 
             except Exception as e:

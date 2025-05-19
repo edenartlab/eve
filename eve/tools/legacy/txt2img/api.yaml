@@ -4,6 +4,7 @@ description: SDXL Text-to-Image (2022))
 parent_tool: legacy_sdxl_pipelines
 active: true
 visible: true
+thumbnail: app/eden_logo_trans.png
 handler: modal
 parameters:
   mode:

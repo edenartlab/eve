@@ -3,6 +3,7 @@ description: Text-to-speech with ElevenLabs
 tip: |-
   This tool can be used to generate speech audio from text.
 cost_estimate: 0.05 * text.length
+thumbnail: app/elevenlabs58.webp 
 output_type: audio
 active: true
 visible: true

@@ -3,6 +3,7 @@ name: SDXL Controlnet (Legacy)
 description: Guide your creation with the shape of a control image (2022))
 active: true
 visible: true
+thumbnail: app/eden_logo_trans.png
 parent_tool: legacy_sdxl_pipelines
 parameters:
   mode:

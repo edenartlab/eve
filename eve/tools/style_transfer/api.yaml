@@ -1,10 +1,10 @@
-name: Style transfer
-description: Reimagine an image in a different style
+name: Style transfer (ControlNet)
+description: Reimagine an image in a different style, maintaining shape
 tip: |-
   This is a tip for style transfer.
 thumbnail: app/style_transfer.jpg
 resolutions: []  # get rid of width/height selector
-
+visible: false
 parent_tool: txt2img
 
 parameters:
@@ -46,8 +46,10 @@ parameters:
 
   # remove width/height considerations
   size_from_input:
+    default: true
     hide_from_ui: true
   enforce_SDXL_resolution:
+    default: true
     hide_from_ui: true
   width:
     hide_from_ui: true

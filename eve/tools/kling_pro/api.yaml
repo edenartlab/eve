@@ -1,5 +1,5 @@
-name: Generate Video
-description: Generate a video from text and an optional input image with Kling v1.6 Pro
+name: Generate Video (Kling Pro)
+description: Generate a video from text and an optional input image with Kling Pro
 tip: |-
   Kling is the highest quality video generation model available, especially for when dynamic motion is needed. For most image-to-video, you should *not* use this tool and use Runway instead. But if a user requests this tool or indicates they prefer quality over speed, use this tool.
 cost_estimate: 10 * duration

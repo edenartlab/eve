@@ -155,9 +155,17 @@ def remove(db: str, names: tuple):
     default="STAGE",
     help="DB to load tools from if from mongo",
 )
+@click.option(
+    "--user",
+    help="User ID to run the tool as",
+)
+@click.option(
+    "--agent",
+    help="Agent ID to run the tool with",
+)
 @click.argument("tool", required=False)
 @click.pass_context
-def run(ctx, tool: str, db: str):
+def run(ctx, tool: str, db: str, user: str, agent: str):
     """Create with a tool. Args are passed as --key=value or --key value"""
 
     tool = Tool.load(key=tool)
@@ -179,6 +187,9 @@ def run(ctx, tool: str, db: str):
             else:
                 args[key] = True
         i += 1
+
+    args["user"] = user
+    args["agent"] = agent
 
     result = tool.run(args)
     color = random.choice(CLICK_COLORS)

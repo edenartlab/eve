@@ -5,6 +5,7 @@ tip: |-
 cost_estimate: 100
 output_type: video
 handler: modal
+thumbnail: app/hedra_opt.mp4
 active: true
 visible: true
 parameters:
@@ -18,17 +19,18 @@ parameters:
     label: Input audio
     description: Speech audio
     required: true
+  aspectRatio:
+    type: string
+    label: Aspect ratio
+    required: true
+    description: Video aspect ratio
+    default: '1:1'
+    choices: ['16:9', '1:1', '9:16']
   prompt:
     type: string
     label: Prompt
     description: Prompt for the video
     default: 'A talking head'
-  aspectRatio:
-    type: string
-    label: Aspect ratio
-    description: Video aspect ratio
-    default: '1:1'
-    choices: ['16:9', '1:1', '9:16']
   resolution:
     type: string
     label: Resolution

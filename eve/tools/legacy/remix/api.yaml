@@ -4,6 +4,7 @@ description: Generate a remix of an image (2022-2024)
 output_type: image
 active: true
 visible: true
+thumbnail: app/eden_logo_trans.png
 parent_tool: legacy_sdxl_pipelines
 parameters:
   mode:

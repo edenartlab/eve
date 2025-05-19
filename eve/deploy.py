@@ -43,6 +43,7 @@ class DeploymentSettingsDiscord(BaseModel):
     oauth_client_id: Optional[str] = None
     oauth_url: Optional[str] = None
     channel_allowlist: Optional[List[AllowlistItem]] = None
+    read_access_channels: Optional[List[AllowlistItem]] = None
 
 
 class DeploymentSettingsTelegram(BaseModel):

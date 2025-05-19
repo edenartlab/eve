@@ -2,10 +2,10 @@ from bson import ObjectId
 from typing import Optional, Literal, List
 
 from .mongo import (
-    Document, 
-    Collection, 
+    Document,
+    Collection,
     MongoDocumentNotFound,
-    get_collection, 
+    get_collection,
 )
 
 
@@ -34,9 +34,11 @@ class Manna(Document):
     def spend(self, amount: float):
         subscription_spend = min(self.subscriptionBalance, amount)
         self.subscriptionBalance -= subscription_spend
-        self.balance -= (amount - subscription_spend)
+        self.balance -= amount - subscription_spend
         if self.balance < 0:
-            raise Exception(f"Insufficient manna balance. Need {amount} but only have {self.balance + self.subscriptionBalance}")
+            raise Exception(
+                f"Insufficient manna balance. Need {amount} but only have {self.balance + self.subscriptionBalance}"
+            )
         self.save()
 
     def refund(self, amount: float):
@@ -104,8 +106,10 @@ class User(Document):
         discord_id = str(discord_id)
         discord_username = str(discord_username)
         users = get_collection(cls.collection_name)
-        user = users.find_one({"discordId": discord_id})
-        if not user:
+        matching_users = list(users.find({"discordId": discord_id}))
+        print("matching_users", matching_users)
+
+        if not matching_users:
             username = cls._get_unique_username(f"discord_{discord_username}")
             new_user = cls(
                 discordId=discord_id,
@@ -114,7 +118,11 @@ class User(Document):
             )
             new_user.save()
             return new_user
-        return cls(**user)
+
+        # Find user with userId if any exist
+        user_with_id = next((u for u in matching_users if u.get("userId")), None)
+        print("user_with_id", user_with_id)
+        return cls(**(user_with_id or matching_users[0]))
 
     @classmethod
     def from_farcaster(cls, farcaster_id, farcaster_username):
