@@ -134,3 +134,19 @@ class AgentToolsUpdateRequest(BaseModel):
 class AgentToolsDeleteRequest(BaseModel):
     agent_id: str
     tools: List[str]
+
+
+class CreateSessionRequest(BaseModel):
+    owner: str
+    title: str
+    agents: List[str]
+    scenario: Optional[str] = None
+    budget: Optional[float] = None
+
+
+class GetSessionRequest(BaseModel):
+    session_id: str
+
+
+class ArchiveSessionRequest(BaseModel):
+    session_id: str
