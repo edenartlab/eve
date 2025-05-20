@@ -1,28 +1,13 @@
-from dataclasses import dataclass
-from bson import ObjectId
 from litellm import completion
 import litellm
 from typing import Callable, List, AsyncGenerator, Optional
 
-from eve.agent.session.session import ChatMessage
-from eve.tool import Tool
+from eve.agent.session.models import LLMContext, LLMConfig
+
 
 litellm.success_callback = ["langfuse"]
 
 supported_models = ["gpt-4o-mini", "gpt-4o"]
-
-
-@dataclass
-class LLMContext:
-    messages: List[ChatMessage]
-    tools: Optional[List[Tool]] = None
-    session_id: Optional[ObjectId] = None
-    initiating_user_id: Optional[ObjectId] = None
-
-
-@dataclass
-class LLMConfig:
-    model: str = "gpt-4o-mini"
 
 
 def validate_input(context: LLMContext, config: LLMConfig) -> None:
@@ -71,7 +56,7 @@ async def async_prompt_stream_litellm(
         tools=construct_tools(context),
         stream=True,
     )
-    for part in response:
+    async for part in response:
         yield part
 
 
@@ -96,4 +81,5 @@ async def async_prompt_stream(
     ] = DEFAULT_LLM_STREAM_HANDLER,
 ) -> AsyncGenerator[str, None]:
     validate_input(context, config)
-    return await handler(context, config)
+    async for chunk in handler(context, config):
+        yield chunk
