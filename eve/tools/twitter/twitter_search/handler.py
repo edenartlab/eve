@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, validator
 from eve.agent.thread import UserMessage
 from eve.agent.llm import async_prompt
 from eve.agent import Agent
+from eve.user import User
 from eve.deploy import Deployment
 from .. import X
 
@@ -156,7 +157,7 @@ def process_payload(
 # ───────────────────────────────────────────────
 # 7. Main Eve handler
 # ───────────────────────────────────────────────
-async def handler(args: dict):
+async def handler(args: dict, user: User, agent: Agent):
     agent      = Agent.from_mongo(args["agent"])
     deployment = Deployment.load(agent=agent.id, platform="twitter")
     if not deployment:
