@@ -26,6 +26,9 @@ from eve.api.api_requests import (
     UpdateDeploymentRequest,
     AgentToolsUpdateRequest,
     AgentToolsDeleteRequest,
+    CreateSessionRequest,
+    GetSessionRequest,
+    ArchiveSessionRequest,
 )
 from eve.api.helpers import (
     emit_update,
@@ -33,6 +36,9 @@ from eve.api.helpers import (
     setup_chat,
     create_telegram_chat_request,
     update_busy_state,
+    create_session,
+    get_session,
+    archive_session,
 )
 from eve.deploy import (
     deploy_client,
@@ -767,3 +773,40 @@ async def handle_agent_tools_delete(request: AgentToolsDeleteRequest):
     agents = get_collection("users3")
     agents.update_one({"_id": agent.id}, {"$set": update})
     return {"tools": tools}
+
+
+@handle_errors
+async def handle_create_session(request: CreateSessionRequest):
+    """Create a new session"""
+    owner = ObjectId(request.owner)
+    agents = [ObjectId(agent) for agent in request.agents]
+
+    session = create_session(
+        owner=owner,
+        title=request.title,
+        agents=agents,
+        scenario=request.scenario,
+        budget=request.budget,
+    )
+
+    return serialize_document(session.model_dump(by_alias=True))
+
+
+@handle_errors
+async def handle_get_session(request: GetSessionRequest):
+    """Get a session by ID"""
+    session = get_session(ObjectId(request.session_id))
+    if not session:
+        raise APIError(f"Session not found: {request.session_id}", status_code=404)
+
+    return serialize_document(session.model_dump(by_alias=True))
+
+
+@handle_errors
+async def handle_archive_session(request: ArchiveSessionRequest):
+    """Archive a session"""
+    session = archive_session(ObjectId(request.session_id))
+    if not session:
+        raise APIError(f"Session not found: {request.session_id}", status_code=404)
+
+    return serialize_document(session.model_dump(by_alias=True))
