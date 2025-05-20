@@ -25,6 +25,11 @@ class LLMConfig:
     model: str = "gpt-4o-mini"
 
 
+def validate_input(context: LLMContext, config: LLMConfig) -> None:
+    if config.model not in supported_models:
+        raise ValueError(f"Model {config.model} is not supported")
+
+
 def construct_observability_metadata(context: LLMContext):
     return {
         "session_id": context.session_id,
@@ -79,6 +84,7 @@ async def async_prompt(
     config: Optional[LLMConfig] = LLMConfig(),
     handler: Optional[Callable[[LLMContext, LLMConfig], str]] = DEFAULT_LLM_HANDLER,
 ) -> str:
+    validate_input(context, config)
     return await handler(context, config)
 
 
@@ -89,4 +95,5 @@ async def async_prompt_stream(
         Callable[[LLMContext, LLMConfig], AsyncGenerator[str, None]]
     ] = DEFAULT_LLM_STREAM_HANDLER,
 ) -> AsyncGenerator[str, None]:
+    validate_input(context, config)
     return await handler(context, config)
