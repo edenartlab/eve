@@ -1,23 +1,4 @@
 import re
-
-def orig_photo_url(url: str) -> str:
-    """
-    Convert https://pbs.twimg.com/media/XXXX?format=jpg&name=large
-    →       https://pbs.twimg.com/media/XXXX?format=jpg&name=orig
-    Works even if the API already returned '&name=small' or no name param.
-    """
-    if "pbs.twimg.com/media/" not in url:
-        return url
-    if "name=" in url:
-        return re.sub(r"name=[a-z]+", "name=orig", url)
-    # rare: no name param included
-    if "?" in url:
-        return f"{url}&name=orig"
-    return f"{url}?name=orig"
-
-
-# twitter_search.py  (v6 – stays entirely in v2, no 403)
-
 import json
 from operator import itemgetter
 from typing import List, Dict
@@ -28,7 +9,8 @@ from eve.agent.thread import UserMessage
 from eve.agent.llm import async_prompt
 from eve.agent import Agent
 from eve.deploy import Deployment
-from .. import X                           # your Twitter helper
+from .. import X
+
 
 # ───────────────────────────────────────────────
 # 1. LLM output schema
@@ -45,11 +27,14 @@ class TwitterSearchQuery(BaseModel):
 # ───────────────────────────────────────────────
 # 2. Prompt
 # ───────────────────────────────────────────────
-BASE_FILTERS = "-is:retweet lang:en is:verified (has:links OR has:media)" # reply
+BASE_FILTERS = "-is:retweet -is:reply lang:en is:verified (has:links OR has:media)"
 SYSTEM_MESSAGE = f"""You are a Twitter advanced-search parser.
 
 Always add these filters unless the user explicitly forbids them:
 {BASE_FILTERS}
+
+Do **not** use the since:/until: operators (they are invalid in v2).  
+Instead, the caller will pass start_time/end_time separately.
 
 Return JSON that matches the schema you were given.
 """
@@ -72,12 +57,29 @@ MIN_FOLLOWERS_LOW    = 0
 MIN_KEEP             = 3
 
 # ───────────────────────────────────────────────
-# 4. Score helper
+# 4. Helper functions
 # ───────────────────────────────────────────────
 def compute_score(pm: Dict) -> (int, str):
     if "impression_count" in pm:
         return pm["impression_count"], "impression_count"
     return pm["retweet_count"] * 3 + pm["like_count"], "3*retweets+likes"
+
+
+def orig_photo_url(url: str) -> str:
+    """
+    Convert https://pbs.twimg.com/media/XXXX?format=jpg&name=large
+    →       https://pbs.twimg.com/media/XXXX?format=jpg&name=orig
+    Works even if the API already returned '&name=small' or no name param.
+    """
+    if "pbs.twimg.com/media/" not in url:
+        return url
+    if "name=" in url:
+        return re.sub(r"name=[a-z]+", "name=orig", url)
+    # rare: no name param included
+    if "?" in url:
+        return f"{url}&name=orig"
+    return f"{url}?name=orig"
+
 
 # ───────────────────────────────────────────────
 # 5. Twitter helper (v2 only)
@@ -125,10 +127,6 @@ def process_payload(
             fcnt >= min_followers):
 
             score, metric = compute_score(pm)
-            # media_objs = [media[mk] for mk in
-            #               t.get("attachments", {}).get("media_keys", [])
-            #               if mk in media]
-
             media_objs = []
             for mk in t.get("attachments", {}).get("media_keys", []):
                 m = media.get(mk)
@@ -174,8 +172,7 @@ async def handler(args: dict):
     )
 
     print("--------------------------------")
-    print(parsed)
-    print(parsed.query)
+    print(f"LLM query → {parsed.query}")
     print("--------------------------------")
 
     x = X(deployment)
@@ -189,8 +186,7 @@ async def handler(args: dict):
     # relaxed pass
     if len(tweets) < MIN_KEEP:
         relaxed_q = parsed.query.replace("is:verified", " ") \
-                                .replace("(has:links OR has:media)", " ") \
-                                .replace(" - ", " ")
+                                .replace("(has:links OR has:media)", " ")
         print("relaxed_q", relaxed_q)
         raw_relaxed = twitter_search(x, relaxed_q,
                                      start=args.get("start_time"),
@@ -201,8 +197,7 @@ async def handler(args: dict):
     if len(tweets) < MIN_KEEP:
         relaxed_q = parsed.query.replace("is:verified", " ") \
                                 .replace("is:retweet", " ") \
-                                .replace("(has:links OR has:media)", " ") \
-                                .replace(" - ", " ")
+                                .replace("(has:links OR has:media)", " ")
         print("relaxed_q 2", relaxed_q)
         raw_very_relaxed = twitter_search(x, relaxed_q,
                                      start=args.get("start_time"),
@@ -213,7 +208,6 @@ async def handler(args: dict):
     def flat(txt: str) -> str:
         return txt.replace("\n", "\\n")
 
-    print(f"LLM query → {parsed.query}")
     print(f"Returned {len(tweets)} tweets.\n")
     for t in tweets[:10]:
         print(f"- @{t['author_username']} :: {flat(t['text'])[:280]}…  ({t['public_metrics']['retweet_count']} RT, {t['public_metrics']['like_count']} likes)")
