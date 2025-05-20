@@ -53,11 +53,26 @@ class ChatMessage(Document):
 
 
 @dataclass
+class LLMTraceMetadata:
+    session_id: str = None
+    initiating_user_id: Optional[str] = None
+    additional_metadata: Optional[Dict[str, Any]] = None
+
+
+@dataclass
+class LLMContextMetadata:
+    trace_name: Optional[str] = None
+    trace_id: Optional[str] = None
+    generation_name: Optional[str] = None
+    generation_id: Optional[ObjectId] = None
+    trace_metadata: Optional[Dict[str, Any]] = None
+
+
+@dataclass
 class LLMContext:
     messages: List[ChatMessage]
     tools: Optional[List[Tool]] = None
-    session_id: Optional[ObjectId] = None
-    initiating_user_id: Optional[ObjectId] = None
+    metadata: LLMContextMetadata = Field(default_factory=LLMContextMetadata)
 
 
 @dataclass
