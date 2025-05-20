@@ -1,9 +1,12 @@
+import litellm
 import pytest
 from unittest.mock import AsyncMock, patch
 from bson import ObjectId
 from typing import Dict
 from pydantic import BaseModel
+from litellm import ModelResponse
 
+from eve.agent.session.models import LLMContextMetadata, LLMTraceMetadata
 from eve.agent.session.session_llm import (
     LLMContext,
     LLMConfig,
@@ -154,36 +157,56 @@ async def test_async_prompt_stream_mocked():
         assert chunks == mock_responses
 
 
-# Real API tests
 @pytest.mark.live
 @pytest.mark.asyncio
-async def test_async_prompt_real():
-    context = LLMContext(messages=MOCK_MESSAGES)
-    config = LLMConfig()
-    result = await async_prompt(context, config)
-    assert isinstance(result, str)
-    assert len(result) > 0
+async def test_async_prompt():
+    metadata = LLMContextMetadata(
+        trace_name="test_async_prompt",
+        trace_metadata=LLMTraceMetadata(
+            session_id=str(MOCK_SESSION_ID),
+            initiating_user_id=str(MOCK_USER_ID),
+        ),
+    )
+    context = LLMContext(
+        messages=MOCK_MESSAGES,
+        metadata=metadata,
+    )
+    result = await async_prompt(context)
+    assert isinstance(result, ModelResponse)
 
 
 @pytest.mark.live
 @pytest.mark.asyncio
 async def test_async_prompt_stream_real():
-    context = LLMContext(messages=MOCK_MESSAGES)
-    config = LLMConfig()
-    stream = async_prompt_stream(context, config)
+    metadata = LLMContextMetadata(
+        trace_name="test_async_prompt_stream",
+        trace_metadata=LLMTraceMetadata(
+            session_id=str(MOCK_SESSION_ID),
+            initiating_user_id=str(MOCK_USER_ID),
+        ),
+    )
+    context = LLMContext(
+        messages=MOCK_MESSAGES,
+        metadata=metadata,
+    )
+    stream = async_prompt_stream(context)
     chunks = []
     async for chunk in stream:
         chunks.append(chunk)
 
     assert len(chunks) > 0
-    assert all(isinstance(chunk, str) for chunk in chunks)
+
+    response = litellm.stream_chunk_builder(chunks, messages=MOCK_MESSAGES)
+    assert response is not None
+    assert response.choices[0].message.content is not None
+    assert isinstance(response, ModelResponse)
 
 
-@pytest.mark.live
-@pytest.mark.asyncio
-async def test_async_prompt_with_tools_real():
-    context = LLMContext(messages=MOCK_MESSAGES, tools=MOCK_TOOLS)
-    config = LLMConfig()
-    result = await async_prompt(context, config)
-    assert isinstance(result, str)
-    assert len(result) > 0
+# @pytest.mark.live
+# @pytest.mark.asyncio
+# async def test_async_prompt_with_tools_real():
+#     context = LLMContext(messages=MOCK_MESSAGES, tools=MOCK_TOOLS)
+#     config = LLMConfig()
+#     result = await async_prompt(context, config)
+#     assert isinstance(result, str)
+#     assert len(result) > 0

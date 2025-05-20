@@ -11,11 +11,14 @@ logging.basicConfig(
 )
 db = os.getenv("DB", "STAGE").upper()
 EDEN_API_KEY = None
-LANGFUSE_ENV = os.getenv("LANGFUSE_ENV", "production" if db == "PROD" else "staging")
 
 
 def setup_eve():
     def setup_langfuse():
+        LANGFUSE_ENV = os.getenv(
+            "LANGFUSE_ENV", "production" if db == "PROD" else "staging"
+        )
+
         langfuse_private_key = os.getenv("LANGFUSE_SECRET_KEY")
         if not langfuse_private_key:
             # print("Skipping langfuse setup because LANGFUSE_SECRET_KEY is not set")

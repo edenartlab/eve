@@ -16,9 +16,14 @@ def validate_input(context: LLMContext, config: LLMConfig) -> None:
 
 
 def construct_observability_metadata(context: LLMContext):
+    if not context.metadata:
+        return {}
     return {
-        "session_id": context.session_id,
-        "initiating_user_id": context.initiating_user_id,
+        "trace_name": context.metadata.trace_name,
+        "trace_id": context.metadata.trace_id,
+        "generation_name": context.metadata.generation_name,
+        "generation_id": context.metadata.generation_id,
+        "trace_metadata": context.metadata.trace_metadata,
     }
 
 
@@ -36,7 +41,7 @@ async def async_prompt_litellm(
     context: LLMContext,
     config: LLMConfig,
 ) -> str:
-    response = await completion(
+    response = completion(
         model=config.model,
         messages=construct_messages(context),
         metadata=construct_observability_metadata(context),
@@ -49,7 +54,7 @@ async def async_prompt_stream_litellm(
     context: LLMContext,
     config: LLMConfig,
 ) -> AsyncGenerator[str, None]:
-    response = await completion(
+    response = completion(
         model=config.model,
         messages=construct_messages(context),
         metadata=construct_observability_metadata(context),
