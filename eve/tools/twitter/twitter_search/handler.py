@@ -153,11 +153,14 @@ def process_payload(
                     m = dict(m)                             # shallow copy
                     m["url_orig"] = orig_photo_url(m["url"])
                 media_objs.append(m)
-                
+            
+            tweet_url = f"https://x.com/{user.get('username')}/status/{t['id']}" if user.get('username') else None
+
             keep.append({
                 "id"               : t["id"],
                 "created_at"       : t["created_at"],
                 "text"             : t["text"],       # full up to 280 chars
+                "tweet_url"        : tweet_url,
                 "public_metrics"   : pm,
                 "score"            : score,
                 "score_metric"     : metric,
@@ -168,7 +171,7 @@ def process_payload(
             })
 
     keep.sort(key=itemgetter("score"), reverse=True)
-    return keep[:MAX_KEEP]
+    return keep[:MAX_KEEP+1]
 
 # ───────────────────────────────────────────────
 # 7. Main Eve handler
@@ -202,6 +205,7 @@ async def handler(args: dict, user: User, agent: Agent):
 
     # relaxed pass
     if len(tweets) < MIN_KEEP:
+        # Include non-verified accounts and tweets with links or media
         relaxed_q = parsed.query.replace("is:verified", " ") \
                                 .replace("(has:links OR has:media)", " ")
         print("relaxed_q", relaxed_q)
@@ -212,8 +216,9 @@ async def handler(args: dict, user: User, agent: Agent):
 
     # very relaxed pass
     if len(tweets) < MIN_KEEP:
+        # Include non-verified accounts, tweets with links or media and retweets
         relaxed_q = parsed.query.replace("is:verified", " ") \
-                                .replace("is:retweet", " ") \
+                                .replace("-is:retweet", " ") \
                                 .replace("(has:links OR has:media)", " ")
         print("relaxed_q 2", relaxed_q)
         raw_very_relaxed = twitter_search(x, relaxed_q,
@@ -227,7 +232,7 @@ async def handler(args: dict, user: User, agent: Agent):
 
     print(f"Returned {len(tweets)} tweets.\n")
     for t in tweets[:10]:
-        print(f"- @{t['author_username']} :: {flat(t['text'])[:280]}…  ({t['public_metrics']['retweet_count']} RT, {t['public_metrics']['like_count']} likes)")
+        print(f"- @{t['author_username']} :: {flat(t['text'])[:280]}…  ({t['public_metrics']['retweet_count']} RT, {t['public_metrics']['like_count']} likes, {t['score']} engagement score)")
         print("--------------------------------")
 
     print("--------------------------------")
