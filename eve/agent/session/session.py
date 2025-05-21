@@ -4,6 +4,7 @@ from eve.agent.session.models import (
     ChatMessage,
     PromptSessionContext,
     Session,
+    SessionUpdate,
     UpdateType,
 )
 from eve.agent.session.session_llm import LLMContext, async_prompt
@@ -35,19 +36,19 @@ async def determine_actor(
     return actor
 
 
-async def build_llm_context(
-    session: Session, actor: Agent, context: PromptSessionContext
-):
-    # Get last 10 messages efficiently using MongoDB's sort and limit
+def select_messages(session: Session, context: PromptSessionContext):
     messages = ChatMessage.get_collection()
     selected_messages = (
         messages.load(session=session.id).sort("createdAt", -1).limit(10)
     )
     messages.reverse()  # Reverse to get chronological order
+    return selected_messages
 
-    # Add new message
-    selected_messages.append(ChatMessage(role="user", content=context.message))
 
+async def build_llm_context(
+    session: Session, actor: Agent, context: PromptSessionContext
+):
+    messages = select_messages(session, context)
     return LLMContext(
         messages=messages,
         tools=actor.tools,
@@ -68,8 +69,24 @@ async def build_llm_context(
 
 
 async def async_prompt_session(llm_context: LLMContext):
-    async for update in async_prompt(llm_context):
-        print(update)
+    new_message = ChatMessage(role="user", content=llm_context.messages[-1].content)
+    llm_context.messages.append(new_message)
+    yield SessionUpdate(type=UpdateType.START_PROMPT)
+    prompt_session_finished = False
+    while not prompt_session_finished:
+        response = await async_prompt(llm_context)
+        assistant_message = ChatMessage(
+            role="assistant",
+            content=response.content,
+            tool_calls=response.tool_calls,
+        )
+        llm_context.messages.append(assistant_message)
+        yield SessionUpdate(type=UpdateType.ASSISTANT_MESSAGE, message=assistant_message)
+        
+        if response.stop == "stop":
+            prompt_session_finished = True
+
+    yield SessionUpdate(type=UpdateType.END_PROMPT)
 
 
 async def run_prompt_session(context: PromptSessionContext):
