@@ -280,9 +280,11 @@ async def agent_tools_delete(
 
 @web_app.post("/sessions/prompt")
 async def prompt_session(
-    request: PromptSessionRequest, _: dict = Depends(auth.authenticate_admin)
+    request: PromptSessionRequest,
+    background_tasks: BackgroundTasks,
+    _: dict = Depends(auth.authenticate_admin),
 ):
-    return await handle_prompt_session(request)
+    return await handle_prompt_session(request, background_tasks)
 
 
 @web_app.exception_handler(RequestValidationError)

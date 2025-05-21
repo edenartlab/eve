@@ -781,18 +781,20 @@ def setup_session(session_id: str, user_id: str):
 async def handle_prompt_session(
     request: PromptSessionRequest, background_tasks: BackgroundTasks
 ):
-    session, user = setup_session(request.session_id, request.user_id)
+    session = setup_session(request.session_id, request.user_id)
     context = PromptSessionContext(
         session=session,
-        initiating_user_id=user.id,
+        initiating_user_id=request.user_id,
         message=request.message,
         update_config=request.update_config,
     )
+    print(f"***debug*** request: {request}")
+    print(f"***debug*** session: {session}")
+    print(f"***debug*** context: {context}")
 
     background_tasks.add_task(
         run_prompt_session,
-        context,
-        request.llm_config,
+        context=context,
     )
 
     return {"session_id": request.session_id}
