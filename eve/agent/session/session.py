@@ -9,7 +9,9 @@ from eve.agent.session.models import (
 )
 from eve.agent.session.session_llm import LLMContext, async_prompt
 from eve.agent.session.models import LLMContextMetadata
+from eve.api.errors import handle_errors
 from eve.api.helpers import emit_update, serialize_for_json
+from eve.agent.session.models import LLMConfig
 
 
 def validate_prompt_session(session: Session, context: PromptSessionContext):
@@ -38,10 +40,10 @@ async def determine_actor(
 
 def select_messages(session: Session, context: PromptSessionContext):
     messages = ChatMessage.get_collection()
-    selected_messages = (
-        messages.load(session=session.id).sort("createdAt", -1).limit(10)
+    selected_messages = list(
+        messages.find({"session": session.id}).sort("createdAt", -1).limit(10)
     )
-    messages.reverse()  # Reverse to get chronological order
+    selected_messages.reverse()  # Reverse to get chronological order
     return selected_messages
 
 
@@ -49,16 +51,26 @@ async def build_llm_context(
     session: Session, actor: Agent, context: PromptSessionContext
 ):
     messages = select_messages(session, context)
+    print(f"***debug*** messages: {messages}")
+    new_message = ChatMessage(
+        session=session.id, role="user", content=context.message.content
+    )
+    messages.append(new_message)
+    print(f"***debug*** new_message: {new_message}")
+    print(f"***debug*** messages: {messages}")
+    tools = actor.get_tools(cache=False, auth_user=context.initiating_user_id)
+    print(f"***debug*** tools: {tools}")
     return LLMContext(
         messages=messages,
-        tools=actor.tools,
+        tools=tools,
+        config=context.llm_config or LLMConfig(),
         metadata=LLMContextMetadata(
             trace_name="prompt_session",
-            trace_id=str(f"prompt_session_{context.session_id}"),
+            trace_id=str(f"prompt_session_{context.session.id}"),
             generation_name="prompt_session",
-            generation_id=str(f"prompt_session_{context.session_id}"),
+            generation_id=str(f"prompt_session_{context.session.id}"),
             trace_metadata={
-                "session_id": str(context.session_id),
+                "session_id": str(context.session.id),
                 "initiating_user_id": str(context.initiating_user_id)
                 if context.initiating_user_id
                 else None,
@@ -68,33 +80,48 @@ async def build_llm_context(
     )
 
 
-async def async_prompt_session(llm_context: LLMContext):
-    new_message = ChatMessage(role="user", content=llm_context.messages[-1].content)
-    llm_context.messages.append(new_message)
+async def async_prompt_session(session: Session, llm_context: LLMContext):
+    print("***debug*** entering async_prompt_session")
+    print(f"***debug*** llm_context: {llm_context}")
+    print("***debug*** yielding START_PROMPT")
     yield SessionUpdate(type=UpdateType.START_PROMPT)
     prompt_session_finished = False
     while not prompt_session_finished:
+        print("***debug*** calling async_prompt")
         response = await async_prompt(llm_context)
+        print(f"***debug*** response: {response}")
         assistant_message = ChatMessage(
+            session=session.id,
             role="assistant",
             content=response.content,
             tool_calls=response.tool_calls,
         )
+        print(f"***debug*** response: {response}")
         llm_context.messages.append(assistant_message)
-        yield SessionUpdate(type=UpdateType.ASSISTANT_MESSAGE, message=assistant_message)
-        
+        print("***debug*** yielding ASSISTANT_MESSAGE")
+        yield SessionUpdate(
+            type=UpdateType.ASSISTANT_MESSAGE, message=assistant_message
+        )
+
         if response.stop == "stop":
             prompt_session_finished = True
 
+    print("***debug*** prompt session finished")
     yield SessionUpdate(type=UpdateType.END_PROMPT)
 
 
+@handle_errors
 async def run_prompt_session(context: PromptSessionContext):
-    session = Session.from_mongo(context.session_id)
+    print("***debug*** running prompt session")
+    print(f"***debug*** context: {context}")
+    session = context.session
     validate_prompt_session(session, context)
     actor = await determine_actor(session, context)
     llm_context = await build_llm_context(session, actor, context)
-    async for update in async_prompt_session(llm_context):
+    print(f"***debug*** llm_context: {llm_context}")
+    print("***debug*** starting async_prompt_session")
+    async for update in async_prompt_session(session, llm_context):
+        print(f"***debug*** got update: {update}")
         data = {
             "type": update.type.value,
             "update_config": context.update_config.model_dump()
@@ -113,4 +140,6 @@ async def run_prompt_session(context: PromptSessionContext):
         elif update.type == UpdateType.END_PROMPT:
             pass
 
+        print(f"***debug*** emitting update: {data}")
         await emit_update(context.update_config, data)
+    print("***debug*** run_prompt_session finished")

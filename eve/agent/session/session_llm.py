@@ -10,9 +10,9 @@ litellm.success_callback = ["langfuse"]
 supported_models = ["gpt-4o-mini", "gpt-4o"]
 
 
-def validate_input(context: LLMContext, config: LLMConfig) -> None:
-    if config.model not in supported_models:
-        raise ValueError(f"Model {config.model} is not supported")
+def validate_input(context: LLMContext) -> None:
+    if context.config.model not in supported_models:
+        raise ValueError(f"Model {context.config.model} is not supported")
 
 
 def construct_observability_metadata(context: LLMContext):
@@ -34,7 +34,7 @@ def construct_messages(context: LLMContext) -> List[dict]:
 def construct_tools(context: LLMContext) -> Optional[List[dict]]:
     if not context.tools:
         return None
-    return [tool.openai_schema(exclude_hidden=True) for tool in context.tools]
+    return [tool.openai_schema(exclude_hidden=True) for tool in context.tools.values()]
 
 
 async def async_prompt_litellm(

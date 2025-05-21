@@ -1,8 +1,8 @@
 from enum import Enum
 from typing import List, Optional, Dict, Any, Literal
 from bson import ObjectId
-from pydantic import BaseModel, ConfigDict, Field
-from dataclasses import dataclass
+from pydantic import ConfigDict, Field
+from dataclasses import dataclass, field
 
 from eve.mongo import Collection, Document
 from eve.tool import Tool
@@ -64,7 +64,6 @@ class ChatMessage(Document):
 @dataclass
 class ChatMessageRequestInput:
     content: str
-    role: Literal["user"] = "user"
     attachments: Optional[List[str]] = None
     sender_name: Optional[str] = None
 
@@ -99,15 +98,15 @@ class LLMContextMetadata:
 
 @dataclass
 class LLMConfig:
-    model: str = "gpt-4o-mini"
+    model: Optional[str] = "gpt-4o-mini"
 
 
 @dataclass
 class LLMContext:
     messages: List[ChatMessage]
+    config: LLMConfig = field(default_factory=LLMConfig)
     tools: Optional[List[Tool]] = None
     metadata: LLMContextMetadata = None
-    config: Optional[LLMConfig] = None
 
 
 @Collection("sessions")
@@ -143,10 +142,11 @@ class UpdateConfig:
 @dataclass
 class PromptSessionContext:
     session: Session
-    initiating_user_id: Optional[ObjectId] = None
-    actor_agent_id: Optional[ObjectId] = None
-    message: Optional[ChatMessageRequestInput] = None
+    initiating_user_id: str
+    message: ChatMessageRequestInput
     update_config: Optional[UpdateConfig] = None
+    actor_agent_id: Optional[str] = None
+    llm_config: Optional[LLMConfig] = None
 
 
 @dataclass
