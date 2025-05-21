@@ -1,8 +1,14 @@
 from typing import Optional
 from eve.agent.agent import Agent
-from eve.agent.session.models import ChatMessage, PromptSessionContext, Session
+from eve.agent.session.models import (
+    ChatMessage,
+    PromptSessionContext,
+    Session,
+    UpdateType,
+)
 from eve.agent.session.session_llm import LLMContext, async_prompt
 from eve.agent.session.models import LLMContextMetadata
+from eve.api.helpers import emit_update, serialize_for_json
 
 
 def validate_prompt_session(session: Session, context: PromptSessionContext):
@@ -57,10 +63,33 @@ async def build_llm_context(
     )
 
 
-async def prompt_session(context: PromptSessionContext):
+async def async_prompt_session(llm_context: LLMContext):
+    async for update in async_prompt(llm_context):
+        print(update)
+
+
+async def run_prompt_session(context: PromptSessionContext):
     session = Session.from_mongo(context.session_id)
     validate_prompt_session(session, context)
     actor = await determine_actor(session, context)
     llm_context = await build_llm_context(session, actor, context)
-    await async_prompt(llm_context)
-    # now we do the prompt thread stuff
+    async for update in async_prompt_session(llm_context):
+        data = {
+            "type": update.type.value,
+            "update_config": context.update_config.model_dump()
+            if context.update_config
+            else None,
+        }
+        if update.type == UpdateType.START_PROMPT:
+            pass
+        elif update.type == UpdateType.ASSISTANT_MESSAGE:
+            data["content"] = update.message.content
+        elif update.type == UpdateType.TOOL_COMPLETE:
+            data["tool"] = update.tool_name
+            data["result"] = serialize_for_json(update.result)
+        elif update.type == UpdateType.ERROR:
+            data["error"] = update.error if hasattr(update, "error") else None
+        elif update.type == UpdateType.END_PROMPT:
+            pass
+
+        await emit_update(context.update_config, data)

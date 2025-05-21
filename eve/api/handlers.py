@@ -11,7 +11,7 @@ import aiohttp
 
 from langfuse.decorators import observe, langfuse_context
 from eve.agent.session.models import PromptSessionContext, Session
-from eve.agent.session.session import prompt_session
+from eve.agent.session.session import run_prompt_session
 from eve.agent.tasks import async_title_thread
 from eve.api.errors import handle_errors, APIError
 from eve.api.api_requests import (
@@ -790,7 +790,7 @@ async def handle_prompt_session(
     )
 
     background_tasks.add_task(
-        prompt_session,
+        run_prompt_session,
         context,
         request.llm_config,
     )

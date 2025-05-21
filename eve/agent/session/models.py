@@ -1,10 +1,19 @@
 from dataclasses import dataclass
+from enum import Enum
 from typing import List, Optional, Dict, Any, Literal
 from bson import ObjectId
 from pydantic import BaseModel, ConfigDict, Field
 
 from eve.mongo import Collection, Document
 from eve.tool import Tool
+
+
+class UpdateType(Enum):
+    START_PROMPT = "start_prompt"
+    ASSISTANT_MESSAGE = "assistant_message"
+    TOOL_COMPLETE = "tool_complete"
+    ERROR = "error"
+    END_PROMPT = "end_prompt"
 
 
 class ToolCall(BaseModel):
