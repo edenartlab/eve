@@ -2,6 +2,7 @@ from enum import Enum
 from typing import List, Optional, Dict, Any, Literal
 from bson import ObjectId
 from pydantic import BaseModel, ConfigDict, Field
+from dataclasses import dataclass
 
 from eve.mongo import Collection, Document
 from eve.tool import Tool
@@ -15,7 +16,8 @@ class UpdateType(Enum):
     END_PROMPT = "end_prompt"
 
 
-class ToolCall(BaseModel):
+@dataclass
+class ToolCall:
     id: str
     tool: str
     args: Dict[str, Any]
@@ -26,7 +28,6 @@ class ToolCall(BaseModel):
     result: Optional[List[Dict[str, Any]]] = None
     reactions: Optional[Dict[str, List[ObjectId]]] = None
     error: Optional[str] = None
-    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 @Collection("channels")
@@ -60,7 +61,16 @@ class ChatMessage(Document):
         }
 
 
-class SessionUpdate(BaseModel):
+@dataclass
+class ChatMessageRequestInput:
+    content: str
+    role: Literal["user"] = "user"
+    attachments: Optional[List[str]] = None
+    sender_name: Optional[str] = None
+
+
+@dataclass
+class SessionUpdate:
     type: UpdateType
     message: Optional[ChatMessage] = None
     tool_name: Optional[str] = None
@@ -69,32 +79,34 @@ class SessionUpdate(BaseModel):
     error: Optional[str] = None
     text: Optional[str] = None
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
 
-
-class LLMTraceMetadata(BaseModel):
+@dataclass
+class LLMTraceMetadata:
     session_id: str = None
     initiating_user_id: Optional[str] = None
     actor_agent_id: Optional[str] = None
     additional_metadata: Optional[Dict[str, Any]] = None
 
 
-class LLMContextMetadata(BaseModel):
+@dataclass
+class LLMContextMetadata:
     trace_name: Optional[str] = None
     trace_id: Optional[str] = None
     generation_name: Optional[str] = None
-    generation_id: Optional[ObjectId] = None
+    generation_id: Optional[str] = None
     trace_metadata: Optional[Dict[str, Any]] = None
 
 
-class LLMConfig(BaseModel):
+@dataclass
+class LLMConfig:
     model: str = "gpt-4o-mini"
 
 
-class LLMContext(BaseModel):
+@dataclass
+class LLMContext:
     messages: List[ChatMessage]
     tools: Optional[List[Tool]] = None
-    metadata: LLMContextMetadata = Field(default_factory=LLMContextMetadata)
+    metadata: LLMContextMetadata = None
     config: Optional[LLMConfig] = None
 
 
@@ -111,7 +123,8 @@ class Session(Document):
     status: Optional[Literal["active", "archived"]] = "active"
 
 
-class UpdateConfig(BaseModel):
+@dataclass
+class UpdateConfig:
     sub_channel_name: Optional[str] = None
     update_endpoint: Optional[str] = None
     deployment_id: Optional[str] = None
@@ -124,20 +137,20 @@ class UpdateConfig(BaseModel):
     farcaster_author_fid: Optional[int] = None
     farcaster_message_id: Optional[str] = None
     twitter_tweet_to_reply_id: Optional[str] = None
-    model_config = ConfigDict(arbitrary_types_allowed=True)
     user_is_bot: Optional[bool] = False
 
 
-class PromptSessionContext(BaseModel):
+@dataclass
+class PromptSessionContext:
     session: Session
     initiating_user_id: Optional[ObjectId] = None
     actor_agent_id: Optional[ObjectId] = None
-    message: Optional[str] = None
+    message: Optional[ChatMessageRequestInput] = None
     update_config: Optional[UpdateConfig] = None
 
 
-class LLMResponse(BaseModel):
+@dataclass
+class LLMResponse:
     content: Optional[str] = None
     tool_calls: Optional[List[ToolCall]] = None
     stop: Optional[str] = None
-    model_config = ConfigDict(arbitrary_types_allowed=True)

@@ -5,7 +5,7 @@ from datetime import datetime
 from eve.deploy import ClientType, DeploymentConfig, DeploymentSecrets
 from eve.agent.thread import UserMessage
 from eve.agent.llm import UpdateType
-from eve.agent.session.models import ChatMessage, LLMConfig
+from eve.agent.session.models import ChatMessage, ChatMessageRequestInput, LLMConfig
 
 
 class TaskRequest(BaseModel):
@@ -141,6 +141,6 @@ class AgentToolsDeleteRequest(BaseModel):
 class PromptSessionRequest(BaseModel):
     user_id: str
     session_id: str
-    message: ChatMessage
+    message: ChatMessageRequestInput
     update_config: Optional[UpdateConfig] = None
     llm_config: Optional[LLMConfig] = None

@@ -26,7 +26,6 @@ def setup_eve():
 
         from langfuse.decorators import langfuse_context
 
-        print(f"Setting up langfuse for {LANGFUSE_ENV}")
         langfuse_context.configure(environment=LANGFUSE_ENV)
 
     def setup_sentry():
