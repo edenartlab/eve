@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from enum import Enum
 from typing import List, Optional, Dict, Any, Literal
 from bson import ObjectId
@@ -61,16 +60,26 @@ class ChatMessage(Document):
         }
 
 
-@dataclass
-class LLMTraceMetadata:
+class SessionUpdate(BaseModel):
+    type: UpdateType
+    message: Optional[ChatMessage] = None
+    tool_name: Optional[str] = None
+    tool_index: Optional[int] = None
+    result: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+    text: Optional[str] = None
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+class LLMTraceMetadata(BaseModel):
     session_id: str = None
     initiating_user_id: Optional[str] = None
     actor_agent_id: Optional[str] = None
     additional_metadata: Optional[Dict[str, Any]] = None
 
 
-@dataclass
-class LLMContextMetadata:
+class LLMContextMetadata(BaseModel):
     trace_name: Optional[str] = None
     trace_id: Optional[str] = None
     generation_name: Optional[str] = None
@@ -78,13 +87,11 @@ class LLMContextMetadata:
     trace_metadata: Optional[Dict[str, Any]] = None
 
 
-@dataclass
-class LLMConfig:
+class LLMConfig(BaseModel):
     model: str = "gpt-4o-mini"
 
 
-@dataclass
-class LLMContext:
+class LLMContext(BaseModel):
     messages: List[ChatMessage]
     tools: Optional[List[Tool]] = None
     metadata: LLMContextMetadata = Field(default_factory=LLMContextMetadata)
@@ -121,10 +128,16 @@ class UpdateConfig(BaseModel):
     user_is_bot: Optional[bool] = False
 
 
-@dataclass
-class PromptSessionContext:
+class PromptSessionContext(BaseModel):
     session: Session
     initiating_user_id: Optional[ObjectId] = None
     actor_agent_id: Optional[ObjectId] = None
     message: Optional[str] = None
     update_config: Optional[UpdateConfig] = None
+
+
+class LLMResponse(BaseModel):
+    content: Optional[str] = None
+    tool_calls: Optional[List[ToolCall]] = None
+    stop: Optional[str] = None
+    model_config = ConfigDict(arbitrary_types_allowed=True)

@@ -1,8 +1,8 @@
-from litellm import completion
+from litellm import completion, ModelResponse
 import litellm
 from typing import Callable, List, AsyncGenerator, Optional
 
-from eve.agent.session.models import LLMContext, LLMConfig
+from eve.agent.session.models import LLMContext, LLMConfig, LLMResponse
 
 
 litellm.success_callback = ["langfuse"]
@@ -39,14 +39,18 @@ def construct_tools(context: LLMContext) -> Optional[List[dict]]:
 
 async def async_prompt_litellm(
     context: LLMContext,
-) -> str:
+) -> LLMResponse:
     response = completion(
         model=context.config.model,
         messages=construct_messages(context),
         metadata=construct_observability_metadata(context),
         tools=construct_tools(context),
     )
-    return response
+    return LLMResponse(
+        content=response.choices[0].message.content,
+        tool_calls=response.choices[0].message.tool_calls,
+        stop=response.choices[0].finish_reason,
+    )
 
 
 async def async_prompt_stream_litellm(
@@ -70,7 +74,7 @@ DEFAULT_LLM_STREAM_HANDLER = async_prompt_stream_litellm
 async def async_prompt(
     context: LLMContext,
     handler: Optional[Callable[[LLMContext], str]] = DEFAULT_LLM_HANDLER,
-) -> str:
+) -> LLMResponse:
     validate_input(context)
     return await handler(context)
 
