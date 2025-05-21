@@ -7,7 +7,6 @@ from fastapi import BackgroundTasks
 from ably import AblyRest
 import traceback
 import re
-import asyncio
 import time
 
 import modal
