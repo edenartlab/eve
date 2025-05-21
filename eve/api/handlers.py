@@ -10,7 +10,8 @@ from fastapi.responses import JSONResponse, StreamingResponse
 import aiohttp
 
 from langfuse.decorators import observe, langfuse_context
-from eve import LANGFUSE_ENV
+from eve.agent.session.models import PromptSessionContext, Session
+from eve.agent.session.session import prompt_session
 from eve.agent.tasks import async_title_thread
 from eve.api.errors import handle_errors, APIError
 from eve.api.api_requests import (
@@ -20,15 +21,13 @@ from eve.api.api_requests import (
     CreateTriggerRequest,
     DeleteDeploymentRequest,
     DeleteTriggerRequest,
+    PromptSessionRequest,
     TaskRequest,
     PlatformUpdateRequest,
     UpdateConfig,
     UpdateDeploymentRequest,
     AgentToolsUpdateRequest,
     AgentToolsDeleteRequest,
-    CreateSessionRequest,
-    GetSessionRequest,
-    ArchiveSessionRequest,
 )
 from eve.api.helpers import (
     emit_update,
@@ -36,9 +35,6 @@ from eve.api.helpers import (
     setup_chat,
     create_telegram_chat_request,
     update_busy_state,
-    create_session,
-    get_session,
-    archive_session,
 )
 from eve.deploy import (
     deploy_client,
@@ -134,7 +130,6 @@ async def run_chat_request(
         "agent_id": str(agent.id),
         "thread_id": str(thread.id),
         "request_id": request_id,
-        "environment": LANGFUSE_ENV,
     }
 
     langfuse_context.update_current_trace(user_id=str(user.id))
@@ -775,38 +770,29 @@ async def handle_agent_tools_delete(request: AgentToolsDeleteRequest):
     return {"tools": tools}
 
 
-@handle_errors
-async def handle_create_session(request: CreateSessionRequest):
-    """Create a new session"""
-    owner = ObjectId(request.owner)
-    agents = [ObjectId(agent) for agent in request.agents]
+def setup_session(session_id: str, user_id: str):
+    session = Session.from_mongo(ObjectId(session_id))
+    if not session:
+        raise APIError(f"Session not found: {session_id}", status_code=404)
+    return session
 
-    session = create_session(
-        owner=owner,
-        title=request.title,
-        agents=agents,
-        scenario=request.scenario,
-        budget=request.budget,
+
+@handle_errors
+async def handle_prompt_session(
+    request: PromptSessionRequest, background_tasks: BackgroundTasks
+):
+    session, user = setup_session(request.session_id, request.user_id)
+    context = PromptSessionContext(
+        session=session,
+        initiating_user_id=user.id,
+        message=request.message,
+        update_config=request.update_config,
     )
 
-    return serialize_document(session.model_dump(by_alias=True))
+    background_tasks.add_task(
+        prompt_session,
+        context,
+        request.llm_config,
+    )
 
-
-@handle_errors
-async def handle_get_session(request: GetSessionRequest):
-    """Get a session by ID"""
-    session = get_session(ObjectId(request.session_id))
-    if not session:
-        raise APIError(f"Session not found: {request.session_id}", status_code=404)
-
-    return serialize_document(session.model_dump(by_alias=True))
-
-
-@handle_errors
-async def handle_archive_session(request: ArchiveSessionRequest):
-    """Archive a session"""
-    session = archive_session(ObjectId(request.session_id))
-    if not session:
-        raise APIError(f"Session not found: {request.session_id}", status_code=404)
-
-    return serialize_document(session.model_dump(by_alias=True))
+    return {"session_id": request.session_id}

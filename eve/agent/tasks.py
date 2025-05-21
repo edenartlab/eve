@@ -5,8 +5,6 @@ import traceback
 from typing import Optional, Dict
 from langfuse.decorators import observe, langfuse_context
 
-from eve import LANGFUSE_ENV
-
 from .thread import Thread, UserMessage
 from .llm import async_prompt
 
@@ -32,7 +30,6 @@ async def async_title_thread(
     messages.append(UserMessage(content="Come up with a title for this thread."))
 
     if metadata:
-        metadata["environment"] = LANGFUSE_ENV
         langfuse_context.update_current_trace(user_id=metadata.get("user_id"))
         langfuse_context.update_current_observation(
             input=messages, model="gpt-4o-mini", metadata=metadata

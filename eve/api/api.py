@@ -14,7 +14,6 @@ from contextlib import asynccontextmanager
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.exceptions import RequestValidationError
 import time
-import asyncio
 
 from eve import auth, db, eden_utils
 from eve.api.runner_tasks import (
@@ -33,6 +32,7 @@ from eve.api.handlers import (
     handle_cancel,
     handle_deployment_update,
     handle_discord_emission,
+    handle_prompt_session,
     handle_replicate_webhook,
     handle_chat,
     handle_deployment_create,
@@ -46,9 +46,6 @@ from eve.api.handlers import (
     handle_trigger_get,
     handle_agent_tools_update,
     handle_agent_tools_delete,
-    handle_create_session,
-    handle_get_session,
-    handle_archive_session,
 )
 from eve.api.api_requests import (
     CancelRequest,
@@ -57,15 +54,12 @@ from eve.api.api_requests import (
     CreateTriggerRequest,
     DeleteDeploymentRequest,
     DeleteTriggerRequest,
+    PromptSessionRequest,
     TaskRequest,
     PlatformUpdateRequest,
-    UpdateConfig,
     UpdateDeploymentRequest,
     AgentToolsUpdateRequest,
     AgentToolsDeleteRequest,
-    CreateSessionRequest,
-    GetSessionRequest,
-    ArchiveSessionRequest,
 )
 from eve.api.helpers import pre_modal_setup, busy_state_dict
 
@@ -284,25 +278,11 @@ async def agent_tools_delete(
     return await handle_agent_tools_delete(request)
 
 
-@web_app.post("/sessions/create")
-async def create_session(
-    request: CreateSessionRequest, _: dict = Depends(auth.authenticate_admin)
+@web_app.post("/session/prompt")
+async def prompt_session(
+    request: PromptSessionRequest, _: dict = Depends(auth.authenticate_admin)
 ):
-    return await handle_create_session(request)
-
-
-@web_app.post("/sessions/get")
-async def get_session(
-    request: GetSessionRequest, _: dict = Depends(auth.authenticate_admin)
-):
-    return await handle_get_session(request)
-
-
-@web_app.post("/sessions/archive")
-async def archive_session(
-    request: ArchiveSessionRequest, _: dict = Depends(auth.authenticate_admin)
-):
-    return await handle_archive_session(request)
+    return await handle_prompt_session(request)
 
 
 @web_app.exception_handler(RequestValidationError)

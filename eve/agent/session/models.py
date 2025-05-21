@@ -56,6 +56,7 @@ class ChatMessage(Document):
 class LLMTraceMetadata:
     session_id: str = None
     initiating_user_id: Optional[str] = None
+    actor_agent_id: Optional[str] = None
     additional_metadata: Optional[Dict[str, Any]] = None
 
 
@@ -69,22 +70,16 @@ class LLMContextMetadata:
 
 
 @dataclass
-class LLMContext:
-    messages: List[ChatMessage]
-    tools: Optional[List[Tool]] = None
-    metadata: LLMContextMetadata = Field(default_factory=LLMContextMetadata)
-
-
-@dataclass
 class LLMConfig:
     model: str = "gpt-4o-mini"
 
 
 @dataclass
-class PromptSessionContext:
-    session_id: ObjectId
-    initiating_user_id: Optional[ObjectId] = None
-    message: Optional[str] = None
+class LLMContext:
+    messages: List[ChatMessage]
+    tools: Optional[List[Tool]] = None
+    metadata: LLMContextMetadata = Field(default_factory=LLMContextMetadata)
+    config: Optional[LLMConfig] = None
 
 
 @Collection("sessions")
@@ -98,3 +93,28 @@ class Session(Document):
     budget: Optional[float] = None
     spent: Optional[float] = 0
     status: Optional[Literal["active", "archived"]] = "active"
+
+
+class UpdateConfig(BaseModel):
+    sub_channel_name: Optional[str] = None
+    update_endpoint: Optional[str] = None
+    deployment_id: Optional[str] = None
+    discord_channel_id: Optional[str] = None
+    discord_message_id: Optional[str] = None
+    telegram_chat_id: Optional[str] = None
+    telegram_message_id: Optional[str] = None
+    telegram_thread_id: Optional[str] = None
+    farcaster_hash: Optional[str] = None
+    farcaster_author_fid: Optional[int] = None
+    farcaster_message_id: Optional[str] = None
+    twitter_tweet_to_reply_id: Optional[str] = None
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    user_is_bot: Optional[bool] = False
+
+
+@dataclass
+class PromptSessionContext:
+    session: Session
+    initiating_user_id: Optional[ObjectId] = None
+    message: Optional[str] = None
+    update_config: Optional[UpdateConfig] = None
