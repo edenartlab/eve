@@ -278,7 +278,7 @@ async def agent_tools_delete(
     return await handle_agent_tools_delete(request)
 
 
-@web_app.post("/session/prompt")
+@web_app.post("/sessions/prompt")
 async def prompt_session(
     request: PromptSessionRequest, _: dict = Depends(auth.authenticate_admin)
 ):
