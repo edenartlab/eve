@@ -1,7 +1,8 @@
 import re
 import json
+import math
 from operator import itemgetter
-from typing import List, Dict
+from typing import List, Dict, Tuple
 
 from pydantic import BaseModel, Field, validator
 
@@ -56,14 +57,29 @@ MIN_RETWEETS_LOW     = 0
 MIN_FOLLOWERS_LOW    = 0
 
 MIN_KEEP             = 3
+MAX_KEEP             = 100
 
 # ───────────────────────────────────────────────
 # 4. Helper functions
 # ───────────────────────────────────────────────
-def compute_score(pm: Dict) -> (int, str):
+def compute_engagement_score(pm: Dict) -> Tuple[int, str]:
+    # Real-world stats pulled from Twitter used to calibrate each metric to a common scale:
+    IMPRESSION_VALUE = 0.005
+    LIKE_VALUE       = 1
+    RETWEET_VALUE    = 7
+
+    engagement_score = pm["retweet_count"] * RETWEET_VALUE + pm["like_count"] * LIKE_VALUE
+
     if "impression_count" in pm:
-        return pm["impression_count"], "impression_count"
-    return pm["retweet_count"] * 3 + pm["like_count"], "3*retweets+likes"
+        engagement_score = (engagement_score + pm["impression_count"] * IMPRESSION_VALUE) / 3
+    else:
+        engagement_score = engagement_score / 2
+
+    # Finally we can apply a simple log scaling to the score:
+    engagement_score = int(math.log(engagement_score + 1, math.e))
+    engagement_score = max(engagement_score, 0)
+
+    return engagement_score, "tweet_engagement_score"
 
 
 def orig_photo_url(url: str) -> str:
@@ -89,7 +105,7 @@ def twitter_search(x: X, query: str, start=None, end=None) -> Dict:
     params = {
         "query"        : query,
         "sort_order"   : "relevancy",
-        "max_results"  : 100,
+        "max_results"  : MAX_KEEP,
         "tweet.fields" : "created_at,public_metrics,attachments",
         "user.fields"  : "username,name,public_metrics,verified",
         "media.fields" : "type,url,preview_image_url,width,height,alt_text",
@@ -127,7 +143,7 @@ def process_payload(
             pm["retweet_count"] >= min_retweets and
             fcnt >= min_followers):
 
-            score, metric = compute_score(pm)
+            score, metric = compute_engagement_score(pm)
             media_objs = []
             for mk in t.get("attachments", {}).get("media_keys", []):
                 m = media.get(mk)
@@ -152,7 +168,7 @@ def process_payload(
             })
 
     keep.sort(key=itemgetter("score"), reverse=True)
-    return keep
+    return keep[:MAX_KEEP]
 
 # ───────────────────────────────────────────────
 # 7. Main Eve handler
