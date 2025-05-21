@@ -20,13 +20,17 @@ async def determine_actor(
     session: Session, context: PromptSessionContext
 ) -> Optional[Agent]:
     actor_id = None
-    if len(session.agents) > 1:
-        raise ValueError("Multi-agent sessions not yet implemented")
-    else:
+    if context.actor_agent_id:
+        actor_id = context.actor_agent_id
+    elif len(session.agents) > 1:
+        raise ValueError("Multi-agent smart sessions not yet implemented")
+    elif len(session.agents) == 1:
         actor_id = session.agents[0]
+
     if not actor_id:
         # TODO: do something more graceful than returning None if no actor is determined to be necessary.
         return None
+
     actor = Agent.from_mongo(actor_id)
     return actor
 

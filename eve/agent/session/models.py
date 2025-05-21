@@ -125,5 +125,6 @@ class UpdateConfig(BaseModel):
 class PromptSessionContext:
     session: Session
     initiating_user_id: Optional[ObjectId] = None
+    actor_agent_id: Optional[ObjectId] = None
     message: Optional[str] = None
     update_config: Optional[UpdateConfig] = None
