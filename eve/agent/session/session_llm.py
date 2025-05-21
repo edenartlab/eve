@@ -39,10 +39,9 @@ def construct_tools(context: LLMContext) -> Optional[List[dict]]:
 
 async def async_prompt_litellm(
     context: LLMContext,
-    config: LLMConfig,
 ) -> str:
     response = completion(
-        model=config.model,
+        model=context.config.model,
         messages=construct_messages(context),
         metadata=construct_observability_metadata(context),
         tools=construct_tools(context),
@@ -52,10 +51,9 @@ async def async_prompt_litellm(
 
 async def async_prompt_stream_litellm(
     context: LLMContext,
-    config: LLMConfig,
 ) -> AsyncGenerator[str, None]:
     response = completion(
-        model=config.model,
+        model=context.config.model,
         messages=construct_messages(context),
         metadata=construct_observability_metadata(context),
         tools=construct_tools(context),
@@ -71,20 +69,18 @@ DEFAULT_LLM_STREAM_HANDLER = async_prompt_stream_litellm
 
 async def async_prompt(
     context: LLMContext,
-    config: Optional[LLMConfig] = LLMConfig(),
-    handler: Optional[Callable[[LLMContext, LLMConfig], str]] = DEFAULT_LLM_HANDLER,
+    handler: Optional[Callable[[LLMContext], str]] = DEFAULT_LLM_HANDLER,
 ) -> str:
-    validate_input(context, config)
-    return await handler(context, config)
+    validate_input(context)
+    return await handler(context)
 
 
 async def async_prompt_stream(
     context: LLMContext,
-    config: Optional[LLMConfig] = LLMConfig(),
     handler: Optional[
         Callable[[LLMContext, LLMConfig], AsyncGenerator[str, None]]
     ] = DEFAULT_LLM_STREAM_HANDLER,
 ) -> AsyncGenerator[str, None]:
-    validate_input(context, config)
-    async for chunk in handler(context, config):
+    validate_input(context)
+    async for chunk in handler(context):
         yield chunk

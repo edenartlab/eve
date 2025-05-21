@@ -5,6 +5,7 @@ from datetime import datetime
 from eve.deploy import ClientType, DeploymentConfig, DeploymentSecrets
 from eve.agent.thread import UserMessage
 from eve.agent.llm import UpdateType
+from eve.agent.session.models import ChatMessage, LLMConfig
 
 
 class TaskRequest(BaseModel):
@@ -33,6 +34,7 @@ class UpdateConfig(BaseModel):
     farcaster_message_id: Optional[str] = None
     twitter_tweet_to_reply_id: Optional[str] = None
     model_config = ConfigDict(arbitrary_types_allowed=True)
+    user_is_bot: Optional[bool] = False
 
 
 class PlatformUpdateRequest(BaseModel):
@@ -136,17 +138,9 @@ class AgentToolsDeleteRequest(BaseModel):
     tools: List[str]
 
 
-class CreateSessionRequest(BaseModel):
-    owner: str
-    title: str
-    agents: List[str]
-    scenario: Optional[str] = None
-    budget: Optional[float] = None
-
-
-class GetSessionRequest(BaseModel):
+class PromptSessionRequest(BaseModel):
+    user_id: str
     session_id: str
-
-
-class ArchiveSessionRequest(BaseModel):
-    session_id: str
+    message: ChatMessage
+    update_config: Optional[UpdateConfig] = None
+    llm_config: Optional[LLMConfig] = None
