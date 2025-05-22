@@ -21,9 +21,7 @@ def construct_observability_metadata(context: LLMContext):
         return {}
     return {
         "trace_name": context.metadata.trace_name,
-        "trace_id": context.metadata.trace_id,
         "generation_name": context.metadata.generation_name,
-        "generation_id": context.metadata.generation_id,
         "trace_metadata": context.metadata.trace_metadata.model_dump(),
     }
 
@@ -41,11 +39,13 @@ def construct_tools(context: LLMContext) -> Optional[List[dict]]:
 async def async_prompt_litellm(
     context: LLMContext,
 ) -> LLMResponse:
+    metadata = construct_observability_metadata(context)
+    print(f"***debug*** metadata: {metadata}")
     response = completion(
         model=context.config.model,
         messages=construct_messages(context),
-        metadata=construct_observability_metadata(context),
-        tools=construct_tools(context),
+        metadata=metadata,
+        # tools=construct_tools(context),
     )
 
     tool_calls = None
