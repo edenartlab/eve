@@ -1,10 +1,16 @@
+import asyncio
+import traceback
 from typing import Optional
+
+from sentry_sdk import capture_exception
 from eve.agent.agent import Agent
 from eve.agent.session.models import (
     ChatMessage,
+    LLMTraceMetadata,
     PromptSessionContext,
     Session,
     SessionUpdate,
+    ToolCall,
     UpdateType,
 )
 from eve.agent.session.session_llm import LLMContext, async_prompt
@@ -59,7 +65,6 @@ async def build_llm_context(
     print(f"***debug*** new_message: {new_message}")
     print(f"***debug*** messages: {messages}")
     tools = actor.get_tools(cache=False, auth_user=context.initiating_user_id)
-    print(f"***debug*** tools: {tools}")
     return LLMContext(
         messages=messages,
         tools=tools,
@@ -69,15 +74,94 @@ async def build_llm_context(
             trace_id=str(f"prompt_session_{context.session.id}"),
             generation_name="prompt_session",
             generation_id=str(f"prompt_session_{context.session.id}"),
-            trace_metadata={
-                "session_id": str(context.session.id),
-                "initiating_user_id": str(context.initiating_user_id)
+            trace_metadata=LLMTraceMetadata(
+                user_id=str(context.initiating_user_id)
                 if context.initiating_user_id
                 else None,
-                "actor_agent_id": str(actor.id),
-            },
+                agent_id=str(actor.id),
+                session_id=str(context.session.id),
+            ),
         ),
     )
+
+
+async def process_tool_call(
+    llm_context: LLMContext,
+    tool_call: ToolCall,
+    tool_call_index: int,
+):
+    try:
+        print(f"***debug*** tool_call: {tool_call}")
+        print(f"***debug*** llm_context.tools: {llm_context.tools}")
+        tool = llm_context.tools[tool_call.tool]
+        print(
+            f"***debug*** llm_context.metadata.trace_metadata: {llm_context.metadata.trace_metadata}"
+        )
+        print(f"***debug*** tool_call.args: {tool_call.args}")
+        print(f"***debug*** tool_call.args type: {type(tool_call.args)}")
+        print(
+            f"***debug*** llm_context.metadata.trace_metadata.user_id: {llm_context.metadata.trace_metadata.user_id}"
+        )
+        task = await tool.async_start_task(
+            user_id=llm_context.metadata.trace_metadata.user_id
+            or llm_context.metadata.trace_metadata.agent_id,
+            agent_id=llm_context.metadata.trace_metadata.agent_id,
+            args=tool_call.args,
+            mock=False,
+            public=True,
+            is_client_platform=False,
+        )
+        print(f"***debug*** task: {task}")
+
+        result = await tool.async_wait(task)
+        print(f"***debug*** result: {result}")
+
+        if result["status"] == "completed":
+            return SessionUpdate(
+                type=UpdateType.TOOL_COMPLETE,
+                tool_name=tool_call.tool,
+                tool_index=tool_call_index,
+                result=result,
+            )
+        else:
+            return SessionUpdate(
+                type=UpdateType.ERROR,
+                tool_name=tool_call.tool,
+                tool_index=tool_call_index,
+                error=result.get("error"),
+            )
+    except Exception as e:
+        print(f"***debug*** error: {e}")
+        capture_exception(e)
+        traceback.print_exc()
+
+        return SessionUpdate(
+            type=UpdateType.ERROR,
+            tool_name=tool_call.tool,
+            tool_index=tool_call_index,
+            error=str(e),
+        )
+
+
+async def process_tool_calls(session: Session, llm_context: LLMContext):
+    tool_calls = llm_context.messages[-1].tool_calls
+    print(f"***debug*** tool_calls: {tool_calls}")
+    for b in range(0, len(tool_calls), 4):
+        batch = enumerate(tool_calls[b : b + 4])
+        tasks = [
+            process_tool_call(
+                llm_context,
+                tool_call,
+                b + idx,
+            )
+            for idx, tool_call in batch
+        ]
+        print(f"***debug*** tasks: {tasks}")
+
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    print(f"***debug*** results: {results}")
+    for result in results:
+        yield result
 
 
 async def async_prompt_session(session: Session, llm_context: LLMContext):
@@ -103,7 +187,13 @@ async def async_prompt_session(session: Session, llm_context: LLMContext):
             type=UpdateType.ASSISTANT_MESSAGE, message=assistant_message
         )
 
+        if response.tool_calls:
+            async for update in process_tool_calls(session, llm_context):
+                print(f"***debug*** got tool call update: {update}")
+                yield update
+
         if response.stop == "stop":
+            print("***debug*** stop signal received")
             prompt_session_finished = True
 
     print("***debug*** prompt session finished")

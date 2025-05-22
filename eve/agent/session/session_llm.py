@@ -1,8 +1,9 @@
-from litellm import completion, ModelResponse
+import json
+from litellm import completion
 import litellm
 from typing import Callable, List, AsyncGenerator, Optional
 
-from eve.agent.session.models import LLMContext, LLMConfig, LLMResponse
+from eve.agent.session.models import LLMContext, LLMConfig, LLMResponse, ToolCall
 
 
 litellm.success_callback = ["langfuse"]
@@ -23,7 +24,7 @@ def construct_observability_metadata(context: LLMContext):
         "trace_id": context.metadata.trace_id,
         "generation_name": context.metadata.generation_name,
         "generation_id": context.metadata.generation_id,
-        "trace_metadata": context.metadata.trace_metadata,
+        "trace_metadata": context.metadata.trace_metadata.model_dump(),
     }
 
 
@@ -46,9 +47,22 @@ async def async_prompt_litellm(
         metadata=construct_observability_metadata(context),
         tools=construct_tools(context),
     )
+
+    tool_calls = None
+    if response.choices[0].message.tool_calls:
+        tool_calls = [
+            ToolCall(
+                id=tool_call.id,
+                tool=tool_call.function.name,
+                args=json.loads(tool_call.function.arguments),
+                status="pending",
+            )
+            for tool_call in response.choices[0].message.tool_calls
+        ]
+
     return LLMResponse(
         content=response.choices[0].message.content,
-        tool_calls=response.choices[0].message.tool_calls,
+        tool_calls=tool_calls,
         stop=response.choices[0].finish_reason,
     )
 
