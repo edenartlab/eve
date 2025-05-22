@@ -57,7 +57,6 @@ async def build_llm_context(
     session: Session, actor: Agent, context: PromptSessionContext
 ):
     messages = select_messages(session, context)
-    print(f"***debug*** messages: {messages}")
     new_message = ChatMessage(
         session=session.id, role="user", content=context.message.content
     )
@@ -91,17 +90,7 @@ async def process_tool_call(
     tool_call_index: int,
 ):
     try:
-        print(f"***debug*** tool_call: {tool_call}")
-        print(f"***debug*** llm_context.tools: {llm_context.tools}")
         tool = llm_context.tools[tool_call.tool]
-        print(
-            f"***debug*** llm_context.metadata.trace_metadata: {llm_context.metadata.trace_metadata}"
-        )
-        print(f"***debug*** tool_call.args: {tool_call.args}")
-        print(f"***debug*** tool_call.args type: {type(tool_call.args)}")
-        print(
-            f"***debug*** llm_context.metadata.trace_metadata.user_id: {llm_context.metadata.trace_metadata.user_id}"
-        )
         task = await tool.async_start_task(
             user_id=llm_context.metadata.trace_metadata.user_id
             or llm_context.metadata.trace_metadata.agent_id,
@@ -111,10 +100,8 @@ async def process_tool_call(
             public=True,
             is_client_platform=False,
         )
-        print(f"***debug*** task: {task}")
 
         result = await tool.async_wait(task)
-        print(f"***debug*** result: {result}")
 
         if result["status"] == "completed":
             return SessionUpdate(
@@ -131,7 +118,6 @@ async def process_tool_call(
                 error=result.get("error"),
             )
     except Exception as e:
-        print(f"***debug*** error: {e}")
         capture_exception(e)
         traceback.print_exc()
 
@@ -145,7 +131,6 @@ async def process_tool_call(
 
 async def process_tool_calls(session: Session, llm_context: LLMContext):
     tool_calls = llm_context.messages[-1].tool_calls
-    print(f"***debug*** tool_calls: {tool_calls}")
     for b in range(0, len(tool_calls), 4):
         batch = enumerate(tool_calls[b : b + 4])
         tasks = [
@@ -156,24 +141,17 @@ async def process_tool_calls(session: Session, llm_context: LLMContext):
             )
             for idx, tool_call in batch
         ]
-        print(f"***debug*** tasks: {tasks}")
 
     results = await asyncio.gather(*tasks, return_exceptions=True)
-    print(f"***debug*** results: {results}")
     for result in results:
         yield result
 
 
 async def async_prompt_session(session: Session, llm_context: LLMContext):
-    print("***debug*** entering async_prompt_session")
-    print(f"***debug*** llm_context: {llm_context}")
-    print("***debug*** yielding START_PROMPT")
     yield SessionUpdate(type=UpdateType.START_PROMPT)
     prompt_session_finished = False
     while not prompt_session_finished:
-        print("***debug*** calling async_prompt")
         response = await async_prompt(llm_context)
-        print(f"***debug*** response: {response}")
         assistant_message = ChatMessage(
             session=session.id,
             role="assistant",
@@ -181,36 +159,27 @@ async def async_prompt_session(session: Session, llm_context: LLMContext):
             tool_calls=response.tool_calls,
         )
         llm_context.messages.append(assistant_message)
-        print("***debug*** yielding ASSISTANT_MESSAGE")
         yield SessionUpdate(
             type=UpdateType.ASSISTANT_MESSAGE, message=assistant_message
         )
 
         if response.tool_calls:
             async for update in process_tool_calls(session, llm_context):
-                print(f"***debug*** got tool call update: {update}")
                 yield update
 
         if response.stop == "stop":
-            print("***debug*** stop signal received")
             prompt_session_finished = True
 
-    print("***debug*** prompt session finished")
     yield SessionUpdate(type=UpdateType.END_PROMPT)
 
 
 @handle_errors
 async def run_prompt_session(context: PromptSessionContext):
-    print("***debug*** running prompt session")
-    print(f"***debug*** context: {context}")
     session = context.session
     validate_prompt_session(session, context)
     actor = await determine_actor(session, context)
     llm_context = await build_llm_context(session, actor, context)
-    print(f"***debug*** llm_context: {llm_context}")
-    print("***debug*** starting async_prompt_session")
     async for update in async_prompt_session(session, llm_context):
-        print(f"***debug*** got update: {update}")
         data = {
             "type": update.type.value,
             "update_config": context.update_config.model_dump()
@@ -229,6 +198,4 @@ async def run_prompt_session(context: PromptSessionContext):
         elif update.type == UpdateType.END_PROMPT:
             pass
 
-        print(f"***debug*** emitting update: {data}")
         await emit_update(context.update_config, data)
-    print("***debug*** run_prompt_session finished")
