@@ -1,6 +1,6 @@
 import asyncio
 import traceback
-from typing import Optional
+from typing import List, Optional
 
 from bson import ObjectId
 from sentry_sdk import capture_exception
@@ -56,11 +56,24 @@ def select_messages(session: Session, context: PromptSessionContext):
     return selected_messages
 
 
+def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
+    """
+    Convert the role of any message that is not the actor to "user".
+
+    This is experimentally how we are handling multi-agent sessions.
+    """
+    for message in messages:
+        if message.sender != actor_id:
+            message.role = "user"
+    return messages
+
+
 async def build_llm_context(
     session: Session, actor: Agent, context: PromptSessionContext
 ):
     tools = actor.get_tools(cache=False, auth_user=context.initiating_user_id)
     messages = select_messages(session, context)
+    messages = convert_message_roles(messages, session.agents[0])
     new_message = ChatMessage(
         session=session.id,
         sender=ObjectId(context.initiating_user_id),
