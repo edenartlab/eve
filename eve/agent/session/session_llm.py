@@ -59,7 +59,7 @@ async def async_prompt_litellm(
         ]
 
     return LLMResponse(
-        content=response.choices[0].message.content,
+        content=response.choices[0].message.content or "",  # content can't be None
         tool_calls=tool_calls,
         stop=response.choices[0].finish_reason,
     )

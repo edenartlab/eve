@@ -45,10 +45,14 @@ async def determine_actor(
     return actor
 
 
-def select_messages(session: Session, context: PromptSessionContext):
+def select_messages(
+    session: Session, context: PromptSessionContext, selection_limit: int = 25
+):
     messages = ChatMessage.get_collection()
     selected_messages = list(
-        messages.find({"session": session.id}).sort("createdAt", -1).limit(10)
+        messages.find({"session": session.id})
+        .sort("createdAt", -1)
+        .limit(selection_limit)
     )
     selected_messages.reverse()
     selected_messages = [ChatMessage(**msg) for msg in selected_messages]
@@ -81,7 +85,9 @@ async def build_llm_context(
         content=context.message.content,
     )
     print(f"***debug*** new_message: {new_message}")
-    new_message.save()
+    # new_message.save()
+    # session.messages.append(new_message)
+    # session.save()
     messages.append(new_message)
     return LLMContext(
         messages=messages,
@@ -148,7 +154,7 @@ async def process_tool_call(
         )
 
 
-async def process_tool_calls(session: Session, llm_context: LLMContext):
+async def process_tool_calls(llm_context: LLMContext):
     tool_calls = llm_context.messages[-1].tool_calls
     for b in range(0, len(tool_calls), 4):
         batch = enumerate(tool_calls[b : b + 4])
@@ -161,7 +167,7 @@ async def process_tool_calls(session: Session, llm_context: LLMContext):
             for idx, tool_call in batch
         ]
 
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    results = await asyncio.gather(*tasks, return_exceptions=False)
     for result in results:
         yield result
 
@@ -180,14 +186,17 @@ async def async_prompt_session(session: Session, llm_context: LLMContext):
             tool_calls=response.tool_calls,
         )
         print(f"***debug*** assistant_message: {assistant_message}")
-        assistant_message.save()
+        # assistant_message.save()
+        # session.messages.append(assistant_message)
+        # session.save()
         llm_context.messages.append(assistant_message)
         yield SessionUpdate(
             type=UpdateType.ASSISTANT_MESSAGE, message=assistant_message
         )
 
         if response.tool_calls:
-            async for update in process_tool_calls(session, llm_context):
+            async for update in process_tool_calls(llm_context):
+                print(f"***debug*** update: {update}")
                 yield update
 
         if response.stop == "stop":
