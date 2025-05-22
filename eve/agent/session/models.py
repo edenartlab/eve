@@ -39,13 +39,13 @@ class Channel(Document):
 @Collection("messages")
 class ChatMessage(Document):
     session: ObjectId
+    sender: ObjectId
+    role: Literal["user", "assistant", "system"]
+    content: str = ""
     channel: Optional[Channel] = None
     reply_to: Optional[ObjectId] = None
-    sender: ObjectId = None
     sender_name: Optional[str] = None
-    role: Literal["user", "assistant", "system"]
     reactions: Optional[Dict[str, List[ObjectId]]] = {}
-    content: Optional[str] = None
     attachments: Optional[List[str]] = []
     tool_calls: Optional[List[ToolCall]] = []
     model_config = ConfigDict(arbitrary_types_allowed=True)
