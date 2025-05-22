@@ -788,9 +788,6 @@ async def handle_prompt_session(
         message=request.message,
         update_config=request.update_config,
     )
-    print(f"***debug*** request: {request}")
-    print(f"***debug*** session: {session}")
-    print(f"***debug*** context: {context}")
 
     background_tasks.add_task(
         run_prompt_session,

@@ -2,6 +2,7 @@ import asyncio
 import traceback
 from typing import Optional
 
+from bson import ObjectId
 from sentry_sdk import capture_exception
 from eve.agent.agent import Agent
 from eve.agent.session.models import (
@@ -49,21 +50,26 @@ def select_messages(session: Session, context: PromptSessionContext):
     selected_messages = list(
         messages.find({"session": session.id}).sort("createdAt", -1).limit(10)
     )
-    selected_messages.reverse()  # Reverse to get chronological order
+    selected_messages.reverse()
+    selected_messages = [ChatMessage(**msg) for msg in selected_messages]
+    print(f"***debug*** selected_messages: {selected_messages}")
     return selected_messages
 
 
 async def build_llm_context(
     session: Session, actor: Agent, context: PromptSessionContext
 ):
+    tools = actor.get_tools(cache=False, auth_user=context.initiating_user_id)
     messages = select_messages(session, context)
     new_message = ChatMessage(
-        session=session.id, role="user", content=context.message.content
+        session=session.id,
+        sender=ObjectId(context.initiating_user_id),
+        role="user",
+        content=context.message.content,
     )
-    messages.append(new_message)
     print(f"***debug*** new_message: {new_message}")
-    print(f"***debug*** messages: {messages}")
-    tools = actor.get_tools(cache=False, auth_user=context.initiating_user_id)
+    new_message.save()
+    messages.append(new_message)
     return LLMContext(
         messages=messages,
         tools=tools,
@@ -152,12 +158,16 @@ async def async_prompt_session(session: Session, llm_context: LLMContext):
     prompt_session_finished = False
     while not prompt_session_finished:
         response = await async_prompt(llm_context)
+        print(f"***debug*** response: {response}")
         assistant_message = ChatMessage(
             session=session.id,
+            sender=ObjectId(llm_context.metadata.trace_metadata.agent_id),
             role="assistant",
             content=response.content,
             tool_calls=response.tool_calls,
         )
+        print(f"***debug*** assistant_message: {assistant_message}")
+        assistant_message.save()
         llm_context.messages.append(assistant_message)
         yield SessionUpdate(
             type=UpdateType.ASSISTANT_MESSAGE, message=assistant_message
