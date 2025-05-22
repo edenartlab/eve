@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import List, Optional, Dict, Any, Literal
 from bson import ObjectId
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict, Field, BaseModel
 from dataclasses import dataclass, field
 
 from eve.mongo import Collection, Document
@@ -79,21 +79,21 @@ class SessionUpdate:
     text: Optional[str] = None
 
 
-@dataclass
-class LLMTraceMetadata:
+class LLMTraceMetadata(BaseModel):
     session_id: str = None
-    initiating_user_id: Optional[str] = None
-    actor_agent_id: Optional[str] = None
+    user_id: Optional[str] = None
+    agent_id: Optional[str] = None
     additional_metadata: Optional[Dict[str, Any]] = None
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
-@dataclass
-class LLMContextMetadata:
+class LLMContextMetadata(BaseModel):
     trace_name: Optional[str] = None
     trace_id: Optional[str] = None
     generation_name: Optional[str] = None
     generation_id: Optional[str] = None
-    trace_metadata: Optional[Dict[str, Any]] = None
+    trace_metadata: Optional[LLMTraceMetadata] = None
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 @dataclass
@@ -107,6 +107,7 @@ class LLMContext:
     config: LLMConfig = field(default_factory=LLMConfig)
     tools: Optional[List[Tool]] = None
     metadata: LLMContextMetadata = None
+    trace_metadata: LLMTraceMetadata = None
 
 
 @Collection("sessions")
