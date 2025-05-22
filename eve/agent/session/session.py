@@ -180,7 +180,6 @@ async def async_prompt_session(session: Session, llm_context: LLMContext):
             content=response.content,
             tool_calls=response.tool_calls,
         )
-        print(f"***debug*** response: {response}")
         llm_context.messages.append(assistant_message)
         print("***debug*** yielding ASSISTANT_MESSAGE")
         yield SessionUpdate(
