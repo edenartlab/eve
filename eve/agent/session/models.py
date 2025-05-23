@@ -1,4 +1,5 @@
 from enum import Enum
+import json
 from typing import List, Optional, Dict, Any, Literal
 from bson import ObjectId
 from pydantic import ConfigDict, Field, BaseModel
@@ -6,6 +7,17 @@ from dataclasses import dataclass, field
 
 from eve.mongo import Collection, Document
 from eve.tool import Tool
+
+
+def serialize_for_json(obj):
+    """Recursively serialize objects for JSON, handling ObjectId and other special types"""
+    if isinstance(obj, ObjectId):
+        return str(obj)
+    elif isinstance(obj, dict):
+        return {k: serialize_for_json(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [serialize_for_json(item) for item in obj]
+    return obj
 
 
 class UpdateType(Enum):
@@ -16,8 +28,7 @@ class UpdateType(Enum):
     END_PROMPT = "end_prompt"
 
 
-@dataclass
-class ToolCall:
+class ToolCall(BaseModel):
     id: str
     tool: str
     args: Dict[str, Any]
@@ -28,6 +39,7 @@ class ToolCall:
     result: Optional[List[Dict[str, Any]]] = None
     reactions: Optional[Dict[str, List[ObjectId]]] = None
     error: Optional[str] = None
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 @Collection("channels")
@@ -56,11 +68,25 @@ class ChatMessage(Document):
         return self.content
 
     def openai_schema(self, truncate_images=False):
-        return {
+        base_schema = {
             "role": self.role,
             "content": self._get_content("openai", truncate_images=truncate_images),
             **({"name": self.sender_name} if self.sender_name else {}),
+            **({"tool_call_id": self.tool_call_id} if self.tool_call_id else {}),
         }
+        if self.tool_calls:
+            base_schema["tool_calls"] = [
+                {
+                    "id": tool_call.id,
+                    "type": "function",
+                    "function": {
+                        "name": tool_call.tool,
+                        "arguments": json.dumps(serialize_for_json(tool_call.args)),
+                    },
+                }
+                for tool_call in self.tool_calls
+            ]
+        return base_schema
 
 
 @dataclass

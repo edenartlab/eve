@@ -1,4 +1,5 @@
 import asyncio
+import json
 import traceback
 from typing import List, Optional
 
@@ -127,13 +128,15 @@ async def process_tool_call(
         )
 
         result = await tool.async_wait(task)
+        print(f"***debug*** result: {result}")
+        print(f"***debug*** TYPE OF RESULT: {type(result)}")
         tool_result_message = ChatMessage(
-            session=llm_context.metadata.trace_metadata.session_id,
+            session=ObjectId(llm_context.metadata.trace_metadata.session_id),
             sender=ObjectId(llm_context.metadata.trace_metadata.agent_id),
             name=tool_call.tool,
             tool_call_id=tool_call.id,
             role="tool",
-            content=result,
+            content=json.dumps(serialize_for_json(result)),
         )
         llm_context.messages.append(tool_result_message)
 
@@ -154,6 +157,16 @@ async def process_tool_call(
     except Exception as e:
         capture_exception(e)
         traceback.print_exc()
+
+        tool_result_message = ChatMessage(
+            session=ObjectId(llm_context.metadata.trace_metadata.session_id),
+            sender=ObjectId(llm_context.metadata.trace_metadata.agent_id),
+            name=tool_call.tool,
+            tool_call_id=tool_call.id,
+            role="tool",
+            content=serialize_for_json(e),
+        )
+        llm_context.messages.append(tool_result_message)
 
         return SessionUpdate(
             type=UpdateType.ERROR,
