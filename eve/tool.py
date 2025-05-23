@@ -399,7 +399,6 @@ class Tool(Document, ABC):
 
             # Check rate limit before creating the task
             if os.environ.get("FF_RATE_LIMITS") == "yes":
-                print("checking rate limit", agent_id, is_client_platform)
                 rate_limiter = RateLimiter()
                 if agent_id and is_client_platform:
                     await rate_limiter.check_agent_rate_limit(user, agent_id)

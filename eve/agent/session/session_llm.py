@@ -43,9 +43,11 @@ def construct_tools(context: LLMContext) -> Optional[List[dict]]:
 async def async_prompt_litellm(
     context: LLMContext,
 ) -> LLMResponse:
+    messages = construct_messages(context)
+    print(f"***debug*** MESSAGES: {messages}")
     response = completion(
         model=context.config.model,
-        messages=construct_messages(context),
+        messages=messages,
         metadata=construct_observability_metadata(context),
         tools=construct_tools(context),
     )
