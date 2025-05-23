@@ -58,6 +58,7 @@ BASE_TOOLS = [
     "mmaudio",
     "stable_audio",
     "zonos",
+    "transcription",
     # editing
     "media_editor",
     # search
