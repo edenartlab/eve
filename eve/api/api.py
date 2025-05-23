@@ -65,7 +65,6 @@ from eve.api.helpers import pre_modal_setup, busy_state_dict
 
 
 app_name = f"api-{db.lower()}"
-logging.basicConfig(level=logging.INFO)
 logging.getLogger("ably").setLevel(logging.INFO if db != "PROD" else logging.WARNING)
 
 logger = logging.getLogger(__name__)

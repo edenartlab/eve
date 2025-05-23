@@ -40,8 +40,10 @@ class Channel(Document):
 class ChatMessage(Document):
     session: ObjectId
     sender: ObjectId
-    role: Literal["user", "assistant", "system"]
+    role: Literal["user", "assistant", "system", "tool"]
     content: str = ""
+    name: Optional[str] = None
+    tool_call_id: Optional[str] = None
     channel: Optional[Channel] = None
     reply_to: Optional[ObjectId] = None
     sender_name: Optional[str] = None
