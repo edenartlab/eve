@@ -158,4 +158,9 @@ def load_handler(name):
 
             handlers[name] = handler
 
+        elif name == "veo-2":
+            from .google.veo2.handler import handler
+
+            handlers[name] = handler
+
     return handlers[name]
