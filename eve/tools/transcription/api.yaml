@@ -1,0 +1,34 @@
+name: Transcription
+description: Transcribe audio to text using OpenAI. Supports various models and optional word-level timestamps.
+cost_estimate: 5 
+output_type: string
+active: true
+visible: true
+handler: modal
+parameters:
+  audio:
+    type: audio
+    label: Input audio
+    description: Audio to transcribe (e.g., mp3, mp4, wav, m4a). Max 25MB.
+    required: true
+  model:
+    type: string
+    label: Transcription Model
+    description: The OpenAI model to use for transcription. If timestamps are enabled, 'whisper-1' will be used regardless of this setting.
+    required: false
+    default: gpt-4o-transcribe
+    choices:
+      - gpt-4o-transcribe
+      - gpt-4o-mini-transcribe
+      - whisper-1
+  timestamps:
+    type: boolean
+    label: Enable Timestamps
+    description: Whether to include word-level timestamps. If true, 'whisper-1' model will be used.
+    required: false
+    default: false
+  prompt:
+    type: string
+    label: Prompt
+    description: Optional text to guide the model's style or improve recognition of specific words/acronyms.
+    required: false 

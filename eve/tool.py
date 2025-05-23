@@ -113,8 +113,11 @@ class Tool(Document, ABC):
 
             elif handler == "modal":
                 from .tools.modal_tool import ModalTool
+                from .tools.local_tool import LocalTool
 
                 _tool_classes[handler] = ModalTool
+                #_tool_classes[handler] = LocalTool
+                
             elif handler == "comfyui":
                 from .tools.comfyui_tool import ComfyUITool
 
