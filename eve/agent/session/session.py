@@ -127,6 +127,15 @@ async def process_tool_call(
         )
 
         result = await tool.async_wait(task)
+        tool_result_message = ChatMessage(
+            session=llm_context.metadata.trace_metadata.session_id,
+            sender=ObjectId(llm_context.metadata.trace_metadata.agent_id),
+            name=tool_call.tool,
+            tool_call_id=tool_call.id,
+            role="tool",
+            content=result,
+        )
+        llm_context.messages.append(tool_result_message)
 
         if result["status"] == "completed":
             return SessionUpdate(
@@ -176,6 +185,7 @@ async def async_prompt_session(session: Session, llm_context: LLMContext):
     yield SessionUpdate(type=UpdateType.START_PROMPT)
     prompt_session_finished = False
     while not prompt_session_finished:
+        print(f"***debug*** llm_context: {llm_context.messages}")
         response = await async_prompt(llm_context)
         print(f"***debug*** response: {response}")
         assistant_message = ChatMessage(

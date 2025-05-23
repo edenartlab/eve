@@ -14,20 +14,6 @@ EDEN_API_KEY = None
 
 
 def setup_eve():
-    def setup_langfuse():
-        LANGFUSE_ENV = os.getenv(
-            "LANGFUSE_ENV", "production" if db == "PROD" else "staging"
-        )
-
-        langfuse_private_key = os.getenv("LANGFUSE_SECRET_KEY")
-        if not langfuse_private_key:
-            # print("Skipping langfuse setup because LANGFUSE_SECRET_KEY is not set")
-            return
-
-        from langfuse.decorators import langfuse_context
-
-        langfuse_context.configure(environment=LANGFUSE_ENV)
-
     def setup_sentry():
         sentry_dsn = os.getenv("SENTRY_DSN")
         if not sentry_dsn:
@@ -66,12 +52,6 @@ def setup_eve():
         pass
     else:
         setup_sentry()
-
-    if os.getenv("SETUP_LANGFUSE") == "no":
-        # print("Skipping langfuse setup because SETUP_LANGFUSE is no")
-        pass
-    else:
-        setup_langfuse()
 
 
 def verify_env():

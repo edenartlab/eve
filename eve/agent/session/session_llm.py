@@ -1,3 +1,7 @@
+import logging
+
+logging.getLogger("LiteLLM").setLevel(logging.WARNING)
+
 import json
 from litellm import completion
 import litellm
