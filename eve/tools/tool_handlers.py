@@ -138,6 +138,11 @@ def load_handler(name):
 
             handlers[name] = handler
 
+        elif name == "transcription":
+            from .transcription.handler import handler
+
+            handlers[name] = handler
+
         elif name == "send_eth":
             from .wallet.send_eth.handler import handler
 
