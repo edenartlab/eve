@@ -1,0 +1,14 @@
+name: Veo-2
+description: Generate a video from a text prompt using Google Veo-2
+cost_estimate: 300
+output_type: video
+active: true
+visible: true
+handler: modal
+parameters:
+  prompt:
+    type: string
+    label: Prompt
+    description: The text prompt for text-to-video generation.
+    required: true
+  
