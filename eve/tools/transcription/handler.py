@@ -15,16 +15,15 @@ async def handler(args: dict, user: str = None, agent: str = None):
     temp_audio = tempfile.NamedTemporaryFile(suffix='.mp3', delete=False)
     file_path_str = eden_utils.download_file(args["audio"], temp_audio.name, overwrite=True)
     selected_model_arg = args.get("model", "gpt-4o-transcribe")
-    enable_timestamps = args.get("timestamps", False)
+    enable_timestamps = args.get("use_timestamps", False)
     prompt_text = args.get("prompt")
-
     api_call_params = {}
 
     if enable_timestamps:
         # Timestamps require whisper-1 and verbose_json format
         api_call_params["model"] = "whisper-1"
         api_call_params["response_format"] = "verbose_json"
-        api_call_params["timestamp_granularities"] = ["segment"]
+        api_call_params["timestamp_granularities"] = [args.get("timestamp_granularity", "segment")]
     else:
         api_call_params["model"] = selected_model_arg
         # "json" format is supported by gpt-4o models and whisper-1,

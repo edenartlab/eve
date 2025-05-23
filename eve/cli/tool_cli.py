@@ -37,6 +37,7 @@ api_tools_order = [
     "animate_3D",
     "style_mixing",
     "txt2vid",
+    "transcription",
     "vid2vid_sdxl",
     "img2vid",
     "video_upscaler",
