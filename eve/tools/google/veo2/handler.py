@@ -7,7 +7,7 @@ from ....agent import Agent
 
 
 
-async def handler(args: dict): #, user: User, agent: Agent):
+async def handler(args: dict, user: User, agent: Agent):
     # If you want to hit the Vertex backend instead of the public Gemini one:
     # client = genai.Client(backend=genai.Backend.VertexAI,
     #                       project_id=os.environ["PROJECT_ID"],
