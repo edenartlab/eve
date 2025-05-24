@@ -24,7 +24,7 @@ from bson import ObjectId
 from datetime import datetime
 from pprint import pformat
 from typing import Union, Tuple, Set, List, Optional, Dict
-from moviepy.editor import VideoFileClip, ImageClip, AudioClip
+from moviepy import VideoFileClip, ImageClip, AudioClip
 from tqdm import tqdm
 from PIL import Image, ImageFont, ImageDraw
 from io import BytesIO
@@ -34,47 +34,48 @@ from . import s3
 
 class CommandValidator:
     """Simple validator to ensure basic command security"""
-    
+
     # Most dangerous shell operations that shouldn't appear in legitimate commands
     DANGEROUS_OPERATIONS = [
-        '&&',        # Command chaining
-        '||',        # Command chaining
-        ' ; ',       # Command chaining (with spaces to avoid ffmpeg filter syntax)
-        ';\\n',      # Command chaining (newline variant)
-        '$(', '`',   # Command substitution
-        '> /',       # Writing to root
-        '>>/',       # Appending to root
-        'sudo ',     # Privilege escalation (with space to avoid false positives)
-        '| rm',      # Pipe to remove
-        '| sh',      # Pipe to shell
-        '| bash',    # Pipe to shell
-        'eval ',     # Command evaluation (with space)
-        'exec '      # Command execution (with space)
+        "&&",  # Command chaining
+        "||",  # Command chaining
+        " ; ",  # Command chaining (with spaces to avoid ffmpeg filter syntax)
+        ";\\n",  # Command chaining (newline variant)
+        "$(",
+        "`",  # Command substitution
+        "> /",  # Writing to root
+        ">>/",  # Appending to root
+        "sudo ",  # Privilege escalation (with space to avoid false positives)
+        "| rm",  # Pipe to remove
+        "| sh",  # Pipe to shell
+        "| bash",  # Pipe to shell
+        "eval ",  # Command evaluation (with space)
+        "exec ",  # Command execution (with space)
     ]
-    
+
     def __init__(self, allowed_commands: Set[str]):
         """
         Initialize the command validator.
-        
+
         Args:
             allowed_commands: Set of base commands that are allowed to be executed
         """
         self.allowed_commands = {cmd.lower() for cmd in allowed_commands}
-        
+
     def validate_command(self, command: str) -> Tuple[bool, Union[str, None]]:
         """
         Validates that a command is safe to execute.
         Only checks for base command and the most dangerous shell operations.
-        
+
         Args:
             command: The command string to validate
-            
+
         Returns:
             Tuple of (is_valid, error_message)
         """
         if not command or not isinstance(command, str):
             return False, "Command must be a non-empty string"
-            
+
         # Try to parse command into tokens and get base command
         try:
             tokens = shlex.split(command)
@@ -83,18 +84,19 @@ class CommandValidator:
             base_cmd = os.path.basename(tokens[0]).lower()
         except ValueError as e:
             return False, f"Invalid command syntax: {str(e)}"
-            
+
         # Verify base command is allowed
         if base_cmd not in self.allowed_commands:
             return False, f"Command '{base_cmd}' is not in the allowed list"
-            
+
         # Check for dangerous operations
         for pattern in self.DANGEROUS_OPERATIONS:
             if pattern in command:
                 return False, f"Command contains dangerous operation: {pattern}"
-                
+
         return True, None
-    
+
+
 def log_memory_info():
     """
     Log basic GPU, RAM, and disk usage percentages using nvidia-smi for GPU metrics.
@@ -102,28 +104,34 @@ def log_memory_info():
     import psutil
     import shutil
     import subprocess
-    
+
     print("\n=== Memory Usage ===")
-    
+
     # GPU VRAM using nvidia-smi
     try:
-        result = subprocess.check_output(['nvidia-smi', '--query-gpu=memory.total,memory.used', '--format=csv,nounits,noheader'])
-        total_mem, used_mem = map(int, result.decode('utf-8').strip().split(','))
+        result = subprocess.check_output(
+            [
+                "nvidia-smi",
+                "--query-gpu=memory.total,memory.used",
+                "--format=csv,nounits,noheader",
+            ]
+        )
+        total_mem, used_mem = map(int, result.decode("utf-8").strip().split(","))
         gpu_percent = (used_mem / total_mem) * 100
         print(f"GPU Memory: {gpu_percent:.1f}% of {total_mem/1024:.1f}GB")
     except (subprocess.CalledProcessError, FileNotFoundError):
         print("GPU info not available")
-    
+
     # System RAM
     ram = psutil.virtual_memory()
     print(f"RAM Usage: {ram.percent}% of {ram.total / (1024**3):.1f}GB")
-    
+
     # Disk usage (root directory)
     usage = shutil.disk_usage("/root")
     disk_percent = (usage.used / usage.total) * 100
     print(f"Disk Usage: {disk_percent:.1f}% of {usage.total / (1024**3):.1f}GB")
     print("==================\n")
-    
+
 
 def prepare_result(result, summarize=False):
     if isinstance(result, dict):
@@ -147,11 +155,23 @@ def prepare_result(result, summarize=False):
 
 def upload_result(result, save_thumbnails=False, save_blurhash=False):
     if isinstance(result, dict):
-        return {k: upload_result(v, save_thumbnails=save_thumbnails, save_blurhash=save_blurhash) for k, v in result.items()}
+        return {
+            k: upload_result(
+                v, save_thumbnails=save_thumbnails, save_blurhash=save_blurhash
+            )
+            for k, v in result.items()
+        }
     elif isinstance(result, list):
-        return [upload_result(item, save_thumbnails=save_thumbnails, save_blurhash=save_blurhash) for item in result]
+        return [
+            upload_result(
+                item, save_thumbnails=save_thumbnails, save_blurhash=save_blurhash
+            )
+            for item in result
+        ]
     elif is_file(result):
-        return upload_media(result, save_thumbnails=save_thumbnails, save_blurhash=save_blurhash)
+        return upload_media(
+            result, save_thumbnails=save_thumbnails, save_blurhash=save_blurhash
+        )
     else:
         return result
 
@@ -235,12 +255,12 @@ def get_media_attributes(file):
 def download_file(url, local_filepath, overwrite=False):
     """
     Download a file from a URL to a local filepath, with special handling for AWS S3 URLs.
-    
+
     Args:
         url: URL to download from
         local_filepath: Local path to save the file to
         overwrite: Whether to overwrite existing files
-    
+
     Returns:
         str: Path to the downloaded file
     """
@@ -255,17 +275,19 @@ def download_file(url, local_filepath, overwrite=False):
 
     try:
         # Parse S3 URL to extract bucket and key
-        s3_pattern = r'https://([^.]+)\.s3(?:\.([^.]+))?\.amazonaws\.com/(.+)'
+        s3_pattern = r"https://([^.]+)\.s3(?:\.([^.]+))?\.amazonaws\.com/(.+)"
         s3_match = re.match(s3_pattern, url)
-        
+
         if s3_match:
             # This is an S3 URL
             bucket_name = s3_match.group(1)
             region = s3_match.group(2) or os.getenv("AWS_REGION_NAME", "us-east-1")
             key = s3_match.group(3)
-            
-            print(f"Detected S3 URL - Bucket: {bucket_name}, Region: {region}, Key: {key}")
-            
+
+            print(
+                f"Detected S3 URL - Bucket: {bucket_name}, Region: {region}, Key: {key}"
+            )
+
             # Use boto3 to download with credentials
             s3_client = boto3.client(
                 "s3",
@@ -273,7 +295,7 @@ def download_file(url, local_filepath, overwrite=False):
                 aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
                 region_name=region,
             )
-            
+
             try:
                 print(f"Downloading {key} from S3 bucket {bucket_name}")
                 s3_client.download_file(bucket_name, key, str(local_filepath))
@@ -281,7 +303,7 @@ def download_file(url, local_filepath, overwrite=False):
             except Exception as s3_error:
                 print(f"S3 download error: {s3_error}")
                 # Fall back to standard HTTP request below
-        
+
         # For CloudFront or standard HTTP requests
         with httpx.stream("GET", url, follow_redirects=True) as response:
             if response.status_code == 404:
@@ -293,7 +315,7 @@ def download_file(url, local_filepath, overwrite=False):
 
             # Get content length if available
             total = int(response.headers.get("Content-Length", "0"))
-            
+
             if total == 0:
                 # If Content-Length not provided, read all at once
                 content = response.read()
@@ -301,9 +323,12 @@ def download_file(url, local_filepath, overwrite=False):
                     f.write(content)
             else:
                 # Stream with progress bar if Content-Length available
-                with open(local_filepath, "wb") as f, tqdm(
-                    total=total, unit_scale=True, unit_divisor=1024, unit="B"
-                ) as progress:
+                with (
+                    open(local_filepath, "wb") as f,
+                    tqdm(
+                        total=total, unit_scale=True, unit_divisor=1024, unit="B"
+                    ) as progress,
+                ):
                     num_bytes_downloaded = response.num_bytes_downloaded
                     for data in response.iter_bytes():
                         f.write(data)
@@ -311,13 +336,14 @@ def download_file(url, local_filepath, overwrite=False):
                             response.num_bytes_downloaded - num_bytes_downloaded
                         )
                         num_bytes_downloaded = response.num_bytes_downloaded
-                        
+
         return str(local_filepath)
-        
+
     except httpx.HTTPStatusError as e:
         raise Exception(f"HTTP error: {e}")
     except Exception as e:
         raise Exception(f"Error downloading file: {e}")
+
 
 def exponential_backoff(
     func,
@@ -382,7 +408,7 @@ def get_media_duration(media_file):
         media_file_path = temp_file.name
     else:
         media_file_path = media_file
-        
+
     cmd = [
         "ffprobe",
         "-v",
@@ -393,7 +419,7 @@ def get_media_duration(media_file):
         "default=noprint_wrappers=1:nokey=1",
         media_file_path,
     ]
-    
+
     try:
         duration = subprocess.check_output(cmd).decode().strip()
         result = float(duration)
@@ -401,7 +427,7 @@ def get_media_duration(media_file):
         # Clean up temporary file if we created one
         if isinstance(media_file, BytesIO) and os.path.exists(media_file_path):
             os.unlink(media_file_path)
-    
+
     return result
 
 
@@ -453,10 +479,13 @@ def image_to_base64(file_path, max_size, quality=95, truncate=False):
         data = data[:64] + "..."
     return data
 
+
 from safetensors.torch import load_file, save_file
+
+
 def convert_pti_to_safetensors(input_path: str, output_path: str):
     try:
-        data = load_file(input_path) 
+        data = load_file(input_path)
     except Exception as e:
         print(f"❌ Failed to load {input_path} with safetensors: {e}")
         return False
@@ -470,14 +499,18 @@ def convert_pti_to_safetensors(input_path: str, output_path: str):
     remapped = {}
     for k, v in data.items():
         if k not in key_map:
-            print(f"⚠️ Unexpected key '{k}' in {input_path}. Expected only {list(key_map.keys())}. Skipping this key.")
+            print(
+                f"⚠️ Unexpected key '{k}' in {input_path}. Expected only {list(key_map.keys())}. Skipping this key."
+            )
             continue
 
         new_key = key_map[k]
         remapped[new_key] = v
 
     if not remapped:
-        print(f"❌ No valid keys found for conversion in {input_path}. Output file not saved.")
+        print(
+            f"❌ No valid keys found for conversion in {input_path}. Output file not saved."
+        )
         return False
 
     try:
@@ -489,6 +522,7 @@ def convert_pti_to_safetensors(input_path: str, output_path: str):
     except Exception as e:
         print(f"❌ Failed to save converted file to {output_path}: {e}")
         return False
+
 
 def deep_filter(current, changes):
     if not isinstance(current, dict) or not isinstance(changes, dict):
@@ -892,12 +926,11 @@ def concat_sentences(*sentences):
 
 
 def is_file(value):
-    return isinstance(value, replicate.helpers.FileOutput) \
-        or (isinstance(value, str) and (
-            os.path.isfile(value) \
-            or value.startswith(("http://", "https://")) 
-        ))
-        
+    return isinstance(value, replicate.helpers.FileOutput) or (
+        isinstance(value, str)
+        and (os.path.isfile(value) or value.startswith(("http://", "https://")))
+    )
+
 
 def get_human_readable_error(error_list):
     errors = [f"{error['loc'][0]}: {error['msg']}" for error in error_list]
@@ -933,26 +966,28 @@ def random_string(length=28):
 def save_test_results(tools, results):
     if not results:
         return
-    
+
     results_dir = os.path.join(
         "tests", "out", f"results_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
     )
     os.makedirs(results_dir, exist_ok=True)
-    
+
     for tool, tool_result in zip(tools.keys(), results):
         if isinstance(tool_result, dict) and tool_result.get("error"):
             file_path = os.path.join(results_dir, f"{tool}_ERROR.txt")
             with open(file_path, "w") as f:
-                f.write(tool_result["error"])        
+                f.write(tool_result["error"])
         else:
             outputs = tool_result.get("output", [])
             outputs = outputs if isinstance(outputs, list) else [outputs]
             intermediate_outputs = tool_result.get("intermediate_outputs", {})
-            
+
             for o, output in enumerate(outputs):
                 if "url" in output:
                     ext = output.get("url").split(".")[-1]
-                    filename = f"{tool}_{o}.{ext}" if len(outputs) > 1 else f"{tool}.{ext}"
+                    filename = (
+                        f"{tool}_{o}.{ext}" if len(outputs) > 1 else f"{tool}.{ext}"
+                    )
                     file_path = os.path.join(results_dir, filename)
                     response = requests.get(output.get("url"))
                     with open(file_path, "wb") as f:
@@ -982,6 +1017,7 @@ def dump_json(obj, indent=None, exclude=None):
             if isinstance(obj, datetime):
                 return obj.isoformat()
             return super().default(obj)
+
     if not obj:
         return ""
     for e in exclude or []:
@@ -999,5 +1035,20 @@ def load_template(filename: str) -> Template:
 
 
 CLICK_COLORS = [
-    "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "bright_black", "bright_red", "bright_green", "bright_yellow", "bright_blue", "bright_magenta", "bright_cyan", "bright_white"
+    "black",
+    "red",
+    "green",
+    "yellow",
+    "blue",
+    "magenta",
+    "cyan",
+    "white",
+    "bright_black",
+    "bright_red",
+    "bright_green",
+    "bright_yellow",
+    "bright_blue",
+    "bright_magenta",
+    "bright_cyan",
+    "bright_white",
 ]
