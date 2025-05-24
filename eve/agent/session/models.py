@@ -116,6 +116,7 @@ class LLMTraceMetadata(BaseModel):
 
 
 class LLMContextMetadata(BaseModel):
+    session_id: Optional[str] = None
     trace_name: Optional[str] = None
     trace_id: Optional[str] = None
     generation_name: Optional[str] = None
