@@ -11,7 +11,7 @@ async def handler(args: dict, user: User = None, agent: Agent = None):
         raise Exception("No valid Telegram deployments found")
 
     # Get allowed chats from deployment config
-    allowed_chats = deployment.config.telegram.chat_allowlist
+    allowed_chats = deployment.config.telegram.topic_allowlist
     if not allowed_chats:
         raise Exception("No chats configured for this deployment")
 
