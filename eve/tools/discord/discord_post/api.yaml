@@ -1,23 +1,24 @@
 name: discord_post
 description: Post a message to a Discord channel
+tip: |-
+  This tool allows an agent to post messages to Discord channels.
+  Only use this tool when the user explicitly requests to post a message to a Discord channel.
+  Do not use this tool for other purposes.
+cost_estimate: 0
+output_type: string
+active: true
+handler: modal
+visible: false
 parameters:
-  type: object
-  properties:
-    agent:
-      type: string
-      description: The ID of the agent to use for posting
-    params:
-      type: object
-      properties:
-        channel_id:
-          type: string
-          description: The Discord channel ID to post to
-        content:
-          type: string
-          description: The message content to post
-      required:
-        - channel_id
-        - content
-  required:
-    - agent
-    - params
+  channel_id:
+    type: string
+    description: The Discord channel ID to post to
+    required: true
+  content:
+    type: string
+    description: The message content to post
+    required: true
+  agent:
+    type: string
+    description: Agent ID to run the tool with
+    required: true
