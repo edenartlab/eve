@@ -1,0 +1,17 @@
+name: telegram_post
+description: Post a message to a Telegram chat
+version: 1.0.0
+handler: handler.handler
+args:
+  chat_id:
+    type: string
+    description: The ID of the chat to post to
+    required: true
+  content:
+    type: string
+    description: The message content to post
+    required: true
+  agent:
+    type: string
+    description: The agent ID to use for the deployment
+    required: true
