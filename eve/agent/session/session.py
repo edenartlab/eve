@@ -115,7 +115,13 @@ async def process_tool_call(
     tool_call_index: int,
 ):
     try:
-        result = await async_run_tool_call(llm_context, tool_call)
+        result = await async_run_tool_call(
+            llm_context,
+            tool_call,
+            user_id=llm_context.metadata.trace_metadata.user_id
+            or llm_context.metadata.trace_metadata.agent_id,
+            agent_id=llm_context.metadata.trace_metadata.agent_id,
+        )
         tool_result_message = ChatMessage(
             session=ObjectId(llm_context.metadata.trace_metadata.session_id),
             sender=ObjectId(llm_context.metadata.trace_metadata.agent_id),

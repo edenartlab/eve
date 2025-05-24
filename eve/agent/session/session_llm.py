@@ -44,16 +44,19 @@ def construct_tools(context: LLMContext) -> Optional[List[dict]]:
 async def async_run_tool_call(
     llm_context: LLMContext,
     tool_call: ToolCall,
+    user_id: Optional[str] = None,
+    agent_id: Optional[str] = None,
+    public: bool = True,
+    is_client_platform: bool = False,
 ):
     tool = llm_context.tools[tool_call.tool]
     task = await tool.async_start_task(
-        user_id=llm_context.metadata.trace_metadata.user_id
-        or llm_context.metadata.trace_metadata.agent_id,
-        agent_id=llm_context.metadata.trace_metadata.agent_id,
+        user_id=user_id,
+        agent_id=agent_id,
         args=tool_call.args,
         mock=False,
-        public=True,
-        is_client_platform=False,
+        public=public,
+        is_client_platform=is_client_platform,
     )
 
     result = await tool.async_wait(task)
