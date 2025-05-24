@@ -44,7 +44,6 @@ async def async_prompt_litellm(
     context: LLMContext,
 ) -> LLMResponse:
     messages = construct_messages(context)
-    print(f"***debug*** MESSAGES: {messages}")
     response = completion(
         model=context.config.model,
         messages=messages,

@@ -145,7 +145,6 @@ class Session(Document):
     title: str
     agents: List[ObjectId] = Field(default_factory=list)
     scenario: Optional[str] = None
-    messages: List[ChatMessage] = Field(default_factory=list)
     budget: Optional[float] = None
     spent: Optional[float] = 0
     status: Optional[Literal["active", "archived"]] = "active"
