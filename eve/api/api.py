@@ -14,7 +14,6 @@ from contextlib import asynccontextmanager
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.exceptions import RequestValidationError
 import time
-import asyncio
 
 from eve import auth, db, eden_utils
 from eve.api.runner_tasks import (
@@ -33,6 +32,7 @@ from eve.api.handlers import (
     handle_cancel,
     handle_deployment_update,
     handle_discord_emission,
+    handle_prompt_session,
     handle_replicate_webhook,
     handle_chat,
     handle_deployment_create,
@@ -54,8 +54,9 @@ from eve.api.api_requests import (
     CreateTriggerRequest,
     DeleteDeploymentRequest,
     DeleteTriggerRequest,
-    PlatformUpdateRequest,
+    PromptSessionRequest,
     TaskRequest,
+    PlatformUpdateRequest,
     UpdateDeploymentRequest,
     AgentToolsUpdateRequest,
     AgentToolsDeleteRequest,
@@ -64,7 +65,6 @@ from eve.api.helpers import pre_modal_setup, busy_state_dict
 
 
 app_name = f"api-{db.lower()}"
-logging.basicConfig(level=logging.INFO)
 logging.getLogger("ably").setLevel(logging.INFO if db != "PROD" else logging.WARNING)
 
 logger = logging.getLogger(__name__)
@@ -275,6 +275,15 @@ async def agent_tools_delete(
     request: AgentToolsDeleteRequest, _: dict = Depends(auth.authenticate_admin)
 ):
     return await handle_agent_tools_delete(request)
+
+
+@web_app.post("/sessions/prompt")
+async def prompt_session(
+    request: PromptSessionRequest,
+    background_tasks: BackgroundTasks,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    return await handle_prompt_session(request, background_tasks)
 
 
 @web_app.exception_handler(RequestValidationError)

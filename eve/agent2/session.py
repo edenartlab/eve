@@ -1,13 +1,10 @@
 from bson.objectid import ObjectId
-from typing import Optional, Literal, List
-from pydantic import BaseModel, Field
-from jinja2 import Template
-from typing import List, Literal, Optional
+from typing import Optional, List
+from pydantic import Field
 
 from ..eden_utils import dump_json
 from ..mongo import Document, Collection
 from ..user import User
-from ..api.api_requests import UpdateConfig
 from .message import ChatMessage, Channel
 
 

@@ -10,7 +10,8 @@ from fastapi.responses import JSONResponse, StreamingResponse
 import aiohttp
 
 from langfuse.decorators import observe, langfuse_context
-from eve import LANGFUSE_ENV
+from eve.agent.session.models import PromptSessionContext, Session
+from eve.agent.session.session import run_prompt_session
 from eve.agent.tasks import async_title_thread
 from eve.api.errors import handle_errors, APIError
 from eve.api.api_requests import (
@@ -20,6 +21,7 @@ from eve.api.api_requests import (
     CreateTriggerRequest,
     DeleteDeploymentRequest,
     DeleteTriggerRequest,
+    PromptSessionRequest,
     TaskRequest,
     PlatformUpdateRequest,
     UpdateConfig,
@@ -128,7 +130,6 @@ async def run_chat_request(
         "agent_id": str(agent.id),
         "thread_id": str(thread.id),
         "request_id": request_id,
-        "environment": LANGFUSE_ENV,
     }
 
     langfuse_context.update_current_trace(user_id=str(user.id))
@@ -767,3 +768,30 @@ async def handle_agent_tools_delete(request: AgentToolsDeleteRequest):
     agents = get_collection("users3")
     agents.update_one({"_id": agent.id}, {"$set": update})
     return {"tools": tools}
+
+
+def setup_session(session_id: str, user_id: str):
+    session = Session.from_mongo(ObjectId(session_id))
+    if not session:
+        raise APIError(f"Session not found: {session_id}", status_code=404)
+    return session
+
+
+@handle_errors
+async def handle_prompt_session(
+    request: PromptSessionRequest, background_tasks: BackgroundTasks
+):
+    session = setup_session(request.session_id, request.user_id)
+    context = PromptSessionContext(
+        session=session,
+        initiating_user_id=request.user_id,
+        message=request.message,
+        update_config=request.update_config,
+    )
+
+    background_tasks.add_task(
+        run_prompt_session,
+        context=context,
+    )
+
+    return {"session_id": request.session_id}
