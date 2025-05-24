@@ -57,7 +57,6 @@ def select_messages(
     )
     selected_messages.reverse()
     selected_messages = [ChatMessage(**msg) for msg in selected_messages]
-    print(f"***debug*** selected_messages: {selected_messages}")
     return selected_messages
 
 
@@ -85,10 +84,7 @@ async def build_llm_context(
         role="user",
         content=context.message.content,
     )
-    print(f"***debug*** new_message: {new_message}")
-    # new_message.save()
-    # session.messages.append(new_message)
-    # session.save()
+    new_message.save()
     messages.append(new_message)
     return LLMContext(
         messages=messages,
@@ -111,6 +107,7 @@ async def build_llm_context(
 
 
 async def process_tool_call(
+    session: Session,
     llm_context: LLMContext,
     tool_call: ToolCall,
     tool_call_index: int,
@@ -128,8 +125,6 @@ async def process_tool_call(
         )
 
         result = await tool.async_wait(task)
-        print(f"***debug*** result: {result}")
-        print(f"***debug*** TYPE OF RESULT: {type(result)}")
         tool_result_message = ChatMessage(
             session=ObjectId(llm_context.metadata.trace_metadata.session_id),
             sender=ObjectId(llm_context.metadata.trace_metadata.agent_id),
@@ -138,6 +133,7 @@ async def process_tool_call(
             role="tool",
             content=json.dumps(serialize_for_json(result)),
         )
+        tool_result_message.save()
         llm_context.messages.append(tool_result_message)
 
         if result["status"] == "completed":
@@ -166,6 +162,7 @@ async def process_tool_call(
             role="tool",
             content=serialize_for_json(e),
         )
+        tool_result_message.save()
         llm_context.messages.append(tool_result_message)
 
         return SessionUpdate(
@@ -176,12 +173,13 @@ async def process_tool_call(
         )
 
 
-async def process_tool_calls(llm_context: LLMContext):
+async def process_tool_calls(session: Session, llm_context: LLMContext):
     tool_calls = llm_context.messages[-1].tool_calls
     for b in range(0, len(tool_calls), 4):
         batch = enumerate(tool_calls[b : b + 4])
         tasks = [
             process_tool_call(
+                session,
                 llm_context,
                 tool_call,
                 b + idx,
@@ -198,9 +196,7 @@ async def async_prompt_session(session: Session, llm_context: LLMContext):
     yield SessionUpdate(type=UpdateType.START_PROMPT)
     prompt_session_finished = False
     while not prompt_session_finished:
-        print(f"***debug*** llm_context: {llm_context.messages}")
         response = await async_prompt(llm_context)
-        print(f"***debug*** response: {response}")
         assistant_message = ChatMessage(
             session=session.id,
             sender=ObjectId(llm_context.metadata.trace_metadata.agent_id),
@@ -208,18 +204,14 @@ async def async_prompt_session(session: Session, llm_context: LLMContext):
             content=response.content,
             tool_calls=response.tool_calls,
         )
-        print(f"***debug*** assistant_message: {assistant_message}")
-        # assistant_message.save()
-        # session.messages.append(assistant_message)
-        # session.save()
+        assistant_message.save()
         llm_context.messages.append(assistant_message)
         yield SessionUpdate(
             type=UpdateType.ASSISTANT_MESSAGE, message=assistant_message
         )
 
         if response.tool_calls:
-            async for update in process_tool_calls(llm_context):
-                print(f"***debug*** update: {update}")
+            async for update in process_tool_calls(session, llm_context):
                 yield update
 
         if response.stop == "stop":
