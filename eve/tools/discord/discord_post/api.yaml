@@ -1,23 +1,23 @@
-name: Post on Discord
-description: Send a message to a Discord channel
-cost_estimate: 1
-output_type: string
-active: true
-handler: modal
-visible: false
+name: discord_post
+description: Post a message to a Discord channel
 parameters:
-  content:
-    type: string
-    label: Post
-    description: The text content of the post.
-    required: true
-  media:
-    type: array
-    label: Media
-    description: A list of media URLs including images, videos, or sound files.
-    items:
+  type: object
+  properties:
+    agent:
       type: string
-  agent:
-    type: string
-    description: Agent ID to run the tool with
-    required: true
+      description: The ID of the agent to use for posting
+    params:
+      type: object
+      properties:
+        channel_id:
+          type: string
+          description: The Discord channel ID to post to
+        content:
+          type: string
+          description: The message content to post
+      required:
+        - channel_id
+        - content
+  required:
+    - agent
+    - params
