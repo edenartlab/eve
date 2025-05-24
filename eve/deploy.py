@@ -427,6 +427,9 @@ async def deploy_client_discord(deployment: Deployment, secrets: DeploymentSecre
         agent.tools["discord_search"] = {
             "parameters": {"agent": {"default": str(agent.id), "hide_from_agent": True}}
         }
+        agent.tools["discord_post"] = {
+            "parameters": {"agent": {"default": str(agent.id), "hide_from_agent": True}}
+        }
 
         agent.save()
 
@@ -467,6 +470,23 @@ async def deploy_client_telegram(secrets: DeploymentSecrets, deployment_id: str)
         print(
             f"Sent Telegram registration command for deployment {deployment_id} via Ably"
         )
+
+        deployment = Deployment.load(id=deployment_id)
+        if not deployment:
+            raise Exception("Deployment not found")
+
+        agent = Agent.from_mongo(deployment.agent)
+        if not agent:
+            raise Exception("Agent not found")
+
+        # Add Twitter tools to agent's tools
+        if not agent.tools:
+            agent.tools = {}
+            agent.add_base_tools = True
+
+        agent.tools["telegram_post"] = {
+            "parameters": {"agent": {"default": str(agent.id), "hide_from_agent": True}}
+        }
     except Exception as e:
         print(f"Failed to notify gateway service for Telegram: {e}")
 
