@@ -2,6 +2,7 @@ import asyncio
 import json
 import traceback
 from typing import List, Optional
+import uuid
 
 from bson import ObjectId
 from sentry_sdk import capture_exception
@@ -91,6 +92,8 @@ async def build_llm_context(
         tools=tools,
         config=context.llm_config or LLMConfig(),
         metadata=LLMContextMetadata(
+            # note - this is for observability purposes only. it is not the same as session.id
+            session_id=str(uuid.uuid4()),
             trace_name="prompt_session",
             trace_id=str(f"prompt_session_{context.session.id}"),
             generation_name="prompt_session",

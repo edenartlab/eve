@@ -24,6 +24,7 @@ def construct_observability_metadata(context: LLMContext):
     if not context.metadata:
         return {}
     return {
+        "session_id": context.metadata.session_id,
         "trace_name": context.metadata.trace_name,
         "generation_name": context.metadata.generation_name,
         "trace_metadata": context.metadata.trace_metadata.model_dump(),
