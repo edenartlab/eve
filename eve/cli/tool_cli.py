@@ -2,6 +2,7 @@ import click
 import random
 import asyncio
 import traceback
+import argparse
 
 from ..eden_utils import save_test_results, prepare_result, dump_json, CLICK_COLORS
 from ..auth import get_my_eden_user
@@ -156,14 +157,8 @@ def remove(db: str, names: tuple):
     default="STAGE",
     help="DB to load tools from if from mongo",
 )
-@click.option(
-    "--user",
-    help="User ID to run the tool as",
-)
-@click.option(
-    "--agent",
-    help="Agent ID to run the tool with",
-)
+@click.option("--user", help="User ID to run the tool as")
+@click.option("--agent", help="Agent ID to run the tool with")
 @click.argument("tool", required=False)
 @click.pass_context
 def run(ctx, tool: str, db: str, user: str, agent: str):
@@ -171,8 +166,8 @@ def run(ctx, tool: str, db: str, user: str, agent: str):
 
     tool = Tool.load(key=tool)
 
-    # Parse args
-    args = dict()
+    # Parse remaining args into dict, excluding user and agent
+    args = {}
     i = 0
     while i < len(ctx.args):
         arg = ctx.args[i]
@@ -189,10 +184,7 @@ def run(ctx, tool: str, db: str, user: str, agent: str):
                 args[key] = True
         i += 1
 
-    args["user"] = user
-    args["agent"] = agent
-
-    result = tool.run(args)
+    result = tool.run(args, user=args.get("user"), agent=args.get("agent"))
     color = random.choice(CLICK_COLORS)
     if result.get("error"):
         click.echo(
