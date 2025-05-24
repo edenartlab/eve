@@ -10,7 +10,6 @@ active: true
 handler: modal
 visible: false
 parameters:
-args:
   chat_id:
     type: string
     description: The ID of the chat to post to
