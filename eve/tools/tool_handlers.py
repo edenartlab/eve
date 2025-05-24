@@ -103,6 +103,11 @@ def load_handler(name):
 
             handlers[name] = handler
 
+        elif name == "telegram_post":
+            from .telegram.telegram_post.handler import handler
+
+            handlers[name] = handler
+
         elif name == "news":
             from .news.handler import handler
 
