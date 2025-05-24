@@ -15,7 +15,6 @@ dependencies = [
     "httpx>=0.27.2",
     "instructor>=1.6.4",
     "jsonref>=1.1.0",
-    "moviepy>=1.0.3",
     "numpy>=2.1.3",
     "openai>=1.75.0",
     "pillow>=11.0.0",
@@ -55,6 +54,7 @@ dependencies = [
     "torch==2.7.0",
     "safetensors==0.5.3",
     "litellm>=1.70.0",
+    "moviepy>=2.2.1",
 ]
 
 [build-system]
