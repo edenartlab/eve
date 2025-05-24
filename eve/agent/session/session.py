@@ -16,7 +16,7 @@ from eve.agent.session.models import (
     ToolCall,
     UpdateType,
 )
-from eve.agent.session.session_llm import LLMContext, async_prompt
+from eve.agent.session.session_llm import LLMContext, async_prompt, async_run_tool_call
 from eve.agent.session.models import LLMContextMetadata
 from eve.api.errors import handle_errors
 from eve.api.helpers import emit_update, serialize_for_json
@@ -110,24 +110,12 @@ async def build_llm_context(
 
 
 async def process_tool_call(
-    session: Session,
     llm_context: LLMContext,
     tool_call: ToolCall,
     tool_call_index: int,
 ):
     try:
-        tool = llm_context.tools[tool_call.tool]
-        task = await tool.async_start_task(
-            user_id=llm_context.metadata.trace_metadata.user_id
-            or llm_context.metadata.trace_metadata.agent_id,
-            agent_id=llm_context.metadata.trace_metadata.agent_id,
-            args=tool_call.args,
-            mock=False,
-            public=True,
-            is_client_platform=False,
-        )
-
-        result = await tool.async_wait(task)
+        result = await async_run_tool_call(llm_context, tool_call)
         tool_result_message = ChatMessage(
             session=ObjectId(llm_context.metadata.trace_metadata.session_id),
             sender=ObjectId(llm_context.metadata.trace_metadata.agent_id),
@@ -176,13 +164,12 @@ async def process_tool_call(
         )
 
 
-async def process_tool_calls(session: Session, llm_context: LLMContext):
+async def process_tool_calls(llm_context: LLMContext):
     tool_calls = llm_context.messages[-1].tool_calls
     for b in range(0, len(tool_calls), 4):
         batch = enumerate(tool_calls[b : b + 4])
         tasks = [
             process_tool_call(
-                session,
                 llm_context,
                 tool_call,
                 b + idx,
@@ -214,7 +201,7 @@ async def async_prompt_session(session: Session, llm_context: LLMContext):
         )
 
         if response.tool_calls:
-            async for update in process_tool_calls(session, llm_context):
+            async for update in process_tool_calls(llm_context):
                 yield update
 
         if response.stop == "stop":
