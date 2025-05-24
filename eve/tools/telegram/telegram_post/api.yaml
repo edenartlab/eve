@@ -1,7 +1,15 @@
 name: telegram_post
 description: Post a message to a Telegram chat
-version: 1.0.0
-handler: handler.handler
+tip: |-
+  This tool allows an agent to post messages to Telegram chats.
+  Only use this tool when the user explicitly requests to post a message to a Telegram chat.
+  Do not use this tool for other purposes.
+cost_estimate: 0
+output_type: string
+active: true
+handler: modal
+visible: false
+parameters:
 args:
   chat_id:
     type: string
