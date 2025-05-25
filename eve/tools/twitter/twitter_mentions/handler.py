@@ -12,23 +12,27 @@ async def handler(args: dict, user: str = None, agent: str = None):
 
     x = X(deployment)
     start_time = args.get("start_time")
+    
     response = x.fetch_mentions(start_time=start_time)
+
+    users_by_id = {
+        u["id"]: u for u in response.get("includes", {}).get("users", [])
+    }
 
     # Format the response to include relevant tweet data
     tweets = []
-    print("Tweet mentions")
-    for tweet in response.get("data", []):
-        print("--------------------------------")
-        print(tweet["id"], tweet["text"])
-        print(tweet.keys())
-        print(tweet)
+    for tw in response.get("data", []):
+        author   = users_by_id.get(tw["author_id"], {})
+        username = author.get("username", "unknown")
+
         tweets.append(
             {
-                "id": tweet["id"],
-                "text": tweet["text"],
-                "author_id": tweet["author_id"],
-                "created_at": tweet.get("created_at"),
-                "url": f"https://x.com/{tweet['username']}/status/{tweet['id']}",
+                "id"        : tw["id"],
+                "text"      : tw["text"],
+                "author_id" : tw["author_id"],
+                "username"  : username,
+                "created_at": tw.get("created_at"),
+                "url"       : f"https://x.com/{username}/status/{tw['id']}",
             }
         )
 
