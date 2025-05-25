@@ -141,7 +141,6 @@ farcaster==0.7.11
     # via eve
 fastapi==0.115.6
     # via eve
-    # via modal
 filelock==3.16.1
     # via huggingface-hub
     # via torch
@@ -290,7 +289,7 @@ mdurl==0.1.2
     # via markdown-it-py
 methoddispatch==3.0.2
     # via ably
-modal==0.73.61
+modal==1.0.1
     # via eve
 motor==3.3.1
     # via beanie
@@ -506,7 +505,7 @@ starlette==0.41.3
     # via fastapi
 sympy==1.14.0
     # via torch
-synchronicity==0.9.11
+synchronicity==0.9.12
     # via modal
 tenacity==9.0.0
     # via eve
