@@ -20,7 +20,7 @@ image = (
     .apt_install("libmagic1", "ffmpeg", "wget")
     .pip_install_from_pyproject("pyproject.toml")
     .pip_install("requests-oauthlib>=1.3.1")
-    .copy_local_dir("../workflows", "/workflows")
+    .add_local_dir("../workflows", "/workflows")
 )
 
 @app.function(

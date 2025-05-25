@@ -16,7 +16,7 @@ image = (
     .apt_install("libmagic1", "ffmpeg", "wget")
     .pip_install_from_pyproject("pyproject.toml")
     .run_commands(["playwright install"])
-    .copy_local_dir("../workflows", "/workflows")
+    .add_local_dir("../workflows", "/workflows")
     .env({"DB": db})
     .env({"AGENT_ID": ""})
     .env({"CLIENT_DISCORD_TOKEN": ""})
