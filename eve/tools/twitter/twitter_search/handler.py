@@ -164,6 +164,7 @@ def process_payload(
                 "public_metrics"   : pm,
                 "score"            : score,
                 "score_metric"     : metric,
+                "author_id"        : uid,
                 "username"         : user.get("username"),
                 "name"             : user.get("name"),
                 "followers"        : fcnt,
