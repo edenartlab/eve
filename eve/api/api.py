@@ -414,9 +414,9 @@ async def rotate_agent_metadata_fn():
     image=image, max_containers=10, timeout=3600
 )
 @modal.concurrent(max_inputs=4)
-async def run(tool_key: str, args: dict):
+async def run(tool_key: str, args: dict, user: str = None, agent: str = None):
     handler = load_handler(tool_key)
-    result = await handler(args)
+    result = await handler(args, user, agent)
     return eden_utils.upload_result(result)
 
 
