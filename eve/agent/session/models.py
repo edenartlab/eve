@@ -59,7 +59,7 @@ class ChatMessage(Document):
     channel: Optional[Channel] = None
     reply_to: Optional[ObjectId] = None
     sender_name: Optional[str] = None
-    reactions: Optional[Dict[str, List[ObjectId]]] = {}
+    reactions: Optional[Dict[str, List[str]]] = field(default_factory=dict)
     attachments: Optional[List[str]] = []
     tool_calls: Optional[List[ToolCall]] = []
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -145,6 +145,7 @@ class Session(Document):
     channel: Optional[Channel] = None
     agents: List[ObjectId] = Field(default_factory=list)
     status: Literal["active", "archived"] = "active"
+    messages: List[ObjectId] = Field(default_factory=list)
     title: Optional[str] = None
     scenario: Optional[str] = None
     budget: Optional[float] = None
