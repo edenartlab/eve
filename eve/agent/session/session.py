@@ -21,6 +21,7 @@ from eve.agent.session.models import LLMContextMetadata
 from eve.api.errors import handle_errors
 from eve.api.helpers import emit_update, serialize_for_json
 from eve.agent.session.models import LLMConfig
+from eve.agent.session.session_prompts import system_template
 
 
 def validate_prompt_session(session: Session, context: PromptSessionContext):
@@ -73,11 +74,26 @@ def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
     return messages
 
 
+def build_system_message(session: Session, actor: Agent, context: PromptSessionContext):
+    content = system_template.render(
+        name=actor.name,
+        persona=actor.persona,
+        # TODO: add knowledge and models instructions
+        knowledge="",
+        models_instructions="",
+    )
+    return ChatMessage(
+        session=session.id, sender=ObjectId(actor.id), role="system", content=content
+    )
+
+
 async def build_llm_context(
     session: Session, actor: Agent, context: PromptSessionContext
 ):
+    system_message = build_system_message(session, actor, context)
+    messages = [system_message]
     tools = actor.get_tools(cache=False, auth_user=context.initiating_user_id)
-    messages = select_messages(session, context)
+    messages.extend(select_messages(session, context))
     messages = convert_message_roles(messages, session.agents[0])
     new_message = ChatMessage(
         session=session.id,
@@ -86,6 +102,8 @@ async def build_llm_context(
         content=context.message.content,
     )
     new_message.save()
+    session.messages.append(new_message.id)
+    session.save()
     messages.append(new_message)
     return LLMContext(
         messages=messages,
@@ -110,6 +128,7 @@ async def build_llm_context(
 
 
 async def process_tool_call(
+    session: Session,
     llm_context: LLMContext,
     tool_call: ToolCall,
     tool_call_index: int,
@@ -122,6 +141,7 @@ async def process_tool_call(
             or llm_context.metadata.trace_metadata.agent_id,
             agent_id=llm_context.metadata.trace_metadata.agent_id,
         )
+        print(f"***debug result: {result}")
         tool_result_message = ChatMessage(
             session=ObjectId(llm_context.metadata.trace_metadata.session_id),
             sender=ObjectId(llm_context.metadata.trace_metadata.agent_id),
@@ -131,6 +151,8 @@ async def process_tool_call(
             content=json.dumps(serialize_for_json(result)),
         )
         tool_result_message.save()
+        session.messages.append(tool_result_message.id)
+        session.save()
         llm_context.messages.append(tool_result_message)
 
         if result["status"] == "completed":
@@ -160,6 +182,8 @@ async def process_tool_call(
             content=serialize_for_json(e),
         )
         tool_result_message.save()
+        session.messages.append(tool_result_message.id)
+        session.save()
         llm_context.messages.append(tool_result_message)
 
         return SessionUpdate(
@@ -170,12 +194,13 @@ async def process_tool_call(
         )
 
 
-async def process_tool_calls(llm_context: LLMContext):
+async def process_tool_calls(session: Session, llm_context: LLMContext):
     tool_calls = llm_context.messages[-1].tool_calls
     for b in range(0, len(tool_calls), 4):
         batch = enumerate(tool_calls[b : b + 4])
         tasks = [
             process_tool_call(
+                session,
                 llm_context,
                 tool_call,
                 b + idx,
@@ -201,13 +226,15 @@ async def async_prompt_session(session: Session, llm_context: LLMContext):
             tool_calls=response.tool_calls,
         )
         assistant_message.save()
+        session.messages.append(assistant_message.id)
+        session.save()
         llm_context.messages.append(assistant_message)
         yield SessionUpdate(
             type=UpdateType.ASSISTANT_MESSAGE, message=assistant_message
         )
 
         if response.tool_calls:
-            async for update in process_tool_calls(llm_context):
+            async for update in process_tool_calls(session, llm_context):
                 yield update
 
         if response.stop == "stop":
