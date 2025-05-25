@@ -27,6 +27,7 @@ parameters:
     minimum: 5
     maximum: 8
     step: 1
+    required: true
   aspect_ratio:
     type: string
     label: Aspect Ratio

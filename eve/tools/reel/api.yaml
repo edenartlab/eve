@@ -7,6 +7,10 @@ active: true
 handler: modal
 visible: true
 parameters:
+  agent:
+    type: str
+    label: Agents
+    description: Optional username of the agent who is writing the reel.
   prompt:
     type: string
     label: Prompt
