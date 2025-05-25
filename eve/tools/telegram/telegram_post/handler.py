@@ -4,7 +4,7 @@ from eve.agent import Agent
 from telegram import Bot
 
 
-async def handler(args: dict, user: User = None, agent: Agent = None):
+async def handler(args: dict, user: str = None, agent: str = None):
     agent = Agent.from_mongo(args["agent"])
     deployment = Deployment.load(agent=agent.id, platform="telegram")
     if not deployment:
