@@ -160,13 +160,13 @@ def process_payload(
                 "id"               : t["id"],
                 "created_at"       : t["created_at"],
                 "text"             : t["text"],       # full up to 280 chars
-                "tweet_url"        : tweet_url,
+                "url"              : tweet_url,
                 "public_metrics"   : pm,
                 "score"            : score,
                 "score_metric"     : metric,
-                "author_username"  : user.get("username"),
-                "author_name"      : user.get("name"),
-                "author_followers" : fcnt,
+                "username"         : user.get("username"),
+                "name"             : user.get("name"),
+                "followers"        : fcnt,
                 "media"            : media_objs,
             })
 
