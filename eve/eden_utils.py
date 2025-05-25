@@ -168,7 +168,7 @@ def upload_result(result, save_thumbnails=False, save_blurhash=False):
             )
             for item in result
         ]
-    elif is_file(result):
+    elif is_downloadable_file(result):
         return upload_media(
             result, save_thumbnails=save_thumbnails, save_blurhash=save_blurhash
         )
@@ -925,10 +925,16 @@ def concat_sentences(*sentences):
     return " ".join([s.strip().rstrip(".") + "." for s in sentences if s and s.strip()])
 
 
-def is_file(value):
+def is_downloadable_file(value):
     return isinstance(value, replicate.helpers.FileOutput) or (
         isinstance(value, str)
-        and (os.path.isfile(value) or value.startswith(("http://", "https://")))
+        and (
+            os.path.isfile(value)  # is a file
+            or (  # is a url but not from twitter
+                value.startswith(("http://", "https://"))
+                and "x.com" not in value and "pbs.twimg.com" not in value
+            )
+        )
     )
 
 
