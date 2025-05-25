@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 import traceback
 from typing import List, Optional
 import uuid
@@ -29,6 +30,10 @@ def validate_prompt_session(session: Session, context: PromptSessionContext):
         raise ValueError("Session is archived")
 
 
+def parse_mentions(content: str) -> List[str]:
+    return re.findall(r"@(\w+)", content)
+
+
 async def determine_actor(
     session: Session, context: PromptSessionContext
 ) -> Optional[Agent]:
@@ -36,7 +41,18 @@ async def determine_actor(
     if context.actor_agent_id:
         actor_id = context.actor_agent_id
     elif len(session.agents) > 1:
-        raise ValueError("Multi-agent smart sessions not yet implemented")
+        mentions = parse_mentions(context.message.content)
+        if len(mentions) > 1:
+            raise ValueError("Multiple @mentions not currently supported")
+        elif len(mentions) == 1:
+            mentioned_username = mentions[0]
+            for agent_id in session.agents:
+                agent = Agent.from_mongo(agent_id)
+                if agent.username == mentioned_username:
+                    actor_id = agent_id
+                    break
+            if not actor_id:
+                raise ValueError(f"Agent @{mentioned_username} not found in session")
     elif len(session.agents) == 1:
         actor_id = session.agents[0]
 
