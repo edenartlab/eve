@@ -295,7 +295,7 @@ class Agent(User):
         # inject agent arg
         for tool in AGENTIC_TOOLS:
             if tool in tools:
-                tools[tool]["parameters"].update({
+                tools[tool].parameters.update({
                     "agent": {
                         "default": str(self.id),
                         "hide_from_agent": True,
