@@ -143,12 +143,12 @@ class LLMContext:
 class Session(Document):
     owner: ObjectId
     channel: Optional[Channel] = None
-    title: str
     agents: List[ObjectId] = Field(default_factory=list)
+    status: Literal["active", "archived"] = "active"
+    title: Optional[str] = None
     scenario: Optional[str] = None
     budget: Optional[float] = None
     spent: Optional[float] = 0
-    status: Optional[Literal["active", "archived"]] = "active"
 
 
 @dataclass
