@@ -1249,11 +1249,11 @@ web_app = FastAPI(lifespan=lifespan)
 
 @app.function(
     image=image,
-    keep_warm=1,
-    concurrency_limit=1,
-    allow_concurrent_inputs=100,
+    min_containers=1,
+    max_containers=1,
     timeout=3600,
 )
+@modal.concurrent(max_inputs=100)
 @modal.asgi_app()
 def gateway_app():
     return web_app

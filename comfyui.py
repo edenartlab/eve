@@ -1744,9 +1744,9 @@ class ComfyUI:
     gpu=gpu,
     cpu=8.0,
     volumes={"/data": downloads_vol},
-    concurrency_limit=10,
-    container_idle_timeout=60,
-    keep_warm=0,
+    max_containers=10,
+    scaledown_window=60,
+    min_containers=0,
     timeout=3600,
 )
 class ComfyUIPremium(ComfyUI):
@@ -1759,9 +1759,9 @@ class ComfyUIPremium(ComfyUI):
     gpu=gpu,
     cpu=8.0,
     volumes={"/data": downloads_vol},
-    concurrency_limit=1,
-    container_idle_timeout=60,
-    keep_warm=0,
+    max_containers=1,
+    scaledown_window=60,
+    min_containers=0,
     timeout=3600,
 )
 class ComfyUIBasic(ComfyUI):
@@ -1774,9 +1774,9 @@ class ComfyUIBasic(ComfyUI):
     gpu=gpu,
     cpu=8.0,
     volumes={"/data": downloads_vol},
-    concurrency_limit=50,
-    container_idle_timeout=60,
-    keep_warm=0,
+    max_containers=50,
+    scaledown_window=60,
+    min_containers=0,
     timeout=3600,
 )
 class ComfyUITempleAbyss(ComfyUI):

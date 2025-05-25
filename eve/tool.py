@@ -112,7 +112,7 @@ class Tool(Document, ABC):
                 _tool_classes[handler] = LocalTool
 
             elif handler == "modal":
-                local_debug = False
+                local_debug = True
                 if local_debug:
                     from .tools.local_tool import LocalTool
                     _tool_classes[handler] = LocalTool
