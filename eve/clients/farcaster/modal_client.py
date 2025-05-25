@@ -18,7 +18,7 @@ image = (
     .apt_install("libmagic1")
     .pip_install_from_pyproject("pyproject.toml")
     .pip_install("farcaster>=0.7.11")
-    .copy_local_dir("../workflows", "/workflows")
+    .add_local_dir("../workflows", "/workflows")
     .env({"DB": db})
 )
 

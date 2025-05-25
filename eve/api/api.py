@@ -345,8 +345,8 @@ image = (
     # .run_function(download_nsfw_models)
     .add_local_dir(str(workflows_dir), "/workflows")
     .add_local_file(str(root_dir / "pyproject.toml"), "/eve/pyproject.toml")
-    .add_local_python_source("eve")
-    .add_local_python_source("api")
+    .add_local_python_source("eve", ignore=[])
+    .add_local_python_source("api", ignore=[])
 )
 
 
