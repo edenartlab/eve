@@ -20,6 +20,8 @@ async def handler(args: dict, user: User, agent: Agent):
     for tweet in response.get("data", []):
         print("--------------------------------")
         print(tweet["id"], tweet["text"])
+        print(tweet.keys())
+        print(tweet)
         tweets.append(
             {
                 "id": tweet["id"],

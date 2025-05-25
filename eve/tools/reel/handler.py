@@ -91,123 +91,8 @@ from ...mongo import get_collection
 
 
 
-class Character(BaseModel):
-    name: str = Field(..., description="The name of the character")
-    description: str = Field(..., description="A short description of the character")
-
-
-def extract_characters(prompt: str):
-    client = instructor.from_openai(OpenAI())
-    characters = client.chat.completions.create(
-        model="gpt-4o-2024-08-06",
-        response_model=Optional[List[Character]],
-        messages=[
-            {
-                "role": "system",
-                "content": "Extract and resolve a list of characters/actors/people from the following story premise. Do not include inanimate objects, places, or concepts. Only named or nameable characters.",
-            },
-            {
-                "role": "user",
-                "content": prompt,
-            },
-        ],
-    )    
-    return characters or []
-    
-
-def prompt_variations(prompt: str, n: int):
-    client = instructor.from_openai(OpenAI())
-
-    class PromptVariations(BaseModel):
-        prompts: List[str] = Field(..., description="A unique variation of the original prompt")
-
-    user_message = f"You are given the following prompt for a short-form video: {prompt}. Generate EXACTLY {n} variations of this prompt. Don't get too fancy or creative, just state the same thing in different ways, using synonyms or different phrase constructions."
-    client = instructor.from_openai(OpenAI())
-    prompts = client.chat.completions.create(
-        model="gpt-4o-2024-08-06",
-        response_model=PromptVariations,
-        messages=[
-            {
-                "role": "system",
-                "content": "You are a helpful assistant who generates variations of a prompt for a short-form video.",
-            },
-            {
-                "role": "user",
-                "content": user_message,
-            },
-        ],
-    )
-    print("PROMPTS", prompts)
-    return prompts.prompts
-
-
-
-def write_reel23(
-    prompt: str, 
-    characters: List[Character],
-    narration: str,
-    music: bool,
-    music_prompt: str
-):
-    
-    if characters or narration:
-        names = [c.name for c in characters]
-        speaker_type, speaker_description = Literal[*names], "Name of the speaker, if any voiceover."
-        speech_type, speech_description = str, "If there is a voiceover, the text of the speech."
-    else:
-        speaker_type, speaker_description = Optional[None], "Leave this blank since there are no speakers."
-        speech_type, speech_description = Optional[None], "Leave this blank since there are no speakers."
-
-    if music:
-        music_type, music_description = str, "A short and concise 1-sentence description of the music for the reel, structured as a prompt. Use descriptive words to convey the mood and genre of the music."
-    else:
-        music_type, music_description = Optional[None], "Leave this blank since there is no music."
-    
-    class Reel(BaseModel):
-        image_prompt: str = Field(..., description="A short and concise 1-sentence description of the visual content for the reel, structured as a prompt, focusing on visual elements and action, not plot or dialogue")
-        music_prompt: music_type = Field(..., description=music_description)
-        speaker: speaker_type = Field(..., description=speaker_description)
-        speech: speech_type = Field(..., description=speech_description)
-
-    system_prompt = f"""You are a critically acclaimed screenwriter who writes incredibly captivating and original short-length single-scene reels of less than 1 minute in length which regularly go viral on Instagram, TikTok, Netflix, and YouTube.
-    
-    Users will prompt you with a premise or synopsis for a reel, as well as optionally a cast of characters, including their names and biographies.
-    
-    You will then write a script for a reel based on the information provided.
-    
-    Do not include an introduction or restatement of the prompt, just go straight into the reel itself."""
-
-    client = instructor.from_openai(OpenAI())
-    
-    reel = client.chat.completions.create(
-        model="gpt-4o-2024-08-06",
-        response_model=Reel,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt}
-        ],
-    )
-
-    # override music prompt if provided by user
-    if music and music_prompt:
-        reel.music_prompt = music_prompt
-
-    if narration:
-        reel.speech = narration
-
-    return reel
-    
-
-
-
-
-
-
-
-
-
 class Reel(BaseModel):
-    """A reel is a short film of 30-60 seconds in length. It should be a single coherent scene for a commercial, movie trailer, tiny film, advertisement, or some other short time format."""
+    """A detailed spec for a short film of around 30-60 seconds in length, up to 2 minutes."""
 
     voiceover: str = Field(..., description="The text of the voiceover, if one is not provided by the user. Make sure this is at least 30 words, or 2-3 sentences minimum.")
     music_prompt: str = Field(..., description="A prompt describing the music to compose for the reel. Describe instruments, genre, style, mood qualities, emotion, and any other relevant details.")
@@ -216,9 +101,7 @@ class Reel(BaseModel):
 
 
 
-
-
-
+# send agent
 
 
 def write_reel(
@@ -226,7 +109,11 @@ def write_reel(
     voiceover: str = None,
     music_prompt: str = None,
 ):
-    system_prompt = "You are a critically acclaimed video director who writes incredibly captivating and original short-length single-scene reels of 30-60 seconds in length which regularly go viral on social media."
+    system_prompt = "You are a critically acclaimed video producer who writes incredibly captivating and original short-length single-scene reels of 30-60 seconds in length which are widely praised."
+
+    #It should be a single coherent scene for a commercial, movie trailer, tiny film, advertisement, or some other short time format.
+
+
     print("make the reel !!!\n\n")
     if voiceover:
         prompt += f'\nUse this for the voiceover text: "{voiceover}"'
@@ -310,9 +197,12 @@ def write_visual_prompts(
 
 
 
-
-
 async def handler(args: dict, user: str = None, agent: str = None):
+    
+    print("args", args)
+    print("user", user)
+    print("agent", agent)
+
     elevenlabs = Tool.load("elevenlabs")
     musicgen = Tool.load("musicgen")
     flux = Tool.load("flux_dev")
