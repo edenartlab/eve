@@ -55,6 +55,7 @@ dependencies = [
     "safetensors==0.5.3",
     "litellm>=1.70.0",
     "moviepy>=2.2.1",
+    "google-genai==1.16.1",
 ]
 
 [build-system]
