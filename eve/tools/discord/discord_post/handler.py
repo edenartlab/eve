@@ -4,8 +4,8 @@ from eve.agent import Agent
 import discord
 
 
-async def handler(args: dict, user: User = None, agent: Agent = None):
-    agent = Agent.from_mongo(args["agent"])
+async def handler(args: dict, user: str = None, agent: str = None):
+    agent = Agent.load(args["agent"])
     deployment = Deployment.load(agent=agent.id, platform="discord")
     if not deployment:
         raise Exception("No valid Discord deployments found")

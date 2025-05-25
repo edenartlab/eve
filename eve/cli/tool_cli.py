@@ -6,9 +6,9 @@ import argparse
 
 from ..eden_utils import save_test_results, prepare_result, dump_json, CLICK_COLORS
 from ..auth import get_my_eden_user
+from ..agent import Agent
 from ..tool import Tool, get_tools_from_mongo, get_tools_from_api_files, get_api_files
 from .. import load_env
-
 
 api_tools_order = [
     "txt2img",
@@ -181,6 +181,10 @@ def run(ctx, tool: str, db: str):
             else:
                 args[key] = True
         i += 1
+
+    # inject
+    if args.get("agent"):
+        args["agent"] = str(Agent.load(args["agent"]).id)
 
     result = tool.run(args)
     color = random.choice(CLICK_COLORS)
