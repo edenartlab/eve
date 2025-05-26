@@ -10,7 +10,7 @@
 #   universal: false
 
 -e file:.
-ably==2.0.7
+ably==2.0.12
     # via eve
 aiofiles==24.1.0
     # via eve
@@ -28,8 +28,9 @@ annotated-types==0.7.0
     # via pydantic
 anthropic==0.49.0
     # via eve
-anyio==4.7.0
+anyio==4.9.0
     # via anthropic
+    # via google-genai
     # via httpx
     # via langfuse
     # via openai
@@ -72,7 +73,7 @@ charset-normalizer==3.4.0
     # via requests
 ckzg==1.0.2
     # via web3
-clerk-backend-api==1.4.1
+clerk-backend-api==2.2.0
     # via eve
 click==8.1.7
     # via beanie
@@ -82,7 +83,7 @@ click==8.1.7
     # via typer
 colorama==0.4.6
     # via eve
-cryptography==43.0.3
+cryptography==44.0.3
     # via clerk-backend-api
 cytoolz==1.0.1
     # via eth-utils
@@ -128,8 +129,6 @@ eth-utils==4.1.1
     # via eth-rlp
     # via rlp
     # via web3
-eval-type-backport==0.2.0
-    # via clerk-backend-api
 fal-client==0.5.9
     # via eve
 farcaster==0.7.11
@@ -162,6 +161,7 @@ google-auth==2.36.0
     # via google-cloud-core
     # via google-cloud-resource-manager
     # via google-cloud-storage
+    # via google-genai
 google-cloud-aiplatform==1.74.0
     # via eve
 google-cloud-bigquery==3.27.0
@@ -176,6 +176,8 @@ google-cloud-storage==2.19.0
 google-crc32c==1.6.0
     # via google-cloud-storage
     # via google-resumable-media
+google-genai==1.16.1
+    # via eve
 google-resumable-media==2.7.2
     # via google-cloud-bigquery
     # via google-cloud-storage
@@ -209,13 +211,14 @@ hpack==4.0.0
     # via h2
 httpcore==1.0.7
     # via httpx
-httpx==0.27.2
+httpx==0.28.1
     # via ably
     # via anthropic
     # via clerk-backend-api
     # via elevenlabs
     # via eve
     # via fal-client
+    # via google-genai
     # via langfuse
     # via litellm
     # via openai
@@ -253,8 +256,6 @@ jiter==0.6.1
 jmespath==1.0.1
     # via boto3
     # via botocore
-jsonpath-python==1.0.6
-    # via clerk-backend-api
 jsonref==1.1.0
     # via eve
 jsonschema==4.23.0
@@ -293,8 +294,6 @@ multidict==6.1.0
     # via aiohttp
     # via grpclib
     # via yarl
-mypy-extensions==1.0.0
-    # via typing-inspect
 networkx==3.4.2
     # via torch
 numpy==2.2.0
@@ -356,7 +355,7 @@ pycparser==2.22
 pycryptodome==3.21.0
     # via eth-hash
     # via eth-keyfile
-pydantic==2.9.2
+pydantic==2.11.5
     # via anthropic
     # via beanie
     # via clerk-backend-api
@@ -365,6 +364,7 @@ pydantic==2.9.2
     # via farcaster
     # via fastapi
     # via google-cloud-aiplatform
+    # via google-genai
     # via instructor
     # via langfuse
     # via lazy-model
@@ -372,7 +372,7 @@ pydantic==2.9.2
     # via openai
     # via replicate
     # via runwayml
-pydantic-core==2.23.4
+pydantic-core==2.33.2
     # via elevenlabs
     # via instructor
     # via pydantic
@@ -393,7 +393,6 @@ pymongo==4.6.1
     # via motor
 python-dateutil==2.9.0.post0
     # via botocore
-    # via clerk-backend-api
     # via google-cloud-bigquery
 python-dotenv==1.0.1
     # via eve
@@ -426,6 +425,7 @@ requests==2.32.3
     # via google-api-core
     # via google-cloud-bigquery
     # via google-cloud-storage
+    # via google-genai
     # via huggingface-hub
     # via instructor
     # via langfuse
@@ -469,7 +469,6 @@ smmap==5.0.1
 sniffio==1.3.1
     # via anthropic
     # via anyio
-    # via httpx
     # via openai
     # via runwayml
 starlette==0.41.3
@@ -511,6 +510,7 @@ typing-extensions==4.12.2
     # via elevenlabs
     # via eth-typing
     # via fastapi
+    # via google-genai
     # via huggingface-hub
     # via modal
     # via openai
@@ -522,10 +522,10 @@ typing-extensions==4.12.2
     # via synchronicity
     # via torch
     # via typer
-    # via typing-inspect
+    # via typing-inspection
     # via web3
-typing-inspect==0.9.0
-    # via clerk-backend-api
+typing-inspection==0.4.1
+    # via pydantic
 tzlocal==5.3
     # via apscheduler
 urllib3==2.2.3
@@ -536,9 +536,10 @@ watchfiles==1.0.4
     # via modal
 web3==6.20.3
     # via eve
-websockets==12.0
+websockets==13.1
     # via ably
     # via elevenlabs
+    # via google-genai
     # via playwright
     # via web3
 wrapt==1.17.2

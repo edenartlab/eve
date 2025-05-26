@@ -93,6 +93,8 @@ class Tool(Document, ABC):
     def get_sub_class(cls, schema, from_yaml=False) -> type:
         """Lazy load tool classes only when needed"""
 
+        local_debug = False
+
         handler = schema.get("handler")
         parent_tool = schema.get("parent_tool")
 
@@ -112,12 +114,13 @@ class Tool(Document, ABC):
                 _tool_classes[handler] = LocalTool
 
             elif handler == "modal":
-                local_debug = True
                 if local_debug:
                     from .tools.local_tool import LocalTool
+
                     _tool_classes[handler] = LocalTool
                 else:
                     from .tools.modal_tool import ModalTool
+
                     _tool_classes[handler] = ModalTool
 
             elif handler == "comfyui":
@@ -141,9 +144,14 @@ class Tool(Document, ABC):
 
                 _tool_classes[handler] = FalTool
             else:
-                from .tools.modal_tool import ModalTool
+                if local_debug:
+                    from .tools.local_tool import LocalTool
 
-                _tool_classes[handler] = ModalTool
+                    _tool_classes[handler] = LocalTool
+                else:
+                    from .tools.modal_tool import ModalTool
+
+                    _tool_classes[handler] = ModalTool
 
         return _tool_classes[handler]
 

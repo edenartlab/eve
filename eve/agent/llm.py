@@ -17,9 +17,15 @@ from .thread import UserMessage, AssistantMessage, ToolCall
 MODELS = [
     "claude-3-7-sonnet-latest",
     "claude-3-5-haiku-latest",
+    "claude-sonnet-4-20250514",
+    "claude-opus-4-20250514",
     "gpt-4o",
     "gpt-4o-mini",
+    "gpt-4.1",
+    "gpt-4.1-mini",
     "o1-mini",
+    "o1",
+    "o3",
     "google/gemini-2.0-flash-001",
     "anthropic/claude-3.7-sonnet",
 ]
