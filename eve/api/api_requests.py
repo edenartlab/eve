@@ -144,3 +144,4 @@ class PromptSessionRequest(BaseModel):
     user_id: Optional[str] = None
     update_config: Optional[UpdateConfig] = None
     llm_config: Optional[LLMConfig] = None
+    stream: bool = False

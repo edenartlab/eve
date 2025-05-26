@@ -96,15 +96,15 @@ class ChatMessageRequestInput:
     sender_name: Optional[str] = None
 
 
-@dataclass
-class SessionUpdate:
+class SessionUpdate(BaseModel):
     type: UpdateType
     message: Optional[ChatMessage] = None
     tool_name: Optional[str] = None
     tool_index: Optional[int] = None
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
-    text: Optional[str] = None
+    update_config: Optional[Dict[str, Any]] = None
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class LLMTraceMetadata(BaseModel):

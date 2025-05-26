@@ -11,7 +11,7 @@ import aiohttp
 
 from langfuse.decorators import observe, langfuse_context
 from eve.agent.session.models import PromptSessionContext, Session
-from eve.agent.session.session import run_prompt_session
+from eve.agent.session.session import run_prompt_session, run_prompt_session_stream
 from eve.agent.tasks import async_title_thread
 from eve.api.errors import handle_errors, APIError
 from eve.api.api_requests import (
@@ -788,6 +788,26 @@ async def handle_prompt_session(
         message=request.message,
         update_config=request.update_config,
     )
+
+    if request.stream:
+
+        async def event_generator():
+            try:
+                async for data in run_prompt_session_stream(context):
+                    yield f"data: {json.dumps({'event': 'update', 'data': data})}\n\n"
+                yield f"data: {json.dumps({'event': 'done', 'data': ''})}\n\n"
+            except Exception as e:
+                logger.error("Error in event_generator", exc_info=True)
+                yield f"data: {json.dumps({'event': 'error', 'data': {'error': str(e)}})}\n\n"
+
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+            },
+        )
 
     background_tasks.add_task(
         run_prompt_session,
