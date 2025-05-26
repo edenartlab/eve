@@ -171,6 +171,7 @@ class Tool(Document, ABC):
                 print("***debug parent_schema", parent_tool)
                 print("***debug schema", schema)
                 print("***debug file_path", file_path)
+                return None
             parent_schema["parameter_presets"] = schema.pop("parameters", {})
             if not from_yaml:
                 parent_parameters = {
