@@ -167,7 +167,7 @@ class Tool(Document, ABC):
         parent_tool = schema.get("parent_tool")
         if parent_tool:
             parent_schema = cls._get_schema(parent_tool, from_yaml=from_yaml)
-            if not parent_schema:
+            if not parent_schema.get("parameter_presets"):
                 print("***debug parent_schema", parent_tool)
                 print("***debug schema", schema)
                 print("***debug file_path", file_path)
