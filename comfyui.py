@@ -1759,7 +1759,7 @@ class ComfyUIPremium(ComfyUI):
     gpu=gpu,
     cpu=8.0,
     volumes={"/data": downloads_vol},
-    max_containers=1,
+    max_containers=10,
     scaledown_window=60,
     min_containers=0,
     timeout=3600,

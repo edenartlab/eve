@@ -52,6 +52,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
         time.sleep(5)
         operation = client.operations.get(operation)
 
+    print("Operation", operation)
     print("Response", operation.response)
     print("Generated videos", operation.response.generated_videos)
 
