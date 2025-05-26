@@ -108,7 +108,7 @@ async def build_llm_context(
 ):
     system_message = build_system_message(session, actor, context)
     messages = [system_message]
-    tools = actor.get_tools(cache=False, auth_user=context.initiating_user_id)
+    tools = actor.get_tools(cache=True, auth_user=context.initiating_user_id)
     messages.extend(select_messages(session, context))
     messages = convert_message_roles(messages, session.agents[0])
     new_message = ChatMessage(
@@ -257,6 +257,47 @@ async def async_prompt_session(session: Session, llm_context: LLMContext):
             prompt_session_finished = True
 
     yield SessionUpdate(type=UpdateType.END_PROMPT)
+
+
+async def _run_prompt_session_stream_internal(context: PromptSessionContext):
+    session = context.session
+    validate_prompt_session(session, context)
+    actor = await determine_actor(session, context)
+    llm_context = await build_llm_context(session, actor, context)
+    async for update in async_prompt_session(session, llm_context):
+        data = {
+            "type": update.type.value,
+            "update_config": context.update_config.model_dump()
+            if context.update_config
+            else None,
+        }
+        if update.type == UpdateType.START_PROMPT:
+            pass
+        elif update.type == UpdateType.ASSISTANT_MESSAGE:
+            data["content"] = update.message.content
+        elif update.type == UpdateType.TOOL_COMPLETE:
+            data["tool"] = update.tool_name
+            data["result"] = serialize_for_json(update.result)
+        elif update.type == UpdateType.ERROR:
+            data["error"] = update.error if hasattr(update, "error") else None
+        elif update.type == UpdateType.END_PROMPT:
+            pass
+
+        yield data
+
+
+async def run_prompt_session_stream(context: PromptSessionContext):
+    try:
+        async for data in _run_prompt_session_stream_internal(context):
+            yield data
+    except Exception as e:
+        yield {
+            "type": UpdateType.ERROR.value,
+            "error": str(e),
+            "update_config": context.update_config.model_dump()
+            if context.update_config
+            else None,
+        }
 
 
 @handle_errors
