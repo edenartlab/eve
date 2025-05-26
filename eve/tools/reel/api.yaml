@@ -62,6 +62,16 @@ parameters:
       node_id: 144
       field: inputs
       subfield: value
+  video_model:
+    type: string
+    label: Video model quality
+    description: The quality of the video model to use. Low = Fast and cheap, but lowest quality. High = Best quality, but slow and expensive.
+    tip: Default to highest quality unless otherwise specified. Runway = low, Kling = medium, Veo2 = high
+    default: high
+    choices:
+      - low
+      - medium
+      - high
   lora:
     type: lora
     label: LoRA

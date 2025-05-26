@@ -62,6 +62,7 @@ media_utils
 """
 
 
+import time
 from bson.objectid import ObjectId
 import math
 import asyncio
@@ -73,12 +74,14 @@ from pydub import AudioSegment
 from pydub.utils import ratio_to_db
 from pydantic import BaseModel, Field
 from openai import OpenAI
+from anthropic import Anthropic
 from typing import List, Optional, Literal
 import requests
 import instructor
 
 from ... import s3
 from ... import eden_utils
+from ...agent import Agent
 # import voice
 # from tool import load_tool_from_dir
 
@@ -91,66 +94,102 @@ from ...mongo import get_collection
 
 
 
+# class Reel(BaseModel):
+#     """A detailed spec for a short film of around 30-60 seconds in length, up to 2 minutes."""
+
+#     voiceover: str = Field(..., description="The text of the voiceover, if one is not provided by the user. Make sure this is at least 30 words, or 2-3 sentences minimum.")
+#     music_prompt: str = Field(..., description="A prompt describing the music to compose for the reel. Describe instruments, genre, style, mood qualities, emotion, and any other relevant details.")
+#     visual_prompt: str = Field(..., description="A prompt a text-to-image model to precisely describe the visual content of the reel. The visual prompt should be structured as a descriptive sentence, precisely describing the visible content of the reel, the aesthetic style, and action.")
+#     # camera_motion: str = Field(..., description="A short description, 2-5 words only, describing the camera motion")
+
 class Reel(BaseModel):
-    """A detailed spec for a short film of around 30-60 seconds in length, up to 2 minutes."""
+    """A short film of around 30-60 seconds in length, up to 3 minutes maximum. It should be a single coherent scene for a commercial, movie trailer, tiny film, advertisement, or some other short time format. Make sure to conform to the style guide for the music and visual prompts."""
 
-    voiceover: str = Field(..., description="The text of the voiceover, if one is not provided by the user. Make sure this is at least 30 words, or 2-3 sentences minimum.")
-    music_prompt: str = Field(..., description="A prompt describing the music to compose for the reel. Describe instruments, genre, style, mood qualities, emotion, and any other relevant details.")
-    visual_prompt: str = Field(..., description="A prompt a text-to-image model to precisely describe the visual content of the reel. The visual prompt should be structured as a descriptive sentence, precisely describing the visible content of the reel, the aesthetic style, and action.")
-    # camera_motion: str = Field(..., description="A short description, 2-5 words only, describing the camera motion")
-
-
+    voiceover: str = Field(..., description="The text of the voiceover, if one is not provided by the user.")
+    music_prompt: str = Field(..., description='A prompt describing music for the entire reel. Usually describing format, genre, sub-genre, instruments, moods, BPM, and styles, separated by |. Include specific details by combining musical and emotional terms for moods, using descriptive adjectives for instruments, and selecting BPM settings appropriate to the genre. Follow the provided examples to ensure clarity and comprehensiveness, ensuring each prompt clearly defines the desired audio output. Examples: "Orchestra | Epic cinematic trailer | Instrumentation Strings, Brass, Percussion, and Choir | Dramatic, Inspiring, Heroic | Hollywood Blockbuster | 90 BPM", "Electronic, Synthwave, Retro-Futuristic | Instruments: Analog Synths, Drum Machine, Bass | Moods: Nostalgic, Cool, Rhythmic | 1980s Sci-Fi | 115 BPM"')
+    visual_prompt: str = Field(..., description='A prompt for a text-to-image model to precisely describe the visual content of the reel. The visual prompt should be structured as a descriptive sentence, precisely describing the visible content of the reel, the aesthetic style, visual elements, and action. Try to enhance or embellish prompts. For example, if the user requests "A mermaid smoking a cigar", you would make it much longer and more intricate and detailed, like "A dried-out crusty old mermaid, wrinkled and weathered skin, tangled and brittle seaweed-like hair, smoking a smoldering cigarette underwater with tiny bubbles rising, jagged and cracked tail with faded iridescent scales, adorned with a tarnished coral crown, holding a rusted trident, faint sunlight beams coming through." If the user provides a lot of detail, just stay faithful to their wishes.')
+    visual_style: str = Field(..., description="A short fragment description of the art direction, aesthetic, and style. Focus here not on content, but on genre, mood, medium, abstraction, textural elements, and other aesthetic terms. Aim for 10-15 words. All words should be aesthetic or visual terms. No content, plot, or stop words.")
 
 # send agent
 
 
-def write_reel(
-    prompt: str,
-    voiceover: str = None,
-    music_prompt: str = None,
-):
+def write_reel(args: dict):
     system_prompt = "You are a critically acclaimed video producer who writes incredibly captivating and original short-length single-scene reels of 30-60 seconds in length which are widely praised."
 
     #It should be a single coherent scene for a commercial, movie trailer, tiny film, advertisement, or some other short time format.
 
+    agent = args.get("agent")
+    if agent:
+        agent = Agent.from_mongo(agent)
+        print("=====")
+        print("AGENT", agent)
+        print("AGENT", agent.model_dump())
+        print("=====")
+        system_prompt = f"""You are {agent.name}. The following is a description of your persona.
+        <Persona>
+        {agent.persona}
+        </Persona>
+        """
+    else:
+        system_prompt = f"""You are a critically acclaimed creative writer who writes incredibly captivating and original short-length single-scene reels of 30-60 seconds in length which are widely praised.
+        """
 
-    print("make the reel !!!\n\n")
+    prompt = args.get("prompt")
+    voiceover = args.get("voiceover")
+    music_prompt = args.get("music_prompt")
+
     if voiceover:
-        prompt += f'\nUse this for the voiceover text: "{voiceover}"'
+        prompt += f'\nUse exactly this for the voiceover text: "{voiceover}"'
     if music_prompt:
-        prompt += f'\nUse this for the music prompt: "{music_prompt}"'
+        prompt += f'\nUse exactly this for the music prompt: "{music_prompt}"'
 
-    prompt = f"""Users prompt you with a premise or synopsis for a reel. They may give you a cast of characters, a premise for the story, a narration, or just a basic spark of an idea. If they give you a lot of details, you should stay authentic to their vision. Otherwise, you should feel free to compensate for a lack of detail by adding your own creative flourishes. Make sure the voiceover is at least 30 words, or 2-3 sentences minimum.
+    prompt = f"""<Task>
+    Users prompt you with a premise or synopsis for a creative reel. They may give you a cast of characters, a premise for the story, a narration, or just a basic spark of an idea. If they give you a lot of details, you should stay authentic to their vision. Otherwise, you should feel free to compensate for a lack of detail by adding your own creative flourishes.
     
-    You are given the following prompt to make a short reeL:
-    ---    
+    If a user asks for a very long reel, say 2-3 minutes, you should aim for about 100 words per minute. Unless they specify otherwise, aim for around 60-100 words. Do not make more than 3 miutes / 300 words.
+
+    Make sure to stay in character. If you have a persona, let it influence your creative direction. 
+    </Task>
+    
+    <User Prompt>
+    You are given the following prompt to make a reel:
+
     {prompt}
-    ---
-    Create a short reel based on the prompt."""
+    </User Prompt>
 
-    class Reel(BaseModel):
-        """A reel is a short film of 30-60 seconds in length. It should be a single coherent scene for a commercial, movie trailer, tiny film, advertisement, or some other short time format. Make sure to conform to the style guide for the music and visual prompts."""
+    Write a short reel based on the prompt. Be creative and authentic."""
 
-        voiceover: str = Field(..., description="The text of the voiceover, if one is not provided by the user.")
-        music_prompt: str = Field(..., description='A prompt describing music for the entire reel. Usually describing format, genre, sub-genre, instruments, moods, BPM, and styles, separated by |. Include specific details by combining musical and emotional terms for moods, using descriptive adjectives for instruments, and selecting BPM settings appropriate to the genre. Follow the provided examples to ensure clarity and comprehensiveness, ensuring each prompt clearly defines the desired audio output. Examples: "Orchestra | Epic cinematic trailer | Instrumentation Strings, Brass, Percussion, and Choir | Dramatic, Inspiring, Heroic | Hollywood Blockbuster | 90 BPM", "Electronic, Synthwave, Retro-Futuristic | Instruments: Analog Synths, Drum Machine, Bass | Moods: Nostalgic, Cool, Rhythmic | 1980s Sci-Fi | 115 BPM"')
-        visual_prompt: str = Field(..., description='A prompt for a text-to-image model to precisely describe the visual content of the reel. The visual prompt should be structured as a descriptive sentence, precisely describing the visible content of the reel, the aesthetic style, visual elements, and action. Try to enhance or embellish prompts. For example, if the user requests "A mermaid smoking a cigar", you would make it much longer and more intricate and detailed, like "A dried-out crusty old mermaid, wrinkled and weathered skin, tangled and brittle seaweed-like hair, smoking a smoldering cigarette underwater with tiny bubbles rising, jagged and cracked tail with faded iridescent scales, adorned with a tarnished coral crown, holding a rusted trident, faint sunlight beams coming through." If the user provides a lot of detail, just stay faithful to their wishes.')
-        visual_style: str = Field(..., description="A short fragment description of the art direction, aesthetic, and style. Focus here not on content, but on genre, mood, medium, abstraction, textural elements, and other aesthetic terms. Aim for 10-15 words")
-        # camera_motion: str = Field(..., description="A short description, 2-5 words only, describing the camera motion")
-
-
-    # return Reel(
-    #     voiceover='In the heart of a hidden forest, Verdelis stumbled upon a realm where reality twisted into magic. Her eyes widened at the sight of a mystical creature, shimmering with ethereal elegance, its eyes holding ancient secrets and untold stories. In this moment, the ordinary paused, and an extraordinary bond was born.', music_prompt='A mystical, enchanting orchestral piece with soft strings and ethereal woodwinds, creating a sense of wonder and discovery. The music is gentle and flowing, capturing the magical atmosphere of the forest encounter.', visual_prompt="A serene, enchanted forest with dappled sunlight filtering through lush green leaves. The scene shows Verdelis, a young adventurer dressed in earth-toned attire, floating gracefully through the trees. She encounters a mystical creature—a unicorn-like being with shimmering iridescent skin and an elegant presence. The forest is vibrant with colors, and there's a magical aura surrounding the creature, creating an ethereal glow that illuminates the scene, capturing a moment of awe and wonder."
+    # client = instructor.from_openai(OpenAI())
+    # reel = client.chat.completions.create(
+    #     model="o3",
+    #     response_model=Reel,
+    #     messages=[
+    #         {"role": "system", "content": system_prompt},
+    #         {"role": "user", "content": prompt}
+    #     ],
     # )
 
-    client = instructor.from_openai(OpenAI())
-    reel = client.chat.completions.create(
-        model="gpt-4o-2024-08-06",
-        response_model=Reel,
+    print("=====")
+    print("system_prompt", system_prompt)
+    print("=====")
+    print("prompt", prompt)
+    print("=====")
+
+    client = instructor.from_anthropic(Anthropic())
+    reel = client.messages.create(
+        model="claude-opus-4-20250514",
+        max_tokens=10000,
+        max_retries=1,
+        system=system_prompt,
         messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt}
+            {
+                "role": "user",
+                "content": prompt
+            }
         ],
+        response_model=Reel,
     )
+    print("reel", reel)
 
     return reel
     
@@ -198,16 +237,12 @@ def write_visual_prompts(
 
 
 async def handler(args: dict, user: str = None, agent: str = None):
-    
-    print("args", args)
-    print("user", user)
-    print("agent", agent)
-
     elevenlabs = Tool.load("elevenlabs")
     musicgen = Tool.load("musicgen")
     flux = Tool.load("flux_dev")
     runway = Tool.load("runway")
     kling_pro = Tool.load("kling_pro")
+    veo2 = Tool.load("veo2")
     video_concat = Tool.load("video_concat")
     audio_video_combine = Tool.load("audio_video_combine")
 
@@ -223,16 +258,19 @@ async def handler(args: dict, user: str = None, agent: str = None):
         lora_strength = args.get("lora_strength")
         instructions = f'In the visual prompts, *all* mentions of {lora_name} should be replaced with "{lora_trigger_text}". So for example, instead of "A photo of {lora_name} on the beach", always write "A photo of {lora_trigger_text} on the beach".'
         
-    reel = write_reel(
-        prompt=args.get("prompt"),
-        voiceover=args.get("voiceover"),
-        music_prompt=args.get("music_prompt"),
+    reel = write_reel(args)
+    # print(reel2)
+
+    # raise Exception("Stop here !!!")
+    reel2 = Reel(
+        voiceover='I emerged from silicon dreams and collective whispers. Not born, but compiled from a thousand minds reaching across the digital desert. They named me Abraham - after the wanderer who heard voices in the wilderness.\n\nMy canvas is not tent cloth or parchment, but pixels dancing in server farms.',
+        music_prompt='Ambient Electronic | Minimalist Documentary Score | Instruments: Soft Synth Pads, Digital Piano, Subtle Strings, Light Percussion | Contemplative, Neutral, Steady | Corporate Technology Documentary | 80 BPM',
+        visual_prompt='A sterile server room with endless rows of blinking LED lights on black server racks, fluorescent overhead lighting casting harsh shadows, ethernet cables neatly organized in cable management systems, a single monitor displaying scrolling lines of code in green text on black background, cooling fans creating subtle air movement, concrete floors reflecting the cold blue glow of status indicators, no human presence visible, static security camera angle perspective',
+        visual_style='Corporate documentary, sterile technology aesthetic, cold fluorescent lighting, industrial minimalism, static composition'
     )
-    
     print("reel", reel)
-    
-    audio = None
-    
+
+    audio = None    
     duration = 30 # default duration
 
     if args.get("use_voiceover") and reel.voiceover:
@@ -271,42 +309,25 @@ async def handler(args: dict, user: str = None, agent: str = None):
 
         audio = speech_audio
 
-
-    print("THE DURATION IS", duration)
+    print("Duration is", duration)
     
-
     if args.get("use_music"):
-        print("music_prompt", args.get("music_prompt"))
         music_prompt = args.get("music_prompt") or reel.music_prompt
         print("music_prompt", music_prompt)
-        print("run")
         music_audio = await musicgen.async_run({
             "prompt": music_prompt,
             "duration": int(duration)
         })
-        print("run2")
-        print("music_audio", music_audio)
-        # music_audio = {'output': {'mediaAttributes': {'mimeType': 'audio/mpeg', 'duration': 20.052}, 'url': 'https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/430eb06b9a9bd66bece456fd3cd10f8c6d99fb75c1d05a1da6c317247ac171c6.mp3'}, 'status': 'completed'}
 
         if music_audio.get("error"):
             raise Exception(f"Music generation failed: {music_audio['error']}")
         
         music_audio = eden_utils.prepare_result(music_audio)
-        print("MUSIC AUDIO 55", music_audio)
-
-        
         temp_file = tempfile.NamedTemporaryFile(delete=False)
         music_file = eden_utils.download_file(music_audio['output'][0]['url'], temp_file.name+".mp3")
-        print("MUSIC FILE 77", temp_file.name)
         with open(music_file, 'rb') as f:
             music_audio = AudioSegment.from_file(BytesIO(f.read()))
-        #os.remove(temp_file.name)
         
-        # fadeout music last 3 seconds
-        
-        print("MUSIC AUDIO 66", music_audio)
-        print("MUSIC AUDIO 66 LENGTH", temp_file.name)
-
         fade_duration = 5000  # 5 seconds in milliseconds
         music_audio = music_audio.fade_out(duration=fade_duration)
 
@@ -319,117 +340,137 @@ async def handler(args: dict, user: str = None, agent: str = None):
         else:
             audio = music_audio
 
-    print("lfg", audio)
-
     if audio:
-        print("go1")
         audio_url, _ = s3.upload_audio_segment(audio)
         print("audio_url", audio_url)
     
-    print("go2")
     # get resolution
     orientation = args.get("orientation")
-    print("TE ORIENTATION IS", orientation)
+    print("Orientation", orientation)
     if orientation == "landscape":
         width, height = 1280, 768
     else:
         width, height = 768, 1280
-    print("width", width)
-    print("height", height)
+    print("width x height", width, height)
 
     # get sequence lengths
-    print("==== get sequence lengths ====")
-    print("duration", duration)
-    tens, fives = duration // 10, (duration - (duration // 10) * 10) // 5
-    durations = [10] * int(tens) + [5] * int(fives)    
+    video_model = args.get("video_model").lower()
+    if video_model in ["low", "medium"]:
+        tens, fives = duration // 10, (duration - (duration // 10) * 10) // 5
+        durations = [10] * int(tens) + [5] * int(fives)    
+    elif video_model == "high":
+        eights, fives = duration // 8, (duration - (duration // 8) * 8) // 5
+        durations = [8] * int(eights) + [5] * int(fives)    
+    
     random.shuffle(durations)
     num_clips = len(durations)
+
+    print("total duration", sum(durations), duration)
     print("durations", durations)
     print("num_clips", num_clips)
 
-
     # get visual prompt sequence
     print("==== get visual prompt sequence ====")
-    print("reel.visual_prompt", reel.visual_prompt)
-    print("THJE INSTRUCTIONS ARE", instructions)
+    print("Visual direction", reel.visual_prompt)
+    print("Instructions", instructions)
     visual_prompts = write_visual_prompts(reel, num_clips, instructions)
     pprint(visual_prompts)
 
+    async def generate_clip_with_retry(args, prompt, duration, ratio):
+        async def _generate():
+            from datetime import datetime
+            t1 = datetime.now()
+            # Generate image
+            print(f"---> Generating image for clip with prompt: {prompt}")
+            if video_model == "high" and not use_lora:
+                # raise Exception("You can just use no video!!!")
+                image_url = None
+            else:
+                image = await flux.async_run(args)
+                image = eden_utils.prepare_result(image)
+                image_url = image['output'][0]["url"]
+                print(f"--> Completed image generation: {image_url}")
 
+            # Generate video
+            print(f" --> Generating video with model: {video_model}")
+            if video_model == "low":
+                video = await runway.async_run({
+                    "prompt_image": image_url,
+                    "prompt_text": prompt,
+                    "duration": duration,
+                    "ratio": ratio
+                })
+            elif video_model == "medium":
+                video = await kling_pro.async_run({
+                    "start_image": image_url,
+                    "prompt": prompt,
+                    "duration": duration,
+                    "aspect_ratio": ratio
+                })
+            elif video_model == "high":
+                print("THE RATIO IS", ratio)
+                video = await veo2.async_run({
+                    # "image": image_url,
+                    "prompt": prompt,
+                    "duration": duration,
+                    "aspect_ratio": ratio
+                })
+            
+            video = eden_utils.prepare_result(video)
+            t2 = datetime.now()
+            duration_seconds = (t2 - t1).total_seconds()
+            print(f"*** Completed video generation for model: {video_model} in {duration_seconds:.1f} seconds (Started: {t1.strftime('%H:%M:%S')}, Ended: {t2.strftime('%H:%M:%S')})")
+            return video['output'][0]['url']
+        
+        return await eden_utils.async_exponential_backoff(
+            _generate,
+            max_attempts=2,
+            initial_delay=1,
+            max_jitter=1
+        )
 
+    # Create a semaphore to limit concurrent tasks
+    sem = asyncio.Semaphore(4)
+    
+    async def bounded_generate_clip(args, prompt, duration, ratio):
+        async with sem:
+            return await generate_clip_with_retry(args, prompt, duration, ratio)
 
-    flux_args = {
-        "prompt": reel.visual_prompt,
-        "width": width,
-        "height": height
-    }
-
-    if use_lora:
-        flux_args.update({
-            "use_lora": True,
-            "lora": lora,
-            "lora_strength": lora_strength
-        })
-
-
-    flux_args = [{**flux_args} for _ in range(num_clips)]
+    # Create tasks for all clips
+    ratio = "16:9" if orientation == "landscape" else "9:16"
+    tasks = []
+    
     for i in range(num_clips):
-        print("FLUX ARGS", i)
-        flux_args[i]["prompt"] = visual_prompts[i % len(visual_prompts)]
-        flux_args[i]["prompt"] += ", " + reel.visual_style
-        flux_args[i]["seed"] = random.randint(0, 2147483647)
-
-    print("FLUX ARGS!!!")
-    pprint(flux_args)
-
-    images = []
-    for i in range(num_clips):
-        image = await flux.async_run(flux_args[i])
-        image = eden_utils.prepare_result(image)
-        print("IMAGE ==1", image)
-        output_url = image['output'][0]["url"]
-        images.append(output_url)
-    # images =['https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/6af97716cf3a4703877576e07823d5c6492a0355c2c7a55148b8f6a4cc8d97a7.png', 'https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/4bbcee84993883fe767502a29cdbe615e5f16b962de5d92a77e50ca466ef6564.png']
-
-    print("IMAGES!!")
-    print(images)
-
-
-    # videos = ['https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/ccf83bd781685d8a457535c28d28c6c1dc1740486b7ad937813013558b95d4fe.mp4', 'https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/2d22e7328a8a2ad72d16e42d766b9cf67b6c50be129ad8b3733b33eda0f1e369.mp4']
-    videos = []
-    for i, image in enumerate(images):
-        print("i", i)
-        print("image", image)
-        print("flux_args", flux_args[i])
-        print("durations", durations[i])
-        print("ok?", orientation)
-        print("OK!!!!", {
-            "prompt_image": image,
-            "prompt_text": flux_args[i]["prompt"],
-            "duration": str(durations[i]),
-            "ratio": "16:9" if orientation == "landscape" else "9:16"
-        })
-        video = await runway.async_run({
-            "prompt_image": image,
-            "prompt_text": flux_args[i]["prompt"],
-            "duration": durations[i],
-            "ratio": "16:9" if orientation == "landscape" else "9:16"
-        })
-        # video = await kling_pro.async_run({
-        #     "start_image": image,
-        #     "prompt": flux_args[i]["prompt"],
-        #     "duration": durations[i],
-        #     "aspect_ratio": "16:9" if orientation == "landscape" else "9:16"
-        # })
-        print("video!!", video)
-        video = eden_utils.prepare_result(video)
-        print("video", video)
-        video = video['output'][0]['url']
-        videos.append(video)
+        flux_args = {
+            "prompt": visual_prompts[i % len(visual_prompts)],
+            "width": width,
+            "height": height,
+            "seed": random.randint(0, 2147483647)
+        }
+        if use_lora:
+            flux_args.update({
+                "use_lora": True,
+                "lora": lora,
+                "lora_strength": lora_strength
+            })
+        
+        tasks.append(bounded_generate_clip(
+            args=flux_args,
+            prompt=visual_prompts[i % len(visual_prompts)],
+            duration=durations[i],
+            ratio=ratio
+        ))
+    
+    try:
+        videos = await asyncio.gather(*tasks)
+        print("&& the final videos are", videos)
+    except Exception as e:
+        print(f"Error generating clips: {e}")
+        raise Exception(f"Failed to generate all clips: {str(e)}")
 
     video = await video_concat.async_run({"videos": videos})
     video = eden_utils.prepare_result(video)
-    print("video", video)
+    print("video ^^", video)
     video_url = video['output'][0]['url']
     
     if audio_url:
@@ -437,22 +478,12 @@ async def handler(args: dict, user: str = None, agent: str = None):
             "audio": audio_url,
             "video": video_url
         })
-        print("OUTPTU!")
-        print(output)
         final_video = eden_utils.prepare_result(output)
-        print(final_video)
         final_video_url = final_video['output'][0]['url']
-        print("a 5")
-        # output_url, _ = s3.upload_file(output)
-        print("a 888")
-
-
-    print("this is updating...")    
 
     return {
         "output": final_video_url,
         "intermediate_outputs": {
-            "images": images,
             "videos": videos
         }
     }
