@@ -794,6 +794,7 @@ async def handle_prompt_session(
         async def event_generator():
             try:
                 async for data in run_prompt_session_stream(context):
+                    print("***debug data", data)
                     yield f"data: {json.dumps({'event': 'update', 'data': data})}\n\n"
                 yield f"data: {json.dumps({'event': 'done', 'data': ''})}\n\n"
             except Exception as e:
