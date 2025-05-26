@@ -286,10 +286,13 @@ class Agent(User):
             # Import Tool class when needed to avoid circular imports
             from ..tool import Tool
 
-            tools = {
-                k: Tool.from_raw_yaml({"parent_tool": k, **v})
-                for k, v in self.tools.items()
-            }
+            for k, v in self.tools.items():
+                try:
+                    tool = Tool.from_raw_yaml({"parent_tool": k, **v})
+                except Exception as e:
+                    print(f"Error loading tool {k}: {e}")
+                    print(traceback.format_exc())
+                    continue
 
         # remove tools that only the owner can use
         if str(auth_user) != str(self.owner):
