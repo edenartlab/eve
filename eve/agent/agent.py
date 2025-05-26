@@ -273,9 +273,11 @@ class Agent(User):
             # insert new tools into cache
             for k, v in self.tools.items():
                 if k not in agent_tools_cache[self.username]:
-                    tool = Tool.from_raw_yaml({"parent_tool": k, **v})
-                    if not tool:
-                        print(f"Tool {k} not found or errored in loading, skipping...")
+                    try:
+                        tool = Tool.from_raw_yaml({"parent_tool": k, **v})
+                    except Exception as e:
+                        print(f"Error loading tool {k}: {e}")
+                        print(traceback.format_exc())
                         continue
                     agent_tools_cache[self.username][k] = tool
 
