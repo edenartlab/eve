@@ -238,13 +238,12 @@ class Agent(User):
 
                     # Update all related tools with the tip
                     for tool in tools_list:
-                        schema["tools"][tool] = schema["tools"][tool] or {"parameters": {}}
-                        schema["tools"][tool]["parameters"].update({
-                            "lora": {
-                                "tip": tip, 
-                                "default": str(default_lora)
-                            }
-                        })
+                        schema["tools"][tool] = schema["tools"][tool] or {
+                            "parameters": {}
+                        }
+                        schema["tools"][tool]["parameters"].update(
+                            {"lora": {"tip": tip, "default": str(default_lora)}}
+                        )
 
         return schema
 
@@ -275,6 +274,9 @@ class Agent(User):
             for k, v in self.tools.items():
                 if k not in agent_tools_cache[self.username]:
                     tool = Tool.from_raw_yaml({"parent_tool": k, **v})
+                    if not tool:
+                        print(f"Tool {k} not found or errored in loading, skipping...")
+                        continue
                     agent_tools_cache[self.username][k] = tool
 
             tools = agent_tools_cache[self.username]
@@ -295,12 +297,14 @@ class Agent(User):
         # inject agent arg
         for tool in AGENTIC_TOOLS:
             if tool in tools:
-                tools[tool].parameters.update({
-                    "agent": {
-                        "default": str(self.id),
-                        "hide_from_agent": True,
+                tools[tool].parameters.update(
+                    {
+                        "agent": {
+                            "default": str(self.id),
+                            "hide_from_agent": True,
+                        }
                     }
-                })
+                )
 
         return tools
 
