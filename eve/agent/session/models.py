@@ -22,6 +22,7 @@ def serialize_for_json(obj):
 
 class UpdateType(Enum):
     START_PROMPT = "start_prompt"
+    ASSISTANT_TOKEN = "assistant_token"
     ASSISTANT_MESSAGE = "assistant_message"
     TOOL_COMPLETE = "tool_complete"
     ERROR = "error"
@@ -99,6 +100,7 @@ class ChatMessageRequestInput:
 class SessionUpdate(BaseModel):
     type: UpdateType
     message: Optional[ChatMessage] = None
+    text: Optional[str] = None
     tool_name: Optional[str] = None
     tool_index: Optional[int] = None
     result: Optional[Dict[str, Any]] = None
