@@ -160,13 +160,14 @@ def process_payload(
                 "id"               : t["id"],
                 "created_at"       : t["created_at"],
                 "text"             : t["text"],       # full up to 280 chars
-                "tweet_url"        : tweet_url,
+                "url"              : tweet_url,
                 "public_metrics"   : pm,
                 "score"            : score,
                 "score_metric"     : metric,
-                "author_username"  : user.get("username"),
-                "author_name"      : user.get("name"),
-                "author_followers" : fcnt,
+                "author_id"        : uid,
+                "username"         : user.get("username"),
+                "name"             : user.get("name"),
+                "followers"        : fcnt,
                 "media"            : media_objs,
             })
 
@@ -176,7 +177,7 @@ def process_payload(
 # ───────────────────────────────────────────────
 # 7. Main Eve handler
 # ───────────────────────────────────────────────
-async def handler(args: dict, user: User, agent: Agent):
+async def handler(args: dict, user: str, agent: str):
     agent      = Agent.from_mongo(args["agent"])
     deployment = Deployment.load(agent=agent.id, platform="twitter")
     if not deployment:

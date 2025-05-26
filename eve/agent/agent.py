@@ -17,6 +17,7 @@ from ..tool_constants import (
     FLUX_LORA_TOOLS,
     SDXL_LORA_TOOLS,
     OWNER_ONLY_TOOLS,
+    AGENTIC_TOOLS,
 )
 from ..mongo import Collection, get_collection
 from ..models import Model
@@ -237,11 +238,13 @@ class Agent(User):
 
                     # Update all related tools with the tip
                     for tool in tools_list:
-                        schema["tools"][tool] = {
-                            "parameters": {
-                                "lora": {"tip": tip, "default": str(default_lora)}
+                        schema["tools"][tool] = schema["tools"][tool] or {"parameters": {}}
+                        schema["tools"][tool]["parameters"].update({
+                            "lora": {
+                                "tip": tip, 
+                                "default": str(default_lora)
                             }
-                        }
+                        })
 
         return schema
 
@@ -250,9 +253,7 @@ class Agent(User):
 
         if cache:
             # get latest updatedAt timestamp for tools
-            from ..tool import (
-                Tool,
-            )  # Import Tool class when needed to avoid circular imports
+            from ..tool import Tool  # avoid circular import
 
             tools = get_collection(Tool.collection_name)
             timestamps = tools.find({}, {"updatedAt": 1})
@@ -290,6 +291,16 @@ class Agent(User):
         if str(auth_user) != str(self.owner):
             for tool in OWNER_ONLY_TOOLS:
                 tools.pop(tool, None)
+
+        # inject agent arg
+        for tool in AGENTIC_TOOLS:
+            if tool in tools:
+                tools[tool].parameters.update({
+                    "agent": {
+                        "default": str(self.id),
+                        "hide_from_agent": True,
+                    }
+                })
 
         return tools
 

@@ -81,9 +81,12 @@ class X:
 
     def fetch_mentions(self, start_time=None):
         """Fetches mentions for the user."""
-        params = {
-            "expansions": "author_id",
-            "user.fields": "username",
+        
+        params={
+            "max_results" : 100,
+            "tweet.fields": "created_at,author_id,conversation_id",
+            "expansions"  : "author_id",
+            "user.fields" : "username,name,public_metrics,verified"
         }
 
         if start_time:

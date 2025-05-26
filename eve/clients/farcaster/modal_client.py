@@ -18,15 +18,15 @@ image = (
     .apt_install("libmagic1")
     .pip_install_from_pyproject("pyproject.toml")
     .pip_install("farcaster>=0.7.11")
-    .copy_local_dir("../workflows", "/workflows")
+    .add_local_dir("../workflows", "/workflows")
     .env({"DB": db})
 )
 
 
 @app.function(
     image=image,
-    keep_warm=1,
-    concurrency_limit=1,
+    min_containers=1,
+    max_containers=1,
 )
 @modal.asgi_app()
 def fastapi_app():

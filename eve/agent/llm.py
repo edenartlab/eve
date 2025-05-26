@@ -2,13 +2,12 @@ import os
 import json
 import asyncio
 import anthropic
+import openai
 from enum import Enum
 from typing import Optional, Dict, List, Union, Literal, Tuple, AsyncGenerator
 from pydantic import BaseModel
 from instructor.function_calls import openai_schema
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
-from langfuse.decorators import observe, langfuse_context
-from langfuse.openai import openai
 
 from ..tool import Tool
 from ..eden_utils import dump_json
@@ -18,9 +17,15 @@ from .thread import UserMessage, AssistantMessage, ToolCall
 MODELS = [
     "claude-3-7-sonnet-latest",
     "claude-3-5-haiku-latest",
+    "claude-sonnet-4-20250514",
+    "claude-opus-4-20250514",
     "gpt-4o",
     "gpt-4o-mini",
+    "gpt-4.1",
+    "gpt-4.1-mini",
     "o1-mini",
+    "o1",
+    "o3",
     "google/gemini-2.0-flash-001",
     "anthropic/claude-3.7-sonnet",
 ]
@@ -105,7 +110,6 @@ def calculate_anthropic_model_cost(
     return {"input": 0, "output": 0, "cache_read_input_tokens": 0, "total": 0}
 
 
-@observe(as_type="generation")
 async def async_anthropic_prompt(
     messages: List[Union[UserMessage, AssistantMessage]],
     system_message: Optional[str] = "You are a helpful assistant.",
@@ -159,27 +163,6 @@ async def async_anthropic_prompt(
     print(response.usage)
     print("--------------------------------")
 
-    # Get token usage
-    input_tokens = response.usage.input_tokens + getattr(
-        response.usage, "cache_creation_input_tokens", 0
-    )
-    output_tokens = response.usage.output_tokens
-    cached_tokens = getattr(response.usage, "cache_read_input_tokens", 0)
-
-    # Calculate cost
-    cost = calculate_anthropic_model_cost(
-        model, input_tokens, output_tokens, cached_tokens
-    )
-
-    # Update Langfuse observation with usage and cost details
-    langfuse_context.update_current_observation(
-        usage_details={
-            "input": input_tokens + cached_tokens,
-            "output": output_tokens,
-        },
-        cost_details=cost,
-    )
-
     if response_model:
         return response_model(**response.content[0].input)
     else:
@@ -193,7 +176,6 @@ async def async_anthropic_prompt(
         return content, tool_calls, stop
 
 
-@observe(as_type="generation")
 async def async_anthropic_prompt_stream(
     messages: List[Union[UserMessage, AssistantMessage]],
     system_message: Optional[str] = "You are a helpful assistant.",
@@ -247,7 +229,6 @@ async def async_anthropic_prompt_stream(
             yield (UpdateType.TOOL_CALL, tool_call)
 
 
-@observe()
 async def async_openai_prompt(
     messages: List[Union[UserMessage, AssistantMessage]],
     system_message: Optional[str] = "You are a helpful assistant.",
@@ -387,7 +368,6 @@ async def async_openai_prompt_stream(
     stop=stop_after_attempt(3),
     reraise=True,
 )
-@observe()
 async def async_prompt(
     messages: List[Union[UserMessage, AssistantMessage]],
     system_message: Optional[str],
@@ -398,8 +378,6 @@ async def async_prompt(
     """
     Non-streaming LLM call => returns (content, tool_calls, stop).
     """
-
-    langfuse_context.update_current_observation(input=messages)
 
     if model == "anthropic/claude-3.7-sonnet":
         print("OpenRouter -> Anthropic")
@@ -510,7 +488,6 @@ def prompt(
     )
 
 
-@observe()
 async def async_openrouter_prompt(
     messages: List[Union[UserMessage, AssistantMessage]],
     system_message: Optional[str] = "You are a helpful assistant.",

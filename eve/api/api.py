@@ -14,7 +14,6 @@ from contextlib import asynccontextmanager
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.exceptions import RequestValidationError
 import time
-import asyncio
 
 from eve import auth, db, eden_utils
 from eve.api.runner_tasks import (
@@ -33,6 +32,7 @@ from eve.api.handlers import (
     handle_cancel,
     handle_deployment_update,
     handle_discord_emission,
+    handle_prompt_session,
     handle_replicate_webhook,
     handle_chat,
     handle_deployment_create,
@@ -54,8 +54,9 @@ from eve.api.api_requests import (
     CreateTriggerRequest,
     DeleteDeploymentRequest,
     DeleteTriggerRequest,
-    PlatformUpdateRequest,
+    PromptSessionRequest,
     TaskRequest,
+    PlatformUpdateRequest,
     UpdateDeploymentRequest,
     AgentToolsUpdateRequest,
     AgentToolsDeleteRequest,
@@ -64,7 +65,6 @@ from eve.api.helpers import pre_modal_setup, busy_state_dict
 
 
 app_name = f"api-{db.lower()}"
-logging.basicConfig(level=logging.INFO)
 logging.getLogger("ably").setLevel(logging.INFO if db != "PROD" else logging.WARNING)
 
 logger = logging.getLogger(__name__)
@@ -277,6 +277,15 @@ async def agent_tools_delete(
     return await handle_agent_tools_delete(request)
 
 
+@web_app.post("/sessions/prompt")
+async def prompt_session(
+    request: PromptSessionRequest,
+    background_tasks: BackgroundTasks,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    return await handle_prompt_session(request, background_tasks)
+
+
 @web_app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     print(f"Validation error on {request.url}:")
@@ -336,26 +345,26 @@ image = (
     # .run_function(download_nsfw_models)
     .add_local_dir(str(workflows_dir), "/workflows")
     .add_local_file(str(root_dir / "pyproject.toml"), "/eve/pyproject.toml")
-    .add_local_python_source("eve")
-    .add_local_python_source("api")
+    .add_local_python_source("eve", ignore=[])
+    .add_local_python_source("api", ignore=[])
 )
 
 
 @app.function(
     image=image,
-    keep_warm=1,
-    concurrency_limit=10,
-    container_idle_timeout=60,
-    allow_concurrent_inputs=25,
+    min_containers=1,
+    max_containers=10,
+    scaledown_window=60,
     timeout=3600,
 )
+@modal.concurrent(max_inputs=25)
 @modal.asgi_app()
 def fastapi_app():
     return web_app
 
 
 @app.function(
-    image=image, concurrency_limit=1, schedule=modal.Period(minutes=15), timeout=3600
+    image=image, max_containers=1, schedule=modal.Period(minutes=15), timeout=3600
 )
 async def cancel_stuck_tasks_fn():
     try:
@@ -367,7 +376,7 @@ async def cancel_stuck_tasks_fn():
 
 # @app.function(
 #     image=image,
-#     concurrency_limit=1,
+#     max_containers=1,
 #     schedule=modal.Period(minutes=15),
 #     timeout=3600
 # )
@@ -380,7 +389,7 @@ async def cancel_stuck_tasks_fn():
 
 
 @app.function(
-    image=image, concurrency_limit=1, schedule=modal.Period(minutes=15), timeout=3600
+    image=image, max_containers=1, schedule=modal.Period(minutes=15), timeout=3600
 )
 async def generate_lora_thumbnails_fn():
     try:
@@ -391,7 +400,7 @@ async def generate_lora_thumbnails_fn():
 
 
 @app.function(
-    image=image, concurrency_limit=1, schedule=modal.Period(hours=2), timeout=3600
+    image=image, max_containers=1, schedule=modal.Period(hours=2), timeout=3600
 )
 async def rotate_agent_metadata_fn():
     try:
@@ -402,17 +411,19 @@ async def rotate_agent_metadata_fn():
 
 
 @app.function(
-    image=image, concurrency_limit=10, allow_concurrent_inputs=4, timeout=3600
+    image=image, max_containers=10, timeout=3600
 )
-async def run(tool_key: str, args: dict):
+@modal.concurrent(max_inputs=4)
+async def run(tool_key: str, args: dict, user: str = None, agent: str = None):
     handler = load_handler(tool_key)
-    result = await handler(args)
+    result = await handler(args, user, agent)
     return eden_utils.upload_result(result)
 
 
 @app.function(
-    image=image, concurrency_limit=10, allow_concurrent_inputs=4, timeout=3600
+    image=image, max_containers=10, timeout=3600
 )
+@modal.concurrent(max_inputs=4)
 @task_handler_func
 async def run_task(tool_key: str, args: dict, user: str = None, agent: str = None):
     handler = load_handler(tool_key)
@@ -420,8 +431,9 @@ async def run_task(tool_key: str, args: dict, user: str = None, agent: str = Non
 
 
 @app.function(
-    image=image, concurrency_limit=10, allow_concurrent_inputs=4, timeout=3600
+    image=image, max_containers=10, timeout=3600
 )
+@modal.concurrent(max_inputs=4)
 async def run_task_replicate(task: Task):
     task.update(status="running")
     tool = Tool.load(task.tool)
@@ -435,11 +447,11 @@ async def run_task_replicate(task: Task):
 
 @app.function(
     image=image,
-    concurrency_limit=10,
-    container_idle_timeout=60,
-    allow_concurrent_inputs=10,
+    max_containers=10,
+    scaledown_window=60,
     timeout=3600,
 )
+@modal.concurrent(max_inputs=10)
 async def deploy_client_modal(
     agent_id: str,
     agent_key: str,
@@ -463,7 +475,7 @@ async def deploy_client_modal(
 
 
 @app.function(
-    image=image, concurrency_limit=1, schedule=modal.Period(minutes=2), timeout=3600
+    image=image, max_containers=1, schedule=modal.Period(minutes=2), timeout=3600
 )
 async def cleanup_stale_busy_states():
     """Clean up any stale busy states in the shared modal.Dict"""

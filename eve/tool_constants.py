@@ -48,6 +48,7 @@ BASE_TOOLS = [
     # video
     "runway",
     "kling_pro",
+    "veo2",
     "hedra",
     "vid2vid_sdxl",
     "video_FX",
@@ -58,6 +59,7 @@ BASE_TOOLS = [
     "mmaudio",
     "stable_audio",
     "zonos",
+    "transcription",
     # editing
     "media_editor",
     # search
@@ -85,3 +87,5 @@ FLUX_LORA_TOOLS = ["flux_dev_lora", "flux_dev", "reel"]
 SDXL_LORA_TOOLS = ["txt2img"]
 
 OWNER_ONLY_TOOLS = ["tweet", "twitter_mentions", "twitter_search", "discord_search"]
+
+AGENTIC_TOOLS = ["reel", "twitter_mentions", "twitter_search", "discord_post", "tweet"]

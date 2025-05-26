@@ -103,6 +103,11 @@ def load_handler(name):
 
             handlers[name] = handler
 
+        elif name == "telegram_post":
+            from .telegram.telegram_post.handler import handler
+
+            handlers[name] = handler
+
         elif name == "news":
             from .news.handler import handler
 
@@ -138,6 +143,11 @@ def load_handler(name):
 
             handlers[name] = handler
 
+        elif name == "transcription":
+            from .transcription.handler import handler
+
+            handlers[name] = handler
+
         elif name == "send_eth":
             from .wallet.send_eth.handler import handler
 
@@ -155,6 +165,11 @@ def load_handler(name):
 
         elif name == "openai_image_edit":
             from .openai_image_edit.handler import handler
+
+            handlers[name] = handler
+
+        elif name == "veo2":
+            from .google.veo2.handler import handler
 
             handlers[name] = handler
 

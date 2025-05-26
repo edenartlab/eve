@@ -1,5 +1,5 @@
 from eve.auth import get_my_eden_user
-from eve.agent.session import Session, SessionMessage
+from eve.agent.session.session import Session, SessionMessage
 from eve.agent.dispatch import dispatch
 
 

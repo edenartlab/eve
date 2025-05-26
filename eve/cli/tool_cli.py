@@ -2,12 +2,13 @@ import click
 import random
 import asyncio
 import traceback
+import argparse
 
 from ..eden_utils import save_test_results, prepare_result, dump_json, CLICK_COLORS
 from ..auth import get_my_eden_user
+from ..agent import Agent
 from ..tool import Tool, get_tools_from_mongo, get_tools_from_api_files, get_api_files
 from .. import load_env
-
 
 api_tools_order = [
     "txt2img",
@@ -37,6 +38,7 @@ api_tools_order = [
     "animate_3D",
     "style_mixing",
     "txt2vid",
+    "transcription",
     "vid2vid_sdxl",
     "img2vid",
     "video_upscaler",
@@ -155,23 +157,15 @@ def remove(db: str, names: tuple):
     default="STAGE",
     help="DB to load tools from if from mongo",
 )
-@click.option(
-    "--user",
-    help="User ID to run the tool as",
-)
-@click.option(
-    "--agent",
-    help="Agent ID to run the tool with",
-)
 @click.argument("tool", required=False)
 @click.pass_context
-def run(ctx, tool: str, db: str, user: str, agent: str):
+def run(ctx, tool: str, db: str):
     """Create with a tool. Args are passed as --key=value or --key value"""
 
     tool = Tool.load(key=tool)
 
-    # Parse args
-    args = dict()
+    # Parse remaining args into dict, excluding user and agent
+    args = {}
     i = 0
     while i < len(ctx.args):
         arg = ctx.args[i]
@@ -188,8 +182,9 @@ def run(ctx, tool: str, db: str, user: str, agent: str):
                 args[key] = True
         i += 1
 
-    args["user"] = user
-    args["agent"] = agent
+    # inject
+    if args.get("agent"):
+        args["agent"] = str(Agent.load(args["agent"]).id)
 
     result = tool.run(args)
     color = random.choice(CLICK_COLORS)

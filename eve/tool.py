@@ -93,6 +93,8 @@ class Tool(Document, ABC):
     def get_sub_class(cls, schema, from_yaml=False) -> type:
         """Lazy load tool classes only when needed"""
 
+        local_debug = False
+        
         handler = schema.get("handler")
         parent_tool = schema.get("parent_tool")
 
@@ -112,9 +114,13 @@ class Tool(Document, ABC):
                 _tool_classes[handler] = LocalTool
 
             elif handler == "modal":
-                from .tools.modal_tool import ModalTool
+                if local_debug:
+                    from .tools.local_tool import LocalTool
+                    _tool_classes[handler] = LocalTool
+                else:
+                    from .tools.modal_tool import ModalTool
+                    _tool_classes[handler] = ModalTool
 
-                _tool_classes[handler] = ModalTool
             elif handler == "comfyui":
                 from .tools.comfyui_tool import ComfyUITool
 
@@ -136,9 +142,13 @@ class Tool(Document, ABC):
 
                 _tool_classes[handler] = FalTool
             else:
-                from .tools.modal_tool import ModalTool
+                if local_debug:
+                    from .tools.local_tool import LocalTool
+                    _tool_classes[handler] = LocalTool
+                else:
+                    from .tools.modal_tool import ModalTool
+                    _tool_classes[handler] = ModalTool
 
-                _tool_classes[handler] = ModalTool
 
         return _tool_classes[handler]
 
@@ -399,7 +409,6 @@ class Tool(Document, ABC):
 
             # Check rate limit before creating the task
             if os.environ.get("FF_RATE_LIMITS") == "yes":
-                print("checking rate limit", agent_id, is_client_platform)
                 rate_limiter = RateLimiter()
                 if agent_id and is_client_platform:
                     await rate_limiter.check_agent_rate_limit(user, agent_id)
