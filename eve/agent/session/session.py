@@ -17,7 +17,12 @@ from eve.agent.session.models import (
     ToolCall,
     UpdateType,
 )
-from eve.agent.session.session_llm import LLMContext, async_prompt, async_run_tool_call
+from eve.agent.session.session_llm import (
+    LLMContext,
+    async_prompt,
+    async_prompt_stream,
+    async_run_tool_call,
+)
 from eve.agent.session.models import LLMContextMetadata
 from eve.api.errors import handle_errors
 from eve.api.helpers import emit_update, serialize_for_json
@@ -229,18 +234,60 @@ async def process_tool_calls(session: Session, llm_context: LLMContext):
         yield result
 
 
-async def async_prompt_session(session: Session, llm_context: LLMContext):
+async def async_prompt_session(
+    session: Session, llm_context: LLMContext, stream: bool = False
+):
     yield SessionUpdate(type=UpdateType.START_PROMPT)
     prompt_session_finished = False
     while not prompt_session_finished:
-        response = await async_prompt(llm_context)
-        assistant_message = ChatMessage(
-            session=session.id,
-            sender=ObjectId(llm_context.metadata.trace_metadata.agent_id),
-            role="assistant",
-            content=response.content,
-            tool_calls=response.tool_calls,
-        )
+        if stream:
+            # For streaming, we need to collect the content as it comes in
+            content = ""
+            tool_calls = None
+            stop_reason = None
+
+            async for chunk in async_prompt_stream(llm_context):
+                if hasattr(chunk, "choices") and chunk.choices:
+                    choice = chunk.choices[0]
+                    if choice.delta and choice.delta.content:
+                        content += choice.delta.content
+                        yield SessionUpdate(
+                            type=UpdateType.ASSISTANT_TOKEN, text=choice.delta.content
+                        )
+                    if choice.delta and choice.delta.tool_calls:
+                        # Handle tool calls in streaming
+                        tool_calls = [
+                            ToolCall(
+                                id=tc.id,
+                                tool=tc.function.name,
+                                args=json.loads(tc.function.arguments),
+                                status="pending",
+                            )
+                            for tc in choice.delta.tool_calls
+                        ]
+                    if choice.finish_reason:
+                        stop_reason = choice.finish_reason
+
+            # Create the final assistant message
+            assistant_message = ChatMessage(
+                session=session.id,
+                sender=ObjectId(llm_context.metadata.trace_metadata.agent_id),
+                role="assistant",
+                content=content,
+                tool_calls=tool_calls,
+            )
+        else:
+            # Non-streaming path
+            response = await async_prompt(llm_context)
+            assistant_message = ChatMessage(
+                session=session.id,
+                sender=ObjectId(llm_context.metadata.trace_metadata.agent_id),
+                role="assistant",
+                content=response.content,
+                tool_calls=response.tool_calls,
+            )
+            stop_reason = response.stop
+
         assistant_message.save()
         session.messages.append(assistant_message.id)
         session.save()
@@ -249,46 +296,62 @@ async def async_prompt_session(session: Session, llm_context: LLMContext):
             type=UpdateType.ASSISTANT_MESSAGE, message=assistant_message
         )
 
-        if response.tool_calls:
+        if assistant_message.tool_calls:
             async for update in process_tool_calls(session, llm_context):
                 yield update
 
-        if response.stop == "stop":
+        if stop_reason == "stop":
             prompt_session_finished = True
 
     yield SessionUpdate(type=UpdateType.END_PROMPT)
 
 
-async def _run_prompt_session_stream_internal(context: PromptSessionContext):
+def format_session_update(update: SessionUpdate, context: PromptSessionContext) -> dict:
+    """Convert SessionUpdate to the format expected by handlers"""
+    data = {
+        "type": update.type.value,
+        "update_config": context.update_config.model_dump()
+        if context.update_config
+        else None,
+    }
+
+    if update.type == UpdateType.START_PROMPT:
+        pass
+    elif update.type == UpdateType.ASSISTANT_TOKEN:
+        data["text"] = update.text
+    elif update.type == UpdateType.ASSISTANT_MESSAGE:
+        data["content"] = update.message.content
+        if update.message.tool_calls:
+            data["tool_calls"] = [
+                serialize_for_json(tc.model_dump()) for tc in update.message.tool_calls
+            ]
+    elif update.type == UpdateType.TOOL_COMPLETE:
+        data["tool"] = update.tool_name
+        data["result"] = serialize_for_json(update.result)
+    elif update.type == UpdateType.ERROR:
+        data["error"] = update.error if hasattr(update, "error") else None
+    elif update.type == UpdateType.END_PROMPT:
+        pass
+
+    return data
+
+
+async def _run_prompt_session_internal(
+    context: PromptSessionContext, stream: bool = False
+):
+    """Internal function that handles both streaming and non-streaming"""
     session = context.session
     validate_prompt_session(session, context)
     actor = await determine_actor(session, context)
     llm_context = await build_llm_context(session, actor, context)
-    async for update in async_prompt_session(session, llm_context):
-        data = {
-            "type": update.type.value,
-            "update_config": context.update_config.model_dump()
-            if context.update_config
-            else None,
-        }
-        if update.type == UpdateType.START_PROMPT:
-            pass
-        elif update.type == UpdateType.ASSISTANT_MESSAGE:
-            data["content"] = update.message.content
-        elif update.type == UpdateType.TOOL_COMPLETE:
-            data["tool"] = update.tool_name
-            data["result"] = serialize_for_json(update.result)
-        elif update.type == UpdateType.ERROR:
-            data["error"] = update.error if hasattr(update, "error") else None
-        elif update.type == UpdateType.END_PROMPT:
-            pass
 
-        yield data
+    async for update in async_prompt_session(session, llm_context, stream=stream):
+        yield format_session_update(update, context)
 
 
 async def run_prompt_session_stream(context: PromptSessionContext):
     try:
-        async for data in _run_prompt_session_stream_internal(context):
+        async for data in _run_prompt_session_internal(context, stream=True):
             yield data
     except Exception as e:
         yield {
@@ -302,27 +365,5 @@ async def run_prompt_session_stream(context: PromptSessionContext):
 
 @handle_errors
 async def run_prompt_session(context: PromptSessionContext):
-    session = context.session
-    validate_prompt_session(session, context)
-    actor = await determine_actor(session, context)
-    llm_context = await build_llm_context(session, actor, context)
-    async for update in async_prompt_session(session, llm_context):
-        data = {
-            "type": update.type.value,
-            "update_config": context.update_config.model_dump()
-            if context.update_config
-            else None,
-        }
-        if update.type == UpdateType.START_PROMPT:
-            pass
-        elif update.type == UpdateType.ASSISTANT_MESSAGE:
-            data["content"] = update.message.content
-        elif update.type == UpdateType.TOOL_COMPLETE:
-            data["tool"] = update.tool_name
-            data["result"] = serialize_for_json(update.result)
-        elif update.type == UpdateType.ERROR:
-            data["error"] = update.error if hasattr(update, "error") else None
-        elif update.type == UpdateType.END_PROMPT:
-            pass
-
+    async for data in _run_prompt_session_internal(context, stream=False):
         await emit_update(context.update_config, data)
