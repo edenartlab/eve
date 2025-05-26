@@ -783,9 +783,9 @@ downloads_vol = modal.Volume.from_name("comfy-downloads", create_if_missing=True
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .env({"COMFYUI_PATH": "/root", "COMFYUI_MODEL_PATH": "/root/models"})
-    .env({"TEST_ALL": os.getenv("TEST_ALL")})
-    .env({"SPECIFIC_TEST": os.getenv("SPECIFIC_TEST")})
-    .env({"WORKFLOWS": os.getenv("WORKFLOWS")})
+    .env({"TEST_ALL": str(os.getenv("TEST_ALL", ""))})
+    .env({"SPECIFIC_TEST": str(os.getenv("SPECIFIC_TEST", ""))})
+    .env({"WORKFLOWS": str(os.getenv("WORKFLOWS", ""))})
     .apt_install(
         "git",
         "git-lfs",
@@ -827,7 +827,7 @@ image = (
             modal.Secret.from_name(f"eve-secrets-{db}"),
         ],
     )
-    .env({"SKIP_TESTS": skip_tests})
+    .env({"SKIP_TESTS": str(skip_tests or "")})
 )
 
 gpu = "A100"
