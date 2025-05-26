@@ -94,7 +94,7 @@ class Tool(Document, ABC):
         """Lazy load tool classes only when needed"""
 
         local_debug = False
-        
+
         handler = schema.get("handler")
         parent_tool = schema.get("parent_tool")
 
@@ -116,9 +116,11 @@ class Tool(Document, ABC):
             elif handler == "modal":
                 if local_debug:
                     from .tools.local_tool import LocalTool
+
                     _tool_classes[handler] = LocalTool
                 else:
                     from .tools.modal_tool import ModalTool
+
                     _tool_classes[handler] = ModalTool
 
             elif handler == "comfyui":
@@ -144,11 +146,12 @@ class Tool(Document, ABC):
             else:
                 if local_debug:
                     from .tools.local_tool import LocalTool
+
                     _tool_classes[handler] = LocalTool
                 else:
                     from .tools.modal_tool import ModalTool
-                    _tool_classes[handler] = ModalTool
 
+                    _tool_classes[handler] = ModalTool
 
         return _tool_classes[handler]
 
@@ -164,6 +167,10 @@ class Tool(Document, ABC):
         parent_tool = schema.get("parent_tool")
         if parent_tool:
             parent_schema = cls._get_schema(parent_tool, from_yaml=from_yaml)
+            if not parent_schema:
+                print("***debug parent_schema", parent_tool)
+                print("***debug schema", schema)
+                print("***debug file_path", file_path)
             parent_schema["parameter_presets"] = schema.pop("parameters", {})
             if not from_yaml:
                 parent_parameters = {
