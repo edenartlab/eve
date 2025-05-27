@@ -9,7 +9,6 @@ from fastapi import BackgroundTasks, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 import aiohttp
 
-from langfuse.decorators import observe, langfuse_context
 from eve.agent.session.models import PromptSessionContext, Session
 from eve.agent.session.session import run_prompt_session, run_prompt_session_stream
 from eve.agent.tasks import async_title_thread
@@ -109,7 +108,6 @@ async def handle_replicate_webhook(body: dict):
     return {"status": "success"}
 
 
-@observe()
 async def run_chat_request(
     user: User,
     agent: Agent,
@@ -124,16 +122,6 @@ async def run_chat_request(
     metadata: Optional[Dict] = None,
 ):
     request_id = str(uuid.uuid4())
-
-    metadata = {
-        "user_id": str(user.id),
-        "agent_id": str(agent.id),
-        "thread_id": str(thread.id),
-        "request_id": request_id,
-    }
-
-    langfuse_context.update_current_trace(user_id=str(user.id))
-    langfuse_context.update_current_observation(metadata=metadata)
 
     is_client_platform = True if update_config else False
     request_processed = (
