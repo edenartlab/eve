@@ -297,7 +297,6 @@ async def async_prompt_session(
             stop_reason = None
 
             async for chunk in async_prompt_stream(llm_context):
-                print(f"***debug chunk: {chunk}")
                 if hasattr(chunk, "choices") and chunk.choices:
                     choice = chunk.choices[0]
                     # Only yield content tokens, not tool call chunks
