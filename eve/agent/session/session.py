@@ -175,11 +175,6 @@ async def process_tool_call(
             or llm_context.metadata.trace_metadata.agent_id,
             agent_id=llm_context.metadata.trace_metadata.agent_id,
         )
-        print(f"***debug result: {result}")
-        print(
-            f"***debug result keys: {list(result.keys()) if isinstance(result, dict) else 'not a dict'}"
-        )
-        print(f"***debug result structure: {type(result)}")
 
         # Create tool result message for LLM context
         tool_result_message = ChatMessage(
@@ -302,15 +297,17 @@ async def async_prompt_session(
             stop_reason = None
 
             async for chunk in async_prompt_stream(llm_context):
+                print(f"***debug chunk: {chunk}")
                 if hasattr(chunk, "choices") and chunk.choices:
                     choice = chunk.choices[0]
+                    # Only yield content tokens, not tool call chunks
                     if choice.delta and choice.delta.content:
                         content += choice.delta.content
                         yield SessionUpdate(
                             type=UpdateType.ASSISTANT_TOKEN, text=choice.delta.content
                         )
+                    # Process tool calls silently (don't yield anything)
                     if choice.delta and choice.delta.tool_calls:
-                        # Handle tool calls in streaming - accumulate arguments
                         for tc in choice.delta.tool_calls:
                             if tc.index not in tool_calls_dict:
                                 tool_calls_dict[tc.index] = {
@@ -338,9 +335,6 @@ async def async_prompt_session(
                             else {}
                         )
                     except json.JSONDecodeError:
-                        print(
-                            f"***debug failed to parse tool call arguments: {tc_data['arguments']}"
-                        )
                         args = {}
 
                     tool_calls.append(
