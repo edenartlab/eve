@@ -1,4 +1,5 @@
 import logging
+import os
 
 logging.getLogger("LiteLLM").setLevel(logging.WARNING)
 
@@ -10,7 +11,8 @@ from typing import Callable, List, AsyncGenerator, Optional
 from eve.agent.session.models import LLMContext, LLMConfig, LLMResponse, ToolCall
 
 
-litellm.success_callback = ["langfuse"]
+if os.getenv("LANGFUSE_TRACING_ENVIRONMENT"):
+    litellm.success_callback = ["langfuse"]
 
 supported_models = ["gpt-4o-mini", "gpt-4o"]
 
