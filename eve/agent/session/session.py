@@ -243,10 +243,11 @@ async def async_prompt_session(
         if stream:
             # For streaming, we need to collect the content as it comes in
             content = ""
-            tool_calls = None
+            tool_calls_dict = {}  # Track tool calls by index to accumulate arguments
             stop_reason = None
 
             async for chunk in async_prompt_stream(llm_context):
+                print("***debug chunk", chunk)
                 if hasattr(chunk, "choices") and chunk.choices:
                     choice = chunk.choices[0]
                     if choice.delta and choice.delta.content:
@@ -255,18 +256,47 @@ async def async_prompt_session(
                             type=UpdateType.ASSISTANT_TOKEN, text=choice.delta.content
                         )
                     if choice.delta and choice.delta.tool_calls:
-                        # Handle tool calls in streaming
-                        tool_calls = [
-                            ToolCall(
-                                id=tc.id,
-                                tool=tc.function.name,
-                                args=json.loads(tc.function.arguments),
-                                status="pending",
-                            )
-                            for tc in choice.delta.tool_calls
-                        ]
+                        # Handle tool calls in streaming - accumulate arguments
+                        for tc in choice.delta.tool_calls:
+                            if tc.index not in tool_calls_dict:
+                                tool_calls_dict[tc.index] = {
+                                    "id": tc.id,
+                                    "name": tc.function.name if tc.function else None,
+                                    "arguments": "",
+                                }
+                            if tc.function and tc.function.arguments:
+                                tool_calls_dict[tc.index]["arguments"] += (
+                                    tc.function.arguments
+                                )
                     if choice.finish_reason:
                         stop_reason = choice.finish_reason
+
+            # Convert accumulated tool calls to ToolCall objects
+            tool_calls = None
+            if tool_calls_dict:
+                tool_calls = []
+                for idx in sorted(tool_calls_dict.keys()):
+                    tc_data = tool_calls_dict[idx]
+                    try:
+                        args = (
+                            json.loads(tc_data["arguments"])
+                            if tc_data["arguments"]
+                            else {}
+                        )
+                    except json.JSONDecodeError:
+                        print(
+                            f"***debug failed to parse tool call arguments: {tc_data['arguments']}"
+                        )
+                        args = {}
+
+                    tool_calls.append(
+                        ToolCall(
+                            id=tc_data["id"],
+                            tool=tc_data["name"],
+                            args=args,
+                            status="pending",
+                        )
+                    )
 
             # Create the final assistant message
             assistant_message = ChatMessage(
@@ -354,6 +384,7 @@ async def run_prompt_session_stream(context: PromptSessionContext):
         async for data in _run_prompt_session_internal(context, stream=True):
             yield data
     except Exception as e:
+        traceback.print_exc()
         yield {
             "type": UpdateType.ERROR.value,
             "error": str(e),
