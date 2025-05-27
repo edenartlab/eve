@@ -339,9 +339,9 @@ class Tool(Document, ABC):
 
         # Add user and agent context to args
         if user is not None:
-            prepared_args["user"] = user
+            prepared_args["user"] = str(user)
         if agent is not None:
-            prepared_args["agent"] = agent
+            prepared_args["agent"] = str(agent)
 
         try:
             self.model(**prepared_args)
