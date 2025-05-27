@@ -154,6 +154,19 @@ async def process_tool_call(
     tool_call: ToolCall,
     tool_call_index: int,
 ):
+    # Update the tool call status to running
+    tool_call.status = "running"
+
+    # Find and update the original assistant message
+    assistant_message = llm_context.messages[
+        -1
+    ]  # Last message should be the assistant message
+    if assistant_message.tool_calls and tool_call_index < len(
+        assistant_message.tool_calls
+    ):
+        assistant_message.tool_calls[tool_call_index].status = "running"
+        assistant_message.save()
+
     try:
         result = await async_run_tool_call(
             llm_context,
@@ -163,6 +176,12 @@ async def process_tool_call(
             agent_id=llm_context.metadata.trace_metadata.agent_id,
         )
         print(f"***debug result: {result}")
+        print(
+            f"***debug result keys: {list(result.keys()) if isinstance(result, dict) else 'not a dict'}"
+        )
+        print(f"***debug result structure: {type(result)}")
+
+        # Create tool result message for LLM context
         tool_result_message = ChatMessage(
             session=ObjectId(llm_context.metadata.trace_metadata.session_id),
             sender=ObjectId(llm_context.metadata.trace_metadata.agent_id),
@@ -176,7 +195,21 @@ async def process_tool_call(
         session.save()
         llm_context.messages.append(tool_result_message)
 
+        # Update the original tool call with result
         if result["status"] == "completed":
+            tool_call.status = "completed"
+            # Extract the actual tool result based on the known structure
+            # result["result"] contains the list of result objects
+            tool_result = result.get("result", [])
+
+            tool_call.result = tool_result
+            if assistant_message.tool_calls and tool_call_index < len(
+                assistant_message.tool_calls
+            ):
+                assistant_message.tool_calls[tool_call_index].status = "completed"
+                assistant_message.tool_calls[tool_call_index].result = tool_result
+                assistant_message.save()
+
             return SessionUpdate(
                 type=UpdateType.TOOL_COMPLETE,
                 tool_name=tool_call.tool,
@@ -184,6 +217,17 @@ async def process_tool_call(
                 result=result,
             )
         else:
+            tool_call.status = "failed"
+            tool_call.error = result.get("error")
+            if assistant_message.tool_calls and tool_call_index < len(
+                assistant_message.tool_calls
+            ):
+                assistant_message.tool_calls[tool_call_index].status = "failed"
+                assistant_message.tool_calls[tool_call_index].error = result.get(
+                    "error"
+                )
+                assistant_message.save()
+
             return SessionUpdate(
                 type=UpdateType.ERROR,
                 tool_name=tool_call.tool,
@@ -194,6 +238,7 @@ async def process_tool_call(
         capture_exception(e)
         traceback.print_exc()
 
+        # Create tool result message for LLM context
         tool_result_message = ChatMessage(
             session=ObjectId(llm_context.metadata.trace_metadata.session_id),
             sender=ObjectId(llm_context.metadata.trace_metadata.agent_id),
@@ -206,6 +251,16 @@ async def process_tool_call(
         session.messages.append(tool_result_message.id)
         session.save()
         llm_context.messages.append(tool_result_message)
+
+        # Update the original tool call with error
+        tool_call.status = "failed"
+        tool_call.error = str(e)
+        if assistant_message.tool_calls and tool_call_index < len(
+            assistant_message.tool_calls
+        ):
+            assistant_message.tool_calls[tool_call_index].status = "failed"
+            assistant_message.tool_calls[tool_call_index].error = str(e)
+            assistant_message.save()
 
         return SessionUpdate(
             type=UpdateType.ERROR,
@@ -247,7 +302,6 @@ async def async_prompt_session(
             stop_reason = None
 
             async for chunk in async_prompt_stream(llm_context):
-                print("***debug chunk", chunk)
                 if hasattr(chunk, "choices") and chunk.choices:
                     choice = chunk.choices[0]
                     if choice.delta and choice.delta.content:
