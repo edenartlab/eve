@@ -129,7 +129,7 @@ class LLMContextMetadata(BaseModel):
 
 @dataclass
 class LLMConfig:
-    model: Optional[str] = "gpt-4o"
+    model: Optional[str] = "gpt-4o-mini"
 
 
 @dataclass
