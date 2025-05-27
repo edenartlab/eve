@@ -5,7 +5,6 @@ from .. import X
 
 
 async def handler(args: dict, user: str = None, agent: str = None):
-    print("***debug args: ", args)
     agent_id = args.get("agent") or agent
     agent_obj = Agent.from_mongo(agent_id)
     deployment = Deployment.load(agent=agent_obj.id, platform="twitter")
