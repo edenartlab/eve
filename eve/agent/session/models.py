@@ -22,6 +22,7 @@ def serialize_for_json(obj):
 
 class UpdateType(Enum):
     START_PROMPT = "start_prompt"
+    ASSISTANT_TOKEN = "assistant_token"
     ASSISTANT_MESSAGE = "assistant_message"
     TOOL_COMPLETE = "tool_complete"
     ERROR = "error"
@@ -59,7 +60,7 @@ class ChatMessage(Document):
     channel: Optional[Channel] = None
     reply_to: Optional[ObjectId] = None
     sender_name: Optional[str] = None
-    reactions: Optional[Dict[str, List[ObjectId]]] = {}
+    reactions: Optional[Dict[str, List[str]]] = field(default_factory=dict)
     attachments: Optional[List[str]] = []
     tool_calls: Optional[List[ToolCall]] = []
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -96,15 +97,16 @@ class ChatMessageRequestInput:
     sender_name: Optional[str] = None
 
 
-@dataclass
-class SessionUpdate:
+class SessionUpdate(BaseModel):
     type: UpdateType
     message: Optional[ChatMessage] = None
+    text: Optional[str] = None
     tool_name: Optional[str] = None
     tool_index: Optional[int] = None
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
-    text: Optional[str] = None
+    update_config: Optional[Dict[str, Any]] = None
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class LLMTraceMetadata(BaseModel):
@@ -127,7 +129,7 @@ class LLMContextMetadata(BaseModel):
 
 @dataclass
 class LLMConfig:
-    model: Optional[str] = "gpt-4o-mini"
+    model: Optional[str] = "gpt-4o"
 
 
 @dataclass
@@ -143,12 +145,13 @@ class LLMContext:
 class Session(Document):
     owner: ObjectId
     channel: Optional[Channel] = None
-    title: str
     agents: List[ObjectId] = Field(default_factory=list)
+    status: Literal["active", "archived"] = "active"
+    messages: List[ObjectId] = Field(default_factory=list)
+    title: Optional[str] = None
     scenario: Optional[str] = None
     budget: Optional[float] = None
     spent: Optional[float] = 0
-    status: Optional[Literal["active", "archived"]] = "active"
 
 
 @dataclass
