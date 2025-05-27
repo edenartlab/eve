@@ -24,7 +24,14 @@ from bson import ObjectId
 from datetime import datetime
 from pprint import pformat
 from typing import Union, Tuple, Set, List, Optional, Dict
-from moviepy import VideoFileClip, ImageClip, AudioClip
+
+try:
+    # MoviePy 2.x
+    from moviepy import *
+except ImportError:
+    # MoviePy 1.x
+    from moviepy.editor import *
+
 from tqdm import tqdm
 from PIL import Image, ImageFont, ImageDraw
 from io import BytesIO

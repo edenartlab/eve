@@ -283,7 +283,6 @@ class Agent(User):
 
             tools = agent_tools_cache[self.username]
         else:
-            # Import Tool class when needed to avoid circular imports
             from ..tool import Tool
 
             for k, v in self.tools.items():
