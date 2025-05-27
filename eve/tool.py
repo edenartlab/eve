@@ -318,7 +318,7 @@ class Tool(Document, ABC):
         ), f"Cost estimate ({cost_estimate}) not a number (formula: {cost_formula})"
         return cost_estimate
 
-    def prepare_args(self, args: dict):
+    def prepare_args(self, args: dict, user: str = None, agent: str = None):
         unrecognized_args = set(args.keys()) - set(self.model.model_fields.keys())
         if unrecognized_args:
             # raise ValueError(
@@ -336,6 +336,12 @@ class Tool(Document, ABC):
                 prepared_args[field] = random.randint(minimum, maximum)
             elif parameter.get("default") is not None:
                 prepared_args[field] = parameter["default"]
+
+        # Add user and agent context to args
+        if user is not None:
+            prepared_args["user"] = user
+        if agent is not None:
+            prepared_args["agent"] = agent
 
         try:
             self.model(**prepared_args)
@@ -390,10 +396,10 @@ class Tool(Document, ABC):
             is_client_platform: bool = False,
         ):
             try:
-                args = self.prepare_args(args)
+                user = User.from_mongo(user_id)
+                args = self.prepare_args(args, user=str(user_id), agent=agent_id)
                 sentry_sdk.add_breadcrumb(category="handle_start_task", data=args)
                 cost = self.calculate_cost(args)
-                user = User.from_mongo(user_id)
 
                 if agent_id:
                     agent = Agent.from_mongo(agent_id)
