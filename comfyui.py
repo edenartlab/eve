@@ -780,6 +780,8 @@ root_dir = Path(__file__).parent
 
 downloads_vol = modal.Volume.from_name("comfy-downloads", create_if_missing=True)
 
+
+# you can add "force_build=True" to any of these functions to force a full rebuild of the image
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .env({"COMFYUI_PATH": "/root", "COMFYUI_MODEL_PATH": "/root/models"})
@@ -811,6 +813,7 @@ image = (
     .run_function(download_files, volumes={"/data": downloads_vol}, secrets=[
             modal.Secret.from_name("eve-secrets"),
             modal.Secret.from_name(f"eve-secrets-{db}"),
+            
         ])
     # Second copy of workflow files after downloads
     .add_local_dir(
