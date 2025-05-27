@@ -120,9 +120,7 @@ class LLMTraceMetadata(BaseModel):
 class LLMContextMetadata(BaseModel):
     session_id: Optional[str] = None
     trace_name: Optional[str] = None
-    trace_id: Optional[str] = None
     generation_name: Optional[str] = None
-    generation_id: Optional[str] = None
     trace_metadata: Optional[LLMTraceMetadata] = None
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -138,7 +136,6 @@ class LLMContext:
     config: LLMConfig = field(default_factory=LLMConfig)
     tools: Optional[List[Tool]] = None
     metadata: LLMContextMetadata = None
-    trace_metadata: LLMTraceMetadata = None
 
 
 @Collection("sessions")

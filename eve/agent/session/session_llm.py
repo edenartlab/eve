@@ -25,12 +25,14 @@ def validate_input(context: LLMContext) -> None:
 def construct_observability_metadata(context: LLMContext):
     if not context.metadata:
         return {}
-    return {
+    metadata = {
         "session_id": context.metadata.session_id,
         "trace_name": context.metadata.trace_name,
         "generation_name": context.metadata.generation_name,
-        "trace_metadata": context.metadata.trace_metadata.model_dump(),
     }
+    if context.metadata.trace_metadata:
+        metadata["trace_metadata"] = context.metadata.trace_metadata.model_dump()
+    return metadata
 
 
 def construct_messages(context: LLMContext) -> List[dict]:
