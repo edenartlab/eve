@@ -166,6 +166,7 @@ class Tool(Document, ABC):
         key = schema.get("key") or schema.get("parent_tool") or file_path.split("/")[-2]
         parent_tool = schema.get("parent_tool")
         if parent_tool:
+            key = file_path.split("/")[-2]
             parent_schema = cls._get_schema(parent_tool, from_yaml=from_yaml)
             parent_schema["parameter_presets"] = schema.pop("parameters", {})
             if not from_yaml:
