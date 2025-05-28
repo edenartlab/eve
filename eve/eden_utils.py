@@ -27,17 +27,16 @@ from typing import Union, Tuple, Set, List, Optional, Dict
 
 try:
     # MoviePy 2.x
-    from moviepy import *
+    from moviepy import VideoFileClip, ImageClip, AudioClip
 except ImportError:
     # MoviePy 1.x
-    from moviepy.editor import *
+    from moviepy.editor import VideoFileClip, ImageClip, AudioClip
 
 from tqdm import tqdm
 from PIL import Image, ImageFont, ImageDraw
 from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from . import s3
-
 
 class CommandValidator:
     """Simple validator to ensure basic command security"""
