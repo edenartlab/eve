@@ -30,7 +30,6 @@ parameters:
     type: string
     required: false
     default: medium
-    hide_from_ui: true
     hide_from_agent: true
     choices:
       - high
@@ -41,7 +40,7 @@ parameters:
   size:
     label: size
     type: string
-    required: false
+    required: true
     default: auto
     choices:
       - 1024x1024
