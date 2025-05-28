@@ -135,9 +135,27 @@ def test_construct_observability_metadata():
 
 @pytest.mark.live
 @pytest.mark.asyncio
-async def test_async_prompt():
+@pytest.mark.parametrize(
+    "model,provider_mark",
+    [
+        pytest.param("gpt-4o-mini", None, id="openai"),
+        pytest.param(
+            "claude-3-5-haiku-latest",
+            "provider_anthropic",
+            marks=pytest.mark.provider_anthropic,
+            id="anthropic",
+        ),
+        pytest.param(
+            "gemini/gemini-2.5-flash-preview-04-17",
+            "provider_gemini",
+            marks=pytest.mark.provider_gemini,
+            id="gemini",
+        ),
+    ],
+)
+async def test_async_prompt(model, provider_mark, request):
     metadata = LLMContextMetadata(
-        trace_name="test_async_prompt",
+        trace_name=f"test_async_prompt_{model.replace('-', '_')}",
         trace_metadata=LLMTraceMetadata(
             session_id=str(MOCK_SESSION_ID),
             initiating_user_id=str(MOCK_USER_ID),
@@ -146,6 +164,7 @@ async def test_async_prompt():
     context = LLMContext(
         messages=MOCK_MESSAGES,
         metadata=metadata,
+        config=LLMConfig(model=model),
     )
     result = await async_prompt(context)
     assert isinstance(result, LLMResponse)
@@ -176,13 +195,3 @@ async def test_async_prompt_stream():
     assert response is not None
     assert response.choices[0].message.content is not None
     assert isinstance(response, ModelResponse)
-
-
-# @pytest.mark.live
-# @pytest.mark.asyncio
-# async def test_async_prompt_with_tools_real():
-#     context = LLMContext(messages=MOCK_MESSAGES, tools=MOCK_TOOLS)
-#     config = LLMConfig()
-#     result = await async_prompt(context, config)
-#     assert isinstance(result, str)
-#     assert len(result) > 0

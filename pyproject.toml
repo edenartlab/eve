@@ -77,3 +77,12 @@ eve = "eve.cli:cli"
 
 [tool.rye.scripts]
 post-install = "playwright install"
+
+[tool.pytest.ini_options]
+markers = [
+    "live: marks tests that require live API calls",
+    "provider_anthropic: marks tests specific to Anthropic provider",
+    "provider_gemini: marks tests specific to Gemini provider",
+    "integration: marks tests that require integration setup",
+    "asyncio: marks async tests (handled by pytest-asyncio plugin)"
+]
