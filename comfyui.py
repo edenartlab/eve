@@ -801,6 +801,12 @@ image = (
     .pip_install("diffusers==0.31.0", "psutil", "flet==0.27.6")
     .env({"WORKSPACE": workspace_name})
     .add_local_python_source("eve", copy=True)
+    # Copy memory snapshot helper for GPU initialization after restore
+    .add_local_dir(
+        local_path=Path(__file__).parent / "memory_snapshot_helper",
+        remote_path="/root/custom_nodes/memory_snapshot_helper",
+        copy=True,
+    )
     # First copy of workflow files
     .add_local_dir(
         f"{root_workflows_folder}/workspaces/{workspace_name}",
@@ -847,6 +853,31 @@ app = modal.App(
 class ComfyUI:
     def __init__(self):
         self.server_address = "127.0.0.1:8188"
+
+    @modal.enter(snap=True)
+    def launch_comfy_background(self):
+        """Initialize ComfyUI server in background before memory snapshot"""
+        port = 8188
+        self.server_address = f"127.0.0.1:{port}"
+        cmd = f"python /root/main.py --dont-print-server --listen --port {port}"
+        subprocess.Popen(cmd, shell=True)
+        # Wait for server to be ready
+        while not self._is_server_running():
+            time.sleep(1.0)
+        print("ComfyUI server launched for snapshotting")
+
+    @modal.enter(snap=False)
+    def restore_snapshot(self):
+        """Initialize GPU for ComfyUI after snapshot restore"""
+        # note: requires patching core ComfyUI, see the memory_snapshot_helper directory for more details
+        import requests
+        
+        port = 8188
+        response = requests.post(f"http://127.0.0.1:{port}/cuda/set_device")
+        if response.status_code != 200:
+            print("Failed to set CUDA device")
+        else:
+            print("Successfully set CUDA device")
 
     def _start(self, port=8188):
         print("DEBUG: Starting ComfyUI server...")
@@ -1029,11 +1060,6 @@ class ComfyUI:
         )
         return json.loads(urllib.request.urlopen(req).read())
 
-    def _get_history(self, prompt_id):
-        with urllib.request.urlopen(
-            "http://{}/history/{}".format(self.server_address, prompt_id)
-        ) as response:
-            return json.loads(response.read())
 
     def _interrupt(self):
         try:
@@ -1751,10 +1777,10 @@ class ComfyUI:
     scaledown_window=60,
     min_containers=0,
     timeout=3600,
+    enable_memory_snapshot=True,
 )
 class ComfyUIPremium(ComfyUI):
-    def __init__(self):
-        super().__init__()
+    pass
 
 
 @app.cls(
@@ -1766,10 +1792,10 @@ class ComfyUIPremium(ComfyUI):
     scaledown_window=60,
     min_containers=0,
     timeout=3600,
+    enable_memory_snapshot=True,
 )
 class ComfyUIBasic(ComfyUI):
-    def __init__(self):
-        super().__init__()
+    pass
 
 
 @app.cls(
@@ -1781,10 +1807,10 @@ class ComfyUIBasic(ComfyUI):
     scaledown_window=60,
     min_containers=0,
     timeout=3600,
+    enable_memory_snapshot=True,
 )
 class ComfyUITempleAbyss(ComfyUI):
-    def __init__(self):
-        super().__init__()
+    pass
 
 
 @app.local_entrypoint()
