@@ -78,6 +78,7 @@ from anthropic import Anthropic
 from typing import List, Optional, Literal
 import requests
 import instructor
+import uuid
 
 from ... import s3
 from ... import eden_utils
@@ -237,6 +238,7 @@ def write_visual_prompts(
 
 
 async def handler(args: dict, user: str = None, agent: str = None):
+
     elevenlabs = Tool.load("elevenlabs")
     musicgen = Tool.load("musicgen")
     flux = Tool.load("flux_dev")
@@ -258,6 +260,10 @@ async def handler(args: dict, user: str = None, agent: str = None):
         lora_strength = args.get("lora_strength")
         instructions = f'In the visual prompts, *all* mentions of {lora_name} should be replaced with "{lora_trigger_text}". So for example, instead of "A photo of {lora_name} on the beach", always write "A photo of {lora_trigger_text} on the beach".'
         
+
+    print("args", args)
+    print(lora_doc)
+
     reel = write_reel(args)
     # print(reel2)
 
@@ -376,14 +382,40 @@ async def handler(args: dict, user: str = None, agent: str = None):
     visual_prompts = write_visual_prompts(reel, num_clips, instructions)
     pprint(visual_prompts)
 
+
+
+    print("arg33s", args)
+
+    
+
     async def generate_clip_with_retry(args, prompt, duration, ratio):
         async def _generate():
             from datetime import datetime
+            from eve.agent.session.models import LLMContextMetadata, LLMTraceMetadata
+            
+            # Create trace metadata for this clip generation
+            trace_metadata = LLMTraceMetadata(
+                user_id=None,  # We don't have user context here
+                agent_id=None,  # We don't have agent context here
+                session_id=str(uuid.uuid4()),  # Generate unique session ID for this clip
+            )
+            
+            # Create LLM context metadata
+            metadata = LLMContextMetadata(
+                session_id=str(uuid.uuid4()),
+                trace_name="clip_generation",
+                trace_id=f"clip_generation_{trace_metadata.session_id}",
+                generation_name="clip_generation",
+                generation_id=f"clip_generation_{trace_metadata.session_id}",
+                trace_metadata=trace_metadata
+            )
+            
             t1 = datetime.now()
             # Generate image
             print(f"---> Generating image for clip with prompt: {prompt}")
+            print("THE ARGS ARE", args)
+            
             if video_model == "high" and not use_lora:
-                # raise Exception("You can just use no video!!!")
                 image_url = None
             else:
                 image = await flux.async_run(args)
@@ -409,17 +441,32 @@ async def handler(args: dict, user: str = None, agent: str = None):
                 })
             elif video_model == "high":
                 print("THE RATIO IS", ratio)
-                video = await veo2.async_run({
-                    # "image": image_url,
-                    "prompt": prompt,
-                    "duration": duration,
-                    "aspect_ratio": ratio
-                })
+                if image_url:
+                    video = await veo2.async_run({
+                        "image": image_url,
+                        "prompt": prompt,
+                        "duration": duration,
+                        "aspect_ratio": ratio
+                    })
+                else:
+                    video = await veo2.async_run({
+                        # "image": image_url,
+                        "prompt": prompt,
+                        "duration": duration,
+                        "aspect_ratio": ratio
+                    })
             
             video = eden_utils.prepare_result(video)
             t2 = datetime.now()
             duration_seconds = (t2 - t1).total_seconds()
-            print(f"*** Completed video generation for model: {video_model} in {duration_seconds:.1f} seconds (Started: {t1.strftime('%H:%M:%S')}, Ended: {t2.strftime('%H:%M:%S')})")
+            
+            # Log with proper session context
+            print(f"*** Completed clip generation in {duration_seconds:.1f} seconds")
+            print(f"    Trace ID: {metadata.trace_id}")
+            print(f"    Started: {t1.strftime('%H:%M:%S')}")
+            print(f"    Ended: {t2.strftime('%H:%M:%S')}")
+            print(f"    Model: {video_model}")
+            
             return video['output'][0]['url']
         
         return await eden_utils.async_exponential_backoff(
