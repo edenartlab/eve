@@ -1,7 +1,7 @@
 name: openai_image_generate
 description: Generate images using OpenAI's gpt-image-1 model.
 output_type: image
-cost_estimate: 4
+cost_estimate: 'quality == "high" ? 16 : 8'
 handler: modal
 thumbnail: app/openai_generate.jpg
 visible: true

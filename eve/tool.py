@@ -312,7 +312,10 @@ class Tool(Document, ABC):
         )  # Array length
         cost_formula = re.sub(
             r"(\w+)\s*\?\s*([^:]+)\s*:\s*([^,\s]+)", r"\2 if \1 else \3", cost_formula
-        )  # Ternary operator
+        )  # Ternary operator for booleans
+        cost_formula = re.sub(
+            r"([^?]+)\s*\?\s*([^:]+)\s*:\s*([^,\s]+)", r"\2 if \1 else \3", cost_formula
+        )  # Ternary operator for a single equality
         cost_estimate = eval(cost_formula, args.copy())
         assert isinstance(
             cost_estimate, (int, float)
