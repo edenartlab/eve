@@ -193,12 +193,13 @@ class Agent(User):
         models = schema.get("models") or (
             [{
                 "lora": schema.get("model"), 
-                "use_when": "This is your default model.",
-                "doc": Model.from_mongo(schema.get("model"))
+                "use_when": "This is your default model."
             }]
             if schema.get("model")
             else []
         )
+        for m in models:
+            m["doc"] = Model.from_mongo(m["lora"])
 
         flux_models = [m for m in models if m["doc"].base_model == "flux-dev"]
         sdxl_models = [m for m in models if m["doc"].base_model == "sdxl"]
