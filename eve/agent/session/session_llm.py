@@ -14,7 +14,13 @@ from eve.agent.session.models import LLMContext, LLMConfig, LLMResponse, ToolCal
 if os.getenv("LANGFUSE_TRACING_ENVIRONMENT"):
     litellm.success_callback = ["langfuse"]
 
-supported_models = ["gpt-4o-mini", "gpt-4o"]
+supported_models = [
+    "gpt-4o-mini",
+    "gpt-4o",
+    "claude-3-5-haiku-latest",
+    "gemini-2.0-flash",
+    "gemini/gemini-2.5-flash-preview-04-17",
+]
 
 
 def validate_input(context: LLMContext) -> None:
