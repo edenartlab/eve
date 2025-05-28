@@ -179,7 +179,7 @@ def write_reel(args: dict):
     client = instructor.from_anthropic(Anthropic())
     reel = client.messages.create(
         model="claude-opus-4-20250514",
-        max_tokens=10000,
+        max_tokens=3000,
         max_retries=1,
         system=system_prompt,
         messages=[
@@ -222,15 +222,30 @@ def write_visual_prompts(
         """A sequence of visual prompts which retell the story of the Reel"""
         prompts: List[str] = Field(..., description="A sequence of visual prompts, containing a content description, and a set of self-similar stylistic modifiers and aesthetic elements, mirroring the style of the original visual prompt.")
 
-    client = instructor.from_openai(OpenAI())
-    result = client.chat.completions.create(
-        model="gpt-4o-2024-08-06",
-        response_model=VisualPrompts,
+    # client = instructor.from_openai(OpenAI())
+    # result = client.chat.completions.create(
+    #     model="gpt-4o-2024-08-06",
+    #     response_model=VisualPrompts,
+    #     messages=[
+    #         {"role": "system", "content": system_prompt},
+    #         {"role": "user", "content": prompt}
+    #     ],
+    # )
+    client = instructor.from_anthropic(Anthropic())
+    result = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=3000,
+        max_retries=1,
+        system=system_prompt,
         messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt}
+            {
+                "role": "user",
+                "content": prompt
+            }
         ],
+        response_model=VisualPrompts,
     )
+    
     print("result^^^", result)
     return result.prompts
     
