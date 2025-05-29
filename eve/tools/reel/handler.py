@@ -31,6 +31,7 @@ from ...tool import Tool
 from ...mongo import get_collection
 
 
+NUM_PARALLEL_GENERATIONS = 2
 
 
 # class Reel(BaseModel):
@@ -426,7 +427,11 @@ async def handler(args: dict, user: str = None, agent: str = None):
             print(f"    Ended: {t2.strftime('%H:%M:%S')}")
             print(f"    Model: {video_model}")
             
-            return video['output'][0]['url']
+            try:
+                return video['output'][0]['url']
+            except Exception as e:
+                print("Error preparing video", e)
+                raise Exception(f"Failed to generate video: {str(e)}")
         
         return await eden_utils.async_exponential_backoff(
             _generate,
@@ -436,7 +441,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
         )
 
     # Create a semaphore to limit concurrent tasks
-    sem = asyncio.Semaphore(4)
+    sem = asyncio.Semaphore(NUM_PARALLEL_GENERATIONS)
     
     async def bounded_generate_clip(args, prompt, duration, ratio):
         async with sem:
