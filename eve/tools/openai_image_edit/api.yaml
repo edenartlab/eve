@@ -46,7 +46,6 @@ parameters:
     type: string
     required: false
     default: medium
-    hide_from_agent: true
     choices:
       - high
       - medium
