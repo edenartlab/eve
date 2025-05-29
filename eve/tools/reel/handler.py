@@ -274,10 +274,10 @@ async def handler(args: dict, user: str = None, agent: str = None):
         lora_trigger_text = lora_doc.get("lora_trigger_text")
         lora_strength = args.get("lora_strength")
         instructions = f'In the visual prompts, *all* mentions of {lora_name} should be replaced with "{lora_trigger_text}". So for example, instead of "A photo of {lora_name} on the beach", always write "A photo of {lora_trigger_text} on the beach".'
+        print(lora_doc)
         
 
     print("args", args)
-    print(lora_doc)
 
     reel = write_reel(args)
     # print(reel2)
