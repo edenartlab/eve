@@ -69,7 +69,7 @@ BASE_TOOLS = [
     "add_to_collection",
     # misc
     "news",
-    "websearch",
+    # "websearch",
     "weather",
     # inactive
     # "ominicontrol",
