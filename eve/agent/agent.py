@@ -294,17 +294,25 @@ class Agent(User):
             # insert new tools into cache
             for k, v in self.tools.items():
                 if k not in agent_tools_cache[self.username]:
-                    tool = Tool.from_raw_yaml({"parent_tool": k, **v})
-                    agent_tools_cache[self.username][k] = tool
+                    try:
+                        tool = Tool.from_raw_yaml({"parent_tool": k, **v})
+                        agent_tools_cache[self.username][k] = tool
+                    except Exception as e:
+                        print(f"Error loading tool {k}: {e}")
+                        print(traceback.format_exc())
+                        continue
 
             tools = agent_tools_cache[self.username]
         else:
             from ..tool import Tool
 
-            tools = {
-                k: Tool.from_raw_yaml({"parent_tool": k, **v})
-                for k, v in self.tools.items()
-            }
+            for k, v in self.tools.items():
+                try:
+                    tool = Tool.from_raw_yaml({"parent_tool": k, **v})
+                except Exception as e:
+                    print(f"Error loading tool {k}: {e}")
+                    print(traceback.format_exc())
+                    continue
 
         # remove tools that only the owner can use
         if str(auth_user) != str(self.owner):
