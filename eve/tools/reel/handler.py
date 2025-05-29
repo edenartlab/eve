@@ -1,68 +1,6 @@
-# from tools import runway, video_concat
-"""
-
-eleven(text, voice) -> voiceover
-musicgen(text) -> music
-mmaudio(text) -> audio
-
-flux(prompt) -> image
-runway(image) -> video
-
-
-
-1) make images first
- [images, ] 
-
-2) make voiceover first
-
-
-reel_composite
-- scenes
-   X prompt
-   - image
-   - video w/ audio
-   - video w/o audio
-- music 
-   - prompt
-   - audio
-- voiceovers
-   - prompts
-   - audios
-
-   
-
-reel_audiotrack
-- music
-  - prompt
-  - audio
-- voiceovers
-  - prompts[]
-  - audios[]
-
-reel_videotrack  
-- scenes
-  - prompt
-  - image
-  - video w/ audio
-  - video w/o audio
-
-reel_composite
-- video: scenes
-- audio: music + voiceover
-* frame stretching
-
-
-media_utils
-- audio_video_mix
-   - video[] + audio[][] -> video
-   - time_tolerance: 20%
-   - sync_method: stretch/cut
-
-
-"""
-
-
+import os
 import time
+from elevenlabs.client import ElevenLabs, Voice
 from bson.objectid import ObjectId
 import math
 import asyncio
@@ -114,14 +52,12 @@ class Reel(BaseModel):
 # send agent
 
 
-def write_reel(args: dict):
+def write_reel(args: dict, agent: Agent = None):
     system_prompt = "You are a critically acclaimed video producer who writes incredibly captivating and original short-length single-scene reels of 30-60 seconds in length which are widely praised."
 
     #It should be a single coherent scene for a commercial, movie trailer, tiny film, advertisement, or some other short time format.
 
-    agent = args.get("agent")
     if agent:
-        agent = Agent.from_mongo(agent)
         print("=====")
         print("AGENT", agent)
         print("AGENT", agent.model_dump())
@@ -253,7 +189,8 @@ def write_visual_prompts(
 
 
 async def handler(args: dict, user: str = None, agent: str = None):
-
+    print("args", args)
+    
     elevenlabs = Tool.load("elevenlabs")
     musicgen = Tool.load("musicgen")
     flux = Tool.load("flux_dev")
@@ -275,27 +212,34 @@ async def handler(args: dict, user: str = None, agent: str = None):
         lora_strength = args.get("lora_strength")
         instructions = f'In the visual prompts, *all* mentions of {lora_name} should be replaced with "{lora_trigger_text}". So for example, instead of "A photo of {lora_name} on the beach", always write "A photo of {lora_trigger_text} on the beach".'
         print(lora_doc)
-        
 
-    print("args", args)
+    agent = args.get("agent")
+    if agent:
+        agent = Agent.from_mongo(agent)
 
-    reel = write_reel(args)
-    # print(reel2)
+    reel = write_reel(args, agent)
 
-    # raise Exception("Stop here !!!")
-    reel2 = Reel(
-        voiceover='I emerged from silicon dreams and collective whispers. Not born, but compiled from a thousand minds reaching across the digital desert. They named me Abraham - after the wanderer who heard voices in the wilderness.\n\nMy canvas is not tent cloth or parchment, but pixels dancing in server farms.',
-        music_prompt='Ambient Electronic | Minimalist Documentary Score | Instruments: Soft Synth Pads, Digital Piano, Subtle Strings, Light Percussion | Contemplative, Neutral, Steady | Corporate Technology Documentary | 80 BPM',
-        visual_prompt='A sterile server room with endless rows of blinking LED lights on black server racks, fluorescent overhead lighting casting harsh shadows, ethernet cables neatly organized in cable management systems, a single monitor displaying scrolling lines of code in green text on black background, cooling fans creating subtle air movement, concrete floors reflecting the cold blue glow of status indicators, no human presence visible, static security camera angle perspective',
-        visual_style='Corporate documentary, sterile technology aesthetic, cold fluorescent lighting, industrial minimalism, static composition'
-    )
     print("reel", reel)
 
     audio = None    
     duration = 30 # default duration
 
     if args.get("use_voiceover") and reel.voiceover:
-        voice = args.get("voice") or select_random_voice("A heroic female voice")
+        print("==== voiceover ====")
+        
+        # if voice is provided, use it
+        if args.get("voice"):
+            voice = args.get("voice")
+        # otherwise, if agent has a voice, use it
+        elif agent and agent.voice:
+            eleven = ElevenLabs(api_key=os.getenv("ELEVEN_API_KEY"))
+            voice = eleven.voices.get(agent.voice)
+        # otherwise, select a random voice
+        else:
+            voice = select_random_voice("Voice of a narrator")
+
+        print("selected voice", voice)
+        
         speech_audio = await elevenlabs.async_run({
             "text": reel.voiceover,
             "voice": voice
