@@ -229,6 +229,7 @@ class X:
             "post",
             "https://api.twitter.com/2/tweets",
             json=json,
+            params={"tweet.fields": "author_id"}
         )
         return response.json()
 

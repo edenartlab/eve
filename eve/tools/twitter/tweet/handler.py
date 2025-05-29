@@ -20,5 +20,11 @@ async def handler(args: dict, user: str = None, agent: str = None):
     else:
         response = x.post(text=args.get("content"))
     tweet_id = response.get("data", {}).get("id")
+    author_id = response.get("data", {}).get("author_id")
     url = f"https://x.com/{deployment.config.twitter.username}/status/{tweet_id}"
-    return {"output": [{"id": tweet_id, "url": url}]}
+    return {"output": [{
+        "id": tweet_id, 
+        "author_id": response.get("data", {}).get("author_id"),
+        "text": args.get("content"),
+        "url": url}
+    ]}
