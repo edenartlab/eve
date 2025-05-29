@@ -166,6 +166,7 @@ class Tool(Document, ABC):
         key = schema.get("key") or schema.get("parent_tool") or file_path.split("/")[-2]
         parent_tool = schema.get("parent_tool")
         if parent_tool:
+            key = file_path.split("/")[-2]
             parent_schema = cls._get_schema(parent_tool, from_yaml=from_yaml)
             parent_schema["parameter_presets"] = schema.pop("parameters", {})
             if not from_yaml:
@@ -311,7 +312,10 @@ class Tool(Document, ABC):
         )  # Array length
         cost_formula = re.sub(
             r"(\w+)\s*\?\s*([^:]+)\s*:\s*([^,\s]+)", r"\2 if \1 else \3", cost_formula
-        )  # Ternary operator
+        )  # Ternary operator for booleans
+        cost_formula = re.sub(
+            r"([^?]+)\s*\?\s*([^:]+)\s*:\s*([^,\s]+)", r"\2 if \1 else \3", cost_formula
+        )  # Ternary operator for a single equality
         cost_estimate = eval(cost_formula, args.copy())
         assert isinstance(
             cost_estimate, (int, float)

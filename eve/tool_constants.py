@@ -82,10 +82,10 @@ BASE_TOOLS = [
     "openai_image_generate",
 ]
 
-FLUX_LORA_TOOLS = ["flux_dev_lora", "flux_dev", "reel"]
+FLUX_LORA_TXT2IMG_TOOLS = ["flux_dev_lora", "flux_dev", "flux_schnell"]
 
-SDXL_LORA_TOOLS = ["txt2img"]
+SDXL_LORA_TXT2IMG_TOOLS = ["txt2img"]
 
-OWNER_ONLY_TOOLS = ["tweet", "twitter_mentions", "twitter_search", "discord_search"]
+OWNER_ONLY_TOOLS = ["tweet", "twitter_mentions", "twitter_search", "discord_search", "discord_post"]
 
-AGENTIC_TOOLS = ["reel", "twitter_mentions", "twitter_search", "discord_post", "tweet"]
+AGENTIC_TOOLS = OWNER_ONLY_TOOLS + ["reel"]
