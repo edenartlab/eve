@@ -234,7 +234,12 @@ async def handler(args: dict, user: str = None, agent: str = None):
         # otherwise, if agent has a voice, use it
         elif agent and agent.voice:
             eleven = ElevenLabs(api_key=os.getenv("ELEVEN_API_KEY"))
-            voice = eleven.voices.get(agent.voice)
+            try:
+                voice = eleven.voices.get(agent.voice)
+                voice = voice.name
+            except Exception as e:
+                print("Error getting voice", e)
+                voice = select_random_voice("Voice of a narrator")
         # otherwise, select a random voice
         else:
             voice = select_random_voice("Voice of a narrator")
