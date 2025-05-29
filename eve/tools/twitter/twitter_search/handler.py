@@ -232,9 +232,11 @@ async def handler(args: dict, user: str, agent: str):
         return txt.replace("\n", "\\n")
 
     print(f"Returned {len(tweets)} tweets.\n")
-    for t in tweets[:10]:
-        print(f"- @{t['author_username']} :: {flat(t['text'])[:280]}…  ({t['public_metrics']['retweet_count']} RT, {t['public_metrics']['like_count']} likes, {t['score']} engagement score)")
-        print("--------------------------------")
+    
+    # #author_username not found
+    # for t in tweets[:10]:
+    #     print(f"- @{t['author_username']} :: {flat(t['text'])[:280]}…  ({t['public_metrics']['retweet_count']} RT, {t['public_metrics']['like_count']} likes, {t['score']} engagement score)")
+    #     print("--------------------------------")
 
     print("--------------------------------")
     print(json.dumps(tweets, indent=4))
