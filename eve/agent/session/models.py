@@ -106,6 +106,8 @@ class SessionUpdate(BaseModel):
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
     update_config: Optional[Dict[str, Any]] = None
+    agent: Optional[Dict[str, Any]] = None
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
