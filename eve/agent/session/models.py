@@ -1,10 +1,13 @@
 from enum import Enum
 import json
+import os
 from typing import List, Optional, Dict, Any, Literal
 from bson import ObjectId
+import magic
 from pydantic import ConfigDict, Field, BaseModel
 from dataclasses import dataclass, field
 
+from eve.eden_utils import download_file, image_to_base64
 from eve.mongo import Collection, Document
 from eve.tool import Tool
 
@@ -66,12 +69,106 @@ class ChatMessage(Document):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def _get_content(self, schema, truncate_images=False):
-        return self.content
+        """Assemble user message content block"""
+
+        # start with original message content
+        content = self.content or ""
+
+        # let claude see names
+        if self.name and schema == "anthropic":
+            content = f"<User>{self.name}</User>\n\n{content}"
+
+        if self.attachments:
+            # append attachments info (url and type) to content
+            attachment_lines = []
+            attachment_files = []
+            attachment_errors = []
+            for attachment in self.attachments:
+                print("downloading attachment", attachment)
+                try:
+                    attachment_file = download_file(
+                        attachment,
+                        os.path.join(
+                            "/tmp/eden_file_cache/", attachment.split("/")[-1]
+                        ),
+                        overwrite=False,
+                    )
+                    print("downloaded attachment", attachment_file)
+                    mime_type = magic.from_file(attachment_file, mime=True)
+                    print("mime type", mime_type)
+                    if "video" in mime_type:
+                        attachment_lines.append(
+                            f"* {attachment} (The asset is a video, the corresponding image attachment is its first frame.)"
+                        )
+                        attachment_files.append(attachment_file)
+                    elif "image" in mime_type:
+                        attachment_lines.append(f"* {attachment}")
+                        attachment_files.append(attachment_file)
+                    else:
+                        attachment_lines.append(
+                            f"* {attachment}: (Mime type: {mime_type})"
+                        )
+                except Exception as e:
+                    print("error downloading attachment", e)
+                    attachment_errors.append(f"* {attachment}: {str(e)}")
+
+            attachments = ""
+            if attachment_lines:
+                attachments += "The attached images correspond to the following urls:\n"
+                attachments += "\n".join(attachment_lines)
+            if attachment_errors:
+                attachments += "The following files failed to attach:\n"
+                attachments += "\n".join(attachment_errors)
+            attachments = f"<attachments>\n{attachments}\n</attachments>"
+            content += f"\n{attachments}"
+
+            # add image blocks
+            if schema == "anthropic":
+                block = [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/jpeg",
+                            "data": image_to_base64(
+                                file_path,
+                                max_size=512,
+                                quality=95,
+                                truncate=truncate_images,
+                            ),
+                        },
+                    }
+                    for file_path in attachment_files
+                ]
+            elif schema == "openai":
+                block = [
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"""data:image/jpeg;base64,{image_to_base64(
+                            file_path, 
+                            max_size=512, 
+                            quality=95, 
+                            truncate=truncate_images
+                            
+                        )}"""
+                        },
+                    }
+                    for file_path in attachment_files
+                ]
+
+            if content:
+                block.extend([{"type": "text", "text": content.strip()}])
+
+            content = block
+
+        return content
 
     def openai_schema(self, truncate_images=False):
         base_schema = {
             "role": self.role,
             "content": self._get_content("openai", truncate_images=truncate_images),
+            **({"attachments": self.attachments} if self.attachments else {}),
             **({"name": self.sender_name} if self.sender_name else {}),
             **({"tool_call_id": self.tool_call_id} if self.tool_call_id else {}),
         }
