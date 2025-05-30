@@ -207,6 +207,8 @@ hexbytes==0.3.1
     # via eth-account
     # via eth-rlp
     # via web3
+hf-xet==1.1.2
+    # via huggingface-hub
 hpack==4.0.0
     # via h2
 httpcore==1.0.7
@@ -227,7 +229,7 @@ httpx==0.28.1
     # via runwayml
 httpx-sse==0.4.0
     # via fal-client
-huggingface-hub==0.31.4
+huggingface-hub==0.32.3
     # via tokenizers
 hyperframe==6.0.1
     # via h2
@@ -263,11 +265,11 @@ jsonschema==4.23.0
     # via web3
 jsonschema-specifications==2024.10.1
     # via jsonschema
-langfuse==2.59.7
+langfuse==2.60.7
     # via eve
 lazy-model==0.2.0
     # via beanie
-litellm==1.70.0
+litellm==1.71.2
     # via eve
 lru-dict==1.2.0
     # via web3
@@ -546,5 +548,5 @@ wrapt==1.17.2
     # via langfuse
 yarl==1.18.3
     # via aiohttp
-zipp==3.21.0
+zipp==3.22.0
     # via importlib-metadata
