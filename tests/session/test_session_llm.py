@@ -1,12 +1,11 @@
 import litellm
 import pytest
-from unittest.mock import AsyncMock, patch
 from bson import ObjectId
 from typing import Dict
 from pydantic import BaseModel
 from litellm import ModelResponse
 
-from eve.agent.session.models import LLMContextMetadata, LLMTraceMetadata
+from eve.agent.session.models import LLMContextMetadata, LLMResponse, LLMTraceMetadata
 from eve.agent.session.session_llm import (
     LLMContext,
     LLMConfig,
@@ -25,8 +24,15 @@ from eve.task import Task
 MOCK_SESSION_ID = ObjectId()
 MOCK_USER_ID = ObjectId()
 MOCK_MESSAGES = [
-    ChatMessage(role="user", content="Hello", session=MOCK_SESSION_ID),
-    ChatMessage(role="assistant", content="Hi there!", session=MOCK_SESSION_ID),
+    ChatMessage(
+        role="user", sender=MOCK_USER_ID, content="Hello", session=MOCK_SESSION_ID
+    ),
+    ChatMessage(
+        role="assistant",
+        sender=MOCK_USER_ID,
+        content="Hi there!",
+        session=MOCK_SESSION_ID,
+    ),
 ]
 
 
@@ -56,8 +62,8 @@ class MockTool(Tool):
         pass
 
 
-MOCK_TOOLS = [
-    MockTool(
+MOCK_TOOLS = {
+    "MockTool": MockTool(
         key="test_tool",
         name="test_tool",
         description="A test tool",
@@ -67,23 +73,23 @@ MOCK_TOOLS = [
         handler="local",
         parameters={"input": {"type": "string", "description": "Input text"}},
     )
-]
+}
 
 
 # Mocked tests
 @pytest.mark.asyncio
 async def test_validate_input_valid_model():
-    context = LLMContext(messages=MOCK_MESSAGES)
     config = LLMConfig(model="gpt-4o-mini")
-    validate_input(context, config)  # Should not raise
+    context = LLMContext(messages=MOCK_MESSAGES, config=config)
+    validate_input(context)  # Should not raise
 
 
 @pytest.mark.asyncio
 async def test_validate_input_invalid_model():
-    context = LLMContext(messages=MOCK_MESSAGES)
     config = LLMConfig(model="invalid-model")
+    context = LLMContext(messages=MOCK_MESSAGES, config=config)
     with pytest.raises(ValueError, match="Model invalid-model is not supported"):
-        validate_input(context, config)
+        validate_input(context)
 
 
 def test_construct_messages():
@@ -115,53 +121,41 @@ def test_construct_tools_none():
 def test_construct_observability_metadata():
     context = LLMContext(
         messages=MOCK_MESSAGES,
-        session_id=MOCK_SESSION_ID,
-        initiating_user_id=MOCK_USER_ID,
+        metadata=LLMContextMetadata(
+            session_id="test_session",
+            generation_name="test_generation",
+            trace_name="test_trace",
+        ),
     )
     result = construct_observability_metadata(context)
-    assert result["session_id"] == MOCK_SESSION_ID
-    assert result["initiating_user_id"] == MOCK_USER_ID
-
-
-@pytest.mark.asyncio
-async def test_async_prompt_mocked():
-    mock_response = "Mocked response"
-    mock_completion = AsyncMock(return_value=mock_response)
-
-    with patch("eve.agent.session.session_llm.completion", mock_completion):
-        context = LLMContext(messages=MOCK_MESSAGES)
-        config = LLMConfig()
-        result = await async_prompt(context, config)
-
-        assert result == mock_response
-        mock_completion.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_async_prompt_stream_mocked():
-    mock_responses = ["Part 1", "Part 2", "Part 3"]
-
-    async def mock_stream():
-        for response in mock_responses:
-            yield response
-
-    mock_completion = AsyncMock(return_value=mock_stream())
-
-    with patch("eve.agent.session.session_llm.completion", mock_completion):
-        context = LLMContext(messages=MOCK_MESSAGES)
-        config = LLMConfig()
-        stream = async_prompt_stream(context, config)
-        chunks = []
-        async for chunk in stream:
-            chunks.append(chunk)
-        assert chunks == mock_responses
+    assert result["session_id"] == "test_session"
+    assert result["trace_name"] == "test_trace"
+    assert result["generation_name"] == "test_generation"
 
 
 @pytest.mark.live
 @pytest.mark.asyncio
-async def test_async_prompt():
+@pytest.mark.parametrize(
+    "model,provider_mark",
+    [
+        pytest.param("gpt-4o-mini", None, id="openai"),
+        pytest.param(
+            "claude-3-5-haiku-latest",
+            "provider_anthropic",
+            marks=pytest.mark.provider_anthropic,
+            id="anthropic",
+        ),
+        pytest.param(
+            "gemini/gemini-2.5-flash-preview-04-17",
+            "provider_gemini",
+            marks=pytest.mark.provider_gemini,
+            id="gemini",
+        ),
+    ],
+)
+async def test_async_prompt(model, provider_mark, request):
     metadata = LLMContextMetadata(
-        trace_name="test_async_prompt",
+        trace_name=f"test_async_prompt_{model.replace('-', '_')}",
         trace_metadata=LLMTraceMetadata(
             session_id=str(MOCK_SESSION_ID),
             initiating_user_id=str(MOCK_USER_ID),
@@ -170,14 +164,15 @@ async def test_async_prompt():
     context = LLMContext(
         messages=MOCK_MESSAGES,
         metadata=metadata,
+        config=LLMConfig(model=model),
     )
     result = await async_prompt(context)
-    assert isinstance(result, ModelResponse)
+    assert isinstance(result, LLMResponse)
 
 
 @pytest.mark.live
 @pytest.mark.asyncio
-async def test_async_prompt_stream_real():
+async def test_async_prompt_stream():
     metadata = LLMContextMetadata(
         trace_name="test_async_prompt_stream",
         trace_metadata=LLMTraceMetadata(
@@ -200,13 +195,3 @@ async def test_async_prompt_stream_real():
     assert response is not None
     assert response.choices[0].message.content is not None
     assert isinstance(response, ModelResponse)
-
-
-# @pytest.mark.live
-# @pytest.mark.asyncio
-# async def test_async_prompt_with_tools_real():
-#     context = LLMContext(messages=MOCK_MESSAGES, tools=MOCK_TOOLS)
-#     config = LLMConfig()
-#     result = await async_prompt(context, config)
-#     assert isinstance(result, str)
-#     assert len(result) > 0

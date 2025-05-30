@@ -14,7 +14,13 @@ from eve.agent.session.models import LLMContext, LLMConfig, LLMResponse, ToolCal
 if os.getenv("LANGFUSE_TRACING_ENVIRONMENT"):
     litellm.success_callback = ["langfuse"]
 
-supported_models = ["gpt-4o-mini", "gpt-4o"]
+supported_models = [
+    "gpt-4o-mini",
+    "gpt-4o",
+    "claude-3-5-haiku-latest",
+    "gemini-2.0-flash",
+    "gemini/gemini-2.5-flash-preview-04-17",
+]
 
 
 def validate_input(context: LLMContext) -> None:
@@ -25,12 +31,14 @@ def validate_input(context: LLMContext) -> None:
 def construct_observability_metadata(context: LLMContext):
     if not context.metadata:
         return {}
-    return {
+    metadata = {
         "session_id": context.metadata.session_id,
         "trace_name": context.metadata.trace_name,
         "generation_name": context.metadata.generation_name,
-        "trace_metadata": context.metadata.trace_metadata.model_dump(),
     }
+    if context.metadata.trace_metadata:
+        metadata["trace_metadata"] = context.metadata.trace_metadata.model_dump()
+    return metadata
 
 
 def construct_messages(context: LLMContext) -> List[dict]:
