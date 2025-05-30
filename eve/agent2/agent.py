@@ -13,7 +13,12 @@ from pydantic import SecretStr, Field, BaseModel, ConfigDict
 
 from eve.agent.thread import Thread
 
-from ..tool import Tool, BASE_TOOLS, FLUX_LORA_TOOLS, SDXL_LORA_TOOLS
+from ..tool import (
+    Tool, 
+    BASE_TOOLS, 
+    FLUX_LORA_TXT2IMG_TOOLS, 
+    SDXL_LORA_TXT2IMG_TOOLS
+)
 from ..mongo import Collection, get_collection
 from ..user import User, Manna
 from ..models import Model
@@ -184,14 +189,14 @@ class Agent(User):
                     "type": "flux-dev",
                     "models": [m for m in models if m["doc"].base_model == "flux-dev"],
                     "tools": [
-                        t for t in schema["tools"].keys() if t in FLUX_LORA_TOOLS
+                        t for t in schema["tools"].keys() if t in FLUX_LORA_TXT2IMG_TOOLS
                     ],
                 },
                 {
                     "type": "sdxl",
                     "models": [m for m in models if m["doc"].base_model == "sdxl"],
                     "tools": [
-                        t for t in schema["tools"].keys() if t in SDXL_LORA_TOOLS
+                        t for t in schema["tools"].keys() if t in SDXL_LORA_TXT2IMG_TOOLS
                     ],
                 },
             ]

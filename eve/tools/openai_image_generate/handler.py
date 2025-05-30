@@ -34,6 +34,8 @@ async def handler(args: dict, user: str = None, agent: str = None):
     if valid_args['output_format'] == 'png':
         valid_args['output_compression'] = 100
 
+    valid_args.pop("agent", None)
+
     try:
         print(f"Calling OpenAI Images API (gpt-image-1) with args: {valid_args}")
         response = await client.images.generate(**valid_args)

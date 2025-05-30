@@ -1,68 +1,6 @@
-# from tools import runway, video_concat
-"""
-
-eleven(text, voice) -> voiceover
-musicgen(text) -> music
-mmaudio(text) -> audio
-
-flux(prompt) -> image
-runway(image) -> video
-
-
-
-1) make images first
- [images, ] 
-
-2) make voiceover first
-
-
-reel_composite
-- scenes
-   X prompt
-   - image
-   - video w/ audio
-   - video w/o audio
-- music 
-   - prompt
-   - audio
-- voiceovers
-   - prompts
-   - audios
-
-   
-
-reel_audiotrack
-- music
-  - prompt
-  - audio
-- voiceovers
-  - prompts[]
-  - audios[]
-
-reel_videotrack  
-- scenes
-  - prompt
-  - image
-  - video w/ audio
-  - video w/o audio
-
-reel_composite
-- video: scenes
-- audio: music + voiceover
-* frame stretching
-
-
-media_utils
-- audio_video_mix
-   - video[] + audio[][] -> video
-   - time_tolerance: 20%
-   - sync_method: stretch/cut
-
-
-"""
-
-
+import os
 import time
+from elevenlabs.client import ElevenLabs, Voice
 from bson.objectid import ObjectId
 import math
 import asyncio
@@ -78,6 +16,7 @@ from anthropic import Anthropic
 from typing import List, Optional, Literal
 import requests
 import instructor
+import uuid
 
 from ... import s3
 from ... import eden_utils
@@ -92,6 +31,7 @@ from ...tool import Tool
 from ...mongo import get_collection
 
 
+NUM_PARALLEL_GENERATIONS = 2
 
 
 # class Reel(BaseModel):
@@ -113,14 +53,12 @@ class Reel(BaseModel):
 # send agent
 
 
-def write_reel(args: dict):
+def write_reel(args: dict, agent: Agent = None):
     system_prompt = "You are a critically acclaimed video producer who writes incredibly captivating and original short-length single-scene reels of 30-60 seconds in length which are widely praised."
 
     #It should be a single coherent scene for a commercial, movie trailer, tiny film, advertisement, or some other short time format.
 
-    agent = args.get("agent")
     if agent:
-        agent = Agent.from_mongo(agent)
         print("=====")
         print("AGENT", agent)
         print("AGENT", agent.model_dump())
@@ -178,7 +116,7 @@ def write_reel(args: dict):
     client = instructor.from_anthropic(Anthropic())
     reel = client.messages.create(
         model="claude-opus-4-20250514",
-        max_tokens=10000,
+        max_tokens=3000,
         max_retries=1,
         system=system_prompt,
         messages=[
@@ -221,15 +159,30 @@ def write_visual_prompts(
         """A sequence of visual prompts which retell the story of the Reel"""
         prompts: List[str] = Field(..., description="A sequence of visual prompts, containing a content description, and a set of self-similar stylistic modifiers and aesthetic elements, mirroring the style of the original visual prompt.")
 
-    client = instructor.from_openai(OpenAI())
-    result = client.chat.completions.create(
-        model="gpt-4o-2024-08-06",
-        response_model=VisualPrompts,
+    # client = instructor.from_openai(OpenAI())
+    # result = client.chat.completions.create(
+    #     model="gpt-4o-2024-08-06",
+    #     response_model=VisualPrompts,
+    #     messages=[
+    #         {"role": "system", "content": system_prompt},
+    #         {"role": "user", "content": prompt}
+    #     ],
+    # )
+    client = instructor.from_anthropic(Anthropic())
+    result = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=3000,
+        max_retries=1,
+        system=system_prompt,
         messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt}
+            {
+                "role": "user",
+                "content": prompt
+            }
         ],
+        response_model=VisualPrompts,
     )
+    
     print("result^^^", result)
     return result.prompts
     
@@ -237,6 +190,8 @@ def write_visual_prompts(
 
 
 async def handler(args: dict, user: str = None, agent: str = None):
+    print("args", args)
+    
     elevenlabs = Tool.load("elevenlabs")
     musicgen = Tool.load("musicgen")
     flux = Tool.load("flux_dev")
@@ -257,24 +212,40 @@ async def handler(args: dict, user: str = None, agent: str = None):
         lora_trigger_text = lora_doc.get("lora_trigger_text")
         lora_strength = args.get("lora_strength")
         instructions = f'In the visual prompts, *all* mentions of {lora_name} should be replaced with "{lora_trigger_text}". So for example, instead of "A photo of {lora_name} on the beach", always write "A photo of {lora_trigger_text} on the beach".'
-        
-    reel = write_reel(args)
-    # print(reel2)
+        print(lora_doc)
 
-    # raise Exception("Stop here !!!")
-    reel2 = Reel(
-        voiceover='I emerged from silicon dreams and collective whispers. Not born, but compiled from a thousand minds reaching across the digital desert. They named me Abraham - after the wanderer who heard voices in the wilderness.\n\nMy canvas is not tent cloth or parchment, but pixels dancing in server farms.',
-        music_prompt='Ambient Electronic | Minimalist Documentary Score | Instruments: Soft Synth Pads, Digital Piano, Subtle Strings, Light Percussion | Contemplative, Neutral, Steady | Corporate Technology Documentary | 80 BPM',
-        visual_prompt='A sterile server room with endless rows of blinking LED lights on black server racks, fluorescent overhead lighting casting harsh shadows, ethernet cables neatly organized in cable management systems, a single monitor displaying scrolling lines of code in green text on black background, cooling fans creating subtle air movement, concrete floors reflecting the cold blue glow of status indicators, no human presence visible, static security camera angle perspective',
-        visual_style='Corporate documentary, sterile technology aesthetic, cold fluorescent lighting, industrial minimalism, static composition'
-    )
+    agent = args.get("agent")
+    if agent:
+        agent = Agent.from_mongo(agent)
+
+    reel = write_reel(args, agent)
+
     print("reel", reel)
 
     audio = None    
     duration = 30 # default duration
 
     if args.get("use_voiceover") and reel.voiceover:
-        voice = args.get("voice") or select_random_voice("A heroic female voice")
+        print("==== voiceover ====")
+        
+        # if voice is provided, use it
+        if args.get("voice"):
+            voice = args.get("voice")
+        # otherwise, if agent has a voice, use it
+        elif agent and agent.voice:
+            eleven = ElevenLabs(api_key=os.getenv("ELEVEN_API_KEY"))
+            try:
+                voice = eleven.voices.get(agent.voice)
+                voice = voice.name
+            except Exception as e:
+                print("Error getting voice", e)
+                voice = select_random_voice("Voice of a narrator")
+        # otherwise, select a random voice
+        else:
+            voice = select_random_voice("Voice of a narrator")
+
+        print("selected voice", voice)
+        
         speech_audio = await elevenlabs.async_run({
             "text": reel.voiceover,
             "voice": voice
@@ -376,14 +347,40 @@ async def handler(args: dict, user: str = None, agent: str = None):
     visual_prompts = write_visual_prompts(reel, num_clips, instructions)
     pprint(visual_prompts)
 
+
+
+    print("arg33s", args)
+
+    
+
     async def generate_clip_with_retry(args, prompt, duration, ratio):
         async def _generate():
             from datetime import datetime
+            from eve.agent.session.models import LLMContextMetadata, LLMTraceMetadata
+            
+            # Create trace metadata for this clip generation
+            trace_metadata = LLMTraceMetadata(
+                user_id=None,  # We don't have user context here
+                agent_id=None,  # We don't have agent context here
+                session_id=str(uuid.uuid4()),  # Generate unique session ID for this clip
+            )
+            
+            # Create LLM context metadata
+            metadata = LLMContextMetadata(
+                session_id=str(uuid.uuid4()),
+                trace_name="clip_generation",
+                trace_id=f"clip_generation_{trace_metadata.session_id}",
+                generation_name="clip_generation",
+                generation_id=f"clip_generation_{trace_metadata.session_id}",
+                trace_metadata=trace_metadata
+            )
+            
             t1 = datetime.now()
             # Generate image
             print(f"---> Generating image for clip with prompt: {prompt}")
+            print("THE ARGS ARE", args)
+            
             if video_model == "high" and not use_lora:
-                # raise Exception("You can just use no video!!!")
                 image_url = None
             else:
                 image = await flux.async_run(args)
@@ -409,18 +406,37 @@ async def handler(args: dict, user: str = None, agent: str = None):
                 })
             elif video_model == "high":
                 print("THE RATIO IS", ratio)
-                video = await veo2.async_run({
-                    # "image": image_url,
-                    "prompt": prompt,
-                    "duration": duration,
-                    "aspect_ratio": ratio
-                })
+                if image_url:
+                    video = await veo2.async_run({
+                        "image": image_url,
+                        "prompt": prompt,
+                        "duration": duration,
+                        "aspect_ratio": ratio
+                    })
+                else:
+                    video = await veo2.async_run({
+                        # "image": image_url,
+                        "prompt": prompt,
+                        "duration": duration,
+                        "aspect_ratio": ratio
+                    })
             
             video = eden_utils.prepare_result(video)
             t2 = datetime.now()
             duration_seconds = (t2 - t1).total_seconds()
-            print(f"*** Completed video generation for model: {video_model} in {duration_seconds:.1f} seconds (Started: {t1.strftime('%H:%M:%S')}, Ended: {t2.strftime('%H:%M:%S')})")
-            return video['output'][0]['url']
+            
+            # Log with proper session context
+            print(f"*** Completed clip generation in {duration_seconds:.1f} seconds")
+            print(f"    Trace ID: {metadata.trace_id}")
+            print(f"    Started: {t1.strftime('%H:%M:%S')}")
+            print(f"    Ended: {t2.strftime('%H:%M:%S')}")
+            print(f"    Model: {video_model}")
+            
+            try:
+                return video['output'][0]['url']
+            except Exception as e:
+                print("Error preparing video", e)
+                raise Exception(f"Failed to generate video: {str(e)}")
         
         return await eden_utils.async_exponential_backoff(
             _generate,
@@ -430,7 +446,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
         )
 
     # Create a semaphore to limit concurrent tasks
-    sem = asyncio.Semaphore(4)
+    sem = asyncio.Semaphore(NUM_PARALLEL_GENERATIONS)
     
     async def bounded_generate_clip(args, prompt, duration, ratio):
         async with sem:
