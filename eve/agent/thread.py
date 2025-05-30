@@ -16,7 +16,7 @@ class ChatMessage(BaseModel):
     createdAt: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     role: Literal["user", "assistant"]
     reply_to: Optional[ObjectId] = None
-    hidden: Optional[bool] = False # hides trigger messages from llm
+    hidden: Optional[bool] = False  # hides trigger messages from llm
     reactions: Optional[Dict[str, List[ObjectId]]] = {}
     pinned: Optional[bool] = False
 
@@ -91,38 +91,49 @@ class UserMessage(ChatMessage):
 
             # add image blocks
             if schema == "anthropic":
-                block = [
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": "image/jpeg",
-                            "data": image_to_base64(
-                                file_path,
-                                max_size=512,
-                                quality=95,
-                                truncate=truncate_images,
-                            ),
-                        },
-                    }
-                    for file_path in attachment_files
-                ]
+                block = []
+                for file_path in attachment_files:
+                    try:
+                        block.append(
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": "image/jpeg",
+                                    "data": image_to_base64(
+                                        file_path,
+                                        max_size=512,
+                                        quality=95,
+                                        truncate=truncate_images,
+                                    ),
+                                },
+                            }
+                        )
+                    except Exception as e:
+                        print(f"Error processing image {file_path}: {e}")
+                        # Skip this image and continue with others
+                        continue
             elif schema == "openai":
-                block = [
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"""data:image/jpeg;base64,{image_to_base64(
-                            file_path, 
-                            max_size=512, 
-                            quality=95, 
-                            truncate=truncate_images
-                            
-                        )}"""
-                        },
-                    }
-                    for file_path in attachment_files
-                ]
+                block = []
+                for file_path in attachment_files:
+                    try:
+                        block.append(
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"""data:image/jpeg;base64,{image_to_base64(
+                                file_path, 
+                                max_size=512, 
+                                quality=95, 
+                                truncate=truncate_images
+                            )}"""
+                                },
+                            }
+                        )
+                    except Exception as e:
+                        print(f"Error processing image {file_path}: {e}")
+                        # Skip this image and continue with others
+                        continue
 
             if content:
                 block.extend([{"type": "text", "text": content.strip()}])
@@ -234,7 +245,7 @@ class ToolCall(BaseModel):
                     result = dump_json(result)
 
             except Exception as e:
-                #print("Warning: Can not inject image results:", e)
+                # print("Warning: Can not inject image results:", e)
                 result = dump_json(result)
 
         elif self.status == "failed":
