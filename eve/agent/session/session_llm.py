@@ -124,12 +124,10 @@ DEFAULT_LLM_STREAM_HANDLER = async_prompt_stream_litellm
 async def async_prompt(
     context: LLMContext,
     handler: Optional[Callable[[LLMContext], str]] = DEFAULT_LLM_HANDLER,
-    stream: bool = False,
 ) -> LLMResponse:
     validate_input(context)
-    if stream:
-        return await handler(context)
-    return await handler(context)
+    response = await handler(context)
+    return response
 
 
 async def async_prompt_stream(
