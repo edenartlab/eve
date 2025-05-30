@@ -121,6 +121,7 @@ async def build_llm_context(
         sender=ObjectId(context.initiating_user_id),
         role="user",
         content=context.message.content,
+        attachments=context.message.attachments,
     )
     new_message.save()
     session.messages.append(new_message.id)

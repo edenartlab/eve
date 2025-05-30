@@ -138,10 +138,21 @@ class AgentToolsDeleteRequest(BaseModel):
     tools: List[str]
 
 
+class SessionCreationArgs(BaseModel):
+    owner_id: Optional[str] = None
+    agents: List[str]
+    title: Optional[str] = None
+    scenario: Optional[str] = None
+    budget: Optional[float] = None
+
+
 class PromptSessionRequest(BaseModel):
-    session_id: str
+    session_id: Optional[str] = None
     message: Optional[ChatMessageRequestInput] = None
     user_id: Optional[str] = None
     update_config: Optional[UpdateConfig] = None
     llm_config: Optional[LLMConfig] = None
     stream: bool = False
+
+    # Session creation fields (used when session_id is not provided)
+    creation_args: Optional[SessionCreationArgs] = None
