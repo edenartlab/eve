@@ -1,5 +1,6 @@
 name: Transcription
 description: Transcribe audio to text using OpenAI. Supports various models and optional timestamps.
+tip: If the audio file has a weird format, seems corrupted or is too large: just use ffmpeg with the media_tools tool to convert it to compressed mp3.
 cost_estimate: 5 
 output_type: string
 active: true
