@@ -39,6 +39,7 @@ BASE_TOOLS = [
     "flux_schnell",
     "flux_dev_lora",
     "flux_dev",
+    "flux_kontext",
     "txt2img",
     # more image generation
     "flux_inpainting",

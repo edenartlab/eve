@@ -4,7 +4,7 @@ import re
 import traceback
 from typing import List, Optional
 import uuid
-
+from datetime import datetime
 from bson import ObjectId
 from sentry_sdk import capture_exception
 from eve.agent.agent import Agent
@@ -98,6 +98,7 @@ def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
 def build_system_message(session: Session, actor: Agent, context: PromptSessionContext):
     content = system_template.render(
         name=actor.name,
+        current_date_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         persona=actor.persona,
         # TODO: add knowledge and models instructions
         knowledge="",
@@ -121,6 +122,7 @@ async def build_llm_context(
         sender=ObjectId(context.initiating_user_id),
         role="user",
         content=context.message.content,
+        attachments=context.message.attachments,
     )
     new_message.save()
     session.messages.append(new_message.id)
@@ -285,9 +287,19 @@ async def process_tool_calls(session: Session, llm_context: LLMContext):
 
 
 async def async_prompt_session(
-    session: Session, llm_context: LLMContext, stream: bool = False
+    session: Session, llm_context: LLMContext, actor: Agent, stream: bool = False
 ):
-    yield SessionUpdate(type=UpdateType.START_PROMPT)
+    yield SessionUpdate(
+        type=UpdateType.START_PROMPT,
+        agent={
+            "_id": str(actor.id),
+            "username": actor.username,
+            "name": actor.name,
+            "userImage": actor.userImage,
+        }
+        if actor
+        else None,
+    )
     prompt_session_finished = False
     while not prompt_session_finished:
         if stream:
@@ -393,7 +405,8 @@ def format_session_update(update: SessionUpdate, context: PromptSessionContext) 
     }
 
     if update.type == UpdateType.START_PROMPT:
-        pass
+        if update.agent:
+            data["agent"] = update.agent
     elif update.type == UpdateType.ASSISTANT_TOKEN:
         data["text"] = update.text
     elif update.type == UpdateType.ASSISTANT_MESSAGE:
@@ -422,7 +435,9 @@ async def _run_prompt_session_internal(
     actor = await determine_actor(session, context)
     llm_context = await build_llm_context(session, actor, context)
 
-    async for update in async_prompt_session(session, llm_context, stream=stream):
+    async for update in async_prompt_session(
+        session, llm_context, actor, stream=stream
+    ):
         yield format_session_update(update, context)
 
 

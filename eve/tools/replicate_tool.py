@@ -30,7 +30,7 @@ class ReplicateTool(Tool):
         
         if self.version:
             args = self._format_args_for_replicate(args)
-            print("THE ARGS ARE:", args)
+            print("args", args)
             # raise Exception("Not implem123123222nted")
             prediction = await self._create_prediction(args, webhook=False)
             prediction.wait()
@@ -46,8 +46,6 @@ class ReplicateTool(Tool):
         else:
             replicate_model = self._get_replicate_model(args)
             args = self._format_args_for_replicate(args)
-            print("THE ARGS ARE:", args)
-            # raise Exception("N123ot impleme222nted")
             output = replicate.run(replicate_model, input=args)
             
             if output and isinstance(output, replicate.helpers.FileOutput):
@@ -121,7 +119,6 @@ class ReplicateTool(Tool):
             is_number = parameter.get("type") in ["integer", "float"]
             alias = parameter.get("alias")
             lora = parameter.get("type") == "lora"
-            print("LORA IS:", lora)
 
             if field in new_args:
                 if lora:
@@ -163,9 +160,15 @@ class ReplicateTool(Tool):
 
         if self.replicate_model_substitutions:
             for cond, model in self.replicate_model_substitutions.items():
-                if args.get(cond):
-                    replicate_model = model
-                    break
+                if "==" in cond:
+                    arg, value = cond.split("==")
+                    if args.get(arg) == value:
+                        replicate_model = model
+                        break
+                else:
+                    if args.get(cond):
+                        replicate_model = model
+                        break
         return replicate_model
 
     async def _create_prediction(self, args: dict, webhook=True):

@@ -758,10 +758,33 @@ async def handle_agent_tools_delete(request: AgentToolsDeleteRequest):
     return {"tools": tools}
 
 
-def setup_session(session_id: str, user_id: str):
-    session = Session.from_mongo(ObjectId(session_id))
-    if not session:
-        raise APIError(f"Session not found: {session_id}", status_code=404)
+def setup_session(session_id: str, user_id: str, request: PromptSessionRequest = None):
+    if session_id:
+        if request and request.creation_args:
+            logger.warning(
+                f"Session creation fields provided but ignored for existing session {session_id}"
+            )
+
+        session = Session.from_mongo(ObjectId(session_id))
+        if not session:
+            raise APIError(f"Session not found: {session_id}", status_code=404)
+        return session
+
+    if not request.creation_args:
+        raise APIError(
+            "Session creation requires additional parameters", status_code=400
+        )
+
+    # Create new session
+    session = Session(
+        owner=ObjectId(request.creation_args.owner_id or user_id),
+        agents=[ObjectId(agent_id) for agent_id in request.creation_args.agents],
+        title=request.creation_args.title,
+        scenario=request.creation_args.scenario,
+        budget=request.creation_args.budget,
+        status="active",
+    )
+    session.save()
     return session
 
 
@@ -769,7 +792,7 @@ def setup_session(session_id: str, user_id: str):
 async def handle_prompt_session(
     request: PromptSessionRequest, background_tasks: BackgroundTasks
 ):
-    session = setup_session(request.session_id, request.user_id)
+    session = setup_session(request.session_id, request.user_id, request)
     context = PromptSessionContext(
         session=session,
         initiating_user_id=request.user_id,
@@ -802,4 +825,4 @@ async def handle_prompt_session(
         context=context,
     )
 
-    return {"session_id": request.session_id}
+    return {"session_id": str(session.id)}

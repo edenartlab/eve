@@ -440,8 +440,13 @@ async def run_task_replicate(task: Task):
     args = tool.prepare_args(task.args)
     args = tool._format_args_for_replicate(args)
     replicate_model = tool._get_replicate_model(task.args)
-    output = await replicate.async_run(replicate_model, input=args)
-    result = replicate_update_task(task, "succeeded", None, output, "normal")
+    try:
+        output = await replicate.async_run(replicate_model, input=args)
+        result = replicate_update_task(task, "succeeded", None, output, "normal")
+    except Exception as e:
+        print(f"Error running replicate: {e}")
+        sentry_sdk.capture_exception(e)
+        result = replicate_update_task(task, "failed", str(e), None, "normal")
     return result
 
 

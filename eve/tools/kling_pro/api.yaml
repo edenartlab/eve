@@ -1,11 +1,15 @@
-name: Generate Video (Kling Pro)
-description: Generate a video from text and an optional input image with Kling Pro
+name: Generate Video with Kling
+description: Generate a video from text and an optional input image with Kling
 tip: |-
-  Kling is the highest quality video generation model available, especially for when dynamic motion is needed. For most image-to-video, you should *not* use this tool and use Runway instead. But if a user requests this tool or indicates they prefer quality over speed, use this tool.
-cost_estimate: 10 * duration
+  Use medium quality for most cases unless user indicates wanting high quality or speed. High quality is best, but slow and expensive. Low quality is fast and cheap. Note, only low and high quality support pure text-to-video, medium requires a starting image.
+cost_estimate: 'quality == "high" ? 25 * duration : 10 * duration'
 output_type: video
 base_model: kling
 replicate_model: kwaivgi/kling-v1.6-pro
+replicate_model_substitutions:
+  quality==high: kwaivgi/kling-v2.0
+  quality==medium: kwaivgi/kling-v1.6-pro
+  quality==low: kwaivgi/kling-v1.6-standard
 thumbnail: app/kling.mp4
 active: true
 visible: true
@@ -35,11 +39,25 @@ parameters:
     type: image
     label: Starting image
     description: First frame of the video to use as a keyframe
-    required: true
+    tip: |-
+      If using quality=medium, this is required. Pure txt2video is only supported for quality=high or quality=low.
+    # required: true
   end_image:
     type: image
     label: Ending image
-    description: Last frame of the video to use as a keyframe
+    description: Last frame of the video to use as a keyframe (quality=medium only, not supported for high or low)
+  quality:
+    label: Quality
+    type: string
+    required: true
+    default: medium
+    choices:
+      - high
+      - medium
+      - low
+    description: The quality of the Kling video model.
+    tip: |-
+      High is highest quality but slow and expensive. Medium is good for most cases. Low is faster and cheaper but lower quality.
   cfg_scale:
     type: float
     label: Guidance scale
