@@ -45,13 +45,15 @@ parameters:
     label: Quality
     type: string
     required: false
-    default: medium
+    default: auto
     choices:
       - high
       - medium
       - low
       - auto
     description: The quality of the edited image (high, medium, low, auto). Defaults to auto.
+    tip: |-
+      If the user desires a lot of text, detail, or is making an infographic or something else complicated, use high.
   size:
     label: Size
     type: string
