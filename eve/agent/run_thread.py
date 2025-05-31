@@ -2,6 +2,7 @@ import re
 import asyncio
 import traceback
 import functools
+from datetime import datetime
 from bson import ObjectId
 from typing import Optional, Dict, Any, List, Union, Literal
 from pydantic import BaseModel
@@ -255,6 +256,7 @@ async def async_prompt_thread(
 
             system_message = system_template.render(
                 name=agent.name,
+                current_date_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 persona=agent.persona,
                 knowledge=knowledge,
                 models_instructions=models_instructions,
