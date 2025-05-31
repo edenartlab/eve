@@ -173,10 +173,18 @@ def run(ctx, tool: str, db: str):
             key = arg[2:]
             if "=" in key:
                 key, value = key.split("=", 1)
-                args[key] = value
+                # Check if parameter is an array type and wrap single value
+                if key in tool.parameters and tool.parameters[key].get("type") == "array":
+                    args[key] = [value]
+                else:
+                    args[key] = value
             elif i + 1 < len(ctx.args) and not ctx.args[i + 1].startswith("--"):
                 value = ctx.args[i + 1]
-                args[key] = value
+                # Check if parameter is an array type and wrap single value
+                if key in tool.parameters and tool.parameters[key].get("type") == "array":
+                    args[key] = [value]
+                else:
+                    args[key] = value
                 i += 1
             else:
                 args[key] = True
