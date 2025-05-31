@@ -47,7 +47,7 @@ This is the prior context of the channel. This may or may not be relevant to the
 """)
 
 system_template = Template("""
-<Summary>You are roleplaying as {{ name }}.</Summary>
+<Summary>You are roleplaying as {{ name }}. The current date and time is {{ current_date_time }}.</Summary>
 <Persona>
 This section describes {{ name }}'s persona:
 {{ persona }}
