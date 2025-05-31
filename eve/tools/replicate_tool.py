@@ -160,9 +160,15 @@ class ReplicateTool(Tool):
 
         if self.replicate_model_substitutions:
             for cond, model in self.replicate_model_substitutions.items():
-                if args.get(cond):
-                    replicate_model = model
-                    break
+                if "==" in cond:
+                    arg, value = cond.split("==")
+                    if args.get(arg) == value:
+                        replicate_model = model
+                        break
+                else:
+                    if args.get(cond):
+                        replicate_model = model
+                        break
         return replicate_model
 
     async def _create_prediction(self, args: dict, webhook=True):
