@@ -1,5 +1,6 @@
 import os
 import time
+import logging
 from elevenlabs.client import ElevenLabs, Voice
 from bson.objectid import ObjectId
 import math
@@ -30,6 +31,8 @@ from ...tools.elevenlabs.handler import select_random_voice
 from ...tool import Tool
 from ...mongo import get_collection
 
+# Suppress verbose httpx logging - only show warnings and errors
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 NUM_PARALLEL_GENERATIONS = 2
 
@@ -191,7 +194,7 @@ def write_visual_prompts(
 
 async def handler(args: dict, user: str = None, agent: str = None):
     print("args", args)
-    
+
     elevenlabs = Tool.load("elevenlabs")
     musicgen = Tool.load("musicgen")
     flux = Tool.load("flux_dev")
@@ -335,6 +338,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
     
     random.shuffle(durations)
     num_clips = len(durations)
+    durations = durations[:num_clips]
 
     print("total duration", sum(durations), duration)
     print("durations", durations)
@@ -346,11 +350,6 @@ async def handler(args: dict, user: str = None, agent: str = None):
     print("Instructions", instructions)
     visual_prompts = write_visual_prompts(reel, num_clips, instructions)
     pprint(visual_prompts)
-
-
-
-    print("arg33s", args)
-
     
 
     async def generate_clip_with_retry(args, prompt, duration, ratio):
@@ -364,21 +363,20 @@ async def handler(args: dict, user: str = None, agent: str = None):
                 agent_id=None,  # We don't have agent context here
                 session_id=str(uuid.uuid4()),  # Generate unique session ID for this clip
             )
-            
+
             # Create LLM context metadata
             metadata = LLMContextMetadata(
                 session_id=str(uuid.uuid4()),
                 trace_name="clip_generation",
-                trace_id=f"clip_generation_{trace_metadata.session_id}",
+                # trace_id=f"clip_generation_{trace_metadata.session_id}",
                 generation_name="clip_generation",
-                generation_id=f"clip_generation_{trace_metadata.session_id}",
+                # generation_id=f"clip_generation_{trace_metadata.session_id}",
                 trace_metadata=trace_metadata
             )
             
             t1 = datetime.now()
             # Generate image
-            print(f"---> Generating image for clip with prompt: {prompt}")
-            print("THE ARGS ARE", args)
+            print(f"---> Generating image for clip with prompt: {prompt}: {args}")
             
             if video_model == "high" and not use_lora:
                 image_url = None
@@ -388,46 +386,77 @@ async def handler(args: dict, user: str = None, agent: str = None):
                 image_url = image['output'][0]["url"]
                 print(f"--> Completed image generation: {image_url}")
 
-            # Generate video
-            print(f" --> Generating video with model: {video_model}")
-            if video_model == "low":
-                video = await runway.async_run({
-                    "prompt_image": image_url,
-                    "prompt_text": prompt,
-                    "duration": duration,
-                    "ratio": ratio
-                })
-            elif video_model == "medium":
-                video = await kling_pro.async_run({
-                    "start_image": image_url,
-                    "prompt": prompt,
-                    "duration": duration,
-                    "aspect_ratio": ratio
-                })
-            elif video_model == "high":
-                print("THE RATIO IS", ratio)
-                if image_url:
-                    video = await veo2.async_run({
-                        "image": image_url,
-                        "prompt": prompt,
-                        "duration": duration,
-                        "aspect_ratio": ratio
-                    })
-                else:
-                    video = await veo2.async_run({
-                        # "image": image_url,
-                        "prompt": prompt,
-                        "duration": duration,
-                        "aspect_ratio": ratio
-                    })
+            # Generate video with fallback logic
+            fallback_map = {
+                "low": "medium",     # runway -> kling_pro
+                "medium": "low",     # kling_pro -> runway  
+                "high": "medium"     # veo2 -> kling_pro
+            }
             
+            async def generate_video_with_model(model_type, prompt, duration, ratio, image_url):
+                """Generate video with specified model type"""
+                print(f" --> Generating video with model: {model_type}")
+                
+                if model_type == "low":
+                    return await runway.async_run({
+                        "prompt_image": image_url,
+                        "prompt_text": prompt,
+                        "duration": duration,
+                        "ratio": ratio
+                    })
+                elif model_type == "medium":
+                    return await kling_pro.async_run({
+                        "start_image": image_url,
+                        "prompt": prompt,
+                        "duration": duration,
+                        "aspect_ratio": ratio
+                    })
+                elif model_type == "high":
+                    if image_url:
+                        return await veo2.async_run({
+                            "image": image_url,
+                            "prompt": prompt,
+                            "duration": duration,
+                            "aspect_ratio": ratio
+                        })
+                    else:
+                        return await veo2.async_run({
+                            "prompt": prompt,
+                            "duration": duration,
+                            "aspect_ratio": ratio
+                        })
+            
+            # Try primary model, fallback to alternative if it fails
+            video = None
+            current_model = video_model
+            
+            for attempt in range(2):  # Try primary, then fallback
+                video = await generate_video_with_model(current_model, prompt, duration, ratio, image_url)
+                
+                # Check if video generation was successful
+                if video and "output" in video and video["output"]:
+                    print(f" --> {current_model} model succeeded")
+                    break
+                else:
+                    error_msg = video.get("error", "Unknown error") if video else "No response"
+                    print(f" --> {current_model} model failed: {error_msg}")
+                    
+                    if attempt == 0 and current_model in fallback_map:
+                        current_model = fallback_map[current_model]
+                        print(f" --> Falling back to {current_model} model")
+                    else:
+                        raise Exception(f"All video generation attempts failed. Last error: {error_msg}")
+            
+            if not video or "output" not in video:
+                raise Exception("Video generation failed for unknown reasons")
+
             video = eden_utils.prepare_result(video)
             t2 = datetime.now()
             duration_seconds = (t2 - t1).total_seconds()
             
             # Log with proper session context
             print(f"*** Completed clip generation in {duration_seconds:.1f} seconds")
-            print(f"    Trace ID: {metadata.trace_id}")
+            # print(f"    Trace ID: {metadata.trace_id}")
             print(f"    Started: {t1.strftime('%H:%M:%S')}")
             print(f"    Ended: {t2.strftime('%H:%M:%S')}")
             print(f"    Model: {video_model}")
