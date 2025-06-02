@@ -52,6 +52,7 @@ class DeploymentSettingsTelegram(BaseModel):
 
 class DeploymentSettingsFarcaster(BaseModel):
     webhook_id: Optional[str] = None
+    auto_reply: Optional[bool] = False
 
 
 class DeploymentSettingsTwitter(BaseModel):
@@ -707,11 +708,15 @@ async def stop_client_farcaster(deployment: Deployment):
                     neynar_api_key = os.getenv("NEYNAR_API_KEY")
                     headers = {
                         "x-api-key": f"{neynar_api_key}",
+                        "Content-Type": "application/json",
                     }
 
+                    webhook_data = {"webhook_id": webhook_id}
+
                     async with session.delete(
-                        f"https://api.neynar.com/v2/farcaster/webhook/{webhook_id}",
+                        "https://api.neynar.com/v2/farcaster/webhook",
                         headers=headers,
+                        json=webhook_data,
                     ) as response:
                         if response.status == 200:
                             print(
