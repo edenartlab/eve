@@ -46,6 +46,8 @@ from eve.api.handlers import (
     handle_trigger_get,
     handle_agent_tools_update,
     handle_agent_tools_delete,
+    handle_farcaster_update,
+    handle_farcaster_emission,
 )
 from eve.api.api_requests import (
     CancelRequest,
@@ -228,10 +230,9 @@ async def updates_telegram(
 
 @web_app.post("/updates/platform/farcaster")
 async def updates_farcaster(
-    request: PlatformUpdateRequest,
-    _: dict = Depends(auth.authenticate_admin),
+    request: Request,
 ):
-    return {"status": "success"}
+    return await handle_farcaster_update(request)
 
 
 @web_app.post("/updates/platform/twitter")
@@ -256,6 +257,14 @@ async def emissions_telegram(
     _: dict = Depends(auth.authenticate_admin),
 ):
     return await handle_telegram_emission(request)
+
+
+@web_app.post("/emissions/platform/farcaster")
+async def emissions_farcaster(
+    request: Request,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    return await handle_farcaster_emission(request)
 
 
 @web_app.get("/triggers/{trigger_id}")
@@ -410,9 +419,7 @@ async def rotate_agent_metadata_fn():
         sentry_sdk.capture_exception(e)
 
 
-@app.function(
-    image=image, max_containers=10, timeout=3600
-)
+@app.function(image=image, max_containers=10, timeout=3600)
 @modal.concurrent(max_inputs=4)
 async def run(tool_key: str, args: dict, user: str = None, agent: str = None):
     handler = load_handler(tool_key)
@@ -420,9 +427,7 @@ async def run(tool_key: str, args: dict, user: str = None, agent: str = None):
     return eden_utils.upload_result(result)
 
 
-@app.function(
-    image=image, max_containers=10, timeout=3600
-)
+@app.function(image=image, max_containers=10, timeout=3600)
 @modal.concurrent(max_inputs=4)
 @task_handler_func
 async def run_task(tool_key: str, args: dict, user: str = None, agent: str = None):
@@ -430,9 +435,7 @@ async def run_task(tool_key: str, args: dict, user: str = None, agent: str = Non
     return await handler(args, user, agent)
 
 
-@app.function(
-    image=image, max_containers=10, timeout=3600
-)
+@app.function(image=image, max_containers=10, timeout=3600)
 @modal.concurrent(max_inputs=4)
 async def run_task_replicate(task: Task):
     task.update(status="running")
