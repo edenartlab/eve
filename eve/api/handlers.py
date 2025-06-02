@@ -318,15 +318,31 @@ async def handle_deployment_create(request: CreateDeploymentRequest):
 
 @handle_errors
 async def handle_deployment_update(request: UpdateDeploymentRequest):
-    print("deployment update request", request)
-
     deployment = Deployment.from_mongo(ObjectId(request.deployment_id))
     if not deployment:
         raise APIError(
             f"Deployment not found: {request.deployment_id}", status_code=404
         )
 
-    deployment.update(config=request.config.model_dump())
+    # Handle partial config updates by merging with existing config
+    if request.config:
+        existing_config = deployment.config or DeploymentConfig()
+        new_config = request.config.model_dump(exclude_unset=True)
+
+        # Merge the configs at the platform level
+        updated_config_dict = existing_config.model_dump() if existing_config else {}
+
+        for platform, platform_config in new_config.items():
+            if platform_config is not None:
+                if platform in updated_config_dict:
+                    # Merge platform-specific configs
+                    updated_config_dict[platform].update(platform_config)
+                else:
+                    # Add new platform config
+                    updated_config_dict[platform] = platform_config
+
+        # Convert to dict for MongoDB storage
+        deployment.update(config=updated_config_dict)
 
     return {"deployment_id": str(deployment.id)}
 
@@ -510,6 +526,8 @@ async def handle_farcaster_update(request: Request):
                 status_code=401,
                 content={"error": "Invalid signature or deployment not found"},
             )
+        if not deployment.config.farcaster.auto_reply:
+            return JSONResponse(status_code=200, content={"ok": True})
 
         # Create chat request similar to Telegram
         cast_hash = cast_data["hash"]
