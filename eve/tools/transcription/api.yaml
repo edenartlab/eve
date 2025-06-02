@@ -10,7 +10,7 @@ parameters:
   audio:
     type: audio
     label: Input audio
-    description: Audio to transcribe (e.g., mp3, mp4, wav, m4a). Max 25MB.
+    description: Audio to transcribe (e.g., mp3, mp4, wav, m4a). Max filesize is 25MB.
     required: true
   model:
     type: string
