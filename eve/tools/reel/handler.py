@@ -401,14 +401,14 @@ async def handler(args: dict, user: str = None, agent: str = None):
                     return await runway.async_run({
                         "prompt_image": image_url,
                         "prompt_text": prompt,
-                        "duration": duration,
+                        "duration": duration if duration in [10, 5] else 10,
                         "ratio": ratio
                     })
                 elif model_type == "medium":
                     return await kling_pro.async_run({
                         "start_image": image_url,
                         "prompt": prompt,
-                        "duration": duration,
+                        "duration": duration if duration in [10, 5] else 10,
                         "aspect_ratio": ratio
                     })
                 elif model_type == "high":
@@ -416,13 +416,13 @@ async def handler(args: dict, user: str = None, agent: str = None):
                         return await veo2.async_run({
                             "image": image_url,
                             "prompt": prompt,
-                            "duration": duration,
+                            "duration": duration if duration < 8 else 8,
                             "aspect_ratio": ratio
                         })
                     else:
                         return await veo2.async_run({
                             "prompt": prompt,
-                            "duration": duration,
+                            "duration": duration if duration < 8 else 8,
                             "aspect_ratio": ratio
                         })
             
