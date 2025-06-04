@@ -5,7 +5,7 @@ import random
 import re
 import time
 import traceback
-from fastapi import BackgroundTasks, requests
+from fastapi import requests
 import pytz
 from typing import List, Optional
 import uuid
@@ -36,9 +36,38 @@ from eve.agent.session.models import LLMConfig
 from eve.agent.session.session_prompts import system_template
 
 
+def check_session_budget(session: Session):
+    if session.budget:
+        if session.budget.token_budget:
+            if session.budget.tokens_spent >= session.budget.token_budget:
+                raise ValueError("Session token budget exceeded")
+        if session.budget.manna_budget:
+            if session.budget.manna_spent >= session.budget.manna_budget:
+                raise ValueError("Session manna budget exceeded")
+        if session.budget.turn_budget:
+            if session.budget.turns_spent >= session.budget.turn_budget:
+                raise ValueError("Session turn budget exceeded")
+
+
+def update_session_budget(
+    session: Session,
+    tokens_spent: Optional[int] = None,
+    manna_spent: Optional[float] = None,
+    turns_spent: Optional[int] = None,
+):
+    if session.budget:
+        if tokens_spent:
+            session.budget.tokens_spent += tokens_spent
+        if manna_spent:
+            session.budget.manna_spent += manna_spent
+        if turns_spent:
+            session.budget.turns_spent += turns_spent
+
+
 def validate_prompt_session(session: Session, context: PromptSessionContext):
     if session.status == "archived":
         raise ValueError("Session is archived")
+    check_session_budget(session)
 
 
 def parse_mentions(content: str) -> List[str]:
@@ -75,7 +104,7 @@ async def determine_actor(
             actor_id = context.actor_agent_id
         else:
             raise ValueError(f"Actor @{context.actor_agent_id} not found in session")
-    elif session.autonomy_settings:
+    elif session.autonomy_settings and session.autonomy_settings.auto_reply:
         actor_id = determine_actor_from_actor_selection_method(session)
     elif len(session.agents) > 1:
         mentions = parse_mentions(context.message.content)
@@ -221,6 +250,8 @@ async def process_tool_call(
             sender=ObjectId(llm_context.metadata.trace_metadata.agent_id),
             name=tool_call.tool,
             tool_call_id=tool_call.id,
+            task=result.get("task"),
+            cost=result.get("cost"),
             role="tool",
             content=json.dumps(serialize_for_json(result)),
         )
@@ -242,7 +273,14 @@ async def process_tool_call(
             ):
                 assistant_message.tool_calls[tool_call_index].status = "completed"
                 assistant_message.tool_calls[tool_call_index].result = tool_result
+                assistant_message.tool_calls[tool_call_index].cost = result.get(
+                    "cost", 0
+                )
+                assistant_message.tool_calls[tool_call_index].task = result.get("task")
                 assistant_message.save()
+
+            update_session_budget(session, manna_spent=result.get("cost", 0))
+            session.save()
 
             return SessionUpdate(
                 type=UpdateType.TOOL_COMPLETE,
@@ -338,12 +376,14 @@ async def async_prompt_session(
         else None,
     )
     prompt_session_finished = False
+    tokens_spent = 0
     while not prompt_session_finished:
         if stream:
             # For streaming, we need to collect the content as it comes in
             content = ""
             tool_calls_dict = {}  # Track tool calls by index to accumulate arguments
             stop_reason = None
+            tokens_spent = 0  # Initialize tokens_spent for streaming
 
             async for chunk in async_prompt_stream(llm_context):
                 if hasattr(chunk, "choices") and chunk.choices:
@@ -369,6 +409,10 @@ async def async_prompt_session(
                                 )
                     if choice.finish_reason:
                         stop_reason = choice.finish_reason
+
+                # Capture token usage from streaming response
+                if hasattr(chunk, "usage") and chunk.usage:
+                    tokens_spent = chunk.usage.total_tokens
 
             # Convert accumulated tool calls to ToolCall objects
             tool_calls = None
@@ -413,9 +457,11 @@ async def async_prompt_session(
                 tool_calls=response.tool_calls,
             )
             stop_reason = response.stop
+            tokens_spent = response.tokens_spent
 
         assistant_message.save()
         session.messages.append(assistant_message.id)
+        update_session_budget(session, tokens_spent=tokens_spent, turns_spent=1)
         session.save()
         llm_context.messages.append(assistant_message)
         yield SessionUpdate(
@@ -476,13 +522,6 @@ async def _run_prompt_session_internal(
         session, llm_context, actor, stream=stream
     ):
         yield format_session_update(update, context)
-
-    if session.autonomy_settings and session.autonomy_settings.reply_interval:
-        background_tasks = BackgroundTasks()
-        background_tasks.add_task(
-            queue_prompt_session,
-            session,
-        )
 
 
 async def run_prompt_session_stream(context: PromptSessionContext):
