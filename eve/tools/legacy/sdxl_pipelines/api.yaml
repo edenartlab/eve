@@ -74,7 +74,7 @@ parameters:
     description: Which Stable Diffusion checkpoint to use
     choices: [eden:eden-v1, juggernaut_XL2]
     choices_labels: [eden:eden-v1, Juggernaut_XL2]
-    default: Juggernaut_XL2
+    default: juggernaut_XL2
   
   use_lora:
     type: boolean
