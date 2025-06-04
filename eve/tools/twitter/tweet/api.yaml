@@ -11,6 +11,11 @@ parameters:
     label: Tweet
     description: The text content of the tweet. Must be *maximum* 280 characters.
     required: true
+  reply_to:
+    type: string
+    label: Reply to tweet
+    description: Optional, ID of the tweet you want to reply to
+    tip: Only include this if you are replying to a tweet. If blank, the tweet will be a new post.
   images:
     type: array
     label: Images
