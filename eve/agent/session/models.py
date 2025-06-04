@@ -233,6 +233,15 @@ class LLMContext:
     metadata: LLMContextMetadata = None
 
 
+class ActorSelectionMethod(Enum):
+    RANDOM = "random"
+
+
+class SessionAutonomySettings(BaseModel):
+    reply_interval: int = 0
+    actor_selection_method: ActorSelectionMethod = ActorSelectionMethod.RANDOM
+
+
 @Collection("sessions")
 class Session(Document):
     owner: ObjectId
@@ -244,6 +253,8 @@ class Session(Document):
     scenario: Optional[str] = None
     budget: Optional[float] = None
     spent: Optional[float] = 0
+    autonomy_settings: Optional[SessionAutonomySettings] = None
+    last_actor_id: Optional[ObjectId] = None
 
 
 @dataclass
