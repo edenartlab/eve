@@ -1,7 +1,11 @@
 import asyncio
 import json
+import os
+import random
 import re
+import time
 import traceback
+from fastapi import BackgroundTasks, requests
 import pytz
 from typing import List, Optional
 import uuid
@@ -10,6 +14,7 @@ from bson import ObjectId
 from sentry_sdk import capture_exception
 from eve.agent.agent import Agent
 from eve.agent.session.models import (
+    ActorSelectionMethod,
     ChatMessage,
     LLMTraceMetadata,
     PromptSessionContext,
@@ -40,12 +45,38 @@ def parse_mentions(content: str) -> List[str]:
     return re.findall(r"@(\w+)", content)
 
 
+def determine_actor_from_actor_selection_method(session: Session) -> Optional[Agent]:
+    selection_method = session.autonomy_settings.actor_selection_method
+    if (
+        session.autonomy_settings.actor_selection_method
+        == ActorSelectionMethod.RANDOM_EXCLUDE_LAST
+    ):
+        if not session.last_actor_id:
+            return random.choice(session.agents)
+        last_actor_id = session.last_actor_id
+        eligible_actors = [
+            agent_id for agent_id in session.agents if agent_id != last_actor_id
+        ]
+        return random.choice(eligible_actors)
+    elif selection_method == ActorSelectionMethod.RANDOM:
+        return random.choice(session.agents)
+    else:
+        raise ValueError(f"Invalid actor selection method: {selection_method}")
+
+
 async def determine_actor(
     session: Session, context: PromptSessionContext
 ) -> Optional[Agent]:
     actor_id = None
     if context.actor_agent_id:
-        actor_id = context.actor_agent_id
+        # Default to the actor specified in the context if passed
+        requested_actor = ObjectId(context.actor_agent_id)
+        if requested_actor in session.agents:
+            actor_id = context.actor_agent_id
+        else:
+            raise ValueError(f"Actor @{context.actor_agent_id} not found in session")
+    elif session.autonomy_settings:
+        actor_id = determine_actor_from_actor_selection_method(session)
     elif len(session.agents) > 1:
         mentions = parse_mentions(context.message.content)
         if len(mentions) > 1:
@@ -67,6 +98,8 @@ async def determine_actor(
         return None
 
     actor = Agent.from_mongo(actor_id)
+    session.last_actor_id = actor.id
+    session.save()
     return actor
 
 
@@ -101,13 +134,24 @@ def build_system_message(session: Session, actor: Agent, context: PromptSessionC
         name=actor.name,
         current_date_time=datetime.now(pytz.utc).strftime("%Y-%m-%d %H:%M:%S"),
         persona=actor.persona,
-        # TODO: add knowledge and models instructions
-        knowledge="",
-        models_instructions="",
+        scenario=session.scenario,
     )
     return ChatMessage(
         session=session.id, sender=ObjectId(actor.id), role="system", content=content
     )
+
+
+def add_user_message(session: Session, context: PromptSessionContext):
+    new_message = ChatMessage(
+        session=session.id,
+        sender=ObjectId(context.initiating_user_id),
+        role="user",
+        content=context.message.content,
+    )
+    new_message.save()
+    session.messages.append(new_message.id)
+    session.save()
+    return new_message
 
 
 async def build_llm_context(
@@ -117,18 +161,10 @@ async def build_llm_context(
     messages = [system_message]
     tools = actor.get_tools(cache=True, auth_user=context.initiating_user_id)
     messages.extend(select_messages(session, context))
-    messages = convert_message_roles(messages, session.agents[0])
-    new_message = ChatMessage(
-        session=session.id,
-        sender=ObjectId(context.initiating_user_id),
-        role="user",
-        content=context.message.content,
-        attachments=context.message.attachments,
-    )
-    new_message.save()
-    session.messages.append(new_message.id)
-    session.save()
-    messages.append(new_message)
+    messages = convert_message_roles(messages, actor.id)
+    if context.initiating_user_id:
+        new_message = add_user_message(session, context)
+        messages.append(new_message)
     return LLMContext(
         messages=messages,
         tools=tools,
@@ -441,6 +477,13 @@ async def _run_prompt_session_internal(
     ):
         yield format_session_update(update, context)
 
+    if session.autonomy_settings and session.autonomy_settings.reply_interval:
+        background_tasks = BackgroundTasks()
+        background_tasks.add_task(
+            queue_prompt_session,
+            session,
+        )
+
 
 async def run_prompt_session_stream(context: PromptSessionContext):
     try:
@@ -461,3 +504,13 @@ async def run_prompt_session_stream(context: PromptSessionContext):
 async def run_prompt_session(context: PromptSessionContext):
     async for data in _run_prompt_session_internal(context, stream=False):
         await emit_update(context.update_config, data)
+
+
+async def queue_prompt_session(session: Session, context: PromptSessionContext):
+    time.sleep(session.autonomy_settings.reply_interval)
+    await requests.post(
+        f"{os.getenv('EDEN_API_URL')}/sessions/prompt",
+        json={
+            "session_id": str(session.id),
+        },
+    )
