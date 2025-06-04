@@ -37,6 +37,7 @@ class ToolCall(BaseModel):
     tool: str
     args: Dict[str, Any]
     task: Optional[ObjectId] = None
+    cost: Optional[float] = None
     status: Optional[
         Literal["pending", "running", "completed", "failed", "cancelled"]
     ] = None
@@ -60,6 +61,8 @@ class ChatMessage(Document):
     content: str = ""
     name: Optional[str] = None
     tool_call_id: Optional[str] = None
+    task: Optional[ObjectId] = None
+    cost: Optional[float] = None
     channel: Optional[Channel] = None
     reply_to: Optional[ObjectId] = None
     sender_name: Optional[str] = None
@@ -239,12 +242,22 @@ class ActorSelectionMethod(Enum):
 
 
 class SessionAutonomySettings(BaseModel):
+    auto_reply: bool = False
     reply_interval: int = 0
     actor_selection_method: ActorSelectionMethod = ActorSelectionMethod.RANDOM
 
     @field_serializer("actor_selection_method")
     def serialize_actor_selection_method(self, value: ActorSelectionMethod) -> str:
         return value.value
+
+
+class SessionBudget(BaseModel):
+    token_budget: Optional[int] = None
+    manna_budget: Optional[float] = None
+    turn_budget: Optional[int] = None
+    tokens_spent: Optional[int] = 0
+    manna_spent: Optional[float] = 0
+    turns_spent: Optional[int] = 0
 
 
 @Collection("sessions")
@@ -256,10 +269,9 @@ class Session(Document):
     messages: List[ObjectId] = Field(default_factory=list)
     title: Optional[str] = None
     scenario: Optional[str] = None
-    budget: Optional[float] = None
-    spent: Optional[float] = 0
     autonomy_settings: Optional[SessionAutonomySettings] = None
     last_actor_id: Optional[ObjectId] = None
+    budget: SessionBudget = SessionBudget()
 
 
 @dataclass
@@ -294,3 +306,4 @@ class LLMResponse:
     content: Optional[str] = None
     tool_calls: Optional[List[ToolCall]] = None
     stop: Optional[str] = None
+    tokens_spent: Optional[int] = None
