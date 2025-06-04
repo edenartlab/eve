@@ -1,5 +1,6 @@
 import asyncio
 import json
+import random
 import re
 import traceback
 import pytz
@@ -10,6 +11,7 @@ from bson import ObjectId
 from sentry_sdk import capture_exception
 from eve.agent.agent import Agent
 from eve.agent.session.models import (
+    ActorSelectionMethod,
     ChatMessage,
     LLMTraceMetadata,
     PromptSessionContext,
@@ -45,7 +47,19 @@ async def determine_actor(
 ) -> Optional[Agent]:
     actor_id = None
     if context.actor_agent_id:
+        # Default to the actor specified in the context if passed
         actor_id = context.actor_agent_id
+    elif (
+        session.autonomy_settings
+        and session.autonomy_settings.actor_selection_method
+        == ActorSelectionMethod.RANDOM
+    ):
+        # choose a random actor from the session if it is autonomous
+        last_actor_id = session.last_actor_id
+        eligible_actors = [
+            agent_id for agent_id in session.agents if agent_id != last_actor_id
+        ]
+        actor_id = random.choice(eligible_actors)
     elif len(session.agents) > 1:
         mentions = parse_mentions(context.message.content)
         if len(mentions) > 1:
@@ -67,6 +81,8 @@ async def determine_actor(
         return None
 
     actor = Agent.from_mongo(actor_id)
+    session.last_actor_id = actor_id
+    session.save()
     return actor
 
 
