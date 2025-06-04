@@ -2,6 +2,7 @@ import asyncio
 import json
 import re
 import traceback
+import pytz
 from typing import List, Optional
 import uuid
 from datetime import datetime
@@ -98,7 +99,7 @@ def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
 def build_system_message(session: Session, actor: Agent, context: PromptSessionContext):
     content = system_template.render(
         name=actor.name,
-        current_date_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        current_date_time=datetime.now(pytz.utc).strftime("%Y-%m-%d %H:%M:%S"),
         persona=actor.persona,
         # TODO: add knowledge and models instructions
         knowledge="",
