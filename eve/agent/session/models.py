@@ -4,7 +4,7 @@ import os
 from typing import List, Optional, Dict, Any, Literal
 from bson import ObjectId
 import magic
-from pydantic import ConfigDict, Field, BaseModel
+from pydantic import ConfigDict, Field, BaseModel, field_serializer
 from dataclasses import dataclass, field
 
 from eve.eden_utils import download_file, image_to_base64
@@ -235,11 +235,16 @@ class LLMContext:
 
 class ActorSelectionMethod(Enum):
     RANDOM = "random"
+    RANDOM_EXCLUDE_LAST = "random_exclude_last"
 
 
 class SessionAutonomySettings(BaseModel):
     reply_interval: int = 0
     actor_selection_method: ActorSelectionMethod = ActorSelectionMethod.RANDOM
+
+    @field_serializer("actor_selection_method")
+    def serialize_actor_selection_method(self, value: ActorSelectionMethod) -> str:
+        return value.value
 
 
 @Collection("sessions")
