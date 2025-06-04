@@ -220,11 +220,13 @@ class X:
             logging.error(f"Video upload failed with state: {state}")
             return None
 
-    def post(self, text: str, media_ids: list[str] = None):
-        """Posts a tweet."""
+    def post(self, text: str, media_ids: list[str] = None, reply: str = None):
+        """Posts a tweet or reply."""
         json = {"text": text}
         if media_ids:
             json["media"] = {"media_ids": media_ids}
+        if reply:
+            json["reply"] = {"in_reply_to_tweet_id": reply}
         response = self._make_request(
             "post",
             "https://api.twitter.com/2/tweets",

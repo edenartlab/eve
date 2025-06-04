@@ -13,12 +13,12 @@ async def handler(args: dict, user: str = None, agent: str = None):
     x = X(deployment)
     if args.get("images"):
         media_ids = [x.tweet_media(image) for image in args.get("images", [])]
-        response = x.post(text=args.get("content") or "", media_ids=media_ids)
+        response = x.post(text=args.get("content") or "", media_ids=media_ids, reply=args.get("reply_to"))
     elif args.get("video"):
         media_ids = [x.tweet_media(args.get("video"))]
-        response = x.post(text=args.get("content") or "", media_ids=media_ids)
+        response = x.post(text=args.get("content") or "", media_ids=media_ids, reply=args.get("reply_to"))
     else:
-        response = x.post(text=args.get("content"))
+        response = x.post(text=args.get("content"), reply=args.get("reply_to"))
     tweet_id = response.get("data", {}).get("id")
     url = f"https://x.com/{deployment.config.twitter.username}/status/{tweet_id}"
     return {"output": [{
