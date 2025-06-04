@@ -51,7 +51,8 @@ class DeploymentSettingsTelegram(BaseModel):
 
 
 class DeploymentSettingsFarcaster(BaseModel):
-    pass
+    webhook_id: Optional[str] = None
+    auto_reply: Optional[bool] = False
 
 
 class DeploymentSettingsTwitter(BaseModel):
@@ -70,7 +71,7 @@ class DeploymentSecretsTelegram(BaseModel):
 
 class DeploymentSecretsFarcaster(BaseModel):
     mnemonic: str
-    neynar_webhook_secret: str
+    neynar_webhook_secret: Optional[str] = None
 
 
 class DeploymentSecretsTwitter(BaseModel):
@@ -304,6 +305,10 @@ async def modify_secrets(secrets: DeploymentSecrets, platform: ClientType):
     if platform == ClientType.TELEGRAM:
         webhook_secret = python_secrets.token_urlsafe(32)
         secrets.telegram.webhook_secret = webhook_secret
+    elif platform == ClientType.FARCASTER:
+        webhook_secret = python_secrets.token_urlsafe(32)
+        if not secrets.farcaster.neynar_webhook_secret:
+            secrets.farcaster.neynar_webhook_secret = webhook_secret
     elif platform == ClientType.DISCORD:
         headers = {"Authorization": f"Bot {secrets.discord.token}"}
         async with aiohttp.ClientSession() as session:
@@ -350,7 +355,7 @@ async def deploy_client(
         await deploy_client_telegram(secrets, str(deployment.id))
 
     elif platform == ClientType.FARCASTER:
-        pass
+        await deploy_client_farcaster(deployment, secrets)
 
     elif platform == ClientType.TWITTER:
         await deploy_client_twitter(deployment, secrets)
@@ -516,6 +521,91 @@ async def deploy_client_twitter(deployment: Deployment, secrets: DeploymentSecre
     agent.save()
 
 
+async def deploy_client_farcaster(deployment: Deployment, secrets: DeploymentSecrets):
+    """
+    Register webhook with Neynar and verify Farcaster credentials.
+    """
+    try:
+        # Verify credentials by testing the Warpcast client
+        from farcaster import Warpcast
+
+        client = Warpcast(mnemonic=secrets.farcaster.mnemonic)
+
+        # Test the credentials by getting user info
+        try:
+            user_info = client.get_me()
+            print(f"Verified Farcaster credentials for user: {user_info}")
+        except Exception as e:
+            raise Exception(f"Invalid Farcaster credentials: {str(e)}")
+
+        # Register webhook with Neynar
+        webhook_url = f"{os.getenv('EDEN_API_URL')}/updates/platform/farcaster"
+
+        async with aiohttp.ClientSession() as session:
+            # Get Neynar API key from environment
+            neynar_api_key = os.getenv("NEYNAR_API_KEY")
+            if not neynar_api_key:
+                raise Exception("NEYNAR_API_KEY not found in environment")
+
+            headers = {
+                "x-api-key": f"{neynar_api_key}",
+                "Content-Type": "application/json",
+            }
+
+            webhook_data = {
+                "name": f"eden-{deployment.id}",
+                "url": webhook_url,
+                "subscription": {
+                    "cast.created": {
+                        "mentioned_fids": [
+                            user_info.fid
+                        ]  # Listen to casts that mention this user
+                    }
+                },
+            }
+
+            async with session.post(
+                "https://api.neynar.com/v2/farcaster/webhook",
+                headers=headers,
+                json=webhook_data,
+            ) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    raise Exception(f"Failed to register Neynar webhook: {error_text}")
+
+                webhook_response = await response.json()
+                webhook_id = webhook_response.get("webhook", {}).get("webhook_id")
+                webhook_secret = (
+                    webhook_response.get("webhook", {})
+                    .get("secrets", [{}])[0]
+                    .get("value")
+                )
+
+                if not webhook_id:
+                    raise Exception("No webhook_id in response")
+
+                # Update the webhook secret in deployment secrets
+                secrets.farcaster.neynar_webhook_secret = webhook_secret
+
+                # Store webhook ID in deployment for later cleanup
+                if not deployment.config:
+                    deployment.config = DeploymentConfig()
+                if not deployment.config.farcaster:
+                    deployment.config.farcaster = DeploymentSettingsFarcaster()
+
+                deployment.config.farcaster.webhook_id = webhook_id
+                deployment.secrets = secrets
+                deployment.save()
+
+                print(
+                    f"Registered Neynar webhook {webhook_id} for deployment {deployment.id}"
+                )
+
+    except Exception as e:
+        print(f"Failed to deploy Farcaster client: {e}")
+        raise Exception(f"Failed to deploy Farcaster client: {str(e)}")
+
+
 async def stop_client(agent: Agent, platform: ClientType):
     """Stop a Modal client. For Discord HTTP, notify the gateway service via Ably."""
     if platform == ClientType.DISCORD:
@@ -528,6 +618,11 @@ async def stop_client(agent: Agent, platform: ClientType):
         deployment = Deployment.load(agent=agent.id, platform=platform.value)
         if deployment:
             await stop_client_telegram(deployment)
+    elif platform == ClientType.FARCASTER:
+        # Find the deployment
+        deployment = Deployment.load(agent=agent.id, platform=platform.value)
+        if deployment:
+            await stop_client_farcaster(deployment)
     elif platform == ClientType.TWITTER:
         await stop_client_twitter(agent)
     elif platform in modal_platforms:
@@ -601,3 +696,38 @@ async def stop_client_telegram(deployment: Deployment):
             )
         except Exception as e:
             print(f"Failed to notify gateway service for Telegram unregistration: {e}")
+
+
+async def stop_client_farcaster(deployment: Deployment):
+    """Stop Farcaster client by unregistering webhook from Neynar"""
+    if deployment and deployment.config and deployment.config.farcaster:
+        webhook_id = getattr(deployment.config.farcaster, "webhook_id", None)
+        if webhook_id:
+            try:
+                async with aiohttp.ClientSession() as session:
+                    neynar_api_key = os.getenv("NEYNAR_API_KEY")
+                    headers = {
+                        "x-api-key": f"{neynar_api_key}",
+                        "Content-Type": "application/json",
+                    }
+
+                    webhook_data = {"webhook_id": webhook_id}
+
+                    async with session.delete(
+                        "https://api.neynar.com/v2/farcaster/webhook",
+                        headers=headers,
+                        json=webhook_data,
+                    ) as response:
+                        if response.status == 200:
+                            print(
+                                f"Successfully unregistered Neynar webhook {webhook_id}"
+                            )
+                            # Clear the webhook_id from config after successful deletion
+                            deployment.config.farcaster.webhook_id = None
+                            deployment.save()
+                        else:
+                            error_text = await response.text()
+                            print(f"Failed to unregister webhook: {error_text}")
+
+            except Exception as e:
+                print(f"Error unregistering Neynar webhook: {e}")

@@ -404,18 +404,17 @@ def get_workflows():
         )
     else:
         print(f"====> Running tests for all workflows: {' | '.join(workflow_names)}")
-
+    
     # Then filter based on status if TEST_INACTIVE is not set
     if not os.getenv("TEST_INACTIVE"):
         filtered_names = []
         for name in workflow_names:
-            try:
-                tool = Tool.from_yaml(f"/root/workspace/workflows/{name}/api.yaml")
-                if tool.active:
-                    filtered_names.append(name)
-            except Exception as e:
-                print(f"Warning: Error reading api.yaml for {name}: {e}")
-                continue
+            tool = Tool.from_yaml(f"/root/workspace/workflows/{name}/api.yaml")
+            if tool.active:
+                filtered_names.append(name)
+            else:
+                print(f"Workflow {name} is inactive, skipping")
+
         workflow_names = filtered_names
 
     if not workflow_names:

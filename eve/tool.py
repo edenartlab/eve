@@ -622,7 +622,11 @@ def get_api_files(root_dir: str = None) -> List[str]:
 
     api_files = {}
     for root_dir in root_dirs:
-        for root, _, files in os.walk(root_dir):
+        for root, dirs, files in os.walk(root_dir):
+            # Skip inactive_workflows directory and all its subdirectories
+            if "inactive_workflows" in root:
+                continue
+                
             if "api.yaml" in files and "test.json" in files:
                 api_file = os.path.join(root, "api.yaml")
                 key = os.path.relpath(root).split("/")[-1]

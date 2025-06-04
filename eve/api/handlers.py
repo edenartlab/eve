@@ -318,15 +318,31 @@ async def handle_deployment_create(request: CreateDeploymentRequest):
 
 @handle_errors
 async def handle_deployment_update(request: UpdateDeploymentRequest):
-    print("deployment update request", request)
-
     deployment = Deployment.from_mongo(ObjectId(request.deployment_id))
     if not deployment:
         raise APIError(
             f"Deployment not found: {request.deployment_id}", status_code=404
         )
 
-    deployment.update(config=request.config.model_dump())
+    # Handle partial config updates by merging with existing config
+    if request.config:
+        existing_config = deployment.config or DeploymentConfig()
+        new_config = request.config.model_dump(exclude_unset=True)
+
+        # Merge the configs at the platform level
+        updated_config_dict = existing_config.model_dump() if existing_config else {}
+
+        for platform, platform_config in new_config.items():
+            if platform_config is not None:
+                if platform in updated_config_dict:
+                    # Merge platform-specific configs
+                    updated_config_dict[platform].update(platform_config)
+                else:
+                    # Add new platform config
+                    updated_config_dict[platform] = platform_config
+
+        # Convert to dict for MongoDB storage
+        deployment.update(config=updated_config_dict)
 
     return {"deployment_id": str(deployment.id)}
 
@@ -460,6 +476,204 @@ async def handle_trigger_get(trigger_id: str):
         "update_config": trigger.update_config,
         "schedule": trigger.schedule,
     }
+
+
+@handle_errors
+async def handle_farcaster_update(request: Request):
+    """Handle webhook updates from Neynar for Farcaster"""
+    try:
+        import hmac
+        import hashlib
+
+        # Verify Neynar webhook signature
+        body = await request.body()
+        signature = request.headers.get("X-Neynar-Signature")
+        if not signature:
+            return JSONResponse(
+                status_code=401, content={"error": "Missing signature header"}
+            )
+
+        # Find deployment by webhook secret - we'll store this in the deployment
+        # For now, let's extract the webhook secret from headers or find another way
+        webhook_data = await request.json()
+        cast_data = webhook_data.get("data", {})
+
+        if not cast_data or "hash" not in cast_data:
+            return JSONResponse(status_code=400, content={"error": "Invalid cast data"})
+
+        # For now, we'll need to find the deployment differently
+        # We could use the cast author or have Neynar include a custom field
+        # Let's assume we can match by the webhook signature for now
+        deployment = None
+        for d in Deployment.find({"platform": "farcaster"}):
+            if (
+                d.secrets
+                and d.secrets.farcaster
+                and d.secrets.farcaster.neynar_webhook_secret
+            ):
+                # Verify signature
+                computed_signature = hmac.new(
+                    d.secrets.farcaster.neynar_webhook_secret.encode(),
+                    body,
+                    hashlib.sha512,
+                ).hexdigest()
+                if hmac.compare_digest(computed_signature, signature):
+                    deployment = d
+                    break
+
+        if not deployment:
+            return JSONResponse(
+                status_code=401,
+                content={"error": "Invalid signature or deployment not found"},
+            )
+        if not deployment.config.farcaster.auto_reply:
+            return JSONResponse(status_code=200, content={"ok": True})
+
+        # Create chat request similar to Telegram
+        cast_hash = cast_data["hash"]
+        author = cast_data["author"]
+        author_username = author["username"]
+        author_fid = author["fid"]
+
+        # Get or create user
+        user = User.from_farcaster(author_fid, author_username)
+
+        # Get agent
+        agent = Agent.from_mongo(deployment.agent)
+        if not agent:
+            return JSONResponse(status_code=404, content={"error": "Agent not found"})
+
+        # Get or create thread
+        thread_key = f"farcaster-{author_fid}-{cast_hash}"
+        thread = agent.request_thread(key=thread_key)
+
+        chat_request_data = {
+            "user_id": str(user.id),
+            "agent_id": str(agent.id),
+            "thread_id": str(thread.id),
+            "force_reply": True,
+            "user_message": {
+                "content": cast_data.get("text", ""),
+                "name": author_username,
+            },
+            "update_config": {
+                "deployment_id": str(deployment.id),
+                "update_endpoint": f"{os.getenv('EDEN_API_URL')}/emissions/platform/farcaster",
+                "farcaster_hash": cast_hash,
+                "farcaster_author_fid": author_fid,
+            },
+        }
+
+        # Make async HTTP POST to /chat
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{os.getenv('EDEN_API_URL')}/chat",
+                json=chat_request_data,
+                headers={
+                    "Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}",
+                    "Content-Type": "application/json",
+                },
+            ) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    return JSONResponse(
+                        status_code=500,
+                        content={
+                            "error": f"Failed to process chat request: {error_text}"
+                        },
+                    )
+
+        return JSONResponse(status_code=200, content={"ok": True})
+
+    except Exception as e:
+        logger.error("Error processing Farcaster update", exc_info=True)
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@handle_errors
+async def handle_farcaster_emission(request: Request):
+    """Handle updates from async_prompt_thread for Farcaster"""
+    try:
+        data = await request.json()
+        print("FARCASTER EMISSION DATA:", data)
+
+        update_type = data.get("type")
+        update_config = data.get("update_config", {})
+        deployment_id = update_config.get("deployment_id")
+        cast_hash = update_config.get("farcaster_hash")
+        author_fid = update_config.get("farcaster_author_fid")
+
+        if not deployment_id or not cast_hash or not author_fid:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": "Deployment ID, cast hash, and author FID are required"
+                },
+            )
+
+        # Find deployment
+        deployment = Deployment.from_mongo(ObjectId(deployment_id))
+        if not deployment:
+            return JSONResponse(
+                status_code=404, content={"error": "No Farcaster deployment found"}
+            )
+
+        # Initialize Farcaster client
+        from farcaster import Warpcast
+
+        client = Warpcast(mnemonic=deployment.secrets.farcaster.mnemonic)
+
+        if update_type == UpdateType.ASSISTANT_MESSAGE:
+            content = data.get("content")
+            if content:
+                try:
+                    client.post_cast(
+                        text=content,
+                        parent={"hash": cast_hash, "fid": author_fid},
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to post cast: {str(e)}")
+                    return JSONResponse(
+                        status_code=500,
+                        content={"error": f"Failed to post cast: {str(e)}"},
+                    )
+
+        elif update_type == UpdateType.TOOL_COMPLETE:
+            result = data.get("result", {})
+            if not result:
+                return JSONResponse(status_code=200, content={"ok": True})
+
+            result["result"] = prepare_result(result["result"])
+            outputs = result["result"][0]["output"]
+            urls = [output["url"] for output in outputs[:4]]  # Get up to 4 URLs
+
+            try:
+                client.post_cast(
+                    text="",
+                    embeds=urls,
+                    parent={"hash": cast_hash, "fid": author_fid},
+                )
+            except Exception as e:
+                logger.error(f"Failed to post cast with embeds: {str(e)}")
+                return JSONResponse(
+                    status_code=500, content={"error": f"Failed to post cast: {str(e)}"}
+                )
+
+        elif update_type == UpdateType.ERROR:
+            error_msg = data.get("error", "Unknown error occurred")
+            try:
+                client.post_cast(
+                    text=f"Error: {error_msg}",
+                    parent={"hash": cast_hash, "fid": author_fid},
+                )
+            except Exception as e:
+                logger.error(f"Failed to post error cast: {str(e)}")
+
+        return JSONResponse(status_code=200, content={"ok": True})
+
+    except Exception as e:
+        logger.error("Error handling Farcaster emission", exc_info=True)
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 
 @handle_errors
