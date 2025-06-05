@@ -378,7 +378,8 @@ async def handle_trigger_create(
 
     trigger_id = f"{str(user.id)}_{request.agent_id}_{int(time.time())}"
 
-    await create_chat_trigger(
+    background_tasks.add_task(
+        create_chat_trigger,
         schedule=request.schedule.to_cron_dict(),
         trigger_id=trigger_id,
     )
