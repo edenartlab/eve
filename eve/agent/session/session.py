@@ -3,9 +3,8 @@ import json
 import os
 import random
 import re
-import time
 import traceback
-from fastapi import BackgroundTasks, requests
+from fastapi import BackgroundTasks
 import pytz
 from typing import List, Optional
 import uuid
