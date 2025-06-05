@@ -5,7 +5,7 @@ import random
 import re
 import time
 import traceback
-from fastapi import requests
+from fastapi import BackgroundTasks, requests
 import pytz
 from typing import List, Optional
 import uuid
@@ -67,7 +67,15 @@ def update_session_budget(
 def validate_prompt_session(session: Session, context: PromptSessionContext):
     if session.status == "archived":
         raise ValueError("Session is archived")
-    check_session_budget(session)
+    has_budget = session.budget and (
+        session.budget.token_budget
+        or session.budget.manna_budget
+        or session.budget.turn_budget
+    )
+    if session.autonomy_settings.auto_reply and not has_budget:
+        raise ValueError("Session cannot have auto-reply enabled without a set budget")
+    if has_budget:
+        check_session_budget(session)
 
 
 def parse_mentions(content: str) -> List[str]:
@@ -510,7 +518,9 @@ def format_session_update(update: SessionUpdate, context: PromptSessionContext) 
 
 
 async def _run_prompt_session_internal(
-    context: PromptSessionContext, stream: bool = False
+    context: PromptSessionContext,
+    background_tasks: BackgroundTasks,
+    stream: bool = False,
 ):
     """Internal function that handles both streaming and non-streaming"""
     session = context.session
@@ -523,10 +533,20 @@ async def _run_prompt_session_internal(
     ):
         yield format_session_update(update, context)
 
+    if session.autonomy_settings.auto_reply:
+        print("***debug*** adding background task", session)
+        background_tasks.add_task(
+            _queue_session_action_fastify_background_task, session
+        )
 
-async def run_prompt_session_stream(context: PromptSessionContext):
+
+async def run_prompt_session_stream(
+    context: PromptSessionContext, background_tasks: BackgroundTasks
+):
     try:
-        async for data in _run_prompt_session_internal(context, stream=True):
+        async for data in _run_prompt_session_internal(
+            context, background_tasks, stream=True
+        ):
             yield data
     except Exception as e:
         traceback.print_exc()
@@ -540,16 +560,37 @@ async def run_prompt_session_stream(context: PromptSessionContext):
 
 
 @handle_errors
-async def run_prompt_session(context: PromptSessionContext):
-    async for data in _run_prompt_session_internal(context, stream=False):
+async def run_prompt_session(
+    context: PromptSessionContext, background_tasks: BackgroundTasks
+):
+    async for data in _run_prompt_session_internal(
+        context, background_tasks, stream=False
+    ):
         await emit_update(context.update_config, data)
 
 
-async def queue_prompt_session(session: Session, context: PromptSessionContext):
-    time.sleep(session.autonomy_settings.reply_interval)
-    await requests.post(
-        f"{os.getenv('EDEN_API_URL')}/sessions/prompt",
-        json={
-            "session_id": str(session.id),
-        },
+async def _queue_session_action_fastify_background_task(session: Session):
+    import httpx
+
+    print("***debug*** _queue_session_action_fastify_background_task", session)
+    await asyncio.sleep(session.autonomy_settings.reply_interval)
+    print(
+        "***debug*** _queue_session_action_fastify_background_task wait done", session
     )
+
+    url = f"{os.getenv('EDEN_API_URL')}/sessions/prompt"
+    payload = {"session_id": str(session.id)}
+    headers = {"Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}"}
+
+    print(f"***debug*** Making HTTP request to {url} with payload {payload}")
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, headers=headers, json=payload)
+            print(
+                f"***debug*** HTTP response: {response.status_code} - {response.text}"
+            )
+            response.raise_for_status()
+    except Exception as e:
+        print(f"***debug*** HTTP request failed: {str(e)}")
+        capture_exception(e)

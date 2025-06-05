@@ -1019,7 +1019,7 @@ async def handle_prompt_session(
 
         async def event_generator():
             try:
-                async for data in run_prompt_session_stream(context):
+                async for data in run_prompt_session_stream(context, background_tasks):
                     yield f"data: {json.dumps({'event': 'update', 'data': data})}\n\n"
                 yield f"data: {json.dumps({'event': 'done', 'data': ''})}\n\n"
             except Exception as e:
@@ -1038,6 +1038,7 @@ async def handle_prompt_session(
     background_tasks.add_task(
         run_prompt_session,
         context=context,
+        background_tasks=background_tasks,
     )
 
     return {"session_id": str(session.id)}
