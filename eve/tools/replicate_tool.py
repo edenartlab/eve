@@ -31,7 +31,6 @@ class ReplicateTool(Tool):
         if self.version:
             args = self._format_args_for_replicate(args)
             print("args", args)
-            # raise Exception("Not implem123123222nted")
             prediction = await self._create_prediction(args, webhook=False)
             prediction.wait()
             if self.output_handler == "eden":
@@ -129,7 +128,6 @@ class ReplicateTool(Tool):
                         if args[field]
                         else None
                     )
-                    print("searcg lora doc", lora_doc)
                     if lora_doc:
                         lora_url = s3.get_full_url(lora_doc.get("checkpoint"))
                         lora_name = lora_doc.get("name")
