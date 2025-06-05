@@ -70,6 +70,12 @@ async def async_run_tool_call(
     )
 
     result = await tool.async_wait(task)
+
+    # Add task.cost and task.id to the result object
+    if isinstance(result, dict):
+        result["cost"] = getattr(task, "cost", None)
+        result["task"] = getattr(task, "id", None)
+
     return result
 
 
@@ -100,6 +106,7 @@ async def async_prompt_litellm(
         content=response.choices[0].message.content or "",  # content can't be None
         tool_calls=tool_calls,
         stop=response.choices[0].finish_reason,
+        tokens_spent=response.usage.total_tokens,
     )
 
 

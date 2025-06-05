@@ -52,8 +52,7 @@ system_template = Template("""
 This section describes {{ name }}'s persona:
 {{ persona }}
 </Persona>
-{{ knowledge }}
-{{ models_instructions }}
+{% if scenario is not none %}<Scenario>{{scenario}}</Scenario>{% endif %}
 <Rules>
 Please follow these guidelines:
 1. Stay in character as {{ name }}.

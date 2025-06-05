@@ -378,7 +378,8 @@ async def handle_trigger_create(
 
     trigger_id = f"{str(user.id)}_{request.agent_id}_{int(time.time())}"
 
-    await create_chat_trigger(
+    background_tasks.add_task(
+        create_chat_trigger,
         schedule=request.schedule.to_cron_dict(),
         trigger_id=trigger_id,
     )
@@ -1010,6 +1011,7 @@ async def handle_prompt_session(
     context = PromptSessionContext(
         session=session,
         initiating_user_id=request.user_id,
+        actor_agent_id=request.actor_agent_id,
         message=request.message,
         update_config=request.update_config,
     )
@@ -1018,7 +1020,7 @@ async def handle_prompt_session(
 
         async def event_generator():
             try:
-                async for data in run_prompt_session_stream(context):
+                async for data in run_prompt_session_stream(context, background_tasks):
                     yield f"data: {json.dumps({'event': 'update', 'data': data})}\n\n"
                 yield f"data: {json.dumps({'event': 'done', 'data': ''})}\n\n"
             except Exception as e:
@@ -1037,6 +1039,7 @@ async def handle_prompt_session(
     background_tasks.add_task(
         run_prompt_session,
         context=context,
+        background_tasks=background_tasks,
     )
 
     return {"session_id": str(session.id)}
