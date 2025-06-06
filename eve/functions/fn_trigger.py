@@ -3,12 +3,17 @@ import requests
 import asyncio
 from datetime import datetime, timezone
 
-trigger_message = """<AdminMessage>
+trigger_message = """<SystemMessage>
 You have received a request from an admin to run a scheduled task. The instructions for the task are below. In your response, do not ask for clarification, just do the task. Do not acknowledge receipt of this message, as no one else in the chat can see it and the admin is absent. Simply follow whatever instructions are below.
-</AdminMessage>
+</SystemMessage>
 <Task>
 {task}
 </Task>"""
+
+trigger_message_post = """
+<PostInstruction>
+{post_instruction}
+</PostInstruction>"""
 
 
 async def trigger_fn():
@@ -27,16 +32,23 @@ async def trigger_fn():
 
     trigger = response.json()
 
-    user_message = {
-        "content": trigger_message.format(task=trigger["message"]),
-    }
+    user_message = trigger_message.format(task=trigger["message"])
+
+    update_config = trigger.get("update_config", None)
+    if trigger.get("platform") == "discord":
+        update_config = None
+        discord_channel_id = update_config.get("discord_channel_id", None)
+        if discord_channel_id:
+            user_message += trigger_message_post.format(
+                post_instruction=f'When you have completed the task, write out a single summary of the result of the task. Make sure to include the URLs to any relevant media you created. Do not include intermediate results, just the media relevant to the task. Then post it on Discord using the discord_post tool to channel "{discord_channel_id}"'
+            )
 
     chat_request = {
         "user_id": trigger["user"],
         "agent_id": trigger["agent"],
         "thread_id": trigger["thread"],
-        "user_message": user_message,
-        "update_config": trigger.get("update_config", None),
+        "user_message": {"content": user_message},
+        "update_config": update_config,
         "force_reply": True,
     }
 
