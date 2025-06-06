@@ -12,11 +12,14 @@ You have received a request from an admin to run a scheduled task. The instructi
 
 trigger_message_post = """
 <PostInstruction>
-{post_instruction}
+When you have completed the task, write out a single summary of the result of the task. Make sure to include the URLs to any relevant media you created. Do not include intermediate results, just the media relevant to the task. Then post it on {platform} using the discord_post tool to channel "{platform_channel_id}"
 </PostInstruction>"""
 
 
 async def trigger_fn():
+    print("---123-23-132")
+    print("Starting trigger function!!!")
+    
     trigger_id = os.getenv("TRIGGER_ID")
     api_url = os.getenv("EDEN_API_URL")
 
@@ -35,13 +38,29 @@ async def trigger_fn():
     user_message = trigger_message.format(task=trigger["message"])
 
     update_config = trigger.get("update_config", None)
-    if trigger.get("platform") == "discord":
+
+    print("Trigger platform: ", trigger.get("platform"))
+    print("Update config: ", update_config)
+
+
+    print(trigger)
+    discord_channel_id = update_config.get("discord_channel_id", None)
+    telegram_channel_id = update_config.get("telegram_channel_id", None)
+
+    if discord_channel_id:
         update_config = None
-        discord_channel_id = update_config.get("discord_channel_id", None)
-        if discord_channel_id:
-            user_message += trigger_message_post.format(
-                post_instruction=f'When you have completed the task, write out a single summary of the result of the task. Make sure to include the URLs to any relevant media you created. Do not include intermediate results, just the media relevant to the task. Then post it on Discord using the discord_post tool to channel "{discord_channel_id}"'
-            )
+        user_message += trigger_message_post.format(
+            platform="Discord",
+            platform_channel_id=discord_channel_id,
+        )
+    elif telegram_channel_id:
+        update_config = None
+        user_message += trigger_message_post.format(
+            platform="Telegram",
+            platform_channel_id=telegram_channel_id,
+        )
+    else:
+        print("No platform specified")
 
     chat_request = {
         "user_id": trigger["user"],
