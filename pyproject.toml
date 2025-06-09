@@ -56,6 +56,7 @@ dependencies = [
     "google-genai==1.16.1",
     "langfuse>=2.60.7",
     "litellm>=1.71.2",
+    "tweepy>=4.15.0",
 ]
 
 [build-system]
