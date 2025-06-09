@@ -47,7 +47,7 @@ image = (
     )
     .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
     .env({"DB": db})
-    .env({"LOCAL_API_URL": os.getenv("LOCAL_API_URL")})
+    .env({"LOCAL_API_URL": os.getenv("LOCAL_API_URL") or ""})
 )
 
 
@@ -450,7 +450,10 @@ class DiscordGatewayClient:
     @property
     def api_url(self) -> str:
         """Get the API URL, preferring LOCAL_API_URL if set."""
-        return os.getenv("LOCAL_API_URL") or os.getenv("EDEN_API_URL")
+        if os.getenv("LOCAL_API_URL") != "":
+            return os.getenv("LOCAL_API_URL")
+        else:
+            return os.getenv("EDEN_API_URL")
 
     async def heartbeat_loop(self):
         while True:
