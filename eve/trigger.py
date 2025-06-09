@@ -58,7 +58,6 @@ def create_image(trigger_id: str):
         .run_commands(["playwright install"])
         .env({"DB": db})
         .env({"TRIGGER_ID": trigger_id})
-        .add_local_dir("/root/eve", "/root/eve")
     )
 
 
