@@ -319,6 +319,7 @@ numpy==2.2.0
     # via shapely
 oauthlib==3.2.2
     # via requests-oauthlib
+    # via tweepy
 openai==1.75.0
     # via eve
     # via instructor
@@ -460,9 +461,11 @@ requests==2.32.3
     # via langfuse
     # via requests-oauthlib
     # via tiktoken
+    # via tweepy
     # via web3
 requests-oauthlib==2.0.0
     # via eve
+    # via tweepy
 rich==13.9.4
     # via instructor
     # via modal
@@ -527,6 +530,8 @@ tqdm==4.67.1
     # via huggingface-hub
     # via openai
     # via proglog
+tweepy==4.15.0
+    # via eve
 typer==0.15.1
     # via instructor
     # via modal
