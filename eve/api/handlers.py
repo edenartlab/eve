@@ -845,7 +845,6 @@ async def handle_discord_emission(request: Request):
     """Handle updates from async_prompt_thread for Discord"""
     try:
         data = await request.json()
-        print("DISCORD EMISSION DATA:", data)
 
         update_type = data.get("type")
         update_config = data.get("update_config", {})
@@ -925,18 +924,19 @@ async def handle_discord_emission(request: Request):
                         }
                     ]
 
-            async with session.post(
-                f"https://discord.com/api/v10/channels/{channel_id}/messages",
-                headers=headers,
-                json=payload,
-            ) as response:
-                if response.status != 200:
-                    error_text = await response.text()
-                    logger.error(f"Failed to send Discord message: {error_text}")
-                    return JSONResponse(
-                        status_code=500,
-                        content={"error": f"Failed to send message: {error_text}"},
-                    )
+            if payload["content"]:
+                async with session.post(
+                    f"https://discord.com/api/v10/channels/{channel_id}/messages",
+                    headers=headers,
+                    json=payload,
+                ) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        logger.error(f"Failed to send Discord message: {error_text}")
+                        return JSONResponse(
+                            status_code=500,
+                            content={"error": f"Failed to send message: {error_text}"},
+                        )
 
         return JSONResponse(status_code=200, content={"ok": True})
 
