@@ -1,0 +1,59 @@
+name: Flux Kontext
+description: Generate an image with the initial image as context or edit the image in accordance with the prompt.
+cost_estimate: '(fast ? 4 : 8) * n_samples'
+output_type: image
+visible: true
+active: true
+base_model: flux-dev
+replicate_model: black-forest-labs/flux-kontext-max
+replicate_model_substitutions:
+  fast: black-forest-labs/flux-kontext-pro
+thumbnail: app/flux-dev.jpg
+handler: replicate
+parameters:
+  prompt:
+    type: string
+    label: Prompt
+    description: Instructions
+    tip: |-
+      Text description of what you want to generate, or the instruction on how to edit the given image.
+    required: true
+  init_image:
+    type: image
+    label: Input image
+    description: Input image. Aspect ratio will match this.
+    required: true
+    tip: |-
+      Providing an input image will activate prompt-guided img2img. This can be used to inject color patterns or rough shapes into the final generation. The result can be very sensitive to prompt_strength values.
+    alias: input_image
+  aspect_ratio:
+    type: string
+    label: Aspect ratio
+    description: Aspect ratio width/height
+    default: "1:1"
+    choices: ["21:9", "16:9", "3:2", "4:3", "5:4", "1:1", "4:5", "3:4", "2:3", "9:16", "9:21"]
+    required: true
+  seed:
+    type: integer
+    label: Seed
+    description: Set random seed for reproducibility. If blank, will be set to a random value.
+    tip: |-
+      You should only set this if you want to start from/copy the seed of a previous image. Unless one is specified, you should leave this blank!
+    minimum: 0
+    maximum: 2147483647
+    default: random
+  fast:
+    type: boolean
+    label: Fast
+    description: Use the fast (pro) model, otherwise use max (high quality but slower)
+    default: false
+  n_samples:
+    type: integer
+    label: Number of samples
+    description: Number of samples to generate
+    tip: |-
+      Will produce n_samples variations using the same prompt.
+    default: 1
+    minimum: 1
+    maximum: 4
+    alias: num_outputs
