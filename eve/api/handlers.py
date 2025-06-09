@@ -743,7 +743,8 @@ async def handle_trigger_create(
 async def handle_trigger_delete(request: DeleteTriggerRequest):
     trigger = Trigger.from_mongo(request.id)
     await delete_trigger(trigger.trigger_id)
-    trigger.delete()
+    trigger.status = "finished"
+    trigger.save()
     return {"id": str(trigger.id)}
 
 

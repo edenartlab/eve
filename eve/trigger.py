@@ -3,12 +3,13 @@ import os
 import subprocess
 import pytz
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Literal, Optional
 from bson import ObjectId
 import modal
 import modal.runner
 
 from eve.api.api_requests import CronSchedule
+from eve.api.errors import handle_errors
 from eve.functions.fn_trigger import trigger_fn
 from eve.mongo import Collection, Document
 
@@ -31,6 +32,7 @@ class Trigger(Document):
     schedule: Dict[str, Any]
     message: str
     update_config: Optional[Dict[str, Any]]
+    status: Optional[Literal["active", "paused", "finished"]] = "active"
 
     def __init__(self, **data):
         if isinstance(data.get("user"), str):
@@ -43,6 +45,8 @@ class Trigger(Document):
             data["channel"] = None
         if data.get("update_config") is None:
             data["update_config"] = None
+        if data.get("status") is None:
+            data["status"] = "active"
         super().__init__(**data)
 
 
@@ -58,10 +62,12 @@ def create_image(trigger_id: str):
     )
 
 
+@handle_errors
 async def create_chat_trigger(
     schedule: CronSchedule,
     trigger_id: str,
 ) -> None:
+    print(f"Creating chat trigger {trigger_id} with schedule {schedule}")
     """Creates a Modal scheduled function with the provided cron schedule"""
     with modal.enable_output():
         schedule_dict = schedule
