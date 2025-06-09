@@ -42,6 +42,7 @@ from eve.api.handlers import (
     handle_telegram_update,
     handle_trigger_create,
     handle_trigger_delete,
+    handle_trigger_stop,
     handle_twitter_update,
     handle_trigger_get,
     handle_agent_tools_update,
