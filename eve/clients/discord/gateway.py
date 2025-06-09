@@ -48,6 +48,7 @@ image = (
     .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
     .env({"DB": db})
     .env({"LOCAL_API_URL": os.getenv("LOCAL_API_URL") or ""})
+    .add_local_python_source("eve", ignore=[])
 )
 
 
