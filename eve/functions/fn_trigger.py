@@ -3,12 +3,17 @@ import requests
 import asyncio
 from datetime import datetime, timezone
 
-trigger_message = """<AdminMessage>
+trigger_message = """<SystemMessage>
 You have received a request from an admin to run a scheduled task. The instructions for the task are below. In your response, do not ask for clarification, just do the task. Do not acknowledge receipt of this message, as no one else in the chat can see it and the admin is absent. Simply follow whatever instructions are below.
-</AdminMessage>
+</SystemMessage>
 <Task>
 {task}
 </Task>"""
+
+trigger_message_post = """
+<PostInstruction>
+When you have completed the task, write out a single summary of the result of the task. Make sure to include the URLs to any relevant media you created. Do not include intermediate results, just the media relevant to the task. Then post it on {platform} using the discord_post tool to channel "{platform_channel_id}". Do not forget to do this at the end.
+</PostInstruction>"""
 
 
 async def trigger_fn():
@@ -27,16 +32,33 @@ async def trigger_fn():
 
     trigger = response.json()
 
-    user_message = {
-        "content": trigger_message.format(task=trigger["message"]),
-    }
+    user_message = trigger_message.format(task=trigger["message"])
+    update_config = trigger.get("update_config", None)
+
+    if update_config:
+        discord_channel_id = update_config.get("discord_channel_id", None)
+        telegram_channel_id = update_config.get("telegram_channel_id", None)
+        if discord_channel_id:
+            update_config = None
+            user_message += trigger_message_post.format(
+                platform="Discord",
+                platform_channel_id=discord_channel_id,
+            )
+        elif telegram_channel_id:
+            update_config = None
+            user_message += trigger_message_post.format(
+                platform="Telegram",
+                platform_channel_id=telegram_channel_id,
+            )
+        else:
+            print("No platform specified")
 
     chat_request = {
         "user_id": trigger["user"],
         "agent_id": trigger["agent"],
         "thread_id": trigger["thread"],
-        "user_message": user_message,
-        "update_config": trigger.get("update_config", None),
+        "user_message": {"content": user_message},
+        "update_config": update_config,
         "force_reply": True,
     }
 

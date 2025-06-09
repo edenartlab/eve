@@ -440,12 +440,20 @@ async def run_task(tool_key: str, args: dict, user: str = None, agent: str = Non
 async def run_task_replicate(task: Task):
     task.update(status="running")
     tool = Tool.load(task.tool)
+    n_samples = task.args.get("n_samples", 1)
     args = tool.prepare_args(task.args)
     args = tool._format_args_for_replicate(args)
-    replicate_model = tool._get_replicate_model(task.args)
+    replicate_model = tool._get_replicate_model(args)
     try:
-        output = await replicate.async_run(replicate_model, input=args)
-        result = replicate_update_task(task, "succeeded", None, output, "normal")
+        outputs = []
+        for i in range(n_samples):
+            task_args = args.copy()
+            if "seed" in task_args:
+                task_args["seed"] = task_args["seed"] + i
+            output = await replicate.async_run(replicate_model, input=task_args)
+            outputs.append(output)
+        outputs = flatten_list(outputs)
+        result = replicate_update_task(task, "succeeded", None, outputs, "normal")
     except Exception as e:
         print(f"Error running replicate: {e}")
         sentry_sdk.capture_exception(e)
@@ -591,3 +599,8 @@ async def cleanup_stale_busy_states():
     except Exception as e:
         logger.error(f"Error in cleanup_stale_busy_states job: {e}", exc_info=True)
         sentry_sdk.capture_exception(e)
+
+
+def flatten_list(seq):
+    """Flattens a list that is either flat or nested one level deep."""
+    return [x for item in seq for x in (item if isinstance(item, list) else [item])]

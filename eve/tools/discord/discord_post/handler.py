@@ -5,7 +5,7 @@ import discord
 
 
 async def handler(args: dict, user: str = None, agent: str = None):
-    agent = Agent.load(args["agent"])
+    agent = Agent.from_mongo(args["agent"])
     deployment = Deployment.load(agent=agent.id, platform="discord")
     if not deployment:
         raise Exception("No valid Discord deployments found")
