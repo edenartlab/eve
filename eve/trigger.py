@@ -126,7 +126,7 @@ async def create_chat_trigger(
         )
 
 
-async def delete_trigger(trigger_id: str) -> None:
+async def stop_trigger(trigger_id: str) -> None:
     """Deletes a Modal scheduled function"""
     try:
         result = subprocess.run(

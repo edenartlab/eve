@@ -107,7 +107,7 @@ async def trigger_fn():
                 f"Trigger end date {end_date} has passed. Deleting trigger {trigger_id}"
             )
             response = requests.post(
-                f"{api_url}/triggers/delete",
+                f"{api_url}/triggers/stop",
                 headers={"Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}"},
                 json={"id": trigger["id"]},
             )

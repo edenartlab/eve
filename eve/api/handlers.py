@@ -42,12 +42,11 @@ from eve.deploy import (
     ClientType,
     DeploymentSecrets,
     DeploymentSettingsFarcaster,
-    modal_platforms,
     deploy_client_modal,
 )
 from eve.eden_utils import prepare_result
 from eve.tools.replicate_tool import replicate_update_task
-from eve.trigger import create_chat_trigger, delete_trigger, Trigger
+from eve.trigger import create_chat_trigger, Trigger, stop_trigger
 from eve.agent.llm import UpdateType
 from eve.agent.run_thread import async_prompt_thread
 from eve.mongo import get_collection, serialize_document
@@ -740,11 +739,25 @@ async def handle_trigger_create(
 
 
 @handle_errors
-async def handle_trigger_delete(request: DeleteTriggerRequest):
+async def handle_trigger_stop(request: DeleteTriggerRequest):
     trigger = Trigger.from_mongo(request.id)
-    await delete_trigger(trigger.trigger_id)
+    if not trigger:
+        raise APIError(f"Trigger not found: {request.id}", status_code=404)
+    await stop_trigger(trigger.trigger_id)
     trigger.status = "finished"
     trigger.save()
+
+    return {"id": str(request.id)}
+
+
+@handle_errors
+async def handle_trigger_delete(request: DeleteTriggerRequest):
+    trigger = Trigger.from_mongo(request.id)
+    if trigger.status != "finished":
+        await stop_trigger(trigger.trigger_id)
+
+    trigger.delete()
+
     return {"id": str(trigger.id)}
 
 
