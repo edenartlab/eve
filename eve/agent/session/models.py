@@ -62,12 +62,17 @@ class EdenMessageAgentData(BaseModel):
     id: ObjectId
     name: str
     avatar: Optional[str] = None
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class EdenMessageData(BaseModel):
     message_type: EdenMessageType
     agents: Optional[List[EdenMessageAgentData]] = None
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    @field_serializer("message_type")
+    def serialize_message_type(self, value: EdenMessageType) -> str:
+        return value.value
 
 
 @Collection("messages")

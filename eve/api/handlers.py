@@ -9,7 +9,14 @@ from fastapi import BackgroundTasks, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 import aiohttp
 
-from eve.agent.session.models import PromptSessionContext, Session
+from eve.agent.session.models import (
+    PromptSessionContext,
+    Session,
+    ChatMessage,
+    EdenMessageType,
+    EdenMessageData,
+    EdenMessageAgentData,
+)
 from eve.agent.session.session import run_prompt_session, run_prompt_session_stream
 from eve.agent.tasks import async_title_thread
 from eve.api.errors import handle_errors, APIError
@@ -1304,6 +1311,31 @@ async def handle_agent_tools_delete(request: AgentToolsDeleteRequest):
     return {"tools": tools}
 
 
+def create_eden_message(
+    session_id: ObjectId, message_type: EdenMessageType, agents: List[Agent]
+) -> ChatMessage:
+    """Create an eden message for agent operations"""
+    eden_message = ChatMessage(
+        session=session_id,
+        sender=ObjectId("000000000000000000000000"),  # System sender
+        role="eden",
+        content="",
+        eden_message_data=EdenMessageData(
+            message_type=message_type,
+            agents=[
+                EdenMessageAgentData(
+                    id=agent.id,
+                    name=agent.name or agent.username,
+                    avatar=agent.userImage,
+                )
+                for agent in agents
+            ],
+        ),
+    )
+    eden_message.save()
+    return eden_message
+
+
 def setup_session(session_id: str, user_id: str, request: PromptSessionRequest = None):
     if session_id:
         if request and request.creation_args:
@@ -1322,15 +1354,27 @@ def setup_session(session_id: str, user_id: str, request: PromptSessionRequest =
         )
 
     # Create new session
+    agent_object_ids = [ObjectId(agent_id) for agent_id in request.creation_args.agents]
     session = Session(
         owner=ObjectId(request.creation_args.owner_id or user_id),
-        agents=[ObjectId(agent_id) for agent_id in request.creation_args.agents],
+        agents=agent_object_ids,
         title=request.creation_args.title,
         scenario=request.creation_args.scenario,
         budget=request.creation_args.budget,
         status="active",
     )
     session.save()
+
+    # Create eden message for initial agent additions
+    agents = [Agent.from_mongo(agent_id) for agent_id in agent_object_ids]
+    agents = [agent for agent in agents if agent]  # Filter out None values
+    if agents:
+        eden_message = create_eden_message(
+            session.id, EdenMessageType.AGENT_ADD, agents
+        )
+        session.messages.append(eden_message.id)
+        session.save()
+
     return session
 
 
