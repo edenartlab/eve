@@ -41,10 +41,6 @@ def construct_observability_metadata(context: LLMContext):
     return metadata
 
 
-def construct_messages(context: LLMContext) -> List[dict]:
-    return [msg.openai_schema() for msg in context.messages]
-
-
 def construct_tools(context: LLMContext) -> Optional[List[dict]]:
     if not context.tools:
         return None
@@ -82,10 +78,9 @@ async def async_run_tool_call(
 async def async_prompt_litellm(
     context: LLMContext,
 ) -> LLMResponse:
-    messages = construct_messages(context)
     response = completion(
         model=context.config.model,
-        messages=messages,
+        messages=context.messages,
         metadata=construct_observability_metadata(context),
         tools=construct_tools(context),
     )
@@ -115,7 +110,7 @@ async def async_prompt_stream_litellm(
 ) -> AsyncGenerator[str, None]:
     response = completion(
         model=context.config.model,
-        messages=construct_messages(context),
+        messages=context.messages,
         metadata=construct_observability_metadata(context),
         tools=construct_tools(context),
         stream=True,
