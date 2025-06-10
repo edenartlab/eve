@@ -144,7 +144,7 @@ def select_messages(
 ):
     messages = ChatMessage.get_collection()
     selected_messages = list(
-        messages.find({"session": session.id})
+        messages.find({"session": session.id, "role": {"$ne": "eden"}})
         .sort("createdAt", -1)
         .limit(selection_limit)
     )

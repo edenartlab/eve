@@ -53,11 +53,40 @@ class Channel(Document):
     key: str
 
 
+class EdenMessageType(Enum):
+    AGENT_ADD = "agent_add"
+    AGENT_REMOVE = "agent_remove"
+
+
+class EdenMessageAgentData(BaseModel):
+    id: ObjectId
+    name: str
+    avatar: Optional[str] = None
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+class EdenMessageData(BaseModel):
+    message_type: EdenMessageType
+    agents: Optional[List[EdenMessageAgentData]] = None
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    @field_serializer("message_type")
+    def serialize_message_type(self, value: EdenMessageType) -> str:
+        return value.value
+
+
 @Collection("messages")
 class ChatMessage(Document):
     session: ObjectId
     sender: ObjectId
-    role: Literal["user", "assistant", "system", "tool"]
+    role: Literal[
+        "user",
+        "assistant",
+        "system",
+        "tool",
+        "eden",
+    ]
+    eden_message_data: Optional[EdenMessageData] = None
     content: str = ""
     name: Optional[str] = None
     tool_call_id: Optional[str] = None
