@@ -54,7 +54,6 @@ async def trigger_fn():
             print("No platform specified")
 
     prompt_session_request = {
-        "session_id": trigger.get("session", None),
         "message": {"content": user_message},
         "update_config": update_config,
         "creation_args": {
@@ -62,6 +61,8 @@ async def trigger_fn():
             "agents": [trigger["agent"]],
         },
     }
+    if trigger.get("session"):
+        prompt_session_request["session_id"] = trigger["session"]
 
     response = requests.post(
         f"{api_url}/sessions/prompt",
