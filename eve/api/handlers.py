@@ -19,7 +19,7 @@ from eve.agent.session.models import (
     Trigger,
 )
 from eve.agent.session.session import run_prompt_session, run_prompt_session_stream
-from eve.agent.session.triggers import create_trigger_fn, stop_trigger
+from eve.agent.session.triggers import stop_trigger
 from eve.api.errors import handle_errors, APIError
 from eve.api.api_requests import (
     CancelRequest,
@@ -691,31 +691,32 @@ async def handle_deployment_delete(request: DeleteDeploymentRequest):
 async def handle_trigger_create(
     request: CreateTriggerRequest, background_tasks: BackgroundTasks
 ):
-    agent = Agent.from_mongo(ObjectId(request.agent_id))
+    agent = Agent.from_mongo(ObjectId(request.agent))
     if not agent:
-        raise APIError(f"Agent not found: {request.agent_id}", status_code=404)
+        raise APIError(f"Agent not found: {request.agent}", status_code=404)
 
-    user = User.from_mongo(ObjectId(agent.owner))
+    user = User.from_mongo(ObjectId(request.user))
     if not user:
-        raise APIError(f"User not found: {agent.owner}", status_code=404)
+        raise APIError(f"User not found: {request.user}", status_code=404)
 
-    trigger_id = f"{str(user.id)}_{request.agent_id}_{int(time.time())}"
+    trigger_id = f"{str(user.id)}_{int(time.time())}"
 
-    background_tasks.add_task(
-        create_trigger_fn,
-        schedule=request.schedule.to_cron_dict(),
-        trigger_id=trigger_id,
-    )
+    # background_tasks.add_task(
+    #     create_trigger_fn,
+    #     schedule=request.schedule.to_cron_dict(),
+    #     trigger_id=trigger_id,
+    # )
 
     trigger = Trigger(
         trigger_id=trigger_id,
         user=ObjectId(user.id),
         agent=ObjectId(agent.id),
         schedule=request.schedule.to_cron_dict(),
-        message=request.message,
+        instruction=request.instruction,
         update_config=request.update_config.model_dump()
         if request.update_config
         else None,
+        session=ObjectId(request.session) if request.session else None,
     )
     trigger.save()
 
@@ -740,8 +741,8 @@ async def handle_trigger_stop(request: DeleteTriggerRequest):
 @handle_errors
 async def handle_trigger_delete(request: DeleteTriggerRequest):
     trigger = Trigger.from_mongo(request.id)
-    if trigger.status != "finished":
-        await stop_trigger(trigger.trigger_id)
+    # if trigger.status != "finished":
+    #     await stop_trigger(trigger.trigger_id)
 
     trigger.delete()
 
@@ -791,7 +792,7 @@ async def handle_trigger_get(trigger_id: str):
         "user": str(trigger.user),
         "agent": str(trigger.agent),
         "session": str(trigger.session),
-        "message": trigger.message,
+        "instruction": trigger.instruction,
         "update_config": trigger.update_config,
         "schedule": trigger.schedule,
     }

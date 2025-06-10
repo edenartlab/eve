@@ -73,8 +73,13 @@ async def create_trigger_fn(
                     f"Error converting timezone: {str(e)}. Using original values."
                 )
 
+        # Get day_of_month, fallback to day for backwards compatibility
+        day_of_month = schedule_dict.get("day_of_month") or schedule_dict.get(
+            "day", "*"
+        )
+
         # Create cron string with potentially adjusted values
-        cron_string = f"{minute} {hour} {schedule_dict.get('day', '*')} {schedule_dict.get('month', '*')} {schedule_dict.get('day_of_week', '*')}"
+        cron_string = f"{minute} {hour} {day_of_month} {schedule_dict.get('month', '*')} {schedule_dict.get('day_of_week', '*')}"
 
         trigger_app.function(
             schedule=modal.Cron(cron_string),

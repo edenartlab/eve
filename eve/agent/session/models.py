@@ -294,7 +294,7 @@ class Trigger(Document):
     trigger_id: str
     user: ObjectId
     schedule: Dict[str, Any]
-    message: str
+    instruction: str
     agent: Optional[ObjectId] = None
     session: Optional[ObjectId] = None
     update_config: Optional[Dict[str, Any]] = None
