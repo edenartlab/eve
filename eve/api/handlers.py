@@ -1318,7 +1318,12 @@ def create_eden_message(
     return eden_message
 
 
-def setup_session(session_id: str, user_id: str, request: PromptSessionRequest = None):
+def setup_session(
+    session_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    request: PromptSessionRequest = None,
+):
+    print("**debug** SETUP SESSION:", session_id, user_id, request)
     if session_id:
         session = Session.from_mongo(ObjectId(session_id))
         if not session:
@@ -1359,6 +1364,7 @@ def setup_session(session_id: str, user_id: str, request: PromptSessionRequest =
 async def handle_prompt_session(
     request: PromptSessionRequest, background_tasks: BackgroundTasks
 ):
+    print("**debug** HANDLE PROMPT SESSION:", request)
     session = setup_session(request.session_id, request.user_id, request)
     context = PromptSessionContext(
         session=session,
