@@ -16,9 +16,10 @@ from eve.agent.session.models import (
     EdenMessageType,
     EdenMessageData,
     EdenMessageAgentData,
+    Trigger,
 )
 from eve.agent.session.session import run_prompt_session, run_prompt_session_stream
-from eve.agent.tasks import async_title_thread
+from eve.agent.session.triggers import create_trigger_fn, stop_trigger
 from eve.api.errors import handle_errors, APIError
 from eve.api.api_requests import (
     CancelRequest,
@@ -53,7 +54,6 @@ from eve.deploy import (
 )
 from eve.eden_utils import prepare_result
 from eve.tools.replicate_tool import replicate_update_task
-from eve.trigger import create_chat_trigger, Trigger, stop_trigger
 from eve.agent.llm import UpdateType
 from eve.agent.run_thread import async_prompt_thread
 from eve.mongo import get_collection, serialize_document
@@ -702,36 +702,16 @@ async def handle_trigger_create(
     trigger_id = f"{str(user.id)}_{request.agent_id}_{int(time.time())}"
 
     background_tasks.add_task(
-        create_chat_trigger,
+        create_trigger_fn,
         schedule=request.schedule.to_cron_dict(),
         trigger_id=trigger_id,
-    )
-
-    thread = agent.request_thread(user=ObjectId(user.id), key=trigger_id)
-    background_tasks.add_task(
-        async_title_thread,
-        thread,
-        UserMessage(content=request.message),
-        metadata={
-            "user_id": str(user.id),
-            "agent_id": str(agent.id),
-            "thread_id": str(thread.id),
-        },
     )
 
     trigger = Trigger(
         trigger_id=trigger_id,
         user=ObjectId(user.id),
         agent=ObjectId(agent.id),
-        thread=thread.id,
         schedule=request.schedule.to_cron_dict(),
-        platform=request.platform,
-        channel={
-            "id": request.channel.id,
-            "note": request.channel.note,
-        }
-        if request.channel
-        else None,
         message=request.message,
         update_config=request.update_config.model_dump()
         if request.update_config
@@ -810,7 +790,7 @@ async def handle_trigger_get(trigger_id: str):
         "id": str(trigger.id),
         "user": str(trigger.user),
         "agent": str(trigger.agent),
-        "thread": str(trigger.thread),
+        "session": str(trigger.session),
         "message": trigger.message,
         "update_config": trigger.update_config,
         "schedule": trigger.schedule,
@@ -1338,11 +1318,6 @@ def create_eden_message(
 
 def setup_session(session_id: str, user_id: str, request: PromptSessionRequest = None):
     if session_id:
-        if request and request.creation_args:
-            logger.warning(
-                f"Session creation fields provided but ignored for existing session {session_id}"
-            )
-
         session = Session.from_mongo(ObjectId(session_id))
         if not session:
             raise APIError(f"Session not found: {session_id}", status_code=404)

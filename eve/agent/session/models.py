@@ -289,6 +289,18 @@ class SessionBudget(BaseModel):
     turns_spent: Optional[int] = 0
 
 
+@Collection("triggers2")
+class Trigger(Document):
+    trigger_id: str
+    user: ObjectId
+    schedule: Dict[str, Any]
+    message: str
+    agent: Optional[ObjectId] = None
+    session: Optional[ObjectId] = None
+    update_config: Optional[Dict[str, Any]] = None
+    status: Optional[Literal["active", "paused", "finished"]] = "active"
+
+
 @Collection("sessions")
 class Session(Document):
     owner: ObjectId
@@ -301,6 +313,8 @@ class Session(Document):
     autonomy_settings: Optional[SessionAutonomySettings] = None
     last_actor_id: Optional[ObjectId] = None
     budget: SessionBudget = SessionBudget()
+    platform: Optional[Literal["discord", "telegram", "twitter", "farcaster"]] = None
+    trigger: Optional[ObjectId] = None
 
 
 @dataclass
