@@ -789,10 +789,10 @@ async def handle_trigger_get(trigger_id: str):
         raise APIError(f"Trigger not found: {trigger_id}", status_code=404)
 
     return {
-        "id": str(trigger.id),
-        "user": str(trigger.user),
-        "agent": str(trigger.agent),
-        "session": str(trigger.session),
+        "id": str(trigger.id) if trigger.id else None,
+        "user": str(trigger.user) if trigger.user else None,
+        "agent": str(trigger.agent) if trigger.agent else None,
+        "session": str(trigger.session) if trigger.session else None,
         "instruction": trigger.instruction,
         "update_config": trigger.update_config,
         "schedule": trigger.schedule,
