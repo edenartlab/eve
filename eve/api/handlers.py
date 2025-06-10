@@ -19,7 +19,7 @@ from eve.agent.session.models import (
     Trigger,
 )
 from eve.agent.session.session import run_prompt_session, run_prompt_session_stream
-from eve.agent.session.triggers import stop_trigger
+from eve.agent.session.triggers import create_trigger_fn, stop_trigger
 from eve.api.errors import handle_errors, APIError
 from eve.api.api_requests import (
     CancelRequest,
@@ -701,11 +701,11 @@ async def handle_trigger_create(
 
     trigger_id = f"{str(user.id)}_{int(time.time())}"
 
-    # background_tasks.add_task(
-    #     create_trigger_fn,
-    #     schedule=request.schedule.to_cron_dict(),
-    #     trigger_id=trigger_id,
-    # )
+    background_tasks.add_task(
+        create_trigger_fn,
+        schedule=request.schedule.to_cron_dict(),
+        trigger_id=trigger_id,
+    )
 
     trigger = Trigger(
         trigger_id=trigger_id,
@@ -741,8 +741,8 @@ async def handle_trigger_stop(request: DeleteTriggerRequest):
 @handle_errors
 async def handle_trigger_delete(request: DeleteTriggerRequest):
     trigger = Trigger.from_mongo(request.id)
-    # if trigger.status != "finished":
-    #     await stop_trigger(trigger.trigger_id)
+    if trigger.status != "finished":
+        await stop_trigger(trigger.trigger_id)
 
     trigger.delete()
 
