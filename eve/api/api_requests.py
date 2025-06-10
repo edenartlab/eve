@@ -62,6 +62,7 @@ class CronSchedule(BaseModel):
     year: Optional[int | str] = Field(None, description="4-digit year")
     month: Optional[int | str] = Field(None, description="month (1-12)")
     day: Optional[int | str] = Field(None, description="day of month (1-31)")
+    day_of_month: Optional[int | str] = Field(None, description="day of month (1-31)")
     week: Optional[int | str] = Field(None, description="ISO week (1-53)")
     day_of_week: Optional[int | str] = Field(
         None,
@@ -94,14 +95,12 @@ class AllowedChannel(BaseModel):
 
 
 class CreateTriggerRequest(BaseModel):
-    agent_id: str
-    message: str
+    agent: str
+    user: str
+    instruction: str
     schedule: CronSchedule
-    platform: ClientType
-    channel: Optional[AllowedChannel] = None
     update_config: Optional[UpdateConfig] = None
-    thread_id: Optional[str] = None
-    ephemeral: Optional[bool] = False
+    session: Optional[str] = None
 
 
 class AgentDeploymentConfig(BaseModel):
