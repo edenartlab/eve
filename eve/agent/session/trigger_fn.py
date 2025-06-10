@@ -6,9 +6,9 @@ from datetime import datetime, timezone
 trigger_message = """<SystemMessage>
 You have received a request from an admin to run a scheduled task. The instructions for the task are below. In your response, do not ask for clarification, just do the task. Do not acknowledge receipt of this message, as no one else in the chat can see it and the admin is absent. Simply follow whatever instructions are below.
 </SystemMessage>
-<Task>
-{task}
-</Task>"""
+<Instruction>
+{instruction}
+</Instruction>"""
 
 trigger_message_post = """
 <PostInstruction>
@@ -32,7 +32,7 @@ async def trigger_fn():
 
     trigger = response.json()
 
-    user_message = trigger_message.format(task=trigger["message"])
+    user_message = trigger_message.format(task=trigger["instruction"])
     update_config = trigger.get("update_config", None)
 
     if update_config:
