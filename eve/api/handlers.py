@@ -784,7 +784,6 @@ async def handle_twitter_update(request: PlatformUpdateRequest):
 @handle_errors
 async def handle_trigger_get(trigger_id: str):
     trigger = Trigger.load(trigger_id=trigger_id)
-    print("**debug** TRIGGER:", trigger)
     if not trigger:
         raise APIError(f"Trigger not found: {trigger_id}", status_code=404)
 
@@ -1323,7 +1322,6 @@ def setup_session(
     user_id: Optional[str] = None,
     request: PromptSessionRequest = None,
 ):
-    print("**debug** SETUP SESSION:", session_id, user_id, request)
     if session_id:
         session = Session.from_mongo(ObjectId(session_id))
         if not session:
@@ -1372,7 +1370,6 @@ def setup_session(
 async def handle_prompt_session(
     request: PromptSessionRequest, background_tasks: BackgroundTasks
 ):
-    print("**debug** HANDLE PROMPT SESSION:", request)
     session = setup_session(request.session_id, request.user_id, request)
     context = PromptSessionContext(
         session=session,
