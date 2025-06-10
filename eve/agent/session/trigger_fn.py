@@ -32,7 +32,7 @@ async def trigger_fn():
 
     trigger = response.json()
 
-    user_message = trigger_message.format(task=trigger["instruction"])
+    user_message = trigger_message.format(instruction=trigger["instruction"])
     update_config = trigger.get("update_config", None)
 
     if update_config:

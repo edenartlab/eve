@@ -784,6 +784,7 @@ async def handle_twitter_update(request: PlatformUpdateRequest):
 @handle_errors
 async def handle_trigger_get(trigger_id: str):
     trigger = Trigger.load(trigger_id=trigger_id)
+    print("**debug** TRIGGER:", trigger)
     if not trigger:
         raise APIError(f"Trigger not found: {trigger_id}", status_code=404)
 
