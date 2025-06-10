@@ -71,7 +71,11 @@ def validate_prompt_session(session: Session, context: PromptSessionContext):
         or session.budget.manna_budget
         or session.budget.turn_budget
     )
-    if session.autonomy_settings.auto_reply and not has_budget:
+    if (
+        session.autonomy_settings
+        and session.autonomy_settings.auto_reply
+        and not has_budget
+    ):
         raise ValueError("Session cannot have auto-reply enabled without a set budget")
     if has_budget:
         check_session_budget(session)
@@ -190,6 +194,10 @@ def add_user_message(session: Session, context: PromptSessionContext):
     return new_message
 
 
+def prepare_messages(context: LLMContext) -> List[dict]:
+    return [msg.openai_schema() for msg in context.messages]
+
+
 async def build_llm_context(
     session: Session, actor: Agent, context: PromptSessionContext
 ):
@@ -209,7 +217,7 @@ async def build_llm_context(
         new_message = add_user_message(session, context)
         messages.append(new_message)
     return LLMContext(
-        messages=messages,
+        messages=prepare_messages(context),
         tools=tools,
         config=context.llm_config or LLMConfig(),
         metadata=LLMContextMetadata(
@@ -609,7 +617,7 @@ async def _run_prompt_session_internal(
     ):
         yield format_session_update(update, context)
 
-    if session.autonomy_settings.auto_reply:
+    if session.autonomy_settings and session.autonomy_settings.auto_reply:
         print("***debug*** adding background task", session)
         background_tasks.add_task(
             _queue_session_action_fastify_background_task, session
@@ -650,7 +658,8 @@ async def _queue_session_action_fastify_background_task(session: Session):
     import httpx
 
     print("***debug*** _queue_session_action_fastify_background_task", session)
-    await asyncio.sleep(session.autonomy_settings.reply_interval)
+    if session.autonomy_settings:
+        await asyncio.sleep(session.autonomy_settings.reply_interval)
     print(
         "***debug*** _queue_session_action_fastify_background_task wait done", session
     )

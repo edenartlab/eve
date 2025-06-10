@@ -53,11 +53,40 @@ class Channel(Document):
     key: str
 
 
+class EdenMessageType(Enum):
+    AGENT_ADD = "agent_add"
+    AGENT_REMOVE = "agent_remove"
+
+
+class EdenMessageAgentData(BaseModel):
+    id: ObjectId
+    name: str
+    avatar: Optional[str] = None
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+class EdenMessageData(BaseModel):
+    message_type: EdenMessageType
+    agents: Optional[List[EdenMessageAgentData]] = None
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    @field_serializer("message_type")
+    def serialize_message_type(self, value: EdenMessageType) -> str:
+        return value.value
+
+
 @Collection("messages")
 class ChatMessage(Document):
     session: ObjectId
     sender: ObjectId
-    role: Literal["user", "assistant", "system", "tool"]
+    role: Literal[
+        "user",
+        "assistant",
+        "system",
+        "tool",
+        "eden",
+    ]
+    eden_message_data: Optional[EdenMessageData] = None
     content: str = ""
     name: Optional[str] = None
     tool_call_id: Optional[str] = None
@@ -230,7 +259,7 @@ class LLMConfig:
 
 @dataclass
 class LLMContext:
-    messages: List[ChatMessage]
+    messages: List[Any]
     config: LLMConfig = field(default_factory=LLMConfig)
     tools: Optional[List[Tool]] = None
     metadata: LLMContextMetadata = None
@@ -260,6 +289,18 @@ class SessionBudget(BaseModel):
     turns_spent: Optional[int] = 0
 
 
+@Collection("triggers2")
+class Trigger(Document):
+    trigger_id: str
+    user: ObjectId
+    schedule: Dict[str, Any]
+    instruction: str
+    agent: Optional[ObjectId] = None
+    session: Optional[ObjectId] = None
+    update_config: Optional[Dict[str, Any]] = None
+    status: Optional[Literal["active", "paused", "finished"]] = "active"
+
+
 class SessionContext(BaseModel):
     memories: Optional[List[ObjectId]] = []
     memory_updated: Optional[ObjectId] = None
@@ -278,7 +319,9 @@ class Session(Document):
     scenario: Optional[str] = None
     autonomy_settings: Optional[SessionAutonomySettings] = None
     last_actor_id: Optional[ObjectId] = None
-    budget: Optional[SessionBudget] = SessionBudget()
+    budget: SessionBudget = SessionBudget()
+    platform: Optional[Literal["discord", "telegram", "twitter", "farcaster"]] = None
+    trigger: Optional[ObjectId] = None
 
 
 @dataclass

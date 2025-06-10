@@ -9,9 +9,17 @@ from fastapi import BackgroundTasks, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 import aiohttp
 
-from eve.agent.session.models import PromptSessionContext, Session
+from eve.agent.session.models import (
+    PromptSessionContext,
+    Session,
+    ChatMessage,
+    EdenMessageType,
+    EdenMessageData,
+    EdenMessageAgentData,
+    Trigger,
+)
 from eve.agent.session.session import run_prompt_session, run_prompt_session_stream
-from eve.agent.tasks import async_title_thread
+from eve.agent.session.triggers import create_trigger_fn, stop_trigger
 from eve.api.errors import handle_errors, APIError
 from eve.api.api_requests import (
     CancelRequest,
@@ -46,7 +54,6 @@ from eve.deploy import (
 )
 from eve.eden_utils import prepare_result
 from eve.tools.replicate_tool import replicate_update_task
-from eve.trigger import create_chat_trigger, Trigger, stop_trigger
 from eve.agent.llm import UpdateType
 from eve.agent.run_thread import async_prompt_thread
 from eve.mongo import get_collection, serialize_document
@@ -684,51 +691,32 @@ async def handle_deployment_delete(request: DeleteDeploymentRequest):
 async def handle_trigger_create(
     request: CreateTriggerRequest, background_tasks: BackgroundTasks
 ):
-    agent = Agent.from_mongo(ObjectId(request.agent_id))
+    agent = Agent.from_mongo(ObjectId(request.agent))
     if not agent:
-        raise APIError(f"Agent not found: {request.agent_id}", status_code=404)
+        raise APIError(f"Agent not found: {request.agent}", status_code=404)
 
-    user = User.from_mongo(ObjectId(agent.owner))
+    user = User.from_mongo(ObjectId(request.user))
     if not user:
-        raise APIError(f"User not found: {agent.owner}", status_code=404)
+        raise APIError(f"User not found: {request.user}", status_code=404)
 
-    trigger_id = f"{str(user.id)}_{request.agent_id}_{int(time.time())}"
+    trigger_id = f"{str(user.id)}_{int(time.time())}"
 
     background_tasks.add_task(
-        create_chat_trigger,
+        create_trigger_fn,
         schedule=request.schedule.to_cron_dict(),
         trigger_id=trigger_id,
-    )
-
-    thread = agent.request_thread(user=ObjectId(user.id), key=trigger_id)
-    background_tasks.add_task(
-        async_title_thread,
-        thread,
-        UserMessage(content=request.message),
-        metadata={
-            "user_id": str(user.id),
-            "agent_id": str(agent.id),
-            "thread_id": str(thread.id),
-        },
     )
 
     trigger = Trigger(
         trigger_id=trigger_id,
         user=ObjectId(user.id),
         agent=ObjectId(agent.id),
-        thread=thread.id,
         schedule=request.schedule.to_cron_dict(),
-        platform=request.platform,
-        channel={
-            "id": request.channel.id,
-            "note": request.channel.note,
-        }
-        if request.channel
-        else None,
-        message=request.message,
+        instruction=request.instruction,
         update_config=request.update_config.model_dump()
         if request.update_config
         else None,
+        session=ObjectId(request.session) if request.session else None,
     )
     trigger.save()
 
@@ -796,15 +784,16 @@ async def handle_twitter_update(request: PlatformUpdateRequest):
 @handle_errors
 async def handle_trigger_get(trigger_id: str):
     trigger = Trigger.load(trigger_id=trigger_id)
+    print("**debug** TRIGGER:", trigger)
     if not trigger:
         raise APIError(f"Trigger not found: {trigger_id}", status_code=404)
 
     return {
-        "id": str(trigger.id),
-        "user": str(trigger.user),
-        "agent": str(trigger.agent),
-        "thread": str(trigger.thread),
-        "message": trigger.message,
+        "id": str(trigger.id) if trigger.id else None,
+        "user": str(trigger.user) if trigger.user else None,
+        "agent": str(trigger.agent) if trigger.agent else None,
+        "session": str(trigger.session) if trigger.session else None,
+        "instruction": trigger.instruction,
         "update_config": trigger.update_config,
         "schedule": trigger.schedule,
     }
@@ -1304,13 +1293,38 @@ async def handle_agent_tools_delete(request: AgentToolsDeleteRequest):
     return {"tools": tools}
 
 
-def setup_session(session_id: str, user_id: str, request: PromptSessionRequest = None):
-    if session_id:
-        if request and request.creation_args:
-            logger.warning(
-                f"Session creation fields provided but ignored for existing session {session_id}"
-            )
+def create_eden_message(
+    session_id: ObjectId, message_type: EdenMessageType, agents: List[Agent]
+) -> ChatMessage:
+    """Create an eden message for agent operations"""
+    eden_message = ChatMessage(
+        session=session_id,
+        sender=ObjectId("000000000000000000000000"),  # System sender
+        role="eden",
+        content="",
+        eden_message_data=EdenMessageData(
+            message_type=message_type,
+            agents=[
+                EdenMessageAgentData(
+                    id=agent.id,
+                    name=agent.name or agent.username,
+                    avatar=agent.userImage,
+                )
+                for agent in agents
+            ],
+        ),
+    )
+    eden_message.save()
+    return eden_message
 
+
+def setup_session(
+    session_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    request: PromptSessionRequest = None,
+):
+    print("**debug** SETUP SESSION:", session_id, user_id, request)
+    if session_id:
         session = Session.from_mongo(ObjectId(session_id))
         if not session:
             raise APIError(f"Session not found: {session_id}", status_code=404)
@@ -1322,15 +1336,35 @@ def setup_session(session_id: str, user_id: str, request: PromptSessionRequest =
         )
 
     # Create new session
-    session = Session(
-        owner=ObjectId(request.creation_args.owner_id or user_id),
-        agents=[ObjectId(agent_id) for agent_id in request.creation_args.agents],
-        title=request.creation_args.title,
-        scenario=request.creation_args.scenario,
-        budget=request.creation_args.budget,
-        status="active",
-    )
+    agent_object_ids = [ObjectId(agent_id) for agent_id in request.creation_args.agents]
+    session_kwargs = {
+        "owner": ObjectId(request.creation_args.owner_id or user_id),
+        "agents": agent_object_ids,
+        "title": request.creation_args.title,
+        "scenario": request.creation_args.scenario,
+        "status": "active",
+        "trigger": ObjectId(request.creation_args.trigger)
+        if request.creation_args.trigger
+        else None,
+    }
+
+    # Only include budget if it's not None, so default factory can work
+    if request.creation_args.budget is not None:
+        session_kwargs["budget"] = request.creation_args.budget
+
+    session = Session(**session_kwargs)
     session.save()
+
+    # Create eden message for initial agent additions
+    agents = [Agent.from_mongo(agent_id) for agent_id in agent_object_ids]
+    agents = [agent for agent in agents if agent]  # Filter out None values
+    if agents:
+        eden_message = create_eden_message(
+            session.id, EdenMessageType.AGENT_ADD, agents
+        )
+        session.messages.append(eden_message.id)
+        session.save()
+
     return session
 
 
@@ -1338,6 +1372,7 @@ def setup_session(session_id: str, user_id: str, request: PromptSessionRequest =
 async def handle_prompt_session(
     request: PromptSessionRequest, background_tasks: BackgroundTasks
 ):
+    print("**debug** HANDLE PROMPT SESSION:", request)
     session = setup_session(request.session_id, request.user_id, request)
     context = PromptSessionContext(
         session=session,
