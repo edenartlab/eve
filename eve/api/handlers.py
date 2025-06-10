@@ -1343,6 +1343,9 @@ def setup_session(
         "title": request.creation_args.title,
         "scenario": request.creation_args.scenario,
         "status": "active",
+        "trigger": ObjectId(request.creation_args.trigger)
+        if request.creation_args.trigger
+        else None,
     }
 
     # Only include budget if it's not None, so default factory can work

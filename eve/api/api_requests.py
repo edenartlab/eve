@@ -143,6 +143,7 @@ class SessionCreationArgs(BaseModel):
     title: Optional[str] = None
     scenario: Optional[str] = None
     budget: Optional[float] = None
+    trigger: Optional[str] = None
 
 
 class PromptSessionRequest(BaseModel):

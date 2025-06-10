@@ -59,6 +59,7 @@ async def trigger_fn():
         "creation_args": {
             "owner_id": trigger["user"],
             "agents": [trigger["agent"]],
+            "trigger": trigger["id"],
         },
     }
     if trigger.get("session"):
