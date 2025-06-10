@@ -77,8 +77,6 @@ class EdenMessageData(BaseModel):
 
 @Collection("messages")
 class ChatMessage(Document):
-    session: ObjectId
-    sender: ObjectId
     role: Literal[
         "user",
         "assistant",
@@ -86,8 +84,10 @@ class ChatMessage(Document):
         "tool",
         "eden",
     ]
-    eden_message_data: Optional[EdenMessageData] = None
     content: str = ""
+    session: Optional[ObjectId] = None
+    sender: Optional[ObjectId] = None
+    eden_message_data: Optional[EdenMessageData] = None
     name: Optional[str] = None
     tool_call_id: Optional[str] = None
     task: Optional[ObjectId] = None

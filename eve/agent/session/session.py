@@ -194,10 +194,6 @@ def add_user_message(session: Session, context: PromptSessionContext):
     return new_message
 
 
-def prepare_messages(messages: List[Any]) -> List[dict]:
-    return [msg.openai_schema() for msg in messages]
-
-
 async def build_llm_context(
     session: Session, actor: Agent, context: PromptSessionContext
 ):
@@ -210,7 +206,7 @@ async def build_llm_context(
         new_message = add_user_message(session, context)
         messages.append(new_message)
     return LLMContext(
-        messages=prepare_messages(messages),
+        messages=messages,
         tools=tools,
         config=context.llm_config or LLMConfig(),
         metadata=LLMContextMetadata(
