@@ -1337,14 +1337,19 @@ def setup_session(
 
     # Create new session
     agent_object_ids = [ObjectId(agent_id) for agent_id in request.creation_args.agents]
-    session = Session(
-        owner=ObjectId(request.creation_args.owner_id or user_id),
-        agents=agent_object_ids,
-        title=request.creation_args.title,
-        scenario=request.creation_args.scenario,
-        budget=request.creation_args.budget,
-        status="active",
-    )
+    session_kwargs = {
+        "owner": ObjectId(request.creation_args.owner_id or user_id),
+        "agents": agent_object_ids,
+        "title": request.creation_args.title,
+        "scenario": request.creation_args.scenario,
+        "status": "active",
+    }
+
+    # Only include budget if it's not None, so default factory can work
+    if request.creation_args.budget is not None:
+        session_kwargs["budget"] = request.creation_args.budget
+
+    session = Session(**session_kwargs)
     session.save()
 
     # Create eden message for initial agent additions
