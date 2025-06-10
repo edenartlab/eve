@@ -259,7 +259,7 @@ class LLMConfig:
 
 @dataclass
 class LLMContext:
-    messages: List[ChatMessage]
+    messages: List[Any]
     config: LLMConfig = field(default_factory=LLMConfig)
     tools: Optional[List[Tool]] = None
     metadata: LLMContextMetadata = None
