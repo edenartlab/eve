@@ -144,7 +144,7 @@ def select_messages(
 ):
     messages = ChatMessage.get_collection()
     selected_messages = list(
-        messages.find({"session": session.id})
+        messages.find({"session": session.id, "role": {"$ne": "eden"}})
         .sort("createdAt", -1)
         .limit(selection_limit)
     )
@@ -193,11 +193,18 @@ def add_user_message(session: Session, context: PromptSessionContext):
 async def build_llm_context(
     session: Session, actor: Agent, context: PromptSessionContext
 ):
+    tools = actor.get_tools(cache=True, auth_user=context.initiating_user_id)
     system_message = build_system_message(session, actor, context)
     messages = [system_message]
-    tools = actor.get_tools(cache=True, auth_user=context.initiating_user_id)
     messages.extend(select_messages(session, context))
     messages = convert_message_roles(messages, actor.id)
+
+
+    # get memories
+
+    print("LETS GET MEMORIES")
+
+
     if context.initiating_user_id:
         new_message = add_user_message(session, context)
         messages.append(new_message)
@@ -206,7 +213,7 @@ async def build_llm_context(
         tools=tools,
         config=context.llm_config or LLMConfig(),
         metadata=LLMContextMetadata(
-            # note - this is for observability purposes only. it is not the same as session.id
+            # for observability purposes. not same as session.id
             session_id=str(uuid.uuid4()),
             trace_name="prompt_session",
             trace_id=str(f"prompt_session_{context.session.id}"),
@@ -384,6 +391,24 @@ async def async_prompt_session(
     )
     prompt_session_finished = False
     tokens_spent = 0
+
+    print("HERE IS THE LLM CONTEXT!!!")
+    print(llm_context)
+
+
+    # is this a message time to resummarize memories??
+
+    """
+    1) Session.memory = {last_updated: message ID, memory_summary: str}
+    2) when update, add memory and update summary
+
+    """
+
+
+
+
+
+
     while not prompt_session_finished:
         if stream:
             # For streaming, we need to collect the content as it comes in
@@ -482,7 +507,59 @@ async def async_prompt_session(
         if stop_reason == "stop":
             prompt_session_finished = True
 
+
+
+
+
+
+
+
+
+
+        print("LETS DEAL WITH MEMORIES")
+        memory_updated = session.context.memory_updated
+        
+        if memory_updated is None:
+            n_messages = len(session.messages)
+        else:
+            last_message_idx = session.messages.index(memory_updated)
+            n_messages = len(session.messages) - (last_message_idx + 1)
+
+        if n_messages > 5:
+            print("LETS MAKE A NEW MEMORY")
+            # save another memory
+            from eve.agent.session.session_llm import async_prompt
+
+
+            messages = llm_context.messages[-5:] + [ChatMessage(role="user", session=session.id, sender=ObjectId(session.owner), content="Summarize the previous messages into a short memory. Only include the most important information. Do not include any other text or formatting. The memory should be a single sentence or two. The memory should be in the same language as the messages.")]
+
+            print("MESSAGES", messages)
+            print("LENGTH", len(messages))
+
+            context = LLMContext(
+                messages=messages,
+                tools=None,
+                config=LLMConfig(model="gpt-4o-mini")
+            )
+            response = await async_prompt(context)
+            print("RESPONSE", response)
+            session.context.memory_updated = session.messages[-1]
+            # session.context.memory_summary = response.content
+            # session.save()
+
+            
+        print(f"Messages since last memory update: {n_messages}")
+
+        
+
+
+
+        
+
     yield SessionUpdate(type=UpdateType.END_PROMPT)
+
+
+
 
 
 def format_session_update(update: SessionUpdate, context: PromptSessionContext) -> dict:
@@ -565,6 +642,7 @@ async def run_prompt_session(
     async for data in _run_prompt_session_internal(
         context, background_tasks, stream=False
     ):
+        print("EMIT UPDATE", data)
         await emit_update(context.update_config, data)
 
 

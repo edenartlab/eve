@@ -260,6 +260,12 @@ class SessionBudget(BaseModel):
     turns_spent: Optional[int] = 0
 
 
+class SessionContext(BaseModel):
+    memories: Optional[List[ObjectId]] = []
+    memory_updated: Optional[ObjectId] = None
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
 @Collection("sessions")
 class Session(Document):
     owner: ObjectId
@@ -267,11 +273,12 @@ class Session(Document):
     agents: List[ObjectId] = Field(default_factory=list)
     status: Literal["active", "archived"] = "active"
     messages: List[ObjectId] = Field(default_factory=list)
+    context: Optional[SessionContext] = SessionContext()
     title: Optional[str] = None
     scenario: Optional[str] = None
     autonomy_settings: Optional[SessionAutonomySettings] = None
     last_actor_id: Optional[ObjectId] = None
-    budget: SessionBudget = SessionBudget()
+    budget: Optional[SessionBudget] = SessionBudget()
 
 
 @dataclass
