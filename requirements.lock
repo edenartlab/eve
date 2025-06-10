@@ -265,11 +265,11 @@ jsonschema==4.23.0
     # via web3
 jsonschema-specifications==2024.10.1
     # via jsonschema
-langfuse==2.60.7
+langfuse==2.59.7
     # via eve
 lazy-model==0.2.0
     # via beanie
-litellm==1.71.2
+litellm==1.70.0
     # via eve
 lru-dict==1.2.0
     # via web3
