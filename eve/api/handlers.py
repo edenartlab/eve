@@ -1353,6 +1353,13 @@ def setup_session(
     session = Session(**session_kwargs)
     session.save()
 
+    # Update trigger with session ID
+    if request.creation_args.trigger:
+        trigger = Trigger.from_mongo(ObjectId(request.creation_args.trigger))
+        if trigger:
+            trigger.session = session.id
+            trigger.save()
+
     # Create eden message for initial agent additions
     agents = [Agent.from_mongo(agent_id) for agent_id in agent_object_ids]
     agents = [agent for agent in agents if agent]  # Filter out None values

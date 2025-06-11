@@ -56,6 +56,7 @@ async def trigger_fn():
 
     prompt_session_request = {
         "message": {"content": user_message},
+        "user_id": trigger["user"],
         "update_config": update_config,
         "creation_args": {
             "owner_id": trigger["user"],
@@ -77,7 +78,7 @@ async def trigger_fn():
         raise Exception(
             f"Error making chat request: {response.status_code} - {response.text}"
         )
-    
+
     print(f"Chat request successful: {response.json()}")
 
     if trigger["schedule"].get("end_date"):
