@@ -30,9 +30,16 @@ async def handler(args: dict, user: str = None, agent: str = None):
         raise Exception("Query parameter is required")
 
     # Get allowed channels from deployment config
-    allowed_channels = deployment.config.discord.channel_allowlist
-    read_access_channels = deployment.config.discord.read_access_channels
-    all_channels = allowed_channels + read_access_channels
+    allowed_channels = deployment.config.discord.channel_allowlist or []
+    read_access_channels = deployment.config.discord.read_access_channels or []
+    
+    # Combine and deduplicate channels by ID
+    seen_ids = set()
+    all_channels = []
+    for channel in allowed_channels + read_access_channels:
+        if channel.id not in seen_ids:
+            seen_ids.add(channel.id)
+            all_channels.append(channel)
     if not all_channels:
         raise Exception("No channels configured for this deployment")
 
