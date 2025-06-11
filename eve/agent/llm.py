@@ -154,9 +154,9 @@ async def async_anthropic_prompt(
         }
         tool_schemas.append(websearch_tool)
         
-        # cache tools (apply to the last tool)
-        if tool_schemas:
-            tool_schemas[-1]["cache_control"] = {"type": "ephemeral"}
+        # cache all tools - apply cache_control to each tool for full context caching
+        for tool_schema in tool_schemas:
+            tool_schema["cache_control"] = {"type": "ephemeral"}
 
         prompt["tools"] = tool_schemas
 
@@ -217,9 +217,9 @@ async def async_anthropic_prompt_stream(
         }
         tool_schemas.append(websearch_tool)
         
-        # cache tools (apply to the last tool)
-        if tool_schemas:
-            tool_schemas[-1]["cache_control"] = {"type": "ephemeral"}
+        # cache all tools - apply cache_control to each tool for full context caching
+        for tool_schema in tool_schemas:
+            tool_schema["cache_control"] = {"type": "ephemeral"}
             
         prompt["tools"] = tool_schemas
 
