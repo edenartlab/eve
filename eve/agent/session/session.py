@@ -6,7 +6,7 @@ import re
 import traceback
 from fastapi import BackgroundTasks
 import pytz
-from typing import Any, List, Optional
+from typing import List, Optional
 import uuid
 from datetime import datetime
 from bson import ObjectId
@@ -526,10 +526,12 @@ async def _run_prompt_session_internal(
     stream: bool = False,
 ):
     """Internal function that handles both streaming and non-streaming"""
+    print("***debug*** _run_prompt_session_internal", context)
     session = context.session
     validate_prompt_session(session, context)
     actor = await determine_actor(session, context)
     llm_context = await build_llm_context(session, actor, context)
+    print("***debug*** llm_context", llm_context)
 
     async for update in async_prompt_session(
         session, llm_context, actor, stream=stream
