@@ -1,6 +1,8 @@
 import logging
 import os
 
+from eve.agent.thread import ChatMessage
+
 logging.getLogger("LiteLLM").setLevel(logging.WARNING)
 
 import json
@@ -75,12 +77,16 @@ async def async_run_tool_call(
     return result
 
 
+def prepare_messages(messages: List[ChatMessage]) -> List[dict]:
+    return [msg.openai_schema() for msg in messages]
+
+
 async def async_prompt_litellm(
     context: LLMContext,
 ) -> LLMResponse:
     response = completion(
         model=context.config.model,
-        messages=context.messages,
+        messages=prepare_messages(context.messages),
         metadata=construct_observability_metadata(context),
         tools=construct_tools(context),
     )
@@ -110,7 +116,7 @@ async def async_prompt_stream_litellm(
 ) -> AsyncGenerator[str, None]:
     response = completion(
         model=context.config.model,
-        messages=context.messages,
+        messages=prepare_messages(context.messages),
         metadata=construct_observability_metadata(context),
         tools=construct_tools(context),
         stream=True,

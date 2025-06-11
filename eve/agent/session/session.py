@@ -6,7 +6,7 @@ import re
 import traceback
 from fastapi import BackgroundTasks
 import pytz
-from typing import List, Optional
+from typing import Any, List, Optional
 import uuid
 from datetime import datetime
 from bson import ObjectId
@@ -194,10 +194,6 @@ def add_user_message(session: Session, context: PromptSessionContext):
     return new_message
 
 
-def prepare_messages(context: LLMContext) -> List[dict]:
-    return [msg.openai_schema() for msg in context.messages]
-
-
 async def build_llm_context(
     session: Session, actor: Agent, context: PromptSessionContext
 ):
@@ -210,7 +206,7 @@ async def build_llm_context(
         new_message = add_user_message(session, context)
         messages.append(new_message)
     return LLMContext(
-        messages=prepare_messages(context),
+        messages=messages,
         tools=tools,
         config=context.llm_config or LLMConfig(),
         metadata=LLMContextMetadata(
@@ -541,7 +537,6 @@ async def _run_prompt_session_internal(
         yield format_session_update(update, context)
 
     if session.autonomy_settings and session.autonomy_settings.auto_reply:
-        print("***debug*** adding background task", session)
         background_tasks.add_task(
             _queue_session_action_fastify_background_task, session
         )
@@ -579,26 +574,17 @@ async def run_prompt_session(
 async def _queue_session_action_fastify_background_task(session: Session):
     import httpx
 
-    print("***debug*** _queue_session_action_fastify_background_task", session)
     if session.autonomy_settings:
         await asyncio.sleep(session.autonomy_settings.reply_interval)
-    print(
-        "***debug*** _queue_session_action_fastify_background_task wait done", session
-    )
 
     url = f"{os.getenv('EDEN_API_URL')}/sessions/prompt"
     payload = {"session_id": str(session.id)}
     headers = {"Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}"}
 
-    print(f"***debug*** Making HTTP request to {url} with payload {payload}")
-
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(url, headers=headers, json=payload)
-            print(
-                f"***debug*** HTTP response: {response.status_code} - {response.text}"
-            )
             response.raise_for_status()
     except Exception as e:
-        print(f"***debug*** HTTP request failed: {str(e)}")
+        print("HTTP request failed:", str(e))
         capture_exception(e)
