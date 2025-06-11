@@ -33,6 +33,7 @@ async def trigger_fn():
     trigger = response.json()
 
     user_message = trigger_message.format(instruction=trigger["instruction"])
+    print("***debug*** user_message", user_message)
     update_config = trigger.get("update_config", None)
 
     if update_config:
@@ -65,6 +66,7 @@ async def trigger_fn():
     if trigger.get("session"):
         prompt_session_request["session_id"] = trigger["session"]
 
+    print("***debug*** prompt_session_request", prompt_session_request)
     response = requests.post(
         f"{api_url}/sessions/prompt",
         json=prompt_session_request,
@@ -75,7 +77,7 @@ async def trigger_fn():
         raise Exception(
             f"Error making chat request: {response.status_code} - {response.text}"
         )
-
+    
     print(f"Chat request successful: {response.json()}")
 
     if trigger["schedule"].get("end_date"):
