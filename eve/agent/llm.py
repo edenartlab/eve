@@ -146,9 +146,6 @@ async def async_anthropic_prompt(
             tool_schemas.append(anthropic_schema)
             prompt["tool_choice"] = {"type": "tool", "name": response_model.__name__}
 
-        # cache tools
-        tool_schemas[-1]["cache_control"] = {"type": "ephemeral"}
-
         # Add websearch tool:
         websearch_tool = {
                 "type": "web_search_20250305",
@@ -156,6 +153,10 @@ async def async_anthropic_prompt(
                 "max_uses": 2
         }
         tool_schemas.append(websearch_tool)
+        
+        # cache tools (apply to the last tool)
+        if tool_schemas:
+            tool_schemas[-1]["cache_control"] = {"type": "ephemeral"}
 
         prompt["tools"] = tool_schemas
 
@@ -207,6 +208,19 @@ async def async_anthropic_prompt_stream(
         if response_model:
             tool_schemas.append(openai_schema(response_model).anthropic_schema)
             prompt["tool_choice"] = {"type": "tool", "name": response_model.__name__}
+            
+        # Add websearch tool:
+        websearch_tool = {
+                "type": "web_search_20250305",
+                "name": "web_search",
+                "max_uses": 2
+        }
+        tool_schemas.append(websearch_tool)
+        
+        # cache tools (apply to the last tool)
+        if tool_schemas:
+            tool_schemas[-1]["cache_control"] = {"type": "ephemeral"}
+            
         prompt["tools"] = tool_schemas
 
     tool_calls = []
