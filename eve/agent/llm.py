@@ -149,6 +149,14 @@ async def async_anthropic_prompt(
         # cache tools
         tool_schemas[-1]["cache_control"] = {"type": "ephemeral"}
 
+        # Add websearch tool:
+        websearch_tool = {
+                "type": "web_search_20250305",
+                "name": "web_search",
+                "max_uses": 2
+        }
+        tool_schemas.append(websearch_tool)
+
         prompt["tools"] = tool_schemas
 
     import time
