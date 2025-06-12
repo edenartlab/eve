@@ -94,8 +94,10 @@ At least one of message_limit or time_window_hours must be specified for each ch
             # Get the channel ID from the note
             channel_id = channel_map.get(channel_params.channel_note.lower())
             if not channel_id:
-                print(f"Channel note not found: {channel_params.channel_note}")
-                continue
+                allowed_notes = list(channel_map.keys())
+                raise Exception(
+                    f"Channel note '{channel_params.channel_note}' not found. Available channel notes: {allowed_notes}"
+                )
 
             try:
                 channel = await client.fetch_channel(int(channel_id))
