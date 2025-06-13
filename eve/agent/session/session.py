@@ -256,22 +256,6 @@ async def process_tool_call(
             agent_id=llm_context.metadata.trace_metadata.agent_id,
         )
 
-        # Create tool result message for LLM context
-        tool_result_message = ChatMessage(
-            session=ObjectId(llm_context.metadata.trace_metadata.session_id),
-            sender=ObjectId(llm_context.metadata.trace_metadata.agent_id),
-            name=tool_call.tool,
-            tool_call_id=tool_call.id,
-            task=result.get("task"),
-            cost=result.get("cost"),
-            role="tool",
-            content=json.dumps(dumps_json(result)),
-        )
-        tool_result_message.save()
-        session.messages.append(tool_result_message.id)
-        session.save()
-        llm_context.messages.append(tool_result_message)
-
         # Update the original tool call with result
         if result["status"] == "completed":
             tool_call.status = "completed"
@@ -321,20 +305,6 @@ async def process_tool_call(
     except Exception as e:
         capture_exception(e)
         traceback.print_exc()
-
-        # Create tool result message for LLM context
-        tool_result_message = ChatMessage(
-            session=ObjectId(llm_context.metadata.trace_metadata.session_id),
-            sender=ObjectId(llm_context.metadata.trace_metadata.agent_id),
-            name=tool_call.tool,
-            tool_call_id=tool_call.id,
-            role="tool",
-            content=dumps_json(e),
-        )
-        tool_result_message.save()
-        session.messages.append(tool_result_message.id)
-        session.save()
-        llm_context.messages.append(tool_result_message)
 
         # Update the original tool call with error
         tool_call.status = "failed"
