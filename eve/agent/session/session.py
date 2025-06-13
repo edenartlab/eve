@@ -230,6 +230,7 @@ async def build_llm_context(
 
 async def process_tool_call(
     session: Session,
+    assistant_message: ChatMessage,
     llm_context: LLMContext,
     tool_call: ToolCall,
     tool_call_index: int,
@@ -237,10 +238,7 @@ async def process_tool_call(
     # Update the tool call status to running
     tool_call.status = "running"
 
-    # Find and update the original assistant message
-    assistant_message = llm_context.messages[
-        -1
-    ]  # Last message should be the assistant message
+    # Update assistant message
     if assistant_message.tool_calls and tool_call_index < len(
         assistant_message.tool_calls
     ):
@@ -255,22 +253,6 @@ async def process_tool_call(
             or llm_context.metadata.trace_metadata.agent_id,
             agent_id=llm_context.metadata.trace_metadata.agent_id,
         )
-
-        # Create tool result message for LLM context
-        tool_result_message = ChatMessage(
-            session=ObjectId(llm_context.metadata.trace_metadata.session_id),
-            sender=ObjectId(llm_context.metadata.trace_metadata.agent_id),
-            name=tool_call.tool,
-            tool_call_id=tool_call.id,
-            task=result.get("task"),
-            cost=result.get("cost"),
-            role="tool",
-            content=json.dumps(dumps_json(result)),
-        )
-        tool_result_message.save()
-        session.messages.append(tool_result_message.id)
-        session.save()
-        llm_context.messages.append(tool_result_message)
 
         # Update the original tool call with result
         if result["status"] == "completed":
@@ -322,20 +304,6 @@ async def process_tool_call(
         capture_exception(e)
         traceback.print_exc()
 
-        # Create tool result message for LLM context
-        tool_result_message = ChatMessage(
-            session=ObjectId(llm_context.metadata.trace_metadata.session_id),
-            sender=ObjectId(llm_context.metadata.trace_metadata.agent_id),
-            name=tool_call.tool,
-            tool_call_id=tool_call.id,
-            role="tool",
-            content=dumps_json(e),
-        )
-        tool_result_message.save()
-        session.messages.append(tool_result_message.id)
-        session.save()
-        llm_context.messages.append(tool_result_message)
-
         # Update the original tool call with error
         tool_call.status = "failed"
         tool_call.error = str(e)
@@ -354,13 +322,14 @@ async def process_tool_call(
         )
 
 
-async def process_tool_calls(session: Session, llm_context: LLMContext):
-    tool_calls = llm_context.messages[-1].tool_calls
+async def process_tool_calls(session: Session, assistant_message: ChatMessage, llm_context: LLMContext):
+    tool_calls = assistant_message.tool_calls
     for b in range(0, len(tool_calls), 4):
         batch = enumerate(tool_calls[b : b + 4])
         tasks = [
             process_tool_call(
                 session,
+                assistant_message,
                 llm_context,
                 tool_call,
                 b + idx,
@@ -482,7 +451,7 @@ async def async_prompt_session(
         )
 
         if assistant_message.tool_calls:
-            async for update in process_tool_calls(session, llm_context):
+            async for update in process_tool_calls(session, assistant_message, llm_context):
                 yield update
 
         if stop_reason == "stop":
