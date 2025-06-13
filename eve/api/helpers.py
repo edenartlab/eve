@@ -1,12 +1,11 @@
 import logging
 import os
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 import aiohttp
 from bson import ObjectId
 from fastapi import BackgroundTasks
 from ably import AblyRest
 import traceback
-import re
 import time
 
 import modal
@@ -23,8 +22,15 @@ from eve.user import User
 from eve.agent import Agent
 from eve.agent.thread import Thread
 from eve.agent.tasks import async_title_thread
-from eve.api.api_requests import ChatRequest, UpdateConfig
-from eve.deploy import Deployment
+from eve.api.api_requests import ChatRequest, PromptSessionRequest, UpdateConfig
+from eve.agent.session.models import (
+    EdenMessageType,
+    EdenMessageData,
+    EdenMessageAgentData,
+    ChatMessage,
+    Trigger,
+    Session,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -122,93 +128,6 @@ def pre_modal_setup():
         create_environment(deploy.DEPLOYMENT_ENV_NAME)
     if not check_environment_exists(trigger.TRIGGER_ENV_NAME):
         create_environment(trigger.TRIGGER_ENV_NAME)
-
-
-async def create_telegram_chat_request(
-    update_data: dict, deployment: Deployment
-) -> Optional[ChatRequest]:
-    message = update_data.get("message", {})
-    if not message:
-        return None
-
-    chat_id = message.get("chat", {}).get("id")
-    message_thread_id = message.get("message_thread_id")
-
-    # Check allowlist if it exists
-    if deployment.config and deployment.config.telegram:
-        allowlist = deployment.config.telegram.topic_allowlist or []
-        if allowlist:
-            current_id = (
-                f"{chat_id}_{message_thread_id}" if message_thread_id else str(chat_id)
-            )
-            if not any(item.id == current_id for item in allowlist):
-                return None
-
-    agent = Agent.from_mongo(deployment.agent)
-
-    # Get user info
-    from_user = message.get("from", {})
-    user_id = str(from_user.get("id"))
-    username = from_user.get("username", "unknown")
-    user = User.from_telegram(user_id, username)
-
-    # Process text and attachments
-    text = message.get("text", "")
-    attachments = []
-
-    # Handle photos
-    photos = message.get("photo", [])
-    if photos:
-        # Get the largest photo (last in array)
-        largest_photo = photos[-1]
-        file_id = largest_photo.get("file_id")
-
-        # Initialize bot to get file path
-        from telegram import Bot
-
-        bot = Bot(deployment.secrets.telegram.token)
-        file = await bot.get_file(file_id)
-        photo_url = file.file_path
-        attachments.append(photo_url)
-
-        # Use caption as text if available
-        if message.get("caption"):
-            text = message.get("caption")
-
-    # Create thread
-    thread_key = (
-        f"telegram-{chat_id}-topic-{message_thread_id}"
-        if message_thread_id
-        else f"telegram-{chat_id}"
-    )
-    thread = agent.request_thread(key=thread_key)
-
-    # Clean message text (remove bot mention)
-    cleaned_text = text
-    if text:
-        bot_username = f"@{agent.username.lower()}_bot"
-        pattern = rf"\s*{re.escape(bot_username)}\b"
-        cleaned_text = re.sub(pattern, "", text, flags=re.IGNORECASE).strip()
-
-    return {
-        "user_id": str(user.id),
-        "agent_id": str(deployment.agent),
-        "thread_id": str(thread.id),
-        "user_is_bot": from_user.get("is_bot", False),
-        "force_reply": True,
-        "user_message": {
-            "content": cleaned_text,
-            "name": username,
-            "attachments": attachments,
-        },
-        "update_config": {
-            "update_endpoint": f"{os.getenv('EDEN_API_URL')}/emissions/platform/telegram",
-            "deployment_id": str(deployment.id),
-            "telegram_chat_id": str(chat_id),
-            "telegram_message_id": str(message.get("message_id")),
-            "telegram_thread_id": str(message_thread_id) if message_thread_id else None,
-        },
-    }
 
 
 def get_eden_creation_url(creation_id: str):
@@ -423,3 +342,84 @@ async def update_busy_state(update_config, request_id: str, is_busy: bool):
             f"Error updating busy state for key {key}, request_id {request_id}: {e}",
             exc_info=True,
         )
+
+
+def create_eden_message(
+    session_id: ObjectId, message_type: EdenMessageType, agents: List[Agent]
+) -> ChatMessage:
+    """Create an eden message for agent operations"""
+    eden_message = ChatMessage(
+        session=session_id,
+        sender=ObjectId("000000000000000000000000"),  # System sender
+        role="eden",
+        content="",
+        eden_message_data=EdenMessageData(
+            message_type=message_type,
+            agents=[
+                EdenMessageAgentData(
+                    id=agent.id,
+                    name=agent.name or agent.username,
+                    avatar=agent.userImage,
+                )
+                for agent in agents
+            ],
+        ),
+    )
+    eden_message.save()
+    return eden_message
+
+
+def setup_session(
+    session_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    request: PromptSessionRequest = None,
+):
+    if session_id:
+        session = Session.from_mongo(ObjectId(session_id))
+        if not session:
+            raise APIError(f"Session not found: {session_id}", status_code=404)
+        return session
+
+    if not request.creation_args:
+        raise APIError(
+            "Session creation requires additional parameters", status_code=400
+        )
+
+    # Create new session
+    agent_object_ids = [ObjectId(agent_id) for agent_id in request.creation_args.agents]
+    session_kwargs = {
+        "owner": ObjectId(request.creation_args.owner_id or user_id),
+        "agents": agent_object_ids,
+        "title": request.creation_args.title,
+        "scenario": request.creation_args.scenario,
+        "status": "active",
+        "trigger": ObjectId(request.creation_args.trigger)
+        if request.creation_args.trigger
+        else None,
+    }
+
+    # Only include budget if it's not None, so default factory can work
+    if request.creation_args.budget is not None:
+        session_kwargs["budget"] = request.creation_args.budget
+
+    session = Session(**session_kwargs)
+    session.save()
+
+    # Update trigger with session ID
+    if request.creation_args.trigger:
+        trigger = Trigger.from_mongo(ObjectId(request.creation_args.trigger))
+        if trigger:
+            trigger.session = session.id
+            trigger.save()
+
+    # Create eden message for initial agent additions
+    agents = [Agent.from_mongo(agent_id) for agent_id in agent_object_ids]
+    agents = [agent for agent in agents if agent]  # Filter out None values
+    if agents:
+        eden_message = create_eden_message(
+            session.id, EdenMessageType.AGENT_ADD, agents
+        )
+        session.messages.append(eden_message.id)
+        session.save()
+
+    return session

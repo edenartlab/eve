@@ -9,11 +9,9 @@ from fastapi import BackgroundTasks, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 import aiohttp
 
+from eve.agent.deployments.telegram import create_telegram_chat_request
 from eve.agent.session.deployments import (
     DeploymentConfig,
-    postdeploy_platform,
-    predeploy_platform,
-    stop_client,
 )
 from eve.agent.session.models import (
     PromptSessionContext,
@@ -45,7 +43,7 @@ from eve.api.api_requests import (
 from eve.api.helpers import (
     emit_update,
     setup_chat,
-    create_telegram_chat_request,
+    setup_session,
     update_busy_state,
 )
 from eve.eden_utils import prepare_result, dumps_json
@@ -61,7 +59,7 @@ from eve.agent.thread import Thread, UserMessage
 from eve.deploy import Deployment
 from eve.tools.twitter import X
 from eve.api.helpers import get_eden_creation_url
-from eve.agent.platform_client import get_platform_client
+from eve.agent.deployments import get_platform_client
 
 logger = logging.getLogger(__name__)
 db = os.getenv("DB", "STAGE").upper()
@@ -678,11 +676,67 @@ async def handle_farcaster_emission(request: Request):
 
 
 @handle_errors
+async def handle_telegram_update(request: Request):
+    secret_token = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
+    if not secret_token:
+        return JSONResponse(status_code=401, content={"error": "Missing secret token"})
+
+    try:
+        update_data = await request.json()
+
+        # Find deployment by webhook secret
+        deployment = next(
+            (
+                d
+                for d in Deployment.find({"platform": "telegram"})
+                if d.secrets
+                and d.secrets.telegram
+                and d.secrets.telegram.webhook_secret == secret_token
+            ),
+            None,
+        )
+
+        if not deployment:
+            return JSONResponse(
+                status_code=401, content={"error": "Invalid secret token"}
+            )
+
+        # Create chat request with endpoint for updates
+        chat_request = await create_telegram_chat_request(update_data, deployment)
+        if not chat_request:
+            return JSONResponse(status_code=200, content={"ok": True})
+
+        # Make async HTTP POST to /chat
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{os.getenv('EDEN_API_URL')}/chat",
+                json=chat_request,
+                headers={
+                    "Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}",
+                    "Content-Type": "application/json",
+                },
+            ) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    return JSONResponse(
+                        status_code=500,
+                        content={
+                            "error": f"Failed to process chat request: {error_text}"
+                        },
+                    )
+
+        return JSONResponse(status_code=200, content={"ok": True})
+
+    except Exception as e:
+        logger.error("Error processing Telegram update", exc_info=True)
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@handle_errors
 async def handle_telegram_emission(request: Request):
     """Handle updates from async_prompt_thread for Telegram"""
     try:
         data = await request.json()
-        print("TELEGRAM EMISSION DATA:", data)
 
         update_type = data.get("type")
         update_config = data.get("update_config", {})
@@ -720,10 +774,8 @@ async def handle_telegram_emission(request: Request):
 
         # Verify bot info
         try:
-            me = await bot.get_me()
-            print("BOT INFO:", me.to_dict())
+            await bot.get_me()
         except Exception as e:
-            print("Failed to get bot info:", str(e))
             return JSONResponse(
                 status_code=500,
                 content={"error": f"Bot authentication failed: {str(e)}"},
@@ -777,66 +829,6 @@ async def handle_telegram_emission(request: Request):
 
     except Exception as e:
         logger.error("Error handling Telegram emission", exc_info=True)
-        return JSONResponse(status_code=500, content={"error": str(e)})
-
-
-@handle_errors
-async def handle_telegram_update(request: Request):
-    secret_token = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
-    if not secret_token:
-        return JSONResponse(status_code=401, content={"error": "Missing secret token"})
-
-    try:
-        update_data = await request.json()
-        print("TELEGRAM UPDATE DATA:", update_data)
-
-        # Find deployment by webhook secret
-        deployment = next(
-            (
-                d
-                for d in Deployment.find({"platform": "telegram"})
-                if d.secrets
-                and d.secrets.telegram
-                and d.secrets.telegram.webhook_secret == secret_token
-            ),
-            None,
-        )
-
-        if not deployment:
-            return JSONResponse(
-                status_code=401, content={"error": "Invalid secret token"}
-            )
-
-        # Create chat request with endpoint for updates
-        chat_request = await create_telegram_chat_request(update_data, deployment)
-        if not chat_request:
-            return JSONResponse(status_code=200, content={"ok": True})
-
-        # Make async HTTP POST to /chat
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                f"{os.getenv('EDEN_API_URL')}/chat",
-                json=chat_request,
-                headers={
-                    "Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}",
-                    "Content-Type": "application/json",
-                },
-            ) as response:
-                print("CHAT RESPONSE:", response.status)
-                if response.status != 200:
-                    error_text = await response.text()
-                    print("CHAT ERROR:", error_text)
-                    return JSONResponse(
-                        status_code=500,
-                        content={
-                            "error": f"Failed to process chat request: {error_text}"
-                        },
-                    )
-
-        return JSONResponse(status_code=200, content={"ok": True})
-
-    except Exception as e:
-        logger.error("Error processing Telegram update", exc_info=True)
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
@@ -973,94 +965,11 @@ async def handle_agent_tools_delete(request: AgentToolsDeleteRequest):
     return {"tools": tools}
 
 
-def create_eden_message(
-    session_id: ObjectId, message_type: EdenMessageType, agents: List[Agent]
-) -> ChatMessage:
-    """Create an eden message for agent operations"""
-    eden_message = ChatMessage(
-        session=session_id,
-        sender=ObjectId("000000000000000000000000"),  # System sender
-        role="eden",
-        content="",
-        eden_message_data=EdenMessageData(
-            message_type=message_type,
-            agents=[
-                EdenMessageAgentData(
-                    id=agent.id,
-                    name=agent.name or agent.username,
-                    avatar=agent.userImage,
-                )
-                for agent in agents
-            ],
-        ),
-    )
-    eden_message.save()
-    return eden_message
-
-
-def setup_session(
-    session_id: Optional[str] = None,
-    user_id: Optional[str] = None,
-    request: PromptSessionRequest = None,
-):
-    if session_id:
-        session = Session.from_mongo(ObjectId(session_id))
-        if not session:
-            raise APIError(f"Session not found: {session_id}", status_code=404)
-        return session
-
-    if not request.creation_args:
-        raise APIError(
-            "Session creation requires additional parameters", status_code=400
-        )
-
-    # Create new session
-    agent_object_ids = [ObjectId(agent_id) for agent_id in request.creation_args.agents]
-    session_kwargs = {
-        "owner": ObjectId(request.creation_args.owner_id or user_id),
-        "agents": agent_object_ids,
-        "title": request.creation_args.title,
-        "scenario": request.creation_args.scenario,
-        "status": "active",
-        "trigger": ObjectId(request.creation_args.trigger)
-        if request.creation_args.trigger
-        else None,
-    }
-
-    # Only include budget if it's not None, so default factory can work
-    if request.creation_args.budget is not None:
-        session_kwargs["budget"] = request.creation_args.budget
-
-    session = Session(**session_kwargs)
-    session.save()
-
-    # Update trigger with session ID
-    if request.creation_args.trigger:
-        trigger = Trigger.from_mongo(ObjectId(request.creation_args.trigger))
-        if trigger:
-            trigger.session = session.id
-            trigger.save()
-
-    # Create eden message for initial agent additions
-    agents = [Agent.from_mongo(agent_id) for agent_id in agent_object_ids]
-    agents = [agent for agent in agents if agent]  # Filter out None values
-    if agents:
-        eden_message = create_eden_message(
-            session.id, EdenMessageType.AGENT_ADD, agents
-        )
-        session.messages.append(eden_message.id)
-        session.save()
-
-    return session
-
-
 @handle_errors
 async def handle_prompt_session(
     request: PromptSessionRequest, background_tasks: BackgroundTasks
 ):
-    print("***debug*** request", request)
     session = setup_session(request.session_id, request.user_id, request)
-    print("***debug*** session", session)
     context = PromptSessionContext(
         session=session,
         initiating_user_id=request.user_id,
@@ -1068,7 +977,6 @@ async def handle_prompt_session(
         message=request.message,
         update_config=request.update_config,
     )
-    print("***debug*** context", context)
 
     if request.stream:
 
