@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 import aiohttp
 
 from eve.agent.deployments import DeploymentConfig
-from eve.agent.deployments.telegram import create_telegram_chat_request
+from eve.agent.deployments.telegram import create_telegram_session_request
 from eve.agent.session.models import (
     PromptSessionContext,
     Trigger,
@@ -694,14 +694,14 @@ async def handle_telegram_update(request: Request):
             )
 
         # Create chat request with endpoint for updates
-        chat_request = await create_telegram_chat_request(update_data, deployment)
+        chat_request = await create_telegram_session_request(update_data, deployment)
         if not chat_request:
             return JSONResponse(status_code=200, content={"ok": True})
 
         # Make async HTTP POST to /chat
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                f"{os.getenv('EDEN_API_URL')}/chat",
+                f"{os.getenv('EDEN_API_URL')}/sessions/prompt",
                 json=chat_request,
                 headers={
                     "Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}",

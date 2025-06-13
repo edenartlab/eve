@@ -5,7 +5,8 @@ from typing import Optional
 from ably import AblyRest
 
 from eve.agent.agent import Agent
-from eve.api.api_requests import ChatRequest
+from eve.agent.session.models import ChatMessageRequestInput, UpdateConfig
+from eve.api.api_requests import ChatRequest, PromptSessionRequest
 from eve.api.errors import APIError
 from eve.agent.deployments import (
     Deployment,
@@ -110,7 +111,7 @@ class TelegramClient(PlatformClient):
             print(f"Failed to notify gateway service for Telegram unregistration: {e}")
 
 
-async def create_telegram_chat_request(
+async def create_telegram_session_request(
     update_data: dict, deployment: Deployment
 ) -> Optional[ChatRequest]:
     message = update_data.get("message", {})
@@ -161,14 +162,6 @@ async def create_telegram_chat_request(
         if message.get("caption"):
             text = message.get("caption")
 
-    # Create thread
-    thread_key = (
-        f"telegram-{chat_id}-topic-{message_thread_id}"
-        if message_thread_id
-        else f"telegram-{chat_id}"
-    )
-    thread = agent.request_thread(key=thread_key)
-
     # Clean message text (remove bot mention)
     cleaned_text = text
     if text:
@@ -176,22 +169,17 @@ async def create_telegram_chat_request(
         pattern = rf"\s*{re.escape(bot_username)}\b"
         cleaned_text = re.sub(pattern, "", text, flags=re.IGNORECASE).strip()
 
-    return {
-        "user_id": str(user.id),
-        "agent_id": str(deployment.agent),
-        "thread_id": str(thread.id),
-        "user_is_bot": from_user.get("is_bot", False),
-        "force_reply": True,
-        "user_message": {
-            "content": cleaned_text,
-            "name": username,
-            "attachments": attachments,
-        },
-        "update_config": {
-            "update_endpoint": f"{os.getenv('EDEN_API_URL')}/emissions/platform/telegram",
-            "deployment_id": str(deployment.id),
-            "telegram_chat_id": str(chat_id),
-            "telegram_message_id": str(message.get("message_id")),
-            "telegram_thread_id": str(message_thread_id) if message_thread_id else None,
-        },
-    }
+    return PromptSessionRequest(
+        user_id=str(user.id),
+        actor_agent_id=str(deployment.agent),
+        message=ChatMessageRequestInput(
+            content=cleaned_text, sender_name=username, attachments=attachments
+        ),
+        update_config=UpdateConfig(
+            update_endpoint=f"{os.getenv('EDEN_API_URL')}/emissions/platform/telegram",
+            deployment_id=str(deployment.id),
+            telegram_chat_id=str(chat_id),
+            telegram_message_id=str(message.get("message_id")),
+            telegram_thread_id=str(message_thread_id) if message_thread_id else None,
+        ),
+    )
