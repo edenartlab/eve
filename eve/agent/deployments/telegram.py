@@ -1,10 +1,8 @@
 import os
 import re
-from typing import List, Optional
+from typing import Optional
 
 from ably import AblyRest
-from pydantic import BaseModel
-
 
 from eve.agent.agent import Agent
 from eve.api.api_requests import ChatRequest
@@ -18,20 +16,6 @@ from eve.agent.deployments import (
 from eve.user import User
 
 db = os.getenv("DB", "STAGE").upper()
-
-
-class TelegramAllowlistItem(BaseModel):
-    id: str
-    note: Optional[str] = None
-
-
-class DeploymentSecretsTelegram(BaseModel):
-    token: str
-    webhook_secret: Optional[str] = None
-
-
-class DeploymentSettingsTelegram(BaseModel):
-    topic_allowlist: Optional[List[TelegramAllowlistItem]] = None
 
 
 class TelegramClient(PlatformClient):

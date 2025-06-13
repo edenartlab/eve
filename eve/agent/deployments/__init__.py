@@ -1,31 +1,11 @@
 from enum import Enum
-from typing import Optional
+from typing import List, Optional
 from pydantic import BaseModel
 from bson import ObjectId
 from abc import ABC, abstractmethod
 
-from eve.agent.agent import Agent
-from eve.agent.deployments.discord import (
-    DiscordClient,
-    DeploymentSecretsDiscord,
-    DeploymentSettingsDiscord,
-)
-from eve.agent.deployments.farcaster import (
-    FarcasterClient,
-    DeploymentSecretsFarcaster,
-    DeploymentSettingsFarcaster,
-)
-from eve.agent.deployments.telegram import (
-    TelegramClient,
-    DeploymentSecretsTelegram,
-    DeploymentSettingsTelegram,
-)
-from eve.agent.deployments.twitter import (
-    TwitterClient,
-    DeploymentSecretsTwitter,
-    DeploymentSettingsTwitter,
-)
 from eve.mongo import Collection, Document
+from eve.agent.agent import Agent
 
 
 class ClientType(Enum):
@@ -35,6 +15,69 @@ class ClientType(Enum):
     TWITTER = "twitter"
 
 
+# Base Models
+class AllowlistItem(BaseModel):
+    id: str
+    note: Optional[str] = None
+
+
+# Discord Models
+class DiscordAllowlistItem(AllowlistItem):
+    pass
+
+
+class DeploymentSettingsDiscord(BaseModel):
+    oauth_client_id: Optional[str] = None
+    oauth_url: Optional[str] = None
+    channel_allowlist: Optional[List[DiscordAllowlistItem]] = None
+    read_access_channels: Optional[List[DiscordAllowlistItem]] = None
+
+
+class DeploymentSecretsDiscord(BaseModel):
+    token: str
+    application_id: Optional[str] = None
+
+
+# Telegram Models
+class TelegramAllowlistItem(AllowlistItem):
+    pass
+
+
+class DeploymentSettingsTelegram(BaseModel):
+    topic_allowlist: Optional[List[TelegramAllowlistItem]] = None
+
+
+class DeploymentSecretsTelegram(BaseModel):
+    token: str
+    webhook_secret: Optional[str] = None
+
+
+# Farcaster Models
+class DeploymentSettingsFarcaster(BaseModel):
+    webhook_id: Optional[str] = None
+    auto_reply: Optional[bool] = False
+
+
+class DeploymentSecretsFarcaster(BaseModel):
+    mnemonic: str
+    neynar_webhook_secret: Optional[str] = None
+
+
+# Twitter Models
+class DeploymentSettingsTwitter(BaseModel):
+    username: Optional[str] = None
+
+
+class DeploymentSecretsTwitter(BaseModel):
+    user_id: str
+    bearer_token: str
+    consumer_key: str
+    consumer_secret: str
+    access_token: str
+    access_token_secret: str
+
+
+# Combined Models
 class DeploymentSecrets(BaseModel):
     discord: DeploymentSecretsDiscord | None = None
     telegram: DeploymentSecretsTelegram | None = None
@@ -125,17 +168,3 @@ class PlatformClient(ABC):
             for tool_name in self.TOOLS.keys():
                 self.agent.tools.pop(tool_name, None)
             self.agent.save()
-
-
-def get_platform_client(
-    agent: Agent, platform: ClientType, deployment: Optional[Deployment] = None
-) -> PlatformClient:
-    """Helper function to get the appropriate platform client"""
-    if platform == ClientType.DISCORD:
-        return DiscordClient(agent=agent, deployment=deployment)
-    elif platform == ClientType.TELEGRAM:
-        return TelegramClient(agent=agent, deployment=deployment)
-    elif platform == ClientType.FARCASTER:
-        return FarcasterClient(agent=agent, deployment=deployment)
-    elif platform == ClientType.TWITTER:
-        return TwitterClient(agent=agent, deployment=deployment)

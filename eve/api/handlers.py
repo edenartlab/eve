@@ -9,17 +9,10 @@ from fastapi import BackgroundTasks, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 import aiohttp
 
+from eve.agent.deployments import DeploymentConfig
 from eve.agent.deployments.telegram import create_telegram_chat_request
-from eve.agent.session.deployments import (
-    DeploymentConfig,
-)
 from eve.agent.session.models import (
     PromptSessionContext,
-    Session,
-    ChatMessage,
-    EdenMessageType,
-    EdenMessageData,
-    EdenMessageAgentData,
     Trigger,
 )
 from eve.agent.session.session import run_prompt_session, run_prompt_session_stream
@@ -58,8 +51,7 @@ from eve.user import User
 from eve.agent.thread import Thread, UserMessage
 from eve.deploy import Deployment
 from eve.tools.twitter import X
-from eve.api.helpers import get_eden_creation_url
-from eve.agent.deployments import get_platform_client
+from eve.api.helpers import get_eden_creation_url, get_platform_client
 
 logger = logging.getLogger(__name__)
 db = os.getenv("DB", "STAGE").upper()

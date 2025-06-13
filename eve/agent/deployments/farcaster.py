@@ -1,19 +1,13 @@
 import os
-from typing import Optional
 import aiohttp
-from pydantic import BaseModel
+
 from eve.api.errors import APIError
-from eve.agent.deployments import PlatformClient, DeploymentSecrets, DeploymentConfig
-
-
-class DeploymentSettingsFarcaster(BaseModel):
-    webhook_id: Optional[str] = None
-    auto_reply: Optional[bool] = False
-
-
-class DeploymentSecretsFarcaster(BaseModel):
-    mnemonic: str
-    neynar_webhook_secret: Optional[str] = None
+from eve.agent.deployments import (
+    PlatformClient,
+    DeploymentSecrets,
+    DeploymentConfig,
+    DeploymentSettingsFarcaster,
+)
 
 
 class FarcasterClient(PlatformClient):

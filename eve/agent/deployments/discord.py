@@ -1,75 +1,45 @@
 import os
-from typing import List, Optional
 
 import aiohttp
 from ably import AblyRest
-from pydantic import BaseModel
 
 from eve.api.errors import APIError
-from eve.agent.deployments import PlatformClient, DeploymentSecrets, DeploymentConfig
+from eve.agent.deployments import (
+    PlatformClient,
+    DeploymentSecrets,
+    DeploymentConfig,
+)
 
 db = os.getenv("DB", "STAGE").upper()
 
 
-class DiscordAllowlistItem(BaseModel):
-    id: str
-    note: Optional[str] = None
-
-
-class DeploymentSettingsDiscord(BaseModel):
-    oauth_client_id: Optional[str] = None
-    oauth_url: Optional[str] = None
-    channel_allowlist: Optional[List[DiscordAllowlistItem]] = None
-    read_access_channels: Optional[List[DiscordAllowlistItem]] = None
-
-
-class DeploymentSecretsDiscord(BaseModel):
-    token: str
-    application_id: Optional[str] = None
-
-
 class DiscordClient(PlatformClient):
     TOOLS = {
-        "discord_search": {},
         "discord_post": {},
     }
 
     async def predeploy(
         self, secrets: DeploymentSecrets, config: DeploymentConfig
     ) -> tuple[DeploymentSecrets, DeploymentConfig]:
-        """Validate Discord token and setup OAuth"""
-        headers = {"Authorization": f"Bot {secrets.discord.token}"}
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                "https://discord.com/api/v10/users/@me", headers=headers
-            ) as response:
-                if response.status != 200:
-                    raise APIError("Invalid Discord token", status_code=400)
+        """Validate Discord token and add Discord tools"""
+        try:
+            # Validate bot token
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    "https://discord.com/api/v10/users/@me",
+                    headers={"Authorization": f"Bot {secrets.discord.token}"},
+                ) as response:
+                    if response.status != 200:
+                        raise Exception(f"Invalid token: {await response.text()}")
+                    bot_info = await response.json()
+                    print(f"Verified Discord bot: {bot_info['username']}")
 
-                # Get application ID if not provided
-                if not secrets.discord.application_id:
-                    bot_data = await response.json()
-                    application_id = bot_data.get("id")
-                    if application_id:
-                        secrets.discord.application_id = application_id
+            # Add Discord tools to agent
+            self.add_tools()
 
-                        # Setup Discord config
-                        if not config:
-                            config = DeploymentConfig()
-                        if not config.discord:
-                            config.discord = DeploymentSettingsDiscord()
-
-                        # Create OAuth URL with the same permissions integer
-                        permissions_integer = "309237771264"
-                        oauth_url = f"https://discord.com/oauth2/authorize?client_id={application_id}&permissions={permissions_integer}&integration_type=0&scope=bot"
-
-                        config.discord.oauth_client_id = application_id
-                        config.discord.oauth_url = oauth_url
-
-        # Add Discord tools to agent
-        self.add_tools()
-
-        return secrets, config
+            return secrets, config
+        except Exception as e:
+            raise APIError(f"Invalid Discord token: {str(e)}", status_code=400)
 
     async def postdeploy(self) -> None:
         """Notify Discord gateway service via Ably"""
