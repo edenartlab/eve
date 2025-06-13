@@ -87,6 +87,7 @@ def prepare_messages(messages: List[ChatMessage]) -> List[dict]:
 async def async_prompt_litellm(
     context: LLMContext,
 ) -> LLMResponse:
+    print("=> model", context.config.model)
     response = completion(
         model=context.config.model,
         messages=prepare_messages(context.messages),
@@ -117,13 +118,14 @@ async def async_prompt_litellm(
 async def async_prompt_stream_litellm(
     context: LLMContext,
 ) -> AsyncGenerator[str, None]:
-    response = completion(
+    print("=> streaming model", context.config.model)
+    response = await litellm.acompletion(
         model=context.config.model,
         messages=prepare_messages(context.messages),
         metadata=construct_observability_metadata(context),
         tools=construct_tools(context),
         stream=True,
-    )
+    )    
     async for part in response:
         yield part
 
