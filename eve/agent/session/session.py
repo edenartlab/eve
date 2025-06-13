@@ -11,6 +11,7 @@ import uuid
 from datetime import datetime
 from bson import ObjectId
 from sentry_sdk import capture_exception
+from eve.eden_utils import dumps_json, prepare_result, dumps_json
 from eve.agent.agent import Agent
 from eve.agent.session.models import (
     ActorSelectionMethod,
@@ -30,7 +31,7 @@ from eve.agent.session.session_llm import (
 )
 from eve.agent.session.models import LLMContextMetadata
 from eve.api.errors import handle_errors
-from eve.api.helpers import emit_update, serialize_for_json
+from eve.api.helpers import emit_update
 from eve.agent.session.models import LLMConfig
 from eve.agent.session.session_prompts import system_template
 
@@ -144,7 +145,7 @@ async def determine_actor(
 
 
 def select_messages(
-    session: Session, context: PromptSessionContext, selection_limit: int = 25
+    session: Session, selection_limit: int = 25
 ):
     messages = ChatMessage.get_collection()
     selected_messages = list(
@@ -159,13 +160,12 @@ def select_messages(
 
 def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
     """
-    Convert the role of any message that is not the actor to "user".
-
-    This is experimentally how we are handling multi-agent sessions.
+    Re-assembles messages from perspective of actor (assistant) and everyone else (user)
     """
-    for message in messages:
-        if message.sender != actor_id:
-            message.role = "user"
+    messages = [
+        message.as_assistant_message() if message.sender == actor_id else message.as_user_message() 
+        for message in messages
+    ]
     return messages
 
 
@@ -200,11 +200,8 @@ async def build_llm_context(
     tools = actor.get_tools(cache=True, auth_user=context.initiating_user_id)
     system_message = build_system_message(session, actor, context)
     messages = [system_message]
-    messages.extend(select_messages(session, context))
+    messages.extend(select_messages(session))
     messages = convert_message_roles(messages, actor.id)
-
-
-    # get memories
 
     print("LETS GET MEMORIES")
 
@@ -271,7 +268,7 @@ async def process_tool_call(
             task=result.get("task"),
             cost=result.get("cost"),
             role="tool",
-            content=json.dumps(serialize_for_json(result)),
+            content=json.dumps(dumps_json(result)),
         )
         tool_result_message.save()
         session.messages.append(tool_result_message.id)
@@ -335,7 +332,7 @@ async def process_tool_call(
             name=tool_call.tool,
             tool_call_id=tool_call.id,
             role="tool",
-            content=serialize_for_json(e),
+            content=dumps_json(e),
         )
         tool_result_message.save()
         session.messages.append(tool_result_message.id)
@@ -395,23 +392,6 @@ async def async_prompt_session(
     )
     prompt_session_finished = False
     tokens_spent = 0
-
-    print("HERE IS THE LLM CONTEXT!!!")
-    print(llm_context)
-
-
-    # is this a message time to resummarize memories??
-
-    """
-    1) Session.memory = {last_updated: message ID, memory_summary: str}
-    2) when update, add memory and update summary
-
-    """
-
-
-
-
-
 
     while not prompt_session_finished:
         if stream:
@@ -511,59 +491,7 @@ async def async_prompt_session(
         if stop_reason == "stop":
             prompt_session_finished = True
 
-
-
-
-
-
-
-
-
-
-        print("LETS DEAL WITH MEMORIES")
-        memory_updated = session.context.memory_updated
-        
-        if memory_updated is None:
-            n_messages = len(session.messages)
-        else:
-            last_message_idx = session.messages.index(memory_updated)
-            n_messages = len(session.messages) - (last_message_idx + 1)
-
-        if n_messages > 5:
-            print("LETS MAKE A NEW MEMORY")
-            # save another memory
-            from eve.agent.session.session_llm import async_prompt
-
-
-            messages = llm_context.messages[-5:] + [ChatMessage(role="user", session=session.id, sender=ObjectId(session.owner), content="Summarize the previous messages into a short memory. Only include the most important information. Do not include any other text or formatting. The memory should be a single sentence or two. The memory should be in the same language as the messages.")]
-
-            print("MESSAGES", messages)
-            print("LENGTH", len(messages))
-
-            context = LLMContext(
-                messages=messages,
-                tools=None,
-                config=LLMConfig(model="gpt-4o-mini")
-            )
-            response = await async_prompt(context)
-            print("RESPONSE", response)
-            session.context.memory_updated = session.messages[-1]
-            # session.context.memory_summary = response.content
-            # session.save()
-
-            
-        print(f"Messages since last memory update: {n_messages}")
-
-        
-
-
-
-        
-
     yield SessionUpdate(type=UpdateType.END_PROMPT)
-
-
-
 
 
 def format_session_update(update: SessionUpdate, context: PromptSessionContext) -> dict:
@@ -584,11 +512,11 @@ def format_session_update(update: SessionUpdate, context: PromptSessionContext) 
         data["content"] = update.message.content
         if update.message.tool_calls:
             data["tool_calls"] = [
-                serialize_for_json(tc.model_dump()) for tc in update.message.tool_calls
+                dumps_json(tc.model_dump()) for tc in update.message.tool_calls
             ]
     elif update.type == UpdateType.TOOL_COMPLETE:
         data["tool"] = update.tool_name
-        data["result"] = serialize_for_json(update.result)
+        data["result"] = dumps_json(update.result)
     elif update.type == UpdateType.ERROR:
         data["error"] = update.error if hasattr(update, "error") else None
     elif update.type == UpdateType.END_PROMPT:
@@ -645,7 +573,6 @@ async def run_prompt_session(
     async for data in _run_prompt_session_internal(
         context, background_tasks, stream=False
     ):
-        print("EMIT UPDATE", data)
         await emit_update(context.update_config, data)
 
 

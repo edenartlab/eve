@@ -22,6 +22,8 @@ supported_models = [
     "claude-3-5-haiku-latest",
     "gemini-2.0-flash",
     "gemini/gemini-2.5-flash-preview-04-17",
+    "claude-sonnet-4-20250514",
+    "claude-opus-4-20250514"
 ]
 
 
@@ -78,7 +80,8 @@ async def async_run_tool_call(
 
 
 def prepare_messages(messages: List[ChatMessage]) -> List[dict]:
-    return [msg.openai_schema() for msg in messages]
+    messages = [schema for msg in messages for schema in msg.openai_schema()]
+    return messages
 
 
 async def async_prompt_litellm(

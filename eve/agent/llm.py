@@ -10,7 +10,7 @@ from instructor.function_calls import openai_schema
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
 
 from ..tool import Tool
-from ..eden_utils import dump_json
+from ..eden_utils import dumps_json
 from .thread import UserMessage, AssistantMessage, ToolCall
 
 
