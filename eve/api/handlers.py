@@ -61,6 +61,7 @@ from eve.agent.thread import Thread, UserMessage
 from eve.deploy import Deployment
 from eve.tools.twitter import X
 from eve.api.helpers import get_eden_creation_url
+from eve.agent.platform_client import get_platform_client
 
 logger = logging.getLogger(__name__)
 db = os.getenv("DB", "STAGE").upper()
@@ -274,33 +275,34 @@ async def handle_deployment_create(request: CreateDeploymentRequest):
     if not agent:
         raise APIError(f"Agent not found: {agent.id}", status_code=404)
 
-    # Predeploy: platform-specific validation and setup
-    secrets, config = await predeploy_platform(
-        agent=agent,
-        secrets=request.secrets,
-        config=request.config,
-        platform=request.platform,
-    )
-
-    # Create the deployment object
+    # Create deployment object for client
     deployment = Deployment(
         agent=agent.id,
         user=ObjectId(request.user),
         platform=request.platform,
-        secrets=secrets,
-        config=config,
-        valid=True,
+        secrets=request.secrets,
+        config=request.config,
     )
 
+    # Get platform client and run predeploy
+    client = get_platform_client(
+        agent=agent, platform=request.platform, deployment=deployment
+    )
+    secrets, config = await client.predeploy(
+        secrets=request.secrets, config=request.config
+    )
+
+    # Update deployment with validated secrets and config
+    deployment.secrets = secrets
+    deployment.config = config
+    deployment.valid = True
     deployment.save(
         upsert_filter={"agent": agent.id, "platform": request.platform.value}
     )
 
     try:
-        # Postdeploy: platform-specific actions that need the deployment object
-        await postdeploy_platform(
-            agent=agent, deployment=deployment, platform=request.platform
-        )
+        # Run postdeploy
+        await client.postdeploy()
     except Exception as e:
         logger.error(f"Failed in postdeploy: {str(e)}")
         deployment.delete()
@@ -345,6 +347,7 @@ async def handle_deployment_delete(request: DeleteDeploymentRequest):
     agent = Agent.from_mongo(ObjectId(request.agent))
     if not agent:
         raise APIError(f"Agent not found: {request.agent}", status_code=404)
+
     deployment = Deployment.load(agent=agent.id, platform=request.platform.value)
     if not deployment:
         raise APIError(
@@ -353,7 +356,11 @@ async def handle_deployment_delete(request: DeleteDeploymentRequest):
         )
 
     try:
-        await stop_client(agent=agent, deployment=deployment, platform=request.platform)
+        # Get platform client and run stop
+        client = get_platform_client(
+            agent=agent, platform=request.platform, deployment=deployment
+        )
+        await client.stop()
         deployment.delete()
 
         return {"success": True}
