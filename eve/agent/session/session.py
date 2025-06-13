@@ -203,9 +203,6 @@ async def build_llm_context(
     messages.extend(select_messages(session))
     messages = convert_message_roles(messages, actor.id)
 
-    print("LETS GET MEMORIES")
-
-
     if context.initiating_user_id:
         new_message = add_user_message(session, context)
         messages.append(new_message)
