@@ -38,7 +38,6 @@ from eve.api.api_requests import (
 )
 from eve.api.helpers import (
     emit_update,
-    serialize_for_json,
     setup_chat,
     create_telegram_chat_request,
     update_busy_state,
@@ -52,11 +51,11 @@ from eve.deploy import (
     DeploymentSettingsFarcaster,
     deploy_client_modal,
 )
-from eve.eden_utils import prepare_result
+from eve.eden_utils import prepare_result, dumps_json
 from eve.tools.replicate_tool import replicate_update_task
 from eve.agent.llm import UpdateType
 from eve.agent.run_thread import async_prompt_thread
-from eve.mongo import get_collection, serialize_document
+from eve.mongo import get_collection
 from eve.task import Task
 from eve.tool import Tool
 from eve.agent import Agent
@@ -88,7 +87,7 @@ async def handle_create(request: TaskRequest):
     print("### return the result ###")
     print(result)
 
-    return serialize_document(result.model_dump(by_alias=True))
+    return dumps_json(result.model_dump(by_alias=True))
 
 
 @handle_errors
@@ -162,7 +161,7 @@ async def run_chat_request(
                 data["content"] = update.message.content
             elif update.type == UpdateType.TOOL_COMPLETE:
                 data["tool"] = update.tool_name
-                data["result"] = serialize_for_json(update.result)
+                data["result"] = dumps_json(update.result)
             elif update.type == UpdateType.ERROR:
                 data["error"] = update.error if hasattr(update, "error") else None
             elif update.type == UpdateType.END_PROMPT:
@@ -246,12 +245,12 @@ async def handle_stream_chat(request: ChatRequest, background_tasks: BackgroundT
                     data["content"] = update.message.content
                     if update.message.tool_calls:
                         data["tool_calls"] = [
-                            serialize_for_json(t.model_dump())
+                            dumps_json(t.model_dump())
                             for t in update.message.tool_calls
                         ]
                 elif update.type == UpdateType.TOOL_COMPLETE:
                     data["tool"] = update.tool_name
-                    data["result"] = serialize_for_json(update.result)
+                    data["result"] = dumps_json(update.result)
                 elif update.type == UpdateType.ERROR:
                     data["error"] = update.error or "Unknown error occurred"
 

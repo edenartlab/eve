@@ -125,7 +125,11 @@ async def handler(args: dict, user: str = None, agent: str = None):
             # This case might happen if loop breaks unexpectedly or API changes
             logger.warning(f"Video generation finished with status '{status}' but no download URL was found.")
             raise Exception(f"Video generation finished with status '{status}' but no download URL was found.")
-            
+    
+    except Exception as e:
+        logger.error(f"Error: {e}")
+        raise e
+    
     finally:
         os.unlink(temp_image.name)
         os.unlink(temp_audio.name)

@@ -11,6 +11,7 @@ import uuid
 from datetime import datetime
 from bson import ObjectId
 from sentry_sdk import capture_exception
+from eve.eden_utils import dumps_json, prepare_result, dumps_json
 from eve.agent.agent import Agent
 from eve.agent.session.models import (
     ActorSelectionMethod,
@@ -30,7 +31,7 @@ from eve.agent.session.session_llm import (
 )
 from eve.agent.session.models import LLMContextMetadata
 from eve.api.errors import handle_errors
-from eve.api.helpers import emit_update, serialize_for_json
+from eve.api.helpers import emit_update
 from eve.agent.session.models import LLMConfig
 from eve.agent.session.session_prompts import system_template
 
@@ -144,7 +145,7 @@ async def determine_actor(
 
 
 def select_messages(
-    session: Session, context: PromptSessionContext, selection_limit: int = 25
+    session: Session, selection_limit: int = 25
 ):
     messages = ChatMessage.get_collection()
     selected_messages = list(
@@ -159,13 +160,12 @@ def select_messages(
 
 def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
     """
-    Convert the role of any message that is not the actor to "user".
-
-    This is experimentally how we are handling multi-agent sessions.
+    Re-assembles messages from perspective of actor (assistant) and everyone else (user)
     """
-    for message in messages:
-        if message.sender != actor_id:
-            message.role = "user"
+    messages = [
+        message.as_assistant_message() if message.sender == actor_id else message.as_user_message() 
+        for message in messages
+    ]
     return messages
 
 
@@ -197,11 +197,15 @@ def add_user_message(session: Session, context: PromptSessionContext):
 async def build_llm_context(
     session: Session, actor: Agent, context: PromptSessionContext
 ):
+    tools = actor.get_tools(cache=True, auth_user=context.initiating_user_id)
     system_message = build_system_message(session, actor, context)
     messages = [system_message]
-    tools = actor.get_tools(cache=True, auth_user=context.initiating_user_id)
-    messages.extend(select_messages(session, context))
+    messages.extend(select_messages(session))
     messages = convert_message_roles(messages, actor.id)
+
+    print("LETS GET MEMORIES")
+
+
     if context.initiating_user_id:
         new_message = add_user_message(session, context)
         messages.append(new_message)
@@ -210,7 +214,7 @@ async def build_llm_context(
         tools=tools,
         config=context.llm_config or LLMConfig(),
         metadata=LLMContextMetadata(
-            # note - this is for observability purposes only. it is not the same as session.id
+            # for observability purposes. not same as session.id
             session_id=str(uuid.uuid4()),
             trace_name="prompt_session",
             trace_id=str(f"prompt_session_{context.session.id}"),
@@ -264,7 +268,7 @@ async def process_tool_call(
             task=result.get("task"),
             cost=result.get("cost"),
             role="tool",
-            content=json.dumps(serialize_for_json(result)),
+            content=json.dumps(dumps_json(result)),
         )
         tool_result_message.save()
         session.messages.append(tool_result_message.id)
@@ -328,7 +332,7 @@ async def process_tool_call(
             name=tool_call.tool,
             tool_call_id=tool_call.id,
             role="tool",
-            content=serialize_for_json(e),
+            content=dumps_json(e),
         )
         tool_result_message.save()
         session.messages.append(tool_result_message.id)
@@ -388,6 +392,7 @@ async def async_prompt_session(
     )
     prompt_session_finished = False
     tokens_spent = 0
+
     while not prompt_session_finished:
         if stream:
             # For streaming, we need to collect the content as it comes in
@@ -507,11 +512,11 @@ def format_session_update(update: SessionUpdate, context: PromptSessionContext) 
         data["content"] = update.message.content
         if update.message.tool_calls:
             data["tool_calls"] = [
-                serialize_for_json(tc.model_dump()) for tc in update.message.tool_calls
+                dumps_json(tc.model_dump()) for tc in update.message.tool_calls
             ]
     elif update.type == UpdateType.TOOL_COMPLETE:
         data["tool"] = update.tool_name
-        data["result"] = serialize_for_json(update.result)
+        data["result"] = dumps_json(update.result)
     elif update.type == UpdateType.ERROR:
         data["error"] = update.error if hasattr(update, "error") else None
     elif update.type == UpdateType.END_PROMPT:

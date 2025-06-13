@@ -3,7 +3,7 @@ from jinja2 import Template
 from pydantic import BaseModel, Field
 from typing import Literal
 
-from ..eden_utils import dump_json
+from ..eden_utils import dumps_json
 from .llm import async_prompt
 from .agent import Agent, refresh_agent
 from .thread import UserMessage, Thread
@@ -83,7 +83,7 @@ async def async_think(
             name = agent.name
             for tc in msg.tool_calls:
                 args = ", ".join([f"{k}={v}" for k, v in tc.args.items()])
-                tc_result = dump_json(tc.result, exclude="blurhash")
+                tc_result = dumps_json(tc.result, exclude="blurhash")
                 content += f"\n -> {tc.tool}({args}) -> {tc_result}"
         time_str = msg.createdAt.strftime("%H:%M")
         chat += f"<{name} {time_str}> {content}\n"
