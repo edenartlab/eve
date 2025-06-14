@@ -55,9 +55,9 @@ class ToolMetadataBuilder:
             trace_name=f"TOOL_{self.tool_name}",
             generation_name=f"TOOL_{self.tool_name}",
             trace_metadata=LLMTraceMetadata(
-                user_id=self.user_id,
-                agent_id=self.agent_id,
-                session_id=self.session_id,
+                user_id=str(self.user_id),
+                agent_id=str(self.agent_id),
+                session_id=str(self.session_id),
             ),
         )
 

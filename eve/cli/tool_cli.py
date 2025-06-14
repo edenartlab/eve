@@ -2,7 +2,6 @@ import click
 import random
 import asyncio
 import traceback
-import argparse
 
 from ..eden_utils import save_test_results, prepare_result, dumps_json, CLICK_COLORS
 from ..auth import get_my_eden_user
@@ -174,14 +173,20 @@ def run(ctx, tool: str, db: str):
             if "=" in key:
                 key, value = key.split("=", 1)
                 # Check if parameter is an array type and wrap single value
-                if key in tool.parameters and tool.parameters[key].get("type") == "array":
+                if (
+                    key in tool.parameters
+                    and tool.parameters[key].get("type") == "array"
+                ):
                     args[key] = [value]
                 else:
                     args[key] = value
             elif i + 1 < len(ctx.args) and not ctx.args[i + 1].startswith("--"):
                 value = ctx.args[i + 1]
                 # Check if parameter is an array type and wrap single value
-                if key in tool.parameters and tool.parameters[key].get("type") == "array":
+                if (
+                    key in tool.parameters
+                    and tool.parameters[key].get("type") == "array"
+                ):
                     args[key] = [value]
                 else:
                     args[key] = value
@@ -192,7 +197,7 @@ def run(ctx, tool: str, db: str):
 
     # inject
     if args.get("agent"):
-        args["agent"] = str(Agent.load(args["agent"]).id)
+        args["agent"] = str(Agent.from_mongo(args["agent"]).id)
 
     result = tool.run(args)
     color = random.choice(CLICK_COLORS)
