@@ -74,7 +74,7 @@ At least one of message_limit or time_window_hours must be specified for each ch
         ChatMessage(role="user", content=f"Parse this Discord search query: {query}"),
     ]
 
-    parsed_query = await async_prompt(
+    response = await async_prompt(
         context=LLMContext(
             messages=messages,
             metadata=ToolMetadataBuilder(
@@ -82,12 +82,12 @@ At least one of message_limit or time_window_hours must be specified for each ch
                 user_id=args.get("user"),
                 agent_id=args.get("agent"),
             )(),
-        ),
-        config=LLMConfig(
-            response_format=DiscordSearchQuery,
+            config=LLMConfig(
+                response_format=DiscordSearchQuery,
+            ),
         ),
     )
-    print("***debug*** parsed_query", parsed_query)
+    parsed_query = DiscordSearchQuery.model_validate_json(response.content)
 
     # Create Discord client
     client = discord.Client(intents=discord.Intents.default())
