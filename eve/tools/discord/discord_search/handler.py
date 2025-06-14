@@ -78,8 +78,8 @@ At least one of message_limit or time_window_hours must be specified for each ch
         context=LLMContext(messages=messages),
         metadata=ToolMetadataBuilder(
             tool_name="discord_search",
-            user_id=args["user"],
-            agent_id=args["agent"],
+            user_id=args.get("user"),
+            agent_id=args.get("agent"),
         )(),
     )
 
