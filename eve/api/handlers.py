@@ -1376,9 +1376,7 @@ def setup_session(
 async def handle_prompt_session(
     request: PromptSessionRequest, background_tasks: BackgroundTasks
 ):
-    print("***debug*** request", request)
     session = setup_session(request.session_id, request.user_id, request)
-    print("***debug*** session", session)
     context = PromptSessionContext(
         session=session,
         initiating_user_id=request.user_id,
@@ -1386,7 +1384,6 @@ async def handle_prompt_session(
         message=request.message,
         update_config=request.update_config,
     )
-    print("***debug*** context", context)
 
     if request.stream:
 
