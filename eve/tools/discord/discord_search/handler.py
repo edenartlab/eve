@@ -75,12 +75,14 @@ At least one of message_limit or time_window_hours must be specified for each ch
     ]
 
     parsed_query = await async_prompt(
-        context=LLMContext(messages=messages),
-        metadata=ToolMetadataBuilder(
-            tool_name="discord_search",
-            user_id=args.get("user"),
-            agent_id=args.get("agent"),
-        )(),
+        context=LLMContext(
+            messages=messages,
+            metadata=ToolMetadataBuilder(
+                tool_name="discord_search",
+                user_id=args.get("user"),
+                agent_id=args.get("agent"),
+            )(),
+        ),
     )
 
     # Create Discord client
