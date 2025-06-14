@@ -21,7 +21,12 @@ async def handler(args: dict, user: str = None, agent: str = None):
 
     # Verify the channel is in the allowlist
     if not any(str(channel.id) == channel_id for channel in allowed_channels):
-        raise Exception(f"Channel {channel_id} is not in the allowlist")
+        allowed_channels_info = {
+            channel.note: str(channel.id) for channel in allowed_channels
+        }
+        raise Exception(
+            f"Channel {channel_id} is not in the allowlist. Allowed channels (note: id): {allowed_channels_info}"
+        )
 
     # Create Discord client
     client = discord.Client(intents=discord.Intents.default())

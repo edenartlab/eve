@@ -6,6 +6,7 @@ output_type: video
 visible: true
 active: true
 replicate_model: google/veo-3
+thumbnail: app/veo3.webp
 handler: replicate
 parameters:
   prompt:

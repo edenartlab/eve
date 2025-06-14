@@ -1,7 +1,7 @@
 import json
 import os
 from enum import Enum
-from typing import List, Optional, Dict, Any, Literal, Union
+from typing import List, Optional, Dict, Any, Literal
 from dataclasses import dataclass, field
 
 import magic
@@ -11,7 +11,6 @@ from pydantic import ConfigDict, Field, BaseModel, field_serializer
 from eve.eden_utils import download_file, image_to_base64, prepare_result, dumps_json
 from eve.mongo import Collection, Document
 from eve.tool import Tool
-
 
 
 class ToolCall(BaseModel):
@@ -58,7 +57,7 @@ class ToolCall(BaseModel):
 
     def anthropic_result_schema(self, truncate_images=False):
         content = {"status": self.status}
-        
+
         if self.status == "completed":
             content["result"] = prepare_result(self.result)
             file_outputs = [
@@ -70,7 +69,10 @@ class ToolCall(BaseModel):
             file_outputs = [
                 o
                 for o in file_outputs
-                if o and o.lower().endswith((".jpg", ".jpeg", ".png", ".webp", ".mp4", ".webm"))
+                if o
+                and o.lower().endswith(
+                    (".jpg", ".jpeg", ".png", ".webp", ".mp4", ".webm")
+                )
             ]
             try:
                 files = [
@@ -97,14 +99,14 @@ class ToolCall(BaseModel):
                     }
                     for file_path in files
                 ]
-                
+
                 if image_block:
                     image_block_content = dumps_json(content["result"])
                     text_block = [{"type": "text", "text": image_block_content}]
                     content = text_block + image_block
                 else:
                     content = dumps_json(content)
-            
+
             except Exception as e:
                 print("Warning: Can not inject image results:", e)
                 content = dumps_json(content)
@@ -113,12 +115,8 @@ class ToolCall(BaseModel):
         # If content is a dict/object, JSON encode it
         if isinstance(content, dict):
             content = dumps_json(content)
-        
-        result = {
-            "type": "tool_result",
-            "tool_use_id": self.id,
-            "content": content
-        }
+
+        result = {"type": "tool_result", "tool_use_id": self.id, "content": content}
 
         if self.status == "failed":
             result["is_error"] = True
@@ -127,19 +125,19 @@ class ToolCall(BaseModel):
 
     def openai_result_schema(self, truncate_images=False):
         content = {"status": self.status}
-        
+
         if self.status == "failed":
             content["error"] = self.error
         else:
             content["result"] = prepare_result(self.result)
-        
+
         return {
             "role": "tool",
             "name": self.tool,
             "content": dumps_json(content),
             "tool_call_id": self.id,
         }
-    
+
 
 class EdenMessageType(Enum):
     AGENT_ADD = "agent_add"
@@ -169,8 +167,6 @@ class Channel(Document):
     key: str
 
 
-
-
 @Collection("messages")
 class ChatMessage(Document):
     role: Literal[
@@ -188,7 +184,7 @@ class ChatMessage(Document):
     eden_message_data: Optional[EdenMessageData] = None
 
     reply_to: Optional[ObjectId] = None
-    sender_name: Optional[str] = None   # ???
+    sender_name: Optional[str] = None  # ???
 
     content: str = ""
     reactions: Optional[Dict[str, List[ObjectId]]] = {}
@@ -196,8 +192,8 @@ class ChatMessage(Document):
     attachments: Optional[List[str]] = []
     tool_calls: Optional[List[ToolCall]] = []
 
-    task: Optional[ObjectId] = None # ???
-    cost: Optional[float] = None # ???
+    task: Optional[ObjectId] = None  # ???
+    cost: Optional[float] = None  # ???
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -209,31 +205,31 @@ class ChatMessage(Document):
     def as_user_message(self):
         if self.role == "user":
             return self
-        
+
         attachments = self.attachments.copy()
         for tc in self.tool_calls or []:
             result = prepare_result(tc.result) or []
-            urls = [item['url'] for r in result for item in r['output'] if item.get('url')]
+            urls = [
+                item["url"] for r in result for item in r["output"] if item.get("url")
+            ]
             attachments.extend([r for r in urls if r])
 
         content = self.content
         if self.tool_calls:
-            tool_calls = "\n".join([dumps_json(tc.model_dump()) for tc in self.tool_calls])
+            tool_calls = "\n".join(
+                [dumps_json(tc.model_dump()) for tc in self.tool_calls]
+            )
             content += f"\n\n<Tool calls>\n{tool_calls}\n</Tool calls>"
 
-        return self.model_copy(update={
-            "role": "user",
-            "content": content,
-            "attachments": attachments
-        })
-    
+        return self.model_copy(
+            update={"role": "user", "content": content, "attachments": attachments}
+        )
+
     def as_assistant_message(self):
         if self.role == "assistant":
             return self
-        
-        return self.model_copy(update={
-            "role": "assistant"
-        })
+
+        return self.model_copy(update={"role": "assistant"})
 
     def _get_content_block(self, schema, truncate_images=False):
         """Assemble user message content block"""
@@ -344,9 +340,11 @@ class ChatMessage(Document):
     def anthropic_schema(self, truncate_images=False):
         # User Message
         if self.role == "user":
-            content = self._get_content_block("anthropic", truncate_images=truncate_images)
+            content = self._get_content_block(
+                "anthropic", truncate_images=truncate_images
+            )
             return [{"role": "user", "content": content}] if content else []
-        
+
         # Assistant Message
         else:
             if not self.content and not self.tool_calls:
@@ -372,7 +370,7 @@ class ChatMessage(Document):
                         ],
                     }
                 )
-            return schema        
+            return schema
 
     def openai_schema(self, truncate_images=False):
         # User Message
@@ -380,11 +378,13 @@ class ChatMessage(Document):
             return [
                 {
                     "role": "user",
-                    "content": self._get_content_block("openai", truncate_images=truncate_images),
+                    "content": self._get_content_block(
+                        "openai", truncate_images=truncate_images
+                    ),
                     **({"name": self.name} if self.name else {}),
                 }
             ]
-        
+
         # Assistant Message
         else:
             schema = [
@@ -396,7 +396,9 @@ class ChatMessage(Document):
                 }
             ]
             if self.tool_calls:
-                schema[0]["tool_calls"] = [t.openai_call_schema() for t in self.tool_calls]
+                schema[0]["tool_calls"] = [
+                    t.openai_call_schema() for t in self.tool_calls
+                ]
                 schema.extend(
                     [
                         t.openai_result_schema(truncate_images=truncate_images)
@@ -406,7 +408,7 @@ class ChatMessage(Document):
 
                 image_blocks = []
                 image_urls = []
-                
+
                 for tool_call in self.tool_calls:
                     if tool_call.status == "completed" and tool_call.result:
                         result = prepare_result(tool_call.result)
@@ -419,33 +421,43 @@ class ChatMessage(Document):
                         image_outputs = [
                             o
                             for o in file_outputs
-                            if o and o.lower().endswith((".jpg", ".jpeg", ".png", ".webp", ".mp4", ".webm"))
+                            if o
+                            and o.lower().endswith(
+                                (".jpg", ".jpeg", ".png", ".webp", ".mp4", ".webm")
+                            )
                         ]
-                        
+
                         for image_url in image_outputs:
                             try:
                                 image_path = download_file(
                                     image_url,
-                                    os.path.join("/tmp/eden_file_cache/", image_url.split("/")[-1]),
+                                    os.path.join(
+                                        "/tmp/eden_file_cache/",
+                                        image_url.split("/")[-1],
+                                    ),
                                     overwrite=False,
                                 )
 
-                                image_blocks.append({
-                                    "type": "image_url",
-                                    "image_url": {
-                                        "url": f"data:image/jpeg;base64,{image_to_base64(image_path, max_size=512, quality=95, truncate=truncate_images)}"
+                                image_blocks.append(
+                                    {
+                                        "type": "image_url",
+                                        "image_url": {
+                                            "url": f"data:image/jpeg;base64,{image_to_base64(image_path, max_size=512, quality=95, truncate=truncate_images)}"
+                                        },
                                     }
-                                })
-                        
+                                )
+
                                 if image_url.lower().endswith(("webm", "mp4")):
-                                    image_urls.append(f"{image_url} (This url is a video, the corresponding image attachment is its first frame.)")
+                                    image_urls.append(
+                                        f"{image_url} (This url is a video, the corresponding image attachment is its first frame.)"
+                                    )
                                 else:
                                     image_urls.append(image_url)
 
                             except Exception as e:
                                 print(f"Error processing image {image_path}: {e}")
                                 continue
-            
+
                 # Create single synthetic user message if we have any images
                 if image_blocks:
                     if len(image_blocks) == 1:
@@ -453,13 +465,16 @@ class ChatMessage(Document):
                     else:
                         content = "The order of the attached images corresponds to the tool results whose URLs are: \n"
                         content += "\n* ".join(image_urls)
-                    
-                    schema.append({
-                        "role": "user",
-                        "name": "system_tool_result",
-                        "content": [{"type": "text", "text": content}] + image_blocks
-                    })
-                        
+
+                    schema.append(
+                        {
+                            "role": "user",
+                            "name": "system_tool_result",
+                            "content": [{"type": "text", "text": content}]
+                            + image_blocks,
+                        }
+                    )
+
             return schema
 
 
@@ -494,7 +509,7 @@ class SessionUpdate(BaseModel):
 
 
 class LLMTraceMetadata(BaseModel):
-    session_id: str = None
+    session_id: Optional[str] = None
     user_id: Optional[str] = None
     agent_id: Optional[str] = None
     additional_metadata: Optional[Dict[str, Any]] = None
@@ -512,11 +527,13 @@ class LLMContextMetadata(BaseModel):
 @dataclass
 class LLMConfig:
     model: Optional[str] = "gpt-4o-mini"
+    response_format: Optional[BaseModel] = None
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 @dataclass
 class LLMContext:
-    messages: List[Any]
+    messages: List[ChatMessage]
     config: LLMConfig = field(default_factory=LLMConfig)
     tools: Optional[List[Tool]] = None
     metadata: LLMContextMetadata = None

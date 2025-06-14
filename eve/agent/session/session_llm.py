@@ -10,7 +10,14 @@ from litellm import completion
 import litellm
 from typing import Callable, List, AsyncGenerator, Optional
 
-from eve.agent.session.models import LLMContext, LLMConfig, LLMResponse, ToolCall
+from eve.agent.session.models import (
+    LLMContext,
+    LLMConfig,
+    LLMContextMetadata,
+    LLMResponse,
+    LLMTraceMetadata,
+    ToolCall,
+)
 
 
 if os.getenv("LANGFUSE_TRACING_ENVIRONMENT"):
@@ -23,8 +30,36 @@ supported_models = [
     "gemini-2.0-flash",
     "gemini/gemini-2.5-flash-preview-04-17",
     "claude-sonnet-4-20250514",
-    "claude-opus-4-20250514"
+    "claude-opus-4-20250514",
 ]
+
+
+class ToolMetadataBuilder:
+    def __init__(
+        self,
+        tool_name: str,
+        litellm_session_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+    ):
+        self.litellm_session_id = litellm_session_id
+        self.tool_name = tool_name
+        self.user_id = user_id
+        self.agent_id = agent_id
+        self.session_id = session_id
+
+    def __call__(self) -> LLMContextMetadata:
+        return LLMContextMetadata(
+            session_id=self.litellm_session_id,
+            trace_name=f"TOOL_{self.tool_name}",
+            generation_name=f"TOOL_{self.tool_name}",
+            trace_metadata=LLMTraceMetadata(
+                user_id=str(self.user_id),
+                agent_id=str(self.agent_id),
+                session_id=str(self.session_id),
+            ),
+        )
 
 
 def validate_input(context: LLMContext) -> None:
@@ -87,12 +122,12 @@ def prepare_messages(messages: List[ChatMessage]) -> List[dict]:
 async def async_prompt_litellm(
     context: LLMContext,
 ) -> LLMResponse:
-    print("=> model", context.config.model)
     response = completion(
         model=context.config.model,
         messages=prepare_messages(context.messages),
         metadata=construct_observability_metadata(context),
         tools=construct_tools(context),
+        response_format=context.config.response_format,
     )
 
     tool_calls = None
@@ -118,14 +153,14 @@ async def async_prompt_litellm(
 async def async_prompt_stream_litellm(
     context: LLMContext,
 ) -> AsyncGenerator[str, None]:
-    print("=> streaming model", context.config.model)
     response = await litellm.acompletion(
         model=context.config.model,
         messages=prepare_messages(context.messages),
         metadata=construct_observability_metadata(context),
         tools=construct_tools(context),
         stream=True,
-    )    
+        response_format=context.config.response_format,
+    )
     async for part in response:
         yield part
 

@@ -7,12 +7,12 @@ import re
 import traceback
 from fastapi import BackgroundTasks
 import pytz
-from typing import Any, List, Optional
+from typing import List, Optional
 import uuid
 from datetime import datetime
 from bson import ObjectId
 from sentry_sdk import capture_exception
-from eve.eden_utils import dumps_json, prepare_result, dumps_json
+from eve.eden_utils import dumps_json, dumps_json
 from eve.agent.agent import Agent
 from eve.agent.session.models import (
     ActorSelectionMethod,
@@ -168,7 +168,9 @@ def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
     Re-assembles messages from perspective of actor (assistant) and everyone else (user)
     """
     messages = [
-        message.as_assistant_message() if message.sender == actor_id else message.as_user_message() 
+        message.as_assistant_message()
+        if message.sender == actor_id
+        else message.as_user_message()
         for message in messages
     ]
     return messages
@@ -288,6 +290,7 @@ async def process_tool_call(
             user_id=llm_context.metadata.trace_metadata.user_id
             or llm_context.metadata.trace_metadata.agent_id,
             agent_id=llm_context.metadata.trace_metadata.agent_id,
+            session_id=llm_context.metadata.trace_metadata.session_id,
         )
 
         # Update the original tool call with result
@@ -358,7 +361,9 @@ async def process_tool_call(
         )
 
 
-async def process_tool_calls(session: Session, assistant_message: ChatMessage, llm_context: LLMContext):
+async def process_tool_calls(
+    session: Session, assistant_message: ChatMessage, llm_context: LLMContext
+):
     tool_calls = assistant_message.tool_calls
     for b in range(0, len(tool_calls), 4):
         batch = enumerate(tool_calls[b : b + 4])
@@ -487,7 +492,9 @@ async def async_prompt_session(
         )
 
         if assistant_message.tool_calls:
-            async for update in process_tool_calls(session, assistant_message, llm_context):
+            async for update in process_tool_calls(
+                session, assistant_message, llm_context
+            ):
                 yield update
 
         if stop_reason == "stop":
@@ -508,6 +515,8 @@ def format_session_update(update: SessionUpdate, context: PromptSessionContext) 
     if update.type == UpdateType.START_PROMPT:
         if update.agent:
             data["agent"] = update.agent
+        # Include session_id in start_prompt event for frontend to capture
+        data["session_id"] = str(context.session.id)
     elif update.type == UpdateType.ASSISTANT_TOKEN:
         data["text"] = update.text
     elif update.type == UpdateType.ASSISTANT_MESSAGE:

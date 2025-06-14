@@ -55,6 +55,7 @@ async def trigger_fn():
 
     prompt_session_request = {
         "message": {"content": user_message},
+        "user_id": trigger["user"],
         "update_config": update_config,
         "creation_args": {
             "owner_id": trigger["user"],

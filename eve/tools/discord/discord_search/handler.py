@@ -1,8 +1,7 @@
-from eve.user import User
+from eve.agent.session.models import ChatMessage, LLMConfig, LLMContext
+from eve.agent.session.session_llm import ToolMetadataBuilder, async_prompt
 from ....deploy import Deployment
 from ....agent import Agent
-from ....agent.thread import UserMessage
-from ....agent.llm import async_prompt
 from pydantic import BaseModel
 import discord
 from datetime import datetime, timedelta
@@ -30,9 +29,16 @@ async def handler(args: dict, user: str = None, agent: str = None):
         raise Exception("Query parameter is required")
 
     # Get allowed channels from deployment config
-    allowed_channels = deployment.config.discord.channel_allowlist
-    read_access_channels = deployment.config.discord.read_access_channels
-    all_channels = allowed_channels + read_access_channels
+    allowed_channels = deployment.config.discord.channel_allowlist or []
+    read_access_channels = deployment.config.discord.read_access_channels or []
+
+    # Combine and deduplicate channels by ID
+    seen_ids = set()
+    all_channels = []
+    for channel in allowed_channels + read_access_channels:
+        if channel.id not in seen_ids:
+            seen_ids.add(channel.id)
+            all_channels.append(channel)
     if not all_channels:
         raise Exception("No channels configured for this deployment")
 
@@ -64,15 +70,24 @@ At least one of message_limit or time_window_hours must be specified for each ch
     )
 
     messages = [
-        UserMessage(role="user", content=f"Parse this Discord search query: {query}"),
+        ChatMessage(role="system", content=system_message),
+        ChatMessage(role="user", content=f"Parse this Discord search query: {query}"),
     ]
 
-    parsed_query = await async_prompt(
-        messages=messages,
-        system_message=system_message,
-        response_model=DiscordSearchQuery,
-        model="gpt-4o",
+    response = await async_prompt(
+        context=LLMContext(
+            messages=messages,
+            metadata=ToolMetadataBuilder(
+                tool_name="discord_search",
+                user_id=args.get("user"),
+                agent_id=args.get("agent"),
+            )(),
+            config=LLMConfig(
+                response_format=DiscordSearchQuery,
+            ),
+        ),
     )
+    parsed_query = DiscordSearchQuery.model_validate_json(response.content)
 
     # Create Discord client
     client = discord.Client(intents=discord.Intents.default())
@@ -87,8 +102,10 @@ At least one of message_limit or time_window_hours must be specified for each ch
             # Get the channel ID from the note
             channel_id = channel_map.get(channel_params.channel_note.lower())
             if not channel_id:
-                print(f"Channel note not found: {channel_params.channel_note}")
-                continue
+                allowed_notes = list(channel_map.keys())
+                raise Exception(
+                    f"Channel note '{channel_params.channel_note}' not found. Available channel notes: {allowed_notes}"
+                )
 
             try:
                 channel = await client.fetch_channel(int(channel_id))
