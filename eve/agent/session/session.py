@@ -1,4 +1,5 @@
 import asyncio
+import traceback
 import json
 import os
 import random
@@ -34,6 +35,10 @@ from eve.api.errors import handle_errors
 from eve.api.helpers import emit_update
 from eve.agent.session.models import LLMConfig
 from eve.agent.session.session_prompts import system_template
+from eve.agent.session.memory import (
+    maybe_form_memories,
+    assemble_memory_context
+)
 
 
 def check_session_budget(session: Session):
@@ -145,16 +150,16 @@ async def determine_actor(
 
 
 def select_messages(
-    session: Session, selection_limit: int = 25
+    session: Session, selection_limit: Optional[int] = None
 ):
     messages = ChatMessage.get_collection()
-    selected_messages = list(
-        messages.find({"session": session.id, "role": {"$ne": "eden"}})
-        .sort("createdAt", -1)
-        .limit(selection_limit)
-    )
+    query = messages.find({"session": session.id, "role": {"$ne": "eden"}}).sort("createdAt", -1)
+    if selection_limit is not None:
+        query = query.limit(selection_limit)
+    selected_messages = list(query)
     selected_messages.reverse()
     selected_messages = [ChatMessage(**msg) for msg in selected_messages]
+    print("found ", len(selected_messages), "messages")
     return selected_messages
 
 
@@ -170,12 +175,43 @@ def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
 
 
 def build_system_message(session: Session, actor: Agent, context: PromptSessionContext):
-    content = system_template.render(
+    # Get the last speaker ID for memory prioritization
+    last_speaker_id = None
+    if context.initiating_user_id:
+        last_speaker_id = ObjectId(context.initiating_user_id)
+    
+    # Get agent memory context (up to 5000 tokens)
+    memory_context = ""
+    try:
+        memory_context = assemble_memory_context(
+            actor.id, 
+            token_budget=5000, 
+            session_id=session.id, 
+            last_speaker_id=last_speaker_id
+        )
+
+        if memory_context:
+            memory_context = f"\n\n{memory_context}"
+    except Exception as e:
+        print(f"Warning: Could not load memory context for agent {actor.id}: {e}")
+    
+    # Build system prompt with memory context
+    base_content = system_template.render(
         name=actor.name,
         current_date_time=datetime.now(pytz.utc).strftime("%Y-%m-%d %H:%M:%S"),
         persona=actor.persona,
         scenario=session.scenario,
     )
+    
+    content = f"{base_content}{memory_context}"
+    
+    print("-" * 40)
+    print("COMPLETE SYSTEM PROMPT:")
+    print(content)
+    print("=" * 80)
+    print("END SYSTEM PROMPT DEBUG")
+    print("=" * 80)
+    
     return ChatMessage(
         session=session.id, sender=ObjectId(actor.id), role="system", content=content
     )
@@ -507,10 +543,23 @@ async def _run_prompt_session_internal(
     ):
         yield format_session_update(update, context)
 
-    if session.autonomy_settings and session.autonomy_settings.auto_reply:
+    if background_tasks:
+        # Process auto-reply
+        print(f"🤖 Scheduling auto-reply as background task for session {session.id}, agent {actor.id}")
+        if session.autonomy_settings and session.autonomy_settings.auto_reply:
+            background_tasks.add_task(
+                _queue_session_action_fastify_background_task, 
+                session
+            )
+        # Process memory formation
+        print(f"🧠 Scheduling memory formation as background task for session {session.id}, agent {actor.id}")
         background_tasks.add_task(
-            _queue_session_action_fastify_background_task, session
+            maybe_form_memories,
+            actor.id, 
+            session
         )
+    else:
+        print(f"⚠️  Warning: No background_tasks available, skipping memory formation and auto-reply")
 
 
 async def run_prompt_session_stream(

@@ -576,6 +576,7 @@ class Session(Document):
     scenario: Optional[str] = None
     autonomy_settings: Optional[SessionAutonomySettings] = None
     last_actor_id: Optional[ObjectId] = None
+    last_memory_message_id: Optional[ObjectId] = None  # Track last message ID when memory formation was run
     budget: SessionBudget = SessionBudget()
     platform: Optional[Literal["discord", "telegram", "twitter", "farcaster"]] = None
     trigger: Optional[ObjectId] = None
