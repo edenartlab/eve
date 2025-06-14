@@ -1,4 +1,4 @@
-from eve.agent.session.models import ChatMessage, LLMContext
+from eve.agent.session.models import ChatMessage, LLMConfig, LLMContext
 from eve.agent.session.session_llm import ToolMetadataBuilder, async_prompt
 from ....deploy import Deployment
 from ....agent import Agent
@@ -83,7 +83,11 @@ At least one of message_limit or time_window_hours must be specified for each ch
                 agent_id=args.get("agent"),
             )(),
         ),
+        config=LLMConfig(
+            response_format=DiscordSearchQuery,
+        ),
     )
+    print("***debug*** parsed_query", parsed_query)
 
     # Create Discord client
     client = discord.Client(intents=discord.Intents.default())

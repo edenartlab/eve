@@ -128,6 +128,7 @@ async def async_prompt_litellm(
         messages=prepare_messages(context.messages),
         metadata=construct_observability_metadata(context),
         tools=construct_tools(context),
+        response_format=context.config.response_format,
     )
 
     tool_calls = None
@@ -159,6 +160,7 @@ async def async_prompt_stream_litellm(
         metadata=construct_observability_metadata(context),
         tools=construct_tools(context),
         stream=True,
+        response_format=context.config.response_format,
     )
     async for part in response:
         yield part
