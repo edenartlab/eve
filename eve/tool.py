@@ -435,7 +435,6 @@ class Tool(Document, ABC):
         args: dict,
         user: str = None,
         agent: str = None,
-        session_id: str = None,
     ):
         unrecognized_args = set(args.keys()) - set(self.model.model_fields.keys())
         if unrecognized_args:
@@ -460,8 +459,6 @@ class Tool(Document, ABC):
             prepared_args["user"] = str(user)
         if agent is not None:
             prepared_args["agent"] = str(agent)
-        if session_id is not None:
-            prepared_args["session_id"] = str(session_id)
 
         try:
             self.model(**prepared_args)
@@ -514,13 +511,10 @@ class Tool(Document, ABC):
             public: bool = False,
             mock: bool = False,
             is_client_platform: bool = False,
-            session_id: Optional[str] = None,
         ):
             try:
                 user = User.from_mongo(user_id)
-                args = self.prepare_args(
-                    args, user=str(user_id), agent=agent_id, session_id=session_id
-                )
+                args = self.prepare_args(args, user=str(user_id), agent=agent_id)
                 sentry_sdk.add_breadcrumb(category="handle_start_task", data=args)
                 cost = self.calculate_cost(args)
 
