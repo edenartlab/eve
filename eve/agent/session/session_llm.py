@@ -118,7 +118,6 @@ async def async_prompt_litellm(
 async def async_prompt_stream_litellm(
     context: LLMContext,
 ) -> AsyncGenerator[str, None]:
-    print("=> streaming model", context.config.model)
     response = await litellm.acompletion(
         model=context.config.model,
         messages=prepare_messages(context.messages),

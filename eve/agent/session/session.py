@@ -476,6 +476,8 @@ def format_session_update(update: SessionUpdate, context: PromptSessionContext) 
     if update.type == UpdateType.START_PROMPT:
         if update.agent:
             data["agent"] = update.agent
+        # Include session_id in start_prompt event for frontend to capture
+        data["session_id"] = str(context.session.id)
     elif update.type == UpdateType.ASSISTANT_TOKEN:
         data["text"] = update.text
     elif update.type == UpdateType.ASSISTANT_MESSAGE:
