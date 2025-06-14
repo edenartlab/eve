@@ -212,8 +212,8 @@ class ChatMessage(Document):
         
         attachments = self.attachments.copy()
         for tc in self.tool_calls or []:
-            result = prepare_result(tc.result)
-            urls = [item['url'] for r in result for item in r['output']]
+            result = prepare_result(tc.result) or []
+            urls = [item['url'] for r in result for item in r['output'] if item.get('url')]
             attachments.extend([r for r in urls if r])
 
         content = self.content
