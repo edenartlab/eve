@@ -1,7 +1,7 @@
 import json
 import os
 from enum import Enum
-from typing import List, Optional, Dict, Any, Literal, Union
+from typing import List, Optional, Dict, Any, Literal
 from dataclasses import dataclass, field
 
 import magic
@@ -516,7 +516,7 @@ class LLMConfig:
 
 @dataclass
 class LLMContext:
-    messages: List[Any]
+    messages: List[ChatMessage]
     config: LLMConfig = field(default_factory=LLMConfig)
     tools: Optional[List[Tool]] = None
     metadata: LLMContextMetadata = None

@@ -1,8 +1,7 @@
-from eve.user import User
+from eve.agent.session.models import ChatMessage, LLMContext
+from eve.agent.session.session_llm import ToolMetadataBuilder, async_prompt
 from ....deploy import Deployment
 from ....agent import Agent
-from ....agent.thread import UserMessage
-from ....agent.llm import async_prompt
 from pydantic import BaseModel
 import discord
 from datetime import datetime, timedelta
@@ -32,7 +31,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
     # Get allowed channels from deployment config
     allowed_channels = deployment.config.discord.channel_allowlist or []
     read_access_channels = deployment.config.discord.read_access_channels or []
-    
+
     # Combine and deduplicate channels by ID
     seen_ids = set()
     all_channels = []
@@ -71,14 +70,15 @@ At least one of message_limit or time_window_hours must be specified for each ch
     )
 
     messages = [
-        UserMessage(role="user", content=f"Parse this Discord search query: {query}"),
+        ChatMessage(role="system", content=system_message),
+        ChatMessage(role="user", content=f"Parse this Discord search query: {query}"),
     ]
 
     parsed_query = await async_prompt(
-        messages=messages,
-        system_message=system_message,
-        response_model=DiscordSearchQuery,
-        model="gpt-4o",
+        context=LLMContext(messages=messages),
+        metadata=ToolMetadataBuilder(
+            tool_name="discord_search", user_id=user, agent_id=agent
+        )(),
     )
 
     # Create Discord client
