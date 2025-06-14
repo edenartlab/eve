@@ -93,7 +93,6 @@ async def async_run_tool_call(
     agent_id: Optional[str] = None,
     public: bool = True,
     is_client_platform: bool = False,
-    session_id: Optional[str] = None,
 ):
     tool = llm_context.tools[tool_call.tool]
     task = await tool.async_start_task(
@@ -103,7 +102,6 @@ async def async_run_tool_call(
         mock=False,
         public=public,
         is_client_platform=is_client_platform,
-        session_id=session_id,
     )
 
     result = await tool.async_wait(task)
