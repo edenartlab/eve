@@ -7,7 +7,7 @@ import asyncio
 import traceback
 from abc import ABC, abstractmethod
 from pydantic import BaseModel, create_model, ValidationError
-from typing import Optional, List, Dict, Any, Type, Literal
+from typing import Optional, List, Dict, Any, Type
 from datetime import datetime, timezone
 from instructor.function_calls import openai_schema
 import sentry_sdk
@@ -260,11 +260,11 @@ class Tool(Document, ABC):
         gpu: Optional[str] = None,
         test_args: Optional[Dict[str, Any]] = None,
         rate_limits: Optional[Dict[str, RateLimit]] = None,
-        **kwargs
+        **kwargs,
     ):
         """
         Create a Tool from a Pydantic BaseModel.
-        
+
         Args:
             model: The Pydantic BaseModel class to convert
             key: Unique identifier for the tool
@@ -274,24 +274,24 @@ class Tool(Document, ABC):
         """
         # Extract schema from the Pydantic model
         model_schema = model.model_json_schema()
-        
+
         # Convert Pydantic schema to Tool parameters format
         parameters = {}
         properties = model_schema.get("properties", {})
         required_fields = model_schema.get("required", [])
-        
+
         for field_name, field_info in properties.items():
             param = {
                 "type": field_info.get("type", "string"),
                 "description": field_info.get("description", ""),
             }
-            
+
             # Handle field metadata
             if "default" in field_info:
                 param["default"] = field_info["default"]
             elif field_name not in required_fields:
                 param["default"] = None
-                
+
             # Handle type-specific properties
             if field_info.get("type") == "array":
                 param["items"] = field_info.get("items", {})
@@ -307,18 +307,20 @@ class Tool(Document, ABC):
                     param["minLength"] = field_info["minLength"]
                 if "maxLength" in field_info:
                     param["maxLength"] = field_info["maxLength"]
-                    
+
             # Handle anyOf for unions/optional types
             if "anyOf" in field_info:
                 param["anyOf"] = field_info["anyOf"]
-                
+
             parameters[field_name] = param
-        
+
         # Build the tool schema
         schema = {
             "key": key,
             "name": name or model.__name__,
-            "description": description or model.__doc__ or f"Tool generated from {model.__name__}",
+            "description": description
+            or model.__doc__
+            or f"Tool generated from {model.__name__}",
             "tip": tip,
             "thumbnail": thumbnail,
             "output_type": output_type,
@@ -335,13 +337,13 @@ class Tool(Document, ABC):
             "parameters": parameters,
             "model": model,
         }
-        
+
         # Remove None values
         schema = {k: v for k, v in schema.items() if v is not None}
-        
+
         # Get the appropriate tool subclass based on handler
         sub_cls = cls.get_sub_class(schema, from_yaml=False)
-        
+
         return sub_cls.model_validate(schema)
 
     def save(self, **kwargs):
@@ -428,7 +430,13 @@ class Tool(Document, ABC):
         ), f"Cost estimate ({cost_estimate}) not a number (formula: {cost_formula})"
         return cost_estimate
 
-    def prepare_args(self, args: dict, user: str = None, agent: str = None):
+    def prepare_args(
+        self,
+        args: dict,
+        user: str = None,
+        agent: str = None,
+        session_id: str = None,
+    ):
         unrecognized_args = set(args.keys()) - set(self.model.model_fields.keys())
         if unrecognized_args:
             # raise ValueError(
@@ -452,6 +460,8 @@ class Tool(Document, ABC):
             prepared_args["user"] = str(user)
         if agent is not None:
             prepared_args["agent"] = str(agent)
+        if session_id is not None:
+            prepared_args["session_id"] = str(session_id)
 
         try:
             self.model(**prepared_args)
@@ -504,10 +514,13 @@ class Tool(Document, ABC):
             public: bool = False,
             mock: bool = False,
             is_client_platform: bool = False,
+            session_id: Optional[str] = None,
         ):
             try:
                 user = User.from_mongo(user_id)
-                args = self.prepare_args(args, user=str(user_id), agent=agent_id)
+                args = self.prepare_args(
+                    args, user=str(user_id), agent=agent_id, session_id=session_id
+                )
                 sentry_sdk.add_breadcrumb(category="handle_start_task", data=args)
                 cost = self.calculate_cost(args)
 
@@ -730,7 +743,7 @@ def get_api_files(root_dir: str = None) -> List[str]:
             # Skip inactive_workflows directory and all its subdirectories
             if "inactive_workflows" in root:
                 continue
-                
+
             if "api.yaml" in files and "test.json" in files:
                 api_file = os.path.join(root, "api.yaml")
                 key = os.path.relpath(root).split("/")[-1]

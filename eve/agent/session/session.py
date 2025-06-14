@@ -252,6 +252,7 @@ async def process_tool_call(
             user_id=llm_context.metadata.trace_metadata.user_id
             or llm_context.metadata.trace_metadata.agent_id,
             agent_id=llm_context.metadata.trace_metadata.agent_id,
+            session_id=llm_context.metadata.trace_metadata.session_id,
         )
 
         # Update the original tool call with result

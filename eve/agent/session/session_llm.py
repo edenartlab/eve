@@ -10,7 +10,14 @@ from litellm import completion
 import litellm
 from typing import Callable, List, AsyncGenerator, Optional
 
-from eve.agent.session.models import LLMContext, LLMConfig, LLMResponse, ToolCall
+from eve.agent.session.models import (
+    LLMContext,
+    LLMConfig,
+    LLMContextMetadata,
+    LLMResponse,
+    LLMTraceMetadata,
+    ToolCall,
+)
 
 
 if os.getenv("LANGFUSE_TRACING_ENVIRONMENT"):
@@ -23,8 +30,36 @@ supported_models = [
     "gemini-2.0-flash",
     "gemini/gemini-2.5-flash-preview-04-17",
     "claude-sonnet-4-20250514",
-    "claude-opus-4-20250514"
+    "claude-opus-4-20250514",
 ]
+
+
+class ToolMetadataBuilder:
+    def __init__(
+        self,
+        tool_name: str,
+        litellm_session_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+    ):
+        self.litellm_session_id = litellm_session_id
+        self.tool_name = tool_name
+        self.user_id = user_id
+        self.agent_id = agent_id
+        self.session_id = session_id
+
+    def __call__(self) -> LLMContextMetadata:
+        return LLMContextMetadata(
+            session_id=self.litellm_session_id,
+            trace_name=f"TOOL_{self.tool_name}",
+            generation_name=f"TOOL_{self.tool_name}",
+            trace_metadata=LLMTraceMetadata(
+                user_id=self.user_id,
+                agent_id=self.agent_id,
+                session_id=self.session_id,
+            ),
+        )
 
 
 def validate_input(context: LLMContext) -> None:
@@ -58,6 +93,7 @@ async def async_run_tool_call(
     agent_id: Optional[str] = None,
     public: bool = True,
     is_client_platform: bool = False,
+    session_id: Optional[str] = None,
 ):
     tool = llm_context.tools[tool_call.tool]
     task = await tool.async_start_task(
@@ -67,6 +103,7 @@ async def async_run_tool_call(
         mock=False,
         public=public,
         is_client_platform=is_client_platform,
+        session_id=session_id,
     )
 
     result = await tool.async_wait(task)
@@ -124,7 +161,7 @@ async def async_prompt_stream_litellm(
         metadata=construct_observability_metadata(context),
         tools=construct_tools(context),
         stream=True,
-    )    
+    )
     async for part in response:
         yield part
 
