@@ -43,6 +43,11 @@ def load_handler(name):
 
             handlers[name] = handler
 
+        elif name == "create":
+            from .media_utils.create.handler import handler
+
+            handlers[name] = handler
+
         elif name == "time_remapping":
             from .media_utils.time_remapping.handler import handler
 
