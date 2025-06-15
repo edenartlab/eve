@@ -11,11 +11,12 @@ import uuid
 from datetime import datetime
 from bson import ObjectId
 from sentry_sdk import capture_exception
-from eve.eden_utils import dumps_json, dumps_json
+from eve.eden_utils import dumps_json
 from eve.agent.agent import Agent
 from eve.agent.session.models import (
     ActorSelectionMethod,
     ChatMessage,
+    ChatMessageObservability,
     LLMTraceMetadata,
     PromptSessionContext,
     Session,
@@ -212,11 +213,10 @@ async def build_llm_context(
         config=context.llm_config or LLMConfig(),
         metadata=LLMContextMetadata(
             # for observability purposes. not same as session.id
-            session_id=str(uuid.uuid4()),
+            session_id=f"{os.getenv('DB')}-{str(context.session.id)}",
             trace_name="prompt_session",
-            trace_id=str(f"prompt_session_{context.session.id}"),
+            trace_id=str(uuid.uuid4()),
             generation_name="prompt_session",
-            generation_id=str(f"prompt_session_{context.session.id}"),
             trace_metadata=LLMTraceMetadata(
                 user_id=str(context.initiating_user_id)
                 if context.initiating_user_id
@@ -271,6 +271,11 @@ async def process_tool_call(
                     "cost", 0
                 )
                 assistant_message.tool_calls[tool_call_index].task = result.get("task")
+                assistant_message.observability = ChatMessageObservability(
+                    session_id=llm_context.metadata.session_id,
+                    trace_id=llm_context.metadata.trace_id,
+                    tokens_spent=0,
+                )
                 assistant_message.save()
 
             update_session_budget(session, manna_spent=result.get("cost", 0))
@@ -429,6 +434,11 @@ async def async_prompt_session(
                 role="assistant",
                 content=content,
                 tool_calls=tool_calls,
+                observability=ChatMessageObservability(
+                    session_id=llm_context.metadata.session_id,
+                    trace_id=llm_context.metadata.trace_id,
+                    tokens_spent=tokens_spent,
+                ),
             )
         else:
             # Non-streaming path
@@ -439,6 +449,11 @@ async def async_prompt_session(
                 role="assistant",
                 content=response.content,
                 tool_calls=response.tool_calls,
+                observability=ChatMessageObservability(
+                    session_id=llm_context.metadata.session_id,
+                    trace_id=llm_context.metadata.trace_id,
+                    tokens_spent=response.tokens_spent,
+                ),
             )
             stop_reason = response.stop
             tokens_spent = response.tokens_spent
