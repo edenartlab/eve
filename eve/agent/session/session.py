@@ -82,10 +82,6 @@ def validate_prompt_session(session: Session, context: PromptSessionContext):
         check_session_budget(session)
 
 
-def parse_mentions(content: str) -> List[str]:
-    return re.findall(r"@(\w+)", content)
-
-
 def determine_actor_from_actor_selection_method(session: Session) -> Optional[Agent]:
     selection_method = session.autonomy_settings.actor_selection_method
     if (
@@ -106,7 +102,7 @@ def determine_actor_from_actor_selection_method(session: Session) -> Optional[Ag
 
 
 async def determine_actor(
-    session: Session, context: PromptSessionContext
+    session: Session, context: PromptSessionContext, agents: List[Agent]
 ) -> Optional[Agent]:
     actor_id = None
     if context.actor_agent_id:
@@ -118,21 +114,28 @@ async def determine_actor(
             raise ValueError(f"Actor @{context.actor_agent_id} not found in session")
     elif session.autonomy_settings and session.autonomy_settings.auto_reply:
         actor_id = determine_actor_from_actor_selection_method(session)
-    elif len(session.agents) > 1:
-        mentions = parse_mentions(context.message.content)
-        if len(mentions) > 1:
-            raise ValueError("Multiple @mentions not currently supported")
-        elif len(mentions) == 1:
-            mentioned_username = mentions[0]
-            for agent_id in session.agents:
-                agent = Agent.from_mongo(agent_id)
-                if agent.username == mentioned_username:
-                    actor_id = agent_id
-                    break
-            if not actor_id:
-                raise ValueError(f"Agent @{mentioned_username} not found in session")
     elif len(session.agents) == 1:
         actor_id = session.agents[0]
+    elif len(session.agents) > 1:
+        mentions, force_mentions = [], []
+        for agent in agents:
+            # Force mentions: @name or @username
+            force_pattern = rf"\b@(?:{re.escape(agent.username)}|{re.escape(agent.name)})\b"
+            if re.search(force_pattern, context.message.content, re.IGNORECASE):
+                force_mentions.append(agent)
+            
+            # Regular mentions: name or username as whole words
+            regular_pattern = rf"\b(?:{re.escape(agent.username)}|{re.escape(agent.name)})\b"
+            if re.search(regular_pattern, context.message.content, re.IGNORECASE):
+                mentions.append(agent)
+        if len(force_mentions) == 1:
+            actor_id = force_mentions[0].id
+        elif len(force_mentions) > 1:
+            actor_id = random.choice(force_mentions).id
+        elif len(mentions) == 1:
+            actor_id = mentions[0].id
+        elif len(mentions) > 1:
+            actor_id = random.choice(mentions).id
 
     if not actor_id:
         # TODO: do something more graceful than returning None if no actor is determined to be necessary.
@@ -506,7 +509,8 @@ async def _run_prompt_session_internal(
     """Internal function that handles both streaming and non-streaming"""
     session = context.session
     validate_prompt_session(session, context)
-    actor = await determine_actor(session, context)
+    agents = [Agent.from_mongo(agent_id) for agent_id in session.agents]
+    actor = await determine_actor(session, context, agents)
     llm_context = await build_llm_context(session, actor, context)
 
     async for update in async_prompt_session(
