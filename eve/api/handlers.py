@@ -1316,7 +1316,22 @@ def create_eden_message(
     return eden_message
 
 
+def generate_session_title(
+    session: Session, request: PromptSessionRequest, background_tasks: BackgroundTasks
+):
+    from eve.agent.session.session import async_title_session
+
+    if session.title:
+        return
+
+    if request.creation_args and request.creation_args.title:
+        return
+
+    background_tasks.add_task(async_title_session, session, request.message.content)
+
+
 def setup_session(
+    background_tasks: BackgroundTasks,
     session_id: Optional[str] = None,
     user_id: Optional[str] = None,
     request: PromptSessionRequest = None,
@@ -1325,6 +1340,7 @@ def setup_session(
         session = Session.from_mongo(ObjectId(session_id))
         if not session:
             raise APIError(f"Session not found: {session_id}", status_code=404)
+        generate_session_title(session, request, background_tasks)
         return session
 
     if not request.creation_args:
@@ -1369,6 +1385,9 @@ def setup_session(
         session.messages.append(eden_message.id)
         session.save()
 
+    # Generate title for new sessions if no title provided and we have background tasks
+    generate_session_title(session, request, background_tasks)
+
     return session
 
 
@@ -1376,7 +1395,9 @@ def setup_session(
 async def handle_prompt_session(
     request: PromptSessionRequest, background_tasks: BackgroundTasks
 ):
-    session = setup_session(request.session_id, request.user_id, request)
+    session = setup_session(
+        background_tasks, request.session_id, request.user_id, request
+    )
     context = PromptSessionContext(
         session=session,
         initiating_user_id=request.user_id,
