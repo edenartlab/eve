@@ -1455,7 +1455,7 @@ async def handle_session_cancel(request: CancelSessionRequest):
 
         # Send cancel signal via Ably
         ably_client = AblyRest(os.getenv("ABLY_PUBLISHER_KEY"))
-        channel_name = f"session-cancel-{request.session_id}"
+        channel_name = f"{os.getenv('DB')}-session-cancel-{request.session_id}"
         channel = ably_client.channels.get(channel_name)
 
         await channel.publish(
