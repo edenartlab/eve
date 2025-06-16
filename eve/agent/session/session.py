@@ -160,6 +160,8 @@ def select_messages(session: Session, selection_limit: int = 25):
     )
     selected_messages.reverse()
     selected_messages = [ChatMessage(**msg) for msg in selected_messages]
+    # Filter out cancelled tool calls from the messages
+    selected_messages = [msg.filter_cancelled_tool_calls() for msg in selected_messages]
     return selected_messages
 
 
@@ -234,12 +236,90 @@ async def build_llm_context(
     )
 
 
+async def async_run_tool_call_with_cancellation(
+    llm_context: LLMContext,
+    tool_call: ToolCall,
+    user_id: Optional[str] = None,
+    agent_id: Optional[str] = None,
+    public: bool = True,
+    is_client_platform: bool = False,
+    cancellation_event: asyncio.Event = None,
+):
+    """
+    Cancellation-aware version of async_run_tool_call that can be interrupted
+    """
+    tool = llm_context.tools[tool_call.tool]
+
+    # Start the task
+    task = await tool.async_start_task(
+        user_id=user_id,
+        agent_id=agent_id,
+        args=tool_call.args,
+        mock=False,
+        public=public,
+        is_client_platform=is_client_platform,
+    )
+
+    # If no cancellation event, fall back to normal behavior
+    if not cancellation_event:
+        result = await tool.async_wait(task)
+    else:
+        # Race between task completion and cancellation
+        wait_task = asyncio.create_task(tool.async_wait(task))
+
+        try:
+            # Wait for either task completion or cancellation
+            done, pending = await asyncio.wait(
+                [wait_task, asyncio.create_task(cancellation_event.wait())],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+
+            # Cancel any pending tasks
+            for task_obj in pending:
+                task_obj.cancel()
+                try:
+                    await task_obj
+                except asyncio.CancelledError:
+                    pass
+
+            # Check if cancellation happened first
+            if cancellation_event.is_set():
+                # Try to cancel the task
+                try:
+                    await tool.async_cancel(task)
+                except Exception as e:
+                    print(f"Failed to cancel task {task.id}: {e}")
+
+                return {"status": "cancelled", "error": "Task cancelled by user"}
+            else:
+                # Task completed normally
+                result = wait_task.result()
+
+        except Exception as e:
+            # If anything goes wrong, try to cancel the task
+            try:
+                if not wait_task.done():
+                    wait_task.cancel()
+                    await tool.async_cancel(task)
+            except:
+                pass
+            raise e
+
+    # Add task.cost and task.id to the result object
+    if isinstance(result, dict):
+        result["cost"] = getattr(task, "cost", None)
+        result["task"] = getattr(task, "id", None)
+
+    return result
+
+
 async def process_tool_call(
     session: Session,
     assistant_message: ChatMessage,
     llm_context: LLMContext,
     tool_call: ToolCall,
     tool_call_index: int,
+    cancellation_event: asyncio.Event = None,
 ):
     # Update the tool call status to running
     tool_call.status = "running"
@@ -249,16 +329,84 @@ async def process_tool_call(
         assistant_message.tool_calls
     ):
         assistant_message.tool_calls[tool_call_index].status = "running"
-        assistant_message.save()
+        try:
+            # Force save with direct MongoDB update
+            from eve.mongo import get_collection
+
+            messages_collection = get_collection("messages")
+            result = messages_collection.update_one(
+                {"_id": assistant_message.id},
+                {"$set": {f"tool_calls.{tool_call_index}.status": "running"}},
+            )
+        except Exception as e:
+            print(f"Failed to update tool status to running: {e}")
+            # Try regular save as fallback
+            assistant_message.save()
 
     try:
-        result = await async_run_tool_call(
+        # Check for cancellation before starting tool execution
+        if cancellation_event and cancellation_event.is_set():
+            tool_call.status = "cancelled"
+            if assistant_message.tool_calls and tool_call_index < len(
+                assistant_message.tool_calls
+            ):
+                assistant_message.tool_calls[tool_call_index].status = "cancelled"
+                try:
+                    # Force save with direct MongoDB update
+                    from eve.mongo import get_collection
+
+                    messages_collection = get_collection("messages")
+                    result = messages_collection.update_one(
+                        {"_id": assistant_message.id},
+                        {"$set": {f"tool_calls.{tool_call_index}.status": "cancelled"}},
+                    )
+                    print(
+                        f"Direct MongoDB update for tool {tool_call_index}: {result.modified_count} modified"
+                    )
+                except Exception as e:
+                    assistant_message.save()
+            return SessionUpdate(
+                type=UpdateType.TOOL_CANCELLED,
+                tool_name=tool_call.tool,
+                tool_index=tool_call_index,
+                result={"status": "cancelled"},
+            )
+
+        # Use cancellation-aware tool execution
+        result = await async_run_tool_call_with_cancellation(
             llm_context,
             tool_call,
             user_id=llm_context.metadata.trace_metadata.user_id
             or llm_context.metadata.trace_metadata.agent_id,
             agent_id=llm_context.metadata.trace_metadata.agent_id,
+            cancellation_event=cancellation_event,
         )
+
+        # Check for cancellation after tool execution completes
+        if cancellation_event and cancellation_event.is_set():
+            tool_call.status = "cancelled"
+            if assistant_message.tool_calls and tool_call_index < len(
+                assistant_message.tool_calls
+            ):
+                assistant_message.tool_calls[tool_call_index].status = "cancelled"
+                try:
+                    # Force save with direct MongoDB update
+                    from eve.mongo import get_collection
+
+                    messages_collection = get_collection("messages")
+                    result = messages_collection.update_one(
+                        {"_id": assistant_message.id},
+                        {"$set": {f"tool_calls.{tool_call_index}.status": "cancelled"}},
+                    )
+                except Exception as e:
+                    print(f"Direct update failed, trying regular save: {e}")
+                    assistant_message.save()
+            return SessionUpdate(
+                type=UpdateType.TOOL_CANCELLED,
+                tool_name=tool_call.tool,
+                tool_index=tool_call_index,
+                result={"status": "cancelled"},
+            )
 
         # Update the original tool call with result
         if result["status"] == "completed":
@@ -334,7 +482,10 @@ async def process_tool_call(
 
 
 async def process_tool_calls(
-    session: Session, assistant_message: ChatMessage, llm_context: LLMContext
+    session: Session,
+    assistant_message: ChatMessage,
+    llm_context: LLMContext,
+    cancellation_event: asyncio.Event = None,
 ):
     tool_calls = assistant_message.tool_calls
     for b in range(0, len(tool_calls), 4):
@@ -346,6 +497,7 @@ async def process_tool_calls(
                 llm_context,
                 tool_call,
                 b + idx,
+                cancellation_event,
             )
             for idx, tool_call in batch
         ]
@@ -515,7 +667,7 @@ async def async_prompt_session(
 
             if assistant_message.tool_calls:
                 async for update in process_tool_calls(
-                    session, assistant_message, llm_context
+                    session, assistant_message, llm_context, cancellation_event
                 ):
                     # Check for cancellation during tool execution
                     if cancellation_event.is_set():
@@ -542,10 +694,37 @@ async def async_prompt_session(
                 last_message = ChatMessage.from_mongo(last_message_id)
 
                 if last_message and last_message.tool_calls:
-                    for tool_call in last_message.tool_calls:
+                    for idx, tool_call in enumerate(last_message.tool_calls):
                         if tool_call.status in ["pending", "running"]:
                             tool_call.status = "cancelled"
-                    last_message.save()
+                            # Yield cancellation update for each tool call
+                            yield SessionUpdate(
+                                type=UpdateType.TOOL_CANCELLED,
+                                tool_name=tool_call.tool,
+                                tool_index=idx,
+                                result={"status": "cancelled"},
+                            )
+
+                    # Force save by updating the entire tool_calls array
+                    try:
+                        # Save using direct MongoDB update to ensure the change persists
+                        from eve.mongo import get_collection
+
+                        messages_collection = get_collection("messages")
+                        result = messages_collection.update_one(
+                            {"_id": last_message.id},
+                            {
+                                "$set": {
+                                    "tool_calls": [
+                                        tc.model_dump()
+                                        for tc in last_message.tool_calls
+                                    ]
+                                }
+                            },
+                        )
+                    except Exception as e:
+                        last_message.markModified("tool_calls")
+                        last_message.save()
 
             # 2. Add system message indicating cancellation
             cancel_message = ChatMessage(
@@ -601,6 +780,10 @@ def format_session_update(update: SessionUpdate, context: PromptSessionContext) 
             ]
     elif update.type == UpdateType.TOOL_COMPLETE:
         data["tool"] = update.tool_name
+        data["result"] = dumps_json(update.result)
+    elif update.type == UpdateType.TOOL_CANCELLED:
+        data["tool"] = update.tool_name
+        data["tool_index"] = update.tool_index
         data["result"] = dumps_json(update.result)
     elif update.type == UpdateType.ERROR:
         data["error"] = update.error if hasattr(update, "error") else None
