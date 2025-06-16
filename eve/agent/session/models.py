@@ -230,6 +230,12 @@ class ChatMessage(Document):
             return self
 
         return self.model_copy(update={"role": "assistant"})
+    
+    def as_system_message(self):
+        if self.role == "system":
+            return self
+
+        return self.model_copy(update={"role": "system"})
 
     def _get_content_block(self, schema, truncate_images=False):
         """Assemble user message content block"""
@@ -338,6 +344,15 @@ class ChatMessage(Document):
         return content
 
     def anthropic_schema(self, truncate_images=False):
+        # System Message
+        if self.role == "system":
+            return [
+                {
+                    "role": "system",
+                    "content": self.content,
+                }
+            ]
+        
         # User Message
         if self.role == "user":
             content = self._get_content_block(
@@ -373,8 +388,17 @@ class ChatMessage(Document):
             return schema
 
     def openai_schema(self, truncate_images=False):
+        # System Message
+        if self.role == "system":
+            return [
+                {
+                    "role": "system",
+                    "content": self.content,
+                }
+            ]
+        
         # User Message
-        if self.role == "user":
+        elif self.role == "user":
             return [
                 {
                     "role": "user",
@@ -455,7 +479,7 @@ class ChatMessage(Document):
                                     image_urls.append(image_url)
 
                             except Exception as e:
-                                print(f"Error processing image {image_path}: {e}")
+                                print(f"Error processing image {image_url}: {e}")
                                 continue
 
                 # Create single synthetic user message if we have any images
@@ -585,6 +609,7 @@ class SessionContext(BaseModel):
 class Session(Document):
     owner: ObjectId
     channel: Optional[Channel] = None
+    parent_session: Optional[ObjectId] = None
     agents: List[ObjectId] = Field(default_factory=list)
     status: Literal["active", "archived"] = "active"
     messages: List[ObjectId] = Field(default_factory=list)
