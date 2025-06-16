@@ -23,6 +23,7 @@ from eve.agent.session.triggers import create_trigger_fn, stop_trigger
 from eve.api.errors import handle_errors, APIError
 from eve.api.api_requests import (
     CancelRequest,
+    CancelSessionRequest,
     ChatRequest,
     CreateDeploymentRequest,
     CreateTriggerRequest,
@@ -1433,3 +1434,42 @@ async def handle_prompt_session(
     )
 
     return {"session_id": str(session.id)}
+
+
+@handle_errors
+async def handle_session_cancel(request: CancelSessionRequest):
+    """Cancel a running prompt session by sending a cancel signal via Ably."""
+    try:
+        from ably import AblyRest
+
+        # Verify session exists and user has permission
+        session = Session.from_mongo(ObjectId(request.session_id))
+        if not session:
+            raise APIError(f"Session not found: {request.session_id}", status_code=404)
+
+        # Check if user has permission to cancel this session
+        if str(session.owner) != request.user_id:
+            raise APIError(
+                "Unauthorized: User does not own this session", status_code=403
+            )
+
+        # Send cancel signal via Ably
+        ably_client = AblyRest(os.getenv("ABLY_PUBLISHER_KEY"))
+        channel_name = f"{os.getenv('DB')}-session-cancel-{request.session_id}"
+        channel = ably_client.channels.get(channel_name)
+
+        await channel.publish(
+            "cancel",
+            {
+                "session_id": request.session_id,
+                "user_id": request.user_id,
+                "timestamp": time.time(),
+            },
+        )
+
+        logger.info(f"Sent cancellation signal for session {request.session_id}")
+        return {"status": "cancel_signal_sent", "session_id": request.session_id}
+
+    except Exception as e:
+        logger.error(f"Error sending session cancel signal: {e}", exc_info=True)
+        raise APIError(f"Failed to send cancel signal: {str(e)}", status_code=500)
