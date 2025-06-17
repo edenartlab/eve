@@ -49,9 +49,11 @@ from eve.api.handlers import (
     handle_agent_tools_delete,
     handle_farcaster_update,
     handle_farcaster_emission,
+    handle_session_cancel,
 )
 from eve.api.api_requests import (
     CancelRequest,
+    CancelSessionRequest,
     ChatRequest,
     CreateDeploymentRequest,
     CreateTriggerRequest,
@@ -302,6 +304,14 @@ async def prompt_session(
     _: dict = Depends(auth.authenticate_admin),
 ):
     return await handle_prompt_session(request, background_tasks)
+
+
+@web_app.post("/sessions/cancel")
+async def cancel_session(
+    request: CancelSessionRequest,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    return await handle_session_cancel(request)
 
 
 @web_app.exception_handler(RequestValidationError)

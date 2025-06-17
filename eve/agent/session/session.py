@@ -6,16 +6,17 @@ import re
 import traceback
 from fastapi import BackgroundTasks
 import pytz
-from typing import List, Optional
+from typing import List, Optional, Dict
 import uuid
 from datetime import datetime
 from bson import ObjectId
 from sentry_sdk import capture_exception
-from eve.eden_utils import dumps_json, dumps_json
+from eve.eden_utils import dumps_json
 from eve.agent.agent import Agent
 from eve.agent.session.models import (
     ActorSelectionMethod,
     ChatMessage,
+    ChatMessageObservability,
     LLMTraceMetadata,
     PromptSessionContext,
     Session,
@@ -34,6 +35,12 @@ from eve.api.errors import handle_errors
 from eve.api.helpers import emit_update
 from eve.agent.session.models import LLMConfig
 from eve.agent.session.session_prompts import system_template
+
+
+class SessionCancelledException(Exception):
+    """Exception raised when a session is cancelled via Ably signal."""
+
+    pass
 
 
 def check_session_budget(session: Session):
@@ -156,6 +163,8 @@ def select_messages(session: Session, selection_limit: int = 25):
     )
     selected_messages.reverse()
     selected_messages = [ChatMessage(**msg) for msg in selected_messages]
+    # Filter out cancelled tool calls from the messages
+    selected_messages = [msg.filter_cancelled_tool_calls() for msg in selected_messages]
     return selected_messages
 
 
@@ -215,11 +224,10 @@ async def build_llm_context(
         config=context.llm_config or LLMConfig(),
         metadata=LLMContextMetadata(
             # for observability purposes. not same as session.id
-            session_id=str(uuid.uuid4()),
+            session_id=f"{os.getenv('DB')}-{str(context.session.id)}",
             trace_name="prompt_session",
-            trace_id=str(f"prompt_session_{context.session.id}"),
+            trace_id=str(uuid.uuid4()),
             generation_name="prompt_session",
-            generation_id=str(f"prompt_session_{context.session.id}"),
             trace_metadata=LLMTraceMetadata(
                 user_id=str(context.initiating_user_id)
                 if context.initiating_user_id
@@ -231,12 +239,90 @@ async def build_llm_context(
     )
 
 
+async def async_run_tool_call_with_cancellation(
+    llm_context: LLMContext,
+    tool_call: ToolCall,
+    user_id: Optional[str] = None,
+    agent_id: Optional[str] = None,
+    public: bool = True,
+    is_client_platform: bool = False,
+    cancellation_event: asyncio.Event = None,
+):
+    """
+    Cancellation-aware version of async_run_tool_call that can be interrupted
+    """
+    tool = llm_context.tools[tool_call.tool]
+
+    # Start the task
+    task = await tool.async_start_task(
+        user_id=user_id,
+        agent_id=agent_id,
+        args=tool_call.args,
+        mock=False,
+        public=public,
+        is_client_platform=is_client_platform,
+    )
+
+    # If no cancellation event, fall back to normal behavior
+    if not cancellation_event:
+        result = await tool.async_wait(task)
+    else:
+        # Race between task completion and cancellation
+        wait_task = asyncio.create_task(tool.async_wait(task))
+
+        try:
+            # Wait for either task completion or cancellation
+            done, pending = await asyncio.wait(
+                [wait_task, asyncio.create_task(cancellation_event.wait())],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+
+            # Cancel any pending tasks
+            for task_obj in pending:
+                task_obj.cancel()
+                try:
+                    await task_obj
+                except asyncio.CancelledError:
+                    pass
+
+            # Check if cancellation happened first
+            if cancellation_event.is_set():
+                # Try to cancel the task
+                try:
+                    await tool.async_cancel(task)
+                except Exception as e:
+                    print(f"Failed to cancel task {task.id}: {e}")
+
+                return {"status": "cancelled", "error": "Task cancelled by user"}
+            else:
+                # Task completed normally
+                result = wait_task.result()
+
+        except Exception as e:
+            # If anything goes wrong, try to cancel the task
+            try:
+                if not wait_task.done():
+                    wait_task.cancel()
+                    await tool.async_cancel(task)
+            except:
+                pass
+            raise e
+
+    # Add task.cost and task.id to the result object
+    if isinstance(result, dict):
+        result["cost"] = getattr(task, "cost", None)
+        result["task"] = getattr(task, "id", None)
+
+    return result
+
+
 async def process_tool_call(
     session: Session,
     assistant_message: ChatMessage,
     llm_context: LLMContext,
     tool_call: ToolCall,
     tool_call_index: int,
+    cancellation_event: asyncio.Event = None,
 ):
     # Update the tool call status to running
     tool_call.status = "running"
@@ -246,16 +332,84 @@ async def process_tool_call(
         assistant_message.tool_calls
     ):
         assistant_message.tool_calls[tool_call_index].status = "running"
-        assistant_message.save()
+        try:
+            # Force save with direct MongoDB update
+            from eve.mongo import get_collection
+
+            messages_collection = get_collection("messages")
+            result = messages_collection.update_one(
+                {"_id": assistant_message.id},
+                {"$set": {f"tool_calls.{tool_call_index}.status": "running"}},
+            )
+        except Exception as e:
+            print(f"Failed to update tool status to running: {e}")
+            # Try regular save as fallback
+            assistant_message.save()
 
     try:
-        result = await async_run_tool_call(
+        # Check for cancellation before starting tool execution
+        if cancellation_event and cancellation_event.is_set():
+            tool_call.status = "cancelled"
+            if assistant_message.tool_calls and tool_call_index < len(
+                assistant_message.tool_calls
+            ):
+                assistant_message.tool_calls[tool_call_index].status = "cancelled"
+                try:
+                    # Force save with direct MongoDB update
+                    from eve.mongo import get_collection
+
+                    messages_collection = get_collection("messages")
+                    result = messages_collection.update_one(
+                        {"_id": assistant_message.id},
+                        {"$set": {f"tool_calls.{tool_call_index}.status": "cancelled"}},
+                    )
+                    print(
+                        f"Direct MongoDB update for tool {tool_call_index}: {result.modified_count} modified"
+                    )
+                except Exception as e:
+                    assistant_message.save()
+            return SessionUpdate(
+                type=UpdateType.TOOL_CANCELLED,
+                tool_name=tool_call.tool,
+                tool_index=tool_call_index,
+                result={"status": "cancelled"},
+            )
+
+        # Use cancellation-aware tool execution
+        result = await async_run_tool_call_with_cancellation(
             llm_context,
             tool_call,
             user_id=llm_context.metadata.trace_metadata.user_id
             or llm_context.metadata.trace_metadata.agent_id,
             agent_id=llm_context.metadata.trace_metadata.agent_id,
+            cancellation_event=cancellation_event,
         )
+
+        # Check for cancellation after tool execution completes
+        if cancellation_event and cancellation_event.is_set():
+            tool_call.status = "cancelled"
+            if assistant_message.tool_calls and tool_call_index < len(
+                assistant_message.tool_calls
+            ):
+                assistant_message.tool_calls[tool_call_index].status = "cancelled"
+                try:
+                    # Force save with direct MongoDB update
+                    from eve.mongo import get_collection
+
+                    messages_collection = get_collection("messages")
+                    result = messages_collection.update_one(
+                        {"_id": assistant_message.id},
+                        {"$set": {f"tool_calls.{tool_call_index}.status": "cancelled"}},
+                    )
+                except Exception as e:
+                    print(f"Direct update failed, trying regular save: {e}")
+                    assistant_message.save()
+            return SessionUpdate(
+                type=UpdateType.TOOL_CANCELLED,
+                tool_name=tool_call.tool,
+                tool_index=tool_call_index,
+                result={"status": "cancelled"},
+            )
 
         # Update the original tool call with result
         if result["status"] == "completed":
@@ -274,6 +428,11 @@ async def process_tool_call(
                     "cost", 0
                 )
                 assistant_message.tool_calls[tool_call_index].task = result.get("task")
+                assistant_message.observability = ChatMessageObservability(
+                    session_id=llm_context.metadata.session_id,
+                    trace_id=llm_context.metadata.trace_id,
+                    tokens_spent=0,
+                )
                 assistant_message.save()
 
             update_session_budget(session, manna_spent=result.get("cost", 0))
@@ -326,7 +485,10 @@ async def process_tool_call(
 
 
 async def process_tool_calls(
-    session: Session, assistant_message: ChatMessage, llm_context: LLMContext
+    session: Session,
+    assistant_message: ChatMessage,
+    llm_context: LLMContext,
+    cancellation_event: asyncio.Event = None,
 ):
     tool_calls = assistant_message.tool_calls
     for b in range(0, len(tool_calls), 4):
@@ -338,6 +500,7 @@ async def process_tool_calls(
                 llm_context,
                 tool_call,
                 b + idx,
+                cancellation_event,
             )
             for idx, tool_call in batch
         ]
@@ -350,121 +513,250 @@ async def process_tool_calls(
 async def async_prompt_session(
     session: Session, llm_context: LLMContext, actor: Agent, stream: bool = False
 ):
-    yield SessionUpdate(
-        type=UpdateType.START_PROMPT,
-        agent={
-            "_id": str(actor.id),
-            "username": actor.username,
-            "name": actor.name,
-            "userImage": actor.userImage,
-        }
-        if actor
-        else None,
-    )
-    prompt_session_finished = False
-    tokens_spent = 0
+    # Set up cancellation handling via Ably
+    cancellation_event = asyncio.Event()
+    ably_client = None
 
-    while not prompt_session_finished:
-        if stream:
-            # For streaming, we need to collect the content as it comes in
-            content = ""
-            tool_calls_dict = {}  # Track tool calls by index to accumulate arguments
-            stop_reason = None
-            tokens_spent = 0  # Initialize tokens_spent for streaming
+    try:
+        from ably import AblyRealtime
 
-            async for chunk in async_prompt_stream(llm_context):
-                if hasattr(chunk, "choices") and chunk.choices:
-                    choice = chunk.choices[0]
-                    # Only yield content tokens, not tool call chunks
-                    if choice.delta and choice.delta.content:
-                        content += choice.delta.content
-                        yield SessionUpdate(
-                            type=UpdateType.ASSISTANT_TOKEN, text=choice.delta.content
-                        )
-                    # Process tool calls silently (don't yield anything)
-                    if choice.delta and choice.delta.tool_calls:
-                        for tc in choice.delta.tool_calls:
-                            if tc.index not in tool_calls_dict:
-                                tool_calls_dict[tc.index] = {
-                                    "id": tc.id,
-                                    "name": tc.function.name if tc.function else None,
-                                    "arguments": "",
-                                }
-                            if tc.function and tc.function.arguments:
-                                tool_calls_dict[tc.index]["arguments"] += (
-                                    tc.function.arguments
-                                )
-                    if choice.finish_reason:
-                        stop_reason = choice.finish_reason
+        ably_client = AblyRealtime(os.getenv("ABLY_SUBSCRIBER_KEY"))
+        channel_name = f"{os.getenv('DB')}-session-cancel-{session.id}"
+        channel = ably_client.channels.get(channel_name)
 
-                # Capture token usage from streaming response
-                if hasattr(chunk, "usage") and chunk.usage:
-                    tokens_spent = chunk.usage.total_tokens
+        async def cancellation_handler(message):
+            """Handle cancellation messages from Ably."""
+            try:
+                data = message.data
+                if isinstance(data, dict) and data.get("session_id") == str(session.id):
+                    cancellation_event.set()
+            except Exception as e:
+                print(f"Error in cancellation handler: {e}")
 
-            # Convert accumulated tool calls to ToolCall objects
-            tool_calls = None
-            if tool_calls_dict:
-                tool_calls = []
-                for idx in sorted(tool_calls_dict.keys()):
-                    tc_data = tool_calls_dict[idx]
-                    try:
-                        args = (
-                            json.loads(tc_data["arguments"])
-                            if tc_data["arguments"]
-                            else {}
-                        )
-                    except json.JSONDecodeError:
-                        args = {}
+        await channel.subscribe("cancel", cancellation_handler)
 
-                    tool_calls.append(
-                        ToolCall(
-                            id=tc_data["id"],
-                            tool=tc_data["name"],
-                            args=args,
-                            status="pending",
-                        )
-                    )
+    except Exception as e:
+        print(f"Failed to setup Ably cancellation for session {session.id}: {e}")
+        # Continue without cancellation support if Ably fails
 
-            # Create the final assistant message
-            assistant_message = ChatMessage(
-                session=session.id,
-                sender=ObjectId(llm_context.metadata.trace_metadata.agent_id),
-                role="assistant",
-                content=content,
-                tool_calls=tool_calls,
-            )
-        else:
-            # Non-streaming path
-            response = await async_prompt(llm_context)
-            assistant_message = ChatMessage(
-                session=session.id,
-                sender=ObjectId(llm_context.metadata.trace_metadata.agent_id),
-                role="assistant",
-                content=response.content,
-                tool_calls=response.tool_calls,
-            )
-            stop_reason = response.stop
-            tokens_spent = response.tokens_spent
-
-        assistant_message.save()
-        session.messages.append(assistant_message.id)
-        update_session_budget(session, tokens_spent=tokens_spent, turns_spent=1)
-        session.save()
-        llm_context.messages.append(assistant_message)
+    async def prompt_session_generator():
+        """Generator function that yields session updates and can be cancelled."""
         yield SessionUpdate(
-            type=UpdateType.ASSISTANT_MESSAGE, message=assistant_message
+            type=UpdateType.START_PROMPT,
+            agent={
+                "_id": str(actor.id),
+                "username": actor.username,
+                "name": actor.name,
+                "userImage": actor.userImage,
+            }
+            if actor
+            else None,
         )
 
-        if assistant_message.tool_calls:
-            async for update in process_tool_calls(
-                session, assistant_message, llm_context
-            ):
-                yield update
+        prompt_session_finished = False
+        tokens_spent = 0
 
-        if stop_reason == "stop":
-            prompt_session_finished = True
+        while not prompt_session_finished:
+            # Check for cancellation before each iteration
+            if cancellation_event.is_set():
+                raise SessionCancelledException("Session cancelled by user")
 
-    yield SessionUpdate(type=UpdateType.END_PROMPT)
+            if stream:
+                # For streaming, we need to collect the content as it comes in
+                content = ""
+                tool_calls_dict = {}  # Track tool calls by index to accumulate arguments
+                stop_reason = None
+                tokens_spent = 0  # Initialize tokens_spent for streaming
+
+                async for chunk in async_prompt_stream(llm_context):
+                    # Check for cancellation during streaming
+                    if cancellation_event.is_set():
+                        raise SessionCancelledException("Session cancelled by user")
+
+                    if hasattr(chunk, "choices") and chunk.choices:
+                        choice = chunk.choices[0]
+                        # Only yield content tokens, not tool call chunks
+                        if choice.delta and choice.delta.content:
+                            content += choice.delta.content
+                            yield SessionUpdate(
+                                type=UpdateType.ASSISTANT_TOKEN,
+                                text=choice.delta.content,
+                            )
+                        # Process tool calls silently (don't yield anything)
+                        if choice.delta and choice.delta.tool_calls:
+                            for tc in choice.delta.tool_calls:
+                                if tc.index not in tool_calls_dict:
+                                    tool_calls_dict[tc.index] = {
+                                        "id": tc.id,
+                                        "name": tc.function.name
+                                        if tc.function
+                                        else None,
+                                        "arguments": "",
+                                    }
+                                if tc.function and tc.function.arguments:
+                                    tool_calls_dict[tc.index]["arguments"] += (
+                                        tc.function.arguments
+                                    )
+                        if choice.finish_reason:
+                            stop_reason = choice.finish_reason
+
+                    # Capture token usage from streaming response
+                    if hasattr(chunk, "usage") and chunk.usage:
+                        tokens_spent = chunk.usage.total_tokens
+
+                # Convert accumulated tool calls to ToolCall objects
+                tool_calls = None
+                if tool_calls_dict:
+                    tool_calls = []
+                    for idx in sorted(tool_calls_dict.keys()):
+                        tc_data = tool_calls_dict[idx]
+                        try:
+                            args = (
+                                json.loads(tc_data["arguments"])
+                                if tc_data["arguments"]
+                                else {}
+                            )
+                        except json.JSONDecodeError:
+                            args = {}
+
+                        tool_calls.append(
+                            ToolCall(
+                                id=tc_data["id"],
+                                tool=tc_data["name"],
+                                args=args,
+                                status="pending",
+                            )
+                        )
+
+                # Create the final assistant message
+                assistant_message = ChatMessage(
+                    session=session.id,
+                    sender=ObjectId(llm_context.metadata.trace_metadata.agent_id),
+                    role="assistant",
+                    content=content,
+                    tool_calls=tool_calls,
+                    observability=ChatMessageObservability(
+                        session_id=llm_context.metadata.session_id,
+                        trace_id=llm_context.metadata.trace_id,
+                        tokens_spent=tokens_spent,
+                    ),
+                )
+            else:
+                # Non-streaming path
+                response = await async_prompt(llm_context)
+                assistant_message = ChatMessage(
+                    session=session.id,
+                    sender=ObjectId(llm_context.metadata.trace_metadata.agent_id),
+                    role="assistant",
+                    content=response.content,
+                    tool_calls=response.tool_calls,
+                    observability=ChatMessageObservability(
+                        session_id=llm_context.metadata.session_id,
+                        trace_id=llm_context.metadata.trace_id,
+                        tokens_spent=response.tokens_spent,
+                    ),
+                )
+                stop_reason = response.stop
+                tokens_spent = response.tokens_spent
+
+            assistant_message.save()
+            session.messages.append(assistant_message.id)
+            update_session_budget(session, tokens_spent=tokens_spent, turns_spent=1)
+            session.save()
+            llm_context.messages.append(assistant_message)
+            yield SessionUpdate(
+                type=UpdateType.ASSISTANT_MESSAGE, message=assistant_message
+            )
+
+            if assistant_message.tool_calls:
+                async for update in process_tool_calls(
+                    session, assistant_message, llm_context, cancellation_event
+                ):
+                    # Check for cancellation during tool execution
+                    if cancellation_event.is_set():
+                        raise SessionCancelledException("Session cancelled by user")
+                    yield update
+
+            if stop_reason == "stop":
+                prompt_session_finished = True
+
+        yield SessionUpdate(type=UpdateType.END_PROMPT)
+
+    try:
+        # Run the prompt session generator, checking for cancellation
+        async for update in prompt_session_generator():
+            yield update
+
+    except SessionCancelledException:
+        # Handle graceful cancellation
+        try:
+            # 1. Mark any unfinished tool calls as cancelled
+            last_message = None
+            if session.messages:
+                last_message_id = session.messages[-1]
+                last_message = ChatMessage.from_mongo(last_message_id)
+
+                if last_message and last_message.tool_calls:
+                    for idx, tool_call in enumerate(last_message.tool_calls):
+                        if tool_call.status in ["pending", "running"]:
+                            tool_call.status = "cancelled"
+                            # Yield cancellation update for each tool call
+                            yield SessionUpdate(
+                                type=UpdateType.TOOL_CANCELLED,
+                                tool_name=tool_call.tool,
+                                tool_index=idx,
+                                result={"status": "cancelled"},
+                            )
+
+                    # Force save by updating the entire tool_calls array
+                    try:
+                        # Save using direct MongoDB update to ensure the change persists
+                        from eve.mongo import get_collection
+
+                        messages_collection = get_collection("messages")
+                        result = messages_collection.update_one(
+                            {"_id": last_message.id},
+                            {
+                                "$set": {
+                                    "tool_calls": [
+                                        tc.model_dump()
+                                        for tc in last_message.tool_calls
+                                    ]
+                                }
+                            },
+                        )
+                    except Exception as e:
+                        last_message.markModified("tool_calls")
+                        last_message.save()
+
+            # 2. Add system message indicating cancellation
+            cancel_message = ChatMessage(
+                session=session.id,
+                sender=ObjectId("000000000000000000000000"),  # System sender
+                role="system",
+                content="Response cancelled by user",
+            )
+            cancel_message.save()
+            session.messages.append(cancel_message.id)
+            session.save()
+
+            # 3. Yield final updates
+            yield SessionUpdate(
+                type=UpdateType.ASSISTANT_MESSAGE, message=cancel_message
+            )
+            yield SessionUpdate(type=UpdateType.END_PROMPT)
+
+        except Exception as e:
+            print(f"Error during session cancellation cleanup: {e}")
+            yield SessionUpdate(type=UpdateType.END_PROMPT)
+
+    finally:
+        # Clean up Ably subscription
+        if ably_client:
+            try:
+                await ably_client.close()
+            except Exception as e:
+                print(f"Error closing Ably client: {e}")
 
 
 def format_session_update(update: SessionUpdate, context: PromptSessionContext) -> dict:
@@ -491,6 +783,10 @@ def format_session_update(update: SessionUpdate, context: PromptSessionContext) 
             ]
     elif update.type == UpdateType.TOOL_COMPLETE:
         data["tool"] = update.tool_name
+        data["result"] = dumps_json(update.result)
+    elif update.type == UpdateType.TOOL_CANCELLED:
+        data["tool"] = update.tool_name
+        data["tool_index"] = update.tool_index
         data["result"] = dumps_json(update.result)
     elif update.type == UpdateType.ERROR:
         data["error"] = update.error if hasattr(update, "error") else None
@@ -569,3 +865,101 @@ async def _queue_session_action_fastify_background_task(session: Session):
     except Exception as e:
         print("HTTP request failed:", str(e))
         capture_exception(e)
+
+
+async def async_title_session(
+    session: Session, initial_message_content: str, metadata: Optional[Dict] = None
+):
+    """
+    Generate a title for a session based on the initial message content
+    """
+
+    from pydantic import BaseModel, Field
+
+    class TitleResponse(BaseModel):
+        """A title for a session of chat messages. It must entice a user to click on the session when they are interested in the subject."""
+
+        title: str = Field(
+            description="a phrase of 2-5 words (or up to 30 characters) that conveys the subject of the chat session. It should be concise and terse, and not include any special characters or punctuation."
+        )
+
+    try:
+        if not initial_message_content:
+            # If no message content, return without setting a title
+            return
+
+        # Add a system message and the initial user message for title generation
+        system_message = ChatMessage(
+            session=session.id,
+            sender=ObjectId("000000000000000000000000"),  # System sender
+            role="system",
+            content="You are an expert at creating concise titles for chat sessions.",
+        )
+
+        # Add the initial user message
+        user_message = ChatMessage(
+            session=session.id,
+            sender=ObjectId("000000000000000000000000"),  # System sender (placeholder)
+            role="user",
+            content=initial_message_content,
+        )
+
+        # Add request message for title generation
+        request_message = ChatMessage(
+            session=session.id,
+            sender=ObjectId("000000000000000000000000"),  # System sender
+            role="user",
+            content="Come up with a title for this session based on the user's message.",
+        )
+
+        # Build message list
+        messages = [system_message, user_message, request_message]
+
+        # Create LLM context
+        llm_context = LLMContext(
+            messages=messages,
+            tools={},  # No tools needed for title generation
+            config=LLMConfig(model="gpt-4o-mini", response_format=TitleResponse),
+            metadata=LLMContextMetadata(
+                session_id=f"{os.getenv('DB')}-{str(session.id)}",
+                trace_name="FN_title_session",
+                trace_id=str(uuid.uuid4()),
+                generation_name="FN_title_session",
+                trace_metadata=LLMTraceMetadata(
+                    session_id=str(session.id),
+                ),
+            ),
+        )
+
+        # Generate title using async_prompt
+        result = await async_prompt(llm_context)
+
+        # Parse the response
+        if hasattr(result, "content") and result.content:
+            try:
+                # Try to parse as JSON if response_format was used
+                import json
+
+                title_data = json.loads(result.content)
+                if isinstance(title_data, dict) and "title" in title_data:
+                    session.title = title_data["title"]
+                else:
+                    # Fallback to using content directly
+                    session.title = result.content[:30]  # Limit to 30 chars
+            except (json.JSONDecodeError, TypeError):
+                # If JSON parsing fails, use content directly
+                session.title = result.content[:30]  # Limit to 30 chars
+
+            session.save()
+
+    except Exception as e:
+        capture_exception(e)
+        traceback.print_exc()
+        return
+
+
+def title_session(
+    session: Session, initial_message_content: str, metadata: Optional[Dict] = None
+):
+    """Synchronous wrapper for async_title_session"""
+    return asyncio.run(async_title_session(session, initial_message_content))
