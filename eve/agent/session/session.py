@@ -144,9 +144,14 @@ async def determine_actor(
         elif len(mentions) > 1:
             actor_id = random.choice(mentions).id
 
+
+    print("1 the actor id is", actor_id)
+
     if not actor_id:
         # TODO: governor/dispatcher here
         actor_id = random.choice(session.agents)
+
+    print("2 the actor id is", actor_id)
 
     actor = Agent.from_mongo(actor_id)
     session.last_actor_id = actor.id
