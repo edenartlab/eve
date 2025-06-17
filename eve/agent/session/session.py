@@ -184,7 +184,7 @@ def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
     print("--------------------------------")
     print(actor_id)
     for message in messages:
-        print("sender", message.sender)
+        print("sender", message.sender, "role", message.role)
 
     messages = [
         message.as_assistant_message()
@@ -195,7 +195,10 @@ def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
 
     print("--------------------------------")
     print("MESSAGE ROLES")
-    print(messages)
+    # print(messages)
+    for message in messages:
+        print("sender", message.sender, "role", message.role)
+        print("--------------------------------")
     print("--------------------------------")
 
     return messages
