@@ -63,6 +63,7 @@ BASE_TOOLS = [
     "transcription",
     # editing
     "media_editor",
+    "create",
     # search
     "search_agents",
     "search_models",

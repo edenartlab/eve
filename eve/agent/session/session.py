@@ -211,14 +211,20 @@ async def build_llm_context(
     session: Session, actor: Agent, context: PromptSessionContext
 ):
     tools = actor.get_tools(cache=True, auth_user=context.initiating_user_id)
+    
+    if context.custom_tools:
+        tools.update(context.custom_tools)
+        tools = {tool: tools[tool] for tool in tools if tool in context.custom_tools}
+
     system_message = build_system_message(session, actor, context)
     messages = [system_message]
     messages.extend(select_messages(session))
     messages = convert_message_roles(messages, actor.id)
-
+    
     if context.initiating_user_id:
         new_message = add_user_message(session, context)
         messages.append(new_message)
+
     return LLMContext(
         messages=messages,
         tools=tools,

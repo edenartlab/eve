@@ -11,13 +11,15 @@ from ....agent import Agent
 async def handler(args: dict, user: str = None, agent: str = None):
     # If you want to hit the Vertex backend instead of the public Gemini one:
     # client = genai.Client(backend=genai.Backend.VertexAI,
-    #                       project_id=os.environ["PROJECT_ID"],
+    #                       project_id=os.environ.get("PROJECT_ID"),
     #                       location="us-central1")
 
     # Otherwise the default backend honours GOOGLE_API_KEY.
     client = genai.Client() # reads GOOGLE_API_KEY
     
-    # for m in client.models.list(): print(m.name)
+    for m in client.models.list(): print(m.name)
+
+    # raise Exception("Not implemented")
 
     if not args.get("prompt") and not args.get("image"):
         raise ValueError("At least one of prompt or image is required")
