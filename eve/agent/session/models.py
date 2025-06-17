@@ -167,6 +167,14 @@ class Channel(Document):
     key: str
 
 
+class ChatMessageObservability(BaseModel):
+    provider: Literal["langfuse"] = "langfuse"
+    session_id: Optional[str] = None
+    trace_id: Optional[str] = None
+    tokens_spent: Optional[int] = None
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
 @Collection("messages")
 class ChatMessage(Document):
     role: Literal[
@@ -194,6 +202,8 @@ class ChatMessage(Document):
 
     task: Optional[ObjectId] = None  # ???
     cost: Optional[float] = None  # ???
+
+    observability: Optional[ChatMessageObservability] = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -230,6 +240,15 @@ class ChatMessage(Document):
             return self
 
         return self.model_copy(update={"role": "assistant"})
+
+    def filter_cancelled_tool_calls(self):
+        """Return a copy of the message with cancelled tool calls filtered out"""
+        if not self.tool_calls:
+            return self
+
+        filtered_tool_calls = [tc for tc in self.tool_calls if tc.status != "cancelled"]
+
+        return self.model_copy(update={"tool_calls": filtered_tool_calls})
 
     def _get_content_block(self, schema, truncate_images=False):
         """Assemble user message content block"""
@@ -490,6 +509,7 @@ class UpdateType(Enum):
     ASSISTANT_TOKEN = "assistant_token"
     ASSISTANT_MESSAGE = "assistant_message"
     TOOL_COMPLETE = "tool_complete"
+    TOOL_CANCELLED = "tool_cancelled"
     ERROR = "error"
     END_PROMPT = "end_prompt"
 
@@ -518,6 +538,7 @@ class LLMTraceMetadata(BaseModel):
 
 class LLMContextMetadata(BaseModel):
     session_id: Optional[str] = None
+    trace_id: Optional[str] = None
     trace_name: Optional[str] = None
     generation_name: Optional[str] = None
     trace_metadata: Optional[LLMTraceMetadata] = None
