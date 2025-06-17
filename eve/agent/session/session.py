@@ -183,6 +183,12 @@ def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
         else message.as_user_message()
         for message in messages
     ]
+
+    print("--------------------------------")
+    print("MESSAGE ROLES")
+    print(messages)
+    print("--------------------------------")
+
     return messages
 
 
