@@ -9,6 +9,7 @@ from fastapi import BackgroundTasks, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 import aiohttp
 
+from eve.agent.deployments import Deployment, DeploymentConfig
 from eve.agent.session.models import (
     PromptSessionContext,
     Session,
@@ -25,17 +26,14 @@ from eve.api.api_requests import (
     CancelRequest,
     CancelSessionRequest,
     ChatRequest,
-    CreateDeploymentRequest,
     CreateDeploymentRequestV2,
     CreateTriggerRequest,
-    DeleteDeploymentRequest,
     DeleteDeploymentRequestV2,
     DeleteTriggerRequest,
     PromptSessionRequest,
     TaskRequest,
     PlatformUpdateRequest,
     UpdateConfig,
-    UpdateDeploymentRequest,
     AgentToolsUpdateRequest,
     AgentToolsDeleteRequest,
     UpdateDeploymentRequestV2,
@@ -47,15 +45,6 @@ from eve.api.helpers import (
     create_telegram_chat_request,
     update_busy_state,
 )
-from eve.deploy import (
-    stop_client,
-    DeploymentConfig,
-    DeploymentSettingsDiscord,
-    ClientType,
-    DeploymentSecrets,
-    DeploymentSettingsFarcaster,
-    deploy_client_modal,
-)
 from eve.eden_utils import prepare_result, dumps_json
 from eve.tools.replicate_tool import replicate_update_task
 from eve.agent.llm import UpdateType
@@ -66,7 +55,6 @@ from eve.tool import Tool
 from eve.agent import Agent
 from eve.user import User
 from eve.agent.thread import Thread, UserMessage
-from eve.deploy import Deployment
 from eve.tools.twitter import X
 from eve.api.helpers import get_eden_creation_url
 
@@ -274,421 +262,6 @@ async def handle_stream_chat(request: ChatRequest, background_tasks: BackgroundT
             "Connection": "keep-alive",
         },
     )
-
-
-@handle_errors
-async def handle_deployment_create(request: CreateDeploymentRequest):
-    agent = Agent.from_mongo(ObjectId(request.agent))
-    if not agent:
-        raise APIError(f"Agent not found: {agent.id}", status_code=404)
-
-    # Predeploy: platform-specific validation and setup
-    secrets, config = await predeploy_platform(
-        agent, request.secrets, request.config, request.platform
-    )
-
-    # Create the deployment object
-    deployment = Deployment(
-        agent=agent.id,
-        user=ObjectId(request.user),
-        platform=request.platform,
-        secrets=secrets,
-        config=config,
-        valid=True,
-    )
-
-    deployment.save(
-        upsert_filter={"agent": agent.id, "platform": request.platform.value}
-    )
-
-    try:
-        # Postdeploy: platform-specific actions that need the deployment object
-        await postdeploy_platform(deployment, request.platform, secrets)
-    except Exception as e:
-        logger.error(f"Failed in postdeploy: {str(e)}")
-        deployment.delete()
-        raise APIError(f"Failed to deploy client: {str(e)}", status_code=500)
-
-    return {"deployment_id": str(deployment.id)}
-
-
-async def predeploy_platform(
-    agent: Agent,
-    secrets: DeploymentSecrets,
-    config: DeploymentConfig,
-    platform: ClientType,
-):
-    """Platform-specific validation, secret modification, and agent tool setup"""
-    if platform == ClientType.DISCORD:
-        return await predeploy_discord(agent, secrets, config)
-    elif platform == ClientType.TELEGRAM:
-        return await predeploy_telegram(agent, secrets, config)
-    elif platform == ClientType.FARCASTER:
-        return await predeploy_farcaster(agent, secrets, config)
-    elif platform == ClientType.TWITTER:
-        return await predeploy_twitter(agent, secrets, config)
-    else:
-        raise APIError(f"Invalid platform: {platform}", status_code=400)
-
-
-async def postdeploy_platform(
-    deployment: Deployment,
-    platform: ClientType,
-    secrets: DeploymentSecrets,
-):
-    """Platform-specific actions that require the deployment object"""
-    if platform == ClientType.DISCORD:
-        await postdeploy_discord(deployment)
-    elif platform == ClientType.TELEGRAM:
-        await postdeploy_telegram(deployment, secrets)
-    elif platform == ClientType.FARCASTER:
-        await postdeploy_farcaster(deployment, secrets)
-    elif platform == ClientType.TWITTER:
-        await postdeploy_twitter(deployment)
-    else:
-        raise APIError(f"Invalid platform: {platform}", status_code=400)
-
-
-async def predeploy_discord(
-    agent: Agent, secrets: DeploymentSecrets, config: DeploymentConfig
-):
-    """Validate Discord token and setup OAuth"""
-    headers = {"Authorization": f"Bot {secrets.discord.token}"}
-    async with aiohttp.ClientSession() as session:
-        async with session.get(
-            "https://discord.com/api/v10/users/@me", headers=headers
-        ) as response:
-            if response.status != 200:
-                raise APIError("Invalid Discord token", status_code=400)
-
-            # Get application ID if not provided
-            if not secrets.discord.application_id:
-                bot_data = await response.json()
-                application_id = bot_data.get("id")
-                if application_id:
-                    secrets.discord.application_id = application_id
-
-                    # Setup Discord config
-                    if not config:
-                        config = DeploymentConfig()
-                    if not config.discord:
-                        config.discord = DeploymentSettingsDiscord()
-
-                    # Create OAuth URL with the same permissions integer
-                    permissions_integer = "309237771264"
-                    oauth_url = f"https://discord.com/oauth2/authorize?client_id={application_id}&permissions={permissions_integer}&integration_type=0&scope=bot"
-
-                    config.discord.oauth_client_id = application_id
-                    config.discord.oauth_url = oauth_url
-
-    # Add Discord tools to agent
-    if not agent.tools:
-        agent.tools = {}
-        agent.add_base_tools = True
-
-    agent.tools["discord_search"] = {
-        "parameters": {"agent": {"default": str(agent.id), "hide_from_agent": True}}
-    }
-    agent.tools["discord_post"] = {
-        "parameters": {"agent": {"default": str(agent.id), "hide_from_agent": True}}
-    }
-    agent.save()
-
-    return secrets, config
-
-
-async def predeploy_telegram(
-    agent: Agent, secrets: DeploymentSecrets, config: DeploymentConfig
-):
-    """Validate Telegram token, generate webhook secret and add Telegram tools"""
-    from telegram import Bot
-    import secrets as python_secrets
-
-    # Validate bot token
-    try:
-        bot = Bot(secrets.telegram.token)
-        bot_info = await bot.get_me()
-        print(f"Verified Telegram bot: {bot_info.username}")
-    except Exception as e:
-        raise APIError(f"Invalid Telegram token: {str(e)}", status_code=400)
-
-    webhook_secret = python_secrets.token_urlsafe(32)
-    secrets.telegram.webhook_secret = webhook_secret
-
-    # Add Telegram tools to agent
-    if not agent.tools:
-        agent.tools = {}
-        agent.add_base_tools = True
-
-    agent.tools["telegram_post"] = {
-        "parameters": {"agent": {"default": str(agent.id), "hide_from_agent": True}}
-    }
-    agent.save()
-
-    return secrets, config
-
-
-async def predeploy_farcaster(
-    agent: Agent, secrets: DeploymentSecrets, config: DeploymentConfig
-):
-    """Verify Farcaster credentials"""
-    try:
-        from farcaster import Warpcast
-
-        client = Warpcast(mnemonic=secrets.farcaster.mnemonic)
-
-        # Test the credentials by getting user info
-        user_info = client.get_me()
-        print(f"Verified Farcaster credentials for user: {user_info}")
-    except Exception as e:
-        raise APIError(f"Invalid Farcaster credentials: {str(e)}", status_code=400)
-
-    # Generate webhook secret if not provided
-    if not secrets.farcaster.neynar_webhook_secret:
-        import secrets as python_secrets
-
-        webhook_secret = python_secrets.token_urlsafe(32)
-        secrets.farcaster.neynar_webhook_secret = webhook_secret
-
-    return secrets, config
-
-
-async def predeploy_twitter(
-    agent: Agent, secrets: DeploymentSecrets, config: DeploymentConfig
-):
-    """Validate Twitter credentials and add Twitter tools to agent"""
-    import tweepy
-
-    # Validate Twitter credentials
-    try:
-        # Create Twitter client with OAuth 1.0a
-        auth = tweepy.OAuth1UserHandler(
-            consumer_key=secrets.twitter.consumer_key,
-            consumer_secret=secrets.twitter.consumer_secret,
-            access_token=secrets.twitter.access_token,
-            access_token_secret=secrets.twitter.access_token_secret,
-        )
-        api = tweepy.API(auth)
-
-        # Test the credentials by getting user info
-        user = api.verify_credentials()
-        print(f"Verified Twitter credentials for user: @{user.screen_name}")
-
-        # Also test with v2 API using bearer token
-        client = tweepy.Client(
-            bearer_token=secrets.twitter.bearer_token,
-            consumer_key=secrets.twitter.consumer_key,
-            consumer_secret=secrets.twitter.consumer_secret,
-            access_token=secrets.twitter.access_token,
-            access_token_secret=secrets.twitter.access_token_secret,
-        )
-
-        # Test v2 API
-        me = client.get_me()
-        print(f"Verified Twitter v2 API for user: @{me.data.username}")
-
-    except Exception as e:
-        raise APIError(f"Invalid Twitter credentials: {str(e)}", status_code=400)
-
-    if not agent.tools:
-        agent.tools = {}
-        agent.add_base_tools = True
-
-    agent.tools["tweet"] = {
-        "parameters": {"agent": {"default": str(agent.id), "hide_from_agent": True}}
-    }
-    agent.tools["twitter_mentions"] = {
-        "parameters": {"agent": {"default": str(agent.id), "hide_from_agent": True}}
-    }
-    agent.tools["twitter_search"] = {
-        "parameters": {"agent": {"default": str(agent.id), "hide_from_agent": True}}
-    }
-    agent.save()
-
-    return secrets, config
-
-
-async def postdeploy_discord(deployment: Deployment):
-    """Notify Discord gateway service via Ably"""
-    try:
-        from ably import AblyRest
-
-        ably_client = AblyRest(os.getenv("ABLY_PUBLISHER_KEY"))
-        channel = ably_client.channels.get(f"discord-gateway-{db}")
-
-        await channel.publish(
-            "command", {"command": "start", "deployment_id": str(deployment.id)}
-        )
-        print(f"Sent start command for deployment {deployment.id} via Ably")
-    except Exception as e:
-        raise Exception(f"Failed to notify gateway service: {e}")
-
-
-async def postdeploy_telegram(deployment: Deployment, secrets: DeploymentSecrets):
-    """Set Telegram webhook and notify gateway"""
-    from telegram import Bot
-
-    webhook_url = f"{os.getenv('EDEN_API_URL')}/updates/platform/telegram"
-
-    # Update bot webhook
-    response = await Bot(secrets.telegram.token).set_webhook(
-        url=webhook_url,
-        secret_token=secrets.telegram.webhook_secret,
-        drop_pending_updates=True,
-        max_connections=100,
-    )
-
-    if not response:
-        raise Exception("Failed to set Telegram webhook")
-
-    # Notify gateway about the new deployment
-    try:
-        from ably import AblyRest
-
-        ably_client = AblyRest(os.getenv("ABLY_PUBLISHER_KEY"))
-        channel = ably_client.channels.get(f"discord-gateway-{db}")
-
-        await channel.publish(
-            "command",
-            {
-                "command": "register_telegram",
-                "deployment_id": str(deployment.id),
-                "token": secrets.telegram.token,
-            },
-        )
-        print(
-            f"Sent Telegram registration command for deployment {deployment.id} via Ably"
-        )
-    except Exception as e:
-        raise Exception(f"Failed to notify gateway service for Telegram: {e}")
-
-
-async def postdeploy_farcaster(deployment: Deployment, secrets: DeploymentSecrets):
-    """Register webhook with Neynar"""
-    webhook_url = f"{os.getenv('EDEN_API_URL')}/updates/platform/farcaster"
-
-    async with aiohttp.ClientSession() as session:
-        # Get Neynar API key from environment
-        neynar_api_key = os.getenv("NEYNAR_API_KEY")
-        if not neynar_api_key:
-            raise Exception("NEYNAR_API_KEY not found in environment")
-
-        headers = {
-            "x-api-key": f"{neynar_api_key}",
-            "Content-Type": "application/json",
-        }
-
-        # Get user info for webhook registration
-        from farcaster import Warpcast
-
-        client = Warpcast(mnemonic=secrets.farcaster.mnemonic)
-        user_info = client.get_me()
-
-        webhook_data = {
-            "name": f"eden-{deployment.id}",
-            "url": webhook_url,
-            "subscription": {"cast.created": {"mentioned_fids": [user_info.fid]}},
-        }
-
-        async with session.post(
-            "https://api.neynar.com/v2/farcaster/webhook",
-            headers=headers,
-            json=webhook_data,
-        ) as response:
-            if response.status != 200:
-                error_text = await response.text()
-                raise Exception(f"Failed to register Neynar webhook: {error_text}")
-
-            webhook_response = await response.json()
-            webhook_id = webhook_response.get("webhook", {}).get("webhook_id")
-            webhook_secret = (
-                webhook_response.get("webhook", {}).get("secrets", [{}])[0].get("value")
-            )
-
-            if not webhook_id:
-                raise Exception("No webhook_id in response")
-
-            # Update the webhook secret in deployment secrets
-            secrets.farcaster.neynar_webhook_secret = webhook_secret
-
-            # Store webhook ID in deployment for later cleanup
-            if not deployment.config:
-                deployment.config = DeploymentConfig()
-            if not deployment.config.farcaster:
-                deployment.config.farcaster = DeploymentSettingsFarcaster()
-
-            deployment.config.farcaster.webhook_id = webhook_id
-            deployment.secrets = secrets
-            deployment.save()
-
-            print(
-                f"Registered Neynar webhook {webhook_id} for deployment {deployment.id}"
-            )
-
-
-async def postdeploy_twitter(deployment: Deployment):
-    """No post-deployment actions needed for Twitter"""
-    pass
-
-
-async def postdeploy_modal(
-    deployment: Deployment,
-    agent: Agent,
-    platform: ClientType,
-    secrets: DeploymentSecrets,
-    env: str,
-    repo_branch: str = None,
-):
-    """Deploy Modal client"""
-    deploy_client_modal(agent, platform, secrets, env, repo_branch)
-
-
-@handle_errors
-async def handle_deployment_update(request: UpdateDeploymentRequest):
-    deployment = Deployment.from_mongo(ObjectId(request.deployment_id))
-    if not deployment:
-        raise APIError(
-            f"Deployment not found: {request.deployment_id}", status_code=404
-        )
-
-    # Handle partial config updates by merging with existing config
-    if request.config:
-        existing_config = deployment.config or DeploymentConfig()
-        new_config = request.config.model_dump(exclude_unset=True)
-
-        # Merge the configs at the platform level
-        updated_config_dict = existing_config.model_dump() if existing_config else {}
-
-        for platform, platform_config in new_config.items():
-            if platform_config is not None:
-                if platform in updated_config_dict:
-                    # Merge platform-specific configs
-                    updated_config_dict[platform].update(platform_config)
-                else:
-                    # Add new platform config
-                    updated_config_dict[platform] = platform_config
-
-        # Convert to dict for MongoDB storage
-        deployment.update(config=updated_config_dict)
-
-    return {"deployment_id": str(deployment.id)}
-
-
-@handle_errors
-async def handle_deployment_delete(request: DeleteDeploymentRequest):
-    agent = Agent.from_mongo(ObjectId(request.agent))
-    if not agent:
-        raise APIError(f"Agent not found: {request.agent}", status_code=404)
-
-    try:
-        await stop_client(agent, request.platform)
-
-        # Delete deployment record
-        Deployment.delete_deployment(agent.id, request.platform.value)
-
-        return {"success": True}
-    except Exception as e:
-        raise APIError(f"Failed to stop client: {str(e)}", status_code=500)
 
 
 @handle_errors
@@ -1554,21 +1127,18 @@ async def handle_v2_deployment_update(request: UpdateDeploymentRequestV2):
 
 @handle_errors
 async def handle_v2_deployment_delete(request: DeleteDeploymentRequestV2):
-    agent = Agent.from_mongo(ObjectId(request.agent))
-    if not agent:
-        raise APIError(f"Agent not found: {request.agent}", status_code=404)
-
-    deployment = Deployment.load(agent=agent.id, platform=request.platform.value)
+    deployment = Deployment.from_mongo(ObjectId(request.deployment_id))
     if not deployment:
         raise APIError(
-            f"Deployment not found for agent {agent.id} and platform {request.platform}",
+            f"Deployment not found: {request.deployment_id}",
             status_code=404,
         )
 
     try:
         # Get platform client and run stop
+        agent = Agent.from_mongo(ObjectId(deployment.agent))
         client = get_platform_client(
-            agent=agent, platform=request.platform, deployment=deployment
+            agent=agent, platform=deployment.platform, deployment=deployment
         )
         await client.stop()
         deployment.delete()

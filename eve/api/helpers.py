@@ -1,8 +1,8 @@
 import logging
 import os
+import subprocess
 from typing import Dict, Optional
 import aiohttp
-from bson import ObjectId
 from fastapi import BackgroundTasks
 from ably import AblyRest
 import traceback
@@ -18,18 +18,13 @@ from eve.agent.deployments.farcaster import FarcasterClient
 from eve.agent.deployments.telegram import TelegramClient
 from eve.agent.deployments.twitter import TwitterClient
 from eve.api.errors import APIError
-from eve.deploy import (
-    authenticate_modal_key,
-    check_environment_exists,
-    create_environment,
-)
 from eve.tool import Tool
 from eve.user import User
 from eve.agent import Agent
 from eve.agent.thread import Thread
 from eve.agent.tasks import async_title_thread
 from eve.api.api_requests import ChatRequest, UpdateConfig
-from eve.deploy import Deployment
+from eve.agent.deployments import Deployment
 
 logger = logging.getLogger(__name__)
 
@@ -442,3 +437,33 @@ def get_platform_client(
         return FarcasterClient(agent=agent, deployment=deployment)
     elif platform == ClientType.TWITTER:
         return TwitterClient(agent=agent, deployment=deployment)
+
+
+def authenticate_modal_key() -> bool:
+    token_id = os.getenv("MODAL_DEPLOYER_TOKEN_ID")
+    token_secret = os.getenv("MODAL_DEPLOYER_TOKEN_SECRET")
+    subprocess.run(
+        [
+            "modal",
+            "token",
+            "set",
+            "--token-id",
+            token_id,
+            "--token-secret",
+            token_secret,
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+
+def check_environment_exists(env_name: str) -> bool:
+    result = subprocess.run(
+        ["modal", "environment", "list"], capture_output=True, text=True
+    )
+    return f"│ {env_name} " in result.stdout
+
+
+def create_environment(env_name: str):
+    print(f"Creating environment {env_name}")
+    subprocess.run(["modal", "environment", "create", env_name])

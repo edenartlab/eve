@@ -4,7 +4,7 @@ import traceback
 import multiprocessing
 from pathlib import Path
 
-from ..deploy import ClientType
+from eve.agent.deployments import ClientType
 from ..agent import Agent
 from ..clients.discord.client import start as start_discord
 from ..clients.telegram.client import start as start_telegram

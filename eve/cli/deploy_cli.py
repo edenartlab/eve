@@ -6,8 +6,6 @@ from pathlib import Path
 from dotenv import dotenv_values
 import os
 
-from eve.deploy import ClientType
-
 root_dir = Path(__file__).parent.parent.parent
 
 

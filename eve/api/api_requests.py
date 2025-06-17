@@ -2,7 +2,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
 
-from eve.deploy import ClientType, DeploymentConfig, DeploymentSecrets
+from eve.agent.deployments import ClientType, DeploymentConfig, DeploymentSecrets
 from eve.agent.thread import UserMessage
 from eve.agent.llm import UpdateType
 from eve.agent.session.models import ChatMessageRequestInput, LLMConfig
@@ -111,25 +111,6 @@ class CreateTriggerRequest(BaseModel):
 class AgentDeploymentConfig(BaseModel):
     discord_channel_allowlist: Optional[List[AllowedChannel]] = None
     telegram_topic_allowlist: Optional[List[AllowedChannel]] = None
-
-
-class CreateDeploymentRequest(BaseModel):
-    agent: str
-    user: str
-    platform: ClientType
-    secrets: Optional[DeploymentSecrets] = None
-    config: Optional[DeploymentConfig] = None
-    repo_branch: Optional[str] = None
-
-
-class UpdateDeploymentRequest(BaseModel):
-    deployment_id: str
-    config: Optional[DeploymentConfig] = None
-
-
-class DeleteDeploymentRequest(BaseModel):
-    agent: str
-    platform: ClientType
 
 
 class AgentToolsUpdateRequest(BaseModel):

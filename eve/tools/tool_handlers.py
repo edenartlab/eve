@@ -83,11 +83,6 @@ def load_handler(name):
 
             handlers[name] = handler
 
-        elif name == "twitter_trends":
-            from .twitter.twitter_trends.handler import handler
-
-            handlers[name] = handler
-
         elif name == "tweet":
             from .twitter.tweet.handler import handler
 
