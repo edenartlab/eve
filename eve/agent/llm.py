@@ -154,11 +154,18 @@ async def async_anthropic_prompt(
         }
         tool_schemas.append(websearch_tool)
         
-        # cache all tools - apply cache_control to each tool for full context caching
-        for tool_schema in tool_schemas:
-            tool_schema["cache_control"] = {"type": "ephemeral"}
+        # cache all tools by checkpointing only the last tool
+        tool_schemas[-1]["cache_control"] = {"type": "ephemeral"}
 
         prompt["tools"] = tool_schemas
+
+
+        print("ALL THE TOOLS")
+        print(tool_schemas[-1])
+        tool_names = [tool["name"] for tool in tool_schemas]
+        print("TOOL NAMES")
+        print(tool_names)
+        print("================\n\n\n\nn")
 
     import time
 
