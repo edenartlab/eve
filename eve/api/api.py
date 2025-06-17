@@ -48,8 +48,11 @@ from eve.api.handlers import (
     handle_farcaster_emission,
     handle_session_cancel,
     handle_v2_deployment_create,
+    handle_v2_deployment_emission,
+    handle_v2_deployment_interact,
     handle_v2_deployment_update,
     handle_v2_deployment_delete,
+    handle_v2_deployment_farcaster_neynar_webhook,
 )
 from eve.api.api_requests import (
     CancelRequest,
@@ -59,6 +62,8 @@ from eve.api.api_requests import (
     CreateTriggerRequest,
     DeleteDeploymentRequestV2,
     DeleteTriggerRequest,
+    DeploymentEmissionRequest,
+    DeploymentInteractRequest,
     PromptSessionRequest,
     TaskRequest,
     PlatformUpdateRequest,
@@ -313,6 +318,23 @@ async def delete_deployment(
     _: dict = Depends(auth.authenticate_admin),
 ):
     return await handle_v2_deployment_delete(request)
+
+
+@web_app.get("/v2/deployments/interact")
+async def deployment_interact(
+    request: DeploymentInteractRequest, _: dict = Depends(auth.authenticate_admin)
+):
+    return await handle_v2_deployment_interact(request)
+
+
+@web_app.post("/v2/deployments/farcaster/neynar-webhook")
+async def deployment_farcaster_neynar_webhook(request: Request):
+    return await handle_v2_deployment_farcaster_neynar_webhook(request)
+
+
+@web_app.post("/v2/deployments/emission")
+async def deployment_emission(request: DeploymentEmissionRequest):
+    return await handle_v2_deployment_emission(request)
 
 
 @web_app.exception_handler(RequestValidationError)

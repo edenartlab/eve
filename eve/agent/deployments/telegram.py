@@ -5,7 +5,7 @@ from typing import Optional
 from ably import AblyRest
 
 from eve.agent.agent import Agent
-from eve.agent.session.models import ChatMessageRequestInput, UpdateConfig
+from eve.agent.session.models import ChatMessageRequestInput, SessionUpdateConfig
 from eve.api.api_requests import ChatRequest, PromptSessionRequest
 from eve.api.errors import APIError
 from eve.agent.deployments import (
@@ -175,7 +175,7 @@ async def create_telegram_session_request(
         message=ChatMessageRequestInput(
             content=cleaned_text, sender_name=username, attachments=attachments
         ),
-        update_config=UpdateConfig(
+        update_config=SessionUpdateConfig(
             update_endpoint=f"{os.getenv('EDEN_API_URL')}/emissions/platform/telegram",
             deployment_id=str(deployment.id),
             telegram_chat_id=str(chat_id),

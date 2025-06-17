@@ -1,11 +1,16 @@
 from enum import Enum
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
+from fastapi import Request
 from pydantic import BaseModel
 from bson import ObjectId
 from abc import ABC, abstractmethod
 
 from eve.mongo import Collection, Document
 from eve.agent.agent import Agent
+
+
+if TYPE_CHECKING:
+    from eve.api.api_requests import DeploymentEmissionRequest
 
 
 class ClientType(Enum):
@@ -127,7 +132,9 @@ class PlatformClient(ABC):
     # Class-level tool definitions
     TOOLS: dict[str, dict] = {}
 
-    def __init__(self, agent: Agent, deployment: Optional[Deployment] = None):
+    def __init__(
+        self, agent: Optional[Agent] = None, deployment: Optional[Deployment] = None
+    ):
         self.agent = agent
         self.deployment = deployment
 
@@ -168,3 +175,13 @@ class PlatformClient(ABC):
             for tool_name in self.TOOLS.keys():
                 self.agent.tools.pop(tool_name, None)
             self.agent.save()
+
+    @abstractmethod
+    async def interact(self, request: Request) -> None:
+        """Interact with the platform client"""
+        pass
+
+    @abstractmethod
+    async def handle_emission(self, emission: "DeploymentEmissionRequest") -> None:
+        """Handle an emission from the platform client"""
+        pass

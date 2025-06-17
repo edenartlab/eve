@@ -5,7 +5,12 @@ from datetime import datetime
 from eve.agent.deployments import ClientType, DeploymentConfig, DeploymentSecrets
 from eve.agent.thread import UserMessage
 from eve.agent.llm import UpdateType
-from eve.agent.session.models import ChatMessageRequestInput, LLMConfig
+from eve.agent.session.models import (
+    ChatMessageRequestInput,
+    LLMConfig,
+    SessionUpdate,
+    SessionUpdateConfig,
+)
 
 
 class TaskRequest(BaseModel):
@@ -130,6 +135,8 @@ class SessionCreationArgs(BaseModel):
     scenario: Optional[str] = None
     budget: Optional[float] = None
     trigger: Optional[str] = None
+    session_key: Optional[str] = None
+    platform: Optional[str] = None
 
 
 class PromptSessionRequest(BaseModel):
@@ -137,7 +144,7 @@ class PromptSessionRequest(BaseModel):
     message: Optional[ChatMessageRequestInput] = None
     user_id: Optional[str] = None
     actor_agent_id: Optional[str] = None
-    update_config: Optional[UpdateConfig] = None
+    update_config: Optional[SessionUpdateConfig] = None
     llm_config: Optional[LLMConfig] = None
     stream: bool = False
 
@@ -160,3 +167,17 @@ class UpdateDeploymentRequestV2(BaseModel):
 
 class DeleteDeploymentRequestV2(BaseModel):
     deployment_id: str
+
+
+class DeploymentInteractRequest(BaseModel):
+    deployment_id: str
+    interaction: PromptSessionRequest
+
+
+class DeploymentEmissionRequest(BaseModel):
+    type: UpdateType
+    update_config: SessionUpdateConfig
+    content: Optional[str] = None
+    result: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+    model_config = ConfigDict(arbitrary_types_allowed=True)

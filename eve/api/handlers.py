@@ -9,7 +9,8 @@ from fastapi import BackgroundTasks, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 import aiohttp
 
-from eve.agent.deployments import Deployment, DeploymentConfig
+from eve.agent.deployments import ClientType, Deployment, DeploymentConfig
+from eve.agent.deployments.farcaster import FarcasterClient
 from eve.agent.session.models import (
     PromptSessionContext,
     Session,
@@ -30,6 +31,8 @@ from eve.api.api_requests import (
     CreateTriggerRequest,
     DeleteDeploymentRequestV2,
     DeleteTriggerRequest,
+    DeploymentEmissionRequest,
+    DeploymentInteractRequest,
     PromptSessionRequest,
     TaskRequest,
     PlatformUpdateRequest,
@@ -933,6 +936,8 @@ def setup_session(
         "agents": agent_object_ids,
         "title": request.creation_args.title,
         "scenario": request.creation_args.scenario,
+        "session_key": request.creation_args.session_key,
+        "platform": request.creation_args.platform,
         "status": "active",
         "trigger": ObjectId(request.creation_args.trigger)
         if request.creation_args.trigger
@@ -1146,3 +1151,43 @@ async def handle_v2_deployment_delete(request: DeleteDeploymentRequestV2):
         return {"success": True}
     except Exception as e:
         raise APIError(f"Failed to stop client: {str(e)}", status_code=500)
+
+
+@handle_errors
+async def handle_v2_deployment_interact(request: DeploymentInteractRequest):
+    deployment = Deployment.from_mongo(ObjectId(request.deployment_id))
+    if not deployment:
+        raise APIError(
+            f"Deployment not found: {request.deployment_id}", status_code=404
+        )
+    agent = Agent.from_mongo(ObjectId(deployment.agent))
+    if not agent:
+        raise APIError(f"Agent not found: {deployment.agent}", status_code=404)
+    client = get_platform_client(
+        agent=agent, platform=deployment.platform, deployment=deployment
+    )
+    await client.interact(request)
+    return {"deployment_id": str(deployment.id)}
+
+
+@handle_errors
+async def handle_v2_deployment_farcaster_neynar_webhook(request: Request):
+    client = FarcasterClient()
+    await client.handle_neynar_webhook(request)
+
+
+@handle_errors
+async def handle_v2_deployment_emission(request: DeploymentEmissionRequest):
+    deployment = Deployment.from_mongo(ObjectId(request.update_config.deployment_id))
+    if not deployment:
+        raise APIError(
+            f"Deployment not found: {request.update_config.deployment_id}",
+            status_code=404,
+        )
+    agent = Agent.from_mongo(ObjectId(deployment.agent))
+    if not agent:
+        raise APIError(f"Agent not found: {deployment.agent}", status_code=404)
+    client = get_platform_client(
+        agent=agent, platform=deployment.platform, deployment=deployment
+    )
+    await client.handle_emission(request)

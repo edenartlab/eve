@@ -514,6 +514,23 @@ class UpdateType(Enum):
     END_PROMPT = "end_prompt"
 
 
+class SessionUpdateConfig(BaseModel):
+    sub_channel_name: Optional[str] = None
+    update_endpoint: Optional[str] = None
+    deployment_id: Optional[str] = None
+    discord_channel_id: Optional[str] = None
+    discord_message_id: Optional[str] = None
+    telegram_chat_id: Optional[str] = None
+    telegram_message_id: Optional[str] = None
+    telegram_thread_id: Optional[str] = None
+    farcaster_hash: Optional[str] = None
+    farcaster_author_fid: Optional[int] = None
+    farcaster_message_id: Optional[str] = None
+    twitter_tweet_to_reply_id: Optional[str] = None
+    user_is_bot: Optional[bool] = False
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
 class SessionUpdate(BaseModel):
     type: UpdateType
     message: Optional[ChatMessage] = None
@@ -522,7 +539,7 @@ class SessionUpdate(BaseModel):
     tool_index: Optional[int] = None
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
-    update_config: Optional[Dict[str, Any]] = None
+    update_config: Optional[SessionUpdateConfig] = None
     agent: Optional[Dict[str, Any]] = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -605,6 +622,7 @@ class SessionContext(BaseModel):
 @Collection("sessions")
 class Session(Document):
     owner: ObjectId
+    session_key: Optional[str] = None
     channel: Optional[Channel] = None
     agents: List[ObjectId] = Field(default_factory=list)
     status: Literal["active", "archived"] = "active"
@@ -620,28 +638,11 @@ class Session(Document):
 
 
 @dataclass
-class UpdateConfig:
-    sub_channel_name: Optional[str] = None
-    update_endpoint: Optional[str] = None
-    deployment_id: Optional[str] = None
-    discord_channel_id: Optional[str] = None
-    discord_message_id: Optional[str] = None
-    telegram_chat_id: Optional[str] = None
-    telegram_message_id: Optional[str] = None
-    telegram_thread_id: Optional[str] = None
-    farcaster_hash: Optional[str] = None
-    farcaster_author_fid: Optional[int] = None
-    farcaster_message_id: Optional[str] = None
-    twitter_tweet_to_reply_id: Optional[str] = None
-    user_is_bot: Optional[bool] = False
-
-
-@dataclass
 class PromptSessionContext:
     session: Session
     initiating_user_id: str
     message: ChatMessageRequestInput
-    update_config: Optional[UpdateConfig] = None
+    update_config: Optional[SessionUpdateConfig] = None
     actor_agent_id: Optional[str] = None
     llm_config: Optional[LLMConfig] = None
 
