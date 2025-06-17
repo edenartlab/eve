@@ -145,9 +145,8 @@ async def determine_actor(
             actor_id = random.choice(mentions).id
 
     if not actor_id:
-        # TODO: do something more graceful than returning None if no actor is determined to be necessary.
-        # return None
-        actor_id = random.choice([a.id for a in session.agents])
+        # TODO: governor/dispatcher here
+        actor_id = random.choice(session.agents)
 
     actor = Agent.from_mongo(actor_id)
     session.last_actor_id = actor.id

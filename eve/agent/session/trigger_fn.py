@@ -37,6 +37,9 @@ trigger_message_post = """
 
 
 async def trigger_fn():
+
+    background_tasks = BackgroundTasks()
+
     trigger_id = os.getenv("TRIGGER_ID")
     trigger = Trigger.find_one({"trigger_id": trigger_id})
 
@@ -55,7 +58,7 @@ async def trigger_fn():
         )
 
     from eve.api.handlers import setup_session
-    session = setup_session(request.session_id, request.user_id, request)
+    session = setup_session(background_tasks, request.session_id, request.user_id, request)
 
     context = PromptSessionContext(
         session=session,
@@ -125,6 +128,9 @@ async def trigger_fn():
 
     print(f"Completed posting instructions {trigger_id}")
     
+
+
+
     print("end date?", trigger.schedule)
 
     if trigger.schedule.get("end_date"):
