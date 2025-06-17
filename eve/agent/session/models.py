@@ -505,6 +505,7 @@ class ChatMessage(Document):
 @dataclass
 class ChatMessageRequestInput:
     content: str
+    role: Optional[Literal["user", "system"]] = "user"
     attachments: Optional[List[str]] = None
     sender_name: Optional[str] = None
 
@@ -593,7 +594,9 @@ class Trigger(Document):
     user: ObjectId
     schedule: Dict[str, Any]
     instruction: str
+    posting_instructions: Optional[Dict[str, Any]] = None
     agent: Optional[ObjectId] = None
+    session_type: Optional[Literal["new", "another"]] = "new"
     session: Optional[ObjectId] = None
     update_config: Optional[Dict[str, Any]] = None
     status: Optional[Literal["active", "paused", "finished"]] = "active"
@@ -649,6 +652,7 @@ class PromptSessionContext:
     update_config: Optional[UpdateConfig] = None
     actor_agent_id: Optional[str] = None
     llm_config: Optional[LLMConfig] = None
+    custom_tools: Optional[Dict[str, Any]] = None
 
 
 @dataclass

@@ -712,10 +712,12 @@ async def handle_trigger_create(
         agent=ObjectId(agent.id),
         schedule=request.schedule.to_cron_dict(),
         instruction=request.instruction,
+        posting_instructions=request.posting_instructions.model_dump() if request.posting_instructions else None,
         update_config=request.update_config.model_dump()
         if request.update_config
         else None,
         session=ObjectId(request.session) if request.session else None,
+        session_type=request.session_type,
     )
     trigger.save()
 
