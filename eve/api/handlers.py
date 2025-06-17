@@ -65,7 +65,6 @@ from eve.agent.thread import Thread, UserMessage
 from eve.deploy import Deployment
 from eve.tools.twitter import X
 from eve.api.helpers import get_eden_creation_url
-from eve.task_manager import TaskManager
 
 logger = logging.getLogger(__name__)
 db = os.getenv("DB", "STAGE").upper()
@@ -197,14 +196,13 @@ async def run_chat_request(
 
 async def handle_chat(
     request: ChatRequest,
-    background_tasks: BackgroundTasks = None,
+    background_tasks: BackgroundTasks,
 ):
-    task_manager = TaskManager(background_tasks)
     user, agent, thread, tools = await setup_chat(
-        request, cache=True, task_manager=task_manager
+        request, cache=True, background_tasks=background_tasks
     )
 
-    task_manager.add_task(
+    background_tasks.add_task(
         run_chat_request,
         user,
         agent,
