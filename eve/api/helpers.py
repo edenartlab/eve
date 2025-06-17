@@ -12,6 +12,11 @@ import time
 import modal
 
 from eve import deploy, trigger
+from eve.agent.deployments import ClientType, PlatformClient
+from eve.agent.deployments.discord import DiscordClient
+from eve.agent.deployments.farcaster import FarcasterClient
+from eve.agent.deployments.telegram import TelegramClient
+from eve.agent.deployments.twitter import TwitterClient
 from eve.api.errors import APIError
 from eve.deploy import (
     authenticate_modal_key,
@@ -423,3 +428,17 @@ async def update_busy_state(update_config, request_id: str, is_busy: bool):
             f"Error updating busy state for key {key}, request_id {request_id}: {e}",
             exc_info=True,
         )
+
+
+def get_platform_client(
+    agent: Agent, platform: ClientType, deployment: Optional[Deployment] = None
+) -> PlatformClient:
+    """Helper function to get the appropriate platform client"""
+    if platform == ClientType.DISCORD:
+        return DiscordClient(agent=agent, deployment=deployment)
+    elif platform == ClientType.TELEGRAM:
+        return TelegramClient(agent=agent, deployment=deployment)
+    elif platform == ClientType.FARCASTER:
+        return FarcasterClient(agent=agent, deployment=deployment)
+    elif platform == ClientType.TWITTER:
+        return TwitterClient(agent=agent, deployment=deployment)

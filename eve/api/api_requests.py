@@ -162,3 +162,20 @@ class PromptSessionRequest(BaseModel):
 
     # Session creation fields (used when session_id is not provided)
     creation_args: Optional[SessionCreationArgs] = None
+
+
+class CreateDeploymentRequestV2(BaseModel):
+    agent: str
+    user: str
+    platform: ClientType
+    secrets: Optional[DeploymentSecrets] = None
+    config: Optional[DeploymentConfig] = None
+
+
+class UpdateDeploymentRequestV2(BaseModel):
+    deployment_id: str
+    config: Optional[DeploymentConfig] = None
+
+
+class DeleteDeploymentRequestV2(BaseModel):
+    deployment_id: str

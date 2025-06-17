@@ -26,8 +26,10 @@ from eve.api.api_requests import (
     CancelSessionRequest,
     ChatRequest,
     CreateDeploymentRequest,
+    CreateDeploymentRequestV2,
     CreateTriggerRequest,
     DeleteDeploymentRequest,
+    DeleteDeploymentRequestV2,
     DeleteTriggerRequest,
     PromptSessionRequest,
     TaskRequest,
@@ -36,9 +38,11 @@ from eve.api.api_requests import (
     UpdateDeploymentRequest,
     AgentToolsUpdateRequest,
     AgentToolsDeleteRequest,
+    UpdateDeploymentRequestV2,
 )
 from eve.api.helpers import (
     emit_update,
+    get_platform_client,
     setup_chat,
     create_telegram_chat_request,
     update_busy_state,
@@ -1473,3 +1477,102 @@ async def handle_session_cancel(request: CancelSessionRequest):
     except Exception as e:
         logger.error(f"Error sending session cancel signal: {e}", exc_info=True)
         raise APIError(f"Failed to send cancel signal: {str(e)}", status_code=500)
+
+
+@handle_errors
+async def handle_v2_deployment_create(request: CreateDeploymentRequestV2):
+    agent = Agent.from_mongo(ObjectId(request.agent))
+    if not agent:
+        raise APIError(f"Agent not found: {agent.id}", status_code=404)
+
+    # Create deployment object for client
+    deployment = Deployment(
+        agent=agent.id,
+        user=ObjectId(request.user),
+        platform=request.platform,
+        secrets=request.secrets,
+        config=request.config,
+    )
+
+    # Get platform client and run predeploy
+    client = get_platform_client(
+        agent=agent, platform=request.platform, deployment=deployment
+    )
+    secrets, config = await client.predeploy(
+        secrets=request.secrets, config=request.config
+    )
+
+    # Update deployment with validated secrets and config
+    deployment.secrets = secrets
+    deployment.config = config
+    deployment.valid = True
+    deployment.save(
+        upsert_filter={"agent": agent.id, "platform": request.platform.value}
+    )
+
+    try:
+        # Run postdeploy
+        await client.postdeploy()
+    except Exception as e:
+        logger.error(f"Failed in postdeploy: {str(e)}")
+        deployment.delete()
+        raise APIError(f"Failed to deploy client: {str(e)}", status_code=500)
+
+    return {"deployment_id": str(deployment.id)}
+
+
+@handle_errors
+async def handle_v2_deployment_update(request: UpdateDeploymentRequestV2):
+    deployment = Deployment.from_mongo(ObjectId(request.deployment_id))
+    if not deployment:
+        raise APIError(
+            f"Deployment not found: {request.deployment_id}", status_code=404
+        )
+
+    # Handle partial config updates by merging with existing config
+    if request.config:
+        existing_config = deployment.config or DeploymentConfig()
+        new_config = request.config.model_dump(exclude_unset=True)
+
+        # Merge the configs at the platform level
+        updated_config_dict = existing_config.model_dump() if existing_config else {}
+
+        for platform, platform_config in new_config.items():
+            if platform_config is not None:
+                if platform in updated_config_dict:
+                    # Merge platform-specific configs
+                    updated_config_dict[platform].update(platform_config)
+                else:
+                    # Add new platform config
+                    updated_config_dict[platform] = platform_config
+
+        # Convert to dict for MongoDB storage
+        deployment.update(config=updated_config_dict)
+
+    return {"deployment_id": str(deployment.id)}
+
+
+@handle_errors
+async def handle_v2_deployment_delete(request: DeleteDeploymentRequestV2):
+    agent = Agent.from_mongo(ObjectId(request.agent))
+    if not agent:
+        raise APIError(f"Agent not found: {request.agent}", status_code=404)
+
+    deployment = Deployment.load(agent=agent.id, platform=request.platform.value)
+    if not deployment:
+        raise APIError(
+            f"Deployment not found for agent {agent.id} and platform {request.platform}",
+            status_code=404,
+        )
+
+    try:
+        # Get platform client and run stop
+        client = get_platform_client(
+            agent=agent, platform=request.platform, deployment=deployment
+        )
+        await client.stop()
+        deployment.delete()
+
+        return {"success": True}
+    except Exception as e:
+        raise APIError(f"Failed to stop client: {str(e)}", status_code=500)

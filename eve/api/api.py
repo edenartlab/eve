@@ -50,6 +50,9 @@ from eve.api.handlers import (
     handle_farcaster_update,
     handle_farcaster_emission,
     handle_session_cancel,
+    handle_v2_deployment_create,
+    handle_v2_deployment_update,
+    handle_v2_deployment_delete,
 )
 from eve.api.api_requests import (
     CancelRequest,
@@ -312,6 +315,30 @@ async def cancel_session(
     _: dict = Depends(auth.authenticate_admin),
 ):
     return await handle_session_cancel(request)
+
+
+@web_app.post("/v2/deployments/create")
+async def create_deployment(
+    request: CreateDeploymentRequest,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    return await handle_v2_deployment_create(request)
+
+
+@web_app.post("/v2/deployments/update")
+async def update_deployment(
+    request: UpdateDeploymentRequest,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    return await handle_v2_deployment_update(request)
+
+
+@web_app.post("/v2/deployments/delete")
+async def delete_deployment(
+    request: DeleteDeploymentRequest,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    return await handle_v2_deployment_delete(request)
 
 
 @web_app.exception_handler(RequestValidationError)
