@@ -20,6 +20,11 @@ class CancelRequest(BaseModel):
     user: str
 
 
+class CancelSessionRequest(BaseModel):
+    session_id: str
+    user_id: str
+
+
 class UpdateConfig(BaseModel):
     sub_channel_name: Optional[str] = None
     update_endpoint: Optional[str] = None

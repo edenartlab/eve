@@ -72,6 +72,7 @@ def construct_observability_metadata(context: LLMContext):
         return {}
     metadata = {
         "session_id": context.metadata.session_id,
+        "trace_id": context.metadata.trace_id,
         "trace_name": context.metadata.trace_name,
         "generation_name": context.metadata.generation_name,
     }
