@@ -25,7 +25,6 @@ from eve.agent.thread import Thread
 from eve.agent.tasks import async_title_thread
 from eve.api.api_requests import ChatRequest, UpdateConfig
 from eve.deploy import Deployment
-from eve.task_manager import TaskManager
 
 logger = logging.getLogger(__name__)
 
@@ -44,12 +43,9 @@ async def get_update_channel(
 async def setup_chat(
     request: ChatRequest,
     cache: bool = False,
-    task_manager: TaskManager = None,
+    background_tasks: BackgroundTasks = None,
     metadata: Optional[Dict] = None,
 ) -> tuple[User, Agent, Thread, list[Tool]]:
-    if task_manager is None:
-        task_manager = TaskManager()
-
     try:
         user = User.from_mongo(request.user_id)
     except Exception as e:
@@ -79,7 +75,7 @@ async def setup_chat(
             "agent_id": str(agent.id),
             "thread_id": str(thread.id),
         }
-        task_manager.add_task(
+        background_tasks.add_task(
             async_title_thread, thread, request.user_message, metadata=metadata
         )
 
