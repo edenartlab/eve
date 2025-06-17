@@ -320,6 +320,7 @@ async def process_tool_call(
     tool_call: ToolCall,
     tool_call_index: int,
     cancellation_event: asyncio.Event = None,
+    is_client_platform: bool = False,
 ):
     # Update the tool call status to running
     tool_call.status = "running"
@@ -380,6 +381,7 @@ async def process_tool_call(
             or llm_context.metadata.trace_metadata.agent_id,
             agent_id=llm_context.metadata.trace_metadata.agent_id,
             cancellation_event=cancellation_event,
+            is_client_platform=is_client_platform,
         )
 
         # Check for cancellation after tool execution completes
@@ -486,6 +488,7 @@ async def process_tool_calls(
     assistant_message: ChatMessage,
     llm_context: LLMContext,
     cancellation_event: asyncio.Event = None,
+    is_client_platform: bool = False,
 ):
     tool_calls = assistant_message.tool_calls
     for b in range(0, len(tool_calls), 4):
@@ -498,6 +501,7 @@ async def process_tool_calls(
                 tool_call,
                 b + idx,
                 cancellation_event,
+                is_client_platform,
             )
             for idx, tool_call in batch
         ]
@@ -508,7 +512,11 @@ async def process_tool_calls(
 
 
 async def async_prompt_session(
-    session: Session, llm_context: LLMContext, actor: Agent, stream: bool = False
+    session: Session,
+    llm_context: LLMContext,
+    actor: Agent,
+    stream: bool = False,
+    is_client_platform: bool = False,
 ):
     # Set up cancellation handling via Ably
     cancellation_event = asyncio.Event()
@@ -667,7 +675,11 @@ async def async_prompt_session(
 
             if assistant_message.tool_calls:
                 async for update in process_tool_calls(
-                    session, assistant_message, llm_context, cancellation_event
+                    session,
+                    assistant_message,
+                    llm_context,
+                    cancellation_event,
+                    is_client_platform,
                 ):
                     # Check for cancellation during tool execution
                     if cancellation_event.is_set():
@@ -803,9 +815,14 @@ async def _run_prompt_session_internal(
     validate_prompt_session(session, context)
     actor = await determine_actor(session, context)
     llm_context = await build_llm_context(session, actor, context)
+    is_client_platform = context.update_config is not None
 
     async for update in async_prompt_session(
-        session, llm_context, actor, stream=stream
+        session,
+        llm_context,
+        actor,
+        stream=stream,
+        is_client_platform=is_client_platform,
     ):
         yield format_session_update(update, context)
 

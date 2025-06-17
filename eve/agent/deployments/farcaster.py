@@ -1,3 +1,4 @@
+import json
 import os
 import aiohttp
 import logging
@@ -292,8 +293,6 @@ class FarcasterClient(PlatformClient):
 
     async def handle_emission(self, emission: "DeploymentEmissionRequest") -> None:
         """Handle an emission from the platform client"""
-        print("***debug*** Handling emission for Farcaster")
-        print("***debug*** emission", emission)
         try:
             if not self.deployment:
                 raise ValueError("Deployment is required for handle_emission")
@@ -335,12 +334,12 @@ class FarcasterClient(PlatformClient):
                 if not result:
                     logger.debug("No tool result to post")
                     return
+                print(f"***debug*** Raw result before processing: {result}")
+                print(f"***debug*** Result type: {type(result)}")
 
                 # Process result to extract media URLs
-                processed_result = {"result": prepare_result(result)}
-
-                # ***debug*** Check if result has expected structure
-                print(f"***debug*** Processed result structure: {processed_result}")
+                processed_result = prepare_result(json.loads(result))
+                print(f"***debug*** Processed result: {processed_result}")
 
                 if (
                     processed_result.get("result")
@@ -354,9 +353,6 @@ class FarcasterClient(PlatformClient):
                     for output in outputs[:4]:
                         if isinstance(output, dict) and "url" in output:
                             urls.append(output["url"])
-
-                    # ***debug*** Log extracted URLs
-                    print(f"***debug*** Extracted URLs for Farcaster embeds: {urls}")
 
                     if urls:
                         try:

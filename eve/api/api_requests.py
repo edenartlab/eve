@@ -178,6 +178,6 @@ class DeploymentEmissionRequest(BaseModel):
     type: UpdateType
     update_config: SessionUpdateConfig
     content: Optional[str] = None
-    result: Optional[Dict[str, Any]] = None
+    result: Optional[Any] = None
     error: Optional[str] = None
     model_config = ConfigDict(arbitrary_types_allowed=True)
