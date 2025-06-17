@@ -8,7 +8,7 @@ from pydantic.config import ConfigDict
 from typing import List, Optional, Dict, Any, Literal, Union
 
 from ..mongo import Document, Collection
-from ..eden_utils import download_file, image_to_base64, prepare_result, dump_json
+from ..eden_utils import download_file, image_to_base64, prepare_result, dumps_json
 
 
 class ChatMessage(BaseModel):
@@ -238,22 +238,22 @@ class ToolCall(BaseModel):
                 if image_block:
                     content = "Tool results follow. The attached images match the URLs in the order they appear below: "
                     # content += json.dumps(result["result"])
-                    content += dump_json(result["result"])
+                    content += dumps_json(result["result"])
                     text_block = [{"type": "text", "text": content}]
                     result = text_block + image_block
                 else:
-                    result = dump_json(result)
+                    result = dumps_json(result)
 
             except Exception as e:
                 # print("Warning: Can not inject image results:", e)
-                result = dump_json(result)
+                result = dumps_json(result)
 
         elif self.status == "failed":
             result["error"] = self.error
-            result = dump_json(result)
+            result = dumps_json(result)
 
         else:
-            result = dump_json(result)
+            result = dumps_json(result)
 
         return result
 

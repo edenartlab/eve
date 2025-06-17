@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Literal
 from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
 
@@ -18,6 +18,11 @@ class TaskRequest(BaseModel):
 class CancelRequest(BaseModel):
     taskId: str
     user: str
+
+
+class CancelSessionRequest(BaseModel):
+    session_id: str
+    user_id: str
 
 
 class UpdateConfig(BaseModel):
@@ -62,6 +67,7 @@ class CronSchedule(BaseModel):
     year: Optional[int | str] = Field(None, description="4-digit year")
     month: Optional[int | str] = Field(None, description="month (1-12)")
     day: Optional[int | str] = Field(None, description="day of month (1-31)")
+    day_of_month: Optional[int | str] = Field(None, description="day of month (1-31)")
     week: Optional[int | str] = Field(None, description="ISO week (1-53)")
     day_of_week: Optional[int | str] = Field(
         None,
@@ -93,15 +99,22 @@ class AllowedChannel(BaseModel):
     note: str
 
 
+class PostingInstructions(BaseModel):
+    session_id: Optional[str] = None
+    post_to: Optional[Literal['same', 'another', 'discord', 'telegram', 'x', 'farcaster']] = None
+    channel_id: Optional[str] = None
+    custom_instructions: Optional[str] = None
+
+
 class CreateTriggerRequest(BaseModel):
-    agent_id: str
-    message: str
+    agent: str
+    user: str
+    instruction: str
+    posting_instructions: Optional[PostingInstructions] = None
     schedule: CronSchedule
-    platform: ClientType
-    channel: Optional[AllowedChannel] = None
     update_config: Optional[UpdateConfig] = None
-    thread_id: Optional[str] = None
-    ephemeral: Optional[bool] = False
+    session_type: Literal['new', 'another'] = 'new'
+    session: Optional[str] = None
 
 
 class AgentDeploymentConfig(BaseModel):
@@ -144,6 +157,7 @@ class SessionCreationArgs(BaseModel):
     title: Optional[str] = None
     scenario: Optional[str] = None
     budget: Optional[float] = None
+    trigger: Optional[str] = None
 
 
 class PromptSessionRequest(BaseModel):

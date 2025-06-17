@@ -42,15 +42,18 @@ from eve.api.handlers import (
     handle_telegram_update,
     handle_trigger_create,
     handle_trigger_delete,
+    handle_trigger_stop,
     handle_twitter_update,
     handle_trigger_get,
     handle_agent_tools_update,
     handle_agent_tools_delete,
     handle_farcaster_update,
     handle_farcaster_emission,
+    handle_session_cancel,
 )
 from eve.api.api_requests import (
     CancelRequest,
+    CancelSessionRequest,
     ChatRequest,
     CreateDeploymentRequest,
     CreateTriggerRequest,
@@ -213,6 +216,14 @@ async def trigger_create(
     return await handle_trigger_create(request, background_tasks)
 
 
+@web_app.post("/triggers/stop")
+async def trigger_stop(
+    request: DeleteTriggerRequest, _: dict = Depends(auth.authenticate_admin)
+):
+    pre_modal_setup()
+    return await handle_trigger_stop(request)
+
+
 @web_app.post("/triggers/delete")
 async def trigger_delete(
     request: DeleteTriggerRequest, _: dict = Depends(auth.authenticate_admin)
@@ -293,6 +304,14 @@ async def prompt_session(
     _: dict = Depends(auth.authenticate_admin),
 ):
     return await handle_prompt_session(request, background_tasks)
+
+
+@web_app.post("/sessions/cancel")
+async def cancel_session(
+    request: CancelSessionRequest,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    return await handle_session_cancel(request)
 
 
 @web_app.exception_handler(RequestValidationError)

@@ -1,0 +1,43 @@
+name: Veo-3
+description: Generate a video with sound from a text prompt using Google Veo-3
+tip: Only use this tool if user specifically asks for Veo or requests a very high quality video or one with native audio. Note, this tool is very expensive -- ask the user for confirmation before proceeding to use this tool.
+cost_estimate: 600
+output_type: video
+visible: true
+active: true
+replicate_model: google/veo-3
+thumbnail: app/veo3.webp
+handler: replicate
+parameters:
+  prompt:
+    type: string
+    label: Prompt
+    description: Instructions
+    tip: |-
+      Detailed and specific instructions for what to generate, including content, style, camera motion, music, sound effects, and dialogue.
+      Some things you can specify:
+      - framing and camera, e.g. “eye level,” “dolly shot,”“single shot,” “two shot,” “over-the-shoulder shot”, “tracking shot.”
+      - Focus and lens effects, e.g. “shallow focus,” “macro lens,” “wide-angle lens”.
+      - Subject and style like “sci-fi,” “romantic comedy,” “action movie,” or “animation.”
+      - Context, e.g. “on a frozen rock wall,” “in the forest,”
+      - Sound and music, e.g. “water dripping,” “birds chirping,” “thunder,” “Spaghetti Western soundtrack.” 
+      - Vocals, e.g. the boy says "I heard you can make dialogue in Eden now!"
+    required: true
+  seed:
+    type: integer
+    label: Seed
+    description: Set random seed for reproducibility. If blank, will be set to a random value.
+    tip: |-
+      You should only set this if you want to start from/copy the seed of a previous image. Unless one is specified, you should leave this blank!
+    minimum: 0
+    maximum: 2147483647
+    default: random
+  n_samples:
+    type: integer
+    label: Number of samples
+    description: Number of samples to generate, max 2
+    tip: |-
+      Will produce n_samples variations using the same prompt.
+    default: 1
+    minimum: 1
+    maximum: 2

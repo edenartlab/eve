@@ -1,0 +1,57 @@
+name: Create
+description: A comprehensive media creation tool that can generate images, videos, and audio using advanced AI models.
+tip: |-
+  This tool can create new media content using generative AI tools. It has access to image generation (Flux, SDXL), video generation (Runway, Kling, Veo2), audio generation (ElevenLabs, MMAudio), and editing capabilities. Specify what you want to create and any reference materials.
+cost_estimate: 5
+output_type: video
+active: true
+visible: false
+handler: modal
+parameters:
+  instructions:
+    type: string
+    label: Creation instructions
+    description: Detailed instructions for what media to create, including style, content, mood, and any specific requirements.
+    required: true
+  reference_media:
+    type: array
+    items:
+      anyOf: 
+        - type: image
+        - type: video
+        - type: audio
+    label: Reference media files
+    description: Optional reference media URLs to use as input or inspiration for creation
+    tip: These are URLs to downloadable media files that can be used as reference or input for the creation process.
+    required: false
+  samples:
+    type: integer
+    label: Number of samples
+    description: How many variations or samples to generate
+    default: 1
+    minimum: 1
+    maximum: 4
+    required: false
+  aspect_ratio:
+    type: string
+    label: Aspect ratio
+    description: Desired aspect ratio for generated media (e.g., "16:9", "1:1", "9:16")
+    default: "16:9"
+    required: false
+  output_type:
+    type: string
+    label: Output type
+    description: The type of media to generate
+    enum: ["image", "video", "audio"]
+    default: "image"
+    required: true
+  agent:
+    type: string
+    label: Agent ID
+    description: Optional ObjectId of a specific agent to use for creation. The agent's persona will be applied to the creative process.
+    required: false
+  additional_context:
+    type: string
+    label: Additional context
+    description: Any additional context, constraints, or requirements for the creation process
+    required: false

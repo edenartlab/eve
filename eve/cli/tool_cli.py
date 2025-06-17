@@ -2,9 +2,8 @@ import click
 import random
 import asyncio
 import traceback
-import argparse
 
-from ..eden_utils import save_test_results, prepare_result, dump_json, CLICK_COLORS
+from ..eden_utils import save_test_results, prepare_result, dumps_json, CLICK_COLORS
 from ..auth import get_my_eden_user
 from ..agent import Agent
 from ..tool import Tool, get_tools_from_mongo, get_tools_from_api_files, get_api_files
@@ -174,14 +173,20 @@ def run(ctx, tool: str, db: str):
             if "=" in key:
                 key, value = key.split("=", 1)
                 # Check if parameter is an array type and wrap single value
-                if key in tool.parameters and tool.parameters[key].get("type") == "array":
+                if (
+                    key in tool.parameters
+                    and tool.parameters[key].get("type") == "array"
+                ):
                     args[key] = [value]
                 else:
                     args[key] = value
             elif i + 1 < len(ctx.args) and not ctx.args[i + 1].startswith("--"):
                 value = ctx.args[i + 1]
                 # Check if parameter is an array type and wrap single value
-                if key in tool.parameters and tool.parameters[key].get("type") == "array":
+                if (
+                    key in tool.parameters
+                    and tool.parameters[key].get("type") == "array"
+                ):
                     args[key] = [value]
                 else:
                     args[key] = value
@@ -192,7 +197,7 @@ def run(ctx, tool: str, db: str):
 
     # inject
     if args.get("agent"):
-        args["agent"] = str(Agent.load(args["agent"]).id)
+        args["agent"] = str(Agent.from_mongo(args["agent"]).id)
 
     result = tool.run(args)
     color = random.choice(CLICK_COLORS)
@@ -207,7 +212,7 @@ def run(ctx, tool: str, db: str):
     else:
         result = prepare_result(result)
         click.echo(
-            click.style(f"\nResult for {tool.key}: {dump_json(result)}", fg=color)
+            click.style(f"\nResult for {tool.key}: {dumps_json(result)}", fg=color)
         )
 
     return result
@@ -243,7 +248,7 @@ def test(
     async def async_test_tool(tool, api):
         color = random.choice(CLICK_COLORS)
         click.echo(click.style(f"\n\nTesting {tool.key}:", fg=color, bold=True))
-        click.echo(click.style(f"Args: {dump_json(tool.test_args)}", fg=color))
+        click.echo(click.style(f"Args: {dumps_json(tool.test_args)}", fg=color))
 
         if api:
             user = get_my_eden_user()
@@ -269,7 +274,7 @@ def test(
         else:
             result = prepare_result(result)
             click.echo(
-                click.style(f"\nResult for {tool.key}: {dump_json(result)}", fg=color)
+                click.style(f"\nResult for {tool.key}: {dumps_json(result)}", fg=color)
             )
 
         return result

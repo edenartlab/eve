@@ -5,7 +5,7 @@ import discord
 
 
 async def handler(args: dict, user: str = None, agent: str = None):
-    agent = Agent.load(args["agent"])
+    agent = Agent.from_mongo(args["agent"])
     deployment = Deployment.load(agent=agent.id, platform="discord")
     if not deployment:
         raise Exception("No valid Discord deployments found")
@@ -21,7 +21,12 @@ async def handler(args: dict, user: str = None, agent: str = None):
 
     # Verify the channel is in the allowlist
     if not any(str(channel.id) == channel_id for channel in allowed_channels):
-        raise Exception(f"Channel {channel_id} is not in the allowlist")
+        allowed_channels_info = {
+            channel.note: str(channel.id) for channel in allowed_channels
+        }
+        raise Exception(
+            f"Channel {channel_id} is not in the allowlist. Allowed channels (note: id): {allowed_channels_info}"
+        )
 
     # Create Discord client
     client = discord.Client(intents=discord.Intents.default())
@@ -35,9 +40,9 @@ async def handler(args: dict, user: str = None, agent: str = None):
         message = await channel.send(content=content)
 
         return {
-            "output": {
+            "output": [{
                 "url": f"https://discord.com/channels/{channel.guild.id}/{channel.id}/{message.id}",
-            }
+            }]
         }
 
     finally:

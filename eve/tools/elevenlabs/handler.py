@@ -175,3 +175,14 @@ def get_voice_summary():
         full_description += f"{name}: {description}\n"
     
     return names, full_description
+
+
+def save_to_mongo():
+    from eve.mongo import get_collection
+    response = eleven.voices.get_all()
+    collection = get_collection("voices")
+    data = [
+        {"key": voice.name, "elevenlabs_id": voice.voice_id} 
+        for voice in response.voices
+    ]    
+    collection.insert_many(data)

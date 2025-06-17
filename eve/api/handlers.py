@@ -9,12 +9,21 @@ from fastapi import BackgroundTasks, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 import aiohttp
 
-from eve.agent.session.models import PromptSessionContext, Session
+from eve.agent.session.models import (
+    PromptSessionContext,
+    Session,
+    ChatMessage,
+    EdenMessageType,
+    EdenMessageData,
+    EdenMessageAgentData,
+    Trigger,
+)
 from eve.agent.session.session import run_prompt_session, run_prompt_session_stream
-from eve.agent.tasks import async_title_thread
+from eve.agent.session.triggers import create_trigger_fn, stop_trigger
 from eve.api.errors import handle_errors, APIError
 from eve.api.api_requests import (
     CancelRequest,
+    CancelSessionRequest,
     ChatRequest,
     CreateDeploymentRequest,
     CreateTriggerRequest,
@@ -30,25 +39,24 @@ from eve.api.api_requests import (
 )
 from eve.api.helpers import (
     emit_update,
-    serialize_for_json,
     setup_chat,
     create_telegram_chat_request,
     update_busy_state,
 )
 from eve.deploy import (
-    deploy_client,
-    modify_secrets,
     stop_client,
     DeploymentConfig,
     DeploymentSettingsDiscord,
     ClientType,
+    DeploymentSecrets,
+    DeploymentSettingsFarcaster,
+    deploy_client_modal,
 )
-from eve.eden_utils import prepare_result
+from eve.eden_utils import prepare_result, dumps_json
 from eve.tools.replicate_tool import replicate_update_task
-from eve.trigger import create_chat_trigger, delete_trigger, Trigger
 from eve.agent.llm import UpdateType
 from eve.agent.run_thread import async_prompt_thread
-from eve.mongo import get_collection, serialize_document
+from eve.mongo import get_collection
 from eve.task import Task
 from eve.tool import Tool
 from eve.agent import Agent
@@ -80,7 +88,7 @@ async def handle_create(request: TaskRequest):
     print("### return the result ###")
     print(result)
 
-    return serialize_document(result.model_dump(by_alias=True))
+    return dumps_json(result.model_dump(by_alias=True))
 
 
 @handle_errors
@@ -154,7 +162,7 @@ async def run_chat_request(
                 data["content"] = update.message.content
             elif update.type == UpdateType.TOOL_COMPLETE:
                 data["tool"] = update.tool_name
-                data["result"] = serialize_for_json(update.result)
+                data["result"] = dumps_json(update.result)
             elif update.type == UpdateType.ERROR:
                 data["error"] = update.error if hasattr(update, "error") else None
             elif update.type == UpdateType.END_PROMPT:
@@ -238,12 +246,12 @@ async def handle_stream_chat(request: ChatRequest, background_tasks: BackgroundT
                     data["content"] = update.message.content
                     if update.message.tool_calls:
                         data["tool_calls"] = [
-                            serialize_for_json(t.model_dump())
+                            dumps_json(t.model_dump())
                             for t in update.message.tool_calls
                         ]
                 elif update.type == UpdateType.TOOL_COMPLETE:
                     data["tool"] = update.tool_name
-                    data["result"] = serialize_for_json(update.result)
+                    data["result"] = dumps_json(update.result)
                 elif update.type == UpdateType.ERROR:
                     data["error"] = update.error or "Unknown error occurred"
 
@@ -270,7 +278,10 @@ async def handle_deployment_create(request: CreateDeploymentRequest):
     if not agent:
         raise APIError(f"Agent not found: {agent.id}", status_code=404)
 
-    secrets, config_updates = await modify_secrets(request.secrets, request.platform)
+    # Predeploy: platform-specific validation and setup
+    secrets, config = await predeploy_platform(
+        agent, request.secrets, request.config, request.platform
+    )
 
     # Create the deployment object
     deployment = Deployment(
@@ -278,42 +289,354 @@ async def handle_deployment_create(request: CreateDeploymentRequest):
         user=ObjectId(request.user),
         platform=request.platform,
         secrets=secrets,
-        config=request.config,
+        config=config,
+        valid=True,
     )
-
-    # Update config with any platform-specific settings from modify_secrets
-    if config_updates and request.platform == ClientType.DISCORD:
-        if not deployment.config:
-            deployment.config = DeploymentConfig()
-        if not deployment.config.discord:
-            deployment.config.discord = DeploymentSettingsDiscord()
-
-        # Set the OAuth URL and client ID
-        deployment.config.discord.oauth_client_id = config_updates.get(
-            "oauth_client_id"
-        )
-        deployment.config.discord.oauth_url = config_updates.get("oauth_url")
-        deployment.valid = config_updates.get("valid", False)
 
     deployment.save(
         upsert_filter={"agent": agent.id, "platform": request.platform.value}
     )
 
     try:
-        await deploy_client(
-            deployment,
-            agent,
-            request.platform,
-            request.secrets,
-            db.lower(),
-            request.repo_branch,
-        )
+        # Postdeploy: platform-specific actions that need the deployment object
+        await postdeploy_platform(deployment, request.platform, secrets)
     except Exception as e:
-        logger.error(f"Failed to deploy client: {str(e)}")
+        logger.error(f"Failed in postdeploy: {str(e)}")
         deployment.delete()
         raise APIError(f"Failed to deploy client: {str(e)}", status_code=500)
 
     return {"deployment_id": str(deployment.id)}
+
+
+async def predeploy_platform(
+    agent: Agent,
+    secrets: DeploymentSecrets,
+    config: DeploymentConfig,
+    platform: ClientType,
+):
+    """Platform-specific validation, secret modification, and agent tool setup"""
+    if platform == ClientType.DISCORD:
+        return await predeploy_discord(agent, secrets, config)
+    elif platform == ClientType.TELEGRAM:
+        return await predeploy_telegram(agent, secrets, config)
+    elif platform == ClientType.FARCASTER:
+        return await predeploy_farcaster(agent, secrets, config)
+    elif platform == ClientType.TWITTER:
+        return await predeploy_twitter(agent, secrets, config)
+    else:
+        raise APIError(f"Invalid platform: {platform}", status_code=400)
+
+
+async def postdeploy_platform(
+    deployment: Deployment,
+    platform: ClientType,
+    secrets: DeploymentSecrets,
+):
+    """Platform-specific actions that require the deployment object"""
+    if platform == ClientType.DISCORD:
+        await postdeploy_discord(deployment)
+    elif platform == ClientType.TELEGRAM:
+        await postdeploy_telegram(deployment, secrets)
+    elif platform == ClientType.FARCASTER:
+        await postdeploy_farcaster(deployment, secrets)
+    elif platform == ClientType.TWITTER:
+        await postdeploy_twitter(deployment)
+    else:
+        raise APIError(f"Invalid platform: {platform}", status_code=400)
+
+
+async def predeploy_discord(
+    agent: Agent, secrets: DeploymentSecrets, config: DeploymentConfig
+):
+    """Validate Discord token and setup OAuth"""
+    headers = {"Authorization": f"Bot {secrets.discord.token}"}
+    async with aiohttp.ClientSession() as session:
+        async with session.get(
+            "https://discord.com/api/v10/users/@me", headers=headers
+        ) as response:
+            if response.status != 200:
+                raise APIError("Invalid Discord token", status_code=400)
+
+            # Get application ID if not provided
+            if not secrets.discord.application_id:
+                bot_data = await response.json()
+                application_id = bot_data.get("id")
+                if application_id:
+                    secrets.discord.application_id = application_id
+
+                    # Setup Discord config
+                    if not config:
+                        config = DeploymentConfig()
+                    if not config.discord:
+                        config.discord = DeploymentSettingsDiscord()
+
+                    # Create OAuth URL with the same permissions integer
+                    permissions_integer = "309237771264"
+                    oauth_url = f"https://discord.com/oauth2/authorize?client_id={application_id}&permissions={permissions_integer}&integration_type=0&scope=bot"
+
+                    config.discord.oauth_client_id = application_id
+                    config.discord.oauth_url = oauth_url
+
+    # Add Discord tools to agent
+    if not agent.tools:
+        agent.tools = {}
+        agent.add_base_tools = True
+
+    agent.tools["discord_search"] = {
+        "parameters": {"agent": {"default": str(agent.id), "hide_from_agent": True}}
+    }
+    agent.tools["discord_post"] = {
+        "parameters": {"agent": {"default": str(agent.id), "hide_from_agent": True}}
+    }
+    agent.save()
+
+    return secrets, config
+
+
+async def predeploy_telegram(
+    agent: Agent, secrets: DeploymentSecrets, config: DeploymentConfig
+):
+    """Validate Telegram token, generate webhook secret and add Telegram tools"""
+    from telegram import Bot
+    import secrets as python_secrets
+
+    # Validate bot token
+    try:
+        bot = Bot(secrets.telegram.token)
+        bot_info = await bot.get_me()
+        print(f"Verified Telegram bot: {bot_info.username}")
+    except Exception as e:
+        raise APIError(f"Invalid Telegram token: {str(e)}", status_code=400)
+
+    webhook_secret = python_secrets.token_urlsafe(32)
+    secrets.telegram.webhook_secret = webhook_secret
+
+    # Add Telegram tools to agent
+    if not agent.tools:
+        agent.tools = {}
+        agent.add_base_tools = True
+
+    agent.tools["telegram_post"] = {
+        "parameters": {"agent": {"default": str(agent.id), "hide_from_agent": True}}
+    }
+    agent.save()
+
+    return secrets, config
+
+
+async def predeploy_farcaster(
+    agent: Agent, secrets: DeploymentSecrets, config: DeploymentConfig
+):
+    """Verify Farcaster credentials"""
+    try:
+        from farcaster import Warpcast
+
+        client = Warpcast(mnemonic=secrets.farcaster.mnemonic)
+
+        # Test the credentials by getting user info
+        user_info = client.get_me()
+        print(f"Verified Farcaster credentials for user: {user_info}")
+    except Exception as e:
+        raise APIError(f"Invalid Farcaster credentials: {str(e)}", status_code=400)
+
+    # Generate webhook secret if not provided
+    if not secrets.farcaster.neynar_webhook_secret:
+        import secrets as python_secrets
+
+        webhook_secret = python_secrets.token_urlsafe(32)
+        secrets.farcaster.neynar_webhook_secret = webhook_secret
+
+    return secrets, config
+
+
+async def predeploy_twitter(
+    agent: Agent, secrets: DeploymentSecrets, config: DeploymentConfig
+):
+    """Validate Twitter credentials and add Twitter tools to agent"""
+    import tweepy
+
+    # Validate Twitter credentials
+    try:
+        # Create Twitter client with OAuth 1.0a
+        auth = tweepy.OAuth1UserHandler(
+            consumer_key=secrets.twitter.consumer_key,
+            consumer_secret=secrets.twitter.consumer_secret,
+            access_token=secrets.twitter.access_token,
+            access_token_secret=secrets.twitter.access_token_secret,
+        )
+        api = tweepy.API(auth)
+
+        # Test the credentials by getting user info
+        user = api.verify_credentials()
+        print(f"Verified Twitter credentials for user: @{user.screen_name}")
+
+        # Also test with v2 API using bearer token
+        client = tweepy.Client(
+            bearer_token=secrets.twitter.bearer_token,
+            consumer_key=secrets.twitter.consumer_key,
+            consumer_secret=secrets.twitter.consumer_secret,
+            access_token=secrets.twitter.access_token,
+            access_token_secret=secrets.twitter.access_token_secret,
+        )
+
+        # Test v2 API
+        me = client.get_me()
+        print(f"Verified Twitter v2 API for user: @{me.data.username}")
+
+    except Exception as e:
+        raise APIError(f"Invalid Twitter credentials: {str(e)}", status_code=400)
+
+    if not agent.tools:
+        agent.tools = {}
+        agent.add_base_tools = True
+
+    agent.tools["tweet"] = {
+        "parameters": {"agent": {"default": str(agent.id), "hide_from_agent": True}}
+    }
+    agent.tools["twitter_mentions"] = {
+        "parameters": {"agent": {"default": str(agent.id), "hide_from_agent": True}}
+    }
+    agent.tools["twitter_search"] = {
+        "parameters": {"agent": {"default": str(agent.id), "hide_from_agent": True}}
+    }
+    agent.save()
+
+    return secrets, config
+
+
+async def postdeploy_discord(deployment: Deployment):
+    """Notify Discord gateway service via Ably"""
+    try:
+        from ably import AblyRest
+
+        ably_client = AblyRest(os.getenv("ABLY_PUBLISHER_KEY"))
+        channel = ably_client.channels.get(f"discord-gateway-{db}")
+
+        await channel.publish(
+            "command", {"command": "start", "deployment_id": str(deployment.id)}
+        )
+        print(f"Sent start command for deployment {deployment.id} via Ably")
+    except Exception as e:
+        raise Exception(f"Failed to notify gateway service: {e}")
+
+
+async def postdeploy_telegram(deployment: Deployment, secrets: DeploymentSecrets):
+    """Set Telegram webhook and notify gateway"""
+    from telegram import Bot
+
+    webhook_url = f"{os.getenv('EDEN_API_URL')}/updates/platform/telegram"
+
+    # Update bot webhook
+    response = await Bot(secrets.telegram.token).set_webhook(
+        url=webhook_url,
+        secret_token=secrets.telegram.webhook_secret,
+        drop_pending_updates=True,
+        max_connections=100,
+    )
+
+    if not response:
+        raise Exception("Failed to set Telegram webhook")
+
+    # Notify gateway about the new deployment
+    try:
+        from ably import AblyRest
+
+        ably_client = AblyRest(os.getenv("ABLY_PUBLISHER_KEY"))
+        channel = ably_client.channels.get(f"discord-gateway-{db}")
+
+        await channel.publish(
+            "command",
+            {
+                "command": "register_telegram",
+                "deployment_id": str(deployment.id),
+                "token": secrets.telegram.token,
+            },
+        )
+        print(
+            f"Sent Telegram registration command for deployment {deployment.id} via Ably"
+        )
+    except Exception as e:
+        raise Exception(f"Failed to notify gateway service for Telegram: {e}")
+
+
+async def postdeploy_farcaster(deployment: Deployment, secrets: DeploymentSecrets):
+    """Register webhook with Neynar"""
+    webhook_url = f"{os.getenv('EDEN_API_URL')}/updates/platform/farcaster"
+
+    async with aiohttp.ClientSession() as session:
+        # Get Neynar API key from environment
+        neynar_api_key = os.getenv("NEYNAR_API_KEY")
+        if not neynar_api_key:
+            raise Exception("NEYNAR_API_KEY not found in environment")
+
+        headers = {
+            "x-api-key": f"{neynar_api_key}",
+            "Content-Type": "application/json",
+        }
+
+        # Get user info for webhook registration
+        from farcaster import Warpcast
+
+        client = Warpcast(mnemonic=secrets.farcaster.mnemonic)
+        user_info = client.get_me()
+
+        webhook_data = {
+            "name": f"eden-{deployment.id}",
+            "url": webhook_url,
+            "subscription": {"cast.created": {"mentioned_fids": [user_info.fid]}},
+        }
+
+        async with session.post(
+            "https://api.neynar.com/v2/farcaster/webhook",
+            headers=headers,
+            json=webhook_data,
+        ) as response:
+            if response.status != 200:
+                error_text = await response.text()
+                raise Exception(f"Failed to register Neynar webhook: {error_text}")
+
+            webhook_response = await response.json()
+            webhook_id = webhook_response.get("webhook", {}).get("webhook_id")
+            webhook_secret = (
+                webhook_response.get("webhook", {}).get("secrets", [{}])[0].get("value")
+            )
+
+            if not webhook_id:
+                raise Exception("No webhook_id in response")
+
+            # Update the webhook secret in deployment secrets
+            secrets.farcaster.neynar_webhook_secret = webhook_secret
+
+            # Store webhook ID in deployment for later cleanup
+            if not deployment.config:
+                deployment.config = DeploymentConfig()
+            if not deployment.config.farcaster:
+                deployment.config.farcaster = DeploymentSettingsFarcaster()
+
+            deployment.config.farcaster.webhook_id = webhook_id
+            deployment.secrets = secrets
+            deployment.save()
+
+            print(
+                f"Registered Neynar webhook {webhook_id} for deployment {deployment.id}"
+            )
+
+
+async def postdeploy_twitter(deployment: Deployment):
+    """No post-deployment actions needed for Twitter"""
+    pass
+
+
+async def postdeploy_modal(
+    deployment: Deployment,
+    agent: Agent,
+    platform: ClientType,
+    secrets: DeploymentSecrets,
+    env: str,
+    repo_branch: str = None,
+):
+    """Deploy Modal client"""
+    deploy_client_modal(agent, platform, secrets, env, repo_branch)
 
 
 @handle_errors
@@ -368,51 +691,34 @@ async def handle_deployment_delete(request: DeleteDeploymentRequest):
 async def handle_trigger_create(
     request: CreateTriggerRequest, background_tasks: BackgroundTasks
 ):
-    agent = Agent.from_mongo(ObjectId(request.agent_id))
+    agent = Agent.from_mongo(ObjectId(request.agent))
     if not agent:
-        raise APIError(f"Agent not found: {request.agent_id}", status_code=404)
+        raise APIError(f"Agent not found: {request.agent}", status_code=404)
 
-    user = User.from_mongo(ObjectId(agent.owner))
+    user = User.from_mongo(ObjectId(request.user))
     if not user:
-        raise APIError(f"User not found: {agent.owner}", status_code=404)
+        raise APIError(f"User not found: {request.user}", status_code=404)
 
-    trigger_id = f"{str(user.id)}_{request.agent_id}_{int(time.time())}"
+    trigger_id = f"{str(user.id)}_{int(time.time())}"
 
     background_tasks.add_task(
-        create_chat_trigger,
+        create_trigger_fn,
         schedule=request.schedule.to_cron_dict(),
         trigger_id=trigger_id,
-    )
-
-    thread = agent.request_thread(user=ObjectId(user.id), key=trigger_id)
-    background_tasks.add_task(
-        async_title_thread,
-        thread,
-        UserMessage(content=request.message),
-        metadata={
-            "user_id": str(user.id),
-            "agent_id": str(agent.id),
-            "thread_id": str(thread.id),
-        },
     )
 
     trigger = Trigger(
         trigger_id=trigger_id,
         user=ObjectId(user.id),
         agent=ObjectId(agent.id),
-        thread=thread.id,
         schedule=request.schedule.to_cron_dict(),
-        platform=request.platform,
-        channel={
-            "id": request.channel.id,
-            "note": request.channel.note,
-        }
-        if request.channel
-        else None,
-        message=request.message,
+        instruction=request.instruction,
+        posting_instructions=request.posting_instructions.model_dump() if request.posting_instructions else None,
         update_config=request.update_config.model_dump()
         if request.update_config
         else None,
+        session=ObjectId(request.session) if request.session else None,
+        session_type=request.session_type,
     )
     trigger.save()
 
@@ -423,10 +729,25 @@ async def handle_trigger_create(
 
 
 @handle_errors
+async def handle_trigger_stop(request: DeleteTriggerRequest):
+    trigger = Trigger.from_mongo(request.id)
+    if not trigger:
+        raise APIError(f"Trigger not found: {request.id}", status_code=404)
+    await stop_trigger(trigger.trigger_id)
+    trigger.status = "finished"
+    trigger.save()
+
+    return {"id": str(request.id)}
+
+
+@handle_errors
 async def handle_trigger_delete(request: DeleteTriggerRequest):
     trigger = Trigger.from_mongo(request.id)
-    await delete_trigger(trigger.trigger_id)
+    if trigger.status != "finished":
+        await stop_trigger(trigger.trigger_id)
+
     trigger.delete()
+
     return {"id": str(trigger.id)}
 
 
@@ -469,11 +790,11 @@ async def handle_trigger_get(trigger_id: str):
         raise APIError(f"Trigger not found: {trigger_id}", status_code=404)
 
     return {
-        "id": str(trigger.id),
-        "user": str(trigger.user),
-        "agent": str(trigger.agent),
-        "thread": str(trigger.thread),
-        "message": trigger.message,
+        "id": str(trigger.id) if trigger.id else None,
+        "user": str(trigger.user) if trigger.user else None,
+        "agent": str(trigger.agent) if trigger.agent else None,
+        "session": str(trigger.session) if trigger.session else None,
+        "instruction": trigger.instruction,
         "update_config": trigger.update_config,
         "schedule": trigger.schedule,
     }
@@ -845,7 +1166,6 @@ async def handle_discord_emission(request: Request):
     """Handle updates from async_prompt_thread for Discord"""
     try:
         data = await request.json()
-        print("DISCORD EMISSION DATA:", data)
 
         update_type = data.get("type")
         update_config = data.get("update_config", {})
@@ -925,18 +1245,19 @@ async def handle_discord_emission(request: Request):
                         }
                     ]
 
-            async with session.post(
-                f"https://discord.com/api/v10/channels/{channel_id}/messages",
-                headers=headers,
-                json=payload,
-            ) as response:
-                if response.status != 200:
-                    error_text = await response.text()
-                    logger.error(f"Failed to send Discord message: {error_text}")
-                    return JSONResponse(
-                        status_code=500,
-                        content={"error": f"Failed to send message: {error_text}"},
-                    )
+            if payload["content"]:
+                async with session.post(
+                    f"https://discord.com/api/v10/channels/{channel_id}/messages",
+                    headers=headers,
+                    json=payload,
+                ) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        logger.error(f"Failed to send Discord message: {error_text}")
+                        return JSONResponse(
+                            status_code=500,
+                            content={"error": f"Failed to send message: {error_text}"},
+                        )
 
         return JSONResponse(status_code=200, content={"ok": True})
 
@@ -973,16 +1294,56 @@ async def handle_agent_tools_delete(request: AgentToolsDeleteRequest):
     return {"tools": tools}
 
 
-def setup_session(session_id: str, user_id: str, request: PromptSessionRequest = None):
-    if session_id:
-        if request and request.creation_args:
-            logger.warning(
-                f"Session creation fields provided but ignored for existing session {session_id}"
-            )
+def create_eden_message(
+    session_id: ObjectId, message_type: EdenMessageType, agents: List[Agent]
+) -> ChatMessage:
+    """Create an eden message for agent operations"""
+    eden_message = ChatMessage(
+        session=session_id,
+        sender=ObjectId("000000000000000000000000"),  # System sender
+        role="eden",
+        content="",
+        eden_message_data=EdenMessageData(
+            message_type=message_type,
+            agents=[
+                EdenMessageAgentData(
+                    id=agent.id,
+                    name=agent.name or agent.username,
+                    avatar=agent.userImage,
+                )
+                for agent in agents
+            ],
+        ),
+    )
+    eden_message.save()
+    return eden_message
 
+
+def generate_session_title(
+    session: Session, request: PromptSessionRequest, background_tasks: BackgroundTasks
+):
+    from eve.agent.session.session import async_title_session
+
+    if session.title:
+        return
+
+    if request.creation_args and request.creation_args.title:
+        return
+
+    background_tasks.add_task(async_title_session, session, request.message.content)
+
+
+def setup_session(
+    background_tasks: BackgroundTasks,
+    session_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    request: PromptSessionRequest = None,
+):
+    if session_id:
         session = Session.from_mongo(ObjectId(session_id))
         if not session:
             raise APIError(f"Session not found: {session_id}", status_code=404)
+        generate_session_title(session, request, background_tasks)
         return session
 
     if not request.creation_args:
@@ -991,15 +1352,45 @@ def setup_session(session_id: str, user_id: str, request: PromptSessionRequest =
         )
 
     # Create new session
-    session = Session(
-        owner=ObjectId(request.creation_args.owner_id or user_id),
-        agents=[ObjectId(agent_id) for agent_id in request.creation_args.agents],
-        title=request.creation_args.title,
-        scenario=request.creation_args.scenario,
-        budget=request.creation_args.budget,
-        status="active",
-    )
+    agent_object_ids = [ObjectId(agent_id) for agent_id in request.creation_args.agents]
+    session_kwargs = {
+        "owner": ObjectId(request.creation_args.owner_id or user_id),
+        "agents": agent_object_ids,
+        "title": request.creation_args.title,
+        "scenario": request.creation_args.scenario,
+        "status": "active",
+        "trigger": ObjectId(request.creation_args.trigger)
+        if request.creation_args.trigger
+        else None,
+    }
+
+    # Only include budget if it's not None, so default factory can work
+    if request.creation_args.budget is not None:
+        session_kwargs["budget"] = request.creation_args.budget
+
+    session = Session(**session_kwargs)
     session.save()
+
+    # Update trigger with session ID
+    if request.creation_args.trigger:
+        trigger = Trigger.from_mongo(ObjectId(request.creation_args.trigger))
+        if trigger:
+            trigger.session = session.id
+            trigger.save()
+
+    # Create eden message for initial agent additions
+    agents = [Agent.from_mongo(agent_id) for agent_id in agent_object_ids]
+    agents = [agent for agent in agents if agent]  # Filter out None values
+    if agents:
+        eden_message = create_eden_message(
+            session.id, EdenMessageType.AGENT_ADD, agents
+        )
+        session.messages.append(eden_message.id)
+        session.save()
+
+    # Generate title for new sessions if no title provided and we have background tasks
+    generate_session_title(session, request, background_tasks)
+
     return session
 
 
@@ -1007,7 +1398,9 @@ def setup_session(session_id: str, user_id: str, request: PromptSessionRequest =
 async def handle_prompt_session(
     request: PromptSessionRequest, background_tasks: BackgroundTasks
 ):
-    session = setup_session(request.session_id, request.user_id, request)
+    session = setup_session(
+        background_tasks, request.session_id, request.user_id, request
+    )
     context = PromptSessionContext(
         session=session,
         initiating_user_id=request.user_id,
@@ -1043,3 +1436,42 @@ async def handle_prompt_session(
     )
 
     return {"session_id": str(session.id)}
+
+
+@handle_errors
+async def handle_session_cancel(request: CancelSessionRequest):
+    """Cancel a running prompt session by sending a cancel signal via Ably."""
+    try:
+        from ably import AblyRest
+
+        # Verify session exists and user has permission
+        session = Session.from_mongo(ObjectId(request.session_id))
+        if not session:
+            raise APIError(f"Session not found: {request.session_id}", status_code=404)
+
+        # Check if user has permission to cancel this session
+        if str(session.owner) != request.user_id:
+            raise APIError(
+                "Unauthorized: User does not own this session", status_code=403
+            )
+
+        # Send cancel signal via Ably
+        ably_client = AblyRest(os.getenv("ABLY_PUBLISHER_KEY"))
+        channel_name = f"{os.getenv('DB')}-session-cancel-{request.session_id}"
+        channel = ably_client.channels.get(channel_name)
+
+        await channel.publish(
+            "cancel",
+            {
+                "session_id": request.session_id,
+                "user_id": request.user_id,
+                "timestamp": time.time(),
+            },
+        )
+
+        logger.info(f"Sent cancellation signal for session {request.session_id}")
+        return {"status": "cancel_signal_sent", "session_id": request.session_id}
+
+    except Exception as e:
+        logger.error(f"Error sending session cancel signal: {e}", exc_info=True)
+        raise APIError(f"Failed to send cancel signal: {str(e)}", status_code=500)

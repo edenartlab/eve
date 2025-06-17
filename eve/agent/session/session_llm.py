@@ -1,6 +1,8 @@
 import logging
 import os
 
+from eve.agent.thread import ChatMessage
+
 logging.getLogger("LiteLLM").setLevel(logging.WARNING)
 
 import json
@@ -8,7 +10,14 @@ from litellm import completion
 import litellm
 from typing import Callable, List, AsyncGenerator, Optional
 
-from eve.agent.session.models import LLMContext, LLMConfig, LLMResponse, ToolCall
+from eve.agent.session.models import (
+    LLMContext,
+    LLMConfig,
+    LLMContextMetadata,
+    LLMResponse,
+    LLMTraceMetadata,
+    ToolCall,
+)
 
 
 if os.getenv("LANGFUSE_TRACING_ENVIRONMENT"):
@@ -20,7 +29,37 @@ supported_models = [
     "claude-3-5-haiku-latest",
     "gemini-2.0-flash",
     "gemini/gemini-2.5-flash-preview-04-17",
+    "claude-sonnet-4-20250514",
+    "claude-opus-4-20250514",
 ]
+
+
+class ToolMetadataBuilder:
+    def __init__(
+        self,
+        tool_name: str,
+        litellm_session_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+    ):
+        self.litellm_session_id = litellm_session_id
+        self.tool_name = tool_name
+        self.user_id = user_id
+        self.agent_id = agent_id
+        self.session_id = session_id
+
+    def __call__(self) -> LLMContextMetadata:
+        return LLMContextMetadata(
+            session_id=self.litellm_session_id,
+            trace_name=f"TOOL_{self.tool_name}",
+            generation_name=f"TOOL_{self.tool_name}",
+            trace_metadata=LLMTraceMetadata(
+                user_id=str(self.user_id),
+                agent_id=str(self.agent_id),
+                session_id=str(self.session_id),
+            ),
+        )
 
 
 def validate_input(context: LLMContext) -> None:
@@ -33,16 +72,14 @@ def construct_observability_metadata(context: LLMContext):
         return {}
     metadata = {
         "session_id": context.metadata.session_id,
+        "trace_id": context.metadata.trace_id,
         "trace_name": context.metadata.trace_name,
         "generation_name": context.metadata.generation_name,
     }
     if context.metadata.trace_metadata:
         metadata["trace_metadata"] = context.metadata.trace_metadata.model_dump()
+        metadata["trace_user_id"] = context.metadata.trace_metadata.user_id
     return metadata
-
-
-def construct_messages(context: LLMContext) -> List[dict]:
-    return [msg.openai_schema() for msg in context.messages]
 
 
 def construct_tools(context: LLMContext) -> Optional[List[dict]]:
@@ -56,6 +93,7 @@ async def async_run_tool_call(
     tool_call: ToolCall,
     user_id: Optional[str] = None,
     agent_id: Optional[str] = None,
+    session_id: Optional[str] = None,
     public: bool = True,
     is_client_platform: bool = False,
 ):
@@ -79,15 +117,20 @@ async def async_run_tool_call(
     return result
 
 
+def prepare_messages(messages: List[ChatMessage]) -> List[dict]:
+    messages = [schema for msg in messages for schema in msg.openai_schema()]
+    return messages
+
+
 async def async_prompt_litellm(
     context: LLMContext,
 ) -> LLMResponse:
-    messages = construct_messages(context)
     response = completion(
         model=context.config.model,
-        messages=messages,
+        messages=prepare_messages(context.messages),
         metadata=construct_observability_metadata(context),
         tools=construct_tools(context),
+        response_format=context.config.response_format,
     )
 
     tool_calls = None
@@ -113,12 +156,13 @@ async def async_prompt_litellm(
 async def async_prompt_stream_litellm(
     context: LLMContext,
 ) -> AsyncGenerator[str, None]:
-    response = completion(
+    response = await litellm.acompletion(
         model=context.config.model,
-        messages=construct_messages(context),
+        messages=prepare_messages(context.messages),
         metadata=construct_observability_metadata(context),
         tools=construct_tools(context),
         stream=True,
+        response_format=context.config.response_format,
     )
     async for part in response:
         yield part

@@ -357,19 +357,6 @@ class Document(BaseModel):
         collection.delete_one({"_id": self.id})
 
 
-@trace
-def serialize_document(obj):
-    if isinstance(obj, ObjectId):
-        return str(obj)
-    if isinstance(obj, datetime):
-        return obj.isoformat()
-    if isinstance(obj, dict):
-        return {k: serialize_document(v) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [serialize_document(item) for item in obj]
-    return obj
-
-
 class MongoDocumentNotFound(Exception):
     """Exception raised when a document is not found in MongoDB."""
 

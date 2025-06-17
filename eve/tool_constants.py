@@ -63,6 +63,7 @@ BASE_TOOLS = [
     "transcription",
     # editing
     "media_editor",
+    # "create",
     # search
     "search_agents",
     "search_models",
@@ -70,7 +71,6 @@ BASE_TOOLS = [
     "add_to_collection",
     # misc
     "news",
-    # "websearch",
     "weather",
     # inactive
     # "ominicontrol",

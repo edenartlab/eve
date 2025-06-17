@@ -82,17 +82,6 @@ async def setup_chat(
     return user, agent, thread, tools
 
 
-def serialize_for_json(obj):
-    """Recursively serialize objects for JSON, handling ObjectId and other special types"""
-    if isinstance(obj, ObjectId):
-        return str(obj)
-    elif isinstance(obj, dict):
-        return {k: serialize_for_json(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
-        return [serialize_for_json(item) for item in obj]
-    return obj
-
-
 async def emit_update(update_config: Optional[UpdateConfig], data: dict):
     if not update_config:
         return
@@ -128,7 +117,10 @@ async def emit_http_update(update_config: UpdateConfig, data: dict):
 
 
 def pre_modal_setup():
-    authenticate_modal_key()
+    if not authenticate_modal_key():
+        print("Skipping Modal environment setup due to missing credentials")
+        return
+        
     if not check_environment_exists(deploy.DEPLOYMENT_ENV_NAME):
         create_environment(deploy.DEPLOYMENT_ENV_NAME)
     if not check_environment_exists(trigger.TRIGGER_ENV_NAME):

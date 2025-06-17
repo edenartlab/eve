@@ -207,7 +207,7 @@ class Agent(User):
         if models:
             if AGENT_LORA_STRICT:
                 # remove search_models tool
-                schema["tools"].pop("search_models")
+                schema["tools"].pop("search_models", None)
 
                 # remove all tools associated with missing base model
                 if len(flux_models) > 0 and len(sdxl_models) == 0:

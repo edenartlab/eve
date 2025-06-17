@@ -13,7 +13,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from ..agent.llm import UserMessage, UpdateType
 from ..agent.run_thread import async_prompt_thread
 from ..agent import Agent
-from ..eden_utils import prepare_result, dump_json
+from ..eden_utils import prepare_result, dumps_json
 from ..auth import get_my_eden_user
 
 
@@ -92,7 +92,7 @@ async def async_chat(agent_name, new_thread=True, debug=False):
                                 "[bold cyan]🔧 [dim]" + update.tool_name + "[/dim]"
                             )
                             # formatted_result = json.dumps(result, indent=2)
-                            formatted_result = dump_json(result, indent=2)
+                            formatted_result = dumps_json(result, indent=2)
                             formatted_result = re.sub(
                                 r'(https?://[^\s"]+)',
                                 lambda m: f"[link={m.group(1)}]{m.group(1)}[/link]",

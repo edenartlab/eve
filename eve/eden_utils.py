@@ -21,7 +21,7 @@ import subprocess
 import numpy as np
 from jinja2 import Template
 from bson import ObjectId
-from datetime import datetime
+from datetime import datetime, date
 from pprint import pformat
 from typing import Union, Tuple, Set, List, Optional, Dict
 
@@ -482,7 +482,7 @@ def image_to_base64(file_path, max_size, quality=95, truncate=False):
     img_bytes = PIL_to_bytes(img, ext="JPEG", quality=quality)
     data = base64.b64encode(img_bytes).decode("utf-8")
     if truncate:
-        data = data[:64] + "..."
+        data = data[:64] + data[-16:] + "..."
     return data
 
 
@@ -1021,21 +1021,28 @@ def save_test_results(tools, results):
     print(f"Test results saved to {results_dir}")
 
 
-def dump_json(obj, indent=None, exclude=None):
-    class CustomJSONEncoder(json.JSONEncoder):
-        def default(self, obj):
-            if isinstance(obj, ObjectId):
-                return str(obj)
-            if isinstance(obj, datetime):
-                return obj.isoformat()
-            return super().default(obj)
+def dumps_json(obj, *, indent=None, exclude=None):
+    """Return *obj* as a JSON string."""
 
-    if not obj:
+    def scrub(value):
+        if isinstance(value, ObjectId):
+            return str(value)
+        if isinstance(value, (datetime, date)):
+            return value.isoformat()
+        if isinstance(value, dict):
+            pruned = (
+                {k: v for k, v in value.items() if not exclude or k not in exclude}
+            )
+            return {k: scrub(v) for k, v in pruned.items()}
+        if isinstance(value, (list, tuple, set)):
+            return [scrub(item) for item in value]
+        return value
+
+    if obj is None:
         return ""
-    for e in exclude or []:
-        if e in obj:
-            del obj[e]
-    return json.dumps(obj, cls=CustomJSONEncoder, indent=indent)
+
+    cleaned = scrub(obj)
+    return json.dumps(cleaned, indent=indent)
 
 
 def load_template(filename: str) -> Template:

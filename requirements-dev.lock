@@ -276,11 +276,11 @@ jsonschema==4.23.0
     # via web3
 jsonschema-specifications==2024.10.1
     # via jsonschema
-langfuse==2.60.7
+langfuse==2.59.7
     # via eve
 lazy-model==0.2.0
     # via beanie
-litellm==1.71.2
+litellm==1.70.0
     # via eve
 lru-dict==1.2.0
     # via web3
@@ -319,6 +319,7 @@ numpy==2.2.0
     # via shapely
 oauthlib==3.2.2
     # via requests-oauthlib
+    # via tweepy
 openai==1.75.0
     # via eve
     # via instructor
@@ -460,9 +461,11 @@ requests==2.32.3
     # via langfuse
     # via requests-oauthlib
     # via tiktoken
+    # via tweepy
     # via web3
 requests-oauthlib==2.0.0
     # via eve
+    # via tweepy
 rich==13.9.4
     # via instructor
     # via modal
@@ -527,6 +530,8 @@ tqdm==4.67.1
     # via huggingface-hub
     # via openai
     # via proglog
+tweepy==4.15.0
+    # via eve
 typer==0.15.1
     # via instructor
     # via modal

@@ -7,7 +7,7 @@ import asyncio
 import traceback
 from abc import ABC, abstractmethod
 from pydantic import BaseModel, create_model, ValidationError
-from typing import Optional, List, Dict, Any, Type, Literal
+from typing import Optional, List, Dict, Any, Type
 from datetime import datetime, timezone
 from instructor.function_calls import openai_schema
 import sentry_sdk
@@ -166,8 +166,8 @@ class Tool(Document, ABC):
         key = schema.get("key") or schema.get("parent_tool") or file_path.split("/")[-2]
         parent_tool = schema.get("parent_tool")
         if parent_tool:
-            # this is to make sure the original (not parent) key gets used
             if file_path:
+                # to make sure key is original, not parent's
                 key = file_path.split("/")[-2]
             parent_schema = cls._get_schema(parent_tool, from_yaml=from_yaml)
             parent_schema["parameter_presets"] = schema.pop("parameters", {})
@@ -239,6 +239,112 @@ class Tool(Document, ABC):
         schema.pop("model")
 
         return schema
+
+    @classmethod
+    def from_pydantic(
+        cls,
+        model: Type[BaseModel],
+        key: str,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        tip: Optional[str] = None,
+        thumbnail: Optional[str] = None,
+        output_type: OUTPUT_TYPES = "text",
+        cost_estimate: str = "0",
+        resolutions: Optional[List[str]] = None,
+        base_model: Optional[BASE_MODELS] = None,
+        active: bool = True,
+        visible: bool = True,
+        allowlist: Optional[str] = None,
+        handler: HANDLERS = "local",
+        gpu: Optional[str] = None,
+        test_args: Optional[Dict[str, Any]] = None,
+        rate_limits: Optional[Dict[str, RateLimit]] = None,
+        **kwargs,
+    ):
+        """
+        Create a Tool from a Pydantic BaseModel.
+
+        Args:
+            model: The Pydantic BaseModel class to convert
+            key: Unique identifier for the tool
+            name: Display name (defaults to model.__name__)
+            description: Tool description (defaults to model.__doc__)
+            **kwargs: Additional optional tool parameters
+        """
+        # Extract schema from the Pydantic model
+        model_schema = model.model_json_schema()
+
+        # Convert Pydantic schema to Tool parameters format
+        parameters = {}
+        properties = model_schema.get("properties", {})
+        required_fields = model_schema.get("required", [])
+
+        for field_name, field_info in properties.items():
+            param = {
+                "type": field_info.get("type", "string"),
+                "description": field_info.get("description", ""),
+            }
+
+            # Handle field metadata
+            if "default" in field_info:
+                param["default"] = field_info["default"]
+            elif field_name not in required_fields:
+                param["default"] = None
+
+            # Handle type-specific properties
+            if field_info.get("type") == "array":
+                param["items"] = field_info.get("items", {})
+            elif field_info.get("type") == "number":
+                if "minimum" in field_info:
+                    param["minimum"] = field_info["minimum"]
+                if "maximum" in field_info:
+                    param["maximum"] = field_info["maximum"]
+            elif field_info.get("type") == "string":
+                if "enum" in field_info:
+                    param["enum"] = field_info["enum"]
+                if "minLength" in field_info:
+                    param["minLength"] = field_info["minLength"]
+                if "maxLength" in field_info:
+                    param["maxLength"] = field_info["maxLength"]
+
+            # Handle anyOf for unions/optional types
+            if "anyOf" in field_info:
+                param["anyOf"] = field_info["anyOf"]
+
+            parameters[field_name] = param
+
+        # Build the tool schema
+        schema = {
+            "key": key,
+            "name": name or model.__name__,
+            "description": description
+            or model.__doc__
+            or f"Tool generated from {model.__name__}",
+            "tip": tip,
+            "thumbnail": thumbnail,
+            "output_type": output_type,
+            "cost_estimate": cost_estimate,
+            "resolutions": resolutions,
+            "base_model": base_model,
+            "active": active,
+            "visible": visible,
+            "allowlist": allowlist,
+            "handler": handler,
+            "gpu": gpu,
+            "test_args": test_args,
+            "rate_limits": rate_limits,
+            "parameters": parameters,
+            "model": model,
+        }
+
+        # Remove None values
+        schema = {k: v for k, v in schema.items() if v is not None}
+
+        # Get the appropriate tool subclass based on handler
+        sub_cls = cls.get_sub_class(schema, from_yaml=False)
+
+        return sub_cls.model_validate(schema)
 
     def save(self, **kwargs):
         return super().save({"key": self.key}, **kwargs)
@@ -324,7 +430,12 @@ class Tool(Document, ABC):
         ), f"Cost estimate ({cost_estimate}) not a number (formula: {cost_formula})"
         return cost_estimate
 
-    def prepare_args(self, args: dict, user: str = None, agent: str = None):
+    def prepare_args(
+        self,
+        args: dict,
+        user: str = None,
+        agent: str = None,
+    ):
         unrecognized_args = set(args.keys()) - set(self.model.model_fields.keys())
         if unrecognized_args:
             # raise ValueError(
@@ -626,7 +737,7 @@ def get_api_files(root_dir: str = None) -> List[str]:
             # Skip inactive_workflows directory and all its subdirectories
             if "inactive_workflows" in root:
                 continue
-                
+
             if "api.yaml" in files and "test.json" in files:
                 api_file = os.path.join(root, "api.yaml")
                 key = os.path.relpath(root).split("/")[-1]

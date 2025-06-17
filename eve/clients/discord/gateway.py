@@ -47,7 +47,8 @@ image = (
     )
     .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
     .env({"DB": db})
-    .env({"LOCAL_API_URL": os.getenv("LOCAL_API_URL")})
+    .env({"LOCAL_API_URL": os.getenv("LOCAL_API_URL") or ""})
+    .add_local_python_source("eve", ignore=[])
 )
 
 
@@ -450,7 +451,10 @@ class DiscordGatewayClient:
     @property
     def api_url(self) -> str:
         """Get the API URL, preferring LOCAL_API_URL if set."""
-        return os.getenv("LOCAL_API_URL") or os.getenv("EDEN_API_URL")
+        if os.getenv("LOCAL_API_URL") != "":
+            return os.getenv("LOCAL_API_URL")
+        else:
+            return os.getenv("EDEN_API_URL")
 
     async def heartbeat_loop(self):
         while True:
@@ -524,6 +528,62 @@ class DiscordGatewayClient:
             )
         return message_content.strip()
 
+    async def _is_channel_allowlisted(
+        self, channel_id: str, allowed_channels: list, trace_id: str
+    ) -> bool:
+        """
+        Check if a channel is allowlisted. If the channel is not directly allowlisted,
+        check if it's a thread and if its parent channel is allowlisted.
+        """
+        # First check if the channel is directly allowlisted
+        if channel_id in allowed_channels:
+            logger.info(
+                f"[trace:{trace_id}] Channel {channel_id} is directly allowlisted"
+            )
+            return True
+
+        # If not directly allowlisted, check if this might be a thread
+        try:
+            async with aiohttp.ClientSession() as session:
+                headers = {
+                    "Authorization": f"Bot {self.token}",
+                }
+                url = f"https://discord.com/api/v10/channels/{channel_id}"
+
+                async with session.get(url, headers=headers) as response:
+                    if response.status == 200:
+                        channel_data = await response.json()
+                        channel_type = channel_data.get("type")
+
+                        # Discord thread types: 10 (GUILD_NEWS_THREAD), 11 (GUILD_PUBLIC_THREAD), 12 (GUILD_PRIVATE_THREAD)
+                        if channel_type in [10, 11, 12]:
+                            parent_id = channel_data.get("parent_id")
+                            if parent_id and parent_id in allowed_channels:
+                                logger.info(
+                                    f"[trace:{trace_id}] Thread {channel_id} has allowlisted parent channel {parent_id}"
+                                )
+                                return True
+                            else:
+                                logger.info(
+                                    f"[trace:{trace_id}] Thread {channel_id} has non-allowlisted parent channel {parent_id}"
+                                )
+                                return False
+                        else:
+                            logger.info(
+                                f"[trace:{trace_id}] Channel {channel_id} is not a thread (type: {channel_type}) and not allowlisted"
+                            )
+                            return False
+                    else:
+                        logger.warning(
+                            f"[trace:{trace_id}] Failed to fetch channel info for {channel_id}: {response.status}"
+                        )
+                        return False
+        except Exception as e:
+            logger.error(
+                f"[trace:{trace_id}] Error checking if channel {channel_id} is allowlisted: {e}"
+            )
+            return False
+
     def lookup_thread_and_user(self, data: dict) -> Tuple[str, str]:
         """
         Helper function to lookup thread and user for a Discord message.
@@ -562,6 +622,7 @@ class DiscordGatewayClient:
 
     async def handle_message(self, data: dict):
         # Create a trace ID from deployment ID and message ID
+        logger.info(f"DATA: {data}")
         trace_id = f"{self.deployment.id}-{data['id']}"
         logger.info(
             f"[trace:{trace_id}] Handling message for deployment {self.deployment.id}"
@@ -598,7 +659,11 @@ class DiscordGatewayClient:
             logger.info(f"[trace:{trace_id}] ALLOWED CHANNELS: {allowed_channels}")
             logger.info(f"[trace:{trace_id}] CHANNEL ID: {channel_id}")
 
-            if channel_id not in allowed_channels:
+            # Check if channel is allowlisted (including parent channel for threads)
+            is_allowed = await self._is_channel_allowlisted(
+                channel_id, allowed_channels, trace_id
+            )
+            if not is_allowed:
                 logger.info(f"[trace:{trace_id}] NOT IN ALLOWED CHANNELS")
                 return
 

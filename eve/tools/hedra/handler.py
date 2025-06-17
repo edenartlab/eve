@@ -105,27 +105,31 @@ async def handler(args: dict, user: str = None, agent: str = None):
             output_filename_base = status_response.get("asset_id", generation_id)
             output_filename = f"{output_filename_base}.mp4"
             logger.info(f"Generation complete. Downloading video from {download_url} to {output_filename}")
-            try:
-                # Use a fresh requests get, not the session, as the URL is likely presigned S3
-                # with requests.get(download_url, stream=True) as r:
-                #     r.raise_for_status() # Check if the request was successful
-                #     with open(output_filename, 'wb') as f:
-                #         for chunk in r.iter_content(chunk_size=8192):
-                #             f.write(chunk)
-                # logger.info(f"Successfully downloaded video to {output_filename}")
-                return {
-                    "output": download_url
-                }
-            except requests.exceptions.RequestException as e:
-                logger.error(f"Failed to download video: {e}")
-            except IOError as e:
-                logger.error(f"Failed to save video file: {e}")
+
+            # Use a fresh requests get, not the session, as the URL is likely presigned S3
+            # with requests.get(download_url, stream=True) as r:
+            #     r.raise_for_status() # Check if the request was successful
+            #     with open(output_filename, 'wb') as f:
+            #         for chunk in r.iter_content(chunk_size=8192):
+            #             f.write(chunk)
+            # logger.info(f"Successfully downloaded video to {output_filename}")
+            return {
+                "output": download_url
+            }
+
         elif status == "error":
             logger.error(f"Video generation failed: {status_response.get('error_message', 'Unknown error')}")
+            raise Exception(f"Video generation failed: {status_response.get('error_message', 'Unknown error')}")
+
         else:
             # This case might happen if loop breaks unexpectedly or API changes
             logger.warning(f"Video generation finished with status '{status}' but no download URL was found.")
-            
+            raise Exception(f"Video generation finished with status '{status}' but no download URL was found.")
+    
+    except Exception as e:
+        logger.error(f"Error: {e}")
+        raise e
+    
     finally:
         os.unlink(temp_image.name)
         os.unlink(temp_audio.name)

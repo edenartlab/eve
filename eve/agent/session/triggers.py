@@ -3,15 +3,12 @@ import os
 import subprocess
 import pytz
 from datetime import datetime
-from typing import Dict, Any, Literal, Optional
-from bson import ObjectId
 import modal
 import modal.runner
 
+from eve.agent.session.trigger_fn import trigger_fn
 from eve.api.api_requests import CronSchedule
 from eve.api.errors import handle_errors
-from eve.functions.fn_trigger import trigger_fn
-from eve.mongo import Collection, Document
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -21,40 +18,11 @@ TRIGGER_ENV_NAME = "triggers"
 trigger_app = modal.App()
 
 
-@Collection("triggers")
-class Trigger(Document):
-    trigger_id: str
-    user: ObjectId
-    agent: ObjectId
-    thread: ObjectId
-    platform: str
-    channel: Optional[Dict[str, Any]]
-    schedule: Dict[str, Any]
-    message: str
-    update_config: Optional[Dict[str, Any]]
-    status: Optional[Literal["active", "paused", "finished"]] = "active"
-
-    def __init__(self, **data):
-        if isinstance(data.get("user"), str):
-            data["user"] = ObjectId(data["user"])
-        if isinstance(data.get("agent"), str):
-            data["agent"] = ObjectId(data["agent"])
-        if isinstance(data.get("thread"), str):
-            data["thread"] = ObjectId(data["thread"])
-        if data.get("channel") is None:
-            data["channel"] = None
-        if data.get("update_config") is None:
-            data["update_config"] = None
-        if data.get("status") is None:
-            data["status"] = "active"
-        super().__init__(**data)
-
-
 def create_image(trigger_id: str):
     return (
         modal.Image.debian_slim(python_version="3.12")
         .apt_install("libmagic1", "ffmpeg", "wget")
-        .pip_install_from_pyproject("/eve/pyproject.toml")
+        .pip_install_from_pyproject("pyproject.toml")
         .run_commands(["playwright install"])
         .env({"DB": db})
         .env({"TRIGGER_ID": trigger_id})
@@ -62,11 +30,11 @@ def create_image(trigger_id: str):
 
 
 @handle_errors
-async def create_chat_trigger(
+async def create_trigger_fn(
     schedule: CronSchedule,
     trigger_id: str,
 ) -> None:
-    print(f"Creating chat trigger {trigger_id} with schedule {schedule}")
+    print(f"Creating session trigger {trigger_id} with schedule {schedule}")
     """Creates a Modal scheduled function with the provided cron schedule"""
     with modal.enable_output():
         schedule_dict = schedule
@@ -105,8 +73,13 @@ async def create_chat_trigger(
                     f"Error converting timezone: {str(e)}. Using original values."
                 )
 
+        # Get day_of_month, fallback to day for backwards compatibility
+        day_of_month = schedule_dict.get("day_of_month") or schedule_dict.get(
+            "day", "*"
+        )
+
         # Create cron string with potentially adjusted values
-        cron_string = f"{minute} {hour} {schedule_dict.get('day', '*')} {schedule_dict.get('month', '*')} {schedule_dict.get('day_of_week', '*')}"
+        cron_string = f"{minute} {hour} {day_of_month} {schedule_dict.get('month', '*')} {schedule_dict.get('day_of_week', '*')}"
 
         trigger_app.function(
             schedule=modal.Cron(cron_string),
