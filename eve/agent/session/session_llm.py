@@ -78,6 +78,7 @@ def construct_observability_metadata(context: LLMContext):
     }
     if context.metadata.trace_metadata:
         metadata["trace_metadata"] = context.metadata.trace_metadata.model_dump()
+        metadata["trace_user_id"] = context.metadata.trace_metadata.user_id
     return metadata
 
 
