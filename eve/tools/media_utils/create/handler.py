@@ -90,12 +90,11 @@ class CreateResults(BaseModel):
     )
 
 async def handler(args: dict, user: str = None, agent: str = None):
-    
-    if not user:
-        user = get_my_eden_user()
+    if user:
+        user = User.from_mongo(ObjectId(user))
     else:
-        user = User.from_mongo(user)
-
+        user = get_my_eden_user()
+    
     # Define tool categories by output type
     output_type = args.get("output_type", "image")
     tool_categories = {
@@ -137,59 +136,28 @@ async def handler(args: dict, user: str = None, agent: str = None):
     # Check if a specific agent was requested
     if args.get("agent"):
         try:
-            requested_agent_id = ObjectId(args["agent"])
-            # Try to load the specific agent
-            from ....agent.agent import Agent as AgentModel
-            agent_doc = AgentModel.get_collection().find_one({"_id": requested_agent_id})
-            if agent_doc:
-                creator_agent_id = requested_agent_id
-                agent_name = agent_doc.get("name", agent_doc.get("username", "Agent"))
-                agent_persona = agent_doc.get("persona", "")
+            agent_id = args.get("agent")
+            if not agent_id:
+                agent = Agent.load("eve")
+                agent_id = agent.id
+            agent = Agent.from_mongo(agent_id)
+            if agent:
+                creator_agent_id = agent.id
+                agent_name = agent.name
+                agent_persona = agent.persona
                 print(f"Using requested agent '{agent_name}' with ID: {creator_agent_id}")
                 print(f"Agent persona: {agent_persona[:100]}..." if len(agent_persona) > 100 else f"Agent persona: {agent_persona}")
             else:
-                print(f"Requested agent {requested_agent_id} not found, falling back to default")
+                print(f"Requested agent {agent_id} not found, falling back to default")
         except Exception as e:
             print(f"Error loading requested agent {args.get('agent')}: {e}")
-    
-    # If no specific agent or agent not found, try to find a default agent
-    if not creator_agent_id:
-        try:
-            # First try to find any valid agent ID from the database
-            from ....agent.agent import Agent as AgentModel
-            
-            # Look for an existing agent (try common names)
-            agent_names = ["eve", "sidekick", "media-editor"]
-            
-            for name in agent_names:
-                try:
-                    agent_doc = AgentModel.get_collection().find_one({"username": name})
-                    if agent_doc and "_id" in agent_doc:
-                        creator_agent_id = agent_doc["_id"]
-                        agent_name = agent_doc.get("name", name)
-                        agent_persona = agent_doc.get("persona", "")
-                        print(f"Found default agent '{name}' with ID: {creator_agent_id}")
-                        break
-                except Exception as e:
-                    print(f"Could not find agent '{name}': {e}")
-                    continue
-            
-            # If no agent found, use user ID as fallback
-            if not creator_agent_id:
-                creator_agent_id = ObjectId(user.id)
-                print(f"Using user ID as agent ID: {creator_agent_id}")
-                
-        except Exception as e:
-            print(f"Error finding agent: {e}")
-            creator_agent_id = ObjectId(user.id)
-            print(f"Fallback: using user ID as agent ID: {creator_agent_id}")
-
     # Create session with the agent
     session = Session(
         owner=ObjectId(user.id),
         agents=[creator_agent_id],
         title=f"{output_type.title()} Creation Session",
-        scenario=f"Creative {output_type} generation task"
+        scenario=f"Creative {output_type} generation task",
+        parent_session=args.get("parent_session", None)
     )
     session.save()
     
