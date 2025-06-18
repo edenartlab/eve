@@ -10,7 +10,6 @@ from instructor.function_calls import openai_schema
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
 
 from ..tool import Tool
-from ..eden_utils import dumps_json
 from .thread import UserMessage, AssistantMessage, ToolCall
 
 
@@ -158,14 +157,7 @@ async def async_anthropic_prompt(
         tool_schemas[-1]["cache_control"] = {"type": "ephemeral"}
 
         prompt["tools"] = tool_schemas
-
-
-        print("ALL THE TOOLS")
-        print(tool_schemas[-1])
         tool_names = [tool["name"] for tool in tool_schemas]
-        print("TOOL NAMES")
-        print(tool_names)
-        print("================\n\n\n\nn")
 
     import time
 

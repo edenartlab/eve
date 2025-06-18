@@ -177,12 +177,30 @@ def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
     """
     Re-assembles messages from perspective of actor (assistant) and everyone else (user)
     """
+    
+    print("--------------------------------")
+    print("OLD MESSAGE ROLES")
+    print(messages)
+    print("--------------------------------")
+    print(actor_id)
+    for message in messages:
+        print("sender", message.sender, "role", message.role)
+
     messages = [
         message.as_assistant_message()
         if message.sender == actor_id
         else message.as_user_message()
         for message in messages
     ]
+
+    print("--------------------------------")
+    print("MESSAGE ROLES")
+    # print(messages)
+    for message in messages:
+        print("sender", message.sender, "role", message.role)
+        print("--------------------------------")
+    print("--------------------------------")
+
     return messages
 
 
