@@ -9,7 +9,6 @@ from fastapi import BackgroundTasks, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 import aiohttp
 
-from eve.agent.deployments import ClientType, Deployment, DeploymentConfig
 from eve.agent.deployments.farcaster import FarcasterClient
 from eve.agent.session.models import (
     PromptSessionContext,
@@ -19,6 +18,8 @@ from eve.agent.session.models import (
     EdenMessageData,
     EdenMessageAgentData,
     Trigger,
+    Deployment,
+    DeploymentConfig,
 )
 from eve.agent.session.session import run_prompt_session, run_prompt_session_stream
 from eve.agent.session.triggers import create_trigger_fn, stop_trigger
@@ -985,8 +986,10 @@ async def handle_prompt_session(
         session=session,
         initiating_user_id=request.user_id,
         actor_agent_id=request.actor_agent_id,
+        actor_agent_ids=request.actor_agent_ids,
         message=request.message,
         update_config=request.update_config,
+        llm_config=request.llm_config,
     )
 
     if request.stream:

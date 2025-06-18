@@ -2,7 +2,7 @@ import os
 import time
 import asyncio
 
-from eve.agent.deployments import ClientType
+from eve.agent.session.models import ClientType
 import sentry_sdk
 
 db = os.getenv("DB", "STAGE")

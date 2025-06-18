@@ -1,129 +1,13 @@
-from enum import Enum
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Optional
 from fastapi import Request
-from pydantic import BaseModel
-from bson import ObjectId
 from abc import ABC, abstractmethod
 
-from eve.mongo import Collection, Document
 from eve.agent.agent import Agent
+from eve.agent.session.models import DeploymentSecrets, DeploymentConfig, Deployment
 
 
 if TYPE_CHECKING:
     from eve.api.api_requests import DeploymentEmissionRequest
-
-
-class ClientType(Enum):
-    DISCORD = "discord"
-    TELEGRAM = "telegram"
-    FARCASTER = "farcaster"
-    TWITTER = "twitter"
-
-
-# Base Models
-class AllowlistItem(BaseModel):
-    id: str
-    note: Optional[str] = None
-
-
-# Discord Models
-class DiscordAllowlistItem(AllowlistItem):
-    pass
-
-
-class DeploymentSettingsDiscord(BaseModel):
-    oauth_client_id: Optional[str] = None
-    oauth_url: Optional[str] = None
-    channel_allowlist: Optional[List[DiscordAllowlistItem]] = None
-    read_access_channels: Optional[List[DiscordAllowlistItem]] = None
-
-
-class DeploymentSecretsDiscord(BaseModel):
-    token: str
-    application_id: Optional[str] = None
-
-
-# Telegram Models
-class TelegramAllowlistItem(AllowlistItem):
-    pass
-
-
-class DeploymentSettingsTelegram(BaseModel):
-    topic_allowlist: Optional[List[TelegramAllowlistItem]] = None
-
-
-class DeploymentSecretsTelegram(BaseModel):
-    token: str
-    webhook_secret: Optional[str] = None
-
-
-# Farcaster Models
-class DeploymentSettingsFarcaster(BaseModel):
-    webhook_id: Optional[str] = None
-    auto_reply: Optional[bool] = False
-
-
-class DeploymentSecretsFarcaster(BaseModel):
-    mnemonic: str
-    neynar_webhook_secret: Optional[str] = None
-
-
-# Twitter Models
-class DeploymentSettingsTwitter(BaseModel):
-    username: Optional[str] = None
-
-
-class DeploymentSecretsTwitter(BaseModel):
-    user_id: str
-    bearer_token: str
-    consumer_key: str
-    consumer_secret: str
-    access_token: str
-    access_token_secret: str
-
-
-# Combined Models
-class DeploymentSecrets(BaseModel):
-    discord: DeploymentSecretsDiscord | None = None
-    telegram: DeploymentSecretsTelegram | None = None
-    farcaster: DeploymentSecretsFarcaster | None = None
-    twitter: DeploymentSecretsTwitter | None = None
-
-
-class DeploymentConfig(BaseModel):
-    discord: DeploymentSettingsDiscord | None = None
-    telegram: DeploymentSettingsTelegram | None = None
-    farcaster: DeploymentSettingsFarcaster | None = None
-    twitter: DeploymentSettingsTwitter | None = None
-
-
-@Collection("deployments2")
-class Deployment(Document):
-    agent: ObjectId
-    user: ObjectId
-    platform: ClientType
-    valid: Optional[bool] = None
-    secrets: Optional[DeploymentSecrets]
-    config: Optional[DeploymentConfig]
-
-    def __init__(self, **data):
-        # Convert string to ClientType enum if needed
-        if "platform" in data and isinstance(data["platform"], str):
-            data["platform"] = ClientType(data["platform"])
-        super().__init__(**data)
-
-    def model_dump(self, *args, **kwargs):
-        """Override model_dump to convert enum to string for MongoDB"""
-        data = super().model_dump(*args, **kwargs)
-        if "platform" in data and isinstance(data["platform"], ClientType):
-            data["platform"] = data["platform"].value
-        return data
-
-    @classmethod
-    def ensure_indexes(cls):
-        """Ensure indexes exist"""
-        collection = cls.get_collection()
-        collection.create_index([("agent", 1), ("platform", 1)], unique=True)
 
 
 class PlatformClient(ABC):

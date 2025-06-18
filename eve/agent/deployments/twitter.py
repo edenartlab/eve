@@ -1,9 +1,6 @@
 from eve.api.errors import APIError
-from eve.agent.deployments import (
-    PlatformClient,
-    DeploymentSecrets,
-    DeploymentConfig,
-)
+from eve.agent.deployments import PlatformClient
+from eve.agent.session.models import DeploymentSecrets, DeploymentConfig
 
 
 class TwitterClient(PlatformClient):

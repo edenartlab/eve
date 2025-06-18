@@ -2,14 +2,15 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
 
-from eve.agent.deployments import ClientType, DeploymentConfig, DeploymentSecrets
 from eve.agent.thread import UserMessage
 from eve.agent.llm import UpdateType
 from eve.agent.session.models import (
     ChatMessageRequestInput,
     LLMConfig,
-    SessionUpdate,
     SessionUpdateConfig,
+    DeploymentSecrets,
+    DeploymentConfig,
+    ClientType,
 )
 
 
@@ -144,6 +145,7 @@ class PromptSessionRequest(BaseModel):
     message: Optional[ChatMessageRequestInput] = None
     user_id: Optional[str] = None
     actor_agent_id: Optional[str] = None
+    actor_agent_ids: Optional[List[str]] = None
     update_config: Optional[SessionUpdateConfig] = None
     llm_config: Optional[LLMConfig] = None
     stream: bool = False

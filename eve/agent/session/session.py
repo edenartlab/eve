@@ -28,7 +28,6 @@ from eve.agent.session.session_llm import (
     LLMContext,
     async_prompt,
     async_prompt_stream,
-    async_run_tool_call,
 )
 from eve.agent.session.models import LLMContextMetadata
 from eve.api.errors import handle_errors
@@ -112,43 +111,60 @@ def determine_actor_from_actor_selection_method(session: Session) -> Optional[Ag
         raise ValueError(f"Invalid actor selection method: {selection_method}")
 
 
-async def determine_actor(
+async def determine_actors(
     session: Session, context: PromptSessionContext
-) -> Optional[Agent]:
-    actor_id = None
-    if context.actor_agent_id:
-        # Default to the actor specified in the context if passed
+) -> List[Agent]:
+    print("***debug*** context: ", context)
+    actor_ids = []
+
+    if context.actor_agent_ids:
+        # Multiple actors specified in the context
+        for actor_agent_id in context.actor_agent_ids:
+            requested_actor = ObjectId(actor_agent_id)
+            actor_ids.append(requested_actor)
+    elif context.actor_agent_id:
+        # Single actor specified in the context (backwards compatibility)
         requested_actor = ObjectId(context.actor_agent_id)
         if requested_actor in session.agents:
-            actor_id = context.actor_agent_id
+            actor_ids.append(requested_actor)
         else:
             raise ValueError(f"Actor @{context.actor_agent_id} not found in session")
     elif session.autonomy_settings and session.autonomy_settings.auto_reply:
         actor_id = determine_actor_from_actor_selection_method(session)
+        actor_ids.append(actor_id)
     elif len(session.agents) > 1:
         mentions = parse_mentions(context.message.content)
-        if len(mentions) > 1:
-            raise ValueError("Multiple @mentions not currently supported")
-        elif len(mentions) == 1:
-            mentioned_username = mentions[0]
-            for agent_id in session.agents:
-                agent = Agent.from_mongo(agent_id)
-                if agent.username == mentioned_username:
-                    actor_id = agent_id
-                    break
-            if not actor_id:
-                raise ValueError(f"Agent @{mentioned_username} not found in session")
+        if len(mentions) > 0:
+            for mention in mentions:
+                for agent_id in session.agents:
+                    agent = Agent.from_mongo(agent_id)
+                    if agent.username == mention:
+                        actor_ids.append(agent_id)
+                        break
+            if not actor_ids:
+                raise ValueError("No mentioned agents found in session")
+        else:
+            # No mentions, no specific actor - could potentially use all agents
+            # For now, return empty list to maintain backwards compatibility
+            pass
     elif len(session.agents) == 1:
-        actor_id = session.agents[0]
+        actor_ids.append(session.agents[0])
 
-    if not actor_id:
-        # TODO: do something more graceful than returning None if no actor is determined to be necessary.
-        return None
+    if not actor_ids:
+        # TODO: do something more graceful than returning empty list if no actors are determined
+        return []
 
-    actor = Agent.from_mongo(actor_id)
-    session.last_actor_id = actor.id
-    session.save()
-    return actor
+    actors = []
+    for actor_id in actor_ids:
+        actor = Agent.from_mongo(actor_id)
+        actors.append(actor)
+
+    # Update last_actor_id to the first actor for backwards compatibility
+    if actors:
+        session.last_actor_id = actors[0].id
+        session.save()
+
+    return actors
 
 
 def select_messages(session: Session, selection_limit: int = 25):
@@ -813,19 +829,59 @@ async def _run_prompt_session_internal(
     """Internal function that handles both streaming and non-streaming"""
     session = context.session
     validate_prompt_session(session, context)
-    actor = await determine_actor(session, context)
-    llm_context = await build_llm_context(session, actor, context)
+    actors = await determine_actors(session, context)
     is_client_platform = context.update_config is not None
 
-    async for update in async_prompt_session(
-        session,
-        llm_context,
-        actor,
-        stream=stream,
-        is_client_platform=is_client_platform,
-    ):
-        yield format_session_update(update, context)
+    if not actors:
+        return
 
+    print("***debug*** actors: ", actors)
+    # For single actor, maintain backwards compatibility
+    if len(actors) == 1:
+        actor = actors[0]
+        llm_context = await build_llm_context(session, actor, context)
+        async for update in async_prompt_session(
+            session,
+            llm_context,
+            actor,
+            stream=stream,
+            is_client_platform=is_client_platform,
+        ):
+            yield format_session_update(update, context)
+    else:
+        # Multiple actors - run them in parallel
+        async def run_actor_session(actor: Agent):
+            actor_updates = []
+            llm_context = await build_llm_context(session, actor, context)
+            async for update in async_prompt_session(
+                session,
+                llm_context,
+                actor,
+                stream=stream,
+                is_client_platform=is_client_platform,
+            ):
+                actor_updates.append(format_session_update(update, context))
+            return actor_updates
+
+        # Run all actors in parallel
+        tasks = [run_actor_session(actor) for actor in actors]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Yield updates from all actors in the order they complete
+        for result in results:
+            if isinstance(result, Exception):
+                yield {
+                    "type": UpdateType.ERROR.value,
+                    "error": str(result),
+                    "update_config": context.update_config.model_dump()
+                    if context.update_config
+                    else None,
+                }
+            else:
+                for update in result:
+                    yield update
+
+    # Only queue auto-reply after all actors have completed
     if session.autonomy_settings and session.autonomy_settings.auto_reply:
         background_tasks.add_task(
             _queue_session_action_fastify_background_task, session

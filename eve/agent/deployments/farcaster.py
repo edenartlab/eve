@@ -11,16 +11,14 @@ from eve.agent.session.models import (
     ChatMessageRequestInput,
     Session,
     SessionUpdateConfig,
-)
-from eve.api.api_requests import SessionCreationArgs
-from eve.api.errors import APIError
-from eve.agent.deployments import (
     Deployment,
-    PlatformClient,
     DeploymentSecrets,
     DeploymentConfig,
     DeploymentSettingsFarcaster,
 )
+from eve.api.api_requests import SessionCreationArgs
+from eve.api.errors import APIError
+from eve.agent.deployments import PlatformClient
 from eve.agent.llm import UpdateType
 from eve.eden_utils import prepare_result
 from eve.user import User

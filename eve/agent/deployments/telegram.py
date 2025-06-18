@@ -5,15 +5,16 @@ from typing import Optional
 from ably import AblyRest
 
 from eve.agent.agent import Agent
-from eve.agent.session.models import ChatMessageRequestInput, SessionUpdateConfig
-from eve.api.api_requests import ChatRequest, PromptSessionRequest
-from eve.api.errors import APIError
-from eve.agent.deployments import (
+from eve.agent.session.models import (
+    ChatMessageRequestInput,
+    SessionUpdateConfig,
     Deployment,
-    PlatformClient,
     DeploymentSecrets,
     DeploymentConfig,
 )
+from eve.api.api_requests import ChatRequest, PromptSessionRequest
+from eve.api.errors import APIError
+from eve.agent.deployments import PlatformClient
 from eve.user import User
 
 db = os.getenv("DB", "STAGE").upper()
