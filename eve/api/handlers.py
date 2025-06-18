@@ -52,7 +52,7 @@ from eve.deploy import (
     DeploymentSettingsFarcaster,
     deploy_client_modal,
 )
-from eve.eden_utils import prepare_result, dumps_json
+from eve.eden_utils import prepare_result, dumps_json, serialize_json
 from eve.tools.replicate_tool import replicate_update_task
 from eve.agent.llm import UpdateType
 from eve.agent.run_thread import async_prompt_thread
@@ -88,6 +88,8 @@ async def handle_create(request: TaskRequest):
     print("### return the result ###")
     print(result)
 
+    # todo: change back to serialize_json
+    # return serialize_json(result.model_dump(by_alias=True))
     return dumps_json(result.model_dump(by_alias=True))
 
 

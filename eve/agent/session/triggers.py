@@ -22,7 +22,7 @@ def create_image(trigger_id: str):
     return (
         modal.Image.debian_slim(python_version="3.12")
         .apt_install("libmagic1", "ffmpeg", "wget")
-        .pip_install_from_pyproject("pyproject.toml")
+        .pip_install_from_pyproject("/eve/pyproject.toml")
         .run_commands(["playwright install"])
         .env({"DB": db})
         .env({"TRIGGER_ID": trigger_id})
