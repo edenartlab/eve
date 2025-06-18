@@ -88,9 +88,8 @@ async def handle_create(request: TaskRequest):
     print("### return the result ###")
     print(result)
 
-    # todo: change back to serialize_json
-    # return serialize_json(result.model_dump(by_alias=True))
-    return dumps_json(result.model_dump(by_alias=True))
+    return serialize_json(result.model_dump(by_alias=True))
+    # return dumps_json(result.model_dump(by_alias=True))
 
 
 @handle_errors
