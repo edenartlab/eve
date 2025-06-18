@@ -30,8 +30,8 @@ parameters:
     type: string
     label: Aspect ratio
     description: Aspect ratio width/height
-    default: "1:1"
-    choices: ["21:9", "16:9", "3:2", "4:3", "5:4", "1:1", "4:5", "3:4", "2:3", "9:16", "9:21"]
+    default: "match_input_image"
+    choices: ["match_input_image", "21:9", "16:9", "3:2", "4:3", "5:4", "1:1", "4:5", "3:4", "2:3", "9:16", "9:21"]
     required: true
   seed:
     type: integer
