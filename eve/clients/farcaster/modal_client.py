@@ -1,8 +1,10 @@
 import modal
 import os
+from pathlib import Path
 from eve import db
 from eve.clients.farcaster.client import create_app
 
+root_dir = Path(__file__).parent.parent.parent.parent
 
 app = modal.App(
     name=f"client-farcaster-{db}",
@@ -16,10 +18,11 @@ app = modal.App(
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("libmagic1")
-    .pip_install_from_pyproject("pyproject.toml")
+    .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
     .pip_install("farcaster>=0.7.11")
     .add_local_dir("../workflows", "/workflows")
     .env({"DB": db})
+    .add_local_file(str(root_dir / "pyproject.toml"), "/pyproject.toml")
 )
 
 

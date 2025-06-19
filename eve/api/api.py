@@ -358,23 +358,14 @@ image = (
         "libmagic1",
         "ffmpeg",
         "wget",
-        "libnss3",
-        "libnspr4",
-        "libatk1.0-0",
-        "libatk-bridge2.0-0",
-        "libcups2",
-        "libatspi2.0-0",
-        "libxcomposite1",
-        "libgtk-3-0",
     )
     .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
     # .pip_install("numpy<2.0", "torch==2.0.1", "torchvision", "transformers", "Pillow")
-    .run_commands(["playwright install"])
     # .run_function(download_nsfw_models)
     .add_local_dir(str(workflows_dir), "/workflows")
-    .add_local_file(str(root_dir / "pyproject.toml"), "/eve/pyproject.toml")
     .add_local_python_source("eve", ignore=[])
     .add_local_python_source("api", ignore=[])
+    .add_local_file(str(root_dir / "pyproject.toml"), "/pyproject.toml")
 )
 
 
@@ -460,9 +451,9 @@ async def run_task_replicate(task: Task):
     task.update(status="running")
     tool = Tool.load(task.tool)
     n_samples = task.args.get("n_samples", 1)
+    replicate_model = tool._get_replicate_model(task.args)
     args = tool.prepare_args(task.args)
     args = tool._format_args_for_replicate(args)
-    replicate_model = tool._get_replicate_model(args)
     try:
         outputs = []
         for i in range(n_samples):
