@@ -30,7 +30,6 @@ class ReplicateTool(Tool):
         
         if self.version:
             args = self._format_args_for_replicate(args)
-            print("args", args)
             prediction = await self._create_prediction(args, webhook=False)
             prediction.wait()
             if self.output_handler == "eden":
@@ -111,7 +110,6 @@ class ReplicateTool(Tool):
     def _format_args_for_replicate(self, args: dict):
         new_args = args.copy()
         new_args = {k: v for k, v in new_args.items() if v is not None}
-        print("NEW ARGS ARE:", new_args)
         for field in self.model.model_fields.keys():
             parameter = self.parameters[field]
             is_array = parameter.get("type") == "array"
@@ -122,7 +120,6 @@ class ReplicateTool(Tool):
             if field in new_args:
                 if lora:
                     loras = get_collection(Model.collection_name)
-                    print("args", field, args[field])
                     lora_doc = (
                         loras.find_one({"_id": ObjectId(args[field])})
                         if args[field]
