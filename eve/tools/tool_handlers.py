@@ -133,20 +133,15 @@ def load_handler(name):
 
             handlers[name] = handler
 
-        elif name == "memegen":
-            from .memegen.handler import handler
-
-            handlers[name] = handler
-
         elif name == "elevenlabs":
             from .elevenlabs.handler import handler
 
             handlers[name] = handler
 
-        elif name == "websearch":
-            from .websearch.handler import handler
+        # elif name == "websearch":
+        #     from .websearch.handler import handler
 
-            handlers[name] = handler
+        #     handlers[name] = handler
 
         elif name == "transcription":
             from .transcription.handler import handler
