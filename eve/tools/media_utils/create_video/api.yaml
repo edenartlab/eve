@@ -1,0 +1,89 @@
+name: Create Video
+description: Generate or edit video.
+tip: |-
+  This tool generates and edits video.
+
+  Rules:
+  - Use 16:9, 1:1, and 9:16 aspect ratios for landscape, square, and portrait images respectively. Only use the other ones if specifically requested of you. If no aspect ratio is specified, use your best judgment depending on the content requested.
+cost_estimate: "(text_precision ? 10 : 5)"
+output_type: image
+active: true
+visible: false
+handler: modal
+parameters:
+  prompt:
+    type: string
+    label: Prompt
+    description: Text prompt.
+    tip: |-
+      If generating a video from scratch, the prompt should be a visually detailed description of the video you want to generate. 
+      
+      It may contain a primary subject and what's happening. Include context like artistic medium, background, secondary items, color schemes, style or genre, mood, lighting, perspective, textures, time period, and cultural elements to define the aesthetic. Also include details about the camera motion (if any), and what's happening in the scene.
+
+      If the user gives vague instructions, you may enhance their prompt to make it rich and detailed, but *always* strive to be as faithful to the user's intent as possible.      
+    required: true
+  aspect_ratio:
+    type: string
+    label: Aspect ratio
+    description: Aspect ratio width/height
+    default: "auto"
+    choices: ["auto", "16:9", "1:1", "9:16"]
+  init_image:
+    type: image
+    label: Start image
+    description: First frame of video
+    tip: |-
+      Only use this if you are animating an image, i.e. using it as the first frame of the video. If generating a video from scratch, do not use this.
+  end_image:
+    type: image
+    label: End image
+    description: Last frame of video
+    tip: |-
+      Use this if and only if you want to specify both the start and end image of the video. Requires both init_image and end_image. This tends not to work well. You should almost never use this unless the user requests it and gives you two images.
+  # todo: add init_image_strength / prompt_strength
+  duration:
+    type: integer
+    label: Duration
+    description: Approximate duration of the video in seconds
+    default: 10
+    minimum: 5
+    maximum: 10
+  lora:
+    type: lora
+    label: LoRA model
+    description: ID of LoRA finetuned model.
+    tip: This is optional if you want to capture a specific style, face, or object. This does nothing if you are editing an existing video.
+  lora_strength:
+    type: float
+    label: LoRA strength
+    description: Strength of the LoRA model
+    tip: |-
+      Higher values increase adherence/resemblance to the LoRA. Lower values may increase prompt adherence. Only works if you are using a LoRA. If the output does not look like the LoRA subject, can be increased (0.8-1.0). If the output does look like the subject but is ignoring the prompt too much, try decreating it (0.25-0.7).
+    default: 0.75
+    minimum: 0
+    maximum: 1.2
+  quality:
+    type: string
+    label: Quality
+    description: Video quality
+    tip: |-
+      Choosing "fast" will use Runway Gen-4 Turbo, which is fast and cheap but has lower quality. "standard" will use Kling Pro Standard, which is a good balance of quality and speed. "high_quality" will use Google Veo-2 or Veo-3 which is the highest quality but slowest and most expensive.
+    default: "standard"
+    choices: ["fast", "standard", "high_quality"]
+  seed:
+    type: integer
+    label: Seed
+    description: Set random seed for reproducibility. If blank, will be set to a random value.
+    tip: |-
+      You should only set this if you want to start from/copy the seed of a previous image. Unless one is specified, you should leave this blank!
+    minimum: 0
+    maximum: 2147483647
+    default: random
+  n_samples:
+    type: integer
+    label: Number of samples
+    description: How many variations or samples to generate
+    default: 1
+    minimum: 1
+    maximum: 2
+    required: false
