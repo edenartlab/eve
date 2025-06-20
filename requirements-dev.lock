@@ -479,7 +479,7 @@ rpds-py==0.22.3
 rsa==4.9
     # via google-auth
 ruff==0.8.2
-runwayml==3.0.0
+runwayml==3.5.0
     # via eve
 s3transfer==0.10.4
     # via boto3

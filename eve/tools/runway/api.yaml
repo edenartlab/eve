@@ -9,11 +9,16 @@ base_model: runway
 handler: modal
 active: true
 parameters:
-  prompt_image:
+  start_image:
     type: image
-    label: Prompt Image
-    description: The image to animate
+    label: Starting image
+    description: The initial frame of the video
     required: true
+  end_image:
+    type: image
+    label: Ending image
+    description: Optional ending frame of the video
+    tip: Works only with gen3a_turbo
   prompt_text:
     type: string
     required: true
