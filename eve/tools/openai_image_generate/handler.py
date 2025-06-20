@@ -19,7 +19,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
 
     # Hardcode some params:
     valid_args["model"] = "gpt-image-1"
-    valid_args["moderation"] = "low" 
+    # valid_args["moderation"] = "low" 
 
     if user and 'user' not in valid_args:
          valid_args['user'] = str(user)
@@ -28,11 +28,19 @@ async def handler(args: dict, user: str = None, agent: str = None):
     if "n_samples" in valid_args:
         valid_args["n"] = valid_args.pop("n_samples")
 
-    if valid_args['background'] == 'transparent':
-        valid_args['output_format'] = 'png'
+    valid_args.pop("quality", None)
+    valid_args.pop("background", None)
+    valid_args.pop("output_format", None)
+    valid_args.pop("output_compression", None)
 
-    if valid_args['output_format'] == 'png':
-        valid_args['output_compression'] = 100
+    # if "quality" in valid_args:
+    #     valid_args["quality"] = "high" # args["quality"]
+
+    # if valid_args['background'] == 'transparent':
+    #     valid_args['output_format'] = 'png'
+
+    # if valid_args['output_format'] == 'png':
+    #     valid_args['output_compression'] = 100
 
     valid_args.pop("agent", None)
 
