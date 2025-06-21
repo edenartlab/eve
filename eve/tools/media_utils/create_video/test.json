@@ -1,6 +1,5 @@
 {   
     "prompt": "A desert caravan with camels walks through the desert under dusk",
     "start_image": "https://d14i3advvh2bvd.cloudfront.net/48f4b354bd5711b4d2234a9b8f05b193e186df8639ca72273c068e8b4f1910f1.png",
-    "n_samples": 1,
     "aspect_ratio": "16:9"
 }

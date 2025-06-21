@@ -1,11 +1,11 @@
 name: Create Video
 description: Generate or edit video.
 tip: |-
-  This tool generates and edits video.
+  This tool generates video. It can do both text-to-video and image-to-video depending on whether start_image is provided.
 
   Rules:
-  - Use 16:9, 1:1, and 9:16 aspect ratios for landscape, square, and portrait images respectively. Only use the other ones if specifically requested of you. If no aspect ratio is specified, use your best judgment depending on the content requested.
-  - Audio files are only supported for the "talking_head" mode, so don't use one otherwise. If you want to mix the audio with the video, use the media_editor tool instead.
+  - Use 16:9, 1:1, and 9:16 aspect ratios for landscape, square, and portrait images respectively. Only use the other ones if specifically requested of you. If no aspect ratio is specified, use your best judgment depending on the content requested. Cinematic content should be landscape while social media content should be square or portrait.
+  - Audio files are *only* supported for the "talking_head" mode, so don't use one otherwise. If you want to mix an audio file over video, use the media_editor tool instead.
 # cost_estimate: "(quality == 'high_quality' ?  500 : 250)"
 cost_estimate: 250
 output_type: image
@@ -83,7 +83,6 @@ parameters:
     type: string
     label: Sound effects prompt
     description: Optional foley sound effects to mix over the video
-    default: false
     tip: |-
       Only use this if you want to or have been requested to produce sound effects over the video. You should not use this if the user has already provided an audio track. You should also not use this when quality is "high_quality" because Veo-3 already provides sound effects. You should be sparing with this, using 10 words or less, describing only subtle foley sound effects like footsteps, wind, chimes, clapping, creaking wood, doorbell, barking, quacking, meowing, etc etc. Avoid putting music, talking, or any other "non-foley"
     required: false
@@ -104,11 +103,3 @@ parameters:
     minimum: 0
     maximum: 2147483647
     default: random
-  n_samples:
-    type: integer
-    label: Number of samples
-    description: How many variations or samples to generate
-    default: 1
-    minimum: 1
-    maximum: 2
-    required: false

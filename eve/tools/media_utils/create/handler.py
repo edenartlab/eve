@@ -1,5 +1,4 @@
 """
-
 TODO:
  - no lora2 !!!
  - when two loras and they are faces, use flux_double_character
@@ -11,66 +10,13 @@ TODO:
  - guidance, n_steps (low, medium, high) (low -> schnell)
  - txt2img has "style image" / ip adapter
  - check on n_samples
- 
-
-VIDEO
-- runway
-- kling_pro
-- veo2 + veo3
-- hedra
-- special (vid2vid_sdxl, video_FX, texture_flow, mmaudio?)
-
-AUDIO
-- elevenlabs
-- stable_audio
-- mmaudio
-- ace_step_musicgen
-- zonos
-- transcription
-
-
-text (prompt, vocals)
-duration
-type [vocals, music, sound effects]
-voice (optional)
-elevenlabs->speech
-
-
-MEDIA_EDITOR
-- combine audio
-- extract/remove/split tracks
-- speed up/slow down?
-
-
-----
-
-prompt (negative prompt)
-starting image (not always supported)
-ending_image
-aspect ratio (auto)
-duration
-seed
-
-
-output [image, video]
-prompt
- - negative prompt
-starting image
- - controlnet
-ending_image (VIDEO)
-aspect ratio 
-duration (VIDEO)
-lora (IMAGE)
-seed
 
 """
 
+import os
+from eve.s3 import get_full_url
 from eve.tool import Tool
 from eve.models import Model
-
-from eve.s3 import get_full_url
-
-
 
 
 async def handler(args: dict, user: str = None, agent: str = None):
@@ -111,13 +57,6 @@ async def handler(args: dict, user: str = None, agent: str = None):
     loras = get_loras(args.get("lora"), args.get("lora2"))
 
 
-    print("\n\n\n\n\n--------------------------------")
-    print("INIT IMAGE", init_image)
-    print("TEXT PRECISION", text_precision)
-    print("LORAS", loras)
-    print("CONTROLNET", controlnet)
-    print("--------------------------------")
-
     # Determine tool
     if init_image:
         if text_precision:
@@ -155,12 +94,14 @@ async def handler(args: dict, user: str = None, agent: str = None):
         if len(loras) > 1 or controlnet:
             image_tool = flux_dev
 
+
     print("\n\n\n\n\n--------------------------------")
     print("THE SELECTED IMAGE TOOL", image_tool.key)
     print("--------------------------------")
 
 
-    # Run the tool
+    #########################################################
+    # Txt2Img
     if image_tool == txt2img:
         args = {
             "prompt": prompt,
@@ -194,6 +135,9 @@ async def handler(args: dict, user: str = None, agent: str = None):
 
         result = await txt2img.async_run(args)
 
+
+    #########################################################
+    # Flux Schnell
     if image_tool == flux_schnell:
         if aspect_ratio == "auto":
             aspect_ratio = "1:1"
@@ -210,6 +154,9 @@ async def handler(args: dict, user: str = None, agent: str = None):
         print("Running flux_schnell", args)
         result = await flux_schnell.async_run(args)
     
+
+    #########################################################
+    # Flux Dev Lora
     elif image_tool == flux_dev_lora:
         args = {
             "prompt": prompt,
@@ -241,6 +188,9 @@ async def handler(args: dict, user: str = None, agent: str = None):
         print("Running flux_dev_lora", args)
         result = await flux_dev_lora.async_run(args)
 
+
+    #########################################################
+    # Flux Dev
     elif image_tool == flux_dev:
         args = {
             "prompt": prompt,
@@ -296,6 +246,9 @@ async def handler(args: dict, user: str = None, agent: str = None):
         result = await flux_dev.async_run(args)
         # Todo: incorporate style_image / style_strength ?
 
+
+    #########################################################
+    # Flux Kontext
     elif image_tool == flux_kontext:
         if aspect_ratio == "auto":
             aspect_ratio = "match_input_image"
@@ -314,6 +267,9 @@ async def handler(args: dict, user: str = None, agent: str = None):
         print("Running flux_kontext", args)
         result = await flux_kontext.async_run(args)
 
+
+    #########################################################
+    # OpenAI Image Generate
     elif image_tool == openai_image_generate:
         args = {
             "prompt": prompt,
@@ -335,6 +291,9 @@ async def handler(args: dict, user: str = None, agent: str = None):
         print("Running openai_image_generate", args)
         result = await openai_image_generate.async_run(args)
 
+
+    #########################################################
+    # OpenAI Image Edit
     elif image_tool == openai_image_edit:
 
         if loras:
@@ -406,6 +365,9 @@ async def handler(args: dict, user: str = None, agent: str = None):
     else:
         raise Exception("Invalid args", args, image_tool)
 
+
+    #########################################################
+    # Final result
     assert "output" in result, "No output from image tool"
     assert len(result["output"]) == 1, "Expected 1 output from image tool"
     assert "filename" in result["output"][0], "No filename in output from image tool"
@@ -413,6 +375,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
     final_result = get_full_url(result["output"][0]["filename"])
 
     print("final result", final_result)
+
     return {
         "output": final_result
     }
