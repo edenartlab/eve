@@ -23,7 +23,7 @@ parameters:
       
       May contain a primary subject and its action, including context like artistic medium, background, secondary items, color schemes, style or genre, mood, lighting, perspective, textures, time period, and cultural elements. 
 
-      If the user gives vague or incomplete instructions, you may enhance their prompt to make it rich and detailed, but *always* strive to be as faithful to the user's intent as possible.
+      If the user gives vague, you may enhance their prompt to make it rich and detailed, but *always* strive to be as faithful to the user's intent as possible.
       
       If text_precision is enabled or there is an init_image (unless controlnet or lora), this should be structured as an **INSTRUCTION**. Instructions can and should be long and extremely detailed when necessary or requested. Make sure to refer to objects by what they are rather than using names or references to other things in the conversation, e.g. "Turn the woman's head into a green pumpkin" NOT "Turn Jane's head into the thing from the last image".
       

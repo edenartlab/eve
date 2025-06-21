@@ -5,7 +5,9 @@ tip: |-
 
   Rules:
   - Use 16:9, 1:1, and 9:16 aspect ratios for landscape, square, and portrait images respectively. Only use the other ones if specifically requested of you. If no aspect ratio is specified, use your best judgment depending on the content requested.
-cost_estimate: "(text_precision ? 10 : 5)"
+  - Audio files are only supported for the "talking_head" mode, so don't use one otherwise. If you want to mix the audio with the video, use the media_editor tool instead.
+# cost_estimate: "(quality == 'high_quality' ?  500 : 250)"
+cost_estimate: 250
 output_type: image
 active: true
 visible: false
@@ -28,7 +30,7 @@ parameters:
     description: Aspect ratio width/height
     default: "auto"
     choices: ["auto", "16:9", "1:1", "9:16"]
-  init_image:
+  start_image:
     type: image
     label: Start image
     description: First frame of video
@@ -39,7 +41,7 @@ parameters:
     label: End image
     description: Last frame of video
     tip: |-
-      Use this if and only if you want to specify both the start and end image of the video. Requires both init_image and end_image. This tends not to work well. You should almost never use this unless the user requests it and gives you two images.
+      Use this if and only if you want to specify both the start and end image of the video. Requires both start_image and end_image. This tends not to work well. You should almost never use this unless the user requests it and gives you two images.
   # todo: add init_image_strength / prompt_strength
   duration:
     type: integer
@@ -67,9 +69,32 @@ parameters:
     label: Quality
     description: Video quality
     tip: |-
-      Choosing "fast" will use Runway Gen-4 Turbo, which is fast and cheap but has lower quality. "standard" will use Kling Pro Standard, which is a good balance of quality and speed. "high_quality" will use Google Veo-2 or Veo-3 which is the highest quality but slowest and most expensive.
+      Choosing "fast" will use Runway Gen-4 Turbo, which is fast and cheap but has lower quality. "Standard" will use Kling Pro 2.0, which is a good balance of quality and speed. "high_quality" will use Google Veo-2 or Veo-3 which is the highest quality *and* only one that produces native audio but is slowest and most expensive. If a user requests a specific model among Runway, Kling Pro, or Veo, use the corresponding quality setting, otherwise use your best judgment.
     default: "standard"
     choices: ["fast", "standard", "high_quality"]
+  audio:
+    type: audio
+    label: Audio track URL
+    description: Optional audio track to mix with the video
+    tip: |-
+      Only use this if you want to use an audio file for the video. Note: For talking_head only.
+    required: false
+  sound_effects:
+    type: string
+    label: Sound effects prompt
+    description: Optional foley sound effects to mix over the video
+    default: false
+    tip: |-
+      Only use this if you want to or have been requested to produce sound effects over the video. You should not use this if the user has already provided an audio track. You should also not use this when quality is "high_quality" because Veo-3 already provides sound effects. You should be sparing with this, using 10 words or less, describing only subtle foley sound effects like footsteps, wind, chimes, clapping, creaking wood, doorbell, barking, quacking, meowing, etc etc. Avoid putting music, talking, or any other "non-foley"
+    required: false
+  talking_head:
+    type: boolean
+    label: Make talking head
+    description: Special mode for outputting talking head videos.
+    default: false
+    tip: |-
+      You should only ever use this if your prompt or start_image contains a face, and you specifically want to make a video featuring it speak or lipsync. You *must* have speech in the audio track. Do *not* use this if there's no audio or the audio is not of speech or if the prompt or starting image does not feature a face.
+    required: false
   seed:
     type: integer
     label: Seed
