@@ -150,7 +150,6 @@ class Agent(User):
             raise ValueError(f"Username {self.username} already taken")
 
         # save user, and create mannas record if it doesn't exist
-        kwargs["featureFlags"] = ["freeTools"]  # give agents free tools for now
         super().save(
             upsert_filter={"username": self.username, "type": "agent"}, **kwargs
         )
