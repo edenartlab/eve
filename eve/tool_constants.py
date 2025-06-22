@@ -33,8 +33,39 @@ BASE_MODELS = Literal[
     "ltxv",
 ]
 
-# These tools are default agent tools except Eve
+
+TOOL_SETS = {
+    "create_image": ["create"],
+    "create_video": ["create_video", "media_editor", "reel"],
+    "create_audio": ["elevenlabs", "musicgen"],
+    "vj_tools": ["texture_flow", "video_FX"],
+    "news": ["news"],
+    "social_media": ["tweet", "twitter_mentions", "twitter_search", "discord_search", "discord_post", "telegram_post"],
+}
+
+
 BASE_TOOLS = [
+    "create",
+    "create_video",
+    "elevenlabs",
+    "musicgen",
+    "media_editor",
+    "news"
+]
+
+BASE_TOOLS2 = [
+    "create_image",
+    "create_video",
+    "create_audio",
+    "media_editor",
+
+    "texture_flow",
+    "video_FX",
+]
+
+
+# These tools are default agent tools except Eve
+BASE_TOOLS2 = [
     # text-to-image
     "flux_schnell",
     "flux_dev_lora",
@@ -63,7 +94,7 @@ BASE_TOOLS = [
     "transcription",
     # editing
     "media_editor",
-    "create",
+    
     # search
     "search_agents",
     "search_models",
