@@ -1,6 +1,7 @@
 """
 TODO:
  - no lora2 !!!
+ - overager on text precision?
  - when two loras and they are faces, use flux_double_character
  - when text_precision, lora, and no init_image, first use flux_dev_lora and then openai_image_edit or flux_kontext
  - face_swap, flux_inpainting, outpaint, remix_flux_schnell

@@ -316,15 +316,12 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
                     )
                     creation.save()
 
+                    # increment creation count
                     task_args = task.args
-                    print("LETS GET THE TASK ARGS", task_args)
-
                     if task_args.get("lora"):
-                        print("LETS GET THE LORA")
                         model = Model.from_mongo(task_args.get("lora"))
                         model.creationCount += 1
                         model.save()
-                        print("LETS GET THE MODEL")
 
                     result[r]["output"][o]["creation"] = creation.id
 

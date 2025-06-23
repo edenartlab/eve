@@ -399,7 +399,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
                 
                 if model_type == "low":
                     return await runway.async_run({
-                        "prompt_image": image_url,
+                        "start_image": image_url,
                         "prompt_text": prompt,
                         "duration": duration if duration in [10, 5] else 10,
                         "ratio": ratio
