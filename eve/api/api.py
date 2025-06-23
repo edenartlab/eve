@@ -348,18 +348,9 @@ image = (
         "libmagic1",
         "ffmpeg",
         "wget",
-        "libnss3",
-        "libnspr4",
-        "libatk1.0-0",
-        "libatk-bridge2.0-0",
-        "libcups2",
-        "libatspi2.0-0",
-        "libxcomposite1",
-        "libgtk-3-0",
     )
     .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
     # .pip_install("numpy<2.0", "torch==2.0.1", "torchvision", "transformers", "Pillow")
-    .run_commands(["playwright install"])
     # .run_function(download_nsfw_models)
     .add_local_dir(str(workflows_dir), "/workflows")
     .add_local_file(str(root_dir / "pyproject.toml"), "/eve/pyproject.toml")

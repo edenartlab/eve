@@ -76,9 +76,6 @@ dev-dependencies = [
 [project.scripts]
 eve = "eve.cli:cli"
 
-[tool.rye.scripts]
-post-install = "playwright install"
-
 [tool.pytest.ini_options]
 markers = [
     "live: marks tests that require live API calls",
