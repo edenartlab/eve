@@ -1,7 +1,10 @@
 import modal
+from pathlib import Path
 
 from eve import db
 from eve.clients.telegram.client import start
+
+root_dir = Path(__file__).parent.parent.parent.parent
 
 app = modal.App(
     name=f"client-telegram-{db}",
@@ -19,6 +22,7 @@ image = (
     .env({"DB": db})
     .env({"AGENT_ID": ""})
     .env({"CLIENT_TELEGRAM_TOKEN": ""})
+    .add_local_file(str(root_dir / "pyproject.toml"), "/pyproject.toml")
 )
 
 

@@ -167,6 +167,14 @@ class Channel(Document):
     key: str
 
 
+class ChatMessageObservability(BaseModel):
+    provider: Literal["langfuse"] = "langfuse"
+    session_id: Optional[str] = None
+    trace_id: Optional[str] = None
+    tokens_spent: Optional[int] = None
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
 @Collection("messages")
 class ChatMessage(Document):
     role: Literal[
@@ -194,6 +202,8 @@ class ChatMessage(Document):
 
     task: Optional[ObjectId] = None  # ???
     cost: Optional[float] = None  # ???
+
+    observability: Optional[ChatMessageObservability] = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -230,6 +240,21 @@ class ChatMessage(Document):
             return self
 
         return self.model_copy(update={"role": "assistant"})
+    
+    def as_system_message(self):
+        if self.role == "system":
+            return self
+
+        return self.model_copy(update={"role": "system"})
+
+    def filter_cancelled_tool_calls(self):
+        """Return a copy of the message with cancelled tool calls filtered out"""
+        if not self.tool_calls:
+            return self
+
+        filtered_tool_calls = [tc for tc in self.tool_calls if tc.status != "cancelled"]
+
+        return self.model_copy(update={"tool_calls": filtered_tool_calls})
 
     def _get_content_block(self, schema, truncate_images=False):
         """Assemble user message content block"""
@@ -338,6 +363,15 @@ class ChatMessage(Document):
         return content
 
     def anthropic_schema(self, truncate_images=False):
+        # System Message
+        if self.role == "system":
+            return [
+                {
+                    "role": "system",
+                    "content": self.content,
+                }
+            ]
+        
         # User Message
         if self.role == "user":
             content = self._get_content_block(
@@ -373,8 +407,17 @@ class ChatMessage(Document):
             return schema
 
     def openai_schema(self, truncate_images=False):
+        # System Message
+        if self.role == "system":
+            return [
+                {
+                    "role": "system",
+                    "content": self.content,
+                }
+            ]
+        
         # User Message
-        if self.role == "user":
+        elif self.role == "user":
             return [
                 {
                     "role": "user",
@@ -455,7 +498,7 @@ class ChatMessage(Document):
                                     image_urls.append(image_url)
 
                             except Exception as e:
-                                print(f"Error processing image {image_path}: {e}")
+                                print(f"Error processing image {image_url}: {e}")
                                 continue
 
                 # Create single synthetic user message if we have any images
@@ -481,6 +524,7 @@ class ChatMessage(Document):
 @dataclass
 class ChatMessageRequestInput:
     content: str
+    role: Optional[Literal["user", "system"]] = "user"
     attachments: Optional[List[str]] = None
     sender_name: Optional[str] = None
 
@@ -490,6 +534,7 @@ class UpdateType(Enum):
     ASSISTANT_TOKEN = "assistant_token"
     ASSISTANT_MESSAGE = "assistant_message"
     TOOL_COMPLETE = "tool_complete"
+    TOOL_CANCELLED = "tool_cancelled"
     ERROR = "error"
     END_PROMPT = "end_prompt"
 
@@ -518,6 +563,7 @@ class LLMTraceMetadata(BaseModel):
 
 class LLMContextMetadata(BaseModel):
     session_id: Optional[str] = None
+    trace_id: Optional[str] = None
     trace_name: Optional[str] = None
     generation_name: Optional[str] = None
     trace_metadata: Optional[LLMTraceMetadata] = None
@@ -569,7 +615,9 @@ class Trigger(Document):
     user: ObjectId
     schedule: Dict[str, Any]
     instruction: str
+    posting_instructions: Optional[Dict[str, Any]] = None
     agent: Optional[ObjectId] = None
+    session_type: Optional[Literal["new", "another"]] = "new"
     session: Optional[ObjectId] = None
     update_config: Optional[Dict[str, Any]] = None
     status: Optional[Literal["active", "paused", "finished"]] = "active"
@@ -585,6 +633,7 @@ class SessionContext(BaseModel):
 class Session(Document):
     owner: ObjectId
     channel: Optional[Channel] = None
+    parent_session: Optional[ObjectId] = None
     agents: List[ObjectId] = Field(default_factory=list)
     status: Literal["active", "archived"] = "active"
     messages: List[ObjectId] = Field(default_factory=list)
@@ -624,6 +673,7 @@ class PromptSessionContext:
     update_config: Optional[UpdateConfig] = None
     actor_agent_id: Optional[str] = None
     llm_config: Optional[LLMConfig] = None
+    custom_tools: Optional[Dict[str, Any]] = None
 
 
 @dataclass

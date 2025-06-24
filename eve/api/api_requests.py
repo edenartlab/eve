@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Literal
 from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
 
@@ -18,6 +18,11 @@ class TaskRequest(BaseModel):
 class CancelRequest(BaseModel):
     taskId: str
     user: str
+
+
+class CancelSessionRequest(BaseModel):
+    session_id: str
+    user_id: str
 
 
 class UpdateConfig(BaseModel):
@@ -94,12 +99,21 @@ class AllowedChannel(BaseModel):
     note: str
 
 
+class PostingInstructions(BaseModel):
+    session_id: Optional[str] = None
+    post_to: Optional[Literal['same', 'another', 'discord', 'telegram', 'x', 'farcaster']] = None
+    channel_id: Optional[str] = None
+    custom_instructions: Optional[str] = None
+
+
 class CreateTriggerRequest(BaseModel):
     agent: str
     user: str
     instruction: str
+    posting_instructions: Optional[PostingInstructions] = None
     schedule: CronSchedule
     update_config: Optional[UpdateConfig] = None
+    session_type: Literal['new', 'another'] = 'new'
     session: Optional[str] = None
 
 

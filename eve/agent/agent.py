@@ -367,9 +367,11 @@ class Agent(User):
         else:
             from ..tool import Tool
 
+            tools = {}
             for k, v in self.tools.items():
                 try:
                     tool = Tool.from_raw_yaml({"parent_tool": k, **v})
+                    tools[k] = tool
                 except Exception as e:
                     print(f"Error loading tool {k}: {e}")
                     print(traceback.format_exc())

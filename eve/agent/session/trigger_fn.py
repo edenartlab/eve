@@ -1,88 +1,142 @@
 import os
+from fastapi import BackgroundTasks
 import requests
 import asyncio
 from datetime import datetime, timezone
 
-trigger_message = """<SystemMessage>
-You have received a request from an admin to run a scheduled task. The instructions for the task are below. In your response, do not ask for clarification, just do the task. Do not acknowledge receipt of this message, as no one else in the chat can see it and the admin is absent. Simply follow whatever instructions are below.
-</SystemMessage>
-<Instruction>
+from eve.agent import Agent
+from eve.tool import Tool
+from eve.agent.session.models import Trigger
+from eve.api.api_requests import (
+    PromptSessionRequest,
+    SessionCreationArgs,
+)
+from eve.agent.session.session import (
+    PromptSessionContext,
+    build_llm_context,
+    async_prompt_session,
+    validate_prompt_session,
+)
+
+
+trigger_message = """
+## Task
+
+You have been given the following instructions. Do not ask for clarification, or stop until you have completed the task.
+
 {instruction}
-</Instruction>"""
+
+"""
 
 trigger_message_post = """
-<PostInstruction>
-When you have completed the task, write out a single summary of the result of the task. Make sure to include the URLs to any relevant media you created. Do not include intermediate results, just the media relevant to the task. Then post it on {platform} using the discord_post tool to channel "{platform_channel_id}". Do not forget to do this at the end.
-</PostInstruction>"""
+## Posting instructions
+{channel_info}
+
+{post_instruction}
+"""
 
 
 async def trigger_fn():
+
+    background_tasks = BackgroundTasks()
+
     trigger_id = os.getenv("TRIGGER_ID")
-    api_url = os.getenv("EDEN_API_URL")
+    trigger = Trigger.find_one({"trigger_id": trigger_id})
 
-    response = requests.get(
-        f"{api_url}/triggers/{trigger_id}",
-        headers={"Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}"},
+    request = PromptSessionRequest(
+        session_id=str(trigger.session) if trigger.session else None,
+        user_id=str(trigger.user),
+        actor_agent_id=str(trigger.agent),
+        message={"role": "system", "content": trigger_message.format(instruction=trigger.instruction)},
+        update_config=trigger.update_config,
     )
-
-    if not response.ok:
-        raise Exception(
-            f"Failed to get trigger info: {response.status_code} - {response.text}"
+    if not trigger.session:
+        request.creation_args = SessionCreationArgs(
+            owner_id=str(trigger.user),
+            agents=[str(trigger.agent)],
+            trigger=str(trigger.id),
         )
 
-    trigger = response.json()
+    from eve.api.handlers import setup_session
+    session = setup_session(background_tasks, request.session_id, request.user_id, request)
 
-    user_message = trigger_message.format(instruction=trigger["instruction"])
-    update_config = trigger.get("update_config", None)
+    context = PromptSessionContext(
+        session=session,
+        initiating_user_id=request.user_id,
+        actor_agent_id=request.actor_agent_id,
+        message=request.message,
+        update_config=request.update_config,
+    )
+    
+    validate_prompt_session(session, context)
+    actor = Agent.from_mongo(trigger.agent)
+    llm_context = await build_llm_context(session, actor, context)
 
-    if update_config:
-        discord_channel_id = update_config.get("discord_channel_id", None)
-        telegram_channel_id = update_config.get("telegram_channel_id", None)
-        if discord_channel_id:
-            update_config = None
-            user_message += trigger_message_post.format(
-                platform="Discord",
-                platform_channel_id=discord_channel_id,
-            )
-        elif telegram_channel_id:
-            update_config = None
-            user_message += trigger_message_post.format(
-                platform="Telegram",
-                platform_channel_id=telegram_channel_id,
-            )
-        else:
-            print("No platform specified")
+    async for update in async_prompt_session(
+        session, llm_context, actor, stream=True
+    ):
+        print(update)
 
-    prompt_session_request = {
-        "message": {"content": user_message},
-        "user_id": trigger["user"],
-        "update_config": update_config,
-        "creation_args": {
-            "owner_id": trigger["user"],
-            "agents": [trigger["agent"]],
-            "trigger": trigger["id"],
-        },
-    }
-    if trigger.get("session"):
-        prompt_session_request["session_id"] = trigger["session"]
+    print(f"Completed trigger {trigger_id}")
 
-    response = requests.post(
-        f"{api_url}/sessions/prompt",
-        json=prompt_session_request,
-        headers={"Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}"},
+    posting_instructions = trigger.posting_instructions
+
+    if not posting_instructions:
+        print("No posting instructions")
+        return
+    
+    request = PromptSessionRequest(
+        session_id=str(session.id),
+        user_id=str(trigger.user),
+        actor_agent_id=str(trigger.agent),
+        message={"role": "system", "content": trigger_message_post.format(
+            platform=posting_instructions["post_to"],
+            channel_info=f"Post the following to {posting_instructions['post_to']}, channel {posting_instructions.get('channel_id', '')}" if posting_instructions.get('channel_id') else "",
+            post_instruction=posting_instructions["custom_instructions"]
+        )},
+        update_config=trigger.update_config,
     )
 
-    if not response.ok:
-        raise Exception(
-            f"Error making chat request: {response.status_code} - {response.text}"
-        )
+    custom_tools = None
+    
+    platform = posting_instructions.get("post_to")
+    if platform == "discord":
+        channel_id = posting_instructions.get("channel_id", None)
+        custom_tools = {"discord_post": Tool.from_raw_yaml({"parent_tool": "discord_post", **{"parameters": {"channel_id": {"default": channel_id}}}})}
+    elif platform == "telegram":
+        channel_id = posting_instructions.get("channel_id", None)
+        custom_tools = {"telegram_post": {"parameters": {"channel_id": {"default": channel_id}}}}
+    else:
+        print("No platform specified")
+        channel_id = None
+        
+    context = PromptSessionContext(
+        session=session,
+        initiating_user_id=request.user_id,
+        actor_agent_id=request.actor_agent_id,
+        message=request.message,
+        update_config=request.update_config,
+        custom_tools=custom_tools,
+    )
 
-    print(f"Chat request successful: {response.json()}")
+    llm_context = await build_llm_context(session, actor, context)
 
-    if trigger["schedule"].get("end_date"):
+    async for update in async_prompt_session(
+        session, llm_context, actor, stream=True
+    ):
+        print(update)
+
+    print(f"Completed posting instructions {trigger_id}")
+    
+
+
+
+    print("end date?", trigger.schedule)
+
+    if trigger.schedule.get("end_date"):
         # Get current time with full precision
         current_time = datetime.now(timezone.utc)
-        end_date_str = trigger["schedule"]["end_date"]
+        end_date_str = trigger.schedule["end_date"]
 
         # Parse the date string and ensure it's timezone aware
         try:
@@ -110,10 +164,11 @@ async def trigger_fn():
             print(
                 f"Trigger end date {end_date} has passed. Deleting trigger {trigger_id}"
             )
+            api_url = os.getenv("EDEN_API_URL")
             response = requests.post(
                 f"{api_url}/triggers/stop",
                 headers={"Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}"},
-                json={"id": trigger["id"]},
+                json={"id": trigger.id},
             )
 
             if not response.ok:

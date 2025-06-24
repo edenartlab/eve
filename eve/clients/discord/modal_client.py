@@ -1,7 +1,9 @@
 import modal
+from pathlib import Path
 from eve import db
 from eve.clients.discord.client import create_discord_app
 
+root_dir = Path(__file__).parent.parent.parent.parent
 
 app = modal.App(
     name=f"client-discord-{db}",
@@ -19,6 +21,7 @@ image = (
     .env({"DB": db})
     .env({"AGENT_ID": ""})
     .env({"CLIENT_DISCORD_TOKEN": ""})
+    .add_local_file(str(root_dir / "pyproject.toml"), "/pyproject.toml")
 )
 
 

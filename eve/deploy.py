@@ -181,6 +181,11 @@ class Deployment(Document):
 def authenticate_modal_key() -> bool:
     token_id = os.getenv("MODAL_DEPLOYER_TOKEN_ID")
     token_secret = os.getenv("MODAL_DEPLOYER_TOKEN_SECRET")
+    
+    if not token_id or not token_secret:
+        print("Warning: Modal deployer token not found in environment variables")
+        return False
+        
     subprocess.run(
         [
             "modal",
@@ -194,6 +199,7 @@ def authenticate_modal_key() -> bool:
         capture_output=True,
         text=True,
     )
+    return True
 
 
 def get_container_name(agent_id: str, agent_key: str, platform: str, env: str) -> str:

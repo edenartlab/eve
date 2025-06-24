@@ -5,6 +5,7 @@ import pytz
 from datetime import datetime
 import modal
 import modal.runner
+from pathlib import Path
 
 from eve.agent.session.trigger_fn import trigger_fn
 from eve.api.api_requests import CronSchedule
@@ -19,12 +20,15 @@ trigger_app = modal.App()
 
 
 def create_image(trigger_id: str):
+    root_dir = Path(__file__).parent.parent.parent.parent
+    
     return (
         modal.Image.debian_slim(python_version="3.12")
         .apt_install("libmagic1", "ffmpeg", "wget")
         .pip_install_from_pyproject("pyproject.toml")
         .env({"DB": db})
         .env({"TRIGGER_ID": trigger_id})
+        .add_local_file(str(root_dir / "pyproject.toml"), "/pyproject.toml")
     )
 
 

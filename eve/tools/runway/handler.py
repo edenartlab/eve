@@ -165,7 +165,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
             # run Runway client command
             return await client.image_to_video.create(
                 model=model,
-                prompt_image=prompt_image,
+                prompt_image=prompt_image or None,
                 prompt_text=prompt_text[:512],
                 duration=int(args["duration"]),
                 ratio=ratio,

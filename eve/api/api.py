@@ -49,9 +49,11 @@ from eve.api.handlers import (
     handle_agent_tools_delete,
     handle_farcaster_update,
     handle_farcaster_emission,
+    handle_session_cancel,
 )
 from eve.api.api_requests import (
     CancelRequest,
+    CancelSessionRequest,
     ChatRequest,
     CreateDeploymentRequest,
     CreateTriggerRequest,
@@ -304,6 +306,14 @@ async def prompt_session(
     return await handle_prompt_session(request, background_tasks)
 
 
+@web_app.post("/sessions/cancel")
+async def cancel_session(
+    request: CancelSessionRequest,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    return await handle_session_cancel(request)
+
+
 @web_app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     print(f"Validation error on {request.url}:")
@@ -353,9 +363,9 @@ image = (
     # .pip_install("numpy<2.0", "torch==2.0.1", "torchvision", "transformers", "Pillow")
     # .run_function(download_nsfw_models)
     .add_local_dir(str(workflows_dir), "/workflows")
-    .add_local_file(str(root_dir / "pyproject.toml"), "/eve/pyproject.toml")
     .add_local_python_source("eve", ignore=[])
     .add_local_python_source("api", ignore=[])
+    .add_local_file(str(root_dir / "pyproject.toml"), "/pyproject.toml")
 )
 
 
@@ -444,9 +454,9 @@ async def run_task_replicate(task: Task):
     task.update(status="running")
     tool = Tool.load(task.tool)
     n_samples = task.args.get("n_samples", 1)
+    replicate_model = tool._get_replicate_model(task.args)
     args = tool.prepare_args(task.args)
     args = tool._format_args_for_replicate(args)
-    replicate_model = tool._get_replicate_model(args)
     try:
         outputs = []
         for i in range(n_samples):
