@@ -265,6 +265,21 @@ async def _task_handler(func, *args, **kwargs):
         return task_update.copy()
 
     except Exception as error:
+        with sentry_sdk.configure_scope() as scope:
+            scope.set_tag("task_failure", "true")
+            scope.set_tag("task_tool_key", task.tool)
+            if task.parent_tool:
+                scope.set_tag("task_parent_tool", task.parent_tool)
+            scope.set_context("task_failure", {
+                "task_id": str(task.id),
+                "tool": task.tool,
+                "parent_tool": task.parent_tool,
+                "user": str(task.user),
+                "agent": str(task.agent) if task.agent else None,
+                "args_keys": list(task.args.keys()) if task.args else [],
+                "n_samples": task.args.get("n_samples", 1),
+                "output_type": task.output_type,
+            })
         sentry_sdk.capture_exception(error)
         print(traceback.format_exc())
 
