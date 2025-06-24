@@ -100,7 +100,6 @@ async def handler(args: dict, user: str = None, agent: str = None):
     print("THE SELECTED IMAGE TOOL", image_tool.key)
     print("--------------------------------")
 
-
     #########################################################
     # Txt2Img
     if image_tool == txt2img:
@@ -139,7 +138,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
 
     #########################################################
     # Flux Schnell
-    if image_tool == flux_schnell:
+    elif image_tool == flux_schnell:
         if aspect_ratio == "auto":
             aspect_ratio = "1:1"
         

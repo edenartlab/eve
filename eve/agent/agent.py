@@ -178,7 +178,7 @@ class Agent(User):
 
 
     @classmethod
-    def _setup_tools2(cls, schema: dict) -> dict:
+    def _setup_tools(cls, schema: dict) -> dict:
         """
         Sets up the agent's tools based on the tools defined in the schema.
         If a model (lora) is set, hardcode it into the tools.
@@ -200,7 +200,7 @@ class Agent(User):
 
 
 
-    def get_tools2(self, cache=False, auth_user: str = None):
+    def get_tools(self, cache=False, auth_user: str = None):
         from ..tool import Tool  # avoid circular import
         
         tools = {}
@@ -232,7 +232,7 @@ class Agent(User):
 
 
     @classmethod
-    def _setup_tools(cls, schema: dict) -> dict:
+    def _setup_tool2s(cls, schema: dict) -> dict:
         """
         Sets up the agent's tools based on the tools defined in the schema.
         If a model (lora) is set, hardcode it into the tools.
@@ -329,7 +329,7 @@ class Agent(User):
 
 
 
-    def get_tools(self, cache=False, auth_user: str = None):
+    def get_tool2s(self, cache=False, auth_user: str = None):
         global last_tools_update
 
         if cache:
