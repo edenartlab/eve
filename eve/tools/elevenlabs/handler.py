@@ -28,12 +28,16 @@ async def handler(args: dict, user: str = None, agent: str = None):
 
     # get voice
     response = eleven.voices.get_all()
-    # voices = {v.name: v.voice_id for v in response.voices}
+    voices = {v.name: v.voice_id for v in response.voices}
     # voice_id = voices.get(args["voice"], DEFAULT_VOICE)
     voice_ids = [v.voice_id for v in response.voices]
     voice_id = args.get("voice", DEFAULT_VOICE)
     if voice_id not in voice_ids:
-        raise ValueError(f"Voice ID {voice_id} not found, try another one (DEFAULT_VOICE: {DEFAULT_VOICE})")
+        # check if voice is a name
+        if voice_id in voices:
+            voice_id = voices[voice_id]
+        else:
+            raise ValueError(f"Voice ID {voice_id} not found, try another one (DEFAULT_VOICE: {DEFAULT_VOICE})")
     
     def generate_with_params():
         return eleven.generate(
