@@ -451,23 +451,7 @@ async def run(tool_key: str, args: dict, user: str = None, agent: str = None):
 @task_handler_func
 async def run_task(tool_key: str, args: dict, user: str = None, agent: str = None):
     handler = load_handler(tool_key)
-    try:
-        return await handler(args, user, agent)
-    except Exception as e:
-        with sentry_sdk.configure_scope() as scope:
-            scope.set_tag("task_failure", "true")
-            scope.set_tag("modal_tool_key", tool_key)
-            scope.set_context(
-                "task_failure",
-                {
-                    "modal_tool_key": tool_key,
-                    "user": user,
-                    "agent": agent,
-                    "args_keys": list(args.keys()) if args else [],
-                },
-            )
-        sentry_sdk.capture_exception(e)
-        raise
+    return await handler(args, user, agent)
 
 
 @app.function(image=image, max_containers=10, timeout=3600)
