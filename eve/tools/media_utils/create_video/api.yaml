@@ -1,0 +1,112 @@
+name: Create Video
+description: Generate or edit video.
+tip: |-
+  This tool generates video. It can do both text-to-video and image-to-video depending on whether start_image is provided.
+
+  Rules:
+  - Use 16:9, 1:1, and 9:16 aspect ratios for landscape, square, and portrait images respectively. Only use the other ones if specifically requested of you. If no aspect ratio is specified, use your best judgment depending on the content requested. Cinematic content should be landscape while social media content should be square or portrait.
+  - If you want to put specific lines of dialogue into the video, you must use Veo-3 (quality == "high_quality", sound_effects == true, and no start_image). Veo-3 is the most powerful and most expensive model, so only use it when the user demands the highest quality.
+  - Audio files are *only* supported for the "talking_head" mode, so don't use one otherwise. If you want to mix an audio file over video, use the media_editor tool instead.
+# cost_estimate: "(quality == 'high_quality' ?  500 : 250)"
+cost_estimate: 250
+output_type: image
+active: true
+visible: false
+handler: modal
+parameters:
+  prompt:
+    type: string
+    label: Prompt
+    description: Text prompt.
+    tip: |-
+      If generating a video from scratch, the prompt should be a visually detailed description of the video you want to generate. 
+      
+      It may contain a primary subject and what's happening. Include context like artistic medium, background, secondary items, color schemes, style or genre, mood, lighting, perspective, textures, time period, and cultural elements to define the aesthetic. Also include details about the camera motion (if any), and what's happening in the scene.
+
+      If the user gives vague instructions, you may enhance their prompt to make it rich and detailed, but *always* strive to be as faithful to the user's intent as possible.
+    required: true
+  aspect_ratio:
+    type: string
+    label: Aspect ratio
+    description: Aspect ratio width/height
+    default: "auto"
+    choices: ["auto", "16:9", "1:1", "9:16"]
+  start_image:
+    type: image
+    label: Start image
+    description: First frame of video
+    tip: |-
+      Only use this if you are animating an image, i.e. using it as the first frame of the video. If generating a video from scratch, do not use this.
+  end_image:
+    type: image
+    label: End image
+    description: Last frame of video
+    tip: |-
+      Use this if and only if you want to specify both the start and end image of the video. Requires both start_image and end_image. This tends not to work well. You should almost never use this unless the user requests it and gives you two images.
+  # todo: add init_image_strength / prompt_strength
+  duration:
+    type: integer
+    label: Duration
+    description: Approximate duration of the video in seconds
+    default: 10
+    minimum: 5
+    maximum: 10
+  lora:
+    type: lora
+    label: LoRA model
+    description: ID of LoRA finetuned model.
+    tip: This is optional if you want to capture a specific style, face, or object. This does nothing if you are editing an existing video.
+  lora_strength:
+    type: float
+    label: LoRA strength
+    description: Strength of the LoRA model
+    tip: |-
+      Higher values increase adherence/resemblance to the LoRA. Lower values may increase prompt adherence. Only works if you are using a LoRA. If the output does not look like the LoRA subject, can be increased (0.8-1.0). If the output does look like the subject but is ignoring the prompt too much, try decreating it (0.25-0.7).
+    default: 0.75
+    minimum: 0
+    maximum: 1.2
+  quality:
+    type: string
+    label: Quality
+    description: Video quality
+    tip: |-
+      Choosing "fast" will use Runway Gen-4 Turbo, which is fast and cheap but has lower quality. "Standard" will use Kling Pro 2.0, which is a good balance of quality and speed. "high_quality" will use Google Veo-2 or Veo-3 which is the highest quality *and* only one that produces native audio but is slowest and most expensive. If a user requests a specific model among Runway, Kling Pro, or Veo, use the corresponding quality setting, otherwise use your best judgment. Note, if the user specifically wants Veo-3, you should use "high_quality" and set sound_effects.
+    default: "standard"
+    choices: ["fast", "standard", "high_quality"]
+  audio:
+    type: audio
+    label: Audio track URL
+    description: Optional audio track to mix with the video
+    tip: |-
+      Only use this if you want to use an audio file for the video. Note: For talking_head only.
+    required: false
+  sound_effects:
+    type: string
+    label: Sound effects prompt
+    description: Optional foley sound effects to mix over the video
+    tip: |-
+      Only use this if you want to or have been requested to produce sound effects over the video. You should not use this if the user has already provided an audio track.
+      
+      There are two ways to use this:
+
+      1) If and only if using Veo-3 (quality == "high_quality", sound_effects == true, and no start_image), you can include long and very detailed sound_effects prompt according to the user's wishes. You may include music, regular sound effects, as well as vocals, including full lines of dialogue, e.g. "the boy says 'I heard you can make dialogue in Eden now!' and the girl says 'Yeah, I heard that too.'"
+      
+      2) If you are *not* using Veo-3, you should be sparing with this, using 10 words or less, describing only subtle foley sound effects like footsteps, wind, chimes, clapping, creaking wood, doorbell, barking, quacking, meowing, etc etc. Only in this case, avoid putting music, talking, or any other "non-foley" sounds unless the user specifically asks for those.
+    required: false
+  talking_head:
+    type: boolean
+    label: Make talking head
+    description: Special mode for outputting talking head videos.
+    default: false
+    tip: |-
+      You should only ever use this if your prompt or start_image contains a face, and you specifically want to make a video featuring it speak or lipsync. You *must* have speech in the audio track. Do *not* use this if there's no audio or the audio is not of speech or if the prompt or starting image does not feature a face.
+    required: false
+  seed:
+    type: integer
+    label: Seed
+    description: Set random seed for reproducibility. If blank, will be set to a random value.
+    tip: |-
+      You should only set this if you want to start from/copy the seed of a previous image. Unless one is specified, you should leave this blank!
+    minimum: 0
+    maximum: 2147483647
+    default: random

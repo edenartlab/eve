@@ -25,7 +25,7 @@ def create_image(trigger_id: str):
     return (
         modal.Image.debian_slim(python_version="3.12")
         .apt_install("libmagic1", "ffmpeg", "wget")
-        .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
+        .pip_install_from_pyproject("pyproject.toml")
         .env({"DB": db})
         .env({"TRIGGER_ID": trigger_id})
         .add_local_file(str(root_dir / "pyproject.toml"), "/pyproject.toml")

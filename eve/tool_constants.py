@@ -34,7 +34,7 @@ BASE_MODELS = Literal[
 ]
 
 # These tools are default agent tools except Eve
-BASE_TOOLS = [
+ALL_TOOLS = [
     # text-to-image
     "flux_schnell",
     "flux_dev_lora",
@@ -62,13 +62,12 @@ BASE_TOOLS = [
     "zonos",
     "transcription",
     # editing
-    "media_editor",
-    # "create",
+    "media_editor",    
     # search
-    "search_agents",
-    "search_models",
-    "search_collections",
-    "add_to_collection",
+    # "search_agents",
+    # "search_models",
+    # "search_collections",
+    # "add_to_collection",
     # misc
     "news",
     "weather",
@@ -76,12 +75,44 @@ BASE_TOOLS = [
     # "ominicontrol",
     # "flux_redux",
     "reel",
-    # "txt2vid",
-    # "animate_3d"
-    # "kling_pro"
+    # "animate_3d",
     "openai_image_edit",
     "openai_image_generate",
 ]
+
+
+TOOL_SETS = {
+    "create_image": ["create"],
+    "create_video": ["create_video", "media_editor", "reel"],
+    "create_audio": ["elevenlabs", "musicgen"],
+    "vj_tools": ["texture_flow", "video_FX"],
+    "news": ["news"],
+    "social_media": ["tweet", "twitter_mentions", "twitter_search", "discord_search", "discord_post", "telegram_post"],
+    "legacy_tools": ["legacy_create", "legacy_interpolate", "legacy_controlnet", "legacy_real2real", "legacy_txt2vid"],
+    "all_tools": ALL_TOOLS
+}
+
+
+BASE_TOOLS = [
+    "create",
+    "create_video",
+    "elevenlabs",
+    "musicgen",
+    "media_editor",
+    "news"
+]
+
+BASE_TOOLS2 = [
+    "create_image",
+    "create_video",
+    "create_audio",
+    "media_editor",
+
+    "texture_flow",
+    "video_FX",
+]
+
+
 
 FLUX_LORA_TXT2IMG_TOOLS = ["flux_dev_lora", "flux_dev", "flux_schnell"]
 

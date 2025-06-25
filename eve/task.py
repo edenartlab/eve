@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 from .user import Manna, Transaction
 from .mongo import Document, Collection
+from .models import Model
 from . import eden_utils
 import sentry_sdk
 
@@ -252,6 +253,12 @@ async def _task_handler(func, *args, **kwargs):
                     )
                     new_creation.save()
                     output["creation"] = new_creation.id
+
+                    # increment creation count
+                    if task_args.get("lora"):
+                        model = Model.from_mongo(task_args.get("lora"))
+                        model.creationCount += 1
+                        model.save()
 
             results.extend([result])
 

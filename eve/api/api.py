@@ -374,7 +374,7 @@ image = (
     min_containers=1,
     max_containers=10,
     scaledown_window=60,
-    timeout=3600,
+    timeout=3600 * 3, # 3 hours
 )
 @modal.concurrent(max_inputs=25)
 @modal.asgi_app()
@@ -383,7 +383,10 @@ def fastapi_app():
 
 
 @app.function(
-    image=image, max_containers=1, schedule=modal.Period(minutes=15), timeout=3600
+    image=image, 
+    max_containers=1, 
+    schedule=modal.Period(minutes=15), 
+    timeout=3600
 )
 async def cancel_stuck_tasks_fn():
     try:

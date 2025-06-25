@@ -13,6 +13,9 @@ from bson import ObjectId
 from sentry_sdk import capture_exception
 from eve.eden_utils import dumps_json
 from eve.agent.agent import Agent
+from eve.tool import Tool
+from eve.mongo import get_collection
+from eve.models import Model
 from eve.agent.session.models import (
     ActorSelectionMethod,
     ChatMessage,
@@ -34,7 +37,10 @@ from eve.agent.session.models import LLMContextMetadata
 from eve.api.errors import handle_errors
 from eve.api.helpers import emit_update
 from eve.agent.session.models import LLMConfig
-from eve.agent.session.session_prompts import system_template
+from eve.agent.session.session_prompts import (
+    system_template,
+    model_template,
+)
 
 
 class SessionCancelledException(Exception):
@@ -178,11 +184,6 @@ def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
     Re-assembles messages from perspective of actor (assistant) and everyone else (user)
     """
     
-    print("--------------------------------")
-    print("OLD MESSAGE ROLES")
-    print(messages)
-    print("--------------------------------")
-    print(actor_id)
     for message in messages:
         print("sender", message.sender, "role", message.role)
 
@@ -205,12 +206,30 @@ def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
 
 
 def build_system_message(session: Session, actor: Agent, context: PromptSessionContext):
+    # Get text describing models
+    if actor.models:
+        models_collection = get_collection(Model.collection_name)
+        loras_dict = {m["lora"]: m for m in actor.models}
+        lora_docs = models_collection.find(
+            {"_id": {"$in": list(loras_dict.keys())}, "deleted": {"$ne": True}}
+        )
+        lora_docs = list(lora_docs or [])
+        for doc in lora_docs:
+            doc["use_when"] = loras_dict[ObjectId(doc["_id"])].get("use_when", "This is your default Lora model")
+        loras = "\n".join(model_template.render(doc) for doc in lora_docs or [])
+    else:
+        loras = ""
+
     content = system_template.render(
         name=actor.name,
         current_date_time=datetime.now(pytz.utc).strftime("%Y-%m-%d %H:%M:%S"),
         persona=actor.persona,
         scenario=session.scenario,
+        loras=loras,
+        voice=actor.voice,
     )
+    print(f"\n\n\nTHE CONTENT\nn---\n{content}\n---\n\n\n\n")
+
     return ChatMessage(
         session=session.id, sender=ObjectId(actor.id), role="system", content=content
     )
@@ -234,10 +253,28 @@ async def build_llm_context(
 ):
     tools = actor.get_tools(cache=True, auth_user=context.initiating_user_id)
     
+    # pass custom tools
     if context.custom_tools:
         tools.update(context.custom_tools)
         tools = {tool: tools[tool] for tool in tools if tool in context.custom_tools}
 
+    # set voice default if tools include elevenlabs
+    if actor.voice and "elevenlabs" in tools.keys():
+        tools["elevenlabs"] = Tool.from_raw_yaml({
+            "parent_tool": "elevenlabs", 
+            "parameters": {"voice": {"default": actor.voice}}}
+        )
+
+    # if models
+    if actor.models:
+        models_collection = get_collection(Model.collection_name)
+        loras_dict = {m["lora"]: m for m in actor.models}
+        lora_docs = models_collection.find(
+            {"_id": {"$in": list(loras_dict.keys())}, "deleted": {"$ne": True}}
+        )
+        lora_docs = list(lora_docs or [])
+
+    # build messages
     system_message = build_system_message(session, actor, context)
     messages = [system_message]
     messages.extend(select_messages(session))

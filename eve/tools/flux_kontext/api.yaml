@@ -21,15 +21,17 @@ parameters:
   init_image:
     type: image
     label: Input image
-    description: Input image. Aspect ratio will match this.
+    description: Image reference
     required: true
     tip: |-
-      Providing an input image will activate prompt-guided img2img. This can be used to inject color patterns or rough shapes into the final generation. The result can be very sensitive to prompt_strength values.
+      This is the input or starting image for the generation, or the reference image to base the new image on.
     alias: input_image
   aspect_ratio:
     type: string
     label: Aspect ratio
     description: Aspect ratio width/height
+    tip: |-
+      If you are using an init_image, leave it at the default "match_input_image" unless you want to resize the image.
     default: "match_input_image"
     choices: ["match_input_image", "21:9", "16:9", "3:2", "4:3", "5:4", "1:1", "4:5", "3:4", "2:3", "9:16", "9:21"]
     required: true

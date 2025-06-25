@@ -1,3 +1,5 @@
+
+import os
 import time
 import requests
 import mimetypes
@@ -15,11 +17,62 @@ async def handler(args: dict, user: str = None, agent: str = None):
     #                       location="us-central1")
 
     # Otherwise the default backend honours GOOGLE_API_KEY.
-    client = genai.Client() # reads GOOGLE_API_KEY
+    # client = genai.Client() # reads GOOGLE_API_KEY
     
+
+    # import os
+    # os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = (
+    #     # json_file
+    # )
+    import base64, time, mimetypes, os
+    from google import genai                       # pip install -U google-generativeai
+    from google.genai.types import GenerateVideosConfig
+
+    PROJECT  = "eden-training-435413"
+    REGION   = "us-central1"
+    MODEL_ID = "veo-3.0-generate-preview"
+    # MODEL_ID = "veo-2.0-generate-001"
+
+    client = genai.Client(
+        # vertexai=True,          # ← this makes it use your GCP creds
+        # project=PROJECT,
+        # location=REGION,
+    )
+
+
     for m in client.models.list(): print(m.name)
 
-    # raise Exception("Not implemented")
+    # raise Exception("Not implemented4")
+    
+    # 2️⃣ Kick off generation – **no output_gcs_uri parameter**
+    op = client.models.generate_videos(
+        model=MODEL_ID,
+        prompt="Slow tilt-up revealing a serene Martian canyon at golden hour",
+        config=GenerateVideosConfig(duration_seconds=8)      # 8-s default codec = WebM
+    )
+
+
+    # 3️⃣ Poll the long-running operation
+    while not op.done:
+        time.sleep(15)
+        op = client.operations.get(op)
+        # print(f"state → {op.metadata.state}")
+
+
+    # 4️⃣ Grab bytes & save locally
+    clip = op.result.generated_videos[0].video          # proto message
+    mime = clip.mime_type                               # e.g. 'video/mp4'
+    ext  = mimetypes.guess_extension(mime) or ".bin"
+
+    # The bytes are directly available in video_bytes
+    raw = clip.video_bytes
+
+    with open(f"veo_ou2tput2{ext}", "wb") as f:
+        f.write(raw)
+
+    print("Saved →", f.name)
+
+    # raise Exception("Not implemented2")
 
     if not args.get("prompt") and not args.get("image"):
         raise ValueError("At least one of prompt or image is required")

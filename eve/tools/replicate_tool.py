@@ -299,6 +299,8 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
 
                 else:
                     name = task.args.get("prompt")
+
+                    print("got a creation")
                     creation = Creation(
                         user=task.user,
                         agent=task.agent,
@@ -310,6 +312,14 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
                         public=task.public,
                     )
                     creation.save()
+
+                    # increment creation count
+                    task_args = task.args
+                    if task_args.get("lora"):
+                        model = Model.from_mongo(task_args.get("lora"))
+                        model.creationCount += 1
+                        model.save()
+
                     result[r]["output"][o]["creation"] = creation.id
 
         run_time = (
