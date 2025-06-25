@@ -966,6 +966,7 @@ async def handle_farcaster_emission(request: Request):
             if not result:
                 return JSONResponse(status_code=200, content={"ok": True})
 
+            result = json.loads(result)
             result["result"] = prepare_result(result["result"])
             outputs = result["result"][0]["output"]
             urls = [output["url"] for output in outputs[:4]]  # Get up to 4 URLs
@@ -1073,6 +1074,7 @@ async def handle_telegram_emission(request: Request):
             if not result:
                 return JSONResponse(status_code=200, content={"ok": True})
 
+            result = json.loads(result)
             result["result"] = prepare_result(result["result"])
             outputs = result["result"][0]["output"]
             urls = [output["url"] for output in outputs[:4]]  # Get up to 4 URLs
