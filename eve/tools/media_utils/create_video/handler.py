@@ -1,7 +1,7 @@
 """
 VIDEO TODO:
 - fix cost formula
-- no lora2 !!!
+- add lora2. when two face loras, use double character
 - negative_prompt
 - start_image_strength
 - n_samples
@@ -87,8 +87,13 @@ async def handler(args: dict, user: str = None, agent: str = None):
     elif quality == "standard":
         video_tool = kling_pro
     elif quality == "high_quality":
-        video_tool = veo2
-
+        if sound_effects:
+            video_tool = veo3
+        else:
+            if start_image:
+                video_tool = veo2
+            else:
+                video_tool = veo3
 
     # If there is no start image, generate one for any of the following reasons:
     # - Using Runway, because it requires one
@@ -193,7 +198,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
 
 
     #########################################################
-    # Veo
+    # Veo-2
     elif video_tool == veo2:
 
         # Veo can only produce 5-8s videos
@@ -224,6 +229,36 @@ async def handler(args: dict, user: str = None, agent: str = None):
 
         print("Running Veo2", args)
         result = await veo2.async_run(args)
+
+
+    #########################################################
+    # Veo-3
+    elif video_tool == veo3:
+
+        # Veo can only produce 5-8s videos
+        duration = min(duration, 8)
+
+        args = {
+            "prompt": prompt,
+            # "duration": duration,
+            # "aspect_ratio": aspect_ratio,
+        }
+
+        # if start_image:
+        #     args.update({
+        #         "image": start_image,
+        #     })
+
+        # if end_image:
+        #     args.update({
+        #         "end_image": end_image,
+        #     })
+
+        if seed:
+            args["seed"] = seed
+
+        print("Running Veo3", args)
+        result = await veo3.async_run(args)
         
 
     #########################################################
@@ -258,7 +293,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
 
 
     # If sound effects are requested, try to add them
-    if sound_effects:
+    if sound_effects and video_tool != "veo3":
         try:
             args = {
                 "prompt": sound_effects,

@@ -28,6 +28,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
     if "n_samples" in valid_args:
         valid_args["n"] = valid_args.pop("n_samples")
 
+    # OpenAI got rid of these params?
     valid_args.pop("quality", None)
     valid_args.pop("background", None)
     valid_args.pop("output_format", None)
