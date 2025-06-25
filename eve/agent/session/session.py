@@ -151,13 +151,9 @@ async def determine_actor(
             actor_id = random.choice(mentions).id
 
 
-    print("1 the actor id is", actor_id)
-
     if not actor_id:
         # TODO: governor/dispatcher here
         actor_id = random.choice(session.agents)
-
-    print("2 the actor id is", actor_id)
 
     actor = Agent.from_mongo(actor_id)
     session.last_actor_id = actor.id
@@ -194,14 +190,6 @@ def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
         for message in messages
     ]
 
-    print("--------------------------------")
-    print("MESSAGE ROLES")
-    # print(messages)
-    for message in messages:
-        print("sender", message.sender, "role", message.role)
-        print("--------------------------------")
-    print("--------------------------------")
-
     return messages
 
 
@@ -228,7 +216,6 @@ def build_system_message(session: Session, actor: Agent, context: PromptSessionC
         loras=loras,
         voice=actor.voice,
     )
-    print(f"\n\n\nTHE CONTENT\nn---\n{content}\n---\n\n\n\n")
 
     return ChatMessage(
         session=session.id, sender=ObjectId(actor.id), role="system", content=content
