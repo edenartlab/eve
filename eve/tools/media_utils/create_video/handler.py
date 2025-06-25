@@ -239,7 +239,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
         duration = min(duration, 8)
 
         args = {
-            "prompt": prompt,
+            "prompt": f"{prompt}. {sound_effects}",
             # "duration": duration,
             # "aspect_ratio": aspect_ratio,
         }
