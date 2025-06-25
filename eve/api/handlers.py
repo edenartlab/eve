@@ -1197,6 +1197,7 @@ async def handle_discord_emission(request: Request):
 
         # Initialize Discord REST client for sending messages
         async with aiohttp.ClientSession() as session:
+
             headers = {
                 "Authorization": f"Bot {deployment.secrets.discord.token}",
                 "Content-Type": "application/json",
@@ -1212,8 +1213,8 @@ async def handle_discord_emission(request: Request):
                 if not result:
                     return JSONResponse(status_code=200, content={"ok": True})
 
+                result = json.loads(result)
                 result["result"] = prepare_result(result["result"])
-                print("RESULT", result)
                 outputs = result["result"][0]["output"]
                 urls = [
                     output["url"] for output in outputs[:4] if "url" in output
@@ -1246,7 +1247,7 @@ async def handle_discord_emission(request: Request):
                         }
                     ]
 
-            if payload["content"]:
+            if payload.get("content"):
                 async with session.post(
                     f"https://discord.com/api/v10/channels/{channel_id}/messages",
                     headers=headers,
