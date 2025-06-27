@@ -125,8 +125,6 @@ def prepare_messages(messages: List[ChatMessage]) -> List[dict]:
 async def async_prompt_litellm(
     context: LLMContext,
 ) -> LLMResponse:
-    print("***debug*** context: ", context)
-    print("***debug*** tools: ", construct_tools(context))
     response = completion(
         model=context.config.model,
         messages=prepare_messages(context.messages),

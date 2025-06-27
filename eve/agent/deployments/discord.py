@@ -160,13 +160,8 @@ class DiscordClient(PlatformClient):
                         logger.debug("No tool result to post")
                         return
 
-                    # ***debug*** Log raw result
-                    logger.info(f"***debug*** Raw result before processing: {result}")
-                    logger.info(f"***debug*** Result type: {type(result)}")
-
                     # Process result to extract media URLs
                     processed_result = prepare_result(json.loads(result))
-                    logger.info(f"***debug*** Processed result: {processed_result}")
 
                     if (
                         processed_result.get("result")

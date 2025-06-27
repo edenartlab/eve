@@ -283,12 +283,17 @@ async def handle_trigger_create(
 
     trigger_id = f"{str(user.id)}_{int(time.time())}"
 
-    background_tasks.add_task(
-        create_trigger_fn,
-        schedule=request.schedule.to_cron_dict(),
-        trigger_id=trigger_id,
-    )
+    # Wait for modal deployment to succeed before creating mongo object
+    try:
+        await create_trigger_fn(
+            schedule=request.schedule.to_cron_dict(),
+            trigger_id=trigger_id,
+        )
+    except Exception as e:
+        logger.error(f"Modal container deployment failed for trigger {trigger_id}: {str(e)}")
+        raise APIError(f"Failed to deploy trigger container: {str(e)}", status_code=500)
 
+    # Only create mongo object if deployment succeeded
     trigger = Trigger(
         trigger_id=trigger_id,
         user=ObjectId(user.id),
