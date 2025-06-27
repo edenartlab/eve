@@ -4,7 +4,6 @@ from pathlib import Path
 import subprocess
 import tempfile
 from typing import Dict, List, Optional
-import secrets as python_secrets
 import aiohttp
 from ably import AblyRest
 

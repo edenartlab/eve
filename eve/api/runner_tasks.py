@@ -16,12 +16,11 @@ import sentry_sdk
 
 from eve import eden_utils
 from eve.agent import Agent, refresh_agent
-from eve.deploy import Deployment
+from eve.agent.deployments import Deployment
 from eve.task import Task
 from eve.tool import Tool
 from eve.mongo import get_collection
 from eve.models import Model
-from eve.tools.twitter import X
 from eve.api.api_requests import ChatRequest, UpdateConfig
 
 
@@ -280,7 +279,7 @@ async def generate_prompts(lora_mode: str = None):
         )
         prompts = result.prompts
 
-    except Exception as e:
+    except Exception:
         print("failed to sample new prompts, falling back to old prompts")
         prompts = random.sample(sampled_prompts, 4)
 

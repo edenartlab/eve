@@ -5,9 +5,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 from bson import ObjectId
 
-from eve.deploy import Deployment
+from eve.agent.deployments import Deployment
 from eve.tools.twitter import X
-from eve.agent import Agent
 
 
 def test_twitter_mentions(
