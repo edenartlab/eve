@@ -332,12 +332,9 @@ class FarcasterClient(PlatformClient):
                 if not result:
                     logger.debug("No tool result to post")
                     return
-                print(f"***debug*** Raw result before processing: {result}")
-                print(f"***debug*** Result type: {type(result)}")
 
                 # Process result to extract media URLs
                 processed_result = prepare_result(json.loads(result))
-                print(f"***debug*** Processed result: {processed_result}")
 
                 if (
                     processed_result.get("result")

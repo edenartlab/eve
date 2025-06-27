@@ -562,10 +562,8 @@ class DiscordGatewayClient:
                 if deployments:
                     agent_id = str(deployments[0].agent)
                     mentioned_agent_ids.append(agent_id)
-                    # ***debug*** Found agent {agent_id} for Discord ID {discord_id}
 
             except Exception as e:
-                # ***debug*** Error looking up deployment for Discord ID {discord_id}: {e}
                 continue
 
         return mentioned_agent_ids

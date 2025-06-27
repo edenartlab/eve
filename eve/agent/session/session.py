@@ -120,7 +120,6 @@ def parse_mentions(content: str) -> List[str]:
 async def determine_actors(
     session: Session, context: PromptSessionContext
 ) -> List[Agent]:
-    print("***debug*** context: ", context)
     actor_ids = []
 
     if context.actor_agent_ids:
@@ -258,8 +257,6 @@ async def build_llm_context(
     if context.custom_tools:
         tools.update(context.custom_tools)
         tools = {tool: tools[tool] for tool in tools if tool in context.custom_tools}
-
-    print("***debug*** tools after custom tools: ", tools)
 
     # set voice default if tools include elevenlabs
     if actor.voice and "elevenlabs" in tools.keys():
