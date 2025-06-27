@@ -887,12 +887,10 @@ async def _run_prompt_session_internal(
     validate_prompt_session(session, context)
     actors = await determine_actors(session, context)
     is_client_platform = context.update_config is not None
-    llm_context = await build_llm_context(session, actors, context)
 
     if not actors:
         return
 
-    print("***debug*** actors: ", actors)
     # For single actor, maintain backwards compatibility
     if len(actors) == 1:
         actor = actors[0]
