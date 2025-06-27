@@ -21,7 +21,7 @@ parameters:
     description: Text prompt
     tip: |-
       Description of the sound you want to generate. Limit the prompt to 10 words at most, describing simple sound effects that match the scene.
-    required: true
+    required: false
   duration:
     type: integer
     label: Number of seconds

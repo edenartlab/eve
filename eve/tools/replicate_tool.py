@@ -30,7 +30,6 @@ class ReplicateTool(Tool):
         
         if self.version:
             args = self._format_args_for_replicate(args)
-            print("args", args)
             prediction = await self._create_prediction(args, webhook=False)
             prediction.wait()
             if self.output_handler == "eden":
@@ -111,7 +110,6 @@ class ReplicateTool(Tool):
     def _format_args_for_replicate(self, args: dict):
         new_args = args.copy()
         new_args = {k: v for k, v in new_args.items() if v is not None}
-        print("NEW ARGS ARE:", new_args)
         for field in self.model.model_fields.keys():
             parameter = self.parameters[field]
             is_array = parameter.get("type") == "array"
@@ -122,7 +120,6 @@ class ReplicateTool(Tool):
             if field in new_args:
                 if lora:
                     loras = get_collection(Model.collection_name)
-                    print("args", field, args[field])
                     lora_doc = (
                         loras.find_one({"_id": ObjectId(args[field])})
                         if args[field]
@@ -302,6 +299,8 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
 
                 else:
                     name = task.args.get("prompt")
+
+                    print("got a creation")
                     creation = Creation(
                         user=task.user,
                         agent=task.agent,
@@ -313,6 +312,14 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
                         public=task.public,
                     )
                     creation.save()
+
+                    # increment creation count
+                    task_args = task.args
+                    if task_args.get("lora"):
+                        model = Model.from_mongo(task_args.get("lora"))
+                        model.creationCount += 1
+                        model.save()
+
                     result[r]["output"][o]["creation"] = creation.id
 
         run_time = (

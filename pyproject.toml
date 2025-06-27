@@ -27,7 +27,7 @@ dependencies = [
     "pyyaml>=6.0.2",
     "replicate>=1.0.4",
     "requests>=2.32.3",
-    "runwayml>=3.0.0",
+    "runwayml>=3.5.0",
     "sentry-sdk>=2.18.0",
     "starlette>=0.41.3",
     "tenacity>=9.0.0",
@@ -42,7 +42,6 @@ dependencies = [
     "ably>=2.0.7",
     "colorama>=0.4.6",
     "web3<7.6.1",
-    "playwright<1.49",
     "psutil==6.0.0",
     "motor==3.3.1",
     "beanie==1.22.6",
@@ -75,9 +74,6 @@ dev-dependencies = [
 
 [project.scripts]
 eve = "eve.cli:cli"
-
-[tool.rye.scripts]
-post-install = "playwright install"
 
 [tool.pytest.ini_options]
 markers = [

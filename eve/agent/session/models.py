@@ -240,6 +240,12 @@ class ChatMessage(Document):
             return self
 
         return self.model_copy(update={"role": "assistant"})
+    
+    def as_system_message(self):
+        if self.role == "system":
+            return self
+
+        return self.model_copy(update={"role": "system"})
 
     def filter_cancelled_tool_calls(self):
         """Return a copy of the message with cancelled tool calls filtered out"""
@@ -357,6 +363,15 @@ class ChatMessage(Document):
         return content
 
     def anthropic_schema(self, truncate_images=False):
+        # System Message
+        if self.role == "system":
+            return [
+                {
+                    "role": "system",
+                    "content": self.content,
+                }
+            ]
+        
         # User Message
         if self.role == "user":
             content = self._get_content_block(
@@ -392,8 +407,17 @@ class ChatMessage(Document):
             return schema
 
     def openai_schema(self, truncate_images=False):
+        # System Message
+        if self.role == "system":
+            return [
+                {
+                    "role": "system",
+                    "content": self.content,
+                }
+            ]
+        
         # User Message
-        if self.role == "user":
+        elif self.role == "user":
             return [
                 {
                     "role": "user",
@@ -474,7 +498,7 @@ class ChatMessage(Document):
                                     image_urls.append(image_url)
 
                             except Exception as e:
-                                print(f"Error processing image {image_path}: {e}")
+                                print(f"Error processing image {image_url}: {e}")
                                 continue
 
                 # Create single synthetic user message if we have any images
@@ -500,6 +524,7 @@ class ChatMessage(Document):
 @dataclass
 class ChatMessageRequestInput:
     content: str
+    role: Optional[Literal["user", "system"]] = "user"
     attachments: Optional[List[str]] = None
     sender_name: Optional[str] = None
 
@@ -607,7 +632,9 @@ class Trigger(Document):
     user: ObjectId
     schedule: Dict[str, Any]
     instruction: str
+    posting_instructions: Optional[Dict[str, Any]] = None
     agent: Optional[ObjectId] = None
+    session_type: Optional[Literal["new", "another"]] = "new"
     session: Optional[ObjectId] = None
     update_config: Optional[Dict[str, Any]] = None
     status: Optional[Literal["active", "paused", "finished"]] = "active"
@@ -624,6 +651,7 @@ class Session(Document):
     owner: ObjectId
     session_key: Optional[str] = None
     channel: Optional[Channel] = None
+    parent_session: Optional[ObjectId] = None
     agents: List[ObjectId] = Field(default_factory=list)
     status: Literal["active", "archived"] = "active"
     messages: List[ObjectId] = Field(default_factory=list)
@@ -632,6 +660,7 @@ class Session(Document):
     scenario: Optional[str] = None
     autonomy_settings: Optional[SessionAutonomySettings] = None
     last_actor_id: Optional[ObjectId] = None
+    last_memory_message_id: Optional[ObjectId] = None
     budget: SessionBudget = SessionBudget()
     platform: Optional[Literal["discord", "telegram", "twitter", "farcaster"]] = None
     trigger: Optional[ObjectId] = None
@@ -646,6 +675,7 @@ class PromptSessionContext:
     actor_agent_id: Optional[str] = None
     actor_agent_ids: Optional[List[str]] = None
     llm_config: Optional[LLMConfig] = None
+    custom_tools: Optional[Dict[str, Any]] = None
 
 
 @dataclass

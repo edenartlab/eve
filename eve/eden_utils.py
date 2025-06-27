@@ -1023,7 +1023,7 @@ def save_test_results(tools, results):
     print(f"Test results saved to {results_dir}")
 
 
-def dumps_json(obj, *, indent=None, exclude=None):
+def serialize_json(obj, *, indent=None, exclude=None):
     """Return *obj* as a JSON string."""
 
     def scrub(value):
@@ -1042,6 +1042,11 @@ def dumps_json(obj, *, indent=None, exclude=None):
         return ""
 
     cleaned = scrub(obj)
+    return cleaned
+
+
+def dumps_json(obj, *, indent=None, exclude=None):
+    cleaned = serialize_json(obj, indent=indent, exclude=exclude)
     return json.dumps(cleaned, indent=indent)
 
 

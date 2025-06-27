@@ -49,7 +49,7 @@ from eve.api.helpers import (
     create_telegram_chat_request,
     update_busy_state,
 )
-from eve.eden_utils import prepare_result, dumps_json
+from eve.eden_utils import prepare_result, dumps_json, serialize_json
 from eve.tools.replicate_tool import replicate_update_task
 from eve.agent.llm import UpdateType
 from eve.agent.run_thread import async_prompt_thread
@@ -84,7 +84,8 @@ async def handle_create(request: TaskRequest):
     print("### return the result ###")
     print(result)
 
-    return dumps_json(result.model_dump(by_alias=True))
+    return serialize_json(result.model_dump(by_alias=True))
+    # return dumps_json(result.model_dump(by_alias=True))
 
 
 @handle_errors
@@ -294,10 +295,14 @@ async def handle_trigger_create(
         agent=ObjectId(agent.id),
         schedule=request.schedule.to_cron_dict(),
         instruction=request.instruction,
+        posting_instructions=request.posting_instructions.model_dump()
+        if request.posting_instructions
+        else None,
         update_config=request.update_config.model_dump()
         if request.update_config
         else None,
         session=ObjectId(request.session) if request.session else None,
+        session_type=request.session_type,
     )
     trigger.save()
 
@@ -544,6 +549,7 @@ async def handle_farcaster_emission(request: Request):
             if not result:
                 return JSONResponse(status_code=200, content={"ok": True})
 
+            result = json.loads(result)
             result["result"] = prepare_result(result["result"])
             outputs = result["result"][0]["output"]
             urls = [output["url"] for output in outputs[:4]]  # Get up to 4 URLs
@@ -651,6 +657,7 @@ async def handle_telegram_emission(request: Request):
             if not result:
                 return JSONResponse(status_code=200, content={"ok": True})
 
+            result = json.loads(result)
             result["result"] = prepare_result(result["result"])
             outputs = result["result"][0]["output"]
             urls = [output["url"] for output in outputs[:4]]  # Get up to 4 URLs
@@ -790,8 +797,8 @@ async def handle_discord_emission(request: Request):
                 if not result:
                     return JSONResponse(status_code=200, content={"ok": True})
 
+                result = json.loads(result)
                 result["result"] = prepare_result(result["result"])
-                print("RESULT", result)
                 outputs = result["result"][0]["output"]
                 urls = [
                     output["url"] for output in outputs[:4] if "url" in output
@@ -824,7 +831,7 @@ async def handle_discord_emission(request: Request):
                         }
                     ]
 
-            if payload["content"]:
+            if payload.get("content"):
                 async with session.post(
                     f"https://discord.com/api/v10/channels/{channel_id}/messages",
                     headers=headers,

@@ -13,6 +13,9 @@ from bson import ObjectId
 from sentry_sdk import capture_exception
 from eve.eden_utils import dumps_json
 from eve.agent.agent import Agent
+from eve.tool import Tool
+from eve.mongo import get_collection
+from eve.models import Model
 from eve.agent.session.models import (
     ActorSelectionMethod,
     ChatMessage,
@@ -33,7 +36,10 @@ from eve.agent.session.models import LLMContextMetadata
 from eve.api.errors import handle_errors
 from eve.api.helpers import emit_update
 from eve.agent.session.models import LLMConfig
-from eve.agent.session.session_prompts import system_template
+from eve.agent.session.session_prompts import (
+    system_template,
+    model_template,
+)
 
 
 class SessionCancelledException(Exception):
@@ -88,10 +94,6 @@ def validate_prompt_session(session: Session, context: PromptSessionContext):
         check_session_budget(session)
 
 
-def parse_mentions(content: str) -> List[str]:
-    return re.findall(r"@(\w+)", content)
-
-
 def determine_actor_from_actor_selection_method(session: Session) -> Optional[Agent]:
     selection_method = session.autonomy_settings.actor_selection_method
     if (
@@ -109,6 +111,10 @@ def determine_actor_from_actor_selection_method(session: Session) -> Optional[Ag
         return random.choice(session.agents)
     else:
         raise ValueError(f"Invalid actor selection method: {selection_method}")
+
+
+def parse_mentions(content: str) -> List[str]:
+    return re.findall(r"@(\w+)", content)
 
 
 async def determine_actors(
@@ -185,22 +191,46 @@ def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
     """
     Re-assembles messages from perspective of actor (assistant) and everyone else (user)
     """
+
+    for message in messages:
+        print("sender", message.sender, "role", message.role)
+
     messages = [
         message.as_assistant_message()
         if message.sender == actor_id
         else message.as_user_message()
         for message in messages
     ]
+
     return messages
 
 
 def build_system_message(session: Session, actor: Agent, context: PromptSessionContext):
+    # Get text describing models
+    if actor.models:
+        models_collection = get_collection(Model.collection_name)
+        loras_dict = {m["lora"]: m for m in actor.models}
+        lora_docs = models_collection.find(
+            {"_id": {"$in": list(loras_dict.keys())}, "deleted": {"$ne": True}}
+        )
+        lora_docs = list(lora_docs or [])
+        for doc in lora_docs:
+            doc["use_when"] = loras_dict[ObjectId(doc["_id"])].get(
+                "use_when", "This is your default Lora model"
+            )
+        loras = "\n".join(model_template.render(doc) for doc in lora_docs or [])
+    else:
+        loras = ""
+
     content = system_template.render(
         name=actor.name,
         current_date_time=datetime.now(pytz.utc).strftime("%Y-%m-%d %H:%M:%S"),
         persona=actor.persona,
         scenario=session.scenario,
+        loras=loras,
+        voice=actor.voice,
     )
+
     return ChatMessage(
         session=session.id, sender=ObjectId(actor.id), role="system", content=content
     )
@@ -223,6 +253,31 @@ async def build_llm_context(
     session: Session, actor: Agent, context: PromptSessionContext
 ):
     tools = actor.get_tools(cache=True, auth_user=context.initiating_user_id)
+
+    # pass custom tools
+    if context.custom_tools:
+        tools.update(context.custom_tools)
+        tools = {tool: tools[tool] for tool in tools if tool in context.custom_tools}
+
+    # set voice default if tools include elevenlabs
+    if actor.voice and "elevenlabs" in tools.keys():
+        tools["elevenlabs"] = Tool.from_raw_yaml(
+            {
+                "parent_tool": "elevenlabs",
+                "parameters": {"voice": {"default": actor.voice}},
+            }
+        )
+
+    # if models
+    if actor.models:
+        models_collection = get_collection(Model.collection_name)
+        loras_dict = {m["lora"]: m for m in actor.models}
+        lora_docs = models_collection.find(
+            {"_id": {"$in": list(loras_dict.keys())}, "deleted": {"$ne": True}}
+        )
+        lora_docs = list(lora_docs or [])
+
+    # build messages
     system_message = build_system_message(session, actor, context)
     messages = [system_message]
     messages.extend(select_messages(session))
@@ -231,6 +286,7 @@ async def build_llm_context(
     if context.initiating_user_id:
         new_message = add_user_message(session, context)
         messages.append(new_message)
+
     return LLMContext(
         messages=messages,
         tools=tools,
@@ -380,7 +436,7 @@ async def process_tool_call(
                     print(
                         f"Direct MongoDB update for tool {tool_call_index}: {result.modified_count} modified"
                     )
-                except Exception as e:
+                except Exception:
                     assistant_message.save()
             return SessionUpdate(
                 type=UpdateType.TOOL_CANCELLED,
@@ -739,7 +795,7 @@ async def async_prompt_session(
                         from eve.mongo import get_collection
 
                         messages_collection = get_collection("messages")
-                        result = messages_collection.update_one(
+                        messages_collection.update_one(
                             {"_id": last_message.id},
                             {
                                 "$set": {
@@ -750,7 +806,7 @@ async def async_prompt_session(
                                 }
                             },
                         )
-                    except Exception as e:
+                    except Exception:
                         last_message.markModified("tool_calls")
                         last_message.save()
 
@@ -831,6 +887,7 @@ async def _run_prompt_session_internal(
     validate_prompt_session(session, context)
     actors = await determine_actors(session, context)
     is_client_platform = context.update_config is not None
+    llm_context = await build_llm_context(session, actors, context)
 
     if not actors:
         return

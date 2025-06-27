@@ -113,7 +113,10 @@ async def emit_http_update(update_config: UpdateConfig, data: dict):
 
 
 def pre_modal_setup():
-    authenticate_modal_key()
+    if not authenticate_modal_key():
+        print("Skipping Modal environment setup due to missing credentials")
+        return
+        
     if not check_environment_exists(deploy.DEPLOYMENT_ENV_NAME):
         create_environment(deploy.DEPLOYMENT_ENV_NAME)
     if not check_environment_exists(trigger.TRIGGER_ENV_NAME):

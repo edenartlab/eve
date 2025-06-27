@@ -93,6 +93,7 @@ async def async_run_tool_call(
     tool_call: ToolCall,
     user_id: Optional[str] = None,
     agent_id: Optional[str] = None,
+    session_id: Optional[str] = None,
     public: bool = True,
     is_client_platform: bool = False,
 ):

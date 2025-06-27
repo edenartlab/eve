@@ -39,9 +39,9 @@ async def handler(args: dict, user: str = None, agent: str = None):
         message = await channel.send(content=content)
 
         return {
-            "output": {
+            "output": [{
                 "url": f"https://discord.com/channels/{channel.guild.id}/{channel.id}/{message.id}",
-            }
+            }]
         }
 
     finally:

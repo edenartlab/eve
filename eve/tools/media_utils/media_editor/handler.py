@@ -9,7 +9,7 @@ from ....agent.run_thread import async_prompt_thread
 from ....agent.thread import UserMessage
 from ....agent.llm import async_prompt
 
-MODEL = "gpt-4o-mini"
+MODEL = "gpt-4o"
 
 prompt_template = Template("""You have been provided a set of attachments (URLs to media files), along with a request to perform certain media editing tasks. You have access to three specialized tools:
 

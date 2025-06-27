@@ -43,6 +43,16 @@ def load_handler(name):
 
             handlers[name] = handler
 
+        elif name == "create":
+            from .media_utils.create.handler import handler
+
+            handlers[name] = handler
+
+        elif name == "create_video":
+            from .media_utils.create_video.handler import handler
+
+            handlers[name] = handler
+
         elif name == "time_remapping":
             from .media_utils.time_remapping.handler import handler
 
@@ -123,20 +133,15 @@ def load_handler(name):
 
             handlers[name] = handler
 
-        elif name == "memegen":
-            from .memegen.handler import handler
-
-            handlers[name] = handler
-
         elif name == "elevenlabs":
             from .elevenlabs.handler import handler
 
             handlers[name] = handler
 
-        elif name == "websearch":
-            from .websearch.handler import handler
+        # elif name == "websearch":
+        #     from .websearch.handler import handler
 
-            handlers[name] = handler
+        #     handlers[name] = handler
 
         elif name == "transcription":
             from .transcription.handler import handler
