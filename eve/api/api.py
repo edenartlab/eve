@@ -386,9 +386,9 @@ image = (
     # .pip_install("numpy<2.0", "torch==2.0.1", "torchvision", "transformers", "Pillow")
     # .run_function(download_nsfw_models)
     .add_local_dir(str(workflows_dir), "/workflows")
+    .add_local_file(str(root_dir / "pyproject.toml"), "/eve/pyproject.toml")
     .add_local_python_source("eve", ignore=[])
     .add_local_python_source("api", ignore=[])
-    .add_local_file(str(root_dir / "pyproject.toml"), "/pyproject.toml")
 )
 
 
@@ -397,7 +397,7 @@ image = (
     min_containers=1,
     max_containers=10,
     scaledown_window=60,
-    timeout=3600 * 3, # 3 hours
+    timeout=3600 * 3,  # 3 hours
 )
 @modal.concurrent(max_inputs=25)
 @modal.asgi_app()
@@ -406,10 +406,7 @@ def fastapi_app():
 
 
 @app.function(
-    image=image, 
-    max_containers=1, 
-    schedule=modal.Period(minutes=15), 
-    timeout=3600
+    image=image, max_containers=1, schedule=modal.Period(minutes=15), timeout=3600
 )
 async def cancel_stuck_tasks_fn():
     try:
