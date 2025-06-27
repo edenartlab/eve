@@ -327,7 +327,7 @@ async def deployment_interact(
     return await handle_v2_deployment_interact(request)
 
 
-@web_app.get("/v2/deployments/farcaster/neynar-webhook")
+@web_app.post("/v2/deployments/farcaster/neynar-webhook")
 async def deployment_farcaster_neynar_webhook(request: Request):
     return await handle_v2_deployment_farcaster_neynar_webhook(request)
 
