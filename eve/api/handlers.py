@@ -290,7 +290,9 @@ async def handle_trigger_create(
             trigger_id=trigger_id,
         )
     except Exception as e:
-        logger.error(f"Modal container deployment failed for trigger {trigger_id}: {str(e)}")
+        logger.error(
+            f"Modal container deployment failed for trigger {trigger_id}: {str(e)}"
+        )
         raise APIError(f"Failed to deploy trigger container: {str(e)}", status_code=500)
 
     # Only create mongo object if deployment succeeded
@@ -320,7 +322,7 @@ async def handle_trigger_create(
 @handle_errors
 async def handle_trigger_stop(request: DeleteTriggerRequest):
     trigger = Trigger.from_mongo(request.id)
-    if not trigger:
+    if not trigger or trigger.deleted:
         raise APIError(f"Trigger not found: {request.id}", status_code=404)
     await stop_trigger(trigger.trigger_id)
     trigger.status = "finished"
@@ -332,10 +334,15 @@ async def handle_trigger_stop(request: DeleteTriggerRequest):
 @handle_errors
 async def handle_trigger_delete(request: DeleteTriggerRequest):
     trigger = Trigger.from_mongo(request.id)
+    if not trigger:
+        raise APIError(f"Trigger not found: {request.id}", status_code=404)
+
     if trigger.status != "finished":
         await stop_trigger(trigger.trigger_id)
 
-    trigger.delete()
+    # Soft delete by setting deleted flag
+    trigger.deleted = True
+    trigger.save()
 
     return {"id": str(trigger.id)}
 
@@ -375,7 +382,7 @@ async def handle_twitter_update(request: PlatformUpdateRequest):
 @handle_errors
 async def handle_trigger_get(trigger_id: str):
     trigger = Trigger.load(trigger_id=trigger_id)
-    if not trigger:
+    if not trigger or trigger.deleted:
         raise APIError(f"Trigger not found: {trigger_id}", status_code=404)
 
     return {
@@ -967,7 +974,7 @@ def setup_session(
     # Update trigger with session ID
     if request.creation_args.trigger:
         trigger = Trigger.from_mongo(ObjectId(request.creation_args.trigger))
-        if trigger:
+        if trigger and not trigger.deleted:
             trigger.session = session.id
             trigger.save()
 

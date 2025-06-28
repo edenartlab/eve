@@ -240,7 +240,7 @@ class ChatMessage(Document):
             return self
 
         return self.model_copy(update={"role": "assistant"})
-    
+
     def as_system_message(self):
         if self.role == "system":
             return self
@@ -371,7 +371,7 @@ class ChatMessage(Document):
                     "content": self.content,
                 }
             ]
-        
+
         # User Message
         if self.role == "user":
             content = self._get_content_block(
@@ -415,7 +415,7 @@ class ChatMessage(Document):
                     "content": self.content,
                 }
             ]
-        
+
         # User Message
         elif self.role == "user":
             return [
@@ -638,6 +638,7 @@ class Trigger(Document):
     session: Optional[ObjectId] = None
     update_config: Optional[Dict[str, Any]] = None
     status: Optional[Literal["active", "paused", "finished"]] = "active"
+    deleted: Optional[bool] = False
 
 
 class SessionContext(BaseModel):
