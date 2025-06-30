@@ -120,16 +120,24 @@ class ReplicateTool(Tool):
             if field in new_args:
                 if lora:
                     loras = get_collection(Model.collection_name)
+                    print(f"Looking up LoRA with ID: {args[field]}")
                     lora_doc = (
                         loras.find_one({"_id": ObjectId(args[field])})
                         if args[field]
                         else None
                     )
                     if lora_doc:
-                        lora_url = s3.get_full_url(lora_doc.get("checkpoint"))
-                        lora_name = lora_doc.get("name")
-                        lora_trigger_text = lora_doc.get("lora_trigger_text")
-                        new_args[field] = lora_url
+                        checkpoint = lora_doc.get("checkpoint")
+                        if checkpoint:
+                            lora_url = s3.get_full_url(checkpoint)
+                            lora_name = lora_doc.get("name")
+                            lora_trigger_text = lora_doc.get("lora_trigger_text")
+                            new_args[field] = lora_url
+                            print(f"LoRA {lora_name} found, using URL: {lora_url}")
+                            print(f"Trigger text: {lora_trigger_text}")
+                        else:
+                            print(f"ERROR: LoRA doc found but no checkpoint field")
+
                         if "prompt" in new_args:
                             name_pattern = f"(\\b{re.escape(lora_name)}\\b|<{re.escape(lora_name)}>|\\<concept\\>)"
                             pattern = re.compile(name_pattern, re.IGNORECASE)
@@ -139,6 +147,8 @@ class ReplicateTool(Tool):
                             if lora_trigger_text:
                                 if lora_trigger_text not in new_args["prompt"]:
                                     new_args["prompt"] = f"{lora_trigger_text}, {new_args['prompt']}"
+                    else:
+                        print(f"ERROR: No LoRA found with ID: {args[field]}")
 
                 if is_number:
                     new_args[field] = float(args[field])
@@ -152,9 +162,13 @@ class ReplicateTool(Tool):
     def _get_replicate_model(self, args: dict):
         """Use default model or a substitute model conditional on an arg"""
         replicate_model = self.replicate_model
+        print(f"DEBUG: Model selection - args keys: {list(args.keys())}")
+        print(f"DEBUG: lora value: {args.get('lora')} (type: {type(args.get('lora'))})")
+
 
         if self.replicate_model_substitutions:
             for cond, model in self.replicate_model_substitutions.items():
+                print(f"DEBUG: Checking condition '{cond}' -> {model}")
                 if "==" in cond:
                     arg, value = cond.split("==")
                     if args.get(arg) == value:
@@ -164,6 +178,7 @@ class ReplicateTool(Tool):
                     if args.get(cond):
                         replicate_model = model
                         break
+        print(f"DEBUG: Final model selected: {replicate_model}")
         return replicate_model
 
     async def _create_prediction(self, args: dict, webhook=True):
