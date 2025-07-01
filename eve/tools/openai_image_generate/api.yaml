@@ -1,4 +1,4 @@
-name: openai_image_generate
+name: OpenAI Image Generate
 description: Generate images using OpenAI's gpt-image-1 model.
 output_type: image
 cost_estimate: 'quality == "high" ? 16 : 8'
