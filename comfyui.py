@@ -296,6 +296,143 @@ def handle_file_download(url, vol_path, comfy_path, force=False):
     create_symlink(vol_path, comfy_path, force=force)
 
 
+def sync_final_state_to_volume():
+    """
+    Sync the final state of ComfyUI after all tests complete to the persistent volume.
+    This captures any files downloaded during testing that aren't already in the volume.
+    """
+    print("Starting sync of final ComfyUI state to persistent volume...")
+    
+    # Key directories that might contain downloaded files from testing
+    sync_paths = [
+        "models",
+        "custom_nodes", 
+        "output",
+        "input",
+        "temp"
+    ]
+    
+    volume_root = "/data/comfyui_root"
+    os.makedirs(volume_root, exist_ok=True)
+    
+    total_synced = 0
+    for path in sync_paths:
+        root_path = f"/root/{path}"
+        volume_path = f"{volume_root}/{path}"
+        
+        if not os.path.exists(root_path):
+            print(f"Skipping {root_path} - does not exist")
+            continue
+            
+        print(f"Syncing {root_path} to {volume_path}...")
+        
+        # Use rsync-like logic to sync only new/changed files
+        if os.path.exists(volume_path):
+            # Update existing directory
+            synced_files = sync_directory_changes(root_path, volume_path)
+        else:
+            # Copy entire directory for first time
+            shutil.copytree(root_path, volume_path, dirs_exist_ok=True)
+            synced_files = count_files_recursive(root_path)
+            
+        total_synced += synced_files
+        print(f"Synced {synced_files} files from {path}")
+    
+    # Commit changes to volume
+    downloads_vol.commit()
+    print(f"Successfully synced {total_synced} files to persistent volume and committed changes")
+
+
+def sync_directory_changes(source_dir, dest_dir):
+    """
+    Sync only new or modified files from source to destination directory.
+    Returns the number of files synced.
+    """
+    synced_count = 0
+    
+    for root, dirs, files in os.walk(source_dir):
+        # Calculate relative path from source root
+        rel_path = os.path.relpath(root, source_dir)
+        dest_root = os.path.join(dest_dir, rel_path) if rel_path != '.' else dest_dir
+        
+        # Create destination directory if it doesn't exist
+        os.makedirs(dest_root, exist_ok=True)
+        
+        for file in files:
+            source_file = os.path.join(root, file)
+            dest_file = os.path.join(dest_root, file)
+            
+            # Check if file needs to be synced (new or modified)
+            should_sync = False
+            if not os.path.exists(dest_file):
+                should_sync = True
+            else:
+                # Compare modification times and sizes
+                source_stat = os.stat(source_file)
+                dest_stat = os.stat(dest_file)
+                if (source_stat.st_mtime > dest_stat.st_mtime or 
+                    source_stat.st_size != dest_stat.st_size):
+                    should_sync = True
+            
+            if should_sync:
+                shutil.copy2(source_file, dest_file)  # copy2 preserves metadata
+                synced_count += 1
+    
+    return synced_count
+
+
+def count_files_recursive(directory):
+    """Count total files in a directory recursively."""
+    count = 0
+    for root, dirs, files in os.walk(directory):
+        count += len(files)
+    return count
+
+
+def restore_state_from_volume():
+    """
+    Restore the cached ComfyUI state from the persistent volume.
+    This is used when SKIP_TESTS=1 to populate /root with previously cached downloads.
+    """
+    print("Restoring ComfyUI state from persistent volume...")
+    
+    volume_root = "/data/comfyui_root"
+    if not os.path.exists(volume_root):
+        print("No cached state found in volume. This appears to be the first deployment.")
+        return
+    
+    # Restore key directories
+    restore_paths = [
+        "models",
+        "custom_nodes",
+        "output", 
+        "input",
+        "temp"
+    ]
+    
+    total_restored = 0
+    for path in restore_paths:
+        volume_path = f"{volume_root}/{path}"
+        root_path = f"/root/{path}"
+        
+        if not os.path.exists(volume_path):
+            print(f"Skipping {path} - no cached version found")
+            continue
+            
+        print(f"Restoring {path} from volume...")
+        
+        # Remove existing directory and replace with cached version
+        if os.path.exists(root_path):
+            shutil.rmtree(root_path)
+            
+        shutil.copytree(volume_path, root_path)
+        restored_files = count_files_recursive(root_path)
+        total_restored += restored_files
+        print(f"Restored {restored_files} files to {path}")
+    
+    print(f"Successfully restored {total_restored} files from persistent volume cache")
+
+
 def download_files(force_redownload=False):
     """
     Main function to process downloads from downloads.json.
@@ -442,6 +579,22 @@ def get_test_files(workflow):
         ]
     else:
         return [f"/root/workspace/workflows/{workflow}/test.json"]
+
+
+def run_tests_or_restore():
+    """
+    Either run all tests for the current workspace OR restore cached state from volume.
+    The behavior is controlled by the SKIP_TESTS environment variable.
+    """
+    if os.getenv("SKIP_TESTS"):
+        print("SKIP_TESTS is set - restoring cached state from volume instead of running tests")
+        restore_state_from_volume()
+        print("Cached state restoration completed")
+        return
+    else:
+        print("SKIP_TESTS not set - running full test suite")
+        test_workflows()
+        return
 
 
 def test_workflows():
@@ -768,6 +921,16 @@ def test_workflows():
             print(f"    Error: {result['error']}")
     print("----------------------------------------")
 
+    # Sync the final ComfyUI state to persistent volume after all tests
+    print("\n========== SYNCING FINAL STATE TO VOLUME ==========")
+    try:
+        sync_final_state_to_volume()
+        print("Successfully synced final state to persistent volume")
+    except Exception as e:
+        print(f"Warning: Failed to sync final state to volume: {e}")
+        # Don't fail the entire deployment if sync fails
+    print("========================================")
+
     # Only raise the exception at the end after running all tests
     if failed_tests:
         raise Exception(
@@ -808,7 +971,7 @@ image = (
     )
     .run_function(install_comfyui)
     .run_function(install_custom_nodes, gpu="A100")
-    .pip_install("moviepy==1.0.3", "accelerate==1.4.0", "peft==0.14.0", "transformers==4.49.0", "flet==0.27.6", "safetensors==0.5.3")
+    .pip_install("moviepy==1.0.3", "accelerate==1.4.0", "peft==0.14.0", "transformers==4.49.0", "flet==0.27.6", "safetensors==0.5.3", "imgui-bundle==1.6.3", force_build=True)
     .run_function(download_files, volumes={"/data": downloads_vol}, secrets=[
             modal.Secret.from_name("eve-secrets"),
             modal.Secret.from_name(f"eve-secrets-{db}"),
@@ -821,7 +984,7 @@ image = (
         copy=True,
     )
     .run_function(
-        test_workflows,
+        run_tests_or_restore,
         gpu="A100",
         volumes={"/data": downloads_vol},
         secrets=[
@@ -844,8 +1007,7 @@ app = modal.App(
 
 
 class ComfyUI:
-    def __init__(self):
-        self.server_address = "127.0.0.1:8188"
+    server_address: str = modal.parameter(default="127.0.0.1:8188")
 
     def _start(self, port=8188):
         print("DEBUG: Starting ComfyUI server...")
@@ -1752,8 +1914,7 @@ class ComfyUI:
     timeout=3600,
 )
 class ComfyUIPremium(ComfyUI):
-    def __init__(self):
-        super().__init__()
+    pass
 
 
 @app.cls(
@@ -1767,8 +1928,7 @@ class ComfyUIPremium(ComfyUI):
     timeout=3600,
 )
 class ComfyUIBasic(ComfyUI):
-    def __init__(self):
-        super().__init__()
+    pass
 
 
 @app.cls(
@@ -1782,8 +1942,7 @@ class ComfyUIBasic(ComfyUI):
     timeout=3600,
 )
 class ComfyUITempleAbyss(ComfyUI):
-    def __init__(self):
-        super().__init__()
+    pass
 
 
 @app.local_entrypoint()
