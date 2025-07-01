@@ -241,6 +241,7 @@ def add_user_message(session: Session, context: PromptSessionContext):
         sender=ObjectId(context.initiating_user_id),
         role="user",
         content=context.message.content,
+        attachments=context.message.attachments or [],
     )
     new_message.save()
     session.messages.append(new_message.id)

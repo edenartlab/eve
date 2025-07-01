@@ -16,6 +16,7 @@ from eve.agent.session.session import (
     build_llm_context,
     async_prompt_session,
     validate_prompt_session,
+    async_title_session,
 )
 
 
@@ -81,6 +82,9 @@ async def trigger_fn():
         print(update)
 
     print(f"Completed trigger {trigger_id}")
+
+    # Generate session title based on trigger instruction
+    await async_title_session(session, trigger.instruction)
 
     posting_instructions = trigger.posting_instructions
 
