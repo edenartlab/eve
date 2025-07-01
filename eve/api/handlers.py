@@ -21,6 +21,10 @@ from eve.agent.session.models import (
     Deployment,
     DeploymentConfig,
 )
+from eve.deploy import (
+    Deployment as DeploymentV1,
+    DeploymentConfig as DeploymentConfigV1,
+)
 from eve.agent.session.session import run_prompt_session, run_prompt_session_stream
 from eve.agent.session.triggers import create_trigger_fn, stop_trigger
 from eve.api.errors import handle_errors, APIError
@@ -354,7 +358,7 @@ async def handle_twitter_update(request: PlatformUpdateRequest):
     deployment_id = request.update_config.deployment_id
 
     # Get deployment
-    deployment = Deployment.from_mongo(ObjectId(deployment_id))
+    deployment = DeploymentV1.from_mongo(ObjectId(deployment_id))
     if not deployment:
         raise APIError(f"Deployment not found: {deployment_id}")
 
@@ -530,7 +534,7 @@ async def handle_farcaster_emission(request: Request):
             )
 
         # Find deployment
-        deployment = Deployment.from_mongo(ObjectId(deployment_id))
+        deployment = DeploymentV1.from_mongo(ObjectId(deployment_id))
         if not deployment:
             return JSONResponse(
                 status_code=404, content={"error": "No Farcaster deployment found"}
@@ -625,7 +629,7 @@ async def handle_telegram_emission(request: Request):
         )
 
         # Find deployment
-        deployment = Deployment.from_mongo(ObjectId(deployment_id))
+        deployment = DeploymentV1.from_mongo(ObjectId(deployment_id))
         if not deployment:
             return JSONResponse(
                 status_code=404, content={"error": "No Telegram deployment found"}
@@ -713,7 +717,7 @@ async def handle_telegram_update(request: Request):
         deployment = next(
             (
                 d
-                for d in Deployment.find({"platform": "telegram"})
+                for d in DeploymentV1.find({"platform": "telegram"})
                 if d.secrets
                 and d.secrets.telegram
                 and d.secrets.telegram.webhook_secret == secret_token
@@ -786,7 +790,7 @@ async def handle_discord_emission(request: Request):
             }
 
         # Find deployment
-        deployment = Deployment.from_mongo(ObjectId(deployment_id))
+        deployment = DeploymentV1.from_mongo(ObjectId(deployment_id))
         if not deployment:
             return JSONResponse(
                 status_code=404, content={"error": "No Discord deployment found"}
