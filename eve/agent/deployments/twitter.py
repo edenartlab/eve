@@ -4,9 +4,12 @@ from eve.agent.session.models import DeploymentSecrets, DeploymentConfig
 
 
 class TwitterClient(PlatformClient):
-    TOOLS = {
-        "twitter_post": {},
-    }
+    TOOLS = [
+        "tweet",
+        "twitter_search",
+        "twitter_mentions",
+        "twitter_trends",
+    ]
 
     async def predeploy(
         self, secrets: DeploymentSecrets, config: DeploymentConfig

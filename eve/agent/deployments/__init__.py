@@ -41,16 +41,11 @@ class PlatformClient(ABC):
 
     def add_tools(self) -> None:
         """Add platform-specific tools to agent"""
-        if not self.agent.tools:
-            self.agent.tools = {}
-            self.agent.add_base_tools = True
-
-        for tool_name, tool_config in self.TOOLS.items():
-            self.agent.tools[tool_name] = {
-                "parameters": {
-                    "agent": {"default": str(self.agent.id), "hide_from_agent": True}
-                }
-            }
+        print(f"***debug*** agent: {self.agent}")
+        print(f"***debug*** Adding tools: {self.TOOLS}")
+        for tool_name in self.TOOLS:
+            print(f"***debug*** Adding tool: {tool_name}")
+            self.agent.tools[tool_name] = True
         self.agent.save()
 
     def remove_tools(self) -> None:

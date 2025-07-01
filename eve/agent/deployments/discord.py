@@ -18,9 +18,10 @@ db = os.getenv("DB", "STAGE").upper()
 
 
 class DiscordClient(PlatformClient):
-    TOOLS = {
-        "discord_post": {},
-    }
+    TOOLS = [
+        "discord_post",
+        "discord_search",
+    ]
 
     async def predeploy(
         self, secrets: DeploymentSecrets, config: DeploymentConfig
@@ -38,12 +39,16 @@ class DiscordClient(PlatformClient):
                     bot_info = await response.json()
                     print(f"Verified Discord bot: {bot_info['username']}")
 
-            # Add Discord tools to agent
-            self.add_tools()
-
-            return secrets, config
         except Exception as e:
             raise APIError(f"Invalid Discord token: {str(e)}", status_code=400)
+
+        try:
+            # Add Discord tools to agent
+            self.add_tools()
+        except Exception as e:
+            raise APIError(f"Failed to add Discord tools: {str(e)}", status_code=400)
+
+        return secrets, config
 
     async def postdeploy(self) -> None:
         """Notify Discord gateway service via Ably"""

@@ -21,9 +21,9 @@ db = os.getenv("DB", "STAGE").upper()
 
 
 class TelegramClient(PlatformClient):
-    TOOLS = {
-        "telegram_post": {},
-    }
+    TOOLS = [
+        "telegram_post",
+    ]
 
     async def predeploy(
         self, secrets: DeploymentSecrets, config: DeploymentConfig

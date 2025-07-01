@@ -1082,6 +1082,7 @@ async def handle_session_cancel(request: CancelSessionRequest):
 @handle_errors
 async def handle_v2_deployment_create(request: CreateDeploymentRequestV2):
     agent = Agent.from_mongo(ObjectId(request.agent))
+    print(f"***debug*** agent api: {agent}")
     if not agent:
         raise APIError(f"Agent not found: {agent.id}", status_code=404)
 
