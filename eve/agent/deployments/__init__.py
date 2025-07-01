@@ -41,10 +41,7 @@ class PlatformClient(ABC):
 
     def add_tools(self) -> None:
         """Add platform-specific tools to agent"""
-        print(f"***debug*** agent: {self.agent}")
-        print(f"***debug*** Adding tools: {self.TOOLS}")
         for tool_name in self.TOOLS:
-            print(f"***debug*** Adding tool: {tool_name}")
             self.agent.tools[tool_name] = True
         self.agent.save()
 

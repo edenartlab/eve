@@ -110,9 +110,7 @@ class Document(BaseModel):
     def from_schema(cls, schema: dict, from_yaml=True):
         """Load a document from a schema."""
         sub_cls = cls.get_sub_class(schema, from_yaml=from_yaml)
-        print(f"***debug*** sub_cls: {sub_cls}")
         result = sub_cls.model_validate(schema)
-        print(f"***debug*** result: {result}")
         return result
 
     @classmethod
