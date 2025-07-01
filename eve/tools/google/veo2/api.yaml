@@ -6,6 +6,7 @@ output_type: video
 active: true
 visible: true
 handler: modal
+thumbnail: app/veo2.webp
 parameters:
   prompt:
     type: string
