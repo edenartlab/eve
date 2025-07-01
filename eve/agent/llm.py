@@ -146,12 +146,12 @@ async def async_anthropic_prompt(
             prompt["tool_choice"] = {"type": "tool", "name": response_model.__name__}
 
         # Add websearch tool:
-        websearch_tool = {
-                "type": "web_search_20250305",
-                "name": "web_search",
-                "max_uses": 2
-        }
-        tool_schemas.append(websearch_tool)
+        # websearch_tool = {
+        #         "type": "web_search_20250305",
+        #         "name": "web_search",
+        #         "max_uses": 2
+        # }
+        # tool_schemas.append(websearch_tool)
         
         # cache all tools by checkpointing only the last tool
         tool_schemas[-1]["cache_control"] = {"type": "ephemeral"}
@@ -209,12 +209,12 @@ async def async_anthropic_prompt_stream(
             prompt["tool_choice"] = {"type": "tool", "name": response_model.__name__}
             
         # Add websearch tool:
-        websearch_tool = {
-                "type": "web_search_20250305",
-                "name": "web_search",
-                "max_uses": 2
-        }
-        tool_schemas.append(websearch_tool)
+        # websearch_tool = {
+        #         "type": "web_search_20250305",
+        #         "name": "web_search",
+        #         "max_uses": 2
+        # }
+        # tool_schemas.append(websearch_tool)
         
         # cache all tools - apply cache_control to each tool for full context caching
         for tool_schema in tool_schemas:

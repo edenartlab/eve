@@ -128,10 +128,25 @@ async def handler(args: dict, user: str = None, agent: str = None):
     async def create_image_to_video():
         nonlocal unsafe_content_error
         try:
+            print("Runway args", args)
             model = args.get("model", "gen3a_turbo")
 
+            prompt_image = []
+            if args.get("start_image"):
+                prompt_image.append({
+                    "position": "first",
+                    "uri": args["start_image"]
+                })
+            if args.get("end_image"):
+                prompt_image.append({
+                    "position": "last",
+                    "uri": args["end_image"]
+                })
+                # last frame only works with gen3a_turbo
+                model = "gen3a_turbo"
+
             if model == "gen3a_turbo":
-                ratio = "1280:768" if args["ratio"] == "16:9" else "768:1280"
+                ratio = "1280:768" if args["ratio"] in ["21:9", "16:9", "4:3", "1:1"] else "768:1280"
             
             elif model == "gen4_turbo":
                 if args["ratio"] == "21:9":
@@ -146,15 +161,17 @@ async def handler(args: dict, user: str = None, agent: str = None):
                     ratio = "832:1104"
                 elif args["ratio"] == "9:16":
                     ratio = "720:1280"
-                
-            print("Runway args", args)
-            
+
+            # run Runway client command
             return await client.image_to_video.create(
                 model=model,
-                prompt_image=args["prompt_image"],
+                prompt_image=prompt_image or None,
                 prompt_text=prompt_text[:512],
                 duration=int(args["duration"]),
                 ratio=ratio,
+                content_moderation={
+                    "public_figure_threshold": "low"
+                }
                 # watermark=False,
             )
 

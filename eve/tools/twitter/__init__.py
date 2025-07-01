@@ -4,7 +4,7 @@ import requests
 from datetime import datetime, timedelta
 from requests_oauthlib import OAuth1Session
 
-from eve.deploy import Deployment
+from eve.agent.deployments import Deployment
 
 
 class X:
@@ -81,12 +81,12 @@ class X:
 
     def fetch_mentions(self, start_time=None):
         """Fetches mentions for the user."""
-        
-        params={
-            "max_results" : 100,
+
+        params = {
+            "max_results": 100,
             "tweet.fields": "created_at,author_id,conversation_id",
-            "expansions"  : "author_id",
-            "user.fields" : "username,name,public_metrics,verified"
+            "expansions": "author_id",
+            "user.fields": "username,name,public_metrics,verified",
         }
 
         if start_time:
@@ -166,7 +166,7 @@ class X:
         for i, start in enumerate(range(0, len(content), chunk_size)):
             chunk = content[start : start + chunk_size]
 
-            append_response = self._make_request(
+            self._make_request(
                 "post",
                 "https://upload.twitter.com/1.1/media/upload.json",
                 data={"command": "APPEND", "media_id": media_id, "segment_index": i},

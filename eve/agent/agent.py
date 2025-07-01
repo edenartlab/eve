@@ -18,6 +18,7 @@ from ..tool_constants import (
     SDXL_LORA_TXT2IMG_TOOLS,
     OWNER_ONLY_TOOLS,
     AGENTIC_TOOLS,
+    TOOL_SETS
 )
 from ..mongo import Collection, get_collection
 from ..models import Model
@@ -91,8 +92,9 @@ class Agent(User):
     models: Optional[List[Dict[str, Any]]] = None
     test_args: Optional[List[Dict[str, Any]]] = None
 
-    tools: Optional[Dict[str, Dict]] = {}
-    add_base_tools: Optional[bool] = True
+    #tools: Optional[Dict[str, Dict]] = {}
+    tools: Optional[Dict[str, bool]] = {}
+    #add_base_tools: Optional[bool] = True
 
     owner_pays: Optional[bool] = False
 
@@ -107,10 +109,12 @@ class Agent(User):
         env_vars = dotenv_values(f"{str(env_dir)}/{db.lower()}/{data['username']}/.env")
         data["secrets"] = {key: SecretStr(value) for key, value in env_vars.items()}
         super().__init__(**data)
+        self._setup_tools()
 
     @classmethod
     def convert_from_yaml(cls, schema: dict, file_path: str = None) -> dict:
         """
+
         Convert the schema into the format expected by the model.
         """
         test_file = file_path.replace("api.yaml", "test.json")
@@ -134,14 +138,14 @@ class Agent(User):
                 else model["lora"]
             )
         schema["username"] = schema.get("username") or file_path.split("/")[-2]
-        schema = cls._setup_tools(schema)
+        # schema = cls._setup_tools(schema)
 
         return schema
 
-    @classmethod
-    def convert_from_mongo(cls, schema: dict) -> dict:
-        schema = cls._setup_tools(schema)
-        return schema
+    # @classmethod
+    # def convert_from_mongo(cls, schema: dict) -> dict:
+    #     schema = cls._setup_tools(schema)
+    #     return schema
 
     def save(self, **kwargs):
         # do not overwrite any username if it already exists
@@ -150,7 +154,6 @@ class Agent(User):
             raise ValueError(f"Username {self.username} already taken")
 
         # save user, and create mannas record if it doesn't exist
-        kwargs["featureFlags"] = ["freeTools"]  # give agents free tools for now
         super().save(
             upsert_filter={"username": self.username, "type": "agent"}, **kwargs
         )
@@ -173,8 +176,76 @@ class Agent(User):
         thread.save()
         return thread
 
+
+
+
+
+    #########################################################
+    # This works right now but needs a bit of cleanup
+    #########################################################
+
+    def _setup_tools(self):
+        for set, set_tools in TOOL_SETS.items():
+            if self.tools.get(set):
+                self.tools.pop(set, None) # replace category with set tools
+                self.tools.update({k: {} for k in set_tools})
+                
+
     @classmethod
-    def _setup_tools(cls, schema: dict) -> dict:
+    def _setup_tools_old(cls, schema: dict) -> dict:
+        """
+        Sets up the agent's tools based on the tools defined in the schema.
+        If a model (lora) is set, hardcode it into the tools.
+        """
+        tools = schema.get("tools") or {}
+        
+        # if tools are set explicitly, start with them
+        #schema["tools"] = {k: v or {} for k, v in tools.items()}
+
+        schema["tools"] = {}
+        for set, set_tools in TOOL_SETS.items():
+            if tools.get(set):
+                schema["tools"].update({k: {} for k in set_tools})
+
+        # models = schema.get("models", [])
+
+        return schema
+
+
+    # Todo: can this just be done at setup time?
+    def get_tools(self, cache=False, auth_user: str = None):
+        from ..tool import Tool  # avoid circular import
+        
+        tools = {}
+        for k, v in self.tools.items():
+            try:
+                tool = Tool.from_raw_yaml({"parent_tool": k, **v})
+                tools[k] = tool
+            except Exception as e:
+                print(f"Error loading tool {k}: {e}")
+                print(traceback.format_exc())
+                continue
+
+        # inject agent arg
+        for tool in AGENTIC_TOOLS:
+            if tool in tools:
+                tools[tool].parameters.update(
+                    {
+                        "agent": {
+                            "default": str(self.id),
+                            "hide_from_agent": True,
+                        }
+                    }
+                )
+
+        return tools
+
+
+
+
+    # deprecated, just leaving for reference until above is cleaned up
+    @classmethod
+    def _setup_tools_old(cls, schema: dict) -> dict:
         """
         Sets up the agent's tools based on the tools defined in the schema.
         If a model (lora) is set, hardcode it into the tools.
@@ -268,7 +339,8 @@ class Agent(User):
 
         return schema
 
-    def get_tools(self, cache=False, auth_user: str = None):
+
+    def get_tools_old(self, cache=False, auth_user: str = None):
         global last_tools_update
 
         if cache:
@@ -306,9 +378,11 @@ class Agent(User):
         else:
             from ..tool import Tool
 
+            tools = {}
             for k, v in self.tools.items():
                 try:
                     tool = Tool.from_raw_yaml({"parent_tool": k, **v})
+                    tools[k] = tool
                 except Exception as e:
                     print(f"Error loading tool {k}: {e}")
                     print(traceback.format_exc())
@@ -332,9 +406,6 @@ class Agent(User):
                 )
 
         return tools
-
-    def get_tool(self, tool_name, cache=False):
-        return self.get_tools(cache=cache)[tool_name]
 
 
 def get_agents_from_mongo(

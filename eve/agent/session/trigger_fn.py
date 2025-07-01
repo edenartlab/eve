@@ -37,17 +37,19 @@ trigger_message_post = """
 
 
 async def trigger_fn():
-
     background_tasks = BackgroundTasks()
 
     trigger_id = os.getenv("TRIGGER_ID")
-    trigger = Trigger.find_one({"trigger_id": trigger_id})
+    trigger = Trigger.find_one({"trigger_id": trigger_id, "deleted": {"$ne": True}})
 
     request = PromptSessionRequest(
         session_id=str(trigger.session) if trigger.session else None,
         user_id=str(trigger.user),
         actor_agent_id=str(trigger.agent),
-        message={"role": "system", "content": trigger_message.format(instruction=trigger.instruction)},
+        message={
+            "role": "system",
+            "content": trigger_message.format(instruction=trigger.instruction),
+        },
         update_config=trigger.update_config,
     )
     if not trigger.session:
@@ -58,7 +60,10 @@ async def trigger_fn():
         )
 
     from eve.api.handlers import setup_session
-    session = setup_session(background_tasks, request.session_id, request.user_id, request)
+
+    session = setup_session(
+        background_tasks, request.session_id, request.user_id, request
+    )
 
     context = PromptSessionContext(
         session=session,
@@ -67,14 +72,12 @@ async def trigger_fn():
         message=request.message,
         update_config=request.update_config,
     )
-    
+
     validate_prompt_session(session, context)
     actor = Agent.from_mongo(trigger.agent)
     llm_context = await build_llm_context(session, actor, context)
 
-    async for update in async_prompt_session(
-        session, llm_context, actor, stream=True
-    ):
+    async for update in async_prompt_session(session, llm_context, actor, stream=True):
         print(update)
 
     print(f"Completed trigger {trigger_id}")
@@ -84,32 +87,46 @@ async def trigger_fn():
     if not posting_instructions:
         print("No posting instructions")
         return
-    
+
     request = PromptSessionRequest(
         session_id=str(session.id),
         user_id=str(trigger.user),
         actor_agent_id=str(trigger.agent),
-        message={"role": "system", "content": trigger_message_post.format(
-            platform=posting_instructions["post_to"],
-            channel_info=f"Post the following to {posting_instructions['post_to']}, channel {posting_instructions.get('channel_id', '')}" if posting_instructions.get('channel_id') else "",
-            post_instruction=posting_instructions["custom_instructions"]
-        )},
+        message={
+            "role": "system",
+            "content": trigger_message_post.format(
+                platform=posting_instructions["post_to"],
+                channel_info=f"Post the following to {posting_instructions['post_to']}, channel {posting_instructions.get('channel_id', '')}"
+                if posting_instructions.get("channel_id")
+                else "",
+                post_instruction=posting_instructions["custom_instructions"],
+            ),
+        },
         update_config=trigger.update_config,
     )
 
     custom_tools = None
-    
+
     platform = posting_instructions.get("post_to")
     if platform == "discord":
         channel_id = posting_instructions.get("channel_id", None)
-        custom_tools = {"discord_post": Tool.from_raw_yaml({"parent_tool": "discord_post", **{"parameters": {"channel_id": {"default": channel_id}}}})}
+        custom_tools = {
+            "discord_post": Tool.from_raw_yaml(
+                {
+                    "parent_tool": "discord_post",
+                    **{"parameters": {"channel_id": {"default": channel_id}}},
+                }
+            )
+        }
     elif platform == "telegram":
         channel_id = posting_instructions.get("channel_id", None)
-        custom_tools = {"telegram_post": {"parameters": {"channel_id": {"default": channel_id}}}}
+        custom_tools = {
+            "telegram_post": {"parameters": {"channel_id": {"default": channel_id}}}
+        }
     else:
         print("No platform specified")
         channel_id = None
-        
+
     context = PromptSessionContext(
         session=session,
         initiating_user_id=request.user_id,
@@ -121,15 +138,10 @@ async def trigger_fn():
 
     llm_context = await build_llm_context(session, actor, context)
 
-    async for update in async_prompt_session(
-        session, llm_context, actor, stream=True
-    ):
+    async for update in async_prompt_session(session, llm_context, actor, stream=True):
         print(update)
 
     print(f"Completed posting instructions {trigger_id}")
-    
-
-
 
     print("end date?", trigger.schedule)
 

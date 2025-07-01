@@ -1,5 +1,7 @@
 name: Musicgen
-description: Generate music from text prompt
+description: Generate music
+tip: |-
+  Generates music up to 300 seconds. Good for background music, movie scoring, etc. 
 cost_estimate: 0.5 * duration
 output_type: audio
 handler: replicate
@@ -12,15 +14,22 @@ parameters:
   prompt:
     type: string
     label: Prompt
-    description: Description of the type of music you want to generate
+    description: Description of the type of music you want to generate.
+    tip: |-
+      Use stylistic and musical terms to precisely succinctly describe the music. No filler words, sentences, verbs, artist names, or negatives ("no drums"). Separate fields by pipe (|) in: Consider including genre or sub-genres, mood/emotional adjectives, instrumentats, production gloss (tape hiss, 2010s EDM polish, etc.), BPM + meter if not 4/4. 
+      Examples:
+      - "Future Garage | Melancholic, Weightless | Skittering 2-step drums, Warm sub-bass, Hazy vinyl pads | Rain-soaked night-city reverb | 134 BPM"
+      - "Orchestral | Spaghetti Western twang | Instrumentation Strings, Brass, Percussion, and Choir | Loungy, Subtle, Inspiring, Heroic | 90 BPM", 
+      - "Electronic, Synthwave, Retro-Futuristic | Instruments: Analog Synths, Drum Machine, Bass | Moods: Nostalgic, Cool, Rhythmic | 1980s Sci-Fi | 115 BPM"
     required: true
   model:
     type: string
     label: Audio model
     description: Model to generate audio with
     choices: [stereo-melody-large, stereo-large, melody-large, large]
-    default: stereo-melody-large
+    default: melody-large
     alias: model_version
+    hide_from_agent: true
   duration:
     type: integer
     label: Duration
@@ -32,13 +41,12 @@ parameters:
   input_audio:
     type: string
     label: Input audio
-    description: |-
-      An audio file that will influence the generated music. If `continuation` is `True`, the generated music will be a continuation of the audio file. Otherwise, the generated music will mimic the audio file's melody.
+    description: An audio file that will influence the generated music. 
   continuation:
     type: boolean
     label: Continue input_audio
     description: |-
-      If true, the generated music will be a continuation of the input_audio. Otherwise, the generated music will mimic the input_audio's melody.
+      If true, the generated music will be a continuation of the input_audio. Otherwise, the generated music will mimic the input_audio's melody. Requires input_audio to be provided.
     default: false
     visible_if: input_audio
   temperature:
@@ -59,6 +67,7 @@ parameters:
     minimum: 0
     maximum: 10
     step: 0.1
+    hide_from_agent: true
   seed:
     type: integer
     label: Seed
@@ -72,3 +81,4 @@ parameters:
     description: Output audio format
     choices: [mp3, wav]
     default: mp3
+    hide_from_agent: true

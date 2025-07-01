@@ -1,5 +1,4 @@
-from eve.user import User
-from eve.deploy import Deployment
+from eve.agent.deployments import Deployment
 from eve.agent import Agent
 from telegram import Bot
 

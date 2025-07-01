@@ -7,6 +7,7 @@ from typing import Dict, Any, Literal, Optional
 from bson import ObjectId
 import modal
 import modal.runner
+from pathlib import Path
 
 from eve.api.api_requests import CronSchedule
 from eve.api.errors import handle_errors
@@ -55,7 +56,6 @@ def create_image(trigger_id: str):
         modal.Image.debian_slim(python_version="3.12")
         .apt_install("libmagic1", "ffmpeg", "wget")
         .pip_install_from_pyproject("/eve/pyproject.toml")
-        .run_commands(["playwright install"])
         .env({"DB": db})
         .env({"TRIGGER_ID": trigger_id})
     )

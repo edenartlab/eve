@@ -1,4 +1,4 @@
-name: openai_image_edit
+name: OpenAI Image Edit
 description: Creates an edited or extended image given one or more source images and a prompt, using OpenAI's gpt-image-1 model.
 tip: |-
   This endpoint can take a mask image to enable inpainting but can also be used to combine context from multiple images into a single image.
