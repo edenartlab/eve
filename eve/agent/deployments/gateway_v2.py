@@ -1531,6 +1531,7 @@ async def lifespan(app: FastAPI):
 web_app = FastAPI(lifespan=lifespan)
 
 
+
 @app.function(
     image=image,
     min_containers=1,
