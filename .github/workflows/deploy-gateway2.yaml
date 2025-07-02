@@ -5,7 +5,7 @@ on:
     branches:
       - staging
     paths:
-      - "eve/eve/agent/deployments/gateway_v2.py"
+      - "eve/agent/deployments/gateway_v2.py"
 
 jobs:
   deploy-gateway:
