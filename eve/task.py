@@ -255,10 +255,10 @@ async def _task_handler(func, *args, **kwargs):
                     output["creation"] = new_creation.id
 
                     # increment creation count
-                    if task_args.get("lora"):
-                        model = Model.from_mongo(task_args.get("lora"))
-                        model.creationCount += 1
-                        model.save()
+                    # if task_args.get("lora"):
+                    #     model = Model.from_mongo(task_args.get("lora"))
+                    #     model.creationCount += 1
+                    #     model.save()
 
             results.extend([result])
 
