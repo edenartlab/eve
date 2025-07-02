@@ -3,7 +3,7 @@ description: Generate audio that matches given video content + prompt.
 tip: |-
   This tool synthesizes audio from video content, enabling video-to-audio generation. The tool is only suited to generate simple audio effects like footsteps, rain, knocking on door, wind blowing etc. 
   It cannot generate complicated sounds like speed or music. The main advantage of mmaudio is that the sound effects will be matched to the video and automatically timed correctly.
-cost_estimate: 0.25 * duration
+cost_estimate: 0.5 * duration
 output_type: video
 active: true
 visible: true
