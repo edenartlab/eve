@@ -45,6 +45,7 @@ class PlatformClient(ABC):
             {"_id": self.agent.id}, 
             {"$set": {"tools.social_media_tools": True}, "$currentDate": {"updatedAt": True}}
         )
+        self.agent.reload()
         
     def remove_tools(self) -> None:
         """Remove platform-specific tools from agent"""
