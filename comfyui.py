@@ -898,6 +898,14 @@ def test_workflows():
             "Reinitializing ComfyUI to check startup time after all files are downloaded..."
         )
         reinit_start = time.time()
+        
+        # Stop the existing ComfyUI server first
+        try:
+            comfyui._stop_server()
+        except Exception as e:
+            print(f"Warning: Error stopping existing server: {e}")
+        
+        # Create new instance and start
         comfyui = ComfyUI()
         try:
             comfyui._start()
@@ -1204,6 +1212,27 @@ class ComfyUI:
                     raise Exception(f"Failed to interrupt ComfyUI: {response.status}")
         except Exception as e:
             print(f"Error interrupting ComfyUI: {e}")
+            raise
+
+    def _stop_server(self):
+        """Stop the ComfyUI server by killing the process."""
+        try:
+            print("DEBUG: Stopping ComfyUI server...")
+            # Kill any existing ComfyUI processes
+            result = subprocess.run(
+                ["pkill", "-f", "main.py"], 
+                capture_output=True, 
+                text=True
+            )
+            if result.returncode == 0:
+                print("DEBUG: ComfyUI server process killed")
+            else:
+                print("DEBUG: No ComfyUI server process found to kill")
+            
+            # Wait a moment for the process to fully terminate
+            time.sleep(2)
+        except Exception as e:
+            print(f"Error stopping ComfyUI server: {e}")
             raise
 
     def _get_history(self, prompt_id):
