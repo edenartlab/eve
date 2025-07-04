@@ -1,7 +1,7 @@
 name: Veo-2
 description: Generate a video from a text prompt using Google Veo-2
 tip: Only use this tool if user specifically asks for Veo or requests a very high quality video.
-cost_estimate: 50 * duration * n_samples
+cost_estimate: 40 * duration * n_samples
 output_type: video
 active: true
 visible: true
@@ -12,6 +12,13 @@ parameters:
     type: string
     label: Prompt
     description: The text prompt for text-to-video generation. Required if no image is provided.
+    tip: |-
+      Detailed and specific instructions for what to generate, including content, style, and camera motion.
+      Some things you can specify:
+      - framing and camera, e.g. “eye level,” “dolly shot,”“single shot,” “two shot,” “over-the-shoulder shot”, “tracking shot.”
+      - Focus and lens effects, e.g. “shallow focus,” “macro lens,” “wide-angle lens”.
+      - Subject and style like “sci-fi,” “romantic comedy,” “action movie,” or “animation.”
+      - Context, e.g. “on a frozen rock wall,” “in the forest,”
   negative_prompt:
     type: string
     label: Negative prompt
