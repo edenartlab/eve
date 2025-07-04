@@ -95,6 +95,8 @@ async def handler(args: dict, user: str = None, agent: str = None):
             else:
                 video_tool = veo3
 
+    print("Tool selected", video_tool.key)
+
     # If there is no start image, generate one for any of the following reasons:
     # - Using Runway, because it requires one
     # - Lora is set, so we want to do img2vid with a lora-applied image instead of txt2vid
@@ -240,18 +242,13 @@ async def handler(args: dict, user: str = None, agent: str = None):
 
         args = {
             "prompt": f"{prompt}. {sound_effects}",
-            # "duration": duration,
+            "duration": duration,
             # "aspect_ratio": aspect_ratio,
         }
 
         # if start_image:
         #     args.update({
         #         "image": start_image,
-        #     })
-
-        # if end_image:
-        #     args.update({
-        #         "end_image": end_image,
         #     })
 
         if seed:
@@ -293,7 +290,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
 
 
     # If sound effects are requested, try to add them
-    if sound_effects and video_tool != "veo3":
+    if sound_effects and video_tool.key != "veo3":
         try:
             args = {
                 "prompt": sound_effects,
