@@ -173,4 +173,9 @@ def load_handler(name):
 
             handlers[name] = handler
 
+        elif name == "veo3":
+            from .google.veo3.handler import handler
+
+            handlers[name] = handler
+
     return handlers[name]
