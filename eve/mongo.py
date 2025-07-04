@@ -67,7 +67,7 @@ def Collection(name):
             if limit:
                 docs = docs.limit(limit)
             return [cls(**doc) for doc in docs]
-        
+
         @classmethod
         def find_one(cls, query):
             """Find one document matching the query"""
@@ -369,18 +369,12 @@ class MongoDocumentNotFound(Exception):
         super().__init__(self.message)
 
 
-
-
-
-
-
-
-
 ###################################
 
 from eve.base import VersionableBaseModel, generate_edit_model, recreate_base_model
 from typing import Annotated
 from pydantic.json_schema import SkipJsonSchema
+
 
 class VersionableDocument(Document, VersionableBaseModel):
     id: Annotated[ObjectId, Field(default_factory=ObjectId, alias="_id")]
@@ -424,8 +418,8 @@ class VersionableDocument(Document, VersionableBaseModel):
         versionable_data = {
             "id": document["_id"],
             "collection_name": collection_name,
-            "createdAt": document['createdAt'],
-            "updatedAt": document['updatedAt'],
+            "createdAt": document["createdAt"],
+            "updatedAt": document["updatedAt"],
             "schema": schema,
             "initial": initial,
             "current": current,
@@ -445,8 +439,8 @@ class VersionableDocument(Document, VersionableBaseModel):
                 document_id = document_id_["_id"]
 
         if document_id:
-            data['updatedAt'] = datetime.now(timezone.utc)
+            data["updatedAt"] = datetime.now(timezone.utc)
             collection.update_one({"_id": document_id}, {"$set": data}, upsert=True)
         else:
-            data['updatedAt'] = None
+            data["updatedAt"] = None
             collection.insert_one(data)

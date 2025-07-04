@@ -41,24 +41,20 @@ class PlatformClient(ABC):
 
     def add_tools(self) -> None:
         """Add platform-specific tools to agent"""
-        if not self.agent.tools:
-            self.agent.tools = {}
-            self.agent.add_base_tools = True
-
-        for tool_name, tool_config in self.TOOLS.items():
-            self.agent.tools[tool_name] = {
-                "parameters": {
-                    "agent": {"default": str(self.agent.id), "hide_from_agent": True}
-                }
-            }
-        self.agent.save()
-
+        self.agent.get_collection().update_one(
+            {"_id": self.agent.id}, 
+            {"$set": {"tools.social_media_tools": True}, "$currentDate": {"updatedAt": True}}
+        )
+        self.agent.reload()
+        
     def remove_tools(self) -> None:
         """Remove platform-specific tools from agent"""
-        if self.agent.tools:
-            for tool_name in self.TOOLS.keys():
-                self.agent.tools.pop(tool_name, None)
-            self.agent.save()
+        # self.agent.get_collection().update_one(
+        #     {"_id": self.agent.id}, 
+        #     {"$set": {"tools.social_media_tools": False}, "$currentDate": {"updatedAt": True}}
+        # )
+        ## Note: this is skipped for now because we don't want to remove the social media tools unless there are 0 deployments left
+        pass
 
     @abstractmethod
     async def interact(self, request: Request) -> None:

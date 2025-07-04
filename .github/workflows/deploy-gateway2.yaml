@@ -3,9 +3,9 @@ name: Deploy Discord Gateway
 on:
   push:
     branches:
-      - main
+      - staging
     paths:
-      - "eve/clients/discord/gateway.py"
+      - "eve/agent/deployments/gateway_v2.py"
 
 jobs:
   deploy-gateway:
@@ -49,4 +49,4 @@ jobs:
 
       - name: Deploy Discord Gateway to Modal
         working-directory: eve
-        run: rye run modal deploy ./eve/clients/discord/gateway.py
+        run: rye run modal deploy ./eve/agent/deployments/gateway_v2.py
