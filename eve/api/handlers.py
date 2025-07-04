@@ -3,9 +3,10 @@ import logging
 import os
 import time
 import uuid
+import openai
 from bson import ObjectId
 from typing import Dict, List, Optional
-from fastapi import BackgroundTasks, Request
+from fastapi import BackgroundTasks, Request, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 import aiohttp
 
@@ -45,6 +46,7 @@ from eve.api.api_requests import (
     AgentToolsUpdateRequest,
     AgentToolsDeleteRequest,
     UpdateDeploymentRequestV2,
+    TranscribeRequest,
 )
 from eve.api.helpers import (
     emit_update,
@@ -1217,3 +1219,45 @@ async def handle_v2_deployment_emission(request: DeploymentEmissionRequest):
         agent=agent, platform=deployment.platform, deployment=deployment
     )
     await client.handle_emission(request)
+
+
+@handle_errors
+async def handle_transcribe(file: UploadFile, request: TranscribeRequest):
+    """
+    Handle audio transcription using OpenAI API.
+    Receives an audio file upload and transcription parameters.
+    """
+    # Validate file type - updated to match OpenAI API specs and common MIME type variations
+    allowed_types = [
+        "audio/mpeg",  # mp3, mpeg
+        "audio/mp3",  # alternative MIME type for mp3
+        "audio/mp4",  # mp4
+        "audio/x-m4a",  # m4a (standard)
+        "audio/m4a",  # m4a (alternative MIME type)
+        "audio/wav",  # wav
+        "audio/webm",  # webm
+        "audio/mpga",  # mpga
+    ]
+    if file.content_type not in allowed_types:
+        raise APIError(
+            f"Unsupported file type: {file.content_type}. Supported types: {allowed_types}",
+            status_code=400,
+        )
+
+    try:
+        # Read the file content
+        contents = await file.read()
+
+        # Initialize OpenAI client
+        client = openai.AsyncOpenAI()
+
+        # Transcribe audio
+        transcription = await client.audio.transcriptions.create(
+            file=(file.filename, contents), model=request.model
+        )
+
+        return JSONResponse(content={"transcription": transcription.text})
+
+    except Exception as e:
+        logger.error(f"Error in transcription: {str(e)}")
+        raise APIError(f"Transcription failed: {str(e)}", status_code=500)

@@ -6,7 +6,7 @@ import modal
 import replicate
 import sentry_sdk
 from fastapi.responses import JSONResponse
-from fastapi import FastAPI, Depends, BackgroundTasks, Request
+from fastapi import FastAPI, Depends, BackgroundTasks, Request, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader, HTTPBearer
 from pathlib import Path
@@ -53,6 +53,7 @@ from eve.api.handlers import (
     handle_v2_deployment_update,
     handle_v2_deployment_delete,
     handle_v2_deployment_farcaster_neynar_webhook,
+    handle_transcribe,
 )
 from eve.api.api_requests import (
     CancelRequest,
@@ -70,6 +71,7 @@ from eve.api.api_requests import (
     AgentToolsUpdateRequest,
     AgentToolsDeleteRequest,
     UpdateDeploymentRequestV2,
+    TranscribeRequest,
 )
 from eve.api.helpers import pre_modal_setup, busy_state_dict
 
@@ -335,6 +337,20 @@ async def deployment_farcaster_neynar_webhook(request: Request):
 @web_app.post("/v2/deployments/emission")
 async def deployment_emission(request: DeploymentEmissionRequest):
     return await handle_v2_deployment_emission(request)
+
+
+@web_app.post("/transcribe")
+async def transcribe(
+    file: UploadFile = File(...),
+    user_id: str = Form(...),
+    model: str = Form("gpt-4o-mini-transcribe"),
+    _: dict = Depends(auth.authenticate_admin),
+):
+    request = TranscribeRequest(
+        user_id=user_id,
+        model=model
+    )
+    return await handle_transcribe(file, request)
 
 
 @web_app.exception_handler(RequestValidationError)

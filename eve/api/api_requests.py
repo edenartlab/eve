@@ -13,7 +13,6 @@ from eve.agent.session.models import (
     ClientType,
 )
 
-
 class TaskRequest(BaseModel):
     tool: str
     args: dict
@@ -192,3 +191,8 @@ class DeploymentEmissionRequest(BaseModel):
     result: Optional[Any] = None
     error: Optional[str] = None
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+class TranscribeRequest(BaseModel):
+    user_id: str
+    model: Optional[str] = "gpt-4o-mini-transcribe"
