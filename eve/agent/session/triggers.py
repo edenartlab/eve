@@ -7,7 +7,6 @@ import modal
 import modal.runner
 import sentry_sdk
 
-from eve.agent.session.trigger_fn import trigger_fn
 from eve.api.api_requests import CronSchedule
 from eve.api.errors import handle_errors
 
