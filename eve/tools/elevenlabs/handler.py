@@ -54,7 +54,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
             model="eleven_multilingual_v2"
         )
 
-    audio = eden_utils.exponential_backoff(
+    audio = await eden_utils.async_exponential_backoff(
         generate_with_params,
         max_attempts=args["max_attempts"],
         initial_delay=args["initial_delay"],

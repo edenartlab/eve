@@ -185,8 +185,6 @@ googleapis-common-protos==1.66.0
     # via google-api-core
     # via grpc-google-iam-v1
     # via grpcio-status
-greenlet==3.1.1
-    # via playwright
 grpc-google-iam-v1==0.13.1
     # via google-cloud-resource-manager
 grpcio==1.68.1
@@ -323,8 +321,6 @@ pillow==11.0.0
     # via eve
     # via imageio
     # via moviepy
-playwright==1.18.1
-    # via eve
 proglog==0.1.12
     # via moviepy
 propcache==0.2.1
@@ -383,7 +379,6 @@ pydub==0.25.1
     # via eve
 pyee==11.1.1
     # via ably
-    # via playwright
 pygments==2.18.0
     # via rich
 pyhumps==3.8.0
@@ -547,7 +542,6 @@ websockets==13.1
     # via ably
     # via elevenlabs
     # via google-genai
-    # via playwright
     # via web3
 wrapt==1.17.2
     # via langfuse
