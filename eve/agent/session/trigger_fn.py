@@ -60,7 +60,6 @@ async def trigger_fn():
             with sentry_sdk.configure_scope() as scope:
                 scope.set_tag("trigger_failure", True)
                 scope.set_tag("failure_stage", "lookup")
-            print(f"***debug*** Trigger lookup failed: {e}")
             sentry_sdk.capture_exception(e)
             raise
 
@@ -103,7 +102,6 @@ async def trigger_fn():
             with sentry_sdk.configure_scope() as scope:
                 scope.set_tag("trigger_failure", True)
                 scope.set_tag("failure_stage", "session_setup")
-            print(f"***debug*** Session setup failed: {e}")
             sentry_sdk.capture_exception(e)
             raise
 
@@ -121,7 +119,6 @@ async def trigger_fn():
             with sentry_sdk.configure_scope() as scope:
                 scope.set_tag("trigger_failure", True)
                 scope.set_tag("failure_stage", "prompt_session")
-            print(f"***debug*** Prompt session failed: {e}")
             sentry_sdk.capture_exception(e)
             raise
 
@@ -132,7 +129,6 @@ async def trigger_fn():
             with sentry_sdk.configure_scope() as scope:
                 scope.set_tag("trigger_failure", True)
                 scope.set_tag("failure_stage", "title_generation")
-            print(f"***debug*** Title generation failed: {e}")
             sentry_sdk.capture_exception(e)
             # Don't raise - title generation failure shouldn't stop the trigger
 
@@ -211,7 +207,6 @@ async def trigger_fn():
                 with sentry_sdk.configure_scope() as scope:
                     scope.set_tag("trigger_failure", True)
                     scope.set_tag("failure_stage", "posting")
-                print(f"***debug*** Posting instructions failed: {e}")
                 sentry_sdk.capture_exception(e)
                 raise
 
@@ -267,7 +262,6 @@ async def trigger_fn():
             with sentry_sdk.configure_scope() as scope:
                 scope.set_tag("trigger_failure", True)
                 scope.set_tag("failure_stage", "end_date_check")
-            print(f"***debug*** End date check/deletion failed: {e}")
             sentry_sdk.capture_exception(e)
             raise
 
@@ -276,7 +270,6 @@ async def trigger_fn():
         with sentry_sdk.configure_scope() as scope:
             scope.set_tag("trigger_failure", True)
             scope.set_tag("failure_stage", "general")
-        print(f"***debug*** Trigger {trigger_id} failed: {e}")
         sentry_sdk.capture_exception(e)
         raise
 
@@ -290,6 +283,5 @@ def trigger_fn_sync():
             scope.set_tag("trigger_failure", True)
             scope.set_tag("trigger_id", trigger_id)
             scope.set_tag("failure_stage", "sync_wrapper")
-        print(f"***debug*** Trigger sync wrapper failed for {trigger_id}: {e}")
         sentry_sdk.capture_exception(e)
         raise
