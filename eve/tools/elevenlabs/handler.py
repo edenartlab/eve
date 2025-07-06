@@ -39,7 +39,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
         else:
             raise ValueError(f"Voice ID {voice_id} not found, try another one (DEFAULT_VOICE: {DEFAULT_VOICE})")
     
-    def generate_with_params():
+    async def generate_with_params():
         return eleven.generate(
             text=args["text"],
             voice=Voice(
@@ -54,14 +54,16 @@ async def handler(args: dict, user: str = None, agent: str = None):
             model="eleven_multilingual_v2"
         )
 
-    audio = await eden_utils.async_exponential_backoff(
+    audio_generator = await eden_utils.async_exponential_backoff(
         generate_with_params,
         max_attempts=args["max_attempts"],
         initial_delay=args["initial_delay"],
     )
 
-    if isinstance(audio, Iterator):
-        audio = b"".join(audio)
+    if isinstance(audio_generator, Iterator):
+        audio = b"".join(audio_generator)
+    else:
+        audio = audio_generator
 
     # save to file
     audio_file = NamedTemporaryFile(delete=False)
@@ -165,8 +167,7 @@ def select_random_voice(
         ],
     )
 
-    #return voice_ids[selected_voice]
-    return selected_voice
+    return voice_ids[selected_voice]
 
 
 def get_voice_summary():

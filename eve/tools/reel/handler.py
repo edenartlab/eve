@@ -258,8 +258,8 @@ async def handler(args: dict, user: str = None, agent: str = None):
             raise Exception(f"Speech generation failed: {speech_audio['error']}")
         
         speech_audio_url = s3.get_full_url(speech_audio['output'][0]['filename'])
+        
         # download to temp file
-
         response = requests.get(speech_audio_url)
         speech_audio = BytesIO(response.content)
         speech_audio = AudioSegment.from_file(speech_audio, format="mp3")
