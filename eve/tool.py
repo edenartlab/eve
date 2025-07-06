@@ -93,7 +93,7 @@ class Tool(Document, ABC):
     def get_sub_class(cls, schema, from_yaml=False) -> type:
         """Lazy load tool classes only when needed"""
 
-        local_debug = True
+        local_debug = False
 
         handler = schema.get("handler")
         parent_tool = schema.get("parent_tool")

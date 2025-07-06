@@ -1,5 +1,5 @@
 import os
-import time
+import asyncio
 import requests
 import tempfile
 import mimetypes
@@ -26,6 +26,11 @@ async def veo_handler(args: dict, model: str):
         "auth_provider_x509_cert_url": os.environ["GCP_AUTH_PROVIDER_X509_CERT_URL"],
         "client_x509_cert_url": os.environ["GCP_CLIENT_X509_CERT_URL"]
     }
+
+    print("--------------------------------")
+    print("service_account_info", service_account_info)
+    print("os.environ", os.environ["GCP_PROJECT_ID"], os.environ["GCP_LOCATION"])
+    print("--------------------------------")
     
     credentials = service_account.Credentials.from_service_account_info(
         service_account_info,
@@ -38,6 +43,8 @@ async def veo_handler(args: dict, model: str):
         location=os.environ["GCP_LOCATION"],
         credentials=credentials,
     )
+
+    print("client", client)
 
     # ---- list models ----
     # for m in client.models.list(): print(m.name)
@@ -82,10 +89,12 @@ async def veo_handler(args: dict, model: str):
         **args_dict
     )
 
+    print("operation", operation)
+
 
     # ---- poll until done ----
     while not operation.done:
-        time.sleep(2)
+        await asyncio.sleep(2)
         operation = client.operations.get(operation)
 
 
