@@ -190,10 +190,6 @@ def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
     """
     Re-assembles messages from perspective of actor (assistant) and everyone else (user)
     """
-
-    for message in messages:
-        print("sender", message.sender, "role", message.role)
-
     messages = [
         message.as_assistant_message()
         if message.sender == actor_id
@@ -593,6 +589,7 @@ async def async_prompt_session(
     # Set up cancellation handling via Ably
     cancellation_event = asyncio.Event()
     ably_client = None
+    session_run_id = str(uuid.uuid4())
 
     try:
         from ably import AblyRealtime
@@ -618,6 +615,11 @@ async def async_prompt_session(
 
     async def prompt_session_generator():
         """Generator function that yields session updates and can be cancelled."""
+        active_requests = session.active_requests or []
+        active_requests.append(session_run_id)
+        session.active_requests = active_requests
+        session.save()
+
         yield SessionUpdate(
             type=UpdateType.START_PROMPT,
             agent={
@@ -628,6 +630,7 @@ async def async_prompt_session(
             }
             if actor
             else None,
+            session_run_id=session_run_id,
         )
 
         prompt_session_finished = False
@@ -761,7 +764,10 @@ async def async_prompt_session(
             if stop_reason == "stop":
                 prompt_session_finished = True
 
-        yield SessionUpdate(type=UpdateType.END_PROMPT)
+        yield SessionUpdate(
+            type=UpdateType.END_PROMPT,
+            session_run_id=session_run_id,
+        )
 
     try:
         # Run the prompt session generator, checking for cancellation
@@ -819,7 +825,6 @@ async def async_prompt_session(
             )
             cancel_message.save()
             session.messages.append(cancel_message.id)
-            session.save()
 
             # 3. Yield final updates
             yield SessionUpdate(
@@ -829,9 +834,15 @@ async def async_prompt_session(
 
         except Exception as e:
             print(f"Error during session cancellation cleanup: {e}")
-            yield SessionUpdate(type=UpdateType.END_PROMPT)
+            yield SessionUpdate(
+                type=UpdateType.END_PROMPT, session_run_id=session_run_id
+            )
 
     finally:
+        active_requests = session.active_requests or []
+        active_requests.remove(session_run_id)
+        session.active_requests = active_requests
+        session.save()
         # Clean up Ably subscription
         if ably_client:
             try:

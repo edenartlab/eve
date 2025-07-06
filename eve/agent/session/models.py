@@ -566,6 +566,7 @@ class SessionUpdate(BaseModel):
     error: Optional[str] = None
     update_config: Optional[SessionUpdateConfig] = None
     agent: Optional[Dict[str, Any]] = None
+    session_run_id: Optional[str] = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -665,6 +666,7 @@ class Session(Document):
     budget: SessionBudget = SessionBudget()
     platform: Optional[Literal["discord", "telegram", "twitter", "farcaster"]] = None
     trigger: Optional[ObjectId] = None
+    active_requests: Optional[List[str]] = []
 
 
 @dataclass
