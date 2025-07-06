@@ -2,8 +2,8 @@ import os
 import time
 import logging
 import requests
-import asyncio
 import tempfile
+import asyncio
 from ... import eden_utils
 
 
@@ -30,14 +30,16 @@ async def handler(args: dict, user: str = None, agent: str = None):
     session = Session(api_key=HEDRA_API_KEY)
 
     # Create temp files with appropriate extensions
-    temp_image = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
-    temp_audio = tempfile.NamedTemporaryFile(suffix='.mp3', delete=False)
-    
+    temp_image = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+    temp_audio = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
+
     try:
         # Download files using eden_utils
         image = eden_utils.download_file(args["image"], temp_image.name, overwrite=True)
-        audio_file = eden_utils.download_file(args["audio"], temp_audio.name, overwrite=True)
-        
+        audio_file = eden_utils.download_file(
+            args["audio"], temp_audio.name, overwrite=True
+        )
+
         logger.info("testing against %s", session.base_url)
         model_id = session.get("/models").json()[0]["id"]
         logger.info("got model id %s", model_id)
@@ -54,14 +56,18 @@ async def handler(args: dict, user: str = None, agent: str = None):
             )
         image_id = image_response.json()["id"]
         with open(image, "rb") as f:
-            session.post(f"/assets/{image_id}/upload", files={"file": f}).raise_for_status()
+            session.post(
+                f"/assets/{image_id}/upload", files={"file": f}
+            ).raise_for_status()
         logger.info("uploaded image %s", image_id)
 
         audio_id = session.post(
             "/assets", json={"name": os.path.basename(audio_file), "type": "audio"}
         ).json()["id"]
         with open(audio_file, "rb") as f:
-            session.post(f"/assets/{audio_id}/upload", files={"file": f}).raise_for_status()
+            session.post(
+                f"/assets/{audio_id}/upload", files={"file": f}
+            ).raise_for_status()
         logger.info("uploaded audio %s", audio_id)
 
         generation_request_data = {
@@ -85,18 +91,19 @@ async def handler(args: dict, user: str = None, agent: str = None):
         generation_response = session.post(
             "/generations", json=generation_request_data
         ).json()
-        logger.info(generation_response)
+        logger.info("***debug*** generation_response: %s", generation_response)
         generation_id = generation_response["id"]
         while True:
             status_response = session.get(f"/generations/{generation_id}/status").json()
-            logger.info("status response %s", status_response)
+            logger.info("***debug*** status response %s", status_response)
             status = status_response["status"]
 
             # --- Check for completion or error to break the loop ---
             if status in ["complete", "error"]:
                 break
 
-            time.sleep(5)
+            # Use async sleep to yield control back to the event loop
+            await asyncio.sleep(5)
 
         # --- Process final status (download or log error) ---
         if status == "complete" and status_response.get("url"):
@@ -104,7 +111,9 @@ async def handler(args: dict, user: str = None, agent: str = None):
             # Use asset_id for filename if available, otherwise use generation_id
             output_filename_base = status_response.get("asset_id", generation_id)
             output_filename = f"{output_filename_base}.mp4"
-            logger.info(f"Generation complete. Downloading video from {download_url} to {output_filename}")
+            logger.info(
+                f"***debug*** Generation complete. Downloading video from {download_url} to {output_filename}"
+            )
 
             # Use a fresh requests get, not the session, as the URL is likely presigned S3
             # with requests.get(download_url, stream=True) as r:
@@ -113,23 +122,29 @@ async def handler(args: dict, user: str = None, agent: str = None):
             #         for chunk in r.iter_content(chunk_size=8192):
             #             f.write(chunk)
             # logger.info(f"Successfully downloaded video to {output_filename}")
-            return {
-                "output": download_url
-            }
+            return {"output": download_url}
 
         elif status == "error":
-            logger.error(f"Video generation failed: {status_response.get('error_message', 'Unknown error')}")
-            raise Exception(f"Video generation failed: {status_response.get('error_message', 'Unknown error')}")
+            logger.error(
+                f"***debug*** Video generation failed: {status_response.get('error_message', 'Unknown error')}"
+            )
+            raise Exception(
+                f"Video generation failed: {status_response.get('error_message', 'Unknown error')}"
+            )
 
         else:
             # This case might happen if loop breaks unexpectedly or API changes
-            logger.warning(f"Video generation finished with status '{status}' but no download URL was found.")
-            raise Exception(f"Video generation finished with status '{status}' but no download URL was found.")
-    
+            logger.warning(
+                f"***debug*** Video generation finished with status '{status}' but no download URL was found."
+            )
+            raise Exception(
+                f"Video generation finished with status '{status}' but no download URL was found."
+            )
+
     except Exception as e:
-        logger.error(f"Error: {e}")
+        logger.error(f"***debug*** Error: {e}")
         raise e
-    
+
     finally:
         os.unlink(temp_image.name)
         os.unlink(temp_audio.name)

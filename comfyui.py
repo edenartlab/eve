@@ -302,29 +302,24 @@ def sync_final_state_to_volume():
     This captures any files downloaded during testing that aren't already in the volume.
     """
     print("Starting sync of final ComfyUI state to persistent volume...")
-    
+
     # Key directories that might contain downloaded files from testing
-    sync_paths = [
-        "models",
-        "custom_nodes", 
-        "output",
-        "input"
-    ]
-    
+    sync_paths = ["models", "custom_nodes", "output", "input"]
+
     volume_root = "/data/comfyui_root"
     os.makedirs(volume_root, exist_ok=True)
-    
+
     total_synced = 0
     for path in sync_paths:
         root_path = f"/root/{path}"
         volume_path = f"{volume_root}/{path}"
-        
+
         if not os.path.exists(root_path):
             print(f"Skipping {root_path} - does not exist")
             continue
-            
+
         print(f"Syncing {root_path} to {volume_path}...")
-        
+
         # Use rsync-like logic to sync only new/changed files
         if os.path.exists(volume_path):
             # Update existing directory
@@ -333,13 +328,15 @@ def sync_final_state_to_volume():
             # Copy entire directory for first time
             shutil.copytree(root_path, volume_path, dirs_exist_ok=True)
             synced_files = count_files_recursive(root_path)
-            
+
         total_synced += synced_files
         print(f"Synced {synced_files} files from {path}")
-    
+
     # Commit changes to volume
     downloads_vol.commit()
-    print(f"Successfully synced {total_synced} files to persistent volume and committed changes")
+    print(
+        f"Successfully synced {total_synced} files to persistent volume and committed changes"
+    )
 
 
 def sync_directory_changes(source_dir, dest_dir):
@@ -348,19 +345,19 @@ def sync_directory_changes(source_dir, dest_dir):
     Returns the number of files synced.
     """
     synced_count = 0
-    
+
     for root, dirs, files in os.walk(source_dir):
         # Calculate relative path from source root
         rel_path = os.path.relpath(root, source_dir)
-        dest_root = os.path.join(dest_dir, rel_path) if rel_path != '.' else dest_dir
-        
+        dest_root = os.path.join(dest_dir, rel_path) if rel_path != "." else dest_dir
+
         # Create destination directory if it doesn't exist
         os.makedirs(dest_root, exist_ok=True)
-        
+
         for file in files:
             source_file = os.path.join(root, file)
             dest_file = os.path.join(dest_root, file)
-            
+
             # Check if file needs to be synced (new or modified)
             should_sync = False
             if not os.path.exists(dest_file):
@@ -369,14 +366,16 @@ def sync_directory_changes(source_dir, dest_dir):
                 # Compare modification times and sizes
                 source_stat = os.stat(source_file)
                 dest_stat = os.stat(dest_file)
-                if (source_stat.st_mtime > dest_stat.st_mtime or 
-                    source_stat.st_size != dest_stat.st_size):
+                if (
+                    source_stat.st_mtime > dest_stat.st_mtime
+                    or source_stat.st_size != dest_stat.st_size
+                ):
                     should_sync = True
-            
+
             if should_sync:
                 shutil.copy2(source_file, dest_file)  # copy2 preserves metadata
                 synced_count += 1
-    
+
     return synced_count
 
 
@@ -394,40 +393,37 @@ def restore_state_from_volume():
     This is used when SKIP_TESTS=1 to populate /root with previously cached downloads.
     """
     print("Restoring ComfyUI state from persistent volume...")
-    
+
     volume_root = "/data/comfyui_root"
     if not os.path.exists(volume_root):
-        print("No cached state found in volume. This appears to be the first deployment.")
+        print(
+            "No cached state found in volume. This appears to be the first deployment."
+        )
         return
-    
+
     # Restore key directories
-    restore_paths = [
-        "models",
-        "custom_nodes",
-        "output", 
-        "input"
-    ]
-    
+    restore_paths = ["models", "custom_nodes", "output", "input"]
+
     total_restored = 0
     for path in restore_paths:
         volume_path = f"{volume_root}/{path}"
         root_path = f"/root/{path}"
-        
+
         if not os.path.exists(volume_path):
             print(f"Skipping {path} - no cached version found")
             continue
-            
+
         print(f"Restoring {path} from volume...")
-        
+
         # Remove existing directory and replace with cached version
         if os.path.exists(root_path):
             shutil.rmtree(root_path)
-            
+
         shutil.copytree(volume_path, root_path)
         restored_files = count_files_recursive(root_path)
         total_restored += restored_files
         print(f"Restored {restored_files} files to {path}")
-    
+
     print(f"Successfully restored {total_restored} files from persistent volume cache")
 
 
@@ -448,7 +444,9 @@ def download_files(force_redownload=False):
     downloaded_source_registry = {}
 
     for path_key, source_identifier in downloads.items():
-        comfy_path = pathlib.Path("/root") / path_key  # Target path in ComfyUI's view (e.g., /root/models/...)
+        comfy_path = (
+            pathlib.Path("/root") / path_key
+        )  # Target path in ComfyUI's view (e.g., /root/models/...)
         # persistent_vol_path is the path on /data IF this entry causes a download.
         # It's derived from path_key, implying a unique storage location per downloads.json key if downloaded directly by this entry.
         current_entry_persistent_vol_path = pathlib.Path("/data") / path_key
@@ -456,7 +454,9 @@ def download_files(force_redownload=False):
         # If comfy_path already exists (e.g., from a previous run) and we are not forcing a redownload for this entry,
         # we can skip processing it. The optimization is primarily for downloads within a single fresh run.
         if comfy_path.exists() and not force_redownload:
-            print(f"Comfy path {comfy_path} already exists and not forcing redownload, skipping processing for this entry.")
+            print(
+                f"Comfy path {comfy_path} already exists and not forcing redownload, skipping processing for this entry."
+            )
             # Note: If this comfy_path was for a URL that *will* appear again, and this skip prevents
             # populating downloaded_source_registry, the later occurrence might download it.
             # This is acceptable; the main goal is to avoid duplicate downloads for URLs processed *within the same run*.
@@ -465,50 +465,85 @@ def download_files(force_redownload=False):
 
         try:
             is_git_clone = source_identifier.startswith("git clone ")
-            actual_source_url = source_identifier[10:].strip() if is_git_clone else source_identifier
+            actual_source_url = (
+                source_identifier[10:].strip() if is_git_clone else source_identifier
+            )
 
             if actual_source_url in downloaded_source_registry:
                 # This source URL has already been processed (downloaded/cloned) in this run.
                 original_persistent_path = downloaded_source_registry[actual_source_url]
-                
-                print(f"Source '{actual_source_url}' already processed to persistent path '{original_persistent_path}'.")
+
+                print(
+                    f"Source '{actual_source_url}' already processed to persistent path '{original_persistent_path}'."
+                )
                 if force_redownload:
                     # The content at original_persistent_path should have been refreshed by its first encounter if force_redownload is true.
-                    print(f"Force_redownload is True; ensuring symlink from '{comfy_path}' to refreshed content at '{original_persistent_path}'.")
+                    print(
+                        f"Force_redownload is True; ensuring symlink from '{comfy_path}' to refreshed content at '{original_persistent_path}'."
+                    )
                 else:
-                    print(f"Creating symlink from '{comfy_path}' to '{original_persistent_path}'.")
-                
+                    print(
+                        f"Creating symlink from '{comfy_path}' to '{original_persistent_path}'."
+                    )
+
                 # Ensure the comfy_path for *this* entry symlinks to the one true persistent copy.
                 # Force symlink creation to overwrite existing file/symlink at comfy_path if necessary.
-                create_symlink(original_persistent_path, comfy_path, is_directory=original_persistent_path.is_dir(), force=True)
+                create_symlink(
+                    original_persistent_path,
+                    comfy_path,
+                    is_directory=original_persistent_path.is_dir(),
+                    force=True,
+                )
             else:
                 # This is the first time this actual_source_url is being processed in this run.
                 # It needs to be downloaded/cloned. It will be stored at current_entry_persistent_vol_path.
                 # This path then becomes the canonical persistent path for this actual_source_url in the registry.
-                print(f"Processing source '{actual_source_url}' for the first time in this run.")
-                print(f"It will be stored at persistent path: '{current_entry_persistent_vol_path}'.")
+                print(
+                    f"Processing source '{actual_source_url}' for the first time in this run."
+                )
+                print(
+                    f"It will be stored at persistent path: '{current_entry_persistent_vol_path}'."
+                )
                 print(f"ComfyUI path will be: '{comfy_path}'.")
 
                 if is_git_clone:
                     # handle_repo_download clones to current_entry_persistent_vol_path and symlinks comfy_path to it.
-                    handle_repo_download(actual_source_url, current_entry_persistent_vol_path, comfy_path, force=force_redownload)
+                    handle_repo_download(
+                        actual_source_url,
+                        current_entry_persistent_vol_path,
+                        comfy_path,
+                        force=force_redownload,
+                    )
                 else:
                     # handle_file_download downloads to current_entry_persistent_vol_path and symlinks comfy_path to it.
-                    handle_file_download(actual_source_url, current_entry_persistent_vol_path, comfy_path, force=force_redownload)
+                    handle_file_download(
+                        actual_source_url,
+                        current_entry_persistent_vol_path,
+                        comfy_path,
+                        force=force_redownload,
+                    )
 
                 # Register this source URL and its actual persistent storage path.
-                downloaded_source_registry[actual_source_url] = current_entry_persistent_vol_path
-                print(f"Registered '{actual_source_url}' to persistent path '{current_entry_persistent_vol_path}'.")
+                downloaded_source_registry[actual_source_url] = (
+                    current_entry_persistent_vol_path
+                )
+                print(
+                    f"Registered '{actual_source_url}' to persistent path '{current_entry_persistent_vol_path}'."
+                )
 
             # Final check: the comfy_path must exist after processing.
             if not comfy_path.exists():
                 # This could happen if create_symlink failed silently or handle_x_download didn't create the symlink.
-                raise Exception(f"ComfyUI path {comfy_path} was not found after processing source {source_identifier}. Expected it to be a symlink or file.")
+                raise Exception(
+                    f"ComfyUI path {comfy_path} was not found after processing source {source_identifier}. Expected it to be a symlink or file."
+                )
 
         except Exception as e:
             # Provide context for which item failed.
             detailed_error = traceback.format_exc()
-            raise Exception(f"Error processing download item with key '{path_key}' (source: '{source_identifier}'): {e}\nFull Traceback:\n{detailed_error}")
+            raise Exception(
+                f"Error processing download item with key '{path_key}' (source: '{source_identifier}'): {e}\nFull Traceback:\n{detailed_error}"
+            )
 
 
 def get_workflows():
@@ -539,7 +574,7 @@ def get_workflows():
         )
     else:
         print(f"====> Running tests for all workflows: {' | '.join(workflow_names)}")
-    
+
     # Then filter based on status if TEST_INACTIVE is not set
     if not os.getenv("TEST_INACTIVE"):
         filtered_names = []
@@ -585,7 +620,9 @@ def run_tests_or_restore():
     The behavior is controlled by the SKIP_TESTS environment variable.
     """
     if os.getenv("SKIP_TESTS"):
-        print("SKIP_TESTS is set - restoring cached state from volume instead of running tests")
+        print(
+            "SKIP_TESTS is set - restoring cached state from volume instead of running tests"
+        )
         restore_state_from_volume()
         print("Cached state restoration completed")
         return
@@ -977,12 +1014,23 @@ image = (
     )
     .run_function(install_comfyui)
     .run_function(install_custom_nodes, gpu="A100")
-    .pip_install("moviepy==1.0.3", "accelerate==1.4.0", "peft==0.14.0", "transformers==4.49.0", "flet==0.27.6", "safetensors==0.5.3", "imgui-bundle==1.6.3")
-    .run_function(download_files, volumes={"/data": downloads_vol}, secrets=[
+    .pip_install(
+        "moviepy==1.0.3",
+        "accelerate==1.4.0",
+        "peft==0.14.0",
+        "transformers==4.49.0",
+        "flet==0.27.6",
+        "safetensors==0.5.3",
+        "imgui-bundle==1.6.3",
+    )
+    .run_function(
+        download_files,
+        volumes={"/data": downloads_vol},
+        secrets=[
             modal.Secret.from_name("eve-secrets"),
             modal.Secret.from_name(f"eve-secrets-{db}"),
-            
-        ])
+        ],
+    )
     # Second copy of workflow files after downloads
     .add_local_dir(
         f"{root_workflows_folder}/workspaces/{workspace_name}",
@@ -1468,62 +1516,91 @@ class ComfyUI:
 
         # 1. Standard patterns first
         lora_pattern = re.compile(r".*_lora\.safetensors$")
-        lora_filename = next((f for f in extracted_files if lora_pattern.match(f)), None)
-        
-        embeddings_pattern = re.compile(r".*_embeddings\.safetensors$")
-        embeddings_filename = next((f for f in extracted_files if embeddings_pattern.match(f)), None)
+        lora_filename = next(
+            (f for f in extracted_files if lora_pattern.match(f)), None
+        )
 
-        if lora_filename: print(f"Found standard LoRA file: {lora_filename}")
-        if embeddings_filename: print(f"Found standard embeddings file: {embeddings_filename}")
+        embeddings_pattern = re.compile(r".*_embeddings\.safetensors$")
+        embeddings_filename = next(
+            (f for f in extracted_files if embeddings_pattern.match(f)), None
+        )
+
+        if lora_filename:
+            print(f"Found standard LoRA file: {lora_filename}")
+        if embeddings_filename:
+            print(f"Found standard embeddings file: {embeddings_filename}")
 
         # 2. Fallbacks for lora_filename if not found by standard pattern
         if not lora_filename:
-            print("Standard LoRA file pattern not matched. Trying fallbacks for LoRA file...")
+            print(
+                "Standard LoRA file pattern not matched. Trying fallbacks for LoRA file..."
+            )
             # Fallback 2a: General *.safetensors that isn't an embeddings file
             lora_filename = next(
                 (
                     f
                     for f in extracted_files
-                    if f.endswith(".safetensors") 
-                    and not embeddings_pattern.match(f) # Not a standard embedding
-                    and (not embeddings_filename or f != embeddings_filename) # Not the one already found as standard embedding
-                    and "embedding" not in f.lower() # General check against "embedding" in name
+                    if f.endswith(".safetensors")
+                    and not embeddings_pattern.match(f)  # Not a standard embedding
+                    and (
+                        not embeddings_filename or f != embeddings_filename
+                    )  # Not the one already found as standard embedding
+                    and "embedding"
+                    not in f.lower()  # General check against "embedding" in name
                     and "embeddings" not in f.lower()
                 ),
                 None,
             )
             if lora_filename:
-                print(f"Found LoRA file by general .safetensors fallback: {lora_filename}")
+                print(
+                    f"Found LoRA file by general .safetensors fallback: {lora_filename}"
+                )
             else:
                 # Fallback 2b: Specific 'lora.safetensors' for very old format
-                if 'lora.safetensors' in extracted_files:
-                    lora_filename = 'lora.safetensors'
-                    print(f"Found LoRA file by specific name 'lora.safetensors': {lora_filename}")
+                if "lora.safetensors" in extracted_files:
+                    lora_filename = "lora.safetensors"
+                    print(
+                        f"Found LoRA file by specific name 'lora.safetensors': {lora_filename}"
+                    )
 
         # 3. Fallbacks for embeddings_filename if not found by standard pattern
         if not embeddings_filename:
-            print("Standard embeddings file pattern not matched. Trying fallbacks for embeddings file...")
+            print(
+                "Standard embeddings file pattern not matched. Trying fallbacks for embeddings file..."
+            )
             # Fallback 3a: Specific 'embeddings.pti'
-            if 'embeddings.pti' in extracted_files:
-                embeddings_filename = 'embeddings.pti'
-                print(f"Found embeddings file by specific name 'embeddings.pti': {embeddings_filename}")
-            elif 'embedding.pti' in extracted_files: # Also check singular version
-                embeddings_filename = 'embedding.pti'
-                print(f"Found embeddings file by specific name 'embedding.pti': {embeddings_filename}")
+            if "embeddings.pti" in extracted_files:
+                embeddings_filename = "embeddings.pti"
+                print(
+                    f"Found embeddings file by specific name 'embeddings.pti': {embeddings_filename}"
+                )
+            elif "embedding.pti" in extracted_files:  # Also check singular version
+                embeddings_filename = "embedding.pti"
+                print(
+                    f"Found embeddings file by specific name 'embedding.pti': {embeddings_filename}"
+                )
             # Fallback 3b: (No generic .safetensors fallback for embeddings to avoid ambiguity with other files)
 
         # Convert .pti to .safetensors if necessary
-        if embeddings_filename and embeddings_filename.endswith('.pti'):
-            print(f"Found .pti embeddings file: {embeddings_filename}. Attempting conversion.")
-            base_embedding_name = embeddings_filename[:-4] # Remove .pti
+        if embeddings_filename and embeddings_filename.endswith(".pti"):
+            print(
+                f"Found .pti embeddings file: {embeddings_filename}. Attempting conversion."
+            )
+            base_embedding_name = embeddings_filename[:-4]  # Remove .pti
             converted_embeddings_filename = base_embedding_name + ".safetensors"
-            
-            input_pti_path = os.path.join(destination_folder, embeddings_filename)
-            output_safetensors_path = os.path.join(destination_folder, converted_embeddings_filename)
 
-            conversion_success = eden_utils.convert_pti_to_safetensors(input_pti_path, output_safetensors_path)
+            input_pti_path = os.path.join(destination_folder, embeddings_filename)
+            output_safetensors_path = os.path.join(
+                destination_folder, converted_embeddings_filename
+            )
+
+            conversion_success = eden_utils.convert_pti_to_safetensors(
+                input_pti_path, output_safetensors_path
+            )
             if conversion_success:
-                print(f"Successfully converted {embeddings_filename} to {converted_embeddings_filename}")
+                print(
+                    f"Successfully converted {embeddings_filename} to {converted_embeddings_filename}"
+                )
                 if converted_embeddings_filename not in extracted_files:
                     extracted_files.append(converted_embeddings_filename)
                 embeddings_filename = converted_embeddings_filename
@@ -1531,38 +1608,52 @@ class ComfyUI:
                 print(f"Conversion of {embeddings_filename} failed. Check logs.")
 
         # --- Determine lora_mode and embedding_trigger ---
-        training_args_filename = next((f for f in extracted_files if f == "training_args.json"), None)
+        training_args_filename = next(
+            (f for f in extracted_files if f == "training_args.json"), None
+        )
         lora_mode = "style"
         embedding_trigger = None
 
         if training_args_filename:
             print(f"Found training_args.json: {training_args_filename}")
-            with open(os.path.join(destination_folder, training_args_filename), "r") as f:
+            with open(
+                os.path.join(destination_folder, training_args_filename), "r"
+            ) as f:
                 training_args = json.load(f)
-                lora_mode = training_args.get("concept_mode", training_args.get("mode", "style"))
+                lora_mode = training_args.get(
+                    "concept_mode", training_args.get("mode", "style")
+                )
                 embedding_trigger = training_args.get("name")
                 if not embedding_trigger:
-                    print(f"Warning: 'name' for embedding_trigger not found in training_args.json. Will use archive name '{name}'.")
-                    embedding_trigger = name 
+                    print(
+                        f"Warning: 'name' for embedding_trigger not found in training_args.json. Will use archive name '{name}'."
+                    )
+                    embedding_trigger = name
         else:
             print("training_args.json not found.")
-            lora_mode = "style" # Default lora_mode if no training_args.json
-            embedding_trigger = name # Default trigger to archive name
-            print(f"Defaulting lora_mode to '{lora_mode}' and embedding_trigger to archive name '{embedding_trigger}' due to missing training_args.json.")
-
+            lora_mode = "style"  # Default lora_mode if no training_args.json
+            embedding_trigger = name  # Default trigger to archive name
+            print(
+                f"Defaulting lora_mode to '{lora_mode}' and embedding_trigger to archive name '{embedding_trigger}' due to missing training_args.json."
+            )
 
         # --- Final checks for file existence ---
         if not lora_filename:
             raise FileNotFoundError(
                 f"Unable to find a suitable LoRA file (e.g., *_lora.safetensors or lora.safetensors) in extracted files: {extracted_files}"
             )
-        
-        if lora_filename not in extracted_files : # Should not happen if logic above is correct
-             raise FileNotFoundError(f"LoRA file '{lora_filename}' was determined but not in extracted files: {extracted_files}")
 
+        if (
+            lora_filename not in extracted_files
+        ):  # Should not happen if logic above is correct
+            raise FileNotFoundError(
+                f"LoRA file '{lora_filename}' was determined but not in extracted files: {extracted_files}"
+            )
 
         if embeddings_filename and embeddings_filename not in extracted_files:
-             raise FileNotFoundError(f"Embeddings file '{embeddings_filename}' was determined but not in extracted files: {extracted_files}")
+            raise FileNotFoundError(
+                f"Embeddings file '{embeddings_filename}' was determined but not in extracted files: {extracted_files}"
+            )
 
         # If no embeddings file was found, but LoRA mode suggests it's needed (not 'style'), raise an error.
         if not embeddings_filename and lora_mode and lora_mode != "style":
@@ -1576,7 +1667,9 @@ class ComfyUI:
         if embeddings_filename:
             print(f"Using embeddings file: {embeddings_filename}")
         else:
-            print("No embeddings file will be used (e.g., for style LoRA or if not found and mode allows).")
+            print(
+                "No embeddings file will be used (e.g., for style LoRA or if not found and mode allows)."
+            )
         print(f"Embedding trigger: {embedding_trigger}")
 
         # --- File operations ---
@@ -1596,7 +1689,9 @@ class ComfyUI:
             embeddings_path = os.path.join(destination_folder, embeddings_filename)
             embeddings_copy_path = os.path.join(embeddings_folder, embeddings_filename)
             shutil.copy(embeddings_path, embeddings_copy_path)
-            print(f"Embeddings {embeddings_path} has been copied to {embeddings_copy_path}")
+            print(
+                f"Embeddings {embeddings_path} has been copied to {embeddings_copy_path}"
+            )
 
         return lora_filename, embeddings_filename, embedding_trigger, lora_mode
 
@@ -1773,7 +1868,11 @@ class ComfyUI:
             # if there's a lora, replace mentions with embedding name
             if key == "prompt":
                 if "flux" in base_model:
-                    if not (('subj_1' in value) and ('subj_2' in value) and (tool.key == "flux_double_character")): # Skip trigger injection 
+                    if not (
+                        ("subj_1" in value)
+                        and ("subj_2" in value)
+                        and (tool.key == "flux_double_character")
+                    ):  # Skip trigger injection
                         for lora_key in ["lora", "lora2"]:
                             if args.get(f"use_{lora_key}", False):
                                 lora_strength = args.get(f"{lora_key}_strength", 0.7)
@@ -1940,6 +2039,7 @@ class ComfyUI:
     min_containers=0,
     timeout=3600,
 )
+@modal.concurrent(max_inputs=10)
 class ComfyUIPremium(ComfyUI):
     pass
 
@@ -1949,7 +2049,7 @@ class ComfyUIPremium(ComfyUI):
     gpu=gpu,
     cpu=8.0,
     volumes={"/data": downloads_vol},
-    max_containers=10,
+    max_containers=1,
     scaledown_window=60,
     min_containers=0,
     timeout=3600,
@@ -1968,6 +2068,7 @@ class ComfyUIBasic(ComfyUI):
     min_containers=0,
     timeout=3600,
 )
+@modal.concurrent(max_inputs=10)
 class ComfyUITempleAbyss(ComfyUI):
     pass
 

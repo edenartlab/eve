@@ -23,7 +23,6 @@ from eve.agent.session.models import (
 )
 from eve.deploy import (
     Deployment as DeploymentV1,
-    DeploymentConfig as DeploymentConfigV1,
 )
 from eve.agent.session.session import run_prompt_session, run_prompt_session_stream
 from eve.agent.session.triggers import create_trigger_fn, stop_trigger

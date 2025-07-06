@@ -18,7 +18,7 @@ from ..tool_constants import (
     SDXL_LORA_TXT2IMG_TOOLS,
     OWNER_ONLY_TOOLS,
     AGENTIC_TOOLS,
-    TOOL_SETS
+    TOOL_SETS,
 )
 from ..mongo import Collection, get_collection
 from ..models import Model
@@ -60,6 +60,26 @@ class Suggestion(BaseModel):
     )
 
 
+class AgentPermissions(BaseModel):
+    """Permissions configuration for an agent."""
+
+    editors: Optional[List[ObjectId]] = Field(
+        None,
+        description="List of user IDs who can edit this agent (in addition to the owner)",
+    )
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+class AgentExtras(BaseModel):
+    """Additional configuration and metadata for an agent."""
+
+    permissions: Optional[AgentPermissions] = Field(
+        None,
+        description="Permissions configuration for the agent",
+    )
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
 @Collection("users3")
 class Agent(User):
     """
@@ -92,11 +112,12 @@ class Agent(User):
     models: Optional[List[Dict[str, Any]]] = None
     test_args: Optional[List[Dict[str, Any]]] = None
 
-    #tools: Optional[Dict[str, Dict]] = {}
+    # tools: Optional[Dict[str, Dict]] = {}
     tools: Optional[Dict[str, bool]] = {}
-    #add_base_tools: Optional[bool] = True
+    # add_base_tools: Optional[bool] = True
 
     owner_pays: Optional[bool] = False
+    agent_extras: Optional[AgentExtras] = None
 
     def __init__(self, **data):
         if isinstance(data.get("owner"), str):
@@ -176,10 +197,6 @@ class Agent(User):
         thread.save()
         return thread
 
-
-
-
-
     #########################################################
     # This works right now but needs a bit of cleanup
     #########################################################
@@ -187,9 +204,8 @@ class Agent(User):
     def _setup_tools(self):
         for set, set_tools in TOOL_SETS.items():
             if self.tools.get(set):
-                self.tools.pop(set, None) # replace category with set tools
+                self.tools.pop(set, None)  # replace category with set tools
                 self.tools.update({k: {} for k in set_tools})
-                
 
     @classmethod
     def _setup_tools_old(cls, schema: dict) -> dict:
@@ -198,9 +214,9 @@ class Agent(User):
         If a model (lora) is set, hardcode it into the tools.
         """
         tools = schema.get("tools") or {}
-        
+
         # if tools are set explicitly, start with them
-        #schema["tools"] = {k: v or {} for k, v in tools.items()}
+        # schema["tools"] = {k: v or {} for k, v in tools.items()}
 
         schema["tools"] = {}
         for set, set_tools in TOOL_SETS.items():
@@ -211,11 +227,10 @@ class Agent(User):
 
         return schema
 
-
     # Todo: can this just be done at setup time?
     def get_tools(self, cache=False, auth_user: str = None):
         from ..tool import Tool  # avoid circular import
-        
+
         tools = {}
         for k, v in self.tools.items():
             try:
@@ -240,9 +255,6 @@ class Agent(User):
 
         return tools
 
-
-
-
     # deprecated, just leaving for reference until above is cleaned up
     @classmethod
     def _setup_tools_old(cls, schema: dict) -> dict:
@@ -262,10 +274,7 @@ class Agent(User):
             )
 
         models = schema.get("models") or (
-            [{
-                "lora": schema.get("model"), 
-                "use_when": "This is your default model."
-            }]
+            [{"lora": schema.get("model"), "use_when": "This is your default model."}]
             if schema.get("model")
             else []
         )
@@ -293,21 +302,25 @@ class Agent(User):
                     "type": "flux-dev",
                     "models": flux_models,
                     "tools": [
-                        t for t in schema["tools"].keys() if t in FLUX_LORA_TXT2IMG_TOOLS
+                        t
+                        for t in schema["tools"].keys()
+                        if t in FLUX_LORA_TXT2IMG_TOOLS
                     ],
                 },
                 {
                     "type": "sdxl",
                     "models": sdxl_models,
                     "tools": [
-                        t for t in schema["tools"].keys() if t in SDXL_LORA_TXT2IMG_TOOLS
+                        t
+                        for t in schema["tools"].keys()
+                        if t in SDXL_LORA_TXT2IMG_TOOLS
                     ],
                 },
             ]
 
             for base_model in base_models:
                 model_list, tools_list = base_model["models"], base_model["tools"]
-                
+
                 if tools_list and model_list:
                     if len(model_list) == 1:
                         tip = f'Only use "{base_model["type"]}" models. Set the "lora" argument to the ID of the default lora (ID: {str(model_list[0]["lora"])}, Name: "{model_list[0]["doc"].name}", Description: "{model_list[0]["doc"].lora_trigger_text}"), if the following conditions are true: "{model_list[0]["use_when"]}"). If no lora is desired, leave this blank. If a different lora is desired, use its ID instead.'
@@ -338,7 +351,6 @@ class Agent(User):
                         )
 
         return schema
-
 
     def get_tools_old(self, cache=False, auth_user: str = None):
         global last_tools_update
