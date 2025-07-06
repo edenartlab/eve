@@ -67,6 +67,7 @@ class AgentPermissions(BaseModel):
         None,
         description="List of user IDs who can edit this agent (in addition to the owner)",
     )
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class AgentExtras(BaseModel):
@@ -76,6 +77,7 @@ class AgentExtras(BaseModel):
         None,
         description="Permissions configuration for the agent",
     )
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 @Collection("users3")
