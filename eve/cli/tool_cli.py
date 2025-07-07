@@ -24,8 +24,6 @@ api_tools_order = [
     "background_removal",
     "style_transfer",
     "storydiffusion",
-    "xhibit_vton",
-    "xhibit_remix",
     "beeple_ai",
     "txt2img_test",
     "sd3_txt2img",

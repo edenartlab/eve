@@ -9,7 +9,7 @@ OUTPUT_TYPES = Literal[
 ]
 
 HANDLERS = Literal[
-    "local", "modal", "comfyui", "comfyui_legacy", "replicate", "gcp", "fal"
+    "local", "modal", "comfyui", "replicate", "gcp", "fal"
 ]
 
 BASE_MODELS = Literal[

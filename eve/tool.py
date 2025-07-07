@@ -79,7 +79,7 @@ class Tool(Document, ABC):
             with open(api_file, "r") as f:
                 schema = yaml.safe_load(f)
 
-            if schema.get("handler") in ["comfyui", "comfyui_legacy"]:
+            if schema.get("handler") == "comfyui":
                 schema["workspace"] = schema.get("workspace") or api_file.split("/")[-4]
         else:
             # MongoDB path
@@ -127,10 +127,6 @@ class Tool(Document, ABC):
                 from .tools.comfyui_tool import ComfyUITool
 
                 _tool_classes[handler] = ComfyUITool
-            elif handler == "comfyui_legacy":
-                from .tools.comfyui_tool import ComfyUIToolLegacy
-
-                _tool_classes[handler] = ComfyUIToolLegacy
             elif handler == "replicate":
                 from .tools.replicate_tool import ReplicateTool
 
