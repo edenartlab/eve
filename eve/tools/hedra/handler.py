@@ -91,11 +91,9 @@ async def handler(args: dict, user: str = None, agent: str = None):
         generation_response = session.post(
             "/generations", json=generation_request_data
         ).json()
-        logger.info("***debug*** generation_response: %s", generation_response)
         generation_id = generation_response["id"]
         while True:
             status_response = session.get(f"/generations/{generation_id}/status").json()
-            logger.info("***debug*** status response %s", status_response)
             status = status_response["status"]
 
             # --- Check for completion or error to break the loop ---
@@ -111,9 +109,6 @@ async def handler(args: dict, user: str = None, agent: str = None):
             # Use asset_id for filename if available, otherwise use generation_id
             output_filename_base = status_response.get("asset_id", generation_id)
             output_filename = f"{output_filename_base}.mp4"
-            logger.info(
-                f"***debug*** Generation complete. Downloading video from {download_url} to {output_filename}"
-            )
 
             # Use a fresh requests get, not the session, as the URL is likely presigned S3
             # with requests.get(download_url, stream=True) as r:
@@ -125,24 +120,18 @@ async def handler(args: dict, user: str = None, agent: str = None):
             return {"output": download_url}
 
         elif status == "error":
-            logger.error(
-                f"***debug*** Video generation failed: {status_response.get('error_message', 'Unknown error')}"
-            )
             raise Exception(
                 f"Video generation failed: {status_response.get('error_message', 'Unknown error')}"
             )
 
         else:
             # This case might happen if loop breaks unexpectedly or API changes
-            logger.warning(
-                f"***debug*** Video generation finished with status '{status}' but no download URL was found."
-            )
             raise Exception(
                 f"Video generation finished with status '{status}' but no download URL was found."
             )
 
     except Exception as e:
-        logger.error(f"***debug*** Error: {e}")
+        logger.error(f"Error: {e}")
         raise e
 
     finally:

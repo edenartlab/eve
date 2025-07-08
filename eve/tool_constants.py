@@ -8,9 +8,7 @@ OUTPUT_TYPES = Literal[
     "boolean", "string", "integer", "float", "array", "image", "video", "audio", "lora"
 ]
 
-HANDLERS = Literal[
-    "local", "modal", "comfyui", "replicate", "gcp", "fal"
-]
+HANDLERS = Literal["local", "modal", "comfyui", "replicate", "gcp", "fal"]
 
 BASE_MODELS = Literal[
     "sd15",
@@ -62,7 +60,7 @@ ALL_TOOLS = [
     "zonos",
     "transcription",
     # editing
-    "media_editor",    
+    "media_editor",
     # search
     # "search_agents",
     # "search_models",
@@ -87,9 +85,25 @@ TOOL_SETS = {
     "create_audio": ["elevenlabs", "musicgen"],
     "vj_tools": ["texture_flow", "video_FX"],
     "news": ["news"],
-    "social_media_tools": ["tweet", "twitter_mentions", "twitter_search", "discord_search", "discord_post", "telegram_post"],
-    "legacy_tools": ["legacy_create", "legacy_interpolate", "legacy_controlnet", "legacy_real2real", "legacy_txt2vid"],
-    "all_tools": ALL_TOOLS
+    "social_media_tools": [
+        "tweet",
+        "twitter_mentions",
+        "twitter_search",
+        "discord_search",
+        "discord_post",
+        "telegram_post",
+        "farcaster_cast",
+        "farcaster_mentions",
+        "farcaster_search",
+    ],
+    "legacy_tools": [
+        "legacy_create",
+        "legacy_interpolate",
+        "legacy_controlnet",
+        "legacy_real2real",
+        "legacy_txt2vid",
+    ],
+    "all_tools": ALL_TOOLS,
 }
 
 
@@ -99,7 +113,7 @@ BASE_TOOLS = [
     "elevenlabs",
     "musicgen",
     "media_editor",
-    "news"
+    "news",
 ]
 
 BASE_TOOLS2 = [
@@ -107,17 +121,21 @@ BASE_TOOLS2 = [
     "create_video",
     "create_audio",
     "media_editor",
-
     "texture_flow",
     "video_FX",
 ]
-
 
 
 FLUX_LORA_TXT2IMG_TOOLS = ["flux_dev_lora", "flux_dev", "flux_schnell"]
 
 SDXL_LORA_TXT2IMG_TOOLS = ["txt2img"]
 
-OWNER_ONLY_TOOLS = ["tweet", "twitter_mentions", "twitter_search", "discord_search", "discord_post"]
+OWNER_ONLY_TOOLS = [
+    "tweet",
+    "twitter_mentions",
+    "twitter_search",
+    "discord_search",
+    "discord_post",
+]
 
 AGENTIC_TOOLS = OWNER_ONLY_TOOLS + ["reel"]

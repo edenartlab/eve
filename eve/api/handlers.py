@@ -1065,17 +1065,27 @@ async def handle_session_cancel(request: CancelSessionRequest):
         channel_name = f"{os.getenv('DB')}-session-cancel-{request.session_id}"
         channel = ably_client.channels.get(channel_name)
 
-        await channel.publish(
-            "cancel",
-            {
-                "session_id": request.session_id,
-                "user_id": request.user_id,
-                "timestamp": time.time(),
-            },
-        )
+        cancel_message = {
+            "session_id": request.session_id,
+            "user_id": request.user_id,
+            "timestamp": time.time(),
+        }
 
-        logger.info(f"Sent cancellation signal for session {request.session_id}")
-        return {"status": "cancel_signal_sent", "session_id": request.session_id}
+        # Include trace_id if provided for trace-specific cancellation
+        if request.trace_id:
+            cancel_message["trace_id"] = request.trace_id
+
+        await channel.publish("cancel", cancel_message)
+
+        logger.info(
+            f"Sent cancellation signal for session {request.session_id}"
+            + (f" trace {request.trace_id}" if request.trace_id else "")
+        )
+        return {
+            "status": "cancel_signal_sent",
+            "session_id": request.session_id,
+            "trace_id": request.trace_id,
+        }
 
     except Exception as e:
         logger.error(f"Error sending session cancel signal: {e}", exc_info=True)
