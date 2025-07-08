@@ -87,7 +87,7 @@ TOOL_SETS = {
     "create_audio": ["elevenlabs", "musicgen"],
     "vj_tools": ["texture_flow", "video_FX"],
     "news": ["news"],
-    "social_media": ["tweet", "twitter_mentions", "twitter_search", "discord_search", "discord_post", "telegram_post"],
+    "social_media_tools": ["tweet", "twitter_mentions", "twitter_search", "discord_search", "discord_post", "telegram_post"],
     "legacy_tools": ["legacy_create", "legacy_interpolate", "legacy_controlnet", "legacy_real2real", "legacy_txt2vid"],
     "all_tools": ALL_TOOLS
 }
