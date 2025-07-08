@@ -1,7 +1,7 @@
 """
 TODO:
- - no lora2 !!!
- - overager on text precision?
+ - incorporate lora2
+ - a bit too overeager on text precision?
  - when two loras and they are faces, use flux_double_character
  - when text_precision, lora, and no init_image, first use flux_dev_lora and then openai_image_edit or flux_kontext
  - face_swap, flux_inpainting, outpaint, remix_flux_schnell
@@ -21,6 +21,7 @@ from eve.models import Model
 
 
 async def handler(args: dict, user: str = None, agent: str = None):
+    # load tools
     flux_schnell = Tool.load("flux_schnell")
     flux_dev_lora = Tool.load("flux_dev_lora")
     flux_dev = Tool.load("flux_dev")
@@ -29,22 +30,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
     openai_image_edit = Tool.load("openai_image_edit")
     openai_image_generate = Tool.load("openai_image_generate")
 
-    args1 = {
-        # "prompt": "Banny sits in a park. Next to them there is a sign that reads 'Created a custom BytesIOWithName class: This extends BytesIO and adds a name attribute that the OpenAI API can use to detect the file format'",
-        "prompt": "Fix the text on the sign to say 'Created a custom BytesIOWithName class: This extends BytesIO and adds a name attribute that the OpenAI API can use to detect the file format'",
-        # "text_precision": True,
-        "init_image": "https://dtut5r9j4w7j4.cloudfront.net/bebda03b7d255adf8a60a5873e6506d361ad39f9824756e721e3da74b682b61d.png",
-        "lora": "67fa5bd1eeb0f51f6e8f3c0c"  # sdxl
-        # "lora": "6766760643808b38016c64ce",  # flux banny
-        # "lora2": "681ec3abc31f6ec3d96630bf"
-    }
-    args1 = {
-        "prompt": "Make an infographic about the history of the internet. Make it very detailed",
-        "text_precision": True,
-    }
-    # args = args1
-
-
+    # get args
     prompt = args["prompt"]
     n_samples = args.get("n_samples", 1)
     init_image = args.get("init_image", None)
@@ -369,7 +355,6 @@ async def handler(args: dict, user: str = None, agent: str = None):
     #########################################################
     # Final result
     assert "output" in result, "No output from image tool"
-    assert len(result["output"]) == 1, "Expected 1 output from image tool"
     assert "filename" in result["output"][0], "No filename in output from image tool"
     
     final_result = get_full_url(result["output"][0]["filename"])

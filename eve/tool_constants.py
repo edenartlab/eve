@@ -8,9 +8,7 @@ OUTPUT_TYPES = Literal[
     "boolean", "string", "integer", "float", "array", "image", "video", "audio", "lora"
 ]
 
-HANDLERS = Literal[
-    "local", "modal", "comfyui", "comfyui_legacy", "replicate", "gcp", "fal"
-]
+HANDLERS = Literal["local", "modal", "comfyui", "replicate", "gcp", "fal"]
 
 BASE_MODELS = Literal[
     "sd15",

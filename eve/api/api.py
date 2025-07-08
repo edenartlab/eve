@@ -25,7 +25,6 @@ from eve.task import task_handler_func, Task
 from eve.tool import Tool
 from eve.tools.tool_handlers import load_handler
 from eve.tools.replicate_tool import replicate_update_task
-from eve.tools.comfyui_tool import convert_tasks2_to_tasks3
 
 from eve.api.handlers import (
     handle_create,
@@ -80,21 +79,7 @@ logging.getLogger("ably").setLevel(logging.INFO if db != "PROD" else logging.WAR
 logger = logging.getLogger(__name__)
 
 
-def load_watch_thread():
-    watch_thread = threading.Thread(target=convert_tasks2_to_tasks3, daemon=True)
-    watch_thread.start()
-    return watch_thread
-
-
 # FastAPI setup
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    app.state.watch_thread = load_watch_thread()
-    try:
-        yield
-    finally:
-        if hasattr(app.state, "watch_thread"):
-            app.state.watch_thread.join(timeout=5)
 
 
 class SentryContextMiddleware(BaseHTTPMiddleware):
@@ -122,7 +107,7 @@ class SentryContextMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
-web_app = FastAPI(lifespan=lifespan)
+web_app = FastAPI()
 web_app.add_middleware(SentryContextMiddleware)
 web_app.add_middleware(
     CORSMiddleware,
