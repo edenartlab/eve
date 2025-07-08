@@ -87,7 +87,7 @@ TOOL_SETS = {
     "create_audio": ["elevenlabs", "musicgen"],
     "vj_tools": ["texture_flow", "video_FX"],
     "news": ["news"],
-    "social_media": [
+    "social_media_tools": [
         "tweet",
         "twitter_mentions",
         "twitter_search",

@@ -77,8 +77,6 @@ async def handler(args: dict, user: str = None, agent: str = None):
                 start_time = datetime.utcnow() - timedelta(hours=time_range_hours)
                 params["start_time"] = start_time.isoformat() + "Z"
 
-            print(f"***debug*** Searching with params: {params}")
-
             # Execute the search
             async with session.get(
                 search_url, headers=headers, params=params
@@ -86,7 +84,6 @@ async def handler(args: dict, user: str = None, agent: str = None):
                 if response.status == 200:
                     data = await response.json()
                     result_casts = data.get("result", {}).get("casts", [])
-                    print(f"***debug*** Found {len(result_casts)} casts")
 
                     results = []
                     for cast in result_casts:

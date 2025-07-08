@@ -74,19 +74,12 @@ async def handler(args: dict, user: str = None, agent: str = None):
                 "reverse": "true",  # Get latest mentions first (must be string)
             }
 
-            print(
-                f"***debug*** Searching mentions for FID {target_fid} (username: {target_username})"
-            )
-
             results = []
             async with session.get(
                 mentions_url, headers=headers, params=params
             ) as response:
                 if response.status == 200:
                     data = await response.json()
-                    print(
-                        f"***debug*** Found {len(data.get('messages', []))} mention messages"
-                    )
 
                     messages = data.get("messages", [])
 
@@ -105,22 +98,12 @@ async def handler(args: dict, user: str = None, agent: str = None):
                             cutoff_unix_timestamp - FARCASTER_EPOCH
                         )
 
-                        print(
-                            f"***debug*** Cutoff Unix timestamp: {cutoff_unix_timestamp}"
-                        )
-                        print(
-                            f"***debug*** Cutoff Farcaster timestamp: {cutoff_farcaster_timestamp}"
-                        )
-
                         # Debug: show some sample timestamps
                         if messages:
                             sample_timestamps = [
                                 msg.get("data", {}).get("timestamp", 0)
                                 for msg in messages[:3]
                             ]
-                            print(
-                                f"***debug*** Sample Farcaster timestamps: {sample_timestamps}"
-                            )
 
                         messages = [
                             msg
@@ -128,9 +111,6 @@ async def handler(args: dict, user: str = None, agent: str = None):
                             if msg.get("data", {}).get("timestamp", 0)
                             >= cutoff_farcaster_timestamp
                         ]
-                        print(
-                            f"***debug*** After time filtering: {len(messages)} messages"
-                        )
 
                     for message in messages:
                         cast_data = message.get("data", {}).get("castAddBody", {})
@@ -162,7 +142,6 @@ async def handler(args: dict, user: str = None, agent: str = None):
                         f"API request failed with status {response.status}: {error_text}"
                     )
 
-            print(f"***debug*** Returning {len(results)} mention results")
             return {"output": results}
 
     except Exception as e:
@@ -216,9 +195,6 @@ def format_hub_mention_result(message, target_username=None):
             else None,
         }
 
-        print(
-            f"***debug*** Formatted mention result: {result['hash'][:10]}... from FID {fid}"
-        )
         return result
 
     except Exception as e:
