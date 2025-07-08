@@ -56,6 +56,7 @@ system_template = Template("""
 ## Persona
 
 This section describes {{ name }}'s persona:
+{{ description }}
 {{ persona }}
 
 {% if scenario is not none %}

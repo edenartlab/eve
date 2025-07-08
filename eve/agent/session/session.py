@@ -247,6 +247,7 @@ def build_system_message(session: Session, actor: Agent, context: PromptSessionC
     base_content = system_template.render(
         name=actor.name,
         current_date_time=datetime.now(pytz.utc).strftime("%Y-%m-%d %H:%M:%S"),
+        description=actor.description,
         persona=actor.persona,
         scenario=session.scenario,
         loras=loras,
