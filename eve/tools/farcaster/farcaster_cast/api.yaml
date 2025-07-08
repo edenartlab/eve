@@ -18,6 +18,8 @@ parameters:
     type: array
     description: Optional array of URLs to embed in the cast (images, links, etc.)
     required: false
+    items:
+      type: string
   parent_hash:
     type: string
     description: Optional parent cast hash if replying to another cast

@@ -33,9 +33,8 @@ async def handler(args: dict, user: str = None, agent: str = None):
         result = client.post_cast(
             text=text, embeds=embeds if embeds else None, parent=parent
         )
-
         # Get cast URL
-        cast_hash = result.cast_hash
+        cast_hash = result.cast.hash
         user_info = client.get_me()
         cast_url = f"https://warpcast.com/{user_info.username}/{cast_hash}"
 
