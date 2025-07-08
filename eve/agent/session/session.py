@@ -721,6 +721,7 @@ async def async_prompt_session(
                     role="assistant",
                     content=content,
                     tool_calls=tool_calls,
+                    finish_reason=stop_reason,
                     observability=ChatMessageObservability(
                         session_id=llm_context.metadata.session_id,
                         trace_id=llm_context.metadata.trace_id,
@@ -737,6 +738,7 @@ async def async_prompt_session(
                     role="assistant",
                     content=response.content,
                     tool_calls=response.tool_calls,
+                    finish_reason=response.stop,
                     observability=ChatMessageObservability(
                         session_id=llm_context.metadata.session_id,
                         trace_id=llm_context.metadata.trace_id,

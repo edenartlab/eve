@@ -205,6 +205,7 @@ class ChatMessage(Document):
     cost: Optional[float] = None  # ???
 
     observability: Optional[ChatMessageObservability] = None
+    finish_reason: Optional[str] = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
