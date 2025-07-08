@@ -246,7 +246,10 @@ def add_user_message(session: Session, context: PromptSessionContext):
 
 
 async def build_llm_context(
-    session: Session, actor: Agent, context: PromptSessionContext
+    session: Session,
+    actor: Agent,
+    context: PromptSessionContext,
+    trace_id: Optional[str] = None,
 ):
     tools = actor.get_tools(cache=True, auth_user=context.initiating_user_id)
 
@@ -291,7 +294,7 @@ async def build_llm_context(
             # for observability purposes. not same as session.id
             session_id=f"{os.getenv('DB')}-{str(context.session.id)}",
             trace_name="prompt_session",
-            trace_id=str(uuid.uuid4()),
+            trace_id=trace_id,  # trace_id represents the entire prompt session
             generation_name="prompt_session",
             trace_metadata=LLMTraceMetadata(
                 user_id=str(context.initiating_user_id)
@@ -495,11 +498,6 @@ async def process_tool_call(
                     "cost", 0
                 )
                 assistant_message.tool_calls[tool_call_index].task = result.get("task")
-                assistant_message.observability = ChatMessageObservability(
-                    session_id=llm_context.metadata.session_id,
-                    trace_id=llm_context.metadata.trace_id,
-                    tokens_spent=0,
-                )
                 assistant_message.save()
 
             update_session_budget(session, manna_spent=result.get("cost", 0))
@@ -585,11 +583,11 @@ async def async_prompt_session(
     actor: Agent,
     stream: bool = False,
     is_client_platform: bool = False,
+    session_run_id: Optional[str] = None,
 ):
     # Set up cancellation handling via Ably
     cancellation_event = asyncio.Event()
     ably_client = None
-    session_run_id = str(uuid.uuid4())
 
     try:
         from ably import AblyRealtime
@@ -603,7 +601,12 @@ async def async_prompt_session(
             try:
                 data = message.data
                 if isinstance(data, dict) and data.get("session_id") == str(session.id):
-                    cancellation_event.set()
+                    # Check if this is a trace-specific cancellation
+                    cancel_trace_id = data.get("trace_id")
+                    if cancel_trace_id is None or cancel_trace_id == session_run_id:
+                        # Cancel if no specific trace_id is provided (cancel all)
+                        # or if the trace_id matches this session_run_id
+                        cancellation_event.set()
             except Exception as e:
                 print(f"Error in cancellation handler: {e}")
 
@@ -640,6 +643,9 @@ async def async_prompt_session(
             # Check for cancellation before each iteration
             if cancellation_event.is_set():
                 raise SessionCancelledException("Session cancelled by user")
+
+            # Generate new generation_id for this LLM call
+            llm_context.metadata.generation_id = str(uuid.uuid4())
 
             if stream:
                 # For streaming, we need to collect the content as it comes in
@@ -718,6 +724,7 @@ async def async_prompt_session(
                     observability=ChatMessageObservability(
                         session_id=llm_context.metadata.session_id,
                         trace_id=llm_context.metadata.trace_id,
+                        generation_id=llm_context.metadata.generation_id,
                         tokens_spent=tokens_spent,
                     ),
                 )
@@ -733,6 +740,7 @@ async def async_prompt_session(
                     observability=ChatMessageObservability(
                         session_id=llm_context.metadata.session_id,
                         trace_id=llm_context.metadata.trace_id,
+                        generation_id=llm_context.metadata.generation_id,
                         tokens_spent=response.tokens_spent,
                     ),
                 )
@@ -902,29 +910,40 @@ async def _run_prompt_session_internal(
     if not actors:
         return
 
+    # Generate session run ID for this prompt session
+    session_run_id = str(uuid.uuid4())
+
     # For single actor, maintain backwards compatibility
     if len(actors) == 1:
         actor = actors[0]
-        llm_context = await build_llm_context(session, actor, context)
+        llm_context = await build_llm_context(
+            session, actor, context, trace_id=session_run_id
+        )
         async for update in async_prompt_session(
             session,
             llm_context,
             actor,
             stream=stream,
             is_client_platform=is_client_platform,
+            session_run_id=session_run_id,
         ):
             yield format_session_update(update, context)
     else:
         # Multiple actors - run them in parallel
         async def run_actor_session(actor: Agent):
             actor_updates = []
-            llm_context = await build_llm_context(session, actor, context)
+            # Each actor gets its own generation ID
+            actor_session_run_id = str(uuid.uuid4())
+            llm_context = await build_llm_context(
+                session, actor, context, trace_id=actor_session_run_id
+            )
             async for update in async_prompt_session(
                 session,
                 llm_context,
                 actor,
                 stream=stream,
                 is_client_platform=is_client_platform,
+                session_run_id=actor_session_run_id,
             ):
                 actor_updates.append(format_session_update(update, context))
             return actor_updates

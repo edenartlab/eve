@@ -29,6 +29,7 @@ class CancelRequest(BaseModel):
 class CancelSessionRequest(BaseModel):
     session_id: str
     user_id: str
+    trace_id: Optional[str] = None
 
 
 class UpdateConfig(BaseModel):
@@ -107,7 +108,9 @@ class AllowedChannel(BaseModel):
 
 class PostingInstructions(BaseModel):
     session_id: Optional[str] = None
-    post_to: Optional[Literal['same', 'another', 'discord', 'telegram', 'x', 'farcaster']] = None
+    post_to: Optional[
+        Literal["same", "another", "discord", "telegram", "x", "farcaster"]
+    ] = None
     channel_id: Optional[str] = None
     custom_instructions: Optional[str] = None
 
@@ -119,7 +122,7 @@ class CreateTriggerRequest(BaseModel):
     posting_instructions: Optional[PostingInstructions] = None
     schedule: CronSchedule
     update_config: Optional[UpdateConfig] = None
-    session_type: Literal['new', 'another'] = 'new'
+    session_type: Literal["new", "another"] = "new"
     session: Optional[str] = None
 
 

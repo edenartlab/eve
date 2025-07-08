@@ -171,6 +171,7 @@ class ChatMessageObservability(BaseModel):
     provider: Literal["langfuse"] = "langfuse"
     session_id: Optional[str] = None
     trace_id: Optional[str] = None
+    generation_id: Optional[str] = None
     tokens_spent: Optional[int] = None
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -584,6 +585,7 @@ class LLMContextMetadata(BaseModel):
     trace_id: Optional[str] = None
     trace_name: Optional[str] = None
     generation_name: Optional[str] = None
+    generation_id: Optional[str] = None
     trace_metadata: Optional[LLMTraceMetadata] = None
     model_config = ConfigDict(arbitrary_types_allowed=True)
 

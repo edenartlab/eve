@@ -3,7 +3,6 @@ import os
 
 from eve.agent.thread import ChatMessage
 
-logging.getLogger("LiteLLM").setLevel(logging.WARNING)
 
 import json
 from litellm import completion
@@ -18,6 +17,8 @@ from eve.agent.session.models import (
     LLMTraceMetadata,
     ToolCall,
 )
+
+logging.getLogger("LiteLLM").setLevel(logging.WARNING)
 
 
 if os.getenv("LANGFUSE_TRACING_ENVIRONMENT"):
@@ -75,6 +76,7 @@ def construct_observability_metadata(context: LLMContext):
         "trace_id": context.metadata.trace_id,
         "trace_name": context.metadata.trace_name,
         "generation_name": context.metadata.generation_name,
+        "generation_id": context.metadata.generation_id,
     }
     if context.metadata.trace_metadata:
         metadata["trace_metadata"] = context.metadata.trace_metadata.model_dump()
