@@ -121,6 +121,8 @@ def load_handler(name):
         elif name == "farcaster_mentions":
             from .farcaster.farcaster_mentions.handler import handler
 
+            handlers[name] = handler
+
         elif name == "farcaster_search":
             from .farcaster.farcaster_search.handler import handler
 

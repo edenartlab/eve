@@ -36,7 +36,7 @@ parameters:
     required: false
   time_range_hours:
     type: integer
-    description: Only return mentions from the last N hours (default 24)
+    description: Only return mentions from the last N hours (default 24, set to 0 to disable time filtering)
     required: false
   agent:
     type: string

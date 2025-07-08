@@ -48,7 +48,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
                 if target_username.isdigit():
                     target_fid = int(target_username)
                 else:
-                    # Search for user by username
+                    # Search for user by username using v2 API
                     user_search_url = f"https://api.neynar.com/v2/farcaster/user/search"
                     user_params = {"q": target_username, "limit": 1}
 
@@ -66,16 +66,17 @@ async def handler(args: dict, user: str = None, agent: str = None):
                         if not target_fid:
                             raise Exception(f"Could not find user: {target_username}")
 
-            # Search for mentions using Neynar's mentions endpoint
-            mentions_url = f"https://api.neynar.com/v2/farcaster/mentions-and-replies"
+            # Use Neynar Hub API for mentions
+            mentions_url = "https://hub-api.neynar.com/v1/castsByMention"
             params = {
                 "fid": target_fid,
-                "limit": limit,
+                "pageSize": limit,
+                "reverse": "true",  # Get latest mentions first (must be string)
             }
 
-            if time_range_hours:
-                start_time = datetime.utcnow() - timedelta(hours=time_range_hours)
-                params["start_time"] = start_time.isoformat() + "Z"
+            print(
+                f"***debug*** Searching mentions for FID {target_fid} (username: {target_username})"
+            )
 
             results = []
             async with session.get(
@@ -83,100 +84,143 @@ async def handler(args: dict, user: str = None, agent: str = None):
             ) as response:
                 if response.status == 200:
                     data = await response.json()
-                    notifications = data.get("notifications", [])
+                    print(
+                        f"***debug*** Found {len(data.get('messages', []))} mention messages"
+                    )
 
-                    for notification in notifications:
-                        cast = notification.get("cast")
-                        if not cast:
+                    messages = data.get("messages", [])
+
+                    # Filter by time range if specified (skip if 0 or None)
+                    if time_range_hours and time_range_hours > 0:
+                        # Farcaster epoch: January 1, 2021 00:00:00 UTC
+                        FARCASTER_EPOCH = 1609459200
+
+                        cutoff_unix_timestamp = int(
+                            (
+                                datetime.utcnow() - timedelta(hours=time_range_hours)
+                            ).timestamp()
+                        )
+                        # Convert to Farcaster timestamp for comparison
+                        cutoff_farcaster_timestamp = (
+                            cutoff_unix_timestamp - FARCASTER_EPOCH
+                        )
+
+                        print(
+                            f"***debug*** Cutoff Unix timestamp: {cutoff_unix_timestamp}"
+                        )
+                        print(
+                            f"***debug*** Cutoff Farcaster timestamp: {cutoff_farcaster_timestamp}"
+                        )
+
+                        # Debug: show some sample timestamps
+                        if messages:
+                            sample_timestamps = [
+                                msg.get("data", {}).get("timestamp", 0)
+                                for msg in messages[:3]
+                            ]
+                            print(
+                                f"***debug*** Sample Farcaster timestamps: {sample_timestamps}"
+                            )
+
+                        messages = [
+                            msg
+                            for msg in messages
+                            if msg.get("data", {}).get("timestamp", 0)
+                            >= cutoff_farcaster_timestamp
+                        ]
+                        print(
+                            f"***debug*** After time filtering: {len(messages)} messages"
+                        )
+
+                    for message in messages:
+                        cast_data = message.get("data", {}).get("castAddBody", {})
+                        if not cast_data:
                             continue
 
+                        cast_text = cast_data.get("text", "")
+
                         # Filter by additional query if provided
-                        cast_text = cast.get("text", "").lower()
                         if (
                             additional_query
-                            and additional_query.lower() not in cast_text
+                            and additional_query.lower() not in cast_text.lower()
                         ):
                             continue
 
-                        # Check if this is actually a mention (not just a reply)
-                        mentioned_profiles = cast.get("mentioned_profiles", [])
-                        is_mention = any(
-                            profile.get("fid") == target_fid
-                            for profile in mentioned_profiles
-                        )
+                        # Verify this message actually mentions our target FID
+                        mentions = cast_data.get("mentions", [])
+                        if target_fid not in mentions:
+                            continue
 
-                        if is_mention or f"@{target_username}" in cast_text:
-                            results.append(
-                                format_mention_result(
-                                    cast, notification, target_username
-                                )
-                            )
+                        # Format the result
+                        result = format_hub_mention_result(message, target_username)
+                        if result:
+                            results.append(result)
 
-                elif response.status == 404:
-                    # Try alternative approach using search
-                    search_query = f"@{target_username}"
-                    if additional_query:
-                        search_query += f" {additional_query}"
-
-                    search_url = "https://api.neynar.com/v2/farcaster/cast/search"
-                    search_params = {
-                        "q": search_query,
-                        "limit": limit,
-                    }
-
-                    if time_range_hours:
-                        start_time = datetime.utcnow() - timedelta(
-                            hours=time_range_hours
-                        )
-                        search_params["start_time"] = start_time.isoformat() + "Z"
-
-                    async with session.get(
-                        search_url, headers=headers, params=search_params
-                    ) as search_response:
-                        if search_response.status == 200:
-                            search_data = await search_response.json()
-                            for cast in search_data.get("casts", []):
-                                # Verify this is actually a mention
-                                cast_text = cast.get("text", "").lower()
-                                if f"@{target_username.lower()}" in cast_text:
-                                    results.append(
-                                        format_mention_result(
-                                            cast, None, target_username
-                                        )
-                                    )
                 else:
-                    raise Exception(f"API request failed with status {response.status}")
+                    error_text = await response.text()
+                    raise Exception(
+                        f"API request failed with status {response.status}: {error_text}"
+                    )
 
+            print(f"***debug*** Returning {len(results)} mention results")
             return {"output": results}
 
     except Exception as e:
         raise Exception(f"Failed to find Farcaster mentions: {str(e)}")
 
 
-def format_mention_result(cast, notification=None, target_username=None):
-    """Format a mention result from Neynar API into our standard format"""
-    author = cast.get("author", {})
+def format_hub_mention_result(message, target_username=None):
+    """Format a mention result from Neynar Hub API into our standard format"""
+    try:
+        data = message.get("data", {})
+        cast_data = data.get("castAddBody", {})
 
-    result = {
-        "hash": cast.get("hash"),
-        "text": cast.get("text", ""),
-        "author_username": author.get("username"),
-        "author_display_name": author.get("display_name"),
-        "author_fid": author.get("fid"),
-        "timestamp": cast.get("timestamp"),
-        "replies_count": cast.get("replies", {}).get("count", 0),
-        "likes_count": cast.get("reactions", {}).get("likes_count", 0),
-        "recasts_count": cast.get("reactions", {}).get("recasts_count", 0),
-        "url": f"https://warpcast.com/{author.get('username')}/{cast.get('hash')[:10]}",
-        "embeds": [
-            embed.get("url") for embed in cast.get("embeds", []) if embed.get("url")
-        ],
-        "channel": cast.get("channel", {}).get("id") if cast.get("channel") else None,
-        "mentioned_user": target_username,
-    }
+        if not cast_data:
+            return None
 
-    # Add notification type if available
-    if notification:
-        result["notification_type"] = notification.get("type")
+        # Extract basic cast info
+        text = cast_data.get("text", "")
+        timestamp = data.get("timestamp", 0)
+        fid = data.get("fid", 0)
+        cast_hash = message.get("hash", "")
 
-    return result
+        # Convert Farcaster timestamp to Unix timestamp, then to ISO format
+        if isinstance(timestamp, int) and timestamp > 0:
+            # Farcaster epoch: January 1, 2021 00:00:00 UTC
+            FARCASTER_EPOCH = 1609459200
+            unix_timestamp = timestamp + FARCASTER_EPOCH
+            formatted_timestamp = (
+                datetime.fromtimestamp(unix_timestamp).isoformat() + "Z"
+            )
+        else:
+            formatted_timestamp = datetime.utcnow().isoformat() + "Z"
+
+        # Extract embeds - Hub API embeds are structured differently
+        embeds = []
+        for embed in cast_data.get("embeds", []):
+            if "url" in embed:
+                embeds.append(embed["url"])
+
+        # Create result with available data
+        result = {
+            "hash": cast_hash,
+            "text": text,
+            "author_fid": fid,
+            "timestamp": formatted_timestamp,
+            "url": f"https://warpcast.com/~/conversations/{cast_hash}",
+            "embeds": embeds,
+            "mentioned_user": target_username,
+            "raw_farcaster_timestamp": timestamp,
+            "raw_unix_timestamp": unix_timestamp
+            if isinstance(timestamp, int) and timestamp > 0
+            else None,
+        }
+
+        print(
+            f"***debug*** Formatted mention result: {result['hash'][:10]}... from FID {fid}"
+        )
+        return result
+
+    except Exception as e:
+        print(f"***debug*** Error formatting mention result: {str(e)}")
+        return None
