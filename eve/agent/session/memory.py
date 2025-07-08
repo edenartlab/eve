@@ -19,6 +19,15 @@ from eve.mongo import Collection, Document
 from eve.agent.session.session_llm import async_prompt, LLMContext, LLMConfig
 from eve.agent.session.models import ChatMessage, Session
 
+# Memory formation settings:
+MEMORY_FORMATION_INTERVAL = 4 # Number of messages to wait before forming memories
+MEMORY_LLM_MODEL = "gpt-4o-mini"
+
+# Memory context assembly settings:
+DEFAULT_MEMORY_TOKEN_BUDGET = 5000      # Default max tokens for memory context
+DIRECTIVE_TOKEN_BUDGET_RATIO = 0.5      # Ratio of token budget for directives
+SESSION_MESSAGES_LOOKBACK_LIMIT = 1000  # Max messages to look back in a session
+MEMORY_SOURCE_CONTENT_TRUNCATION = 500    # Max characters for source message content display
 
 class MemoryType(Enum):
     EPISODE = "episode"      # Conversation summaries and notable moments
@@ -86,7 +95,7 @@ async def process_memory_formation(
     print(f"Processing memory formation for Session {session_id} with {len(session_messages)} messages")
     
     # Use interval for recent messages to process (4 messages)
-    interval = 4
+    interval = MEMORY_FORMATION_INTERVAL
     start_idx = max(0, len(session_messages) - interval)
     recent_messages = session_messages[start_idx:]
     
@@ -181,7 +190,7 @@ CRITICAL REQUIREMENTS:
     # Use LLM to extract memories
     context = LLMContext(
         messages=[ChatMessage(role="user", content=memory_extraction_prompt)],
-        config=LLMConfig(model="gpt-4o-mini")
+        config=LLMConfig(model=MEMORY_LLM_MODEL)
     )
     
     response = await async_prompt(context)
@@ -335,7 +344,7 @@ def assemble_memory_context(agent_id: ObjectId, token_budget: Optional[int] = No
     import time
     
     if token_budget is None:
-        token_budget = 5000  # Default max memory tokens
+        token_budget = DEFAULT_MEMORY_TOKEN_BUDGET  # Default max memory tokens
     
     start_time = time.time()
     print(f"🧠 MEMORY ASSEMBLY PROFILING - Agent: {agent_id}")
@@ -343,8 +352,8 @@ def assemble_memory_context(agent_id: ObjectId, token_budget: Optional[int] = No
     print(f"   Token Budget: {token_budget}")
     
     # Allocate token budget across memory types
-    directive_budget = int(token_budget * 0.5)  # 50% for directives
-    fact_episode_budget = int(token_budget * 0.5)  # 50% for facts and episodes combined
+    directive_budget = int(token_budget * DIRECTIVE_TOKEN_BUDGET_RATIO)  # 50% for directives
+    fact_episode_budget = token_budget - directive_budget  # Remainder for facts and episodes
     
     # Step 1: Database query timing
     query_start = time.time()
@@ -519,7 +528,7 @@ def get_memory_source_context(
                     "id": str(msg.id),
                     "role": msg.role,
                     "name": msg.name,
-                    "content": msg.content[:500] + "..." if len(msg.content) > 500 else msg.content,
+                    "content": msg.content[:MEMORY_SOURCE_CONTENT_TRUNCATION] + "..." if len(msg.content) > MEMORY_SOURCE_CONTENT_TRUNCATION else msg.content,
                     "has_tool_calls": bool(msg.tool_calls),
                     "tool_count": len(msg.tool_calls) if msg.tool_calls else 0
                 })
@@ -545,7 +554,7 @@ def estimate_tokens(text: str) -> int:
 async def maybe_form_memories(
     agent_id: ObjectId, 
     session: Session,
-    interval: int = 4
+    interval: int = MEMORY_FORMATION_INTERVAL
 ) -> bool:
     """
     Check if memory formation should run based on messages elapsed since last formation.
@@ -553,7 +562,7 @@ async def maybe_form_memories(
     """
     from eve.agent.session.session import select_messages
     
-    session_messages = select_messages(session, selection_limit=1000)
+    session_messages = select_messages(session, selection_limit=SESSION_MESSAGES_LOOKBACK_LIMIT)
 
     if not agent_id or not session_messages:
         print(f"No agent or messages found for session {session.id}")
