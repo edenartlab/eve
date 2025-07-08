@@ -136,7 +136,11 @@ async def handler(args: dict, user: str = None, agent: str = None):
     else:
         start_image_attributes = None
     
-    
+    # Veo-3 doesn't support start images, so fall back to veo-2
+    if start_image and video_tool == veo3:
+        video_tool = veo2
+
+
     #########################################################
     # Runway
     if video_tool == runway:
@@ -304,7 +308,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
 
 
     # If sound effects are requested, try to add them
-    if sound_effects and video_tool.key != "veo3":
+    if sound_effects and video_tool != veo3:
         try:
             args = {
                 "prompt": sound_effects,
