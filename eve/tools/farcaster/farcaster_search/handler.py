@@ -36,17 +36,22 @@ async def handler(args: dict, user: str = None, agent: str = None):
                 "Content-Type": "application/json",
             }
 
-            results = []
+            # Use the v2 cast search endpoint as the primary method
+            search_url = "https://api.neynar.com/v2/farcaster/cast/search"
+            params = {"limit": limit}
 
-            # If searching by author, use the user casts endpoint
+            # Add query parameter if provided
+            if query:
+                params["q"] = query
+
+            # Resolve author to FID if provided
+            author_fid = None
             if author:
-                # Try to resolve username to FID if it's not numeric
-                fid = None
                 if author.isdigit():
-                    fid = int(author)
+                    author_fid = int(author)
                 else:
                     # Search for user by username
-                    user_search_url = f"https://api.neynar.com/v2/farcaster/user/search"
+                    user_search_url = "https://api.neynar.com/v2/farcaster/user/search"
                     user_params = {"q": author, "limit": 1}
 
                     async with session.get(
@@ -55,89 +60,46 @@ async def handler(args: dict, user: str = None, agent: str = None):
                         if response.status == 200:
                             user_data = await response.json()
                             if user_data.get("result", {}).get("users"):
-                                fid = user_data["result"]["users"][0]["fid"]
+                                author_fid = user_data["result"]["users"][0]["fid"]
 
-                if fid:
-                    # Get casts from specific user
-                    casts_url = f"https://api.neynar.com/v2/farcaster/casts"
-                    params = {
-                        "fid": fid,
-                        "limit": limit,
-                    }
+                        if not author_fid:
+                            raise Exception(f"Could not find user: {author}")
 
-                    if time_range_hours:
-                        start_time = datetime.utcnow() - timedelta(
-                            hours=time_range_hours
-                        )
-                        params["start_time"] = start_time.isoformat() + "Z"
+                # Add author FID parameter
+                params["author_fid"] = author_fid
 
-                    async with session.get(
-                        casts_url, headers=headers, params=params
-                    ) as response:
-                        if response.status == 200:
-                            data = await response.json()
-                            for cast in data.get("casts", []):
-                                # Filter by query if provided
-                                if (
-                                    not query
-                                    or query.lower() in cast.get("text", "").lower()
-                                ):
-                                    results.append(format_cast_result(cast))
+            # Add channel parameter if provided
+            if channel:
+                params["channel_id"] = channel
 
-            # If searching by text query, use search endpoint
-            elif query:
-                search_url = "https://api.neynar.com/v2/farcaster/cast/search"
-                params = {
-                    "q": query,
-                    "limit": limit,
-                }
+            # Add time range parameters if provided
+            if time_range_hours:
+                start_time = datetime.utcnow() - timedelta(hours=time_range_hours)
+                params["start_time"] = start_time.isoformat() + "Z"
 
-                if channel:
-                    params["channel_id"] = channel
+            print(f"***debug*** Searching with params: {params}")
 
-                if time_range_hours:
-                    start_time = datetime.utcnow() - timedelta(hours=time_range_hours)
-                    params["start_time"] = start_time.isoformat() + "Z"
+            # Execute the search
+            async with session.get(
+                search_url, headers=headers, params=params
+            ) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    result_casts = data.get("result", {}).get("casts", [])
+                    print(f"***debug*** Found {len(result_casts)} casts")
 
-                async with session.get(
-                    search_url, headers=headers, params=params
-                ) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        for cast in data.get("casts", []):
-                            results.append(format_cast_result(cast))
+                    results = []
+                    for cast in result_casts:
+                        formatted_result = format_cast_result(cast)
+                        if formatted_result:
+                            results.append(formatted_result)
 
-            # If searching by channel only
-            elif channel:
-                channel_url = f"https://api.neynar.com/v2/farcaster/channel"
-                params = {"id": channel, "type": "id"}
-
-                async with session.get(
-                    channel_url, headers=headers, params=params
-                ) as response:
-                    if response.status == 200:
-                        # Then get recent casts from this channel
-                        feed_url = "https://api.neynar.com/v2/farcaster/feed/channels"
-                        feed_params = {
-                            "channel_ids": channel,
-                            "limit": limit,
-                        }
-
-                        if time_range_hours:
-                            start_time = datetime.utcnow() - timedelta(
-                                hours=time_range_hours
-                            )
-                            feed_params["start_time"] = start_time.isoformat() + "Z"
-
-                        async with session.get(
-                            feed_url, headers=headers, params=feed_params
-                        ) as feed_response:
-                            if feed_response.status == 200:
-                                feed_data = await feed_response.json()
-                                for cast in feed_data.get("casts", []):
-                                    results.append(format_cast_result(cast))
-
-            return {"output": results}
+                    return {"output": results}
+                else:
+                    error_text = await response.text()
+                    raise Exception(
+                        f"API request failed with status {response.status}: {error_text}"
+                    )
 
     except Exception as e:
         raise Exception(f"Failed to search Farcaster: {str(e)}")
