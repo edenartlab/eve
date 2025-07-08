@@ -39,7 +39,9 @@ async def handler(args: dict, user: str = None, agent: str = None):
     print("THE USER IS", user)
 
     
-    # if specific user is provided, check if they have access to veo3
+    # veo3 is enabled by default
+    # if a specific user is provided (e.g. from the website or api), check if they have access to veo3 and disable it if not
+    veo3_enabled = True
     if user:
         user = User.from_mongo(user)
         print(user.featureFlags)
@@ -47,10 +49,16 @@ async def handler(args: dict, user: str = None, agent: str = None):
         print("VEO3 ENABLED", veo3_enabled)
 
 
+    if veo3_enabled:
+        print("VEO3 IS ENABLED &")
+    else:
+        print("VEO3 IS DISABLED !")
+
+
     runway = Tool.load("runway")
     kling_pro = Tool.load("kling_pro")
     veo2 = Tool.load("veo2")
-    veo3 = Tool.load("veo3")
+    veo3 = Tool.load("veo3") if veo3_enabled else None
     hedra = Tool.load("hedra")
     create = Tool.load("create")
     mmaudio = Tool.load("mmaudio")
@@ -101,13 +109,13 @@ async def handler(args: dict, user: str = None, agent: str = None):
     elif quality == "standard":
         video_tool = kling_pro
     elif quality == "high_quality":
-        if sound_effects:
-            video_tool = veo3
-        else:
-            if start_image:
-                video_tool = veo2
-            else:
+        if veo3_enabled:
+            if sound_effects and not start_image:
                 video_tool = veo3
+            else:
+                video_tool = veo2
+        else:
+            video_tool = veo2
 
     print("Tool selected", video_tool.key)
 
