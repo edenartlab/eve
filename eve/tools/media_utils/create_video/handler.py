@@ -33,6 +33,12 @@ from eve.eden_utils import get_media_attributes
     
 
 async def handler(args: dict, user: str = None, agent: str = None):
+
+    print("THE AGENT IS", agent)
+    print("THE USER IS", user)
+
+
+
     runway = Tool.load("runway")
     kling_pro = Tool.load("kling_pro")
     veo2 = Tool.load("veo2")
