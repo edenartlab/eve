@@ -27,6 +27,7 @@ import os
 from eve.api.api import create
 from eve.tool import Tool
 from eve.models import Model
+from eve.user import User
 
 from eve.s3 import get_full_url
 from eve.eden_utils import get_media_attributes
@@ -37,6 +38,13 @@ async def handler(args: dict, user: str = None, agent: str = None):
     print("THE AGENT IS", agent)
     print("THE USER IS", user)
 
+    
+    # if specific user is provided, check if they have access to veo3
+    if user:
+        user = User.from_mongo(user)
+        print(user.featureFlags)
+        veo3_enabled = "tool_access_veo3" in user.featureFlags
+        print("VEO3 ENABLED", veo3_enabled)
 
 
     runway = Tool.load("runway")
