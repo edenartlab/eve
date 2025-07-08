@@ -38,6 +38,7 @@ from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from . import s3
 
+
 class CommandValidator:
     """Simple validator to ensure basic command security"""
 
@@ -938,7 +939,8 @@ def is_downloadable_file(value):
             os.path.isfile(value)  # is a file
             or (  # is a url but not from twitter
                 value.startswith(("http://", "https://"))
-                and "x.com" not in value and "pbs.twimg.com" not in value
+                and "x.com" not in value
+                and "pbs.twimg.com" not in value
             )
         )
     )
@@ -1021,7 +1023,7 @@ def save_test_results(tools, results):
     print(f"Test results saved to {results_dir}")
 
 
-def dumps_json(obj, *, indent=None, exclude=None):
+def serialize_json(obj, *, indent=None, exclude=None):
     """Return *obj* as a JSON string."""
 
     def scrub(value):
@@ -1030,9 +1032,7 @@ def dumps_json(obj, *, indent=None, exclude=None):
         if isinstance(value, (datetime, date)):
             return value.isoformat()
         if isinstance(value, dict):
-            pruned = (
-                {k: v for k, v in value.items() if not exclude or k not in exclude}
-            )
+            pruned = {k: v for k, v in value.items() if not exclude or k not in exclude}
             return {k: scrub(v) for k, v in pruned.items()}
         if isinstance(value, (list, tuple, set)):
             return [scrub(item) for item in value]
@@ -1042,6 +1042,11 @@ def dumps_json(obj, *, indent=None, exclude=None):
         return ""
 
     cleaned = scrub(obj)
+    return cleaned
+
+
+def dumps_json(obj, *, indent=None, exclude=None):
+    cleaned = serialize_json(obj, indent=indent, exclude=exclude)
     return json.dumps(cleaned, indent=indent)
 
 

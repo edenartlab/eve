@@ -14,6 +14,9 @@ from bson import ObjectId
 from sentry_sdk import capture_exception
 from eve.eden_utils import dumps_json
 from eve.agent.agent import Agent
+from eve.tool import Tool
+from eve.mongo import get_collection
+from eve.models import Model
 from eve.agent.session.models import (
     ActorSelectionMethod,
     ChatMessage,
@@ -29,13 +32,15 @@ from eve.agent.session.session_llm import (
     LLMContext,
     async_prompt,
     async_prompt_stream,
-    async_run_tool_call,
 )
 from eve.agent.session.models import LLMContextMetadata
 from eve.api.errors import handle_errors
 from eve.api.helpers import emit_update
 from eve.agent.session.models import LLMConfig
-from eve.agent.session.session_prompts import system_template
+from eve.agent.session.session_prompts import (
+    system_template,
+    model_template,
+)
 from eve.agent.session.memory import (
     maybe_form_memories,
     assemble_memory_context
@@ -94,10 +99,6 @@ def validate_prompt_session(session: Session, context: PromptSessionContext):
         check_session_budget(session)
 
 
-def parse_mentions(content: str) -> List[str]:
-    return re.findall(r"@(\w+)", content)
-
-
 def determine_actor_from_actor_selection_method(session: Session) -> Optional[Agent]:
     selection_method = session.autonomy_settings.actor_selection_method
     if (
@@ -117,43 +118,63 @@ def determine_actor_from_actor_selection_method(session: Session) -> Optional[Ag
         raise ValueError(f"Invalid actor selection method: {selection_method}")
 
 
-async def determine_actor(
+def parse_mentions(content: str) -> List[str]:
+    return re.findall(r"@(\w+)", content)
+
+
+async def determine_actors(
     session: Session, context: PromptSessionContext
-) -> Optional[Agent]:
-    actor_id = None
-    if context.actor_agent_id:
-        # Default to the actor specified in the context if passed
+) -> List[Agent]:
+    actor_ids = []
+
+    if context.actor_agent_ids:
+        # Multiple actors specified in the context
+        for actor_agent_id in context.actor_agent_ids:
+            requested_actor = ObjectId(actor_agent_id)
+            actor_ids.append(requested_actor)
+    elif context.actor_agent_id:
+        # Single actor specified in the context (backwards compatibility)
         requested_actor = ObjectId(context.actor_agent_id)
         if requested_actor in session.agents:
-            actor_id = context.actor_agent_id
+            actor_ids.append(requested_actor)
         else:
             raise ValueError(f"Actor @{context.actor_agent_id} not found in session")
     elif session.autonomy_settings and session.autonomy_settings.auto_reply:
         actor_id = determine_actor_from_actor_selection_method(session)
+        actor_ids.append(actor_id)
     elif len(session.agents) > 1:
         mentions = parse_mentions(context.message.content)
-        if len(mentions) > 1:
-            raise ValueError("Multiple @mentions not currently supported")
-        elif len(mentions) == 1:
-            mentioned_username = mentions[0]
-            for agent_id in session.agents:
-                agent = Agent.from_mongo(agent_id)
-                if agent.username == mentioned_username:
-                    actor_id = agent_id
-                    break
-            if not actor_id:
-                raise ValueError(f"Agent @{mentioned_username} not found in session")
+        if len(mentions) > 0:
+            for mention in mentions:
+                for agent_id in session.agents:
+                    agent = Agent.from_mongo(agent_id)
+                    if agent.username == mention:
+                        actor_ids.append(agent_id)
+                        break
+            if not actor_ids:
+                raise ValueError("No mentioned agents found in session")
+        else:
+            # No mentions, no specific actor - could potentially use all agents
+            # For now, return empty list to maintain backwards compatibility
+            pass
     elif len(session.agents) == 1:
-        actor_id = session.agents[0]
+        actor_ids.append(session.agents[0])
 
-    if not actor_id:
-        # TODO: do something more graceful than returning None if no actor is determined to be necessary.
-        return None
+    if not actor_ids:
+        # TODO: do something more graceful than returning empty list if no actors are determined
+        return []
 
-    actor = Agent.from_mongo(actor_id)
-    session.last_actor_id = actor.id
-    session.save()
-    return actor
+    actors = []
+    for actor_id in actor_ids:
+        actor = Agent.from_mongo(actor_id)
+        actors.append(actor)
+
+    # Update last_actor_id to the first actor for backwards compatibility
+    if actors:
+        session.last_actor_id = actors[0].id
+        session.save()
+
+    return actors
 
 
 def select_messages(
@@ -181,6 +202,7 @@ def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
         else message.as_user_message()
         for message in messages
     ]
+
     return messages
 
 
@@ -205,12 +227,30 @@ def build_system_message(session: Session, actor: Agent, context: PromptSessionC
     except Exception as e:
         print(f"Warning: Could not load memory context for agent {actor.id}: {e}")
     
+    # Get text describing models
+    if actor.models:
+        models_collection = get_collection(Model.collection_name)
+        loras_dict = {m["lora"]: m for m in actor.models}
+        lora_docs = models_collection.find(
+            {"_id": {"$in": list(loras_dict.keys())}, "deleted": {"$ne": True}}
+        )
+        lora_docs = list(lora_docs or [])
+        for doc in lora_docs:
+            doc["use_when"] = loras_dict[ObjectId(doc["_id"])].get(
+                "use_when", "This is your default Lora model"
+            )
+        loras = "\n".join(model_template.render(doc) for doc in lora_docs or [])
+    else:
+        loras = ""
+
     # Build system prompt with memory context
     base_content = system_template.render(
         name=actor.name,
         current_date_time=datetime.now(pytz.utc).strftime("%Y-%m-%d %H:%M:%S"),
         persona=actor.persona,
         scenario=session.scenario,
+        loras=loras,
+        voice=actor.voice,
     )
     
     content = f"{base_content}{memory_context}"
@@ -221,7 +261,6 @@ def build_system_message(session: Session, actor: Agent, context: PromptSessionC
     print("=" * 80)
     print("END SYSTEM PROMPT DEBUG")
     print("=" * 80)
-    
     return ChatMessage(
         session=session.id, sender=ObjectId(actor.id), role="system", content=content
     )
@@ -233,6 +272,7 @@ def add_user_message(session: Session, context: PromptSessionContext):
         sender=ObjectId(context.initiating_user_id),
         role="user",
         content=context.message.content,
+        attachments=context.message.attachments or [],
     )
     new_message.save()
     session.messages.append(new_message.id)
@@ -244,6 +284,31 @@ async def build_llm_context(
     session: Session, actor: Agent, context: PromptSessionContext
 ):
     tools = actor.get_tools(cache=True, auth_user=context.initiating_user_id)
+
+    # pass custom tools
+    if context.custom_tools:
+        tools.update(context.custom_tools)
+        tools = {tool: tools[tool] for tool in tools if tool in context.custom_tools}
+
+    # set voice default if tools include elevenlabs
+    if actor.voice and "elevenlabs" in tools.keys():
+        tools["elevenlabs"] = Tool.from_raw_yaml(
+            {
+                "parent_tool": "elevenlabs",
+                "parameters": {"voice": {"default": actor.voice}},
+            }
+        )
+
+    # if models
+    if actor.models:
+        models_collection = get_collection(Model.collection_name)
+        loras_dict = {m["lora"]: m for m in actor.models}
+        lora_docs = models_collection.find(
+            {"_id": {"$in": list(loras_dict.keys())}, "deleted": {"$ne": True}}
+        )
+        lora_docs = list(lora_docs or [])
+
+    # build messages
     system_message = build_system_message(session, actor, context)
     messages = [system_message]
     messages.extend(select_messages(session))
@@ -252,6 +317,7 @@ async def build_llm_context(
     if context.initiating_user_id:
         new_message = add_user_message(session, context)
         messages.append(new_message)
+
     return LLMContext(
         messages=messages,
         tools=tools,
@@ -357,6 +423,7 @@ async def process_tool_call(
     tool_call: ToolCall,
     tool_call_index: int,
     cancellation_event: asyncio.Event = None,
+    is_client_platform: bool = False,
 ):
     # Update the tool call status to running
     tool_call.status = "running"
@@ -400,7 +467,7 @@ async def process_tool_call(
                     print(
                         f"Direct MongoDB update for tool {tool_call_index}: {result.modified_count} modified"
                     )
-                except Exception as e:
+                except Exception:
                     assistant_message.save()
             return SessionUpdate(
                 type=UpdateType.TOOL_CANCELLED,
@@ -417,6 +484,7 @@ async def process_tool_call(
             or llm_context.metadata.trace_metadata.agent_id,
             agent_id=llm_context.metadata.trace_metadata.agent_id,
             cancellation_event=cancellation_event,
+            is_client_platform=is_client_platform,
         )
 
         # Check for cancellation after tool execution completes
@@ -523,6 +591,7 @@ async def process_tool_calls(
     assistant_message: ChatMessage,
     llm_context: LLMContext,
     cancellation_event: asyncio.Event = None,
+    is_client_platform: bool = False,
 ):
     tool_calls = assistant_message.tool_calls
     for b in range(0, len(tool_calls), 4):
@@ -535,6 +604,7 @@ async def process_tool_calls(
                 tool_call,
                 b + idx,
                 cancellation_event,
+                is_client_platform,
             )
             for idx, tool_call in batch
         ]
@@ -545,11 +615,16 @@ async def process_tool_calls(
 
 
 async def async_prompt_session(
-    session: Session, llm_context: LLMContext, actor: Agent, stream: bool = False
+    session: Session,
+    llm_context: LLMContext,
+    actor: Agent,
+    stream: bool = False,
+    is_client_platform: bool = False,
 ):
     # Set up cancellation handling via Ably
     cancellation_event = asyncio.Event()
     ably_client = None
+    session_run_id = str(uuid.uuid4())
 
     try:
         from ably import AblyRealtime
@@ -575,6 +650,11 @@ async def async_prompt_session(
 
     async def prompt_session_generator():
         """Generator function that yields session updates and can be cancelled."""
+        active_requests = session.active_requests or []
+        active_requests.append(session_run_id)
+        session.active_requests = active_requests
+        session.save()
+
         yield SessionUpdate(
             type=UpdateType.START_PROMPT,
             agent={
@@ -585,6 +665,7 @@ async def async_prompt_session(
             }
             if actor
             else None,
+            session_run_id=session_run_id,
         )
 
         prompt_session_finished = False
@@ -704,7 +785,11 @@ async def async_prompt_session(
 
             if assistant_message.tool_calls:
                 async for update in process_tool_calls(
-                    session, assistant_message, llm_context, cancellation_event
+                    session,
+                    assistant_message,
+                    llm_context,
+                    cancellation_event,
+                    is_client_platform,
                 ):
                     # Check for cancellation during tool execution
                     if cancellation_event.is_set():
@@ -714,7 +799,10 @@ async def async_prompt_session(
             if stop_reason == "stop":
                 prompt_session_finished = True
 
-        yield SessionUpdate(type=UpdateType.END_PROMPT)
+        yield SessionUpdate(
+            type=UpdateType.END_PROMPT,
+            session_run_id=session_run_id,
+        )
 
     try:
         # Run the prompt session generator, checking for cancellation
@@ -748,7 +836,7 @@ async def async_prompt_session(
                         from eve.mongo import get_collection
 
                         messages_collection = get_collection("messages")
-                        result = messages_collection.update_one(
+                        messages_collection.update_one(
                             {"_id": last_message.id},
                             {
                                 "$set": {
@@ -759,7 +847,7 @@ async def async_prompt_session(
                                 }
                             },
                         )
-                    except Exception as e:
+                    except Exception:
                         last_message.markModified("tool_calls")
                         last_message.save()
 
@@ -772,7 +860,6 @@ async def async_prompt_session(
             )
             cancel_message.save()
             session.messages.append(cancel_message.id)
-            session.save()
 
             # 3. Yield final updates
             yield SessionUpdate(
@@ -782,9 +869,15 @@ async def async_prompt_session(
 
         except Exception as e:
             print(f"Error during session cancellation cleanup: {e}")
-            yield SessionUpdate(type=UpdateType.END_PROMPT)
+            yield SessionUpdate(
+                type=UpdateType.END_PROMPT, session_run_id=session_run_id
+            )
 
     finally:
+        active_requests = session.active_requests or []
+        active_requests.remove(session_run_id)
+        session.active_requests = active_requests
+        session.save()
         # Clean up Ably subscription
         if ably_client:
             try:
@@ -838,29 +931,75 @@ async def _run_prompt_session_internal(
     """Internal function that handles both streaming and non-streaming"""
     session = context.session
     validate_prompt_session(session, context)
-    actor = await determine_actor(session, context)
-    llm_context = await build_llm_context(session, actor, context)
+    actors = await determine_actors(session, context)
+    is_client_platform = context.update_config is not None
 
-    async for update in async_prompt_session(
-        session, llm_context, actor, stream=stream
-    ):
-        yield format_session_update(update, context)
+    if not actors:
+        return
 
+    # For single actor, maintain backwards compatibility
+    if len(actors) == 1:
+        actor = actors[0]
+        llm_context = await build_llm_context(session, actor, context)
+        async for update in async_prompt_session(
+            session,
+            llm_context,
+            actor,
+            stream=stream,
+            is_client_platform=is_client_platform,
+        ):
+            yield format_session_update(update, context)
+    else:
+        # Multiple actors - run them in parallel
+        async def run_actor_session(actor: Agent):
+            actor_updates = []
+            llm_context = await build_llm_context(session, actor, context)
+            async for update in async_prompt_session(
+                session,
+                llm_context,
+                actor,
+                stream=stream,
+                is_client_platform=is_client_platform,
+            ):
+                actor_updates.append(format_session_update(update, context))
+            return actor_updates
+
+        # Run all actors in parallel
+        tasks = [run_actor_session(actor) for actor in actors]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Yield updates from all actors in the order they complete
+        for result in results:
+            if isinstance(result, Exception):
+                yield {
+                    "type": UpdateType.ERROR.value,
+                    "error": str(result),
+                    "update_config": context.update_config.model_dump()
+                    if context.update_config
+                    else None,
+                }
+            else:
+                for update in result:
+                    yield update
+
+    # Schedule background tasks if available
     if background_tasks:
-        # Process auto-reply
-        print(f"🤖 Scheduling auto-reply as background task for session {session.id}, agent {actor.id}")
+        # Process auto-reply after all actors have completed
         if session.autonomy_settings and session.autonomy_settings.auto_reply:
+            print(f"🤖 Scheduling auto-reply as background task for session {session.id}")
             background_tasks.add_task(
                 _queue_session_action_fastify_background_task, 
                 session
             )
-        # Process memory formation
-        print(f"🧠 Scheduling memory formation as background task for session {session.id}, agent {actor.id}")
-        background_tasks.add_task(
-            maybe_form_memories,
-            actor.id, 
-            session
-        )
+        
+        # Process memory formation for all actors that participated
+        for actor in actors:
+            print(f"🧠 Scheduling memory formation as background task for session {session.id}, agent {actor.id}")
+            background_tasks.add_task(
+                maybe_form_memories,
+                actor.id, 
+                session
+            )
     else:
         print(f"⚠️  Warning: No background_tasks available, skipping memory formation and auto-reply")
 

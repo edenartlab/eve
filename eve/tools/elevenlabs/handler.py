@@ -8,7 +8,7 @@ from elevenlabs.types.voice_settings import VoiceSettings
 from openai import OpenAI
 from typing import Iterator
 
-from ... import eden_utils
+from eve import eden_utils
 
 eleven = ElevenLabs(
     api_key=os.getenv("ELEVEN_API_KEY")
@@ -29,9 +29,17 @@ async def handler(args: dict, user: str = None, agent: str = None):
     # get voice
     response = eleven.voices.get_all()
     voices = {v.name: v.voice_id for v in response.voices}
-    voice_id = voices.get(args["voice"], DEFAULT_VOICE)
+    # voice_id = voices.get(args["voice"], DEFAULT_VOICE)
+    voice_ids = [v.voice_id for v in response.voices]
+    voice_id = args.get("voice", DEFAULT_VOICE)
+    if voice_id not in voice_ids:
+        # check if voice is a name
+        if voice_id in voices:
+            voice_id = voices[voice_id]
+        else:
+            raise ValueError(f"Voice ID {voice_id} not found, try another one (DEFAULT_VOICE: {DEFAULT_VOICE})")
     
-    def generate_with_params():
+    async def generate_with_params():
         return eleven.generate(
             text=args["text"],
             voice=Voice(
@@ -46,14 +54,16 @@ async def handler(args: dict, user: str = None, agent: str = None):
             model="eleven_multilingual_v2"
         )
 
-    audio = eden_utils.exponential_backoff(
+    audio_generator = await eden_utils.async_exponential_backoff(
         generate_with_params,
         max_attempts=args["max_attempts"],
         initial_delay=args["initial_delay"],
     )
 
-    if isinstance(audio, Iterator):
-        audio = b"".join(audio)
+    if isinstance(audio_generator, Iterator):
+        audio = b"".join(audio_generator)
+    else:
+        audio = audio_generator
 
     # save to file
     audio_file = NamedTemporaryFile(delete=False)
@@ -157,24 +167,29 @@ def select_random_voice(
         ],
     )
 
-    #return voice_ids[selected_voice]
-    return selected_voice
+    return voice_ids[selected_voice]
 
 
 def get_voice_summary():
-    response = eleven.voices.get_all()
-    names = [voice.name for voice in response.voices]
+    response = eleven.voices.get_all(show_legacy=True)
     full_description = ""
     
+    ids, names = [], []
     for voice in response.voices:
+        id = voice.voice_id
         name = voice.name
         description = voice.description or ""
         labels = voice.labels or {}
-        description = (description or "") + ", "
-        description += ", ".join([f"{k}: {v}" for k, v in labels.items()])    
-        full_description += f"{name}: {description}\n"
+        description = ", ".join([v for k, v in labels.items() if v])    
+        full_description += f"{id} :: {name}, {description}\n"
+        ids.append(id)
+        names.append(name)
     
-    return names, full_description
+    print(", ".join(ids))
+    print(", ".join(names))
+    print(full_description)
+
+    return ids, names, full_description
 
 
 def save_to_mongo():

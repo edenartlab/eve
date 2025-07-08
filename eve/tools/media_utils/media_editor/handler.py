@@ -4,12 +4,13 @@ from jinja2 import Template
 
 from ....auth import get_my_eden_user
 from ....user import User
+from ....tool import Tool
 from ....agent import Agent
 from ....agent.run_thread import async_prompt_thread
 from ....agent.thread import UserMessage
 from ....agent.llm import async_prompt
 
-MODEL = "gpt-4o-mini"
+MODEL = "gpt-4o"
 
 prompt_template = Template("""You have been provided a set of attachments (URLs to media files), along with a request to perform certain media editing tasks. You have access to three specialized tools:
 
@@ -57,9 +58,22 @@ async def handler(args: dict, user: str = None, agent: str = None):
     else:
         user = User.from_mongo(user)
 
+
+    # raise Exception("Not implemented")
+
     
     agent = Agent.load("media-editor")
-    tools = agent.get_tools(cache=True)
+    
+    ## this causes an infinite recursion because the media-editor agent has access to the media_editor tool!! instead just give it the tools it needs
+    # tools = agent.get_tools(cache=True)
+
+    # just use these!
+    tools = {
+        "video_concat": Tool.load("video_concat"),
+        "audio_video_combine": Tool.load("audio_video_combine"),
+        "ffmpeg_multitool": Tool.load("ffmpeg_multitool"),
+    }
+
     thread = agent.request_thread()
 
     instruction_prompt = prompt_template.render(

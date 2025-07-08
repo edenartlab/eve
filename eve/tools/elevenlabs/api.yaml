@@ -20,66 +20,91 @@ parameters:
     tip: |-
       Here are descriptions of all the available voices:
 
-      Aria: accent: American, description: expressive, age: middle-aged, gender: female, use_case: social media
-      Roger: accent: American, description: confident, age: middle-aged, gender: male, use_case: social media
-      Sarah: accent: american, description: soft, age: young, gender: female, use_case: news
-      Laura: accent: American, description: upbeat, age: young, gender: female, use_case: social media
-      Charlie: accent: Australian, description: natural, age: middle aged, gender: male, use_case: conversational
-      George: accent: British, description: warm, age: middle aged, gender: male, use_case: narration
-      Callum: accent: Transatlantic, description: intense, age: middle-aged, gender: male, use_case: characters
-      River: accent: American, description: confident, age: middle-aged, gender: non-binary, use_case: social media
-      Liam: accent: American, description: articulate, age: young, gender: male, use_case: narration
-      Charlotte: accent: Swedish, description: seductive, age: young, gender: female, use_case: characters
-      Alice: accent: British, description: confident, age: middle-aged, gender: female, use_case: news
-      Matilda: accent: American, description: friendly, age: middle-aged, gender: female, use_case: narration
-      Will: accent: American, description: friendly, age: young, gender: male, use_case: social media
-      Jessica: accent: American, description: expressive, age: young, gender: female, use_case: conversational
-      Eric: accent: American, description: friendly, age: middle-aged, gender: male, use_case: conversational
-      Chris: accent: American, description: casual, age: middle-aged, gender: male, use_case: conversational
-      Brian: accent: American, description: deep, age: middle-aged, gender: male, use_case: narration
-      Daniel: accent: British, description: authoritative, age: middle-aged, gender: male, use_case: news
-      Lily: accent: British, description: warm, age: middle-aged, gender: female, use_case: narration
-      Bill: accent: American, description: trustworthy, age: old, gender: male, use_case: narration
-      Maggi: Maggi, accent: en-spanish, language: en
-      Tao: Tao Ruspoli, 
-      Gene: Gene, 
-      Little Aerisita: Young, American female with an irresistibly cute and childlike voice that exudes bubbly cheerfulness. Ideal for narrating children's books, anime, and cartoons, this voice brings characters to life with its playful and endearing charm., language: en, descriptive: childish, accent: american, gender: female, age: young, use_case: characters_animation
-      Marzipan: Marzipan, language: en
-      Sofy: Sofy, language: en
-      Meredith: Meredith, language: en
-      Lucy: Lucy, accent: en-chinese, language: en
-      Jmill: Jmill, language: en
-      Sue: A young female british. A pleasant voice fantastic for all uses, accent: british, descriptive: casual, age: young, gender: female, use_case: narrative_story
-      Knightley - dapper and deep narrator: Old British male. A deep and smooth voice for storytelling and podcast., language: en, descriptive: classy, accent: american, gender: male, age: old, use_case: narrative_story
-      Boots: Boots is a German woman, accent: en-german, language: en
-      Jordan: Jordan, language: en
-      Wyatt- Wise Rustic Cowboy: Weathered wisdom from a Cowboy who's lived a hard life on the range.  An older American Deep Male voice with a Southern flavor.  Excellent for reading stories of the Wild West or American history.  language: en, descriptive: wise, accent: american, gender: male, age: old, use_case: narrative_story
-      Freeman: Mars College., 
-      Amelia: A young British English woman's voice, clear and easy to understand. Expressive and enthusiastic, it's beautiful for narration, podcasts and social media such as YouTube, Tiktok, Reels and Stories. This studio-produced audio is great for a young woman's Gen-Z voice in audiobooks, high-quality video dubbing, advertising and reading., language: en, descriptive: upbeat, accent: british, gender: female, age: young, use_case: narrative_story
-      Dimitri: Belgian man, accent: en-dutch, language: en, gender: male
-      Katie Brown - Expressive: Middle-aged Female with British accent. Suitable for Advertising, Marketing and Expressive formats., language: en, descriptive: professional, accent: british, gender: female, age: middle_aged, use_case: advertisement
-      Jero Wiku: Jero Wiku, language: en
-      James - Mysterious Intriguing: Old British man. Voice perfect for narrating deeply inspirational stories., accent: american, descriptive: deep, age: old, gender: male
-      Gandala: Gandala, language: en
-      David Lynch: An old American male perfect for reading the weather news., 
-      Jack: language: en
-      Verdelis: A whimsical voice of a floating ceramic head, 
-      Carter the Mountain King: Middle-aged American male. Voice is rich, smooth, & rugged. Each syllable lingers on the palate, leaving a tantalizing trail of sensation in its wake.
-      Deep and sonorous, this Voice of the Mountain resonates... sending vibrations that stir the senses and beckon you closer, promising secrets and fulfilling them., language: en, descriptive: deep, accent: american, gender: male, age: middle_aged, use_case: characters_animation
-      Mohammed: A well spoken Arabic & Middle East voice. Great for conversational, audiobooks, social media and narration., accent: arabic, descriptive: calm, age: middle_aged, gender: male, language: en, use_case: informative_educational
-      Ben: Ben, language: en
-      Maria Clara: Maria Clara, language: en
-      Koi: Koi, accent: en-chinese, language: en
-      Joey: Joey, language: en
-      Colton: Colton, language: en
-      Vincent: Vincent, language: en
-      Chebel: Chebel, language: en, accent: portuguese
-      Solar Sam: Solar Sam, language: en
-      
-      By default, use Lively Amy for female and Tao for male by default, except when asked to do Middle Eastern, then use tlETan7Okc4pzjD0z62P. When asked to do British, use Archer. Otherwise, use your best judgement.    
+      21m00Tcm4TlvDq8ikWAM :: Rachel, american, calm, young, female, narration
+      29vD33N1CtxCmqQRPOHJ :: Drew, american, well-rounded, middle_aged, male, news
+      2EiwWnXFnvU5JabPnv8n :: Clyde, american, war veteran, middle_aged, male, characters
+      5Q0t7uMcjvnagumLfvZi :: Paul, american, authoritative, middle_aged, male, news
+      9BWtsMINqrJLrRacOk9x :: Aria, american, husky, middle_aged, female, en, informative_educational
+      AZnzlk1XvdvUeBnXmlld :: Domi, american, strong, young, female, narration
+      CYw3kZ02Hs0563khs1Fj :: Dave, british, conversational, young, male, characters
+      CwhRBWXzGAHq8TQ4Fs17 :: Roger, confident, middle_aged, male, en, social media
+      D38z5RcWu1voky8WS1ja :: Fin, irish, sailor, old, male, characters
+      EXAVITQu4vr4xnSDxMaL :: Sarah, american, professional, young, female, en, entertainment_tv
+      ErXwobaYiN019PkySvjV :: Antoni, american, well-rounded, young, male, narration
+      FGY2WhTYpPnrIDTdsKH5 :: Laura, american, sassy, young, female, en, social_media
+      GBv7mTt0atIp3Br8iCZE :: Thomas, american, calm, young, male, meditation
+      IKne3meq5aSn9XLyUdCD :: Charlie, australian, hyped, young, male, en, conversational
+      JBFqnCBsd6RMkjVDRZzb :: George, british, mature, middle_aged, male, en, narrative_story
+      LcfcDJNUP1GQjkzn1xUU :: Emily, american, calm, young, female, meditation
+      MF3mGyEYCl7XYWbV9V6O :: Elli, american, emotional, young, female, narration
+      N2lVS1w4EtoT3dr4eOWO :: Callum, middle_aged, en, male, characters
+      ODq5zmih8GrVes37Dizd :: Patrick, american, shouty, middle_aged, male, characters
+      SAz9YHcvj6GT2YYXdXww :: River, american, calm, middle_aged, neutral, en, conversational
+      SOYHLrjzK2X1ezoPC6cr :: Harry, american, rough, young, male, en, characters_animation
+      TX3LPaxmHKxFdv7VOQHJ :: Liam, american, confident, young, male, en, social_media
+      ThT5KcBeYPX3keUQqHPh :: Dorothy, british, pleasant, young, female, narration
+      TxGEqnHWrfWFTfGW9XjX :: Josh, american, deep, young, male, narration
+      VR6AewLTigWG4xSOukaG :: Arnold, american, crisp, middle_aged, male, narration
+      XB0fDUnXU5powFXDhCwa :: Charlotte, swedish, relaxed, young, female, en, characters_animation
+      Xb7hH8MSUJpSbSDYk0k2 :: Alice, british, professional, middle_aged, female, en, advertisement
+      XrExE9yKIg1WjnnlVkGX :: Matilda, american, upbeat, middle_aged, female, en, informative_educational
+      ZQe5CZNOzWyzPSCn5a3c :: James, australian, calm, old, male, news
+      Zlb1dXrM653N07WRdFW3 :: Joseph, british, articulate, middle_aged, male, news
+      bIHbv24MWmeRgasZH58o :: Will, american, chill, young, male, en, conversational
+      bVMeCyTHy58xNoL34h3p :: Jeremy, irish, excited, young, male, narration
+      cgSgspJ2msm6clMCkdW9 :: Jessica, american, cute, young, female, en, conversational
+      cjVigY5qzO86Huf0OWal :: Eric, american, classy, middle_aged, male, en, conversational
+      flq6f7yk4E4fJM5XTYuZ :: Michael, american, calm, old, male, narration
+      g5CIjZEefAph4nQFvHAz :: Ethan, american, soft, young, male, ASMR
+      iP95p4xoKVk53GoZ742B :: Chris, american, casual, middle_aged, male, en, conversational
+      jBpfuIE2acCO8z3wKNLl :: Gigi, american, childlish, young, female, animation
+      jsCqWAovK2LkecY7zXl4 :: Freya, american, expressive, young, female, characters
+      nPczCjzI2devNBz1zQrb :: Brian, american, classy, middle_aged, male, en, social_media
+      oWAxZDx7w5VEj9dCyTzz :: Grace, us-southern, pleasant, young, female, narration
+      onwK4e9ZLuTAKqWW03F9 :: Daniel, british, formal, middle_aged, male, en, informative_educational
+      pFZP5JQG7iQjIQuC4Bku :: Lily, british, warm, confident, female, middle_aged, narration
+      pMsXgVXv3BLzUgSXRplE :: Serena, american, pleasant, middle_aged, female, narration
+      pNInz6obpgDQGcFmaJgB :: Adam, deep, middle_aged, male, en, narration
+      piTKgcLEGmPE4e6mEKli :: Nicole, american, soft, young, female, ASMR
+      pqHfZKP75CvOlQylNhV4 :: Bill, american, crisp, old, male, en, advertisement
+      t0jbNlBVZ17f02VDIeMI :: Jessie, american, raspy, old, male, characters
+      yoZ06aMxZJJ28mfd3POQ :: Sam, american, raspy, young, male, narration
+      z9fAnlkpzviPz146aGWa :: Glinda, american, witch, middle_aged, female, characters
+      zcAOhNBS3c14rBihAFp1 :: Giovanni, italian, foreigner, young, male, narration
+      zrHiDhphv9ZnVXBqCLjz :: Mimi, swedish, childish, young, female, animation
+      1D8EGxrYFNUCluLDkSZc :: Maggi, en-spanish, en
+      1wDwDMEYwjOS0vDcRyy3 :: Tao, 
+      4ljHadDomzGBqOnMxshc :: Gene, 
+      8tmloozfTsgXBZPdWZMY :: Marzipan, en
+      FAxfNIX38LpaNkcLeQIk :: Sofy, en
+      FMrLYY5CYQ0O0iutL2v1 :: Meredith, en
+      JpC250odUgEpLFIpYweh :: Lucy, en-chinese, en
+      JzaYTZZm6u7962K8PrTe :: Jmill, en
+      LnscIwfjAhOaLg6miw62 :: Boots, en-german, en
+      MbrroYvMdxSywuyOfJje :: Xander, en-dutch, en
+      MmJV6I1NAbGP13xgbxVz :: Joey, en
+      NtBayVEGSDC8tLZVhlbh :: Colton, en
+      PfwUcgYQ7oSunm7PqMXi :: Chebel, en-portuguese, en
+      RmWmsefzgwpKYD2NHnwK :: Koi, en-chinese, en
+      StzPkufRHTjBTiQg6CS9 :: Jordan, en
+      YXpFCvM1S3JbWEJhoskW :: Wyatt- Wise Rustic Cowboy, en, wise, american, male, old, narrative_story
+      Z8chHYUiDMhjlLdPQ3Tl :: Freeman, 
+      Zm3hQWGo4lO5GpPsyaJu :: Dimitri, en-dutch, en, male
+      i4NARTXKU6n1jo7SNaeP :: Jero Wiku, en
+      kLMGliDx2OLhf5Moxbmj :: Vincent, en
+      kLjCh136HhlEVfCL0Tkq :: Gandala, en
+      m25nNOViunsEMrVR51Hb :: David Lynch, 
+      mXfvFHljLNpg72LsX7l1 :: Jack, en
+      mrACSB3QITzdoWMZJH8P :: Verdelis, 
+      n4uaKdXrIGvL8tpvywB0 :: Solar Sam, en
+      qNkzaJoHLLdpvgh5tISm :: Carter the Mountain King, en, deep, american, male, middle_aged, characters_animation
+      tlETan7Okc4pzjD0z62P :: Mohammed, arabic, calm, middle_aged, male, en, informative_educational
+      twidbmOywJPdPH0pwJ7m :: Gallo, en
+      wYpFGZNdEeoKqO3vg6hv :: Ben, en
+      yyyKwKpg6HoyhF7ic7v8 :: Maria Clara, en
     required: true
-    choices: [Aria, Roger, Sarah, Laura, Charlie, George, Callum, River, Liam, Charlotte, Alice, Matilda, Will, Jessica, Eric, Chris, Brian, Daniel, Lily, Bill, Maggi, Tao, Gene, Little Aerisita, Marzipan, Sofy, Meredith, Lucy, Jmill, Sue, Knightley - dapper and deep narrator, Boots, Jordan, Wyatt- Wise Rustic Cowboy, Freeman, Amelia, Dimitri, Katie Brown - Expressive, Jero Wiku, James - Mysterious Intriguing, Gandala, David Lynch, Jack, Verdelis, Carter the Mountain King, Mohammed, Ben, Maria Clara, Koi, Joey, Colton, Vincent, Chebel, Solar Sam]
-    choices_labels: [Aria, Roger, Sarah, Laura, Charlie, George, Callum, River, Liam, Charlotte, Alice, Matilda, Will, Jessica, Eric, Chris, Brian, Daniel, Lily, Bill, Maggi, Tao, Gene, Little Aerisita, Marzipan, Sofy, Meredith, Lucy, Jmill, Sue, Knightley - dapper and deep narrator, Boots, Jordan, Wyatt- Wise Rustic Cowboy, Freeman, Amelia, Dimitri, Katie Brown - Expressive, Jero Wiku, James - Mysterious Intriguing, Gandala, David Lynch, Jack, Verdelis, Carter the Mountain King, Mohammed, Ben, Maria Clara, Koi, Joey, Colton, Vincent, Chebel, Solar Sam]
+    choices: [21m00Tcm4TlvDq8ikWAM, 29vD33N1CtxCmqQRPOHJ, 2EiwWnXFnvU5JabPnv8n, 5Q0t7uMcjvnagumLfvZi, 9BWtsMINqrJLrRacOk9x, AZnzlk1XvdvUeBnXmlld, CYw3kZ02Hs0563khs1Fj, CwhRBWXzGAHq8TQ4Fs17, D38z5RcWu1voky8WS1ja, EXAVITQu4vr4xnSDxMaL, ErXwobaYiN019PkySvjV, FGY2WhTYpPnrIDTdsKH5, GBv7mTt0atIp3Br8iCZE, IKne3meq5aSn9XLyUdCD, JBFqnCBsd6RMkjVDRZzb, LcfcDJNUP1GQjkzn1xUU, MF3mGyEYCl7XYWbV9V6O, N2lVS1w4EtoT3dr4eOWO, ODq5zmih8GrVes37Dizd, SAz9YHcvj6GT2YYXdXww, SOYHLrjzK2X1ezoPC6cr, TX3LPaxmHKxFdv7VOQHJ, ThT5KcBeYPX3keUQqHPh, TxGEqnHWrfWFTfGW9XjX, VR6AewLTigWG4xSOukaG, XB0fDUnXU5powFXDhCwa, Xb7hH8MSUJpSbSDYk0k2, XrExE9yKIg1WjnnlVkGX, ZQe5CZNOzWyzPSCn5a3c, Zlb1dXrM653N07WRdFW3, bIHbv24MWmeRgasZH58o, bVMeCyTHy58xNoL34h3p, cgSgspJ2msm6clMCkdW9, cjVigY5qzO86Huf0OWal, flq6f7yk4E4fJM5XTYuZ, g5CIjZEefAph4nQFvHAz, iP95p4xoKVk53GoZ742B, jBpfuIE2acCO8z3wKNLl, jsCqWAovK2LkecY7zXl4, nPczCjzI2devNBz1zQrb, oWAxZDx7w5VEj9dCyTzz, onwK4e9ZLuTAKqWW03F9, pFZP5JQG7iQjIQuC4Bku, pMsXgVXv3BLzUgSXRplE, pNInz6obpgDQGcFmaJgB, piTKgcLEGmPE4e6mEKli, pqHfZKP75CvOlQylNhV4, t0jbNlBVZ17f02VDIeMI, yoZ06aMxZJJ28mfd3POQ, z9fAnlkpzviPz146aGWa, zcAOhNBS3c14rBihAFp1, zrHiDhphv9ZnVXBqCLjz, 1D8EGxrYFNUCluLDkSZc, 1wDwDMEYwjOS0vDcRyy3, 4ljHadDomzGBqOnMxshc, 8tmloozfTsgXBZPdWZMY, FAxfNIX38LpaNkcLeQIk, FMrLYY5CYQ0O0iutL2v1, JpC250odUgEpLFIpYweh, JzaYTZZm6u7962K8PrTe, LnscIwfjAhOaLg6miw62, MbrroYvMdxSywuyOfJje, MmJV6I1NAbGP13xgbxVz, NtBayVEGSDC8tLZVhlbh, PfwUcgYQ7oSunm7PqMXi, RmWmsefzgwpKYD2NHnwK, StzPkufRHTjBTiQg6CS9, YXpFCvM1S3JbWEJhoskW, Z8chHYUiDMhjlLdPQ3Tl, Zm3hQWGo4lO5GpPsyaJu, i4NARTXKU6n1jo7SNaeP, kLMGliDx2OLhf5Moxbmj, kLjCh136HhlEVfCL0Tkq, m25nNOViunsEMrVR51Hb, mXfvFHljLNpg72LsX7l1, mrACSB3QITzdoWMZJH8P, n4uaKdXrIGvL8tpvywB0, qNkzaJoHLLdpvgh5tISm, tlETan7Okc4pzjD0z62P, twidbmOywJPdPH0pwJ7m, wYpFGZNdEeoKqO3vg6hv, yyyKwKpg6HoyhF7ic7v8]
+    choices_labels: [Rachel, Drew, Clyde, Paul, Aria, Domi, Dave, Roger, Fin, Sarah, Antoni, Laura, Thomas, Charlie, George, Emily, Elli, Callum, Patrick, River, Harry, Liam, Dorothy, Josh, Arnold, Charlotte, Alice, Matilda, James, Joseph, Will, Jeremy, Jessica, Eric, Michael, Ethan, Chris, Gigi, Freya, Brian, Grace, Daniel, Lily, Serena, Adam, Nicole, Bill, Jessie, Sam, Glinda, Giovanni, Mimi, Maggi, Tao, Gene, Marzipan, Sofy, Meredith, Lucy, Jmill, Boots, Xander, Joey, Colton, Chebel, Koi, Jordan, Wyatt- Wise Rustic Cowboy, Freeman, Dimitri, Jero Wiku, Vincent, Gandala, David Lynch, Jack, Verdelis, Solar Sam, Carter the Mountain King, Mohammed, Gallo, Ben, Maria Clara]
   stability:
     type: float
     label: Stability

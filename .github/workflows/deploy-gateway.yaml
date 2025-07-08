@@ -4,14 +4,13 @@ on:
   push:
     branches:
       - main
-      - staging
     paths:
-      - 'eve/clients/discord/gateway.py'
+      - "eve/clients/discord/gateway.py"
 
 jobs:
   deploy-gateway:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout workflows repo
         uses: actions/checkout@v4
@@ -27,7 +26,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Install the latest version of rye
         uses: eifinger/setup-rye@v4

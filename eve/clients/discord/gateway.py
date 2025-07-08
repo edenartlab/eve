@@ -37,18 +37,12 @@ image = (
         "libmagic1",
         "ffmpeg",
         "wget",
-        "libnss3",
-        "libnspr4",
-        "libatk1.0-0",
-        "libatk-bridge2.0-0",
-        "libcups2",
-        "libatspi2.0-0",
-        "libxcomposite1",
     )
     .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
     .env({"DB": db})
     .env({"LOCAL_API_URL": os.getenv("LOCAL_API_URL") or ""})
     .add_local_python_source("eve", ignore=[])
+    .add_local_file(str(root_dir / "pyproject.toml"), "/pyproject.toml")
 )
 
 
@@ -713,7 +707,6 @@ class DiscordGatewayClient:
             force_reply = True
 
         content = content or "..."
-        print("CONTENT IS", content)
 
         chat_request = {
             "agent_id": str(self.deployment.agent),

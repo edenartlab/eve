@@ -1,5 +1,6 @@
 import os
 import time
+import asyncio
 from typing import Dict
 from google.oauth2 import service_account
 from google.cloud import aiplatform
@@ -144,7 +145,7 @@ async def poll_job_status(handler_id):
         if status_str in ["COMPLETED", "ERROR", "CANCELLED"]:
             return status_str
 
-        time.sleep(20)
+        await asyncio.sleep(20)
 
 
 async def cancel_job(handler_id):

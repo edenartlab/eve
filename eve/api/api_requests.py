@@ -1,11 +1,17 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Literal
 from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
 
-from eve.deploy import ClientType, DeploymentConfig, DeploymentSecrets
 from eve.agent.thread import UserMessage
 from eve.agent.llm import UpdateType
-from eve.agent.session.models import ChatMessageRequestInput, LLMConfig
+from eve.agent.session.models import (
+    ChatMessageRequestInput,
+    LLMConfig,
+    SessionUpdateConfig,
+    DeploymentSecrets,
+    DeploymentConfig,
+    ClientType,
+)
 
 
 class TaskRequest(BaseModel):
@@ -99,37 +105,27 @@ class AllowedChannel(BaseModel):
     note: str
 
 
+class PostingInstructions(BaseModel):
+    session_id: Optional[str] = None
+    post_to: Optional[Literal['same', 'another', 'discord', 'telegram', 'x', 'farcaster']] = None
+    channel_id: Optional[str] = None
+    custom_instructions: Optional[str] = None
+
+
 class CreateTriggerRequest(BaseModel):
     agent: str
     user: str
     instruction: str
+    posting_instructions: Optional[PostingInstructions] = None
     schedule: CronSchedule
     update_config: Optional[UpdateConfig] = None
+    session_type: Literal['new', 'another'] = 'new'
     session: Optional[str] = None
 
 
 class AgentDeploymentConfig(BaseModel):
     discord_channel_allowlist: Optional[List[AllowedChannel]] = None
     telegram_topic_allowlist: Optional[List[AllowedChannel]] = None
-
-
-class CreateDeploymentRequest(BaseModel):
-    agent: str
-    user: str
-    platform: ClientType
-    secrets: Optional[DeploymentSecrets] = None
-    config: Optional[DeploymentConfig] = None
-    repo_branch: Optional[str] = None
-
-
-class UpdateDeploymentRequest(BaseModel):
-    deployment_id: str
-    config: Optional[DeploymentConfig] = None
-
-
-class DeleteDeploymentRequest(BaseModel):
-    agent: str
-    platform: ClientType
 
 
 class AgentToolsUpdateRequest(BaseModel):
@@ -149,6 +145,8 @@ class SessionCreationArgs(BaseModel):
     scenario: Optional[str] = None
     budget: Optional[float] = None
     trigger: Optional[str] = None
+    session_key: Optional[str] = None
+    platform: Optional[str] = None
 
 
 class PromptSessionRequest(BaseModel):
@@ -156,9 +154,41 @@ class PromptSessionRequest(BaseModel):
     message: Optional[ChatMessageRequestInput] = None
     user_id: Optional[str] = None
     actor_agent_id: Optional[str] = None
-    update_config: Optional[UpdateConfig] = None
+    actor_agent_ids: Optional[List[str]] = None
+    update_config: Optional[SessionUpdateConfig] = None
     llm_config: Optional[LLMConfig] = None
     stream: bool = False
 
     # Session creation fields (used when session_id is not provided)
     creation_args: Optional[SessionCreationArgs] = None
+
+
+class CreateDeploymentRequestV2(BaseModel):
+    agent: str
+    user: str
+    platform: ClientType
+    secrets: Optional[DeploymentSecrets] = None
+    config: Optional[DeploymentConfig] = None
+
+
+class UpdateDeploymentRequestV2(BaseModel):
+    deployment_id: str
+    config: Optional[DeploymentConfig] = None
+
+
+class DeleteDeploymentRequestV2(BaseModel):
+    deployment_id: str
+
+
+class DeploymentInteractRequest(BaseModel):
+    deployment_id: str
+    interaction: PromptSessionRequest
+
+
+class DeploymentEmissionRequest(BaseModel):
+    type: UpdateType
+    update_config: SessionUpdateConfig
+    content: Optional[str] = None
+    result: Optional[Any] = None
+    error: Optional[str] = None
+    model_config = ConfigDict(arbitrary_types_allowed=True)

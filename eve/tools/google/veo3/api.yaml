@@ -1,13 +1,12 @@
 name: Veo-3
-description: Generate a video with sound from a text prompt using Google Veo-3
-tip: Only use this tool if user specifically asks for Veo or requests a very high quality video or one with native audio. Note, this tool is very expensive -- ask the user for confirmation before proceeding to use this tool.
-cost_estimate: 600
+description: Generate a video including sound from a text prompt using Google Veo-3
+tip: Only use this tool if user specifically asks for Veo or requests a very high quality video or one with native audio. Note, this tool is expensive -- ask the user for confirmation before proceeding to use this tool.
+cost_estimate: 60 * duration * n_samples
 output_type: video
 visible: true
 active: true
-replicate_model: google/veo-3
 thumbnail: app/veo3.webp
-handler: replicate
+handler: modal
 parameters:
   prompt:
     type: string
@@ -23,15 +22,30 @@ parameters:
       - Sound and music, e.g. “water dripping,” “birds chirping,” “thunder,” “Spaghetti Western soundtrack.” 
       - Vocals, e.g. the boy says "I heard you can make dialogue in Eden now!"
     required: true
-  seed:
+  negative_prompt:
+    type: string
+    label: Negative prompt
+    description: An optional negative prompt to avoid specific details in the video.
+  # image:
+  #   type: image
+  #   label: Prompt Image
+  #   description: Optional starting image for the video.
+  duration:
     type: integer
-    label: Seed
-    description: Set random seed for reproducibility. If blank, will be set to a random value.
-    tip: |-
-      You should only set this if you want to start from/copy the seed of a previous image. Unless one is specified, you should leave this blank!
-    minimum: 0
-    maximum: 2147483647
-    default: random
+    label: Duration
+    description: Duration in seconds
+    default: 8
+    minimum: 5
+    maximum: 8
+    step: 1
+    required: true
+  # aspect_ratio:
+  #   type: string
+  #   label: Aspect Ratio
+  #   description: The aspect ratio of the video
+  #   default: '16:9'
+  #   choices: ['16:9', '9:16']
+  #   required: true
   n_samples:
     type: integer
     label: Number of samples

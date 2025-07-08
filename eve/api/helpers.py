@@ -1,8 +1,8 @@
 import logging
 import os
+import subprocess
 from typing import Dict, Optional
 import aiohttp
-from bson import ObjectId
 from fastapi import BackgroundTasks
 from ably import AblyRest
 import traceback
@@ -12,19 +12,15 @@ import time
 import modal
 
 from eve import deploy, trigger
+from eve.agent.deployments import PlatformClient
 from eve.api.errors import APIError
-from eve.deploy import (
-    authenticate_modal_key,
-    check_environment_exists,
-    create_environment,
-)
 from eve.tool import Tool
 from eve.user import User
 from eve.agent import Agent
 from eve.agent.thread import Thread
 from eve.agent.tasks import async_title_thread
 from eve.api.api_requests import ChatRequest, UpdateConfig
-from eve.deploy import Deployment
+from eve.agent.session.models import Deployment, ClientType
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +113,10 @@ async def emit_http_update(update_config: UpdateConfig, data: dict):
 
 
 def pre_modal_setup():
-    authenticate_modal_key()
+    if not authenticate_modal_key():
+        print("Skipping Modal environment setup due to missing credentials")
+        return
+        
     if not check_environment_exists(deploy.DEPLOYMENT_ENV_NAME):
         create_environment(deploy.DEPLOYMENT_ENV_NAME)
     if not check_environment_exists(trigger.TRIGGER_ENV_NAME):
@@ -423,3 +422,52 @@ async def update_busy_state(update_config, request_id: str, is_busy: bool):
             f"Error updating busy state for key {key}, request_id {request_id}: {e}",
             exc_info=True,
         )
+
+
+def get_platform_client(
+    agent: Agent, platform: ClientType, deployment: Optional[Deployment] = None
+) -> PlatformClient:
+    from eve.agent.deployments.discord import DiscordClient
+    from eve.agent.deployments.telegram import TelegramClient
+    from eve.agent.deployments.farcaster import FarcasterClient
+    from eve.agent.deployments.twitter import TwitterClient
+
+    """Helper function to get the appropriate platform client"""
+    if platform == ClientType.DISCORD:
+        return DiscordClient(agent=agent, deployment=deployment)
+    elif platform == ClientType.TELEGRAM:
+        return TelegramClient(agent=agent, deployment=deployment)
+    elif platform == ClientType.FARCASTER:
+        return FarcasterClient(agent=agent, deployment=deployment)
+    elif platform == ClientType.TWITTER:
+        return TwitterClient(agent=agent, deployment=deployment)
+
+
+def authenticate_modal_key() -> bool:
+    token_id = os.getenv("MODAL_DEPLOYER_TOKEN_ID")
+    token_secret = os.getenv("MODAL_DEPLOYER_TOKEN_SECRET")
+    subprocess.run(
+        [
+            "modal",
+            "token",
+            "set",
+            "--token-id",
+            token_id,
+            "--token-secret",
+            token_secret,
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+
+def check_environment_exists(env_name: str) -> bool:
+    result = subprocess.run(
+        ["modal", "environment", "list"], capture_output=True, text=True
+    )
+    return f"│ {env_name} " in result.stdout
+
+
+def create_environment(env_name: str):
+    print(f"Creating environment {env_name}")
+    subprocess.run(["modal", "environment", "create", env_name])

@@ -241,6 +241,12 @@ class ChatMessage(Document):
 
         return self.model_copy(update={"role": "assistant"})
 
+    def as_system_message(self):
+        if self.role == "system":
+            return self
+
+        return self.model_copy(update={"role": "system"})
+
     def filter_cancelled_tool_calls(self):
         """Return a copy of the message with cancelled tool calls filtered out"""
         if not self.tool_calls:
@@ -357,6 +363,15 @@ class ChatMessage(Document):
         return content
 
     def anthropic_schema(self, truncate_images=False):
+        # System Message
+        if self.role == "system":
+            return [
+                {
+                    "role": "system",
+                    "content": self.content,
+                }
+            ]
+
         # User Message
         if self.role == "user":
             content = self._get_content_block(
@@ -392,8 +407,17 @@ class ChatMessage(Document):
             return schema
 
     def openai_schema(self, truncate_images=False):
+        # System Message
+        if self.role == "system":
+            return [
+                {
+                    "role": "system",
+                    "content": self.content,
+                }
+            ]
+
         # User Message
-        if self.role == "user":
+        elif self.role == "user":
             return [
                 {
                     "role": "user",
@@ -474,7 +498,7 @@ class ChatMessage(Document):
                                     image_urls.append(image_url)
 
                             except Exception as e:
-                                print(f"Error processing image {image_path}: {e}")
+                                print(f"Error processing image {image_url}: {e}")
                                 continue
 
                 # Create single synthetic user message if we have any images
@@ -500,6 +524,7 @@ class ChatMessage(Document):
 @dataclass
 class ChatMessageRequestInput:
     content: str
+    role: Optional[Literal["user", "system"]] = "user"
     attachments: Optional[List[str]] = None
     sender_name: Optional[str] = None
 
@@ -514,6 +539,23 @@ class UpdateType(Enum):
     END_PROMPT = "end_prompt"
 
 
+class SessionUpdateConfig(BaseModel):
+    sub_channel_name: Optional[str] = None
+    update_endpoint: Optional[str] = None
+    deployment_id: Optional[str] = None
+    discord_channel_id: Optional[str] = None
+    discord_message_id: Optional[str] = None
+    telegram_chat_id: Optional[str] = None
+    telegram_message_id: Optional[str] = None
+    telegram_thread_id: Optional[str] = None
+    farcaster_hash: Optional[str] = None
+    farcaster_author_fid: Optional[int] = None
+    farcaster_message_id: Optional[str] = None
+    twitter_tweet_to_reply_id: Optional[str] = None
+    user_is_bot: Optional[bool] = False
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
 class SessionUpdate(BaseModel):
     type: UpdateType
     message: Optional[ChatMessage] = None
@@ -522,8 +564,9 @@ class SessionUpdate(BaseModel):
     tool_index: Optional[int] = None
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
-    update_config: Optional[Dict[str, Any]] = None
+    update_config: Optional[SessionUpdateConfig] = None
     agent: Optional[Dict[str, Any]] = None
+    session_run_id: Optional[str] = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -590,10 +633,13 @@ class Trigger(Document):
     user: ObjectId
     schedule: Dict[str, Any]
     instruction: str
+    posting_instructions: Optional[Dict[str, Any]] = None
     agent: Optional[ObjectId] = None
+    session_type: Optional[Literal["new", "another"]] = "new"
     session: Optional[ObjectId] = None
     update_config: Optional[Dict[str, Any]] = None
     status: Optional[Literal["active", "paused", "finished"]] = "active"
+    deleted: Optional[bool] = False
 
 
 class SessionContext(BaseModel):
@@ -605,7 +651,9 @@ class SessionContext(BaseModel):
 @Collection("sessions")
 class Session(Document):
     owner: ObjectId
+    session_key: Optional[str] = None
     channel: Optional[Channel] = None
+    parent_session: Optional[ObjectId] = None
     agents: List[ObjectId] = Field(default_factory=list)
     status: Literal["active", "archived"] = "active"
     messages: List[ObjectId] = Field(default_factory=list)
@@ -618,33 +666,18 @@ class Session(Document):
     budget: SessionBudget = SessionBudget()
     platform: Optional[Literal["discord", "telegram", "twitter", "farcaster"]] = None
     trigger: Optional[ObjectId] = None
-
-
-@dataclass
-class UpdateConfig:
-    sub_channel_name: Optional[str] = None
-    update_endpoint: Optional[str] = None
-    deployment_id: Optional[str] = None
-    discord_channel_id: Optional[str] = None
-    discord_message_id: Optional[str] = None
-    telegram_chat_id: Optional[str] = None
-    telegram_message_id: Optional[str] = None
-    telegram_thread_id: Optional[str] = None
-    farcaster_hash: Optional[str] = None
-    farcaster_author_fid: Optional[int] = None
-    farcaster_message_id: Optional[str] = None
-    twitter_tweet_to_reply_id: Optional[str] = None
-    user_is_bot: Optional[bool] = False
-
+    active_requests: Optional[List[str]] = []
 
 @dataclass
 class PromptSessionContext:
     session: Session
     initiating_user_id: str
     message: ChatMessageRequestInput
-    update_config: Optional[UpdateConfig] = None
+    update_config: Optional[SessionUpdateConfig] = None
     actor_agent_id: Optional[str] = None
+    actor_agent_ids: Optional[List[str]] = None
     llm_config: Optional[LLMConfig] = None
+    custom_tools: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -653,3 +686,116 @@ class LLMResponse:
     tool_calls: Optional[List[ToolCall]] = None
     stop: Optional[str] = None
     tokens_spent: Optional[int] = None
+
+
+class ClientType(Enum):
+    DISCORD = "discord"
+    TELEGRAM = "telegram"
+    FARCASTER = "farcaster"
+    TWITTER = "twitter"
+
+
+# Base Models
+class AllowlistItem(BaseModel):
+    id: str
+    note: Optional[str] = None
+
+
+# Discord Models
+class DiscordAllowlistItem(AllowlistItem):
+    pass
+
+
+class DeploymentSettingsDiscord(BaseModel):
+    oauth_client_id: Optional[str] = None
+    oauth_url: Optional[str] = None
+    channel_allowlist: Optional[List[DiscordAllowlistItem]] = None
+    read_access_channels: Optional[List[DiscordAllowlistItem]] = None
+
+
+class DeploymentSecretsDiscord(BaseModel):
+    token: str
+    application_id: Optional[str] = None
+
+
+# Telegram Models
+class TelegramAllowlistItem(AllowlistItem):
+    pass
+
+
+class DeploymentSettingsTelegram(BaseModel):
+    topic_allowlist: Optional[List[TelegramAllowlistItem]] = None
+
+
+class DeploymentSecretsTelegram(BaseModel):
+    token: str
+    webhook_secret: Optional[str] = None
+
+
+# Farcaster Models
+class DeploymentSettingsFarcaster(BaseModel):
+    webhook_id: Optional[str] = None
+    auto_reply: Optional[bool] = False
+
+
+class DeploymentSecretsFarcaster(BaseModel):
+    mnemonic: str
+    neynar_webhook_secret: Optional[str] = None
+
+
+# Twitter Models
+class DeploymentSettingsTwitter(BaseModel):
+    username: Optional[str] = None
+
+
+class DeploymentSecretsTwitter(BaseModel):
+    user_id: str
+    bearer_token: str
+    consumer_key: str
+    consumer_secret: str
+    access_token: str
+    access_token_secret: str
+
+
+# Combined Models
+class DeploymentSecrets(BaseModel):
+    discord: DeploymentSecretsDiscord | None = None
+    telegram: DeploymentSecretsTelegram | None = None
+    farcaster: DeploymentSecretsFarcaster | None = None
+    twitter: DeploymentSecretsTwitter | None = None
+
+
+class DeploymentConfig(BaseModel):
+    discord: DeploymentSettingsDiscord | None = None
+    telegram: DeploymentSettingsTelegram | None = None
+    farcaster: DeploymentSettingsFarcaster | None = None
+    twitter: DeploymentSettingsTwitter | None = None
+
+
+@Collection("deployments2")
+class Deployment(Document):
+    agent: ObjectId
+    user: ObjectId
+    platform: ClientType
+    valid: Optional[bool] = None
+    secrets: Optional[DeploymentSecrets]
+    config: Optional[DeploymentConfig]
+
+    def __init__(self, **data):
+        # Convert string to ClientType enum if needed
+        if "platform" in data and isinstance(data["platform"], str):
+            data["platform"] = ClientType(data["platform"])
+        super().__init__(**data)
+
+    def model_dump(self, *args, **kwargs):
+        """Override model_dump to convert enum to string for MongoDB"""
+        data = super().model_dump(*args, **kwargs)
+        if "platform" in data and isinstance(data["platform"], ClientType):
+            data["platform"] = data["platform"].value
+        return data
+
+    @classmethod
+    def ensure_indexes(cls):
+        """Ensure indexes exist"""
+        collection = cls.get_collection()
+        collection.create_index([("agent", 1), ("platform", 1)], unique=True)

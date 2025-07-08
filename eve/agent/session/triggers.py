@@ -5,8 +5,8 @@ import pytz
 from datetime import datetime
 import modal
 import modal.runner
+import sentry_sdk
 
-from eve.agent.session.trigger_fn import trigger_fn
 from eve.api.api_requests import CronSchedule
 from eve.api.errors import handle_errors
 
@@ -18,12 +18,30 @@ TRIGGER_ENV_NAME = "triggers"
 trigger_app = modal.App()
 
 
+def trigger_fn_with_sentry():
+    """Wrapper function that configures sentry and calls the actual trigger function"""
+    # Configure sentry for trigger execution
+    with sentry_sdk.configure_scope() as scope:
+        scope.set_tag("package", "eve-triggers")
+        scope.set_tag("modal_serve", True)
+        scope.set_tag("environment", os.getenv("DB", "STAGE").upper())
+
+        # Get trigger ID from environment
+        trigger_id = os.getenv("TRIGGER_ID")
+        if trigger_id:
+            scope.set_tag("trigger_id", trigger_id)
+
+    # Import and run the sync trigger function
+    from eve.agent.session.trigger_fn import trigger_fn_sync
+
+    return trigger_fn_sync()
+
+
 def create_image(trigger_id: str):
     return (
         modal.Image.debian_slim(python_version="3.12")
         .apt_install("libmagic1", "ffmpeg", "wget")
         .pip_install_from_pyproject("/eve/pyproject.toml")
-        .run_commands(["playwright install"])
         .env({"DB": db})
         .env({"TRIGGER_ID": trigger_id})
     )
@@ -88,7 +106,7 @@ async def create_trigger_fn(
                 modal.Secret.from_name("eve-secrets", environment_name="main"),
                 modal.Secret.from_name(f"eve-secrets-{db}", environment_name="main"),
             ],
-        )(trigger_fn)
+        )(trigger_fn_with_sentry)
         modal.runner.deploy_app(
             trigger_app, name=f"{trigger_id}", environment_name=TRIGGER_ENV_NAME
         )

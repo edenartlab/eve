@@ -20,6 +20,7 @@ class Model(Document):
     base_model: str
     lora_trigger_text: Optional[str] = None
     lora_model: Optional[str] = None
+    creationCount: int = 0
 
     def __init__(self, **data):
         if isinstance(data.get("user"), str):

@@ -1,5 +1,4 @@
-from eve.user import User
-from eve.deploy import Deployment
+from eve.agent.deployments import Deployment
 from eve.agent import Agent
 from telegram import Bot
 
@@ -31,10 +30,11 @@ async def handler(args: dict, user: str = None, agent: str = None):
         message = await bot.send_message(chat_id=chat_id, text=content)
 
         return {
-            "output": {
+            "output": [{
                 "message_id": message.message_id,
                 "chat_id": message.chat.id,
-            }
+                "url": f"https://t.me/{message.chat.username}/{message.message_id}",
+            }]
         }
 
     finally:
