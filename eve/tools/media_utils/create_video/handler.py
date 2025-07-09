@@ -1,5 +1,6 @@
 """
 VIDEO TODO:
+- hedra doesn't work with no lora or start image
 - fix cost formula
 - add lora2. when two face loras, use double character
 - negative_prompt
@@ -124,7 +125,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
     # - Lora is set, so we want to do img2vid with a lora-applied image instead of txt2vid
     # Otherwise, can just do txt2vid without a start image
     if not start_image:
-        if video_tool == runway or loras:
+        if video_tool in [runway, hedra] or loras:
             print("Generating start image with Lora")
             args = {"prompt": prompt}
             if loras:
