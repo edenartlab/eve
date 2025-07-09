@@ -295,12 +295,10 @@ Return **exactly** this JSON:
 
 Create new memories following these rules:
 
-1. CONSOLIDATED_MEMORY: Create EXACTLY ONE factual memory (maximum {SESSION_CONSOLIDATED_MEMORY_MAX_WORDS} words) that consolidates what actually happened in the conversation.
-   - Record concrete facts and events: who did what, what was created, what tools were used, what topics were discussed
-   - Specifically focus on the instructions, preferences goals and feedbackexpressed by the user(s)
-   - ALWAYS use specific user names and agent names from the conversation (NEVER use "User", "the user", "Agent", or "the agent")
-   - Focus on actions, creations, and concrete events - avoid commentary or analysis
-   - Example: "Gene requested story about clockmaker, Eve created 'The Clockmaker's Secret' featuring Elias and magical clock, added characters Azfar (camel) and Liora (sheepherder with mechanical heart), generated 5-panel comic and video using flux_schnell, Jill requested adventure with Verdelis"
+1. CONSOLIDATED_MEMORY: Create EXACTLY ONE factual memory (maximum {SESSION_CONSOLIDATED_MEMORY_MAX_WORDS} words) that consolidates what actually happened in the conversation. This memory will be used to improve the agent's contextual recall in long conversations.
+   - Record concrete facts and events: who did/said what, what was created, what tools were used, what topics were discussed
+   - Specifically focus on the instructions, preferences, goals and feedback expressed by the user(s)
+   - Avoid commentary or analysis, create memories that stand on their own without context
 
 2. DIRECTIVE: Create AT MOST ONE consolidated directive (maximum {SESSION_DIRECTIVE_MEMORY_MAX_WORDS} words) ONLY if there are clear, long-lasting rules, preferences, or behavioral guidelines that should be applied consistently in all future interactions. If none exist (highly likely), leave empty.
    
