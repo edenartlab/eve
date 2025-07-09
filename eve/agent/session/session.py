@@ -217,7 +217,6 @@ def build_system_message(session: Session, actor: Agent, context: PromptSessionC
     try:
         memory_context = assemble_memory_context(
             actor.id, 
-            token_budget=5000, 
             session_id=session.id, 
             last_speaker_id=last_speaker_id
         )
