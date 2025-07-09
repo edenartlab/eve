@@ -21,6 +21,7 @@ from eve.agent.session.models import ChatMessage, Session
 
 # Memory formation settings:
 MEMORY_FORMATION_INTERVAL = 4 # Number of messages to wait before forming memories
+MAX_RAW_MEMORY_COUNT      = 2 # Number of individual memories to store before consolidating them into the agent's user_memory blob
 MEMORY_LLM_MODEL = "gpt-4o-mini"
 
 # LLMs cannot count tokens at all (weirdly), so instruct with word count:
@@ -31,7 +32,7 @@ SESSION_DIRECTIVE_MEMORY_MAX_WORDS    = 25 # Target token length for session dir
 DEFAULT_MEMORY_TOKEN_BUDGET = 5000      # Default max tokens for memory context
 DIRECTIVE_TOKEN_BUDGET_RATIO = 0.5      # Ratio of token budget for directives
 SESSION_MESSAGES_LOOKBACK_LIMIT = 1000  # Max messages to look back in a session
-MEMORY_SOURCE_CONTENT_TRUNCATION = 500    # Max characters for source message content display
+MEMORY_SOURCE_CONTENT_TRUNCATION = 500  # Max characters for source message content display
 
 # Global variables (hardcoded for now, to be loaded from db per agent/session later
 ENABLE_SESSION_MEMORY = True    # Summarizes out of context messages for long sessions
@@ -42,7 +43,7 @@ class MemoryType(Enum):
     EPISODE = "episode"      # Summary of a section of the conversation in a session
     DIRECTIVE = "directive"  # User instructions, preferences, behavioral rules
 
-@Collection("session_memories")
+@Collection("memory_sessions")
 class SessionMemory(Document):
     """Individual memory record stored in MongoDB"""
     
