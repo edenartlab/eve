@@ -43,7 +43,7 @@ class MemoryType(Enum):
     DIRECTIVE = "directive"  # User instructions, preferences, behavioral rules
 
 @Collection("session_memories")
-class AgentMemory(Document):
+class SessionMemory(Document):
     """Individual memory record stored in MongoDB"""
     
     agent_id: ObjectId
@@ -80,7 +80,7 @@ def store_extracted_memories(
     extracted_data: Dict[str, List[str]], 
     messages: List[ChatMessage], 
     session_id: ObjectId
-) -> List[AgentMemory]:
+) -> List[SessionMemory]:
     """Store extracted memories to MongoDB with source traceability"""
     
     print(f"Storing memories for agent {agent_id}")
@@ -112,7 +112,7 @@ def store_extracted_memories(
     # Store directives (highest priority)
     for i, directive in enumerate(extracted_data.get("directives", [])):
         print(f"Creating directive memory {i+1}: {directive}")
-        memory = AgentMemory(
+        memory = SessionMemory(
             agent_id=agent_id,
             memory_type=MemoryType.DIRECTIVE,
             content=directive,
@@ -131,7 +131,7 @@ def store_extracted_memories(
     
     # Store episodes
     for episode in extracted_data.get("episodes", []):
-        memory = AgentMemory(
+        memory = SessionMemory(
             agent_id=agent_id,
             memory_type=MemoryType.EPISODE,
             content=episode,
@@ -175,7 +175,7 @@ def messages_to_text(messages: List[ChatMessage]) -> str:
     return "\n".join(text_parts)
 
 def get_memory_source_context(
-    memory: AgentMemory, 
+    memory: SessionMemory, 
     session_messages: List[ChatMessage] = None
 ) -> Dict[str, Any]:
     """
@@ -302,9 +302,9 @@ Create new memories following these rules:
    - Focus on actions, creations, and concrete events - avoid commentary or analysis
    - Example: "Gene requested story about clockmaker, Eve created 'The Clockmaker's Secret' featuring Elias and magical clock, added characters Azfar (camel) and Liora (sheepherder with mechanical heart), generated 5-panel comic and video using flux_schnell, Jill requested adventure with Verdelis"
 
-2. DIRECTIVE: Create AT MOST ONE consolidated directive (maximum {SESSION_DIRECTIVE_MEMORY_MAX_WORDS} words) ONLY if there are clear, long-lasting rules, preferences, or behavioral guidelines that should be applied consistently in future interactions. If none exist (highly likely), leave empty.
+2. DIRECTIVE: Create AT MOST ONE consolidated directive (maximum {SESSION_DIRECTIVE_MEMORY_MAX_WORDS} words) ONLY if there are clear, long-lasting rules, preferences, or behavioral guidelines that should be applied consistently in all future interactions. If none exist (highly likely), leave empty.
    
-   ONLY include as directives:
+   ONLY include as long-lasting directives:
    - Explicit behavioral rules or guidelines ("always ask permission before...", "never do X", "remember to always Y")
    - Stable, long-term preferences that should guide future behavior consistently
    - Clear exceptions or special handling rules
@@ -312,7 +312,7 @@ Create new memories following these rules:
    
    DO NOT include as directives:
    - One-time requests or specific tasks ("create a story about...", "make an image of...")
-   - Ad hoc instructions for the current conversation only
+   - Ad hoc instructions relevant for the current conversation only
    - Temporary or situational commands
    - Context-specific requests that don't apply broadly
    
@@ -327,9 +327,8 @@ CRITICAL REQUIREMENTS:
 - Record what actually happened, not what it means or demonstrates
 - ALWAYS use actual names from the conversation - scan the conversation for "name:" patterns
 - NEVER use generic terms like "User", "the user", "Agent", "the agent", "someone", "they"
-- If you see "Gene:", use "Gene". If you see "Eve:", use "Eve". Always be specific.
-- Avoid phrases like "highlighted", "demonstrated", "enhanced", "experience"
-- Just state what was said, done, created, or discussed with specific names
+- Avoid vague words like "highlighted", "demonstrated", "enhanced", "experience" that wont help the agent in future interactions
+- Just state what was said, done, created, or discussed with specific names in a concise manner
 """
     
     # Use LLM to extract memories
@@ -405,12 +404,12 @@ def assemble_memory_context(agent_id: ObjectId, token_budget: Optional[int] = No
         # - Directives: All directives from current agent
         # - Episodes: All episodes from active session
         directive_query = {"agent_id": agent_id, "memory_type": "directive"}
-        directive_memories = AgentMemory.find(directive_query, sort="createdAt", desc=True)
+        directive_memories = SessionMemory.find(directive_query, sort="createdAt", desc=True)
 
         episode_memories = []
         if session_id:
             episode_query = {"source_session_id": session_id, "memory_type": "episode"}
-            episode_memories = AgentMemory.find(episode_query, sort="createdAt", desc=True)
+            episode_memories = SessionMemory.find(episode_query, sort="createdAt", desc=True)
             
         all_memories = directive_memories + episode_memories
         
