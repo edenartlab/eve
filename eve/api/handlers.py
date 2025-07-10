@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -1090,6 +1091,68 @@ async def handle_session_cancel(request: CancelSessionRequest):
     except Exception as e:
         logger.error(f"Error sending session cancel signal: {e}", exc_info=True)
         raise APIError(f"Failed to send cancel signal: {str(e)}", status_code=500)
+
+
+@handle_errors
+async def handle_session_stream(session_id: str, request: Request):
+    """Handle SSE streaming for a session"""
+    import uuid
+    from fastapi.responses import StreamingResponse
+    from eve.api.session_streams import session_stream_manager
+
+    # Verify session exists
+    session = Session.from_mongo(ObjectId(session_id))
+    if not session:
+        raise APIError(f"Session not found: {session_id}", status_code=404)
+
+    # Generate unique client ID for this connection (supports multiple tabs)
+    client_id = str(uuid.uuid4())
+
+    async def event_generator():
+        """Generate SSE events for this client"""
+        client = None
+        try:
+            # Add client to session stream (no user_id needed - auth handled upstream)
+            client = await session_stream_manager.add_client(
+                session_id, client_id, user_id=None
+            )
+            logger.info(f"Client {client_id} connected to session {session_id} stream")
+
+            # Send initial connection event
+            yield f"data: {json.dumps({'event': 'connected', 'data': {'session_id': session_id, 'client_id': client_id}})}\n\n"
+
+            # Stream events from queue
+            while True:
+                try:
+                    # Wait for events with timeout to allow periodic keepalive
+                    event = await asyncio.wait_for(client.queue.get(), timeout=30.0)
+                    yield event
+                except asyncio.TimeoutError:
+                    # Send keepalive ping
+                    yield f"data: {json.dumps({'event': 'ping', 'data': {'timestamp': time.time()}})}\n\n"
+
+        except asyncio.CancelledError:
+            logger.info(f"Client {client_id} disconnected from session {session_id}")
+            raise
+        except Exception as e:
+            logger.error(
+                f"Error in session stream for client {client_id}: {e}", exc_info=True
+            )
+            yield f"data: {json.dumps({'event': 'error', 'data': {'error': str(e)}})}\n\n"
+        finally:
+            # Clean up client connection
+            if client:
+                await session_stream_manager.remove_client(session_id, client)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable Nginx buffering
+        },
+    )
 
 
 @handle_errors

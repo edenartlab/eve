@@ -978,30 +978,55 @@ async def _run_prompt_session_internal(
 async def run_prompt_session_stream(
     context: PromptSessionContext, background_tasks: BackgroundTasks
 ):
+    from eve.api.session_streams import session_stream_manager
+    
+    session_id = str(context.session.id)
+    
     try:
         async for data in _run_prompt_session_internal(
             context, background_tasks, stream=True
         ):
             yield data
+            
+            # Also broadcast to SSE clients if any are connected
+            client_count = await session_stream_manager.get_client_count(session_id)
+            if client_count > 0:
+                await session_stream_manager.broadcast(session_id, "update", data)
     except Exception as e:
         traceback.print_exc()
-        yield {
+        error_data = {
             "type": UpdateType.ERROR.value,
             "error": str(e),
             "update_config": context.update_config.model_dump()
             if context.update_config
             else None,
         }
+        yield error_data
+        
+        # Also broadcast error to SSE clients
+        client_count = await session_stream_manager.get_client_count(session_id)
+        if client_count > 0:
+            await session_stream_manager.broadcast(session_id, "update", error_data)
 
 
 @handle_errors
 async def run_prompt_session(
     context: PromptSessionContext, background_tasks: BackgroundTasks
 ):
+    from eve.api.session_streams import session_stream_manager
+    
+    session_id = str(context.session.id)
+    
     async for data in _run_prompt_session_internal(
         context, background_tasks, stream=False
     ):
+        # Emit to configured update endpoint (existing behavior)
         await emit_update(context.update_config, data)
+        
+        # Also broadcast to SSE clients if any are connected
+        client_count = await session_stream_manager.get_client_count(session_id)
+        if client_count > 0:
+            await session_stream_manager.broadcast(session_id, "update", data)
 
 
 async def _queue_session_action_fastify_background_task(session: Session):

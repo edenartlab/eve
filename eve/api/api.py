@@ -1,6 +1,5 @@
 import logging
 import os
-import threading
 import json
 import modal
 import replicate
@@ -10,7 +9,6 @@ from fastapi import FastAPI, Depends, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader, HTTPBearer
 from pathlib import Path
-from contextlib import asynccontextmanager
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.exceptions import RequestValidationError
 import time
@@ -281,6 +279,17 @@ async def cancel_session(
     return await handle_session_cancel(request)
 
 
+@web_app.get("/sessions/{session_id}/stream")
+async def stream_session(
+    session_id: str,
+    request: Request,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    from eve.api.handlers import handle_session_stream
+
+    return await handle_session_stream(session_id, request)
+
+
 @web_app.post("/v2/deployments/create")
 async def create_deployment(
     request: CreateDeploymentRequestV2,
@@ -477,6 +486,24 @@ async def run_task_replicate(task: Task):
         sentry_sdk.capture_exception(e)
         result = replicate_update_task(task, "failed", str(e), None, "normal")
     return result
+
+
+@app.function(
+    image=image, max_containers=1, schedule=modal.Period(minutes=5), timeout=300
+)
+async def cleanup_stale_session_clients():
+    """Clean up stale SSE clients from session streams"""
+    try:
+        from eve.api.session_streams import session_stream_manager
+
+        logger.info("Starting stale session client cleanup...")
+        await session_stream_manager.cleanup_stale_clients(
+            max_age_seconds=3600
+        )  # 1 hour
+        logger.info("Finished cleaning up stale session clients")
+    except Exception as e:
+        logger.error(f"Error in cleanup_stale_session_clients: {e}")
+        sentry_sdk.capture_exception(e)
 
 
 @app.function(
