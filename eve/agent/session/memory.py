@@ -8,15 +8,13 @@ including contextual information) with full source message traceability.
 
 import json
 import time
-import asyncio
 import traceback
 from enum import Enum
 from typing import List, Optional, Dict, Any
-from datetime import datetime
 from bson import ObjectId
 from pydantic import BaseModel, field_serializer
 
-from eve.mongo import Collection, Document
+from eve.mongo import Collection, Document, get_collection
 from eve.agent.session.session_llm import async_prompt, LLMContext, LLMConfig
 from eve.agent.session.models import ChatMessage, Session
 
@@ -67,6 +65,9 @@ class SessionMemory(Document):
     @classmethod
     def convert_to_mongo(cls, schema: dict, **kwargs) -> dict:
         """Convert enum to string for MongoDB storage"""
+        # Ensure kwargs is a dict to prevent "argument after ** must be a mapping" error
+        if kwargs is None:
+            kwargs = {}
         if "memory_type" in schema and hasattr(schema["memory_type"], "value"):
             schema["memory_type"] = schema["memory_type"].value
         return schema
@@ -74,6 +75,9 @@ class SessionMemory(Document):
     @classmethod
     def convert_from_mongo(cls, schema: dict, **kwargs) -> dict:
         """Convert string back to enum from MongoDB"""
+        # Ensure kwargs is a dict to prevent "argument after ** must be a mapping" error
+        if kwargs is None:
+            kwargs = {}
         if "memory_type" in schema and isinstance(schema["memory_type"], str):
             schema["memory_type"] = MemoryType(schema["memory_type"])
         return schema
@@ -91,12 +95,34 @@ class UserMemory(Document):
     @classmethod
     def convert_to_mongo(cls, schema: dict, **kwargs) -> dict:
         """Convert data for MongoDB storage"""
+        # Ensure kwargs is a dict to prevent "argument after ** must be a mapping" error
+        if kwargs is None:
+            kwargs = {}
         return schema
     
     @classmethod
     def convert_from_mongo(cls, schema: dict, **kwargs) -> dict:
         """Convert data from MongoDB"""
+        # Ensure kwargs is a dict to prevent "argument after ** must be a mapping" error
+        if kwargs is None:
+            kwargs = {}
         return schema
+    @classmethod
+    def find_one_or_create(cls, query, defaults=None):
+        """Find a document or create and save a new one if it doesn't exist."""
+        if defaults is None:
+            defaults = {}
+        
+        doc = cls.find_one(query)
+        if doc:
+            return doc
+        else:
+            # Create new instance and save it
+            new_doc = {**query, **defaults}
+            instance = cls(**new_doc)
+            instance.save()
+            return instance
+
 
 def get_agent_owner(agent_id: ObjectId) -> Optional[ObjectId]:
     """Get the owner of the agent"""
@@ -240,25 +266,17 @@ def _update_user_memory(agent_id: ObjectId, user_id: ObjectId, new_directive_mem
 
     try:
         # Get or create user memory record
-        user_memory = UserMemory.find_one({
+        # Only proceed if both agent_id and user_id are not None
+        if agent_id is None or user_id is None:
+            print(f"Skipping user memory update - agent_id: {agent_id}, user_id: {user_id}")
+            return
+        
+        user_memory = UserMemory.find_one_or_create({
             "agent_id": agent_id, 
             "user_id": user_id
         })
-        
-        if not user_memory:
-            # Create new user memory record
-            user_memory = UserMemory(
-                agent_id=agent_id,
-                user_id=user_id,
-                content="",
-                agent_owner=get_agent_owner(agent_id),
-                unabsorbed_directive_ids=[]
-            )
-            user_memory.save()
-            print(f"Created new user memory for agent {agent_id}, user {user_id}")
-        else:
-            print(f"Found existing user memory with {len(user_memory.unabsorbed_directive_ids)} unabsorbed directives")
-        
+        print(f"Found existing user memory with {len(user_memory.unabsorbed_directive_ids)} unabsorbed directives")
+
         # Add new directive to unabsorbed list
         for directive_id in [m.id for m in new_directive_memories]:
             user_memory.unabsorbed_directive_ids.append(directive_id)
@@ -517,38 +535,42 @@ def assemble_memory_context(agent_id: ObjectId, session_id: Optional[ObjectId] =
     # TODO: instead of last speaker, iterate over all human users in the session
     user_id = last_speaker_id
 
+    # Initialize all variables at the start to avoid scoping issues
     user_memory_content = ""
     unabsorbed_directives = []
     episode_memories = []
+    user_memory = None
 
     # Step 1: User Memory
     try:
         query_start = time.time()
         # Get user memory blob for this user:
-        user_memory = UserMemory.find_one({
+        if user_id is not None and agent_id is not None:  # Only query if both IDs are not None
+            user_memory = UserMemory.find_one_or_create({
                 "agent_id": agent_id,
                 "user_id": user_id
             })
-        if user_memory:
-            user_memory_content = user_memory.content
-            unabsorbed_directive_ids = user_memory.unabsorbed_directive_ids
-            # Get unabsorbed directives:
-            unabsorbed_directives = SessionMemory.find({
-                "agent_id": agent_id,
-                "memory_type": "directive",
-                "related_users": user_id,
-                "_id": {"$in": unabsorbed_directive_ids}
-            })
+            if user_memory:
+                user_memory_content = user_memory.content or ""  # Handle None content
+                unabsorbed_directive_ids = user_memory.unabsorbed_directive_ids or []  # Handle None list
+                # Get unabsorbed directives:
+                if unabsorbed_directive_ids and user_id is not None:  # Only query if there are IDs to look up and user_id is valid
+                    unabsorbed_directives = SessionMemory.find({
+                        "agent_id": agent_id,
+                        "memory_type": "directive",
+                        "related_users": user_id,
+                        "_id": {"$in": unabsorbed_directive_ids}
+                    })
         query_time = time.time() - query_start
-        print(f"   ⏱️  User Memory Assembly: {query_time:.3f}s (user_memory: {'yes' if user_memory else 'no'}, {len(unabsorbed_directives)} unabsorbed directives, {len(episode_memories)} episodes)")
+        print(f"   ⏱️  User Memory Assembly: {query_time:.3f}s (user_memory: {'yes' if user_memory else 'no'}, {len(unabsorbed_directives)} unabsorbed directives)")
     
     except Exception as e:
         print(f"   ❌ Error retrieving user memory: {e}")
-        pass
+        # Variables are already initialized, so we can continue
     
     # Step 2: Session Memory:
     try:
-        if session_id:
+        if session_id and agent_id is not None:  # Only query if session_id and agent_id are not None
             query_start = time.time()
             episode_query = {"source_session_id": session_id}
             episode_memories = SessionMemory.find(episode_query, sort="createdAt", desc=True)
@@ -569,7 +591,7 @@ def assemble_memory_context(agent_id: ObjectId, session_id: Optional[ObjectId] =
 
     except Exception as e:
         print(f"   ❌ Error retrieving session memories: {e}")
-        pass
+        # Variables are already initialized, so we can continue
 
     # Step 3: Full memory context assembly:
     memory_context = ""
@@ -613,7 +635,7 @@ async def maybe_form_memories(
     Returns True if memories were formed.
     """
     from eve.agent.session.session import select_messages
-    
+
     session_messages = select_messages(session, selection_limit=SESSION_MESSAGES_LOOKBACK_LIMIT)
 
     if not agent_id or not session_messages:
@@ -636,11 +658,14 @@ async def maybe_form_memories(
     # Get the number of unabsorbed directives for the last speaker:
     unabsorbed_directive_count = -1
     try: 
-        user_memory = UserMemory.find_one({
-            "agent_id": agent_id,
-            "user_id": session.owner
-        })
-        unabsorbed_directive_count = len(user_memory.unabsorbed_directive_ids) if user_memory else 0
+        # Only query if both agent_id and session.owner are not None
+        if agent_id is not None and session.owner is not None:
+            user_memory = UserMemory.find_one_or_create({
+                "agent_id": agent_id,
+                "user_id": session.owner
+            })
+            
+            unabsorbed_directive_count = len(user_memory.unabsorbed_directive_ids) if user_memory else 0
     except Exception as e:
         print(f"Error getting unabsorbed directive count: {e}")
         traceback.print_exc()
