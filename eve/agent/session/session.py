@@ -994,6 +994,7 @@ async def _run_prompt_session_internal(
         
         # Process memory formation for all actors that participated
         for actor in actors:
+            # TODO move the messages_since_last < interval check to here instead of inside the background task
             print(f"🧠 Scheduling memory formation as background task for session {session.id}, agent {actor.id}")
             background_tasks.add_task(
                 maybe_form_memories,

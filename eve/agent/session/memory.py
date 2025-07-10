@@ -7,7 +7,8 @@ including contextual information) with full source message traceability.
 """
 
 import json
-import hashlib
+import time
+import asyncio
 import traceback
 from enum import Enum
 from typing import List, Optional, Dict, Any
@@ -19,25 +20,26 @@ from eve.mongo import Collection, Document
 from eve.agent.session.session_llm import async_prompt, LLMContext, LLMConfig
 from eve.agent.session.models import ChatMessage, Session
 
+LOCAL_DEV = True
+
 # Memory formation settings:
-MEMORY_FORMATION_INTERVAL = 4 # Number of messages to wait before forming memories
-MAX_RAW_MEMORY_COUNT      = 2 # Number of individual memories to store before consolidating them into the agent's user_memory blob
-MEMORY_LLM_MODEL = "gpt-4o-mini"
+if LOCAL_DEV:
+    MEMORY_FORMATION_INTERVAL = 4 # Number of messages to wait before forming memories
+    SESSION_MESSAGES_LOOKBACK_LIMIT = MEMORY_FORMATION_INTERVAL  # Max messages to look back in a session when forming raw memories
+    MAX_RAW_MEMORY_COUNT      = 2 # Number of individual memories to store before consolidating them into the agent's user_memory blob
+    MAX_N_EPISODES_TO_REMEMBER = 10 # Number of episodes to remember from a session
+    MEMORY_LLM_MODEL = "gpt-4o-mini"
+else:
+    MEMORY_FORMATION_INTERVAL = 20 # Number of messages to wait before forming memories
+    SESSION_MESSAGES_LOOKBACK_LIMIT = MEMORY_FORMATION_INTERVAL  # Max messages to look back in a session when forming raw memories
+    MAX_RAW_MEMORY_COUNT      = 3 # Number of individual memories to store before consolidating them into the agent's user_memory blob
+    MAX_N_EPISODES_TO_REMEMBER = 10 # Number of episodes to remember from a session
+    MEMORY_LLM_MODEL = "gpt-4o"
 
 # LLMs cannot count tokens at all (weirdly), so instruct with word count:
-SESSION_CONSOLIDATED_MEMORY_MAX_WORDS = 50 # Target token length for session consolidated memory
-SESSION_DIRECTIVE_MEMORY_MAX_WORDS    = 25 # Target token length for session directive memory
-
-# Memory context assembly settings:
-DEFAULT_MEMORY_TOKEN_BUDGET = 5000      # Default max tokens for memory context
-DIRECTIVE_TOKEN_BUDGET_RATIO = 0.5      # Ratio of token budget for directives
-SESSION_MESSAGES_LOOKBACK_LIMIT = 1000  # Max messages to look back in a session
-MEMORY_SOURCE_CONTENT_TRUNCATION = 500  # Max characters for source message content display
-
-# Global variables (hardcoded for now, to be loaded from db per agent/session later
-ENABLE_SESSION_MEMORY = True    # Summarizes out of context messages for long sessions
-ENABLE_USER_MEMORY = True       # Single blob of user/agent memory
-ENABLE_COLLECTIVE_MEMORY = True # Single blob of collective agent memory
+SESSION_CONSOLIDATED_MEMORY_MAX_WORDS = 50 # Target word length for session consolidated memory
+SESSION_DIRECTIVE_MEMORY_MAX_WORDS    = 25 # Target word length for session directive memory
+USER_MEMORY_MAX_WORDS = 150 # Target word count for consolidated user memory blob
 
 class MemoryType(Enum):
     EPISODE = "episode"      # Summary of a section of the conversation in a session
@@ -76,78 +78,25 @@ class SessionMemory(Document):
             schema["memory_type"] = MemoryType(schema["memory_type"])
         return schema
 
-def store_extracted_memories(
-    agent_id: ObjectId,
-    extracted_data: Dict[str, List[str]], 
-    messages: List[ChatMessage], 
-    session_id: ObjectId
-) -> List[SessionMemory]:
-    """Store extracted memories to MongoDB with source traceability"""
+@Collection("memory_user")
+class UserMemory(Document):
+    """Consolidated user memory blob for agent/user pairs"""
     
-    print(f"Storing memories for agent {agent_id}")
-    print(f"Extracted data: {extracted_data}")
+    agent_id: ObjectId
+    user_id: ObjectId
+    content: str  # Consolidated memory blob
+    agent_owner: Optional[ObjectId] = None
+    unabsorbed_directive_ids: List[ObjectId] = []  # Track which directive memories haven't been consolidated yet
+
+    @classmethod
+    def convert_to_mongo(cls, schema: dict, **kwargs) -> dict:
+        """Convert data for MongoDB storage"""
+        return schema
     
-    # Ensure all messages have IDs for traceability
-    message_ids = []
-    for msg in messages:
-        if hasattr(msg, 'id') and msg.id:
-            message_ids.append(msg.id)
-        else:
-            # Generate consistent ID for messages without IDs
-            content_hash = hashlib.md5(msg.content.encode()).hexdigest()[:24]
-            fake_id = ObjectId(content_hash)
-            msg.id = fake_id
-            message_ids.append(fake_id)
-    
-    print(f"Message IDs: {[str(mid) for mid in message_ids]}")
-    
-    related_users = list(set([msg.sender for msg in messages if msg.sender]))
-    print(f"Related users: {[str(uid) for uid in related_users]}")
-    
-    # Get agent owner
-    agent_owner = get_agent_owner(agent_id)
-    print(f"Agent owner: {agent_owner}")
-    
-    memories_created = []
-    
-    # Store directives (highest priority)
-    for i, directive in enumerate(extracted_data.get("directives", [])):
-        print(f"Creating directive memory {i+1}: {directive}")
-        memory = SessionMemory(
-            agent_id=agent_id,
-            memory_type=MemoryType.DIRECTIVE,
-            content=directive,
-            source_session_id=session_id,
-            source_message_ids=message_ids,
-            related_users=related_users,
-            agent_owner=agent_owner
-        )
-        try:
-            memory.save()
-            print(f"✓ Saved directive memory with ID: {memory.id}")
-            memories_created.append(memory)
-        except Exception as e:
-            print(f"Error saving directive memory: {e}")
-            traceback.print_exc()
-    
-    # Store episodes
-    for episode in extracted_data.get("episodes", []):
-        memory = SessionMemory(
-            agent_id=agent_id,
-            memory_type=MemoryType.EPISODE,
-            content=episode,
-            source_session_id=session_id,
-            source_message_ids=message_ids,
-            related_users=related_users,
-            agent_owner=agent_owner
-        )
-        try:
-            memory.save()
-            memories_created.append(memory)
-        except Exception as e:
-            print(f"Error saving episode memory: {e}")
-    
-    return memories_created
+    @classmethod
+    def convert_from_mongo(cls, schema: dict, **kwargs) -> dict:
+        """Convert data from MongoDB"""
+        return schema
 
 def get_agent_owner(agent_id: ObjectId) -> Optional[ObjectId]:
     """Get the owner of the agent"""
@@ -197,6 +146,7 @@ def get_memory_source_context(
     
     # If session messages provided, look up from there
     if session_messages:
+        MEMORY_SOURCE_CONTENT_TRUNCATION = 500
         source_messages = []
         for msg in session_messages:
             if hasattr(msg, 'id') and msg.id in memory.source_message_ids:
@@ -227,6 +177,185 @@ def estimate_tokens(text: str) -> int:
     return int(len(text) / 4.5)
 
 
+def store_session_memory(
+    agent_id: ObjectId,
+    extracted_data: Dict[str, List[str]], 
+    messages: List[ChatMessage], 
+    session_id: ObjectId
+) -> List[SessionMemory]:
+    """Store extracted session to MongoDB with source traceability"""
+    
+    print(f"Extracted data: {extracted_data}")
+    message_ids = [msg.id for msg in messages]
+    # Extract all non-agent user_ids:
+    related_users = list(set([msg.sender for msg in messages if msg.sender and msg.sender != agent_id]))
+
+    # Get agent owner
+    agent_owner = get_agent_owner(agent_id)
+    
+    memories_created = []
+    new_directive_memories = []
+    
+    # Store directives (highest priority)
+    for directive in extracted_data.get("directives", []):
+        memory = SessionMemory(
+            agent_id=agent_id,
+            memory_type=MemoryType.DIRECTIVE,
+            content=directive,
+            source_session_id=session_id,
+            source_message_ids=message_ids,
+            related_users=related_users,
+            agent_owner=agent_owner
+        )
+        memory.save()
+        memories_created.append(memory)
+        new_directive_memories.append(memory)
+    
+    # Store episodes
+    for episode in extracted_data.get("episodes", []):
+        memory = SessionMemory(
+            agent_id=agent_id,
+            memory_type=MemoryType.EPISODE,
+            content=episode,
+            source_session_id=session_id,
+            source_message_ids=message_ids,
+            related_users=related_users,
+            agent_owner=agent_owner
+        )
+        memory.save()
+        memories_created.append(memory)
+
+    # Check if we need to consolidate any user memories for each related user
+    for user_id in related_users:
+        if user_id:  # Only process non-None user IDs
+            _update_user_memory(agent_id, user_id, new_directive_memories)
+    
+    return memories_created
+
+def _update_user_memory(agent_id: ObjectId, user_id: ObjectId, new_directive_memories: List[SessionMemory]):
+    """
+    Add new directives to user_memory and maybe consolidate.
+    Called after new directive memories are created.
+    """
+
+    try:
+        # Get or create user memory record
+        user_memory = UserMemory.find_one({
+            "agent_id": agent_id, 
+            "user_id": user_id
+        })
+        
+        if not user_memory:
+            # Create new user memory record
+            user_memory = UserMemory(
+                agent_id=agent_id,
+                user_id=user_id,
+                content="",
+                agent_owner=get_agent_owner(agent_id),
+                unabsorbed_directive_ids=[]
+            )
+            user_memory.save()
+            print(f"Created new user memory for agent {agent_id}, user {user_id}")
+        else:
+            print(f"Found existing user memory with {len(user_memory.unabsorbed_directive_ids)} unabsorbed directives")
+        
+        # Add new directive to unabsorbed list
+        for directive_id in [m.id for m in new_directive_memories]:
+            user_memory.unabsorbed_directive_ids.append(directive_id)
+        user_memory.save()
+        print(f"Added {len(new_directive_memories)} new directives to user memory")
+        print(f"Total Unabsorbed directives in user memory: {len(user_memory.unabsorbed_directive_ids)}")
+        
+        # Check if we need to consolidate
+        if len(user_memory.unabsorbed_directive_ids) >= MAX_RAW_MEMORY_COUNT:
+            print(f"Triggering user memory consolidation for agent {agent_id}, user {user_id}: integrating {len(user_memory.unabsorbed_directive_ids)} unabsorbed directives")
+            # Store the user_memory for async consolidation
+            import asyncio
+            # Create a task to run the consolidation asynchronously
+            loop = asyncio.get_event_loop()
+            loop.create_task(_consolidate_user_directives(user_memory))
+            
+    except Exception as e:
+        print(f"Error checking user directive consolidation: {e}")
+        traceback.print_exc()
+
+async def _consolidate_user_directives(user_memory: UserMemory):
+    """
+    Consolidate unabsorbed directive memories into the user memory blob using LLM.
+    """
+    try:
+        # Get all unabsorbed directive memories
+        unabsorbed_directives = []
+        for directive_id in user_memory.unabsorbed_directive_ids:
+            try:
+                unabsorbed_directives.append(SessionMemory.from_mongo(directive_id))
+            except Exception as e:
+                print(f"Warning: Could not load directive {directive_id}: {e}")
+        
+        if not unabsorbed_directives:
+            print("No valid unabsorbed directives found for consolidation")
+            return
+        
+        # Prepare content for LLM consolidation
+        current_memory = user_memory.content
+        new_directives_text = "\n".join([f"- {d.content}" for d in unabsorbed_directives])
+        
+        print(f"Consolidating {len(unabsorbed_directives)} directives into user memory")
+        print(f"Current memory length: {len(current_memory)} chars")
+        print(f"New directives: {new_directives_text}")
+        
+        # Use LLM to consolidate memories
+        consolidated_content = await _consolidate_memories_with_llm(current_memory, new_directives_text)
+        
+        # Update user memory
+        user_memory.content = consolidated_content
+        user_memory.unabsorbed_directive_ids = []  # Reset unabsorbed list
+        user_memory.save()
+        
+        print(f"✓ Consolidated user memory updated (length: {len(consolidated_content)} chars)")
+        
+    except Exception as e:
+        print(f"Error consolidating user directives: {e}")
+        traceback.print_exc()
+
+async def _consolidate_memories_with_llm(current_memory: str, new_directives: str) -> str:
+    """Use LLM to consolidate current user memory with new directive memories"""
+    
+    consolidation_prompt = f"""
+CONSOLIDATE USER MEMORY
+======================
+You are helping to consolidate memories about a specific user's preferences and behavioral rules for an AI agent.
+
+CURRENT CONSOLIDATED MEMORY:
+{current_memory if current_memory else "(empty - this is the first consolidation)"}
+
+NEW DIRECTIVE MEMORIES TO INTEGRATE:
+{new_directives}
+
+Your task: Create a single consolidated memory (≤{USER_MEMORY_MAX_WORDS} words) that combines the current memory with the new directives.
+
+Requirements:
+- Preserve all important behavioral rules and preferences from both current memory and new directives
+- Remove redundancies and contradictions (newer directives override older ones)
+- Keep the most specific and actionable guidance
+- Use the actual user names from the directives (never use "User" or "the user")
+- Focus on persistent preferences and behavioral rules that should guide future interactions
+- Be concise but comprehensive
+
+Return only the consolidated memory text, no additional formatting or explanation.
+"""
+    
+    context = LLMContext(
+        messages=[ChatMessage(role="user", content=consolidation_prompt)],
+        config=LLMConfig(model=MEMORY_LLM_MODEL)
+    )
+
+    response = await async_prompt(context)
+    consolidated_content = response.content.strip()
+    
+    print(f"LLM consolidation result: {consolidated_content}")
+    return consolidated_content
+
 async def process_memory_formation(
     agent_id: ObjectId,
     session_messages: List[ChatMessage], 
@@ -241,7 +370,7 @@ async def process_memory_formation(
 
     print(f"Processing memory formation for Session {session_id} with {len(session_messages)} messages")
     
-    # Use interval for recent messages to process (4 messages)
+    # Use interval for recent messages to process
     interval = MEMORY_FORMATION_INTERVAL
     start_idx = max(0, len(session_messages) - interval)
     recent_messages = session_messages[start_idx:]
@@ -259,10 +388,9 @@ async def process_memory_formation(
         
         # Extract memories using LLM
         extracted_data = await extract_memories_with_llm(conversation_text)
-        print(f"LLM extracted: {extracted_data}")
         
         # Store extracted memories in database
-        memories_created = store_extracted_memories(
+        memories_created = store_session_memory(
             agent_id, extracted_data, recent_messages, session_id
         )
         
@@ -369,144 +497,111 @@ CRITICAL REQUIREMENTS:
     
     return extracted_data
 
-def assemble_memory_context(agent_id: ObjectId, token_budget: Optional[int] = None, session_id: Optional[ObjectId] = None, last_speaker_id: Optional[ObjectId] = None) -> str:
+def assemble_memory_context(agent_id: ObjectId, session_id: Optional[ObjectId] = None, last_speaker_id: Optional[ObjectId] = None) -> str:
     """
     Assemble relevant memories for context injection into prompts.
     
     Args:
         agent_id: ID of the agent to get memories for
-        token_budget: Maximum tokens to use for memory context (defaults to 5000).
         session_id: Current session ID to prioritize session-specific memories.
         last_speaker_id: ID of the user who spoke the last message for prioritization.
     
     Returns:
         Formatted memory context string for prompt injection.
     """
-    import time
-    
-    if token_budget is None:
-        token_budget = DEFAULT_MEMORY_TOKEN_BUDGET  # Default max memory tokens
     
     start_time = time.time()
     print(f"🧠 MEMORY ASSEMBLY PROFILING - Agent: {agent_id}")
     print(f"   Session: {session_id}, Last Speaker: {last_speaker_id}")
-    print(f"   Token Budget: {token_budget}")
     
-    # Allocate token budget across memory types
-    directive_budget = int(token_budget * DIRECTIVE_TOKEN_BUDGET_RATIO)  # 50% for directives
-    episode_budget = token_budget - directive_budget  # Remainder for episodes
-    
-    # Step 1: Database query timing
-    query_start = time.time()
-    try:
-        # Retrieve memories with different rules for directives vs episodes:
-        # - Directives: All directives from current agent
-        # - Episodes: All episodes from active session
-        directive_query = {"agent_id": agent_id, "memory_type": "directive"}
-        directive_memories = SessionMemory.find(directive_query, sort="createdAt", desc=True)
+    # TODO: instead of last speaker, iterate over all human users in the session
+    user_id = last_speaker_id
 
-        episode_memories = []
-        if session_id:
-            episode_query = {"source_session_id": session_id, "memory_type": "episode"}
-            episode_memories = SessionMemory.find(episode_query, sort="createdAt", desc=True)
-            
-        all_memories = directive_memories + episode_memories
-        
+    user_memory_content = ""
+    unabsorbed_directives = []
+    episode_memories = []
+
+    # Step 1: User Memory
+    try:
+        query_start = time.time()
+        # Get user memory blob for this user:
+        user_memory = UserMemory.find_one({
+                "agent_id": agent_id,
+                "user_id": user_id
+            })
+        if user_memory:
+            user_memory_content = user_memory.content
+            unabsorbed_directive_ids = user_memory.unabsorbed_directive_ids
+            # Get unabsorbed directives:
+            unabsorbed_directives = SessionMemory.find({
+                "agent_id": agent_id,
+                "memory_type": "directive",
+                "related_users": user_id,
+                "_id": {"$in": unabsorbed_directive_ids}
+            })
         query_time = time.time() - query_start
-        print(f"   ⏱️  Database Query: {query_time:.3f}s ({len(directive_memories)} directives, {len(episode_memories)} episodes)")
+        print(f"   ⏱️  User Memory Assembly: {query_time:.3f}s (user_memory: {'yes' if user_memory else 'no'}, {len(unabsorbed_directives)} unabsorbed directives, {len(episode_memories)} episodes)")
+    
     except Exception as e:
-        print(f"   ❌ Error retrieving memories: {e}")
-        return ""
+        print(f"   ❌ Error retrieving user memory: {e}")
+        pass
     
-    if not all_memories:
-        total_time = time.time() - start_time
-        print(f"   ⏱️  Total Time: {total_time:.3f}s (no memories found)")
-        return ""
+    # Step 2: Session Memory:
+    try:
+        if session_id:
+            query_start = time.time()
+            episode_query = {"source_session_id": session_id}
+            episode_memories = SessionMemory.find(episode_query, sort="createdAt", desc=True)
+            # first = new, last = old
+
+            # Get list of MAX_N_EPISODES_TO_REMEMBER most recent, raw episode memories:
+            episode_memories = [m for m in episode_memories if m.memory_type == MemoryType.EPISODE][:MAX_N_EPISODES_TO_REMEMBER]
+            # Reverse the list to put the most recent episodes at the bottom:
+            episode_memories.reverse()
+
+            if not unabsorbed_directives: # Get list of all session directives:
+                unabsorbed_directives = [m for m in episode_memories if m.memory_type == MemoryType.DIRECTIVE]
+                # Reverse the list to put the most recent directives at the bottom:
+                unabsorbed_directives.reverse()
+
+            query_time = time.time() - query_start
+            print(f"   ⏱️  Session memory assembly: {query_time:.3f}s (user_memory: {'yes' if user_memory else 'no'}, {len(unabsorbed_directives)} unabsorbed directives, {len(episode_memories)} episodes)")
+
+    except Exception as e:
+        print(f"   ❌ Error retrieving session memories: {e}")
+        pass
+
+    # Step 3: Full memory context assembly:
+    memory_context = ""
+
+    if len(user_memory_content) > 0: # user_memory blob:
+        memory_context += f"### Consolidated User Memory:\n\n{user_memory_content}\n\n"
     
-    # Step 2: Agent owner lookup timing
-    owner_start = time.time()
-    agent_owner = get_agent_owner(agent_id)
-    owner_time = time.time() - owner_start
-    print(f"   ⏱️  Agent Owner Lookup: {owner_time:.3f}s (owner: {agent_owner})")
+    if len(unabsorbed_directives) > 0:
+        memory_context += f"### Recent Directives (most recent at bottom):\n\n"
+        for directive in unabsorbed_directives:
+            memory_context += f"- {directive.content}\n"
+        memory_context += "\n"
     
-    # Step 3: Memory categorization timing
-    categorize_start = time.time()
-    directives = [m for m in all_memories if m.memory_type == MemoryType.DIRECTIVE]
-    episodes = [m for m in all_memories if m.memory_type == MemoryType.EPISODE]
-    categorize_time = time.time() - categorize_start
-    print(f"   ⏱️  Memory Categorization: {categorize_time:.3f}s")
-    print(f"      📊 Breakdown: {len(directives)} directives, {len(episodes)} episodes")
+    if len(episode_memories) > 0:
+        memory_context += f"### Current conversation context (most recent episodes at bottom):\n\n"
+        for episode in episode_memories:
+            memory_context += f"- {episode.content}\n"
+        memory_context += "\n"
+
+    if len(memory_context) > 0:
+        memory_context = "## Your Memory:\n\n" + memory_context
+    else:
+        print("No memory context to assemble")
+        memory_context = ""
     
-    # Priority function for directives: prioritize by agent owner
-    def directive_priority(memory):
-        has_agent_owner = agent_owner and agent_owner in (memory.related_users or [])
-        return (1 if has_agent_owner else 0, memory.createdAt.timestamp())
-    
-    # Priority function for episodes
-    def episode_priority(memory):
-        is_agent = memory.agent_id == agent_id
-        is_session = memory.source_session_id == session_id if session_id else False
-        has_last_speaker = last_speaker_id and last_speaker_id in (memory.related_users or [])
-        
-        if is_session and is_agent and has_last_speaker:
-            return (0, memory.createdAt.timestamp())  # Highest priority (top of list)
-        elif is_session and is_agent:
-            return (1, memory.createdAt.timestamp())  # High priority
-        elif is_session or is_agent:
-            return (2, memory.createdAt.timestamp())  # Medium priority
-        else:
-            return (3, memory.createdAt.timestamp())  # Lowest priority (bottom of list)
-    
-    # Step 4: Memory sorting timing
-    sort_start = time.time()
-    directives.sort(key=directive_priority)
-    episodes.sort(key=episode_priority)
-    sort_time = time.time() - sort_start
-    print(f"   ⏱️  Memory Sorting: {sort_time:.3f}s")
-    
-    # Step 5: Context assembly timing
-    assembly_start = time.time()
-    context = "## Your Memory\n\n"
-    
-    # Directives first - behavioral rules (newer takes precedence)
-    directive_count = 0
-    if directives:
-        context += "### Instructions & Preferences (bottom takes precedence over top):\n"
-        directive_context = ""
-        for directive in directives:
-            new_line = f"- {directive.content}\n"
-            if estimate_tokens(directive_context + new_line) > directive_budget:
-                break
-            directive_context += new_line
-            directive_count += 1
-        context += directive_context
-        context += "\n"
-    
-    # Episodes - conversation summaries and contextual information
-    episode_count = 0
-    if episodes:
-        context += "### Previous conversation context (more recent at bottom):\n"
-        episode_context = ""
-        for episode in episodes:
-            new_line = f"- {episode.content}\n"
-            if estimate_tokens(episode_context + new_line) > episode_budget:
-                break
-            episode_context += new_line
-            episode_count += 1
-        context += episode_context
-    
-    assembly_time = time.time() - assembly_start
-    print(f"   ⏱️  Context Assembly: {assembly_time:.3f}s")
-    print(f"      📝 Included: {directive_count} directives, {episode_count} episodes")
-    
-    # Step 6: Final stats
+    # Step 4: Final stats
     total_time = time.time() - start_time
-    final_tokens = estimate_tokens(context)
+    final_tokens = estimate_tokens(memory_context)
     print(f"   ⏱️  TOTAL TIME: {total_time:.3f}s")
-    print(f"   📏 Context Length: {len(context)} chars (~{final_tokens} tokens)")
-    print(f"   🎯 Token Budget Usage: {final_tokens}/{token_budget} ({final_tokens/token_budget*100:.1f}%)")
+    print(f"   📏 Context Length: {len(memory_context)} chars (~{final_tokens} tokens)")
     
-    return context
+    return memory_context
 
 async def maybe_form_memories(
     agent_id: ObjectId, 
@@ -538,13 +633,29 @@ async def maybe_form_memories(
     
     print(f"Session {session.id}: {len(session_messages)} total messages, {messages_since_last} since last memory formation")
     
+    # Get the number of unabsorbed directives for the last speaker:
+    unabsorbed_directive_count = -1
+    try: 
+        user_memory = UserMemory.find_one({
+            "agent_id": agent_id,
+            "user_id": session.owner
+        })
+        unabsorbed_directive_count = len(user_memory.unabsorbed_directive_ids) if user_memory else 0
+    except Exception as e:
+        print(f"Error getting unabsorbed directive count: {e}")
+        traceback.print_exc()
+        
+    print(f"Unabsorbed directive count: {unabsorbed_directive_count} / {MAX_RAW_MEMORY_COUNT}")
+    
     # Check if we should form memories
     if messages_since_last < interval:
         print(f"No memory formation needed: {messages_since_last} < {interval} interval")
         return False
     
     print(f"Triggering memory formation: {messages_since_last} >= {interval} interval")
-    
+    if unabsorbed_directive_count >= MAX_RAW_MEMORY_COUNT:
+        print(f"Will also absorb unabsorbed directives: {unabsorbed_directive_count} >= {MAX_RAW_MEMORY_COUNT} unabsorbed directives")
+            
     try:
         # Process memory formation
         result = await process_memory_formation(
