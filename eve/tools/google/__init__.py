@@ -88,7 +88,6 @@ async def veo_handler(args: dict, model: str):
     operation = client.models.generate_videos(
         **args_dict
     )
-
     print("operation", operation)
 
 

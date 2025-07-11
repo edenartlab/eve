@@ -136,6 +136,10 @@ def start(agent: str, db: str, platforms: tuple, local: bool):
 def api(host: str, port: int, reload: bool, db: str):
     """Start the Eve API server"""
     import uvicorn
+    import os
+
+    
+    os.environ["LOCAL_DEBUG"] = "True"  # runs tools locally
 
     click.echo(
         click.style(f"Starting API server on {host}:{port} with DB={db}...", fg="blue")
