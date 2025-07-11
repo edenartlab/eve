@@ -289,7 +289,7 @@ async def handle_trigger_create(
     if not user:
         raise APIError(f"User not found: {request.user}", status_code=404)
 
-    trigger_id = f"{str(user.id)}_{int(time.time())}"
+    trigger_id = f"{db}_{str(user.id)}_{int(time.time())}"
 
     # Wait for modal deployment to succeed before creating mongo object
     try:
@@ -1268,10 +1268,5 @@ async def handle_create_notification(request: CreateNotificationRequest):
     # Mark as delivered for in-app channel immediately
     if NotificationChannel.IN_APP in channels:
         notification.mark_delivered(NotificationChannel.IN_APP)
-
-    # TODO: ***debug*** Handle other delivery channels (push, email, etc.)
-    print(
-        f"***debug*** Created notification {notification.id} for user {request.user_id}"
-    )
 
     return {"id": str(notification.id), "message": "Notification created successfully"}

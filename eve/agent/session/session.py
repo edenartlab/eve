@@ -585,6 +585,10 @@ async def async_prompt_session(
     is_client_platform: bool = False,
     session_run_id: Optional[str] = None,
 ):
+    # Generate session_run_id if not provided to prevent None from being added to active_requests
+    if session_run_id is None:
+        session_run_id = str(uuid.uuid4())
+
     # Set up cancellation handling via Ably
     cancellation_event = asyncio.Event()
     ably_client = None
