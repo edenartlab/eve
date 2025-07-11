@@ -47,6 +47,7 @@ async def create_notification(
     session_id: str = None,
     agent_id: str = None,
     priority: str = "normal",
+    action_url: str = None,
     metadata: dict = None,
 ):
     """Create a notification via API call"""
@@ -70,6 +71,8 @@ async def create_notification(
             notification_data["session_id"] = session_id
         if agent_id:
             notification_data["agent_id"] = agent_id
+        if action_url:
+            notification_data["action_url"] = action_url
         if metadata:
             notification_data["metadata"] = metadata
 
@@ -278,6 +281,7 @@ async def trigger_fn():
                 session_id=str(session.id),
                 agent_id=str(trigger.agent),
                 priority="normal",
+                action_url=f"/sessions/{session.id}",
                 metadata={
                     "trigger_id": trigger_id,
                     "completion_time": datetime.now(timezone.utc).isoformat(),
@@ -356,6 +360,9 @@ async def trigger_fn():
                     session_id=str(session.id) if "session" in locals() else None,
                     agent_id=str(trigger.agent),
                     priority="high",
+                    action_url=f"/sessions/{session.id}"
+                    if "session" in locals()
+                    else None,
                     metadata={
                         "trigger_id": trigger_id,
                         "error": str(e),
