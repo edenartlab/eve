@@ -20,6 +20,10 @@ from eve.agent.session.models import (
     Trigger,
     Deployment,
     DeploymentConfig,
+    Notification,
+    NotificationType,
+    NotificationPriority,
+    NotificationChannel,
 )
 from eve.deploy import (
     Deployment as DeploymentV1,
@@ -44,6 +48,7 @@ from eve.api.api_requests import (
     AgentToolsUpdateRequest,
     AgentToolsDeleteRequest,
     UpdateDeploymentRequestV2,
+    CreateNotificationRequest,
 )
 from eve.api.helpers import (
     emit_update,
@@ -1226,3 +1231,47 @@ async def handle_v2_deployment_emission(request: DeploymentEmissionRequest):
         agent=agent, platform=deployment.platform, deployment=deployment
     )
     await client.handle_emission(request)
+
+
+# Notification handlers
+@handle_errors
+async def handle_create_notification(request: CreateNotificationRequest):
+    """Create a new notification"""
+    from datetime import datetime, timezone
+
+    # Validate user exists
+    user = User.from_mongo(ObjectId(request.user_id))
+    if not user:
+        raise APIError(f"User not found: {request.user_id}", status_code=404)
+
+    # Set default channels if not provided
+    channels = request.channels or [NotificationChannel.IN_APP]
+
+    # Create notification
+    notification = Notification(
+        user=ObjectId(request.user_id),
+        type=request.type,
+        title=request.title,
+        message=request.message,
+        priority=request.priority,
+        channels=channels,
+        trigger=ObjectId(request.trigger_id) if request.trigger_id else None,
+        session=ObjectId(request.session_id) if request.session_id else None,
+        agent=ObjectId(request.agent_id) if request.agent_id else None,
+        metadata=request.metadata,
+        action_url=request.action_url,
+        expires_at=request.expires_at,
+    )
+
+    notification.save()
+
+    # Mark as delivered for in-app channel immediately
+    if NotificationChannel.IN_APP in channels:
+        notification.mark_delivered(NotificationChannel.IN_APP)
+
+    # TODO: ***debug*** Handle other delivery channels (push, email, etc.)
+    print(
+        f"***debug*** Created notification {notification.id} for user {request.user_id}"
+    )
+
+    return {"id": str(notification.id), "message": "Notification created successfully"}

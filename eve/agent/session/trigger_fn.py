@@ -38,6 +38,62 @@ trigger_message_post = """
 """
 
 
+async def create_notification(
+    user_id: str,
+    notification_type: str,
+    title: str,
+    message: str,
+    trigger_id: str = None,
+    session_id: str = None,
+    agent_id: str = None,
+    priority: str = "normal",
+    metadata: dict = None,
+):
+    """Create a notification via API call"""
+    try:
+        api_url = os.getenv("EDEN_API_URL")
+        if not api_url:
+            print("***debug*** EDEN_API_URL not set, skipping notification creation")
+            return
+
+        notification_data = {
+            "user_id": user_id,
+            "type": notification_type,
+            "title": title,
+            "message": message,
+            "priority": priority,
+        }
+
+        if trigger_id:
+            notification_data["trigger_id"] = trigger_id
+        if session_id:
+            notification_data["session_id"] = session_id
+        if agent_id:
+            notification_data["agent_id"] = agent_id
+        if metadata:
+            notification_data["metadata"] = metadata
+
+        response = requests.post(
+            f"{api_url}/notifications/create",
+            headers={
+                "Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}",
+                "Content-Type": "application/json",
+            },
+            json=notification_data,
+        )
+
+        if response.ok:
+            print(f"***debug*** Created notification: {title}")
+        else:
+            print(
+                f"***debug*** Failed to create notification: {response.status_code} - {response.text}"
+            )
+
+    except Exception as e:
+        print(f"***debug*** Error creating notification: {str(e)}")
+        # Don't raise - notification creation failure shouldn't stop the trigger
+
+
 async def trigger_fn():
     background_tasks = BackgroundTasks()
     trigger_id = os.getenv("TRIGGER_ID")
@@ -56,6 +112,7 @@ async def trigger_fn():
             )
             if not trigger:
                 raise Exception(f"Trigger {trigger_id} not found")
+
         except Exception as e:
             with sentry_sdk.configure_scope() as scope:
                 scope.set_tag("trigger_failure", True)
@@ -210,6 +267,26 @@ async def trigger_fn():
                 sentry_sdk.capture_exception(e)
                 raise
 
+        # Stage 5.5: Notify trigger completion
+        try:
+            await create_notification(
+                user_id=str(trigger.user),
+                notification_type="trigger_complete",
+                title="Trigger Completed Successfully",
+                message=f"Your scheduled trigger has completed successfully: {trigger.instruction[:100]}...",
+                trigger_id=str(trigger.id),
+                session_id=str(session.id),
+                agent_id=str(trigger.agent),
+                priority="normal",
+                metadata={
+                    "trigger_id": trigger_id,
+                    "completion_time": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+        except Exception as e:
+            print(f"***debug*** Failed to create completion notification: {str(e)}")
+            # Don't raise - notification failure shouldn't stop the trigger
+
         # Stage 6: End date checking and deletion
         try:
             print("end date?", trigger.schedule)
@@ -266,7 +343,30 @@ async def trigger_fn():
             raise
 
     except Exception as e:
-        # Top-level error handling
+        # Top-level error handling - notify failure
+        try:
+            # Try to get trigger info for failure notification
+            if "trigger" in locals():
+                await create_notification(
+                    user_id=str(trigger.user),
+                    notification_type="trigger_failed",
+                    title="Trigger Failed",
+                    message=f"Your scheduled trigger failed: {str(e)[:200]}...",
+                    trigger_id=str(trigger.id),
+                    session_id=str(session.id) if "session" in locals() else None,
+                    agent_id=str(trigger.agent),
+                    priority="high",
+                    metadata={
+                        "trigger_id": trigger_id,
+                        "error": str(e),
+                        "failure_time": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
+        except Exception as notification_error:
+            print(
+                f"***debug*** Failed to create failure notification: {str(notification_error)}"
+            )
+
         with sentry_sdk.configure_scope() as scope:
             scope.set_tag("trigger_failure", True)
             scope.set_tag("failure_stage", "general")
