@@ -18,7 +18,7 @@ from eve.mongo import Collection, Document, get_collection
 from eve.agent.session.session_llm import async_prompt, LLMContext, LLMConfig
 from eve.agent.session.models import ChatMessage, Session
 
-LOCAL_DEV = True
+LOCAL_DEV = False
 
 # Memory formation settings:
 if LOCAL_DEV:
@@ -210,8 +210,8 @@ def store_session_memory(
     session_id: ObjectId
 ) -> List[SessionMemory]:
     """Store extracted session to MongoDB with source traceability"""
-    
-    print(f"Extracted data: {extracted_data}")
+    if LOCAL_DEV:
+        print(f"Extracted data: {extracted_data}")
     message_ids = [msg.id for msg in messages]
     # Extract all non-agent user_ids:
     related_users = list(set([msg.sender for msg in messages if msg.sender and msg.sender != agent_id]))
@@ -266,27 +266,29 @@ def _update_user_memory(agent_id: ObjectId, user_id: ObjectId, new_directive_mem
 
     try:
         # Get or create user memory record
-        # Only proceed if both agent_id and user_id are not None
         if agent_id is None or user_id is None:
-            print(f"Skipping user memory update - agent_id: {agent_id}, user_id: {user_id}")
             return
         
         user_memory = UserMemory.find_one_or_create({
             "agent_id": agent_id, 
             "user_id": user_id
         })
-        print(f"Found existing user memory with {len(user_memory.unabsorbed_directive_ids)} unabsorbed directives")
+
+        if LOCAL_DEV:
+            print(f"Found existing user memory with {len(user_memory.unabsorbed_directive_ids)} unabsorbed directives")
 
         # Add new directive to unabsorbed list
         for directive_id in [m.id for m in new_directive_memories]:
             user_memory.unabsorbed_directive_ids.append(directive_id)
         user_memory.save()
-        print(f"Added {len(new_directive_memories)} new directives to user memory")
-        print(f"Total Unabsorbed directives in user memory: {len(user_memory.unabsorbed_directive_ids)}")
+        if LOCAL_DEV:
+            print(f"Added {len(new_directive_memories)} new directives to user memory")
+            print(f"Total Unabsorbed directives in user memory: {len(user_memory.unabsorbed_directive_ids)}")
         
         # Check if we need to consolidate
         if len(user_memory.unabsorbed_directive_ids) >= MAX_RAW_MEMORY_COUNT:
-            print(f"Triggering user memory consolidation for agent {agent_id}, user {user_id}: integrating {len(user_memory.unabsorbed_directive_ids)} unabsorbed directives")
+            if LOCAL_DEV:
+                print(f"Triggering user memory consolidation for agent {agent_id}, user {user_id}: integrating {len(user_memory.unabsorbed_directive_ids)} unabsorbed directives")
             # Store the user_memory for async consolidation
             import asyncio
             # Create a task to run the consolidation asynchronously
@@ -311,16 +313,16 @@ async def _consolidate_user_directives(user_memory: UserMemory):
                 print(f"Warning: Could not load directive {directive_id}: {e}")
         
         if not unabsorbed_directives:
-            print("No valid unabsorbed directives found for consolidation")
             return
         
         # Prepare content for LLM consolidation
         current_memory = user_memory.content
         new_directives_text = "\n".join([f"- {d.content}" for d in unabsorbed_directives])
         
-        print(f"Consolidating {len(unabsorbed_directives)} directives into user memory")
-        print(f"Current memory length: {len(current_memory)} chars")
-        print(f"New directives: {new_directives_text}")
+        if LOCAL_DEV:
+            print(f"Consolidating {len(unabsorbed_directives)} directives into user memory")
+            print(f"Current memory length: {len(current_memory)} chars")
+            print(f"New directives: {new_directives_text}")
         
         # Use LLM to consolidate memories
         consolidated_content = await _consolidate_memories_with_llm(current_memory, new_directives_text)
@@ -329,8 +331,8 @@ async def _consolidate_user_directives(user_memory: UserMemory):
         user_memory.content = consolidated_content
         user_memory.unabsorbed_directive_ids = []  # Reset unabsorbed list
         user_memory.save()
-        
-        print(f"✓ Consolidated user memory updated (length: {len(consolidated_content)} chars)")
+        if LOCAL_DEV:
+            print(f"✓ Consolidated user memory updated (length: {len(consolidated_content)} chars)")
         
     except Exception as e:
         print(f"Error consolidating user directives: {e}")
@@ -371,7 +373,8 @@ Return only the consolidated memory text, no additional formatting or explanatio
     response = await async_prompt(context)
     consolidated_content = response.content.strip()
     
-    print(f"LLM consolidation result: {consolidated_content}")
+    if LOCAL_DEV:
+        print(f"LLM consolidation result: {consolidated_content}")
     return consolidated_content
 
 async def process_memory_formation(
@@ -385,15 +388,16 @@ async def process_memory_formation(
     
     Returns True if memories were formed, False otherwise.
     """
-
-    print(f"Processing memory formation for Session {session_id} with {len(session_messages)} messages")
+    if LOCAL_DEV:  
+        print(f"Processing memory formation for Session {session_id} with {len(session_messages)} messages")
     
     # Use interval for recent messages to process
     interval = MEMORY_FORMATION_INTERVAL
     start_idx = max(0, len(session_messages) - interval)
     recent_messages = session_messages[start_idx:]
     
-    print(f"Extracting memories from messages {start_idx+1}-{len(session_messages)} (total: {len(recent_messages)} messages)")
+    if LOCAL_DEV:
+        print(f"Extracting memories from messages {start_idx+1}-{len(session_messages)} (total: {len(recent_messages)} messages)")
     
     if not recent_messages:
         print("No recent messages to process")
@@ -402,7 +406,8 @@ async def process_memory_formation(
     try:
         # Convert messages to text for LLM processing
         conversation_text = messages_to_text(recent_messages)
-        print(f"Conversation text length: {len(conversation_text)} characters")
+        if LOCAL_DEV:
+            print(f"Conversation text length: {len(conversation_text)} characters")
         
         # Extract memories using LLM
         extracted_data = await extract_memories_with_llm(conversation_text)
@@ -413,11 +418,10 @@ async def process_memory_formation(
         )
         
         if memories_created:
-            print(f"✓ Formed {len(memories_created)} memories from {len(recent_messages)} messages")
-            print(f"  Memory types: {[m.memory_type.value for m in memories_created]}")
+            if LOCAL_DEV:
+                print(f"✓ Formed {len(memories_created)} memories from {len(recent_messages)} messages")
+                print(f"  Memory types: {[m.memory_type.value for m in memories_created]}")
             return True
-        else:
-            print("No memories were created from extracted data")
         
     except Exception as e:
         print(f"Error forming memories: {e}")
@@ -506,12 +510,13 @@ CRITICAL REQUIREMENTS:
         extracted_data = {"directives": [], "episodes": []}
 
     # Print the messages and the prompt:
-    print("########################")
-    print("Forming new memories...")
-    print(f"--- Messages: ---\n{context.messages}")
-    print(f"--- Prompt: ---\n{memory_extraction_prompt}")
-    print(f"--- Memories: ---\n{extracted_data}")
-    print("########################")
+    if LOCAL_DEV:
+        print("########################")
+        print("Forming new memories...")
+        print(f"--- Messages: ---\n{context.messages}")
+        print(f"--- Prompt: ---\n{memory_extraction_prompt}")
+        print(f"--- Memories: ---\n{extracted_data}")
+        print("########################")
     
     return extracted_data
 
@@ -529,6 +534,7 @@ def assemble_memory_context(agent_id: ObjectId, session_id: Optional[ObjectId] =
     """
     
     start_time = time.time()
+    
     print(f"🧠 MEMORY ASSEMBLY PROFILING - Agent: {agent_id}")
     print(f"   Session: {session_id}, Last Speaker: {last_speaker_id}")
     
@@ -653,7 +659,8 @@ async def maybe_form_memories(
     # Calculate messages since last memory formation
     messages_since_last = len(session_messages) - last_memory_position - 1
     
-    print(f"Session {session.id}: {len(session_messages)} total messages, {messages_since_last} since last memory formation")
+    if LOCAL_DEV:
+        print(f"Session {session.id}: {len(session_messages)} total messages, {messages_since_last} since last memory formation")
     
     # Get the number of unabsorbed directives for the last speaker:
     unabsorbed_directive_count = -1
@@ -670,11 +677,13 @@ async def maybe_form_memories(
         print(f"Error getting unabsorbed directive count: {e}")
         traceback.print_exc()
         
-    print(f"Unabsorbed directive count: {unabsorbed_directive_count} / {MAX_RAW_MEMORY_COUNT}")
+    if LOCAL_DEV:
+        print(f"Unabsorbed directive count: {unabsorbed_directive_count} / {MAX_RAW_MEMORY_COUNT}")
     
     # Check if we should form memories
     if messages_since_last < interval:
-        print(f"No memory formation needed: {messages_since_last} < {interval} interval")
+        if LOCAL_DEV:
+            print(f"No memory formation needed: {messages_since_last} < {interval} interval")
         return False
     
     print(f"Triggering memory formation: {messages_since_last} >= {interval} interval")
@@ -694,7 +703,8 @@ async def maybe_form_memories(
             latest_message = session_messages[-1]
             session.last_memory_message_id = latest_message.id
             session.save()
-            print(f"Updated last_memory_message_id to {latest_message.id}")
+            if LOCAL_DEV:
+                print(f"Updated last_memory_message_id to {latest_message.id}")
         
         return result
         
