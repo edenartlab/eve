@@ -11,6 +11,9 @@ from eve.agent.session.models import (
     DeploymentSecrets,
     DeploymentConfig,
     ClientType,
+    NotificationType,
+    NotificationPriority,
+    NotificationChannel,
 )
 
 
@@ -195,3 +198,19 @@ class DeploymentEmissionRequest(BaseModel):
     result: Optional[Any] = None
     error: Optional[str] = None
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+# Notification API requests
+class CreateNotificationRequest(BaseModel):
+    user_id: str
+    type: NotificationType
+    title: str
+    message: str
+    priority: Optional[NotificationPriority] = NotificationPriority.NORMAL
+    channels: Optional[List[NotificationChannel]] = None
+    trigger_id: Optional[str] = None
+    session_id: Optional[str] = None
+    agent_id: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+    action_url: Optional[str] = None
+    expires_at: Optional[datetime] = None
