@@ -9,8 +9,8 @@ from pydantic import BaseModel, Field, validator
 from eve.agent.thread import UserMessage
 from eve.agent.llm import async_prompt
 from eve.agent import Agent
-from eve.agent.deployments import Deployment
-from .. import X
+from eve.agent.session.models import Deployment
+from eve.tools.twitter import X
 
 
 # ───────────────────────────────────────────────

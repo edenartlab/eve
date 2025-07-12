@@ -1,8 +1,11 @@
+from typing import TYPE_CHECKING
 from fastapi import Request
 from eve.api.errors import APIError
 from eve.agent.deployments import PlatformClient
 from eve.agent.session.models import DeploymentSecrets, DeploymentConfig
-from eve.agent.session.models import DeploymentEmissionRequest
+
+if TYPE_CHECKING:
+    from eve.api.api_requests import DeploymentEmissionRequest
 
 
 class TwitterClient(PlatformClient):
