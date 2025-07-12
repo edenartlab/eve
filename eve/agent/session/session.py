@@ -247,12 +247,6 @@ def build_system_message(session: Session, actor: Agent, context: PromptSessionC
 
     content = f"{base_content}{memory_context}"
 
-    print("-" * 40)
-    print("COMPLETE SYSTEM PROMPT:")
-    print(content)
-    print("=" * 80)
-    print("END SYSTEM PROMPT DEBUG")
-    print("=" * 80)
     return ChatMessage(
         session=session.id, sender=ObjectId(actor.id), role="system", content=content
     )
