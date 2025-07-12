@@ -67,7 +67,7 @@ You must return a list of ChannelSearchParams objects, each containing:
 
 
 At least one of message_limit or time_window_hours must be specified for each channel.""".format(
-        channel_notes="\n".join(f"- {note}" for note in channel_map.keys())
+        channel_notes="\n".join(f"{id}: {note}" for id, note in channel_map.items())
     )
 
     messages = [
