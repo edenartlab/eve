@@ -44,11 +44,14 @@ ALL_TOOLS = [
     "outpaint",
     "remix_flux_schnell",
     "flux_double_character",
+    "seedream3",
     # video
     "runway",
     "kling_pro",
+    "kling",
     "veo2",
     "hedra",
+    "seedance1",
     "vid2vid_sdxl",
     "video_FX",
     "texture_flow",
@@ -56,6 +59,7 @@ ALL_TOOLS = [
     "ace_step_musicgen",
     "elevenlabs",
     "mmaudio",
+    "thinksound",
     "stable_audio",
     "zonos",
     "transcription",
@@ -80,8 +84,11 @@ ALL_TOOLS = [
 
 
 TOOL_SETS = {
-    "create_image": ["create"],
-    "create_video": ["create_video", "media_editor", "reel"],
+    # "create_image": ["create", "create_image"],
+    # "create_video": ["create_video", "media_editor", "reel"],
+    "create_image": ["create", "reel", "media_editor"],
+    "create_video": ["create", "reel"],
+    
     "create_audio": ["elevenlabs", "musicgen"],
     "vj_tools": ["texture_flow", "video_FX"],
     "news": ["news"],

@@ -1,32 +1,42 @@
 name: Create
-description: Generate or edit images.
+description: Generate or edit images and videos.
 tip: |-
-  This tool generates and edits images.
+  This tool generates and edits both images and videos based on the output parameter.
 
   Rules:
-  - Use 16:9, 1:1, and 9:16 aspect ratios for landscape, square, and portrait images respectively. Only use the other ones if specifically requested of you. If no aspect ratio is specified, use your best judgment depending on the content requested.
-  - If the user wants to make an infographic, logo, or any other image that requires a lot of coherent and legible text, or the user requests OpenAI image tools, you should enable text_precision.
-  - If either text_precision is enabled or there is an init_image, *and* there is no lora, the prompt should be structured as an **INSTRUCTION**.
-  - If the user has an init_image but also has a lora or controlnet, ignore the last rule about being an instruction and instead make a normal text-to-image prompt.
-cost_estimate: "(text_precision ? 10 : 5)"
+  - Use 16:9, 1:1, and 9:16 aspect ratios for landscape, square, and portrait images respectively. Only use the other ones if making images (not videos) and it is specifically requested of you. If no aspect ratio is specified, use your best judgment depending on the content requested. Cinematic content should be landscape while social media content should be square or portrait.
+  - For images: If the user wants to make an infographic, logo, or any other image that requires a lot of coherent and legible text, or the user requests OpenAI image tools, you should include "text_precision" in extras.
+  - For images: If either "text_precision" is in extras or there is an init_image, *and* there is no lora, the prompt should be structured as an **INSTRUCTION**.
+  - For images: If the user has an init_image but also has a lora or "controlnet" in extras, ignore the last rule about being an instruction and instead make a normal text-to-image prompt.
+  - For videos: If you want to put specific lines of dialogue into the video, you must use "pro" quality with sound_effects, and no start_image).
+  - For videos: Audio files are *only* supported when "talking_head" is in extras, so don't use one otherwise. If you want to mix an audio file over video, use the media_editor tool instead.
+cost_estimate: 50
 output_type: image
 active: true
 visible: false
 handler: modal
 parameters:
+  output:
+    type: string
+    label: Output type
+    description: Whether to generate an image or video
+    default: "image"
+    choices: ["image", "video"]
+    required: true
   prompt:
     type: string
     label: Prompt
     description: Text prompt.
     tip: |-
-      If generating an image from scratch, the prompt should be a visually detailed description of the image you want to generate. 
+      If generating from scratch, the prompt should be a visually detailed description of the image or video you want to generate. 
       
       May contain a primary subject and its action, including context like artistic medium, background, secondary items, color schemes, style or genre, mood, lighting, perspective, textures, time period, and cultural elements. 
 
       If the user gives vague or incomplete instructions, you may enhance their prompt to make it rich and detailed, but *always* strive to be as faithful to the user's intent as possible.
       
-      If text_precision is enabled or there is an init_image (unless controlnet or lora), this should be structured as an **INSTRUCTION**. Instructions can and should be long and extremely detailed when necessary or requested. Make sure to refer to objects by what they are rather than using names or references to other things in the conversation, e.g. "Turn the woman's head into a green pumpkin" NOT "Turn Jane's head into the thing from the last image".
+      For images: If "text_precision" is in extras or there is an init_image (unless "controlnet" or lora in extras), this should be structured as an **INSTRUCTION**. Instructions can and should be long and extremely detailed when necessary or requested. Make sure to refer to objects by what they are rather than using names or references to other things in the conversation, e.g. "Turn the woman's head into a green pumpkin" NOT "Turn Jane's head into the thing from the last image".
       
+      For videos: Include details about the camera motion (if any), and what's happening in the scene.
     required: true
   aspect_ratio:
     type: string
@@ -39,20 +49,46 @@ parameters:
     label: Input image
     description: Input image.
     tip: |-
-      Only use this if you are editing an image, generating an image based on a reference image, or using ControlNet.
-  # todo: add init_image_strength / prompt_strength
-  controlnet:
-    type: boolean
-    label: Enable ControlNet
-    description: Use shape guidance from init_image.
+      For images: Only use this if you are editing an image, generating an image based on a reference image, or using "controlnet" in extras.
+      For videos: Use this as start_image if you are animating an image, i.e. using it as the first frame of the video. If generating a video from scratch, do not use this.
+  seed:
+    type: integer
+    label: Seed
+    description: Random seed for reproducible generation
+    tip: Optional seed value for consistent results. If not provided, a random seed will be used.
+    required: false
+  extras:
+    type: array
+    label: Extra features
+    description: Optional extra features to enable
+    items:
+      type: string
+      enum: ["controlnet", "text_precision", "talking_head"]
     tip: |-
-      You should almost never use this. Use this **only** if the user ASKS FOR controlnet. This will conform the image to the shape of the init_image. Useful for style transfer / preserving the contours of the init_image. Generic image editing tasks should not use this.
-    default: false
+      Choose any combination of extra features:
+      - controlnet: You should almost never use this; use it when user requests it specifically. For images only. Use shape guidance from init_image to conform the image to the contours of the init_image. Useful for style transfer with strict content preservation. Generic image editing tasks should not use this.
+      - text_precision: For images only. Maximize the quality and legibility small details, especially text. Useful for infographics, signs, logos, thought bubbles, data visualizations, and other images that require a high degree of coherence, detail, and legibility, especially with text. *Not* compatible with LoRA! If you need to combine this with LoRA, it is better to first generate the initial image with the LoRA, then edit that image in a subsequent step with text_precision.
+      - talking_head: For videos only. Special mode for outputting talking avatar or lipsyncing videos with Hedra. You must feature a face in the prompt or init_image, your audio must feature speech, and you want to make a video with the face speaking, singing, or lipsyncing.
+    default: []
+  end_image:
+    type: image
+    label: End image
+    description: Last frame of video
+    tip: |-
+      For videos only. Use this if and only if you want to specify both the start and end image of the video. Requires both init_image and end_image. This tends not to work well. You should almost never use this unless the user requests it and gives you two images.
+  duration:
+    type: integer
+    label: Duration
+    description: Approximate duration of the video in seconds
+    tip: For videos only. Will be snapped to 5 or 10 seconds for most models, or capped at 8 seconds for Veo models.
+    default: 10
+    minimum: 5
+    maximum: 10
   lora:
     type: lora
     label: LoRA model
     description: ID of LoRA finetuned model.
-    tip: This is optional if you want to capture a specific style, face, or object. This does nothing if you are editing an image.
+    tip: This is optional if you want to capture a specific style, face, or object. For images, this does nothing if you are editing an image. For videos, this does nothing if you are editing an existing video.
   lora_strength:
     type: float
     label: LoRA strength
@@ -62,26 +98,54 @@ parameters:
     default: 0.75
     minimum: 0
     maximum: 1.2
-  text_precision:
-    type: boolean
-    label: Enable precision
-    description: Increase text and infographic precision.
+  lora2:
+    type: lora
+    label: Second LoRA model
+    description: ID of second LoRA finetuned model.
+    tip: You should only use this if the user requests two LoRAs.
+  lora2_strength:
+    type: float
+    label: Second LoRA strength
+    description: Strength of the second LoRA model
     tip: |-
-      If you are generating or editing an image and want to maximize the quality and legibility of text and small details, enable this. Uses OpenAI in the backend; If the user requests OpenAI's image tools, you should enable this. This is excellent for infographics, logos, and any other images that require a high degree of coherence, detail, and legibility, especially with text. IMPORTANT: This is **not** compatible with LoRA! If you need to combine this with a LoRA, it is better to first generate the base or reference image with the LoRA, then edit it with text_precision.
-    default: false
-  seed:
-    type: integer
-    label: Seed
-    description: Set random seed for reproducibility. If blank, will be set to a random value.
-    tip: |-
-      You should only set this if you want to start from/copy the seed of a previous image. Unless one is specified, you should leave this blank!
+      Same as lora_strength but for lora2.
+    default: 0.75
     minimum: 0
-    maximum: 2147483647
-    default: random
+    maximum: 1.2
+  quality:
+    type: string
+    label: Quality
+    description: Quality vs speed tradeoff
+    tip: |-
+      For videos only. "standard" is fast and cheap but lower quality. "pro" is slower and more expensive but highest quality. Use standard for most cases unless user specifically requests high quality.
+    default: "standard"
+    choices: ["standard", "pro"]
+  model_preference:
+    type: string
+    label: Model preference
+    description: Optional preference for specific model provider
+    tip: |-
+      Optionally specify which model provider to use. If not specified, will automatically choose the best model based on your requirements. For videos: kling, seedance, runway, veo2, veo3. For images: seedream3, openai, flux, sdxl.
+    choices: ["kling", "seedream3", "seedance", "sdxl", "runway", "openai", "flux", "veo2", "veo3"]
+  audio:
+    type: audio
+    label: Audio track URL
+    description: Optional audio track to mix with the video
+    tip: |-
+      Mix audio file into the video. For "talking_head", you must include this and it should be speech.
+    required: false
+  sound_effects:
+    type: string
+    label: Sound effects prompt
+    description: Optional foley sound effects to mix over the video
+    tip: |-
+      For videos only. Only use this if you want to or have been requested to produce sound effects over the video. You should not use this if the user has already provided an audio track. You can include long and very detailed text about vocals, foley sound effects, backgroun effects, music, etc. You may include full lines of spoken dialogue, e.g. "the boy says 'I heard you can make dialogue in Eden now!'"
+    required: false
   n_samples:
     type: integer
     label: Number of samples
     description: How many variations or samples to generate
+    tip: For images only.
     default: 1
     minimum: 1
     maximum: 4

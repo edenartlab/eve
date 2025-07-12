@@ -1,3 +1,4 @@
+import os
 import click
 import random
 import asyncio
@@ -159,6 +160,8 @@ def remove(db: str, names: tuple):
 def run(ctx, tool: str, db: str):
     """Create with a tool. Args are passed as --key=value or --key value"""
 
+    os.environ["LOCAL_DEBUG"] = "True"
+
     tool = Tool.load(key=tool)
 
     # Parse remaining args into dict, excluding user and agent
@@ -242,6 +245,8 @@ def test(
     tools: tuple, yaml: bool, db: str, api: bool, parallel: bool, save: bool, mock: bool
 ):
     """Test multiple tools with their test args"""
+
+    os.environ["LOCAL_DEBUG"] = "True"
 
     async def async_test_tool(tool, api):
         color = random.choice(CLICK_COLORS)

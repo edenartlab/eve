@@ -48,6 +48,11 @@ def load_handler(name):
 
             handlers[name] = handler
 
+        elif name == "create_image":
+            from .media_utils.create_image.handler import handler
+
+            handlers[name] = handler
+
         elif name == "create_video":
             from .media_utils.create_video.handler import handler
 

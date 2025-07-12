@@ -200,7 +200,7 @@ def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
     return messages
 
 
-def build_system_message(session: Session, actor: Agent, context: PromptSessionContext):
+def build_system_message(session: Session, actor: Agent, context: PromptSessionContext, tools: Dict[str, Tool]):
     # Get text describing models
     if actor.models:
         models_collection = get_collection(Model.collection_name)
@@ -224,6 +224,7 @@ def build_system_message(session: Session, actor: Agent, context: PromptSessionC
         scenario=session.scenario,
         loras=loras,
         voice=actor.voice,
+        tools=tools,
     )
 
     return ChatMessage(
@@ -276,8 +277,27 @@ async def build_llm_context(
         )
         lora_docs = list(lora_docs or [])
 
+        # if models are found, inject them as defaults for any tools that use lora
+        for tool in tools:
+            if lora_docs and "lora" in tools[tool].parameters:
+                params = {
+                    "lora": {"default": str(lora_docs[0]["_id"]), "description": "this is a decoy 12345", "tip": "this is a decoy 45678"},
+                    "use_lora": {"default": True},
+                }
+                
+                if len(lora_docs) > 1 and "lora2" in tools[tool].parameters:
+                    params["lora2"] = {"default": str(lora_docs[1]["_id"])}
+                    params["use_lora2"] = {"default": True}
+                
+                tools[tool] = Tool.from_raw_yaml(
+                    {
+                        "parent_tool": tool,
+                        "parameters": params,
+                    }
+                )
+
     # build messages
-    system_message = build_system_message(session, actor, context)
+    system_message = build_system_message(session, actor, context, tools)
     messages = [system_message]
     messages.extend(select_messages(session))
     messages = convert_message_roles(messages, actor.id)
