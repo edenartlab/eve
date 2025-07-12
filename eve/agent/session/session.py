@@ -1,4 +1,5 @@
 import asyncio
+import traceback
 import json
 import os
 import random
@@ -39,6 +40,10 @@ from eve.agent.session.models import LLMConfig
 from eve.agent.session.session_prompts import (
     system_template,
     model_template,
+)
+from eve.agent.session.memory import (
+    maybe_form_memories,
+    assemble_memory_context
 )
 
 
@@ -172,13 +177,14 @@ async def determine_actors(
     return actors
 
 
-def select_messages(session: Session, selection_limit: int = 25):
+def select_messages(
+    session: Session, selection_limit: Optional[int] = None
+):
     messages = ChatMessage.get_collection()
-    selected_messages = list(
-        messages.find({"session": session.id, "role": {"$ne": "eden"}})
-        .sort("createdAt", -1)
-        .limit(selection_limit)
-    )
+    query = messages.find({"session": session.id, "role": {"$ne": "eden"}}).sort("createdAt", -1)
+    if selection_limit is not None:
+        query = query.limit(selection_limit)
+    selected_messages = list(query)
     selected_messages.reverse()
     selected_messages = [ChatMessage(**msg) for msg in selected_messages]
     # Filter out cancelled tool calls from the messages
@@ -201,6 +207,25 @@ def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
 
 
 def build_system_message(session: Session, actor: Agent, context: PromptSessionContext, tools: Dict[str, Tool]):
+    # Get the last speaker ID for memory prioritization
+    last_speaker_id = None
+    if context.initiating_user_id:
+        last_speaker_id = ObjectId(context.initiating_user_id)
+    
+    # Get agent memory context (up to 5000 tokens)
+    memory_context = ""
+    try:
+        memory_context = assemble_memory_context(
+            actor.id, 
+            session_id=session.id, 
+            last_speaker_id=last_speaker_id
+        )
+
+        if memory_context:
+            memory_context = f"\n\n{memory_context}"
+    except Exception as e:
+        print(f"Warning: Could not load memory context for agent {actor.id}: {e}")
+    
     # Get text describing models
     if actor.models:
         models_collection = get_collection(Model.collection_name)
@@ -217,16 +242,26 @@ def build_system_message(session: Session, actor: Agent, context: PromptSessionC
     else:
         loras = ""
 
-    content = system_template.render(
+    # Build system prompt with memory context
+    base_content = system_template.render(
         name=actor.name,
         current_date_time=datetime.now(pytz.utc).strftime("%Y-%m-%d %H:%M:%S"),
+        description=actor.description,
         persona=actor.persona,
         scenario=session.scenario,
         loras=loras,
         voice=actor.voice,
         tools=tools,
     )
-
+    
+    content = f"{base_content}{memory_context}"
+    
+    print("-" * 40)
+    print("COMPLETE SYSTEM PROMPT:")
+    print(content)
+    print("=" * 80)
+    print("END SYSTEM PROMPT DEBUG")
+    print("=" * 80)
     return ChatMessage(
         session=session.id, sender=ObjectId(actor.id), role="system", content=content
     )
@@ -605,6 +640,10 @@ async def async_prompt_session(
     is_client_platform: bool = False,
     session_run_id: Optional[str] = None,
 ):
+    # Generate session_run_id if not provided to prevent None from being added to active_requests
+    if session_run_id is None:
+        session_run_id = str(uuid.uuid4())
+
     # Set up cancellation handling via Ably
     cancellation_event = asyncio.Event()
     ably_client = None
@@ -988,11 +1027,27 @@ async def _run_prompt_session_internal(
                 for update in result:
                     yield update
 
-    # Only queue auto-reply after all actors have completed
-    if session.autonomy_settings and session.autonomy_settings.auto_reply:
-        background_tasks.add_task(
-            _queue_session_action_fastify_background_task, session
-        )
+    # Schedule background tasks if available
+    if background_tasks:
+        # Process auto-reply after all actors have completed
+        if session.autonomy_settings and session.autonomy_settings.auto_reply:
+            print(f"🤖 Scheduling auto-reply as background task for session {session.id}")
+            background_tasks.add_task(
+                _queue_session_action_fastify_background_task, 
+                session
+            )
+        
+        # Process memory formation for all actors that participated
+        for actor in actors:
+            # TODO move the messages_since_last < interval check to here instead of inside the background task
+            print(f"🧠 Scheduling memory formation as background task for session {session.id}, agent {actor.id}")
+            background_tasks.add_task(
+                maybe_form_memories,
+                actor.id, 
+                session
+            )
+    else:
+        print(f"⚠️  Warning: No background_tasks available, skipping memory formation and auto-reply")
 
 
 async def run_prompt_session_stream(

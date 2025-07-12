@@ -52,6 +52,7 @@ from eve.api.handlers import (
     handle_v2_deployment_update,
     handle_v2_deployment_delete,
     handle_v2_deployment_farcaster_neynar_webhook,
+    handle_create_notification,
 )
 from eve.api.api_requests import (
     CancelRequest,
@@ -69,6 +70,7 @@ from eve.api.api_requests import (
     AgentToolsUpdateRequest,
     AgentToolsDeleteRequest,
     UpdateDeploymentRequestV2,
+    CreateNotificationRequest,
 )
 from eve.api.helpers import pre_modal_setup, busy_state_dict
 
@@ -320,6 +322,14 @@ async def deployment_farcaster_neynar_webhook(request: Request):
 @web_app.post("/v2/deployments/emission")
 async def deployment_emission(request: DeploymentEmissionRequest):
     return await handle_v2_deployment_emission(request)
+
+
+# Notification routes
+@web_app.post("/notifications/create")
+async def create_notification(
+    request: CreateNotificationRequest, _: dict = Depends(auth.authenticate_admin)
+):
+    return await handle_create_notification(request)
 
 
 @web_app.exception_handler(RequestValidationError)

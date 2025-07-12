@@ -58,6 +58,7 @@ You are roleplaying as {{ name }}. The current date and time is {{ current_date_
 ## Persona
 
 This section describes {{ name }}'s persona:
+{{ description }}
 {{ persona }}
 
 {% if scenario is not none %}
