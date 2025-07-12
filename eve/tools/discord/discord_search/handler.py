@@ -1,7 +1,7 @@
 from eve.agent.session.models import ChatMessage, LLMConfig, LLMContext
 from eve.agent.session.session_llm import ToolMetadataBuilder, async_prompt
-from ....deploy import Deployment
-from ....agent import Agent
+from eve.agent.agent import Agent
+from eve.agent.session.models import Deployment
 from pydantic import BaseModel
 import discord
 from datetime import datetime, timedelta

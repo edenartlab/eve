@@ -41,10 +41,7 @@ from eve.agent.session.session_prompts import (
     system_template,
     model_template,
 )
-from eve.agent.session.memory import (
-    maybe_form_memories,
-    assemble_memory_context
-)
+from eve.agent.session.memory import maybe_form_memories, assemble_memory_context
 
 
 class SessionCancelledException(Exception):
@@ -135,10 +132,7 @@ async def determine_actors(
     elif context.actor_agent_id:
         # Single actor specified in the context (backwards compatibility)
         requested_actor = ObjectId(context.actor_agent_id)
-        if requested_actor in session.agents:
-            actor_ids.append(requested_actor)
-        else:
-            raise ValueError(f"Actor @{context.actor_agent_id} not found in session")
+        actor_ids.append(requested_actor)
     elif session.autonomy_settings and session.autonomy_settings.auto_reply:
         actor_id = determine_actor_from_actor_selection_method(session)
         actor_ids.append(actor_id)
@@ -177,11 +171,11 @@ async def determine_actors(
     return actors
 
 
-def select_messages(
-    session: Session, selection_limit: Optional[int] = None
-):
+def select_messages(session: Session, selection_limit: Optional[int] = None):
     messages = ChatMessage.get_collection()
-    query = messages.find({"session": session.id, "role": {"$ne": "eden"}}).sort("createdAt", -1)
+    query = messages.find({"session": session.id, "role": {"$ne": "eden"}}).sort(
+        "createdAt", -1
+    )
     if selection_limit is not None:
         query = query.limit(selection_limit)
     selected_messages = list(query)
@@ -211,21 +205,19 @@ def build_system_message(session: Session, actor: Agent, context: PromptSessionC
     last_speaker_id = None
     if context.initiating_user_id:
         last_speaker_id = ObjectId(context.initiating_user_id)
-    
+
     # Get agent memory context (up to 5000 tokens)
     memory_context = ""
     try:
         memory_context = assemble_memory_context(
-            actor.id, 
-            session_id=session.id, 
-            last_speaker_id=last_speaker_id
+            actor.id, session_id=session.id, last_speaker_id=last_speaker_id
         )
 
         if memory_context:
             memory_context = f"\n\n{memory_context}"
     except Exception as e:
         print(f"Warning: Could not load memory context for agent {actor.id}: {e}")
-    
+
     # Get text describing models
     if actor.models:
         models_collection = get_collection(Model.collection_name)
@@ -252,9 +244,9 @@ def build_system_message(session: Session, actor: Agent, context: PromptSessionC
         loras=loras,
         voice=actor.voice,
     )
-    
+
     content = f"{base_content}{memory_context}"
-    
+
     print("-" * 40)
     print("COMPLETE SYSTEM PROMPT:")
     print(content)
@@ -1011,23 +1003,24 @@ async def _run_prompt_session_internal(
     if background_tasks:
         # Process auto-reply after all actors have completed
         if session.autonomy_settings and session.autonomy_settings.auto_reply:
-            print(f"🤖 Scheduling auto-reply as background task for session {session.id}")
-            background_tasks.add_task(
-                _queue_session_action_fastify_background_task, 
-                session
+            print(
+                f"🤖 Scheduling auto-reply as background task for session {session.id}"
             )
-        
+            background_tasks.add_task(
+                _queue_session_action_fastify_background_task, session
+            )
+
         # Process memory formation for all actors that participated
         for actor in actors:
             # TODO move the messages_since_last < interval check to here instead of inside the background task
-            print(f"🧠 Scheduling memory formation as background task for session {session.id}, agent {actor.id}")
-            background_tasks.add_task(
-                maybe_form_memories,
-                actor.id, 
-                session
+            print(
+                f"🧠 Scheduling memory formation as background task for session {session.id}, agent {actor.id}"
             )
+            background_tasks.add_task(maybe_form_memories, actor.id, session)
     else:
-        print(f"⚠️  Warning: No background_tasks available, skipping memory formation and auto-reply")
+        print(
+            f"⚠️  Warning: No background_tasks available, skipping memory formation and auto-reply"
+        )
 
 
 async def run_prompt_session_stream(

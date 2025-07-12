@@ -1,5 +1,5 @@
-from eve.agent.deployments import Deployment
-from eve.agent import Agent
+from eve.agent.agent import Agent
+from eve.agent.session.models import Deployment
 import discord
 
 
@@ -39,9 +39,11 @@ async def handler(args: dict, user: str = None, agent: str = None):
         message = await channel.send(content=content)
 
         return {
-            "output": [{
-                "url": f"https://discord.com/channels/{channel.guild.id}/{channel.id}/{message.id}",
-            }]
+            "output": [
+                {
+                    "url": f"https://discord.com/channels/{channel.guild.id}/{channel.id}/{message.id}",
+                }
+            ]
         }
 
     finally:
