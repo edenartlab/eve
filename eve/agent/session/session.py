@@ -227,6 +227,7 @@ def build_system_message(session: Session, actor: Agent, context: PromptSessionC
         print(f"Warning: Could not load memory context for agent {actor.id}: {e}")
     
     # Get text describing models
+    lora_name = None
     if actor.models:
         models_collection = get_collection(Model.collection_name)
         loras_dict = {m["lora"]: m for m in actor.models}
@@ -234,6 +235,8 @@ def build_system_message(session: Session, actor: Agent, context: PromptSessionC
             {"_id": {"$in": list(loras_dict.keys())}, "deleted": {"$ne": True}}
         )
         lora_docs = list(lora_docs or [])
+        if lora_docs:
+            lora_name = lora_docs[0]["name"]
         for doc in lora_docs:
             doc["use_when"] = loras_dict[ObjectId(doc["_id"])].get(
                 "use_when", "This is your default Lora model"
@@ -250,6 +253,7 @@ def build_system_message(session: Session, actor: Agent, context: PromptSessionC
         persona=actor.persona,
         scenario=session.scenario,
         loras=loras,
+        lora_name=lora_name,
         voice=actor.voice,
         tools=tools,
     )
@@ -316,7 +320,7 @@ async def build_llm_context(
         for tool in tools:
             if lora_docs and "lora" in tools[tool].parameters:
                 params = {
-                    "lora": {"default": str(lora_docs[0]["_id"]), "description": "this is a decoy 12345", "tip": "this is a decoy 45678"},
+                    "lora": {"default": str(lora_docs[0]["_id"])},
                     "use_lora": {"default": True},
                 }
                 

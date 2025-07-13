@@ -12,24 +12,11 @@ TODO:
  - guidance, n_steps (low, medium, high) (low -> schnell)
  - txt2img has "style image" / ip adapter
  - check on n_samples
-
-VIDEO TODO:
-x hedra doesn't work with no lora or start image
-- fix cost formula
-- add lora2. when two face loras, use double character
-- negative_prompt
-- start_image_strength
-- n_samples
-- vid2vid_sdxl, video_FX, texture_flow
-- no start image and aspect ratio == auto, predict good aspect ratio
-
-AUDIO
-- elevenlabs
-- stable_audio
-- mmaudio
-- ace_step_musicgen
-- zonos
-- transcription
+ - fix cost formula
+ - video start_image_strength
+ - enforce n_samples
+ - vid2vid_sdxl, video_FX, texture_flow
+ - no start image and aspect ratio == auto, predict good aspect ratio
 
 MEDIA_EDITOR
 - combine audio
@@ -51,15 +38,17 @@ async def handler(args: dict, user: str = None, agent: str = None):
     print("args", args)
     print("user", user)
     print("agent", agent)
-    print("LOCAL_DEBUG", os.getenv("LOCAL_DEBUG"))
-    # raise Exception("sto !!p")
-
+    
     output_type = args.get("output", "image")
     
     if output_type == "image":
-        return await handle_image_creation(args, user, agent)
+        return await handle_image_creation(
+            args, user, agent
+        )
     elif output_type == "video":
-        return await handle_video_creation(args, user, agent)
+        return await handle_video_creation(
+            args, user, agent
+        )
     else:
         raise Exception(f"Invalid output type: {output_type}")
 
@@ -71,6 +60,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
     flux_dev_lora = Tool.load("flux_dev_lora")
     flux_dev = Tool.load("flux_dev")
     flux_kontext = Tool.load("flux_kontext")
+    flux_double_character = Tool.load("flux_double_character")
     txt2img = Tool.load("txt2img")
     openai_image_edit = Tool.load("openai_image_edit")
     openai_image_generate = Tool.load("openai_image_generate")
@@ -82,16 +72,19 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
     init_image = args.get("init_image", None)
     extras = args.get("extras", [])
     text_precision = "text_precision" in extras
+    double_character = "double_character" in extras
     controlnet = "controlnet" in extras
     seed = args.get("seed", None)
-    lora_strength = args.get("lora_strength", 0.75)
     aspect_ratio = args.get("aspect_ratio", "auto")
     model_preference = args.get("model_preference", "seedream").lower()
 
     # get loras
     loras = get_loras(args.get("lora"), args.get("lora2"))
-    lora2_strength = args.get("lora2_strength", 0.75)
+    lora_strength = args.get("lora_strength", 0.8)
+    lora2_strength = args.get("lora2_strength", 0.8)
 
+    # check if both loras are faces
+    two_faces = len(loras) == 2 and all([(lora.args.get("mode") or lora.args.get("concept_mode")) == "face" for lora in loras])
 
     # Determine tool
     if init_image:
@@ -132,9 +125,12 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
     # Switch from Flux Dev Lora to Flux Dev if and only if 2 LoRAs or Controlnet
     if image_tool == flux_dev_lora:
-        if len(loras) > 1 or controlnet:
+        if two_faces or double_character:
+            image_tool = flux_double_character
+        elif len(loras) > 1 or controlnet:
             image_tool = flux_dev
 
+    tool_calls = []
 
     print("\n\n\n\n\n--------------------------------")
     print("THE SELECTED IMAGE TOOL", image_tool.key)
@@ -288,6 +284,41 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
 
     #########################################################
+    # Flux Double Character
+    elif image_tool == flux_double_character:
+
+        # Set the two LoRAs
+        if len(loras) < 2:
+            raise Exception("flux_double_character requires exactly 2 LoRAs")
+
+        print("HERE IS THE PROMPT", prompt)
+        for l, lora in enumerate(loras):
+            prompt = prompt.replace(lora.name, f"subj_{l+1}")        
+        print("HERE IS THE PROMPT 2", prompt)
+
+        args = {
+            "prompt": prompt,
+            "n_samples": n_samples,
+            "speed_quality_slider": 0.4,
+            "lora": str(loras[0].id),
+            "lora2": str(loras[1].id),
+        }
+        args.update(aspect_ratio_to_dimensions(aspect_ratio))
+
+        if seed:
+            args["seed"] = seed
+            
+        # Note: flux_double_character doesn't support init_image, so we ignore it
+        print("Running flux_double_character", args)
+        print("the args")
+        result = await flux_double_character.async_run(args)
+
+        print("RESULT OF FLUX DOUBLE CHARACTER", result)
+
+        print("IMAGE TOOL KEY ??", image_tool.key)
+
+
+    #########################################################
     # Flux Kontext
     elif image_tool == flux_kontext:
         if aspect_ratio == "auto":
@@ -310,7 +341,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
     #########################################################
     # OpenAI Image Generate
-    elif image_tool == openai_image_generate:
+    elif image_tool. == openai_image_generate:
         args = {
             "prompt": prompt,
             "n_samples": n_samples,
@@ -369,10 +400,12 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
                                 "controlnet_strength": 0.6,
                             })
                     result = await txt2img.async_run(args_pre)
+                    init_image = get_full_url(result["output"][0]["filename"])
+                    tool_calls.append({"tool": txt2img.key, "args": args_pre, "output": init_image})
                 else:
                     result = await flux_dev_lora.async_run(args_pre)
-
-                init_image = get_full_url(result["output"][0]["filename"])
+                    init_image = get_full_url(result["output"][0]["filename"])
+                    tool_calls.append({"tool": flux_dev_lora.key, "args": args_pre, "output": init_image})
 
                 prompt = f"This was the prompt for the image you see here: {prompt}. Regenerate this exact image in this exact style, as faithfully to the original image as possible, except completely redo any poorly rendered or illegible text rendered that doesn't match what's in the prompt."
 
@@ -424,19 +457,22 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
     else:
         raise Exception("Invalid args", args, image_tool)
-
-
+    
     #########################################################
     # Final result
     assert "output" in result, "No output from image tool"
     assert "filename" in result["output"][0], "No filename in output from image tool"
     
     final_result = get_full_url(result["output"][0]["filename"])
-
     print("final result", final_result)
 
+    # Add sub tool call to tool_calls
+    print("lets save the tool call", image_tool.key, final_result)
+    tool_calls.append({"tool": image_tool.key, "args": args, "output": final_result})
+
     return {
-        "output": final_result
+        "output": final_result,
+        "subtool_calls": tool_calls
     }
 
 
@@ -503,6 +539,8 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
         
     print("Tool selected", video_tool.key)
 
+    tool_calls = []
+
     # If there is no start image, generate one for any of the following reasons:
     # - Using Runway, because it requires one
     # - Lora is set, so we want to do img2vid with a lora-applied image instead of txt2vid
@@ -519,6 +557,7 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
             try:
                 result = await create.async_run(args)
                 start_image = get_full_url(result["output"][0]["filename"])
+                tool_calls.append({"tool": create.key, "args": args, "output": start_image})
             except Exception as e:
                 raise Exception("Error generating start image for img2vid. Try generating it yourself first with the 'create' tool, and then use it as start_image. Original error: {}".format(e))
 
@@ -741,6 +780,7 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
     final_video = get_full_url(result["output"][0]["filename"])
     print("final result", final_video)
 
+    tool_calls.append({"tool": video_tool.key, "args": args, "output": final_video})
 
     # If sound effects are requested, try to add them
     if sound_effects and video_tool != veo3:
@@ -756,12 +796,14 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
             sound_fx = await thinksound.async_run(args)
             final_video = get_full_url(sound_fx["output"][0]["filename"])
             print("Final result with sound effects", final_video)
+            tool_calls.append({"tool": thinksound.key, "args": args, "output": final_video})
         
         except Exception as e:
             print("Error adding sound effects, just return video without it. Error: {}".format(e))
 
     return {
-        "output": final_video
+        "output": final_video,
+        "subtool_calls": tool_calls
     }
 
 

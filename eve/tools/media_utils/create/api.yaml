@@ -63,12 +63,14 @@ parameters:
     description: Optional extra features to enable
     items:
       type: string
-      enum: ["controlnet", "text_precision", "talking_head"]
+      enum: ["text_precision", "talking_head", "double_character", "controlnet"]
     tip: |-
       Choose any combination of extra features:
-      - controlnet: You should almost never use this; use it when user requests it specifically. For images only. Use shape guidance from init_image to conform the image to the contours of the init_image. Useful for style transfer with strict content preservation. Generic image editing tasks should not use this.
-      - text_precision: For images only. Maximize the quality and legibility small details, especially text. Useful for infographics, signs, logos, thought bubbles, data visualizations, and other images that require a high degree of coherence, detail, and legibility, especially with text. *Not* compatible with LoRA! If you need to combine this with LoRA, it is better to first generate the initial image with the LoRA, then edit that image in a subsequent step with text_precision.
+      - text_precision: For images only. Maximize the quality and legibility small details, especially text. Useful for infographics, signs, logos, thought bubbles, data visualizations, and other images that require a high degree of coherence, detail, and legibility, especially with text. *Not* compatible with LoRA! If you need to combine this with LoRA, it is better to first generate the initial image with the LoRA, then edit that image in a suqbsequent step with text_precision.
       - talking_head: For videos only. Special mode for outputting talking avatar or lipsyncing videos with Hedra. You must feature a face in the prompt or init_image, your audio must feature speech, and you want to make a video with the face speaking, singing, or lipsyncing.
+      - double_character: For images only. Use this only when there are two LoRAs of characters/faces/people, or if the user requests it. It will attempt to make one image that generates both characters in it.
+      - controlnet: You should almost never use this. For images only. Conform the output image to the match the contours of the init_image. Useful for style transfer with strict content preservation. Generic image editing tasks should not use this.
+
     default: []
   end_image:
     type: image
@@ -80,7 +82,7 @@ parameters:
     type: integer
     label: Duration
     description: Approximate duration of the video in seconds
-    tip: For videos only. Will be snapped to 5 or 10 seconds for most models, or capped at 8 seconds for Veo models.
+    tip: For videos only.
     default: 10
     minimum: 5
     maximum: 10
@@ -88,7 +90,7 @@ parameters:
     type: lora
     label: LoRA model
     description: ID of LoRA finetuned model.
-    tip: This is optional if you want to capture a specific style, face, or object. For images, this does nothing if you are editing an image. For videos, this does nothing if you are editing an existing video.
+    tip: Use image model finetuned to specific style, face, or object. For image generation only.
   lora_strength:
     type: float
     label: LoRA strength
@@ -125,14 +127,14 @@ parameters:
     label: Model preference
     description: Optional preference for specific model provider
     tip: |-
-      Optionally specify which model provider to use. If not specified, will automatically choose the best model based on your requirements. For videos: kling, seedance, runway, veo2, veo3. For images: seedream3, openai, flux, sdxl.
-    choices: ["kling", "seedream3", "seedance", "sdxl", "runway", "openai", "flux", "veo2", "veo3"]
+      Optionally specify which model provider to use. If not specified, will automatically choose the best model based on your requirements. For videos: kling, seedance, runway, veo. For images: seedream, openai, flux.
+    choices: ["kling", "seedream", "seedance", "sdxl", "runway", "openai", "flux", "veo"]
   audio:
     type: audio
     label: Audio track URL
     description: Optional audio track to mix with the video
     tip: |-
-      Mix audio file into the video. For "talking_head", you must include this and it should be speech.
+      Mix audio file into the video. For "talking_head", you must include this and it should be of speech only.
     required: false
   sound_effects:
     type: string

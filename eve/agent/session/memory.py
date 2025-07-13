@@ -18,7 +18,7 @@ from eve.mongo import Collection, Document, get_collection
 from eve.agent.session.session_llm import async_prompt, LLMContext, LLMConfig
 from eve.agent.session.models import ChatMessage, Session
 
-LOCAL_DEV = False
+LOCAL_DEV = True
 
 # Memory formation settings:
 if LOCAL_DEV:
