@@ -88,7 +88,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
     start_image = args.get("start_image", None)
     end_image = args.get("end_image", None)
     seed = args.get("seed", None)
-    lora_strength = args.get("lora_strength", 0.75)
+    lora_strength = args.get("lora_strength", 0.8)
     aspect_ratio = args.get("aspect_ratio", "auto")
     quality = args.get("quality", "standard")
     duration = args.get("duration", 5)

@@ -6,7 +6,7 @@ import random
 import asyncio
 import traceback
 from abc import ABC, abstractmethod
-from pydantic import BaseModel, create_model, ValidationError
+from pydantic import BaseModel, create_model, ValidationError, Field
 from typing import Optional, List, Dict, Any, Type
 from datetime import datetime, timezone
 from instructor.function_calls import openai_schema
@@ -60,6 +60,7 @@ class Tool(Document, ABC):
     handler: HANDLERS = "local"
     parent_tool: Optional[str] = None
     parameters: Optional[Dict[str, Any]] = None
+    examples: Optional[List[Dict[str, Any]]] = Field(None, exclude=True)
     parameter_presets: Optional[Dict[str, Any]] = None
     gpu: Optional[str] = None
     test_args: Optional[Dict[str, Any]] = None
@@ -341,6 +342,14 @@ class Tool(Document, ABC):
         sub_cls = cls.get_sub_class(schema, from_yaml=False)
 
         return sub_cls.model_validate(schema)
+
+    def update_parameters(self, parameters: Dict[str, Any]):
+        """Update parameters and re-create BaseModel"""
+        fields, model_config = parse_schema({"parameters": self.parameters, "examples": self.examples})
+        self.model = create_model(self.key, __config__=model_config, **fields)
+        self.model.__doc__ = eden_utils.concat_sentences(
+            self.description, self.tip
+        )
 
     def save(self, **kwargs):
         return super().save({"key": self.key}, **kwargs)

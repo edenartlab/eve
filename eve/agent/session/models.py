@@ -828,6 +828,14 @@ class Deployment(Document):
         collection = cls.get_collection()
         collection.create_index([("agent", 1), ("platform", 1)], unique=True)
 
+    def get_allowed_channels(self):
+        """Get allowed channels for the deployment"""
+        if self.platform == ClientType.DISCORD:
+            return self.config.discord.channel_allowlist
+        elif self.platform == ClientType.TELEGRAM:
+            return self.config.telegram.topic_allowlist
+        return []
+
 
 @Collection("usernotifications")
 class Notification(Document):

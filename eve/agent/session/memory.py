@@ -117,6 +117,8 @@ class UserMemory(Document):
         if doc:
             return doc
         else:
+            print("the query is", query)
+            print("the defaults are", defaults)
             # Create new instance and save it
             new_doc = {**query, **defaults}
             instance = cls(**new_doc)

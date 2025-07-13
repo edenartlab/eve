@@ -321,19 +321,16 @@ async def build_llm_context(
             if lora_docs and "lora" in tools[tool].parameters:
                 params = {
                     "lora": {"default": str(lora_docs[0]["_id"])},
-                    "use_lora": {"default": True},
                 }
+                if "use_lora" in tools[tool].parameters:
+                    params["use_lora"] = {"default": True}
                 
                 if len(lora_docs) > 1 and "lora2" in tools[tool].parameters:
                     params["lora2"] = {"default": str(lora_docs[1]["_id"])}
-                    params["use_lora2"] = {"default": True}
+                    if "use_lora2" in tools[tool].parameters:
+                        params["use_lora2"] = {"default": True}
                 
-                tools[tool] = Tool.from_raw_yaml(
-                    {
-                        "parent_tool": tool,
-                        "parameters": params,
-                    }
-                )
+                tools[tool].update_parameters(params)
 
     # build messages
     system_message = build_system_message(session, actor, context, tools)
