@@ -7,6 +7,7 @@ including contextual information) with full source message traceability.
 """
 
 import json
+import logging
 import time
 import traceback
 from enum import Enum
@@ -17,23 +18,16 @@ from pydantic import BaseModel, field_serializer
 from eve.mongo import Collection, Document, get_collection
 from eve.agent.session.session_llm import async_prompt, LLMContext, LLMConfig
 from eve.agent.session.models import ChatMessage, Session
-from eve.agent.session.session import DEFAULT_MESSAGE_LIMIT
 
-LOCAL_DEV = False
+
+DEFAULT_MESSAGE_LIMIT = 25
 
 # Memory formation settings:
-if LOCAL_DEV:
-    MEMORY_FORMATION_INTERVAL = 4  # Number of messages to wait before forming memories
-    SESSION_MESSAGES_LOOKBACK_LIMIT = MEMORY_FORMATION_INTERVAL  # Max messages to look back in a session when forming raw memories
-    MAX_RAW_MEMORY_COUNT = 2  # Number of individual memories to store before consolidating them into the agent's user_memory blob
-    MAX_N_EPISODES_TO_REMEMBER = 10  # Number of episodes to remember from a session
-    MEMORY_LLM_MODEL = "gpt-4o-mini"
-else:
-    MEMORY_FORMATION_INTERVAL = DEFAULT_MESSAGE_LIMIT  # Number of messages to wait before forming memories
-    SESSION_MESSAGES_LOOKBACK_LIMIT = MEMORY_FORMATION_INTERVAL  # Max messages to look back in a session when forming raw memories
-    MAX_RAW_MEMORY_COUNT = 5  # Number of individual memories to store before consolidating them into the agent's user_memory blob
-    MAX_N_EPISODES_TO_REMEMBER = 10  # Number of episodes to remember from a session
-    MEMORY_LLM_MODEL = "gpt-4o"
+MEMORY_FORMATION_INTERVAL = DEFAULT_MESSAGE_LIMIT  # Number of messages to wait before forming memories
+SESSION_MESSAGES_LOOKBACK_LIMIT = MEMORY_FORMATION_INTERVAL  # Max messages to look back in a session when forming raw memories
+MAX_RAW_MEMORY_COUNT = 5  # Number of individual memories to store before consolidating them into the agent's user_memory blob
+MAX_N_EPISODES_TO_REMEMBER = 10  # Number of episodes to remember from a session
+MEMORY_LLM_MODEL = "gpt-4o"
 
 # LLMs cannot count tokens at all (weirdly), so instruct with word count:
 SESSION_CONSOLIDATED_MEMORY_MAX_WORDS = (
@@ -89,6 +83,27 @@ class SessionMemory(Document):
             schema["memory_type"] = MemoryType(schema["memory_type"])
         return schema
 
+    @classmethod
+    def ensure_indexes(cls):
+        """Ensure indexes exist for optimal query performance"""
+        collection = cls.get_collection()
+        
+        # Compound index for unabsorbed directives query (lines 663-670)
+        # Query: {"agent_id": agent_id, "memory_type": "directive", "related_users": user_id, "_id": {"$in": ids}}
+        collection.create_index([
+            ("agent_id", 1),
+            ("memory_type", 1), 
+            ("related_users", 1)
+        ])
+        
+        # Compound index for episode memories query (line 684)
+        # Query: {"source_session_id": session_id, "memory_type": MemoryType.EPISODE.value}
+        # With sort: sort="createdAt", desc=True
+        collection.create_index([
+            ("source_session_id", 1),
+            ("memory_type", 1),
+            ("createdAt", -1)
+        ])
 
 @Collection("memory_user")
 class UserMemory(Document):
@@ -132,6 +147,13 @@ class UserMemory(Document):
             instance = cls(**new_doc)
             instance.save()
             return instance
+        
+    @classmethod
+    def ensure_indexes(cls):
+        """Ensure indexes exist"""
+        collection = cls.get_collection()
+        collection.create_index([("agent_id", 1), ("user_id", 1)], unique=True)
+
 
 
 def get_agent_owner(agent_id: ObjectId) -> Optional[ObjectId]:
@@ -244,8 +266,7 @@ def store_session_memory(
     session_id: ObjectId,
 ) -> List[SessionMemory]:
     """Store extracted session to MongoDB with source traceability"""
-    if LOCAL_DEV:
-        print(f"Extracted data: {extracted_data}")
+    logging.debug(f"Extracted data: {extracted_data}")
     message_ids = [msg.id for msg in messages]
     # Extract all non-agent user_ids:
     related_users = list(
@@ -311,28 +332,25 @@ def _update_user_memory(
         user_memory = UserMemory.find_one_or_create(
             {"agent_id": agent_id, "user_id": user_id}
         )
-
-        if LOCAL_DEV:
-            print(
-                f"Found existing user memory with {len(user_memory.unabsorbed_directive_ids)} unabsorbed directives"
-            )
+        
+        logging.debug(
+            f"Found existing user memory with {len(user_memory.unabsorbed_directive_ids)} unabsorbed directives"
+        )
 
         # Add new directives to unabsorbed list
         for directive_id in [m.id for m in new_directive_memories]:
             user_memory.unabsorbed_directive_ids.append(directive_id)
         user_memory.save()
-        if LOCAL_DEV:
-            print(f"Added {len(new_directive_memories)} new directives to user memory")
-            print(
-                f"Total Unabsorbed directives in user memory: {len(user_memory.unabsorbed_directive_ids)}"
-            )
+        logging.debug(f"Added {len(new_directive_memories)} new directives to user memory")
+        logging.debug(
+            f"Total Unabsorbed directives in user memory: {len(user_memory.unabsorbed_directive_ids)}"
+        )
 
         # Check if we need to consolidate
         if len(user_memory.unabsorbed_directive_ids) >= MAX_RAW_MEMORY_COUNT:
-            if LOCAL_DEV:
-                print(
-                    f"Triggering user memory consolidation for agent {agent_id}, user {user_id}: integrating {len(user_memory.unabsorbed_directive_ids)} unabsorbed directives"
-                )
+            logging.debug(
+                f"Triggering user memory consolidation for agent {agent_id}, user {user_id}: integrating {len(user_memory.unabsorbed_directive_ids)} unabsorbed directives"
+            )
             # Store the user_memory for async consolidation
             import asyncio
 
@@ -367,11 +385,10 @@ async def _consolidate_user_directives(user_memory: UserMemory):
             [f"- {d.content}" for d in unabsorbed_directives]
         )
 
-        if LOCAL_DEV:
-            n_mems = len(unabsorbed_directives)
-            print(f"Consolidating {n_mems} directives to user_memory")
-            print(f"Current memory length: {len(current_memory)} chars")
-            print(f"New directives: {new_directives_text}")
+        n_mems = len(unabsorbed_directives)
+        logging.debug(f"Consolidating {n_mems} directives to user_memory")
+        logging.debug(f"Current memory length: {len(current_memory)} chars")
+        logging.debug(f"New directives: {new_directives_text}")
 
         # Use LLM to consolidate memories
         consolidated_content = await _consolidate_memories_with_llm(
@@ -382,8 +399,7 @@ async def _consolidate_user_directives(user_memory: UserMemory):
         user_memory.content = consolidated_content
         user_memory.unabsorbed_directive_ids = []  # Reset unabsorbed list
         user_memory.save()
-        if LOCAL_DEV:
-            print(f"✓ Consolidated user memory updated (length: {len(consolidated_content)} chars)")
+        logging.debug(f"✓ Consolidated user memory updated (length: {len(consolidated_content)} chars)")
         
 
     except Exception as e:
@@ -428,8 +444,7 @@ Return only the consolidated memory text, no additional formatting or explanatio
     response = await async_prompt(context)
     consolidated_content = response.content.strip()
 
-    if LOCAL_DEV:
-        print(f"LLM consolidation result: {consolidated_content}")
+    logging.debug(f"LLM consolidation result: {consolidated_content}")
     return consolidated_content
 
 
@@ -442,20 +457,18 @@ async def process_memory_formation(
 
     Returns True if memories were formed, False otherwise.
     """
-    if LOCAL_DEV:
-        print(
-            f"Processing memory formation for Session {session_id} with {len(session_messages)} messages"
-        )
+    logging.debug(
+        f"Processing memory formation for Session {session_id} with {len(session_messages)} messages"
+    )
 
     # Use interval for recent messages to process
     interval = MEMORY_FORMATION_INTERVAL
     start_idx = max(0, len(session_messages) - interval)
     recent_messages = session_messages[start_idx:]
 
-    if LOCAL_DEV:
-        print(
-            f"Extracting memories from messages {start_idx+1}-{len(session_messages)} (total: {len(recent_messages)} messages)"
-        )
+    logging.debug(
+        f"Extracting memories from messages {start_idx+1}-{len(session_messages)} (total: {len(recent_messages)} messages)"
+    )
 
     if not recent_messages:
         print("No recent messages to process")
@@ -464,8 +477,7 @@ async def process_memory_formation(
     try:
         # Convert messages to text for LLM processing
         conversation_text = messages_to_text(recent_messages)
-        if LOCAL_DEV:
-            print(f"Conversation text length: {len(conversation_text)} characters")
+        logging.debug(f"Conversation text length: {len(conversation_text)} characters")
 
         # Extract memories using LLM
         extracted_data = await extract_memories_with_llm(conversation_text)
@@ -476,13 +488,12 @@ async def process_memory_formation(
         )
 
         if memories_created:
-            if LOCAL_DEV:
-                print(
-                    f"✓ Formed {len(memories_created)} memories from {len(recent_messages)} messages"
-                )
-                print(
-                    f"  Memory types: {[m.memory_type.value for m in memories_created]}"
-                )
+            logging.debug(
+                f"✓ Formed {len(memories_created)} memories from {len(recent_messages)} messages"
+            )
+            logging.debug(
+                f"  Memory types: {[m.memory_type.value for m in memories_created]}"
+            )
             return True
 
     except Exception as e:
@@ -576,13 +587,12 @@ CRITICAL REQUIREMENTS:
         extracted_data = {"directives": [], "episodes": []}
 
     # Print the messages and the prompt:
-    if LOCAL_DEV:
-        print("########################")
-        print("Forming new memories...")
-        print(f"--- Messages: ---\n{context.messages}")
-        print(f"--- Prompt: ---\n{memory_extraction_prompt}")
-        print(f"--- Memories: ---\n{extracted_data}")
-        print("########################")
+    logging.debug("########################")
+    logging.debug("Forming new memories...")
+    logging.debug(f"--- Messages: ---\n{context.messages}")
+    logging.debug(f"--- Prompt: ---\n{memory_extraction_prompt}")
+    logging.debug(f"--- Memories: ---\n{extracted_data}")
+    logging.debug("########################")
 
     return extracted_data
 
@@ -626,12 +636,11 @@ def assemble_memory_context(agent_id: ObjectId, session_id: Optional[ObjectId] =
                 if should_refresh is None:
                     should_refresh = True
                 
-                if LOCAL_DEV:
-                    if not should_refresh:
-                        print("Not refreshing memory context:")
-                        print(f"Cached context: {cached_context}")
-                    else:
-                        print(f"Memory context, Should refresh: {should_refresh}")
+                if not should_refresh:
+                    logging.debug("Not refreshing memory context:")
+                    logging.debug(f"Cached context: {cached_context}")
+                else:
+                    logging.debug(f"Memory context, Should refresh: {should_refresh}")
                 
                 if cached_context and not should_refresh:
                     total_time = time.time() - start_time
@@ -709,6 +718,8 @@ def assemble_memory_context(agent_id: ObjectId, session_id: Optional[ObjectId] =
         print(f"   ❌ Error assembling session memories: {e}")
 
     # Step 3: Full memory context assembly:
+    string_start = time.time()
+
     memory_context = ""
 
     if len(user_memory_content) > 0:  # user_memory blob:
@@ -737,10 +748,11 @@ def assemble_memory_context(agent_id: ObjectId, session_id: Optional[ObjectId] =
     # Step 4: Cache the memory context
     if session and session.context:
         try:
+            cache_start = time.time()
             session.context.cached_memory_context = memory_context
             session.context.should_refresh_memory = False
             session.save()
-            print(f"   💾 Memory context cached for session {session_id}")
+            print(f"   💾 Memory context cached for session {session_id} in {time.time() - cache_start:.3f}s")
         except Exception as e:
             print(f"   ❌ Error caching memory context: {e}")
     
@@ -750,8 +762,7 @@ def assemble_memory_context(agent_id: ObjectId, session_id: Optional[ObjectId] =
     print(f"   ⏱️  TOTAL TIME: {total_time:.3f}s")
     print(f"   📏 Context Length: {len(memory_context)} chars (~{final_tokens} tokens)")
 
-    if LOCAL_DEV:
-        print(f"Fully Assembled Memory context:\n{memory_context}")
+    logging.debug(f"Fully Assembled Memory context:\n{memory_context}")
 
     return memory_context
 
@@ -785,14 +796,12 @@ async def maybe_form_memories(
     # Calculate messages since last memory formation
     messages_since_last = len(session_messages) - last_memory_position - 1
 
-    if LOCAL_DEV:
-        print(f"Session {session.id}: {len(session_messages)} total messages, {messages_since_last} since last memory formation")
+    logging.debug(f"Session {session.id}: {len(session_messages)} total messages, {messages_since_last} since last memory formation")
     
     # Check if we should form memories (early return to avoid slow queries)
     if messages_since_last < interval:
-        if LOCAL_DEV:
-            print(f"No memory formation needed: {messages_since_last} < {interval} interval")
-            print(f"Maybe form memories took {time.time() - start_time:.2f} seconds to complete")
+        logging.debug(f"No memory formation needed: {messages_since_last} < {interval} interval")
+        logging.debug(f"Maybe form memories took {time.time() - start_time:.2f} seconds to complete")
         return False
     
     print(f"Triggering memory formation: {messages_since_last} >= {interval} interval")
@@ -813,8 +822,7 @@ async def maybe_form_memories(
         print(f"Error getting unabsorbed directive count: {e}")
         traceback.print_exc()
 
-    if LOCAL_DEV:
-        print(f"Unabsorbed directive count: {unabsorbed_directive_count} / {MAX_RAW_MEMORY_COUNT}")
+    logging.debug(f"Unabsorbed directive count: {unabsorbed_directive_count} / {MAX_RAW_MEMORY_COUNT}")
     
     if unabsorbed_directive_count >= MAX_RAW_MEMORY_COUNT:
         print(
@@ -836,8 +844,7 @@ async def maybe_form_memories(
             # Invalidate memory cache since new memories were formed
             session = invalidate_session_memory_cache(session)
             session.save()
-            if LOCAL_DEV:
-                print(f"Updated last_memory_message_id to {latest_message.id}")
+            logging.debug(f"Updated last_memory_message_id to {latest_message.id}")
         
         print(f"Maybe form memories took {time.time() - start_time:.2f} seconds to complete")
         return result

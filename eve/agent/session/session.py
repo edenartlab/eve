@@ -41,7 +41,6 @@ from eve.agent.session.session_prompts import (
     system_template,
     model_template,
 )
-DEFAULT_MESSAGE_LIMIT = 25
 
 from eve.agent.session.memory import maybe_form_memories, assemble_memory_context
 
@@ -172,7 +171,7 @@ async def determine_actors(
     return actors
 
 
-def select_messages(session: Session, selection_limit: Optional[int] = DEFAULT_MESSAGE_LIMIT):
+def select_messages(session: Session, selection_limit: Optional[int] = None):
     messages = ChatMessage.get_collection()
     query = messages.find({"session": session.id, "role": {"$ne": "eden"}}).sort(
         "createdAt", -1
