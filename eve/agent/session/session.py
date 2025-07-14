@@ -43,6 +43,7 @@ from eve.agent.session.session_prompts import (
 )
 from eve.agent.session.memory import maybe_form_memories, assemble_memory_context
 
+DEFAULT_MESSAGE_LIMIT = 25
 
 class SessionCancelledException(Exception):
     """Exception raised when a session is cancelled via Ably signal."""
@@ -171,7 +172,7 @@ async def determine_actors(
     return actors
 
 
-def select_messages(session: Session, selection_limit: Optional[int] = None):
+def select_messages(session: Session, selection_limit: Optional[int] = DEFAULT_MESSAGE_LIMIT):
     messages = ChatMessage.get_collection()
     query = messages.find({"session": session.id, "role": {"$ne": "eden"}}).sort(
         "createdAt", -1

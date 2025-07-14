@@ -17,8 +17,9 @@ from pydantic import BaseModel, field_serializer
 from eve.mongo import Collection, Document, get_collection
 from eve.agent.session.session_llm import async_prompt, LLMContext, LLMConfig
 from eve.agent.session.models import ChatMessage, Session
+from eve.agent.session.session import DEFAULT_MESSAGE_LIMIT
 
-LOCAL_DEV = True
+LOCAL_DEV = False
 
 # Memory formation settings:
 if LOCAL_DEV:
@@ -28,9 +29,9 @@ if LOCAL_DEV:
     MAX_N_EPISODES_TO_REMEMBER = 10  # Number of episodes to remember from a session
     MEMORY_LLM_MODEL = "gpt-4o-mini"
 else:
-    MEMORY_FORMATION_INTERVAL = 20  # Number of messages to wait before forming memories
+    MEMORY_FORMATION_INTERVAL = DEFAULT_MESSAGE_LIMIT  # Number of messages to wait before forming memories
     SESSION_MESSAGES_LOOKBACK_LIMIT = MEMORY_FORMATION_INTERVAL  # Max messages to look back in a session when forming raw memories
-    MAX_RAW_MEMORY_COUNT = 3  # Number of individual memories to store before consolidating them into the agent's user_memory blob
+    MAX_RAW_MEMORY_COUNT = 5  # Number of individual memories to store before consolidating them into the agent's user_memory blob
     MAX_N_EPISODES_TO_REMEMBER = 10  # Number of episodes to remember from a session
     MEMORY_LLM_MODEL = "gpt-4o"
 
@@ -54,11 +55,11 @@ class SessionMemory(Document):
     """Individual memory record stored in MongoDB"""
 
     agent_id: ObjectId
+    source_session_id: ObjectId
     memory_type: MemoryType
     content: str
 
     # Context tracking for traceability
-    source_session_id: Optional[ObjectId] = None
     source_message_ids: List[ObjectId] = []
     related_users: List[ObjectId] = []
 
@@ -261,9 +262,9 @@ def store_session_memory(
     for directive in extracted_data.get("directives", []):
         memory = SessionMemory(
             agent_id=agent_id,
+            source_session_id=session_id,
             memory_type=MemoryType.DIRECTIVE,
             content=directive,
-            source_session_id=session_id,
             source_message_ids=message_ids,
             related_users=related_users,
             agent_owner=agent_owner,
@@ -276,9 +277,9 @@ def store_session_memory(
     for episode in extracted_data.get("episodes", []):
         memory = SessionMemory(
             agent_id=agent_id,
+            source_session_id=session_id,
             memory_type=MemoryType.EPISODE,
             content=episode,
-            source_session_id=session_id,
             source_message_ids=message_ids,
             related_users=related_users,
             agent_owner=agent_owner,
@@ -513,17 +514,16 @@ Create new memories following these rules:
    - Specifically focus on the instructions, preferences, goals and feedback expressed by the user(s)
    - Avoid commentary or analysis, create memories that stand on their own without context
 
-2. DIRECTIVE: Create AT MOST ONE consolidated directive (maximum {SESSION_DIRECTIVE_MEMORY_MAX_WORDS} words) ONLY if there are clear, long-lasting rules, preferences, or behavioral guidelines that should be applied consistently in all future interactions. If none exist (highly likely), leave empty.
+2. DIRECTIVE: Create AT MOST ONE permanent directive (maximum {SESSION_DIRECTIVE_MEMORY_MAX_WORDS} words) ONLY if there are clear, long-lasting rules, preferences, or behavioral guidelines that should be applied consistently in all future interactions with the user. If none exist (highly likely), just leave empty.
    
    ONLY include as long-lasting directives:
    - Explicit behavioral rules or guidelines ("always ask permission before...", "never do X", "remember to always Y")
    - Stable, long-term preferences that should guide future behavior consistently
-   - Clear exceptions or special handling rules
-   - Persistent working styles or interaction preferences
+   - Clear exceptions or special handling rules for interaction patterns with the current user that should persist across many future conversations ("Whenever I ask you to do X, you should do it like so..")
    
    DO NOT include as directives:
    - One-time requests or specific tasks ("create a story about...", "make an image of...")
-   - Ad hoc instructions relevant for the current conversation only
+   - Ad hoc instructions relevant for the current conversation context only
    - Temporary or situational commands
    - Context-specific requests that don't apply broadly
    
@@ -688,33 +688,25 @@ def assemble_memory_context(agent_id: ObjectId, session_id: Optional[ObjectId] =
 
     except Exception as e:
         print(f"   ❌ Error retrieving user memory: {e}")
-        # Variables are already initialized, so we can continue
 
-    # Step 2: Session Memory:
+    # Step 2: Episodes from SessionMemory:
     try:
         if session_id and agent_id is not None:
             query_start = time.time()
-            episode_query = {"source_session_id": session_id}
-            session_memories = SessionMemory.find(episode_query, sort="createdAt", desc=True)
+            episode_query = {"source_session_id": session_id, "memory_type": MemoryType.EPISODE.value}
+            episode_memories = SessionMemory.find(episode_query, sort="createdAt", desc=True)
 
             # Get list of MAX_N_EPISODES_TO_REMEMBER most recent, raw episode memories:
-            episode_memories = [m for m in session_memories if m.memory_type == MemoryType.EPISODE][:MAX_N_EPISODES_TO_REMEMBER]
+            episode_memories = episode_memories[:MAX_N_EPISODES_TO_REMEMBER]
             # Reverse the list to put the most recent episodes at the bottom:
             episode_memories.reverse()
 
-            if not unabsorbed_directives: # Get list of all session directives:
-                unabsorbed_directives = [m for m in session_memories if m.memory_type == MemoryType.DIRECTIVE]
-                # Reverse the list to put the most recent directives at the bottom:
-                unabsorbed_directives.reverse()
-
             query_time = time.time() - query_start
             print(
-                f"   ⏱️  Session memory assembly: {query_time:.3f}s (user_memory: {'yes' if user_memory else 'no'}, {len(unabsorbed_directives)} unabsorbed directives, {len(episode_memories)} episodes)"
+                f"   ⏱️  Session memory assembly: {query_time:.3f}s (user_memory: {'yes' if user_memory else 'no'}, {len(episode_memories)} episodes)"
             )
-
     except Exception as e:
-        print(f"   ❌ Error retrieving session memories: {e}")
-        # Variables are already initialized, so we can continue
+        print(f"   ❌ Error assembling session memories: {e}")
 
     # Step 3: Full memory context assembly:
     memory_context = ""
@@ -759,7 +751,7 @@ def assemble_memory_context(agent_id: ObjectId, session_id: Optional[ObjectId] =
     print(f"   📏 Context Length: {len(memory_context)} chars (~{final_tokens} tokens)")
 
     if LOCAL_DEV:
-        print(f"Fully Assembled Memory context: {memory_context}")
+        print(f"Fully Assembled Memory context:\n{memory_context}")
 
     return memory_context
 
