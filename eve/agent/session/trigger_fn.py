@@ -116,6 +116,10 @@ async def trigger_fn():
             if not trigger:
                 raise Exception(f"Trigger {trigger_id} not found")
 
+            # Update last_run_time at the start of execution
+            trigger.last_run_time = datetime.now(timezone.utc)
+            trigger.save()
+
         except Exception as e:
             with sentry_sdk.configure_scope() as scope:
                 scope.set_tag("trigger_failure", True)
@@ -298,23 +302,31 @@ async def trigger_fn():
             if trigger.schedule.get("end_date"):
                 # Get current time with full precision
                 current_time = datetime.now(timezone.utc)
-                end_date_str = trigger.schedule["end_date"]
+                end_date = trigger.schedule["end_date"]
 
-                # Parse the date string and ensure it's timezone aware
-                try:
-                    # If using fromisoformat, the timezone info should be preserved
-                    end_date = datetime.fromisoformat(end_date_str)
+                # Handle both datetime objects and string formats
+                if isinstance(end_date, str):
+                    # Parse the date string and ensure it's timezone aware
+                    try:
+                        # If using fromisoformat, the timezone info should be preserved
+                        end_date = datetime.fromisoformat(end_date)
 
-                    # If somehow end_date is still naive, make it timezone aware
+                        # If somehow end_date is still naive, make it timezone aware
+                        if end_date.tzinfo is None:
+                            end_date = end_date.replace(tzinfo=timezone.utc)
+                    except ValueError:
+                        # Fallback parsing if there's a format issue
+                        if end_date.endswith("Z"):
+                            end_date = end_date.replace("Z", "+00:00")
+                        end_date = datetime.fromisoformat(end_date)
+                        if end_date.tzinfo is None:
+                            end_date = end_date.replace(tzinfo=timezone.utc)
+                elif isinstance(end_date, datetime):
+                    # Already a datetime object, just ensure it's timezone aware
                     if end_date.tzinfo is None:
                         end_date = end_date.replace(tzinfo=timezone.utc)
-                except ValueError:
-                    # Fallback parsing if there's a format issue
-                    if end_date_str.endswith("Z"):
-                        end_date_str = end_date_str.replace("Z", "+00:00")
-                    end_date = datetime.fromisoformat(end_date_str)
-                    if end_date.tzinfo is None:
-                        end_date = end_date.replace(tzinfo=timezone.utc)
+                else:
+                    raise ValueError(f"Unsupported end_date type: {type(end_date)}")
 
                 # Only round end_date to minute precision
                 end_date = end_date.replace(second=0, microsecond=0)
