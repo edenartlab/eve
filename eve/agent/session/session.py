@@ -41,9 +41,9 @@ from eve.agent.session.session_prompts import (
     system_template,
     model_template,
 )
-from eve.agent.session.memory import maybe_form_memories, assemble_memory_context
-
 DEFAULT_MESSAGE_LIMIT = 25
+
+from eve.agent.session.memory import maybe_form_memories, assemble_memory_context
 
 class SessionCancelledException(Exception):
     """Exception raised when a session is cancelled via Ably signal."""
