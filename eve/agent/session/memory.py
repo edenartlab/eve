@@ -755,6 +755,9 @@ def assemble_memory_context(agent_id: ObjectId, session_id: Optional[ObjectId] =
     print(f"   ⏱️  TOTAL TIME: {total_time:.3f}s")
     print(f"   📏 Context Length: {len(memory_context)} chars (~{final_tokens} tokens)")
 
+    if LOCAL_DEV:
+        print(f"Fully Assembled Memory context: {memory_context}")
+
     return memory_context
 
 
