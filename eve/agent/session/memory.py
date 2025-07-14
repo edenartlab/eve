@@ -25,14 +25,12 @@ DEFAULT_MESSAGE_LIMIT = 25
 
 # Memory formation settings:
 if LOCAL_DEV:
-    logging.basicConfig(level=logging.DEBUG)
     MEMORY_FORMATION_INTERVAL = 4  # Number of messages to wait before forming memories
     SESSION_MESSAGES_LOOKBACK_LIMIT = MEMORY_FORMATION_INTERVAL  # Max messages to look back in a session when forming raw memories
     MAX_RAW_MEMORY_COUNT = 2  # Number of individual memories to store before consolidating them into the agent's user_memory blob
     MAX_N_EPISODES_TO_REMEMBER = 2  # Number of episodes to remember from a session
     MEMORY_LLM_MODEL = "gpt-4o-mini"
 else:
-    logging.basicConfig(level=logging.WARNING)
     MEMORY_FORMATION_INTERVAL = DEFAULT_MESSAGE_LIMIT  # Number of messages to wait before forming memories
     SESSION_MESSAGES_LOOKBACK_LIMIT = MEMORY_FORMATION_INTERVAL  # Max messages to look back in a session when forming raw memories
     MAX_RAW_MEMORY_COUNT = 5  # Number of individual memories to store before consolidating them into the agent's user_memory blob
@@ -752,7 +750,6 @@ def assemble_memory_context(agent_id: ObjectId, session_id: Optional[ObjectId] =
     if len(memory_context) > 0:
         memory_context = "## Your Memory:\n\n" + memory_context
     else:
-        print("No memory context to assemble")
         memory_context = ""
     
     # Step 4: Cache the memory context
@@ -773,6 +770,8 @@ def assemble_memory_context(agent_id: ObjectId, session_id: Optional[ObjectId] =
     print(f"   📏 Context Length: {len(memory_context)} chars (~{final_tokens} tokens)")
 
     logging.debug(f"Fully Assembled Memory context:\n{memory_context}")
+    if LOCAL_DEV:
+        print(f"Fully Assembled Memory context:\n{memory_context}")
 
     return memory_context
 
