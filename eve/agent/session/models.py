@@ -650,6 +650,10 @@ class Trigger(Document):
 class SessionContext(BaseModel):
     memories: Optional[List[ObjectId]] = []
     memory_updated: Optional[ObjectId] = None
+    # Memory caching fields (optional for backward compatibility)
+    cached_memory_context: Optional[str] = None
+    memory_context_timestamp: Optional[datetime] = None
+    should_refresh_memory: Optional[bool] = None  # None means not set, will default to True in logic
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 

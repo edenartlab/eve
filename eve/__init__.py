@@ -5,8 +5,11 @@ from dotenv import load_dotenv
 from pydantic import SecretStr
 
 home_dir = str(Path.home())
+
+# Configure logging level based on LOCAL_DEBUG environment variable
+log_level = logging.DEBUG if os.getenv("LOCAL_DEBUG", "False") == "True" else logging.INFO
 logging.basicConfig(
-    level=logging.INFO,
+    level=log_level,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 db = os.getenv("DB", "STAGE").upper()
