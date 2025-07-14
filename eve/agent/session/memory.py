@@ -20,7 +20,7 @@ from eve.agent.session.session_llm import async_prompt, LLMContext, LLMConfig
 from eve.agent.session.models import ChatMessage, Session
 
 # Flag to easily switch between local and production memory settings (keep this in but always set to False in production):
-LOCAL_DEV = True
+LOCAL_DEV = False
 DEFAULT_MESSAGE_LIMIT = 25
 
 # Memory formation settings:
