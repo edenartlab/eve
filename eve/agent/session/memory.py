@@ -18,7 +18,7 @@ from eve.mongo import Collection, Document, get_collection
 from eve.agent.session.session_llm import async_prompt, LLMContext, LLMConfig
 from eve.agent.session.models import ChatMessage, Session
 
-LOCAL_DEV = False
+LOCAL_DEV = True
 
 # Memory formation settings:
 if LOCAL_DEV:
@@ -226,6 +226,16 @@ def estimate_tokens(text: str) -> int:
     """Rough token estimation (4.5 characters per token)"""
     return int(len(text) / 4.5)
 
+def invalidate_session_memory_cache(session: 'Session') -> 'Session':
+    """
+    Invalidate memory cache for a specific session when memory has been updated.
+    Returns the updated session object.
+    """
+    if session and session.context:
+        session.context.should_refresh_memory = True
+        print(f"🔄 Memory cache invalidated for session {session.id}")
+    return session
+
 
 def store_session_memory(
     agent_id: ObjectId,
@@ -374,9 +384,8 @@ async def _consolidate_user_directives(user_memory: UserMemory):
         user_memory.unabsorbed_directive_ids = []  # Reset unabsorbed list
         user_memory.save()
         if LOCAL_DEV:
-            print(
-                f"✓ Consolidated user memory updated (length: {len(consolidated_content)} chars)"
-            )
+            print(f"✓ Consolidated user memory updated (length: {len(consolidated_content)} chars)")
+        
 
     except Exception as e:
         print(f"Error consolidating user directives: {e}")
@@ -579,26 +588,60 @@ CRITICAL REQUIREMENTS:
 
     return extracted_data
 
-
-def assemble_memory_context(
-    agent_id: ObjectId,
-    session_id: Optional[ObjectId] = None,
-    last_speaker_id: Optional[ObjectId] = None,
-) -> str:
+def assemble_memory_context(agent_id: ObjectId, session_id: Optional[ObjectId] = None, last_speaker_id: Optional[ObjectId] = None, session: Optional['Session'] = None) -> str:
     """
     Assemble relevant memories for context injection into prompts.
-
+    Uses session-level caching to minimize database queries.
+    
     Args:
         agent_id: ID of the agent to get memories for
         session_id: Current session ID to prioritize session-specific memories.
         last_speaker_id: ID of the user who spoke the last message for prioritization.
-
+        session: Optional session object to update in place (avoids extra MongoDB query).
+    
     Returns:
         Formatted memory context string for prompt injection.
     """
 
     start_time = time.time()
-
+    
+    print(f"🧠 MEMORY ASSEMBLY PROFILING - Agent: {agent_id}")
+    print(f"   Session: {session_id}, Last Speaker: {last_speaker_id}")
+    
+    # Use provided session object or load from MongoDB if needed
+    if session_id and not session:
+        try:
+            from eve.agent.session.models import Session
+            session = Session.from_mongo(session_id)
+        except Exception as e:
+            print(f"   ❌ Error loading session: {e}")
+    
+    # Check if we can use cached memory context
+    if session:
+        try:
+            if session.context:
+                # Check if we can use cached memory (gracefully handle missing attributes)
+                cached_context = getattr(session.context, 'cached_memory_context', None)
+                should_refresh = getattr(session.context, 'should_refresh_memory', None)
+                
+                # If should_refresh is None (not set), default to True (need refresh)
+                if should_refresh is None:
+                    should_refresh = True
+                
+                print(f"Cached context: {cached_context}")
+                print(f"Should refresh: {should_refresh}")
+                
+                if cached_context and not should_refresh:
+                    total_time = time.time() - start_time
+                    final_tokens = estimate_tokens(cached_context)
+                    print(f"   ⚡ USING CACHED MEMORY: {total_time:.3f}s")
+                    print(f"   📏 Context Length: {len(cached_context)} chars (~{final_tokens} tokens)")
+                    return cached_context
+                else:
+                    print(f"   🔄 Cache missing or refresh needed")
+        except Exception as e:
+            print(f"   ❌ Error checking cached memory: {e}")
+    
     # TODO: instead of last speaker, iterate over all human users in the session
     user_id = last_speaker_id
 
@@ -646,27 +689,18 @@ def assemble_memory_context(
 
     # Step 2: Session Memory:
     try:
-        if (
-            session_id and agent_id is not None
-        ):  # Only query if session_id and agent_id are not None
+        if session_id and agent_id is not None:
             query_start = time.time()
             episode_query = {"source_session_id": session_id}
-            episode_memories = SessionMemory.find(
-                episode_query, sort="createdAt", desc=True
-            )
-            # first = new, last = old
+            session_memories = SessionMemory.find(episode_query, sort="createdAt", desc=True)
 
             # Get list of MAX_N_EPISODES_TO_REMEMBER most recent, raw episode memories:
-            episode_memories = [
-                m for m in episode_memories if m.memory_type == MemoryType.EPISODE
-            ][:MAX_N_EPISODES_TO_REMEMBER]
+            episode_memories = [m for m in session_memories if m.memory_type == MemoryType.EPISODE][:MAX_N_EPISODES_TO_REMEMBER]
             # Reverse the list to put the most recent episodes at the bottom:
             episode_memories.reverse()
 
-            if not unabsorbed_directives:  # Get list of all session directives:
-                unabsorbed_directives = [
-                    m for m in episode_memories if m.memory_type == MemoryType.DIRECTIVE
-                ]
+            if not unabsorbed_directives: # Get list of all session directives:
+                unabsorbed_directives = [m for m in session_memories if m.memory_type == MemoryType.DIRECTIVE]
                 # Reverse the list to put the most recent directives at the bottom:
                 unabsorbed_directives.reverse()
 
@@ -704,6 +738,22 @@ def assemble_memory_context(
     else:
         print("No memory context to assemble")
         memory_context = ""
+    
+    # Step 4: Cache the memory context
+    if session and session.context:
+        try:
+            session.context.cached_memory_context = memory_context
+            session.context.should_refresh_memory = False
+            session.save()
+            print(f"   💾 Memory context cached for session {session_id}")
+        except Exception as e:
+            print(f"   ❌ Error caching memory context: {e}")
+    
+    # Step 5: Final stats
+    total_time = time.time() - start_time
+    final_tokens = estimate_tokens(memory_context)
+    print(f"   ⏱️  TOTAL TIME: {total_time:.3f}s")
+    print(f"   📏 Context Length: {len(memory_context)} chars (~{final_tokens} tokens)")
 
     return memory_context
 
@@ -715,6 +765,7 @@ async def maybe_form_memories(
     Check if memory formation should run based on messages elapsed since last formation.
     Returns True if memories were formed.
     """
+    start_time = time.time()
     from eve.agent.session.session import select_messages
 
     session_messages = select_messages(
@@ -737,11 +788,18 @@ async def maybe_form_memories(
     messages_since_last = len(session_messages) - last_memory_position - 1
 
     if LOCAL_DEV:
-        print(
-            f"Session {session.id}: {len(session_messages)} total messages, {messages_since_last} since last memory formation"
-        )
-
-    # Get the number of unabsorbed directives for the last speaker:
+        print(f"Session {session.id}: {len(session_messages)} total messages, {messages_since_last} since last memory formation")
+    
+    # Check if we should form memories (early return to avoid slow queries)
+    if messages_since_last < interval:
+        if LOCAL_DEV:
+            print(f"No memory formation needed: {messages_since_last} < {interval} interval")
+            print(f"Maybe form memories took {time.time() - start_time:.2f} seconds to complete")
+        return False
+    
+    print(f"Triggering memory formation: {messages_since_last} >= {interval} interval")
+    
+    # Only query unabsorbed directive count if we're actually going to form memories
     unabsorbed_directive_count = -1
     try:
         # Only query if both agent_id and session.owner are not None
@@ -758,19 +816,8 @@ async def maybe_form_memories(
         traceback.print_exc()
 
     if LOCAL_DEV:
-        print(
-            f"Unabsorbed directive count: {unabsorbed_directive_count} / {MAX_RAW_MEMORY_COUNT}"
-        )
-
-    # Check if we should form memories
-    if messages_since_last < interval:
-        if LOCAL_DEV:
-            print(
-                f"No memory formation needed: {messages_since_last} < {interval} interval"
-            )
-        return False
-
-    print(f"Triggering memory formation: {messages_since_last} >= {interval} interval")
+        print(f"Unabsorbed directive count: {unabsorbed_directive_count} / {MAX_RAW_MEMORY_COUNT}")
+    
     if unabsorbed_directive_count >= MAX_RAW_MEMORY_COUNT:
         print(
             f"Will also absorb unabsorbed directives: {unabsorbed_directive_count} >= {MAX_RAW_MEMORY_COUNT} unabsorbed directives"
@@ -778,16 +825,23 @@ async def maybe_form_memories(
 
     try:
         # Process memory formation
-        result = await process_memory_formation(agent_id, session_messages, session.id)
-
-        # Update the session's last memory formation position
+        result = await process_memory_formation(
+            agent_id, 
+            session_messages, 
+            session.id
+        )
+        
+        # Update the session's last memory formation position and invalidate memory cache
         if session_messages:
             latest_message = session_messages[-1]
             session.last_memory_message_id = latest_message.id
+            # Invalidate memory cache since new memories were formed
+            session = invalidate_session_memory_cache(session)
             session.save()
             if LOCAL_DEV:
                 print(f"Updated last_memory_message_id to {latest_message.id}")
-
+        
+        print(f"Maybe form memories took {time.time() - start_time:.2f} seconds to complete")
         return result
 
     except Exception as e:
