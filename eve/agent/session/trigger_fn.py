@@ -344,7 +344,7 @@ async def trigger_fn():
                         headers={
                             "Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}"
                         },
-                        json={"id": trigger.id},
+                        json={"id": str(trigger.id)},
                     )
 
                     if not response.ok:
