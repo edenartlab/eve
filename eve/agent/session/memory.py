@@ -95,11 +95,10 @@ class UserMemory(Document):
 
     agent_id: ObjectId
     user_id: ObjectId
-    content: str  # Consolidated memory blob
+    content: Optional[str] = ""
     agent_owner: Optional[ObjectId] = None
-    unabsorbed_directive_ids: List[
-        ObjectId
-    ] = []  # Track which directive memories haven't been consolidated yet
+    # Track which directive memories haven't been consolidated yet:
+    unabsorbed_directive_ids: List[ObjectId] = []  
 
     @classmethod
     def convert_to_mongo(cls, schema: dict, **kwargs) -> dict:
@@ -258,7 +257,7 @@ def store_session_memory(
     memories_created = []
     new_directive_memories = []
 
-    # Store directives (highest priority)
+    # Store directives
     for directive in extracted_data.get("directives", []):
         memory = SessionMemory(
             agent_id=agent_id,
@@ -317,7 +316,7 @@ def _update_user_memory(
                 f"Found existing user memory with {len(user_memory.unabsorbed_directive_ids)} unabsorbed directives"
             )
 
-        # Add new directive to unabsorbed list
+        # Add new directives to unabsorbed list
         for directive_id in [m.id for m in new_directive_memories]:
             user_memory.unabsorbed_directive_ids.append(directive_id)
         user_memory.save()
@@ -368,9 +367,8 @@ async def _consolidate_user_directives(user_memory: UserMemory):
         )
 
         if LOCAL_DEV:
-            print(
-                f"Consolidating {len(unabsorbed_directives)} directives into user memory"
-            )
+            n_mems = len(unabsorbed_directives)
+            print(f"Consolidating {n_mems} directives to user_memory")
             print(f"Current memory length: {len(current_memory)} chars")
             print(f"New directives: {new_directives_text}")
 
@@ -628,17 +626,22 @@ def assemble_memory_context(agent_id: ObjectId, session_id: Optional[ObjectId] =
                 if should_refresh is None:
                     should_refresh = True
                 
-                print(f"Cached context: {cached_context}")
-                print(f"Should refresh: {should_refresh}")
+                if LOCAL_DEV:
+                    if not should_refresh:
+                        print("Not refreshing memory context:")
+                        print(f"Cached context: {cached_context}")
+                    else:
+                        print(f"Memory context, Should refresh: {should_refresh}")
                 
                 if cached_context and not should_refresh:
                     total_time = time.time() - start_time
-                    final_tokens = estimate_tokens(cached_context)
                     print(f"   ⚡ USING CACHED MEMORY: {total_time:.3f}s")
-                    print(f"   📏 Context Length: {len(cached_context)} chars (~{final_tokens} tokens)")
                     return cached_context
                 else:
                     print(f"   🔄 Cache missing or refresh needed")
+            else:
+                print("❌ Error: No session context found.. This should never happen.")
+                
         except Exception as e:
             print(f"   ❌ Error checking cached memory: {e}")
     
