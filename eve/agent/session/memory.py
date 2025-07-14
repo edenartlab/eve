@@ -19,15 +19,24 @@ from eve.mongo import Collection, Document, get_collection
 from eve.agent.session.session_llm import async_prompt, LLMContext, LLMConfig
 from eve.agent.session.models import ChatMessage, Session
 
-
+LOCAL_DEV = True
 DEFAULT_MESSAGE_LIMIT = 25
 
 # Memory formation settings:
-MEMORY_FORMATION_INTERVAL = DEFAULT_MESSAGE_LIMIT  # Number of messages to wait before forming memories
-SESSION_MESSAGES_LOOKBACK_LIMIT = MEMORY_FORMATION_INTERVAL  # Max messages to look back in a session when forming raw memories
-MAX_RAW_MEMORY_COUNT = 5  # Number of individual memories to store before consolidating them into the agent's user_memory blob
-MAX_N_EPISODES_TO_REMEMBER = 10  # Number of episodes to remember from a session
-MEMORY_LLM_MODEL = "gpt-4o"
+if LOCAL_DEV:
+    logging.basicConfig(level=logging.DEBUG)
+    MEMORY_FORMATION_INTERVAL = 4  # Number of messages to wait before forming memories
+    SESSION_MESSAGES_LOOKBACK_LIMIT = MEMORY_FORMATION_INTERVAL  # Max messages to look back in a session when forming raw memories
+    MAX_RAW_MEMORY_COUNT = 2  # Number of individual memories to store before consolidating them into the agent's user_memory blob
+    MAX_N_EPISODES_TO_REMEMBER = 2  # Number of episodes to remember from a session
+    MEMORY_LLM_MODEL = "gpt-4o-mini"
+else:
+    logging.basicConfig(level=logging.WARNING)
+    MEMORY_FORMATION_INTERVAL = DEFAULT_MESSAGE_LIMIT  # Number of messages to wait before forming memories
+    SESSION_MESSAGES_LOOKBACK_LIMIT = MEMORY_FORMATION_INTERVAL  # Max messages to look back in a session when forming raw memories
+    MAX_RAW_MEMORY_COUNT = 5  # Number of individual memories to store before consolidating them into the agent's user_memory blob
+    MAX_N_EPISODES_TO_REMEMBER = 10  # Number of episodes to remember from a session
+    MEMORY_LLM_MODEL = "gpt-4o"
 
 # LLMs cannot count tokens at all (weirdly), so instruct with word count:
 SESSION_CONSOLIDATED_MEMORY_MAX_WORDS = (
