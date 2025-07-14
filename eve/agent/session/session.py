@@ -4,7 +4,6 @@ import json
 import os
 import random
 import re
-import traceback
 from fastapi import BackgroundTasks
 import pytz
 from typing import List, Optional, Dict
@@ -42,6 +41,7 @@ from eve.agent.session.session_prompts import (
     model_template,
 )
 from eve.agent.session.memory import maybe_form_memories, assemble_memory_context
+from eve.agent.session.config import get_default_session_llm_config
 
 
 class SessionCancelledException(Exception):
@@ -310,7 +310,7 @@ async def build_llm_context(
     return LLMContext(
         messages=messages,
         tools=tools,
-        config=context.llm_config or LLMConfig(),
+        config=context.llm_config or get_default_session_llm_config(),
         metadata=LLMContextMetadata(
             # for observability purposes. not same as session.id
             session_id=f"{os.getenv('DB')}-{str(context.session.id)}",
