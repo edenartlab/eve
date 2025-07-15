@@ -198,5 +198,5 @@ def format_hub_mention_result(message, target_username=None):
         return result
 
     except Exception as e:
-        print(f"***debug*** Error formatting mention result: {str(e)}")
+        print(f"Error formatting mention result: {str(e)}")
         return None

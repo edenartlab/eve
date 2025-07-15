@@ -114,10 +114,7 @@ At least one of message_limit or time_window_hours must be specified for each ch
                 10,
                 11,
                 12,
-            ]:  # Text channel types
-                print(
-                    f"***debug*** Channel {channel_id} ({channel_data.get('name', 'Unknown')}) does not support message history"
-                )
+            ]:  # Text channel types=
                 continue
 
             # Determine time window if specified
