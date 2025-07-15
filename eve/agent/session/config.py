@@ -15,3 +15,6 @@ def get_default_session_llm_config():
         return DEFAULT_SESSION_LLM_CONFIG_PROD
     else:
         return DEFAULT_SESSION_LLM_CONFIG_STAGE
+
+
+DEFAULT_SESSION_SELECTION_LIMIT = 25

@@ -42,7 +42,11 @@ from eve.agent.session.session_prompts import (
 )
 
 from eve.agent.session.memory import maybe_form_memories, assemble_memory_context
-from eve.agent.session.config import get_default_session_llm_config
+from eve.agent.session.config import (
+    DEFAULT_SESSION_SELECTION_LIMIT,
+    get_default_session_llm_config,
+)
+
 
 class SessionCancelledException(Exception):
     """Exception raised when a session is cancelled via Ably signal."""
@@ -171,7 +175,9 @@ async def determine_actors(
     return actors
 
 
-def select_messages(session: Session, selection_limit: Optional[int] = None):
+def select_messages(
+    session: Session, selection_limit: Optional[int] = DEFAULT_SESSION_SELECTION_LIMIT
+):
     messages = ChatMessage.get_collection()
     query = messages.find({"session": session.id, "role": {"$ne": "eden"}}).sort(
         "createdAt", -1
@@ -199,12 +205,15 @@ def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
 
     return messages
 
+
 import time
+
+
 def print_context_state(session: Session, message: str = ""):
     print(message)
     print(f"Session ID: {session.id}")
-    cached_context = getattr(session.context, 'cached_memory_context', None)
-    should_refresh = getattr(session.context, 'should_refresh_memory', None)
+    cached_context = getattr(session.context, "cached_memory_context", None)
+    should_refresh = getattr(session.context, "should_refresh_memory", None)
     print("Context state:")
     print(f"Cached context: {cached_context}")
     print(f"Should refresh: {should_refresh}")
@@ -221,10 +230,10 @@ def build_system_message(session: Session, actor: Agent, context: PromptSessionC
     try:
         start_time = time.time()
         memory_context = assemble_memory_context(
-            actor.id, 
-            session_id=session.id, 
+            actor.id,
+            session_id=session.id,
             last_speaker_id=last_speaker_id,
-            session=session
+            session=session,
         )
         time_taken = time.time() - start_time
         print(f"-----> Time taken to assemble memory context: {time_taken:.2f} seconds")
@@ -262,7 +271,7 @@ def build_system_message(session: Session, actor: Agent, context: PromptSessionC
     )
 
     content = f"{base_content}{memory_context}"
-    
+
     return ChatMessage(
         session=session.id, sender=ObjectId(actor.id), role="system", content=content
     )
@@ -1023,12 +1032,10 @@ async def _run_prompt_session_internal(
         # Process memory formation for all actors that participated
         for actor in actors:
             # TODO move the messages_since_last < interval check to here instead of inside the background task
-            print(f"🧠 Triggering maybe_form_memories() as background task for session {session.id}, agent {actor.id}")
-            background_tasks.add_task(
-                maybe_form_memories,
-                actor.id, 
-                session
+            print(
+                f"🧠 Triggering maybe_form_memories() as background task for session {session.id}, agent {actor.id}"
             )
+            background_tasks.add_task(maybe_form_memories, actor.id, session)
     else:
         print(
             f"⚠️  Warning: No background_tasks available, skipping memory formation and auto-reply"
