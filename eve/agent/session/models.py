@@ -644,11 +644,16 @@ class Trigger(Document):
     update_config: Optional[Dict[str, Any]] = None
     status: Optional[Literal["active", "paused", "finished"]] = "active"
     deleted: Optional[bool] = False
+    last_run_time: Optional[datetime] = None
 
 
 class SessionContext(BaseModel):
     memories: Optional[List[ObjectId]] = []
     memory_updated: Optional[ObjectId] = None
+    # Memory caching fields (optional for backward compatibility)
+    cached_memory_context: Optional[str] = None
+    memory_context_timestamp: Optional[datetime] = None
+    should_refresh_memory: Optional[bool] = None  # None means not set, will default to True in logic
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
@@ -666,11 +671,14 @@ class Session(Document):
     scenario: Optional[str] = None
     autonomy_settings: Optional[SessionAutonomySettings] = None
     last_actor_id: Optional[ObjectId] = None
-    last_memory_message_id: Optional[ObjectId] = None  # Track last message ID when memory formation was run
+    last_memory_message_id: Optional[ObjectId] = (
+        None  # Track last message ID when memory formation was run
+    )
     budget: SessionBudget = SessionBudget()
     platform: Optional[Literal["discord", "telegram", "twitter", "farcaster"]] = None
     trigger: Optional[ObjectId] = None
     active_requests: Optional[List[str]] = []
+
 
 @dataclass
 class PromptSessionContext:
