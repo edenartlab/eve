@@ -32,12 +32,7 @@ from ..user import User, Manna
 from ..eden_utils import load_template
 from .thread import Thread
 
-# If true, removes all tools with opposite base model and search_models tool
-# If false, agent is recommended to use the correct model, but it's not enforced
-AGENT_LORA_STRICT = True
-
-last_tools_update = None
-agent_tools_cache = {}
+agent_updated_at = {}
 
 
 class KnowledgeDescription(BaseModel):
@@ -85,8 +80,6 @@ class AgentExtras(BaseModel):
     )
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-
-agent_updated_at = {}
 
 @Collection("users3")
 class Agent(User):
@@ -349,73 +342,6 @@ class Agent(User):
                     "default": self.voice
                 }
             })
-
-        return tools
-
-    def get_tools_old(self, cache=False, auth_user: str = None):
-        global last_tools_update
-
-        if cache:
-            # get latest updatedAt timestamp for tools
-            from ..tool import Tool  # avoid circular import
-
-            tools = get_collection(Tool.collection_name)
-            timestamps = tools.find({}, {"updatedAt": 1})
-            last_tools_update_ = max(
-                (doc.get("updatedAt") for doc in timestamps if doc.get("updatedAt")),
-                default=None,
-            )
-            if last_tools_update is None:
-                last_tools_update = last_tools_update_
-
-            # reset cache if outdated
-            cache_outdated = last_tools_update < last_tools_update_
-            last_tools_update = max(last_tools_update, last_tools_update_)
-            if self.username not in agent_tools_cache or cache_outdated:
-                print("Cache is outdated, resetting...")
-                agent_tools_cache[self.username] = {}
-
-            # insert new tools into cache
-            for k, v in self.tools_.items():
-                if k not in agent_tools_cache[self.username]:
-                    try:
-                        tool = Tool.from_raw_yaml({"parent_tool": k, **v})
-                        agent_tools_cache[self.username][k] = tool
-                    except Exception as e:
-                        print(f"Error loading tool {k}: {e}")
-                        print(traceback.format_exc())
-                        continue
-
-            tools = agent_tools_cache[self.username]
-        else:
-            from ..tool import Tool
-
-            tools = {}
-            for k, v in self.tools_.items():
-                try:
-                    tool = Tool.from_raw_yaml({"parent_tool": k, **v})
-                    tools[k] = tool
-                except Exception as e:
-                    print(f"Error loading tool {k}: {e}")
-                    print(traceback.format_exc())
-                    continue
-
-        # remove tools that only the owner can use
-        if str(auth_user) != str(self.owner):
-            for tool in SOCIAL_MEDIA_TOOLS:
-                tools.pop(tool, None)
-
-        # inject agent arg
-        for tool in AGENTIC_TOOLS:
-            if tool in tools:
-                tools[tool].update_parameters(
-                    {
-                        "agent": {
-                            "default": str(self.id),
-                            "hide_from_agent": True,
-                        }
-                    }
-                )
 
         return tools
 
