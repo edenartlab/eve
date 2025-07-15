@@ -308,29 +308,29 @@ async def build_llm_context(
         )
 
     # if models
-    if actor.models:
-        models_collection = get_collection(Model.collection_name)
-        loras_dict = {m["lora"]: m for m in actor.models}
-        lora_docs = models_collection.find(
-            {"_id": {"$in": list(loras_dict.keys())}, "deleted": {"$ne": True}}
-        )
-        lora_docs = list(lora_docs or [])
+    # if actor.models:
+    #     models_collection = get_collection(Model.collection_name)
+    #     loras_dict = {m["lora"]: m for m in actor.models}
+    #     lora_docs = models_collection.find(
+    #         {"_id": {"$in": list(loras_dict.keys())}, "deleted": {"$ne": True}}
+    #     )
+    #     lora_docs = list(lora_docs or [])
 
-        # if models are found, inject them as defaults for any tools that use lora
-        for tool in tools:
-            if lora_docs and "lora" in tools[tool].parameters:
-                params = {
-                    "lora": {"default": str(lora_docs[0]["_id"])},
-                }
-                if "use_lora" in tools[tool].parameters:
-                    params["use_lora"] = {"default": True}
+    #     # if models are found, inject them as defaults for any tools that use lora
+    #     for tool in tools:
+    #         if lora_docs and "lora" in tools[tool].parameters:
+    #             params = {
+    #                 "lora": {"default": str(lora_docs[0]["_id"])},
+    #             }
+    #             if "use_lora" in tools[tool].parameters:
+    #                 params["use_lora"] = {"default": True}
                 
-                if len(lora_docs) > 1 and "lora2" in tools[tool].parameters:
-                    params["lora2"] = {"default": str(lora_docs[1]["_id"])}
-                    if "use_lora2" in tools[tool].parameters:
-                        params["use_lora2"] = {"default": True}
+    #             if len(lora_docs) > 1 and "lora2" in tools[tool].parameters:
+    #                 params["lora2"] = {"default": str(lora_docs[1]["_id"])}
+    #                 if "use_lora2" in tools[tool].parameters:
+    #                     params["use_lora2"] = {"default": True}
                 
-                tools[tool].update_parameters(params)
+    #             tools[tool].update_parameters(params)
 
     # build messages
     system_message = build_system_message(session, actor, context, tools)

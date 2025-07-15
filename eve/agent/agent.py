@@ -236,8 +236,8 @@ class Agent(User):
                     continue
         
         # for each social platform, update tool args with platform-specific args
-        # if a platform is not deployed, remove all tools for that platform
         
+        # update discord post tool with allowed channels
         if "discord" in self.deployments:
             if "discord_post" in tools:
                 allowed_channels = self.deployments["discord"].get_allowed_channels()
@@ -248,10 +248,8 @@ class Agent(User):
                         "tip": f"Some hints about the available channels: {channels_description}"
                     },
                 })
-        else:
-            for tool in DISCORD_TOOLS:
-                tools.pop(tool, None)
 
+        # update telegram post tool with allowed channels
         if "telegram" in self.deployments:
             if "telegram_post" in tools:
                 allowed_channels = self.deployments["telegram"].get_allowed_channels()
@@ -262,19 +260,18 @@ class Agent(User):
                         "tip": f"Some hints about the available topics: {channels_description}"
                     },
                 })
-        else:
+
+        # if a platform is not deployed, remove all tools for that platform
+        if "discord" not in self.deployments:
+            for tool in DISCORD_TOOLS:
+                tools.pop(tool, None)
+        if "telegram" not in self.deployments:
             for tool in TELEGRAM_TOOLS:
                 tools.pop(tool, None)
-
-        if "twitter" in self.deployments:
-            pass # nothing to do here
-        else:
+        if "twitter" not in self.deployments:
             for tool in TWITTER_TOOLS:
                 tools.pop(tool, None)
-
-        if "farcaster" in self.deployments:
-            pass # nothing to do here
-        else:
+        if "farcaster" not in self.deployments:
             for tool in FARCASTER_TOOLS:
                 tools.pop(tool, None)
 
@@ -292,6 +289,39 @@ class Agent(User):
                         "hide_from_agent": True,
                     }
                 })
+
+
+
+        models_collection = get_collection(Model.collection_name)
+        loras_dict = {m["lora"]: m for m in self.models}
+        lora_docs = models_collection.find(
+            {"_id": {"$in": list(loras_dict.keys())}, "deleted": {"$ne": True}}
+        )
+        lora_docs = list(lora_docs or [])
+
+        # if models are found, inject them as defaults for any tools that use lora
+        for tool in tools:
+            print("TOOL?", tool)
+            if lora_docs and "lora" in tools[tool].parameters:
+                print("LORA FOUND")
+                params = {
+                    "lora": {"default": str(lora_docs[0]["_id"]), "tip": "019129328972 YAY!!!!"},
+                }
+                if "use_lora" in tools[tool].parameters:
+                    params["use_lora"] = {"default": True}
+                
+                if len(lora_docs) > 1 and "lora2" in tools[tool].parameters:
+                    params["lora2"] = {"default": str(lora_docs[1]["_id"])}
+                    if "use_lora2" in tools[tool].parameters:
+                        params["use_lora2"] = {"default": True}
+                
+                print("UPDATING TOOL", tool, params)
+                tools[tool].update_parameters(params)
+
+        print("LETS SEE CREATED TOOLS")
+        import json
+        print(json.dumps(tools["create"].openai_schema(), indent=4))
+
 
         t2 = time.time()
         print(f"Time taken to update tools !: {t2 - t0} seconds")

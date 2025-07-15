@@ -341,7 +341,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
     #########################################################
     # OpenAI Image Generate
-    elif image_tool. == openai_image_generate:
+    elif image_tool == openai_image_generate:
         args = {
             "prompt": prompt,
             "n_samples": n_samples,
