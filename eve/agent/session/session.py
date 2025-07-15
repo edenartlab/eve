@@ -260,12 +260,12 @@ def build_system_message(session: Session, actor: Agent, context: PromptSessionC
     
     content = f"{base_content}{memory_context}"
     
-    print("-" * 40)
-    print("COMPLETE SYSTEM PROMPT:")
-    print(content)
-    print("=" * 80)
-    print("END SYSTEM PROMPT DEBUG")
-    print("=" * 80)
+    # print("-" * 40)
+    # print("COMPLETE SYSTEM PROMPT:")
+    # print(content)
+    # print("=" * 80)
+    # print("END SYSTEM PROMPT DEBUG")
+    # print("=" * 80)
     return ChatMessage(
         session=session.id, sender=ObjectId(actor.id), role="system", content=content
     )
@@ -292,45 +292,6 @@ async def build_llm_context(
     trace_id: Optional[str] = None,
 ):
     tools = actor.get_tools(cache=True, auth_user=context.initiating_user_id)
-
-    # pass custom tools
-    if context.custom_tools:
-        tools.update(context.custom_tools)
-        tools = {tool: tools[tool] for tool in tools if tool in context.custom_tools}
-
-    # set voice default if tools include elevenlabs
-    if actor.voice and "elevenlabs" in tools.keys():
-        tools["elevenlabs"] = Tool.from_raw_yaml(
-            {
-                "parent_tool": "elevenlabs",
-                "parameters": {"voice": {"default": actor.voice}},
-            }
-        )
-
-    # if models
-    # if actor.models:
-    #     models_collection = get_collection(Model.collection_name)
-    #     loras_dict = {m["lora"]: m for m in actor.models}
-    #     lora_docs = models_collection.find(
-    #         {"_id": {"$in": list(loras_dict.keys())}, "deleted": {"$ne": True}}
-    #     )
-    #     lora_docs = list(lora_docs or [])
-
-    #     # if models are found, inject them as defaults for any tools that use lora
-    #     for tool in tools:
-    #         if lora_docs and "lora" in tools[tool].parameters:
-    #             params = {
-    #                 "lora": {"default": str(lora_docs[0]["_id"])},
-    #             }
-    #             if "use_lora" in tools[tool].parameters:
-    #                 params["use_lora"] = {"default": True}
-                
-    #             if len(lora_docs) > 1 and "lora2" in tools[tool].parameters:
-    #                 params["lora2"] = {"default": str(lora_docs[1]["_id"])}
-    #                 if "use_lora2" in tools[tool].parameters:
-    #                     params["use_lora2"] = {"default": True}
-                
-    #             tools[tool].update_parameters(params)
 
     # build messages
     system_message = build_system_message(session, actor, context, tools)

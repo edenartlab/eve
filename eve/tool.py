@@ -345,6 +345,7 @@ class Tool(Document, ABC):
 
     def update_parameters(self, parameters: Dict[str, Any]):
         """Update parameters and re-create BaseModel"""
+        eden_utils.overwrite_dict(self.parameters, parameters)
         fields, model_config = parse_schema({"parameters": self.parameters, "examples": self.examples})
         self.model = create_model(self.key, __config__=model_config, **fields)
         self.model.__doc__ = eden_utils.concat_sentences(

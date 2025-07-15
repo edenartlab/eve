@@ -89,29 +89,27 @@ parameters:
   lora:
     type: lora
     label: LoRA model
-    description: ID of LoRA finetuned model.
-    tip: Use image model finetuned to specific style, face, or object. For image generation only.
+    description: ID of LoRA model finetuned to specific style, face, or object.
   lora_strength:
     type: float
     label: LoRA strength
     description: Strength of the LoRA model
     tip: |-
       Higher values increase adherence/resemblance to the LoRA. Lower values may increase prompt adherence. Only works if you are using a LoRA. If the output does not look like the LoRA subject, can be increased (0.8-1.0). If the output does look like the subject but is ignoring the prompt too much, try decreating it (0.25-0.7).
-    default: 0.75
+    default: 0.8
     minimum: 0
     maximum: 1.2
   lora2:
     type: lora
     label: Second LoRA model
     description: ID of second LoRA finetuned model.
-    tip: You should only use this if the user requests two LoRAs.
   lora2_strength:
     type: float
     label: Second LoRA strength
-    description: Strength of the second LoRA model
+    description: Strength of the second LoRA
     tip: |-
       Same as lora_strength but for lora2.
-    default: 0.75
+    default: 0.8
     minimum: 0
     maximum: 1.2
   quality:
