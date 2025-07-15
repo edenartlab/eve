@@ -204,10 +204,10 @@ class Agent(User):
 
         # load loras to memory
         models_collection = get_collection(Model.collection_name)
-        loras_dict = {m["lora"]: m for m in self.models}
+        loras_dict = {m["lora"]: m for m in self.models or []}
         lora_docs = models_collection.find(
             {"_id": {"$in": list(loras_dict.keys())}, "deleted": {"$ne": True}}
-        )
+        ) if self.models else []
         lora_docs = list(lora_docs or [])
         self.lora_docs = lora_docs
 
