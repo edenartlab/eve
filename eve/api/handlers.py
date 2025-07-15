@@ -880,7 +880,7 @@ async def handle_agent_tools_update(request: AgentToolsUpdateRequest):
     # Upsert tools
     tools = agent.tools or {}
     tools.update(request.tools)
-    update = {"tools": tools, "add_base_tools": True}
+    update = {"tools": tools}
     agents = get_collection("users3")
     agents.update_one({"_id": agent.id}, {"$set": update})
     return {"tools": tools}

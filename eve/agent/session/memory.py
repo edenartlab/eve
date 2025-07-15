@@ -19,6 +19,7 @@ from eve.mongo import Collection, Document, get_collection
 from eve.agent.session.session_llm import async_prompt, LLMContext, LLMConfig
 from eve.agent.session.models import ChatMessage, Session
 
+
 # Flag to easily switch between local and production memory settings (keep this in but always set to False in production):
 LOCAL_DEV = False
 DEFAULT_MESSAGE_LIMIT = 25
@@ -150,6 +151,8 @@ class UserMemory(Document):
         if doc:
             return doc
         else:
+            print("the query is", query)
+            print("the defaults are", defaults)
             # Create new instance and save it
             new_doc = {**query, **defaults}
             instance = cls(**new_doc)

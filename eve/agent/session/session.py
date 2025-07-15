@@ -1,5 +1,6 @@
 import asyncio
 import traceback
+import time
 import json
 import os
 import random
@@ -206,9 +207,6 @@ def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
     return messages
 
 
-import time
-
-
 def print_context_state(session: Session, message: str = ""):
     print(message)
     print(f"Session ID: {session.id}")
@@ -219,8 +217,7 @@ def print_context_state(session: Session, message: str = ""):
     print(f"Should refresh: {should_refresh}")
 
 
-def build_system_message(session: Session, actor: Agent, context: PromptSessionContext):
-    # Get the last speaker ID for memory prioritization
+def build_system_message(session: Session, actor: Agent, context: PromptSessionContext, tools: Dict[str, Tool]):    # Get the last speaker ID for memory prioritization
     last_speaker_id = None
     if context.initiating_user_id:
         last_speaker_id = ObjectId(context.initiating_user_id)
@@ -244,6 +241,7 @@ def build_system_message(session: Session, actor: Agent, context: PromptSessionC
         print(f"Warning: Could not load memory context for agent {actor.id}: {e}")
 
     # Get text describing models
+    lora_name = None
     if actor.models:
         models_collection = get_collection(Model.collection_name)
         loras_dict = {m["lora"]: m for m in actor.models}
@@ -251,6 +249,8 @@ def build_system_message(session: Session, actor: Agent, context: PromptSessionC
             {"_id": {"$in": list(loras_dict.keys())}, "deleted": {"$ne": True}}
         )
         lora_docs = list(lora_docs or [])
+        if lora_docs:
+            lora_name = lora_docs[0]["name"]
         for doc in lora_docs:
             doc["use_when"] = loras_dict[ObjectId(doc["_id"])].get(
                 "use_when", "This is your default Lora model"
@@ -267,11 +267,12 @@ def build_system_message(session: Session, actor: Agent, context: PromptSessionC
         persona=actor.persona,
         scenario=session.scenario,
         loras=loras,
+        lora_name=lora_name,
         voice=actor.voice,
+        tools=tools,
     )
 
     content = f"{base_content}{memory_context}"
-
     return ChatMessage(
         session=session.id, sender=ObjectId(actor.id), role="system", content=content
     )
@@ -299,31 +300,8 @@ async def build_llm_context(
 ):
     tools = actor.get_tools(cache=True, auth_user=context.initiating_user_id)
 
-    # pass custom tools
-    if context.custom_tools:
-        tools.update(context.custom_tools)
-        tools = {tool: tools[tool] for tool in tools if tool in context.custom_tools}
-
-    # set voice default if tools include elevenlabs
-    if actor.voice and "elevenlabs" in tools.keys():
-        tools["elevenlabs"] = Tool.from_raw_yaml(
-            {
-                "parent_tool": "elevenlabs",
-                "parameters": {"voice": {"default": actor.voice}},
-            }
-        )
-
-    # if models
-    if actor.models:
-        models_collection = get_collection(Model.collection_name)
-        loras_dict = {m["lora"]: m for m in actor.models}
-        lora_docs = models_collection.find(
-            {"_id": {"$in": list(loras_dict.keys())}, "deleted": {"$ne": True}}
-        )
-        lora_docs = list(lora_docs or [])
-
     # build messages
-    system_message = build_system_message(session, actor, context)
+    system_message = build_system_message(session, actor, context, tools)
     messages = [system_message]
     messages.extend(select_messages(session))
     messages = convert_message_roles(messages, actor.id)

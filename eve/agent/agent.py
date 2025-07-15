@@ -1,4 +1,5 @@
 import os
+import time
 import json
 import traceback
 from elevenlabs import Model
@@ -11,12 +12,17 @@ from typing import Optional, Literal, Any, Dict, List
 from datetime import datetime
 from dotenv import dotenv_values
 from pydantic import SecretStr, Field, BaseModel, ConfigDict
+# from pydantic.json_schema import SkipJsonSchema
 
 from ..tool_constants import (
     BASE_TOOLS,
     FLUX_LORA_TXT2IMG_TOOLS,
     SDXL_LORA_TXT2IMG_TOOLS,
-    OWNER_ONLY_TOOLS,
+    TWITTER_TOOLS,
+    DISCORD_TOOLS,
+    FARCASTER_TOOLS,
+    TELEGRAM_TOOLS,
+    SOCIAL_MEDIA_TOOLS,
     AGENTIC_TOOLS,
     TOOL_SETS,
 )
@@ -26,12 +32,7 @@ from ..user import User, Manna
 from ..eden_utils import load_template
 from .thread import Thread
 
-# If true, removes all tools with opposite base model and search_models tool
-# If false, agent is recommended to use the correct model, but it's not enforced
-AGENT_LORA_STRICT = True
-
-last_tools_update = None
-agent_tools_cache = {}
+agent_updated_at = {}
 
 
 class KnowledgeDescription(BaseModel):
@@ -112,9 +113,10 @@ class Agent(User):
     models: Optional[List[Dict[str, Any]]] = None
     test_args: Optional[List[Dict[str, Any]]] = None
 
-    # tools: Optional[Dict[str, Dict]] = {}
-    tools: Optional[Dict[str, bool]] = {}
-    # add_base_tools: Optional[bool] = True
+    tools: Optional[Dict[str, bool]] = {}  # tool sets specified by user
+    tools_: Optional[Dict[str, Dict]] = Field({}, exclude=True)   # actual loaded tools
+    lora_docs: Optional[List[Dict[str, Any]]] = Field([], exclude=True) 
+    deployments: Optional[List[str]] = Field({}, exclude=True)
 
     owner_pays: Optional[bool] = False
     agent_extras: Optional[AgentExtras] = None
@@ -130,12 +132,10 @@ class Agent(User):
         env_vars = dotenv_values(f"{str(env_dir)}/{db.lower()}/{data['username']}/.env")
         data["secrets"] = {key: SecretStr(value) for key, value in env_vars.items()}
         super().__init__(**data)
-        self._setup_tools()
 
     @classmethod
     def convert_from_yaml(cls, schema: dict, file_path: str = None) -> dict:
         """
-
         Convert the schema into the format expected by the model.
         """
         test_file = file_path.replace("api.yaml", "test.json")
@@ -159,14 +159,8 @@ class Agent(User):
                 else model["lora"]
             )
         schema["username"] = schema.get("username") or file_path.split("/")[-2]
-        # schema = cls._setup_tools(schema)
 
         return schema
-
-    # @classmethod
-    # def convert_from_mongo(cls, schema: dict) -> dict:
-    #     schema = cls._setup_tools(schema)
-    #     return schema
 
     def save(self, **kwargs):
         # do not overwrite any username if it already exists
@@ -197,225 +191,157 @@ class Agent(User):
         thread.save()
         return thread
 
-    #########################################################
-    # This works right now but needs a bit of cleanup
-    #########################################################
+    def _reload(self):
+        t1 = time.time()
+        from ..tool import Tool
+        from ..agent.session.models import Deployment
 
-    def _setup_tools(self):
-        for set, set_tools in TOOL_SETS.items():
-            if self.tools.get(set):
-                self.tools.pop(set, None)  # replace category with set tools
-                self.tools.update({k: {} for k in set_tools})
+        # load deployments to memory
+        self.deployments = {
+            deployment.platform.value: deployment 
+            for deployment in Deployment.find({"agent": ObjectId(str(self.id))})
+        }
 
-    @classmethod
-    def _setup_tools_old(cls, schema: dict) -> dict:
-        """
-        Sets up the agent's tools based on the tools defined in the schema.
-        If a model (lora) is set, hardcode it into the tools.
-        """
-        tools = schema.get("tools") or {}
+        # load loras to memory
+        models_collection = get_collection(Model.collection_name)
+        loras_dict = {m["lora"]: m for m in self.models}
+        lora_docs = models_collection.find(
+            {"_id": {"$in": list(loras_dict.keys())}, "deleted": {"$ne": True}}
+        )
+        lora_docs = list(lora_docs or [])
+        self.lora_docs = lora_docs
 
-        # if tools are set explicitly, start with them
-        # schema["tools"] = {k: v or {} for k, v in tools.items()}
-
-        schema["tools"] = {}
-        for set, set_tools in TOOL_SETS.items():
-            if tools.get(set):
-                schema["tools"].update({k: {} for k in set_tools})
-
-        # models = schema.get("models", [])
-
-        return schema
-
-    # Todo: can this just be done at setup time?
-    def get_tools(self, cache=False, auth_user: str = None):
-        from ..tool import Tool  # avoid circular import
-
+        # load tools to memory
         tools = {}
-        for k, v in self.tools.items():
-            try:
-                tool = Tool.from_raw_yaml({"parent_tool": k, **v})
-                tools[k] = tool
-            except Exception as e:
-                print(f"Error loading tool {k}: {e}")
-                print(traceback.format_exc())
+        for tool_set, set_tools in TOOL_SETS.items():
+            if not self.tools.get(tool_set):
                 continue
 
-        # inject agent arg
-        for tool in AGENTIC_TOOLS:
-            if tool in tools:
-                tools[tool].parameters.update(
-                    {
-                        "agent": {
-                            "default": str(self.id),
-                            "hide_from_agent": True,
-                        }
-                    }
-                )
-
-        return tools
-
-    # deprecated, just leaving for reference until above is cleaned up
-    @classmethod
-    def _setup_tools_old(cls, schema: dict) -> dict:
-        """
-        Sets up the agent's tools based on the tools defined in the schema.
-        If a model (lora) is set, hardcode it into the tools.
-        """
-        tools = schema.get("tools") or {}
-
-        # if tools are set explicitly, start with them
-        schema["tools"] = {k: v or {} for k, v in tools.items()}
-
-        # if add_base_tools is set, add the base tools
-        if schema.get("add_base_tools", True):
-            schema["tools"].update(
-                {k: {} for k in BASE_TOOLS if k not in schema["tools"]}
-            )
-
-        models = schema.get("models") or (
-            [{"lora": schema.get("model"), "use_when": "This is your default model."}]
-            if schema.get("model")
-            else []
-        )
-        for m in models:
-            m["doc"] = Model.from_mongo(m["lora"])
-
-        flux_models = [m for m in models if m["doc"].base_model == "flux-dev"]
-        sdxl_models = [m for m in models if m["doc"].base_model == "sdxl"]
-
-        if models:
-            if AGENT_LORA_STRICT:
-                # remove search_models tool
-                schema["tools"].pop("search_models", None)
-
-                # remove all tools associated with missing base model
-                if len(flux_models) > 0 and len(sdxl_models) == 0:
-                    for tool in SDXL_LORA_TXT2IMG_TOOLS:
-                        schema["tools"].pop(tool, None)
-                elif len(flux_models) == 0 and len(sdxl_models) > 0:
-                    for tool in FLUX_LORA_TXT2IMG_TOOLS:
-                        schema["tools"].pop(tool, None)
-
-            base_models = [
-                {
-                    "type": "flux-dev",
-                    "models": flux_models,
-                    "tools": [
-                        t
-                        for t in schema["tools"].keys()
-                        if t in FLUX_LORA_TXT2IMG_TOOLS
-                    ],
-                },
-                {
-                    "type": "sdxl",
-                    "models": sdxl_models,
-                    "tools": [
-                        t
-                        for t in schema["tools"].keys()
-                        if t in SDXL_LORA_TXT2IMG_TOOLS
-                    ],
-                },
-            ]
-
-            for base_model in base_models:
-                model_list, tools_list = base_model["models"], base_model["tools"]
-
-                if tools_list and model_list:
-                    if len(model_list) == 1:
-                        tip = f'Only use "{base_model["type"]}" models. Set the "lora" argument to the ID of the default lora (ID: {str(model_list[0]["lora"])}, Name: "{model_list[0]["doc"].name}", Description: "{model_list[0]["doc"].lora_trigger_text}"), if the following conditions are true: "{model_list[0]["use_when"]}"). If no lora is desired, leave this blank. If a different lora is desired, use its ID instead.'
-                        default_lora = model_list[0]["doc"].id
-                    else:
-                        models_info = " | ".join(
-                            [
-                                f'ID: {m["lora"]}, Name: "{m["doc"].name}", Description: "{m["doc"].lora_trigger_text}", Use When: "{m["use_when"]}"'
-                                for m in model_list
-                            ]
-                        )
-                        tip = f'Only use "{base_model["type"]}" models. You are can use the following loras under the "Use When" circumstances: {models_info}. To use no lora, leave the "lora" argument blank.'
-                        default_lora = model_list[0]["doc"].id
-                        for model in model_list:
-                            if "default" in model["use_when"].lower():
-                                default_lora = model["doc"].id
-                                break
-
-                    tip += " If you use a lora, make sure to refer to it in the prompt using its exact Name. Avoid restating the Description in the prompt as it's implicit in the lora already and is redundant."
-
-                    # Update all related tools with the tip
-                    for tool in tools_list:
-                        schema["tools"][tool] = schema["tools"][tool] or {
-                            "parameters": {}
-                        }
-                        schema["tools"][tool]["parameters"].update(
-                            {"lora": {"tip": tip, "default": str(default_lora)}}
-                        )
-
-        return schema
-
-    def get_tools_old(self, cache=False, auth_user: str = None):
-        global last_tools_update
-
-        if cache:
-            # get latest updatedAt timestamp for tools
-            from ..tool import Tool  # avoid circular import
-
-            tools = get_collection(Tool.collection_name)
-            timestamps = tools.find({}, {"updatedAt": 1})
-            last_tools_update_ = max(
-                (doc.get("updatedAt") for doc in timestamps if doc.get("updatedAt")),
-                default=None,
-            )
-            if last_tools_update is None:
-                last_tools_update = last_tools_update_
-
-            # reset cache if outdated
-            cache_outdated = last_tools_update < last_tools_update_
-            last_tools_update = max(last_tools_update, last_tools_update_)
-            if self.username not in agent_tools_cache or cache_outdated:
-                print("Cache is outdated, resetting...")
-                agent_tools_cache[self.username] = {}
-
-            # insert new tools into cache
-            for k, v in self.tools.items():
-                if k not in agent_tools_cache[self.username]:
-                    try:
-                        tool = Tool.from_raw_yaml({"parent_tool": k, **v})
-                        agent_tools_cache[self.username][k] = tool
-                    except Exception as e:
-                        print(f"Error loading tool {k}: {e}")
-                        print(traceback.format_exc())
-                        continue
-
-            tools = agent_tools_cache[self.username]
-        else:
-            from ..tool import Tool
-
-            tools = {}
-            for k, v in self.tools.items():
+            for t in set_tools:
                 try:
-                    tool = Tool.from_raw_yaml({"parent_tool": k, **v})
-                    tools[k] = tool
+                    tool = Tool.from_raw_yaml({"parent_tool": t})
+                    tools[t] = tool
                 except Exception as e:
-                    print(f"Error loading tool {k}: {e}")
+                    print(f"Error loading tool {t}: {e}")
                     print(traceback.format_exc())
                     continue
 
-        # remove tools that only the owner can use
-        if str(auth_user) != str(self.owner):
-            for tool in OWNER_ONLY_TOOLS:
+        self.tools_ = tools
+        print(f"Refreshed agent in {time.time() - t1} seconds")
+
+    def get_tools(self, cache=True, auth_user: str = None):
+        if cache:
+            if self.username in agent_updated_at:
+                # outdated, reload tools
+                if self.updatedAt > agent_updated_at[self.username]:
+                    self._reload()
+            else:
+                # first time, load tools, set cache
+                agent_updated_at[self.username] = self.updatedAt
+                self._reload()
+        else:
+            self._reload()
+
+        tools = self.tools_
+
+        # update tools with platform-specific args
+        # update discord post tool with allowed channels
+        if "discord" in self.deployments:
+            if "discord_post" in tools:
+                allowed_channels = self.deployments["discord"].get_allowed_channels()
+                channels_description = " | ".join([f"ID {c.id} ({c.note})" for c in allowed_channels])
+                tools["discord_post"].update_parameters({
+                    "channel_id": {
+                        "choices": [c.id for c in allowed_channels],
+                        "tip": f"Some hints about the available channels: {channels_description}"
+                    },
+                })
+
+        # update telegram post tool with allowed channels
+        if "telegram" in self.deployments:
+            if "telegram_post" in tools:
+                allowed_channels = self.deployments["telegram"].get_allowed_channels()
+                channels_description = " | ".join([f"ID {c.id} ({c.note})" for c in allowed_channels])
+                tools["telegram_post"].update_parameters({
+                    "channel_id": {
+                        "choices": [c.id for c in allowed_channels],
+                        "tip": f"Some hints about the available topics: {channels_description}"
+                    },
+                })
+
+        # if a platform is not deployed, remove all tools for that platform
+        if "discord" not in self.deployments:
+            for tool in DISCORD_TOOLS:
+                tools.pop(tool, None)
+        if "telegram" not in self.deployments:
+            for tool in TELEGRAM_TOOLS:
+                tools.pop(tool, None)
+        if "twitter" not in self.deployments:
+            for tool in TWITTER_TOOLS:
+                tools.pop(tool, None)
+        if "farcaster" not in self.deployments:
+            for tool in FARCASTER_TOOLS:
                 tools.pop(tool, None)
 
-        # inject agent arg
+        # remove tools that only the owner can use
+        if str(auth_user) != str(self.owner):
+            for tool in SOCIAL_MEDIA_TOOLS:
+                tools.pop(tool, None)
+
+        # agent-only tools need agent arg injected
         for tool in AGENTIC_TOOLS:
             if tool in tools:
-                tools[tool].parameters.update(
-                    {
-                        "agent": {
-                            "default": str(self.id),
-                            "hide_from_agent": True,
-                        }
+                tools[tool].update_parameters({
+                    "agent": {
+                        "default": str(self.id),
+                        "hide_from_agent": True,
                     }
+                })
+
+        # if models are found, inject them as defaults for any tools that use lora
+        for tool in tools:
+            if not "lora" in tools[tool].parameters:
+                continue
+
+            lora_docs = self.lora_docs
+
+            if not lora_docs:
+                continue
+
+            # Build LoRA information for the tip
+            lora_info = []
+            for m in lora_docs:
+                lora_id = m['_id']
+                lora_doc = {m["lora"]: m for m in self.models}[lora_id]
+                lora_info.append(
+                    f"{{ ID: {lora_id}, Name: {m['name']}, Description: {m['lora_trigger_text']}, Use When: {lora_doc['use_when']} }}"
                 )
+            
+            params = {
+                "lora": {
+                    "default": str(lora_docs[0]["_id"]), 
+                    "tip": "Users may request one of your known LoRAs, or a different unknown one, or no LoRA at all. When referring to a LoRA, strictly use its name, not its description. Notes on when to use the known LoRAs: " + " | ".join(lora_info)
+                },
+            }
+            if "use_lora" in tools[tool].parameters:
+                params["use_lora"] = {"default": True}
+            
+            if len(lora_docs) > 1 and "lora2" in tools[tool].parameters:
+                params["lora2"] = {"default": str(lora_docs[1]["_id"])}
+                if "use_lora2" in tools[tool].parameters:
+                    params["use_lora2"] = {
+                        "default": True,
+                        "tip": "Same behavior as first lora"
+                    }
+
+            tools[tool].update_parameters(params)
+
+        if "elevenlabs" in tools and self.voice:
+            tools["elevenlabs"].update_parameters({
+                "voice": {
+                    "default": self.voice
+                }
+            })
 
         return tools
 

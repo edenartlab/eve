@@ -44,11 +44,14 @@ ALL_TOOLS = [
     "outpaint",
     "remix_flux_schnell",
     "flux_double_character",
+    "seedream3",
     # video
     "runway",
     "kling_pro",
+    "kling",
     "veo2",
     "hedra",
+    "seedance1",
     "vid2vid_sdxl",
     "video_FX",
     "texture_flow",
@@ -56,6 +59,7 @@ ALL_TOOLS = [
     "ace_step_musicgen",
     "elevenlabs",
     "mmaudio",
+    "thinksound",
     "stable_audio",
     "zonos",
     "transcription",
@@ -78,24 +82,26 @@ ALL_TOOLS = [
     "openai_image_generate",
 ]
 
+DISCORD_TOOLS = ["discord_post", "discord_search"]
+TELEGRAM_TOOLS = ["telegram_post"]
+TWITTER_TOOLS = ["tweet", "twitter_mentions", "twitter_search"]
+FARCASTER_TOOLS = ["farcaster_cast", "farcaster_mentions", "farcaster_search"]
+
+SOCIAL_MEDIA_TOOLS = [
+    *TWITTER_TOOLS,
+    *DISCORD_TOOLS,
+    *FARCASTER_TOOLS,
+    *TELEGRAM_TOOLS,
+]
 
 TOOL_SETS = {
-    "create_image": ["create"],
-    "create_video": ["create_video", "media_editor", "reel"],
+    "create_image": ["create", "reel", "media_editor"],
+    "create_video": ["create", "reel", "media_editor"],  # deprecated
+    
     "create_audio": ["elevenlabs", "musicgen"],
     "vj_tools": ["texture_flow", "video_FX"],
     "news": ["news"],
-    "social_media_tools": [
-        "tweet",
-        "twitter_mentions",
-        "twitter_search",
-        "discord_search",
-        "discord_post",
-        "telegram_post",
-        "farcaster_cast",
-        "farcaster_mentions",
-        "farcaster_search",
-    ],
+    "social_media_tools": SOCIAL_MEDIA_TOOLS,
     "legacy_tools": [
         "legacy_create",
         "legacy_interpolate",
@@ -106,7 +112,6 @@ TOOL_SETS = {
     "all_tools": ALL_TOOLS,
 }
 
-
 BASE_TOOLS = [
     "create",
     "create_video",
@@ -116,26 +121,11 @@ BASE_TOOLS = [
     "news",
 ]
 
-BASE_TOOLS2 = [
-    "create_image",
-    "create_video",
-    "create_audio",
-    "media_editor",
-    "texture_flow",
-    "video_FX",
-]
-
-
 FLUX_LORA_TXT2IMG_TOOLS = ["flux_dev_lora", "flux_dev", "flux_schnell"]
 
 SDXL_LORA_TXT2IMG_TOOLS = ["txt2img"]
 
-OWNER_ONLY_TOOLS = [
-    "tweet",
-    "twitter_mentions",
-    "twitter_search",
-    "discord_search",
-    "discord_post",
+AGENTIC_TOOLS = [
+    *SOCIAL_MEDIA_TOOLS,
+    "reel"
 ]
-
-AGENTIC_TOOLS = OWNER_ONLY_TOOLS + ["reel"]

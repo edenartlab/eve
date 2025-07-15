@@ -24,7 +24,7 @@ class ToolCall(BaseModel):
         Literal["pending", "running", "completed", "failed", "cancelled"]
     ] = None
     result: Optional[List[Dict[str, Any]]] = None
-    reactions: Optional[Dict[str, List[ObjectId]]] = None
+    reactions: Optional[Dict[str, List[str]]] = None
     error: Optional[str] = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -165,7 +165,7 @@ class EdenMessageData(BaseModel):
 @Collection("channels")
 class Channel(Document):
     type: Literal["eden", "discord", "telegram", "twitter"]
-    key: str
+    key: Optional[str] = None
 
 
 class ChatMessageObservability(BaseModel):
@@ -197,7 +197,7 @@ class ChatMessage(Document):
     sender_name: Optional[str] = None  # ???
 
     content: str = ""
-    reactions: Optional[Dict[str, List[ObjectId]]] = {}
+    reactions: Optional[Dict[str, List[str]]] = {}
 
     attachments: Optional[List[str]] = []
     tool_calls: Optional[List[ToolCall]] = []
@@ -835,6 +835,14 @@ class Deployment(Document):
         """Ensure indexes exist"""
         collection = cls.get_collection()
         collection.create_index([("agent", 1), ("platform", 1)], unique=True)
+
+    def get_allowed_channels(self):
+        """Get allowed channels for the deployment"""
+        if self.platform == ClientType.DISCORD:
+            return self.config.discord.channel_allowlist
+        elif self.platform == ClientType.TELEGRAM:
+            return self.config.telegram.topic_allowlist
+        return []
 
 
 @Collection("usernotifications")
