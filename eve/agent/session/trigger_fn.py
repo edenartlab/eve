@@ -54,7 +54,6 @@ async def create_notification(
     try:
         api_url = os.getenv("EDEN_API_URL")
         if not api_url:
-            print("***debug*** EDEN_API_URL not set, skipping notification creation")
             return
 
         notification_data = {
@@ -76,7 +75,7 @@ async def create_notification(
         if metadata:
             notification_data["metadata"] = metadata
 
-        response = requests.post(
+        requests.post(
             f"{api_url}/notifications/create",
             headers={
                 "Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}",
@@ -85,15 +84,8 @@ async def create_notification(
             json=notification_data,
         )
 
-        if response.ok:
-            print(f"***debug*** Created notification: {title}")
-        else:
-            print(
-                f"***debug*** Failed to create notification: {response.status_code} - {response.text}"
-            )
-
     except Exception as e:
-        print(f"***debug*** Error creating notification: {str(e)}")
+        print(f"Error creating notification: {str(e)}")
         # Don't raise - notification creation failure shouldn't stop the trigger
 
 
@@ -292,7 +284,7 @@ async def trigger_fn():
                 },
             )
         except Exception as e:
-            print(f"***debug*** Failed to create completion notification: {str(e)}")
+            print(f"Failed to create completion notification: {str(e)}")
             # Don't raise - notification failure shouldn't stop the trigger
 
         # Stage 6: End date checking and deletion
@@ -382,9 +374,7 @@ async def trigger_fn():
                     },
                 )
         except Exception as notification_error:
-            print(
-                f"***debug*** Failed to create failure notification: {str(notification_error)}"
-            )
+            print(f"Failed to create failure notification: {str(notification_error)}")
 
         with sentry_sdk.configure_scope() as scope:
             scope.set_tag("trigger_failure", True)
