@@ -44,7 +44,7 @@ def get_session_state(agent_id: ObjectId, session_id: ObjectId) -> Dict[str, Any
     return agent_dict[session_key]
 
 
-def update_session_state(agent_id: ObjectId, session_id: ObjectId, updates: Dict[str, Any]) -> None:
+async def update_session_state(agent_id: ObjectId, session_id: ObjectId, updates: Dict[str, Any]) -> None:
     """Update session state in modal.Dict"""
     agent_key = str(agent_id)
     session_key = str(session_id)
@@ -63,8 +63,8 @@ def update_session_state(agent_id: ObjectId, session_id: ObjectId, updates: Dict
     pending_session_memories[agent_key] = agent_dict
 
     print("-----------------------------------")
-    print("Updated agent_dict state:")
-    print(json.dumps(agent_dict, indent=4))
+    print("Updated session_state state:")
+    print(json.dumps(session_state, indent=4))
     print("-----------------------------------")
 
 

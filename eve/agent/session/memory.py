@@ -454,22 +454,34 @@ Return only the consolidated memory text, no additional formatting or explanatio
 
 
 async def process_memory_formation(
-    agent_id: ObjectId, session_messages: List[ChatMessage], session_id: ObjectId
+    agent_id: ObjectId, session_messages: List[ChatMessage], session: Session
 ) -> bool:
     """
     Extract memories from recent conversation using LLM.
     Called every N messages to form new memories.
+    Only processes messages since session.last_memory_message_id to avoid duplicates.
 
     Returns True if memories were formed, False otherwise.
     """
     logging.debug(
-        f"Processing memory formation for Session {session_id} with {len(session_messages)} messages"
+        f"Processing memory formation for Session {session.id} with {len(session_messages)} messages"
     )
 
-    # Use interval for recent messages to process
-    interval = MEMORY_FORMATION_INTERVAL
-    start_idx = max(0, len(session_messages) - interval)
-    recent_messages = session_messages[start_idx:]
+    # Find messages since last memory formation
+    if session.last_memory_message_id:
+        # Create message ID to index mapping for O(1) lookup
+        message_id_to_index = {msg.id: i for i, msg in enumerate(session_messages)}
+        
+        # Find the position of the last memory formation message
+        last_memory_position = message_id_to_index.get(session.last_memory_message_id, -1)
+        
+        # Get messages since last memory formation (excluding the last memory message itself)
+        start_idx = last_memory_position + 1
+        recent_messages = session_messages[start_idx:]
+    else:
+        # No previous memory formation, use all messages
+        start_idx = 0
+        recent_messages = session_messages
 
     logging.debug(
         f"Extracting memories from messages {start_idx+1}-{len(session_messages)} (total: {len(recent_messages)} messages)"
@@ -489,7 +501,7 @@ async def process_memory_formation(
 
         # Store extracted memories in database
         memories_created = store_session_memory(
-            agent_id, extracted_data, recent_messages, session_id
+            agent_id, extracted_data, recent_messages, session.id
         )
 
         if memories_created:
@@ -601,7 +613,7 @@ CRITICAL REQUIREMENTS:
 
     return extracted_data
 
-def assemble_memory_context(agent_id: ObjectId, session_id: Optional[ObjectId] = None, last_speaker_id: Optional[ObjectId] = None, session: Optional['Session'] = None) -> str:
+async def assemble_memory_context(agent_id: ObjectId, session_id: Optional[ObjectId] = None, last_speaker_id: Optional[ObjectId] = None, session: Optional['Session'] = None) -> str:
     """
     Assemble relevant memories for context injection into prompts.
     Uses session-level caching to minimize database queries.
@@ -709,8 +721,6 @@ def assemble_memory_context(agent_id: ObjectId, session_id: Optional[ObjectId] =
         print(f"   ❌ Error assembling session memories: {e}")
 
     # Step 3: Full memory context assembly:
-    string_start = time.time()
-
     memory_context = ""
 
     if len(user_memory_content) > 0:  # user_memory blob:
@@ -739,7 +749,7 @@ def assemble_memory_context(agent_id: ObjectId, session_id: Optional[ObjectId] =
     if session_id and agent_id:
         try:
             cache_start = time.time()
-            update_session_state(agent_id, session_id, {
+            await update_session_state(agent_id, session_id, {
                 "cached_memory_context": memory_context,
                 "should_refresh_memory": False
             })
@@ -789,7 +799,7 @@ async def maybe_form_memories(
     messages_since_last = len(session_messages) - last_memory_position - 1
 
     # Update memory state on new message
-    update_session_state(agent_id, session.id, {
+    await update_session_state(agent_id, session.id, {
         "last_activity": datetime.now(timezone.utc).isoformat(),
         "message_count_since_memory": messages_since_last
     })
@@ -803,52 +813,28 @@ async def maybe_form_memories(
         return False
     
     print(f"Triggering memory formation: {messages_since_last} >= {interval} interval")
-    
-    # Only query unabsorbed directive count if we're actually going to form memories
-    unabsorbed_directive_count = -1
-    try:
-        # Only query if both agent_id and session.owner are not None
-        if agent_id is not None and session.owner is not None:
-            user_memory = UserMemory.find_one_or_create(
-                {"agent_id": agent_id, "user_id": session.owner}
-            )
-
-            unabsorbed_directive_count = (
-                len(user_memory.unabsorbed_directive_ids) if user_memory else 0
-            )
-    except Exception as e:
-        print(f"Error getting unabsorbed directive count: {e}")
-        traceback.print_exc()
-
-    logging.debug(f"Unabsorbed directive count: {unabsorbed_directive_count} / {MAX_RAW_MEMORY_COUNT}")
-    
-    if unabsorbed_directive_count >= MAX_RAW_MEMORY_COUNT:
-        print(
-            f"Will also absorb unabsorbed directives: {unabsorbed_directive_count} >= {MAX_RAW_MEMORY_COUNT} unabsorbed directives"
-        )
 
     try:
-        # Process memory formation
-        result = await process_memory_formation(
-            agent_id, 
-            session_messages, 
-            session.id
-        )
-        
-        # Update the session's last memory formation position and invalidate memory cache
         if session_messages:
+            # Process memory formation
+            result = await process_memory_formation(
+                agent_id, 
+                session_messages, 
+                session
+            )
+            
+            # Update the session's last memory formation position and invalidate memory cache
             latest_message = session_messages[-1]
             session.last_memory_message_id = latest_message.id
-            # Invalidate memory cache since new memories were formed
-            update_session_state(agent_id, session.id, {"should_refresh_memory": True})
             session.save()
             logging.debug(f"Updated last_memory_message_id to {latest_message.id}")
             
             # Also update the modal.Dict state to reset message count and update last memory message
             try:
-                update_session_state(agent_id, session.id, {
+                await update_session_state(agent_id, session.id, {
                     "last_memory_message_id": str(latest_message.id),
-                    "message_count_since_memory": 0
+                    "message_count_since_memory": 0, 
+                    "should_refresh_memory": True
                 })
                 logging.debug(f"Updated modal.Dict state for agent {agent_id}, session {session.id}")
             except Exception as e:
