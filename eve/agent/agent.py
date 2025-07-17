@@ -15,9 +15,6 @@ from pydantic import SecretStr, Field, BaseModel, ConfigDict
 # from pydantic.json_schema import SkipJsonSchema
 
 from ..tool_constants import (
-    BASE_TOOLS,
-    FLUX_LORA_TXT2IMG_TOOLS,
-    SDXL_LORA_TXT2IMG_TOOLS,
     TWITTER_TOOLS,
     DISCORD_TOOLS,
     FARCASTER_TOOLS,
@@ -326,13 +323,13 @@ class Agent(User):
             if "use_lora" in tools[tool].parameters:
                 params["use_lora"] = {"default": True}
             
-            if len(lora_docs) > 1 and "lora2" in tools[tool].parameters:
-                params["lora2"] = {"default": str(lora_docs[1]["_id"])}
-                if "use_lora2" in tools[tool].parameters:
-                    params["use_lora2"] = {
-                        "default": True,
-                        "tip": "Same behavior as first lora"
-                    }
+            # if len(lora_docs) > 1 and "lora2" in tools[tool].parameters:
+            #     params["lora2"] = {"default": str(lora_docs[1]["_id"])}
+            #     if "use_lora2" in tools[tool].parameters:
+            #         params["use_lora2"] = {
+            #             "default": True,
+            #             "tip": "Same behavior as first lora"
+            #         }
 
             tools[tool].update_parameters(params)
 
