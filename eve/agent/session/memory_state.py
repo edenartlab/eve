@@ -25,7 +25,7 @@ DEFAULT_SESSION_STATE = {
     "should_refresh_memory": True
 }
 
-def get_session_state(agent_id: ObjectId, session_id: ObjectId) -> Dict[str, Any]:
+async def get_session_state(agent_id: ObjectId, session_id: ObjectId) -> Dict[str, Any]:
     """Get session state from modal.Dict, initializing if needed"""
     agent_key = str(agent_id)
     session_key = str(session_id)

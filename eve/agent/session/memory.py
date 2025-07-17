@@ -637,7 +637,7 @@ async def assemble_memory_context(agent_id: ObjectId, session_id: Optional[Objec
     if session_id and agent_id:
         try:
             get_session_state_start = time.time()
-            session_state = get_session_state(agent_id, session_id)
+            session_state = await get_session_state(agent_id, session_id)
             get_session_state_time = time.time() - get_session_state_start
             print(f"   ⏱️  get_session_state took: {get_session_state_time:.3f}s")
 
