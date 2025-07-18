@@ -43,12 +43,11 @@ async def handler(args: dict, user: str = None, agent: str = None):
     # get loras
     loras = get_loras(args.get("lora"), args.get("lora2"))
 
-
     # Determine tool
     if init_image:
         if text_precision:
             if loras:
-                image_tool = openai_image_edit # preceded by flux_dev_lora call
+                image_tool = openai_image_edit  # preceded by flux_dev_lora call
             else:
                 image_tool = openai_image_generate
         else:
@@ -58,7 +57,9 @@ async def handler(args: dict, user: str = None, agent: str = None):
                 else:
                     image_tool = flux_dev_lora
             elif controlnet:
-                image_tool = flux_dev # todo: controlnet vs instructions is kind of a hack
+                image_tool = (
+                    flux_dev  # todo: controlnet vs instructions is kind of a hack
+                )
             else:
                 image_tool = flux_kontext
     else:
@@ -74,19 +75,13 @@ async def handler(args: dict, user: str = None, agent: str = None):
                 else:
                     image_tool = flux_dev_lora
             else:
-                image_tool = flux_dev_lora # flux_schnell 
+                image_tool = flux_dev_lora  # flux_schnell
 
     # Switch from Flux Dev Lora to Flux Dev if and only if 2 LoRAs or Controlnet
     if image_tool == flux_dev_lora:
         if len(loras) > 1 or controlnet:
             image_tool = flux_dev
-
-
-    print("\n\n\n\n\n--------------------------------")
-    print("THE SELECTED IMAGE TOOL", image_tool.key)
-    print("--------------------------------")
-
-    #########################################################
+    ###################################
     # Txt2Img
     if image_tool == txt2img:
         args = {
@@ -99,47 +94,51 @@ async def handler(args: dict, user: str = None, agent: str = None):
             args["seed"] = seed
 
         if loras:
-            args.update({
-                "use_lora": True,
-                "lora": str(loras[0].id),
-                "lora_strength": lora_strength,
-            })
+            args.update(
+                {
+                    "use_lora": True,
+                    "lora": str(loras[0].id),
+                    "lora_strength": lora_strength,
+                }
+            )
 
         if init_image:
-            args.update({
-                "init_image": init_image,
-                "use_init_image": True,
-                "denoise": 0.8,
-            })
+            args.update(
+                {
+                    "init_image": init_image,
+                    "use_init_image": True,
+                    "denoise": 0.8,
+                }
+            )
             if controlnet:
-                args.update({
-                    "use_controlnet": True,
-                    "controlnet_strength": 0.6,
-                })
+                args.update(
+                    {
+                        "use_controlnet": True,
+                        "controlnet_strength": 0.6,
+                    }
+                )
 
         args.update(aspect_ratio_to_dimensions(aspect_ratio))
 
         result = await txt2img.async_run(args)
-
 
     #########################################################
     # Flux Schnell
     elif image_tool == flux_schnell:
         if aspect_ratio == "auto":
             aspect_ratio = "1:1"
-        
+
         args = {
             "prompt": prompt,
             "n_samples": n_samples,
             "aspect_ratio": aspect_ratio,
         }
-        
+
         if seed:
             args["seed"] = seed
-        
+
         print("Running flux_schnell", args)
         result = await flux_schnell.async_run(args)
-    
 
     #########################################################
     # Flux Dev Lora
@@ -153,27 +152,28 @@ async def handler(args: dict, user: str = None, agent: str = None):
             args["seed"] = seed
 
         if init_image:
-            args.update({
-                "init_image": init_image,
-                "prompt_strength": 0.8 if init_image else 1.0
-            })
+            args.update(
+                {
+                    "init_image": init_image,
+                    "prompt_strength": 0.8 if init_image else 1.0,
+                }
+            )
         else:
             if aspect_ratio != "auto":
                 args["aspect_ratio"] = aspect_ratio
 
         if loras:
-            args.update({
-                "lora": str(loras[0].id),
-                "lora_strength": lora_strength,
-            })
+            args.update(
+                {
+                    "lora": str(loras[0].id),
+                    "lora_strength": lora_strength,
+                }
+            )
         else:
-            args.update({
-                "lora_strength": 0.0
-            })
+            args.update({"lora_strength": 0.0})
 
         print("Running flux_dev_lora", args)
         result = await flux_dev_lora.async_run(args)
-
 
     #########################################################
     # Flux Dev
@@ -189,49 +189,52 @@ async def handler(args: dict, user: str = None, agent: str = None):
             args["seed"] = seed
 
         if init_image:
-            args.update({
-                "init_image": init_image, 
-                "use_init_image": True,
-                "denoise": 0.75,
-            })
+            args.update(
+                {
+                    "init_image": init_image,
+                    "use_init_image": True,
+                    "denoise": 0.75,
+                }
+            )
         else:
             if aspect_ratio == "auto":
                 aspect_ratio = "1:1"
 
         if controlnet:
-            args.update({
-                "use_controlnet": True,
-                "controlnet_strength": 0.6,
-            })
+            args.update(
+                {
+                    "use_controlnet": True,
+                    "controlnet_strength": 0.6,
+                }
+            )
 
         if loras:
-            args.update({
-                "use_lora": True,
-                "lora": str(loras[0].id),
-                "lora_strength": lora_strength,
-            })
+            args.update(
+                {
+                    "use_lora": True,
+                    "lora": str(loras[0].id),
+                    "lora_strength": lora_strength,
+                }
+            )
         else:
-            args.update({
-                "lora_strength": 0.0
-            })
+            args.update({"lora_strength": 0.0})
 
         if loras and len(loras) > 1:
-            args.update({
-                "use_lora2": True,
-                "lora2": str(loras[1].id),
-                "lora2_strength": lora_strength,
-            })
+            args.update(
+                {
+                    "use_lora2": True,
+                    "lora2": str(loras[1].id),
+                    "lora2_strength": lora_strength,
+                }
+            )
         else:
-            args.update({
-                "lora2_strength": 0.0
-            })
+            args.update({"lora2_strength": 0.0})
 
         args.update(aspect_ratio_to_dimensions(aspect_ratio))
 
         print("Running flux_dev", args)
         result = await flux_dev.async_run(args)
         # Todo: incorporate style_image / style_strength ?
-
 
     #########################################################
     # Flux Kontext
@@ -253,7 +256,6 @@ async def handler(args: dict, user: str = None, agent: str = None):
         print("Running flux_kontext", args)
         result = await flux_kontext.async_run(args)
 
-
     #########################################################
     # OpenAI Image Generate
     elif image_tool == openai_image_generate:
@@ -270,18 +272,16 @@ async def handler(args: dict, user: str = None, agent: str = None):
             args["size"] = "1024x1024"
         else:
             args["size"] = "auto"
-        
+
         if user:
             args["user"] = str(user)
-        
+
         print("Running openai_image_generate", args)
         result = await openai_image_generate.async_run(args)
-
 
     #########################################################
     # OpenAI Image Edit
     elif image_tool == openai_image_edit:
-
         if loras:
             try:
                 args_pre = {
@@ -292,28 +292,36 @@ async def handler(args: dict, user: str = None, agent: str = None):
                 }
 
                 if init_image:
-                    args_pre.update({
-                        "init_image": init_image,
-                        "prompt_strength": 1.0 if init_image else 0.8
-                    })
+                    args_pre.update(
+                        {
+                            "init_image": init_image,
+                            "prompt_strength": 1.0 if init_image else 0.8,
+                        }
+                    )
                 else:
                     if aspect_ratio != "auto":
                         args_pre["aspect_ratio"] = aspect_ratio
 
                 if loras[0].base_model == "sdxl":
-                    args_pre.update({
-                        "enforce_SDXL_resolution": True,
-                        "use_lora": True,
-                    })
+                    args_pre.update(
+                        {
+                            "enforce_SDXL_resolution": True,
+                            "use_lora": True,
+                        }
+                    )
                     if init_image:
-                        args_pre.update({
-                            "use_init_image": True,
-                        })
+                        args_pre.update(
+                            {
+                                "use_init_image": True,
+                            }
+                        )
                         if controlnet:
-                            args_pre.update({
-                                "use_controlnet": True,
-                                "controlnet_strength": 0.6,
-                            })
+                            args_pre.update(
+                                {
+                                    "use_controlnet": True,
+                                    "controlnet_strength": 0.6,
+                                }
+                            )
                     result = await txt2img.async_run(args_pre)
                 else:
                     result = await flux_dev_lora.async_run(args_pre)
@@ -326,14 +334,17 @@ async def handler(args: dict, user: str = None, agent: str = None):
                 print("oae prompt", prompt)
 
             except Exception as e:
-                print("Error in flux_dev_lora step, so just using openai_image_generate", e)
+                print(
+                    "Error in flux_dev_lora step, so just using openai_image_generate",
+                    e,
+                )
                 raise e
 
         args = {
             "prompt": prompt,
             "n_samples": n_samples,
             "quality": "high",
-            "size": "auto"
+            "size": "auto",
         }
 
         if user:
@@ -351,19 +362,16 @@ async def handler(args: dict, user: str = None, agent: str = None):
     else:
         raise Exception("Invalid args", args, image_tool)
 
-
     #########################################################
     # Final result
     assert "output" in result, "No output from image tool"
     assert "filename" in result["output"][0], "No filename in output from image tool"
-    
+
     final_result = get_full_url(result["output"][0]["filename"])
 
     print("final result", final_result)
 
-    return {
-        "output": final_result
-    }
+    return {"output": final_result}
 
 
 def aspect_ratio_to_dimensions(aspect_ratio):
@@ -399,10 +407,10 @@ def get_loras(lora1, lora2):
         if lora_id:
             lora = Model.from_mongo(lora_id)
             if not lora:
-                raise Exception(f"Lora {lora_id} not found on {os.getenv('ENV')}")        
+                raise Exception(f"Lora {lora_id} not found on {os.getenv('ENV')}")
             loras.append(lora)
 
     if len(loras) == 2 and "sdxl" in [lora.base_model for lora in loras]:
         raise Exception("Second Lora is not supported for SDXL")
-        
+
     return loras
