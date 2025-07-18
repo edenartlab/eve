@@ -10,7 +10,7 @@ tip: |-
   - For images: If the user has an init_image but also has a lora or "controlnet" in extras, ignore the last rule about being an instruction and instead make a normal text-to-image prompt.
   - For videos: If you want to put specific lines of dialogue into the video, you must use "pro" quality with sound_effects, and no start_image).
   - For videos: Audio files are *only* supported when "talking_head" is in extras, so don't use one otherwise. If you want to mix an audio file over video, use the media_editor tool instead.
-cost_estimate: 50
+cost_estimate: 5
 output_type: image
 active: true
 visible: true
