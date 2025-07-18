@@ -4,7 +4,7 @@ Combined handler for both image and video creation.
 TODO:
  x incorporate lora2
  x a bit too overeager on text precision?
- - when two loras and they are faces, use flux_double_character
+ x when two loras and they are faces, use flux_double_character
  - face_swap, flux_inpainting, outpaint, remix_flux_schnell
  - deal with moderation errors for flux_kontext and openai tools, and errors in general
  - negative prompting
@@ -85,6 +85,14 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
     # check if both loras are faces
     two_faces = len(loras) == 2 and all([(lora.args.get("mode") or lora.args.get("concept_mode")) == "face" for lora in loras])
+
+
+    print("THE IMAGE TO USE IS GOING TO BNE1")
+    print(init_image)
+    print(loras)
+    print(text_precision)
+
+    print("--------------------------------")
 
     # Determine tool
     if init_image:
@@ -467,8 +475,16 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
     print("final result", final_result)
 
     # Add sub tool call to tool_calls
-    print("lets save the tool call", image_tool.key, final_result)
     tool_calls.append({"tool": image_tool.key, "args": args, "output": final_result})
+
+    # insert args urls
+    for tool_call in tool_calls:
+        for key, value in tool_call["args"].items():
+            if key in ["init_image", "start_image", "end_image", "image"]:
+                if isinstance(value, dict) and "filename" in value:
+                    tool_call["args"][key] = get_full_url(value["filename"])
+                else:
+                    tool_call["args"][key] = value
 
     return {
         "output": final_result,

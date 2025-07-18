@@ -1,14 +1,11 @@
 import logging
 import os
-
-from eve.agent.thread import ChatMessage
-
-
 import json
-from litellm import completion
 import litellm
+from litellm import completion
 from typing import Callable, List, AsyncGenerator, Optional
 
+from eve.agent.thread import ChatMessage
 from eve.agent.session.models import (
     LLMContext,
     LLMConfig,
