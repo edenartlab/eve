@@ -77,7 +77,7 @@ parameters:
     type: float
     label: LoRA strength
     description: Strength of the LoRA finetuning
-    default: 0.5
+    default: 1.0
     minimum: 0
     maximum: 3
     alias: lora_scale
