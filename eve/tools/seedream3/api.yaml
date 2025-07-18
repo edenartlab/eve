@@ -1,0 +1,62 @@
+name: SeeDream-3
+description: A text-to-image model with support for native high-resolution (2K) image generation.
+tip: |-
+  High-quality text-to-image generation with support for resolutions up to 2K. Offers flexible aspect ratios and precise prompt adherence control.
+cost_estimate: 5
+output_type: image
+active: true
+visible: true
+replicate_model: bytedance/seedream-3
+handler: replicate
+parameters:
+  prompt:
+    type: string
+    label: Prompt
+    description: Text prompt for image generation
+    required: true
+  aspect_ratio:
+    type: string
+    label: Aspect ratio
+    description: Aspect ratio for the generated image
+    default: "16:9"
+    choices: ["1:1", "16:9", "4:3", "3:4", "9:16", "21:9", "9:21", "custom"]
+  size:
+    type: string
+    label: Size
+    description: Size of the generated image
+    default: "regular"
+    choices: ["small", "regular", "big"]
+    tip: |-
+      Small: 512px, Regular: 1 megapixel, Big: 2048px longest dimension
+  width:
+    type: integer
+    label: Width
+    description: Width of the generated image in pixels
+    minimum: 512
+    maximum: 2048
+    tip: |-
+      Only used when aspect_ratio is set to "custom"
+  height:
+    type: integer
+    label: Height
+    description: Height of the generated image in pixels
+    minimum: 512
+    maximum: 2048
+    tip: |-
+      Only used when aspect_ratio is set to "custom"
+  guidance_scale:
+    type: float
+    label: Guidance scale
+    description: Controls how closely the model follows the prompt
+    default: 2.5
+    minimum: 1
+    maximum: 10
+    tip: |-
+      Higher values mean stricter adherence to the prompt
+  seed:
+    type: integer
+    label: Seed
+    description: Random seed for reproducible generation
+    minimum: 0
+    maximum: 2147483647
+    default: random

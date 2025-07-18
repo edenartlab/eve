@@ -1,18 +1,21 @@
 name: discord_post
-description: Post a message to a Discord channel
+description: Post a message to a Discord channel using natural language to specify the target channel
 tip: |-
-  This tool allows an agent to post messages to Discord channels.
+  This tool allows an agent to post messages to Discord channels by specifying the channel in natural language.
+  Examples:
+  - "Post 'Hello everyone!' to general chat"
+  - "Send announcement to the news channel"
+  - "Share this update in tech support"
   Only use this tool when the user explicitly requests to post a message to a Discord channel.
-  Do not use this tool for other purposes.
 cost_estimate: 0
 output_type: string
 active: true
 handler: local
 visible: false
 parameters:
-  channel_id:
+  query:
     type: string
-    description: The Discord channel ID to post to
+    description: Natural language description of where to post (e.g., "post to general chat", "send to announcements")
     required: true
   content:
     type: string

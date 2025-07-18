@@ -1,6 +1,11 @@
+from typing import TYPE_CHECKING
+from fastapi import Request
 from eve.api.errors import APIError
 from eve.agent.deployments import PlatformClient
 from eve.agent.session.models import DeploymentSecrets, DeploymentConfig
+
+if TYPE_CHECKING:
+    from eve.api.api_requests import DeploymentEmissionRequest
 
 
 class TwitterClient(PlatformClient):
@@ -45,3 +50,11 @@ class TwitterClient(PlatformClient):
     async def stop(self) -> None:
         """Stop Twitter client"""
         self.remove_tools()
+
+    async def interact(self, request: Request) -> None:
+        """Interact with the Twitter client"""
+        pass
+
+    async def handle_emission(self, emission: "DeploymentEmissionRequest") -> None:
+        """Handle an emission from the Twitter client"""
+        pass

@@ -302,16 +302,6 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
                     )  # upsert_filter prevents duplicates
                     output["model"] = model.id
 
-                    # This is a hack to support legacy models for private endpoints.
-                    # Change filename to url and copy record to the old models collection
-                    if str(task.user) == os.getenv("LEGACY_USER_ID"):
-                        model_copy = model.model_dump(by_alias=True)
-                        model_copy["checkpoint"] = s3.get_full_url(
-                            model_copy["checkpoint"]
-                        )
-                        model_copy["slug"] = f"legacy/{str(model_copy['_id'])}"
-                        get_collection("models").insert_one(model_copy)
-
                 else:
                     name = task.args.get("prompt")
 

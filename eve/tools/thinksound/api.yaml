@@ -1,0 +1,46 @@
+name: Add sound to video
+description: Generate audio that matches given video content + prompt using ThinkSound.
+tip: |-
+  This tool synthesizes audio from video content using ThinkSound, enabling video-to-audio generation. The tool can generate various audio effects that match the video content and automatically timed correctly.
+cost_estimate: 0.5 * duration
+output_type: video
+active: true
+visible: true
+replicate_model: zsxkib/thinksound:40d08f9f569e91a5d72f6795ebed75178c185b0434699a98c07fc5f566efb2d4
+handler: replicate
+parameters:
+  video:
+    type: video
+    description: URL of the base video
+    required: true
+  caption:
+    type: string
+    label: Caption
+    description: Brief description of the video content
+    tip: |-
+      A short caption describing what's happening in the video to help the model understand the context.
+    required: false
+  cot:
+    type: string
+    label: Chain of thought
+    description: Detailed description of the sound generation process
+    tip: |-
+      A detailed description that begins with the sound process and includes texture, atmosphere, and timing details. This helps the model understand exactly what audio to generate and how it should match the video.
+  cfg_scale:
+    type: float
+    label: CFG Scale
+    description: Classifier-free guidance scale
+    tip: |-
+      Controls how closely the model follows the prompt. Higher values mean stricter adherence to the prompt.
+    default: 5
+    minimum: 1
+    maximum: 20
+  num_inference_steps:
+    type: integer
+    label: Inference steps
+    description: Number of inference steps
+    tip: |-
+      More steps generally produce higher quality but take longer to generate.
+    default: 24
+    minimum: 10
+    maximum: 50

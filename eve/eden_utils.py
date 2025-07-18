@@ -162,10 +162,11 @@ def prepare_result(result, summarize=False):
 
 def upload_result(result, save_thumbnails=False, save_blurhash=False):
     if isinstance(result, dict):
+        exlude_result_processing_keys = ["subtool_calls"]
         return {
             k: upload_result(
                 v, save_thumbnails=save_thumbnails, save_blurhash=save_blurhash
-            )
+            ) if k not in exlude_result_processing_keys else v
             for k, v in result.items()
         }
     elif isinstance(result, list):
@@ -1049,6 +1050,13 @@ def dumps_json(obj, *, indent=None, exclude=None):
     cleaned = serialize_json(obj, indent=indent, exclude=exclude)
     return json.dumps(cleaned, indent=indent)
 
+
+def overwrite_dict(base: dict, updates: dict):
+    for key, value in updates.items():
+        if isinstance(value, dict) and isinstance(base.get(key), dict):
+            overwrite_dict(base[key], value)
+        else:
+            base[key] = value
 
 def load_template(filename: str) -> Template:
     """Load and compile a template from the templates directory"""

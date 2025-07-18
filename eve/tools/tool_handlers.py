@@ -48,6 +48,11 @@ def load_handler(name):
 
             handlers[name] = handler
 
+        elif name == "create_image":
+            from .media_utils.create_image.handler import handler
+
+            handlers[name] = handler
+
         elif name == "create_video":
             from .media_utils.create_video.handler import handler
 
@@ -98,6 +103,11 @@ def load_handler(name):
 
             handlers[name] = handler
 
+        elif name == "twitter_trends":
+            from .twitter.twitter_trends.handler import handler
+
+            handlers[name] = handler
+
         elif name == "discord_post":
             from .discord.discord_post.handler import handler
 
@@ -110,6 +120,21 @@ def load_handler(name):
 
         elif name == "telegram_post":
             from .telegram.telegram_post.handler import handler
+
+            handlers[name] = handler
+
+        elif name == "farcaster_cast":
+            from .farcaster.farcaster_cast.handler import handler
+
+            handlers[name] = handler
+
+        elif name == "farcaster_mentions":
+            from .farcaster.farcaster_mentions.handler import handler
+
+            handlers[name] = handler
+
+        elif name == "farcaster_search":
+            from .farcaster.farcaster_search.handler import handler
 
             handlers[name] = handler
 

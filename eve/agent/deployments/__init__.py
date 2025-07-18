@@ -42,15 +42,18 @@ class PlatformClient(ABC):
     def add_tools(self) -> None:
         """Add platform-specific tools to agent"""
         self.agent.get_collection().update_one(
-            {"_id": self.agent.id}, 
-            {"$set": {"tools.social_media_tools": True}, "$currentDate": {"updatedAt": True}}
+            {"_id": self.agent.id},
+            {
+                "$set": {"tools.social_media_tools": True},
+                "$currentDate": {"updatedAt": True},
+            },
         )
         self.agent.reload()
-        
+
     def remove_tools(self) -> None:
         """Remove platform-specific tools from agent"""
         # self.agent.get_collection().update_one(
-        #     {"_id": self.agent.id}, 
+        #     {"_id": self.agent.id},
         #     {"$set": {"tools.social_media_tools": False}, "$currentDate": {"updatedAt": True}}
         # )
         ## Note: this is skipped for now because we don't want to remove the social media tools unless there are 0 deployments left

@@ -239,12 +239,13 @@ async def handler(args: dict, user: str = None, agent: str = None):
             eleven = ElevenLabs(api_key=os.getenv("ELEVEN_API_KEY"))
             try:
                 voice = eleven.voices.get(agent.voice)
-                voice = voice.name
+                voice = voice.id
             except Exception as e:
                 print("Error getting voice", e)
                 voice = select_random_voice("Voice of a narrator")
         # otherwise, select a random voice
         else:
+            print("no voice provided, selecting random voice")
             voice = select_random_voice("Voice of a narrator")
 
         print("selected voice", voice)

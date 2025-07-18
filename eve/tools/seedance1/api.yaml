@@ -1,0 +1,54 @@
+name: SeeDance-1-Pro
+description: A pro version of Seedance that offers text-to-video and image-to-video support for 5s or 10s videos, at 480p and 1080p resolution.
+tip: |-
+  High-quality text-to-video and image-to-video generation with flexible duration, resolution, and aspect ratio options.
+cost_estimate: 50
+output_type: video
+active: true
+visible: true
+replicate_model: bytedance/seedance-1-pro
+handler: replicate
+parameters:
+  prompt:
+    type: string
+    label: Prompt
+    description: Text prompt for video generation
+    required: true
+  duration:
+    type: integer
+    label: Duration
+    description: Duration of the video in seconds
+    default: 5
+    choices: [5, 10]
+  resolution:
+    type: string
+    label: Resolution
+    description: Resolution of the generated video
+    default: "1080p"
+    choices: ["480p", "1080p"]
+  aspect_ratio:
+    type: string
+    label: Aspect ratio
+    description: Aspect ratio for the generated video
+    default: "16:9"
+    choices: ["16:9", "4:3", "1:1", "3:4", "9:16", "21:9", "9:21"]
+  image:
+    type: image
+    label: Input image
+    description: Optional input image for image-to-video generation
+    tip: |-
+      Provide an image to generate a video based on that image. If not provided, will generate video from text prompt only.
+  camera_fixed:
+    type: boolean
+    label: Camera fixed
+    description: Whether to keep the camera position fixed
+    default: false
+    tip: |-
+      When true, keeps the camera position static. When false, allows camera movement.
+  seed:
+    type: integer
+    label: Seed
+    description: Random seed for reproducible generation
+    minimum: 0
+    maximum: 2147483647
+    default: random

@@ -1,0 +1,48 @@
+name: farcaster_search
+description: Search for casts on Farcaster by text query, author, or hashtags
+tip: |-
+  This tool searches for casts on Farcaster using various search criteria.
+
+  Search options:
+  - Text query: Search cast content by text
+  - Author: Search casts by a specific username or FID
+  - Channel: Search within a specific Farcaster channel
+  - Time range: Limit results to recent casts
+
+  Examples:
+  - "Search for casts about AI"
+  - "Find recent casts from user vitalik.eth"
+  - "Search for casts in the /crypto channel"
+  - "Find casts with hashtag #ethereum from the last 24 hours"
+
+  Use this tool when users want to find specific content or discussions on Farcaster.
+cost_estimate: 0
+output_type: array
+active: true
+handler: local
+visible: false
+parameters:
+  query:
+    type: string
+    description: Search query text to find in cast content
+    required: false
+  author:
+    type: string
+    description: Search for casts by specific username or FID
+    required: false
+  channel:
+    type: string
+    description: Search within a specific Farcaster channel (e.g., "crypto", "art")
+    required: false
+  limit:
+    type: integer
+    description: Maximum number of results to return (default 10, max 100)
+    required: false
+  time_range_hours:
+    type: integer
+    description: Only return casts from the last N hours
+    required: false
+  agent:
+    type: string
+    description: Agent ID to run the tool with
+    required: true

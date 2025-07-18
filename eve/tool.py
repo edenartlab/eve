@@ -6,7 +6,7 @@ import random
 import asyncio
 import traceback
 from abc import ABC, abstractmethod
-from pydantic import BaseModel, create_model, ValidationError
+from pydantic import BaseModel, create_model, ValidationError, Field
 from typing import Optional, List, Dict, Any, Type
 from datetime import datetime, timezone
 from instructor.function_calls import openai_schema
@@ -60,6 +60,7 @@ class Tool(Document, ABC):
     handler: HANDLERS = "local"
     parent_tool: Optional[str] = None
     parameters: Optional[Dict[str, Any]] = None
+    examples: Optional[List[Dict[str, Any]]] = Field(None, exclude=True)
     parameter_presets: Optional[Dict[str, Any]] = None
     gpu: Optional[str] = None
     test_args: Optional[Dict[str, Any]] = None
@@ -79,7 +80,7 @@ class Tool(Document, ABC):
             with open(api_file, "r") as f:
                 schema = yaml.safe_load(f)
 
-            if schema.get("handler") in ["comfyui", "comfyui_legacy"]:
+            if schema.get("handler") == "comfyui":
                 schema["workspace"] = schema.get("workspace") or api_file.split("/")[-4]
         else:
             # MongoDB path
@@ -93,7 +94,7 @@ class Tool(Document, ABC):
     def get_sub_class(cls, schema, from_yaml=False) -> type:
         """Lazy load tool classes only when needed"""
 
-        local_debug = False
+        local_debug = os.getenv("LOCAL_DEBUG", False)
 
         handler = schema.get("handler")
         parent_tool = schema.get("parent_tool")
@@ -127,10 +128,6 @@ class Tool(Document, ABC):
                 from .tools.comfyui_tool import ComfyUITool
 
                 _tool_classes[handler] = ComfyUITool
-            elif handler == "comfyui_legacy":
-                from .tools.comfyui_tool import ComfyUIToolLegacy
-
-                _tool_classes[handler] = ComfyUIToolLegacy
             elif handler == "replicate":
                 from .tools.replicate_tool import ReplicateTool
 
@@ -345,6 +342,15 @@ class Tool(Document, ABC):
         sub_cls = cls.get_sub_class(schema, from_yaml=False)
 
         return sub_cls.model_validate(schema)
+
+    def update_parameters(self, parameters: Dict[str, Any]):
+        """Update parameters and re-create BaseModel"""
+        eden_utils.overwrite_dict(self.parameters, parameters)
+        fields, model_config = parse_schema({"parameters": self.parameters, "examples": self.examples})
+        self.model = create_model(self.key, __config__=model_config, **fields)
+        self.model.__doc__ = eden_utils.concat_sentences(
+            self.description, self.tip
+        )
 
     def save(self, **kwargs):
         return super().save({"key": self.key}, **kwargs)

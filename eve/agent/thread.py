@@ -17,7 +17,7 @@ class ChatMessage(BaseModel):
     role: Literal["user", "assistant"]
     reply_to: Optional[ObjectId] = None
     hidden: Optional[bool] = False  # hides trigger messages from llm
-    reactions: Optional[Dict[str, List[ObjectId]]] = {}
+    reactions: Optional[Dict[str, List[str]]] = {}
     pinned: Optional[bool] = False
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -166,7 +166,7 @@ class ToolCall(BaseModel):
         Literal["pending", "running", "completed", "failed", "cancelled"]
     ] = None
     result: Optional[List[Dict[str, Any]]] = None
-    reactions: Optional[Dict[str, List[ObjectId]]] = None
+    reactions: Optional[Dict[str, List[str]]] = None
     error: Optional[str] = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)

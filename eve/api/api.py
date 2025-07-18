@@ -25,7 +25,6 @@ from eve.task import task_handler_func, Task
 from eve.tool import Tool
 from eve.tools.tool_handlers import load_handler
 from eve.tools.replicate_tool import replicate_update_task
-from eve.tools.comfyui_tool import convert_tasks2_to_tasks3
 
 from eve.api.handlers import (
     handle_create,
@@ -53,6 +52,7 @@ from eve.api.handlers import (
     handle_v2_deployment_update,
     handle_v2_deployment_delete,
     handle_v2_deployment_farcaster_neynar_webhook,
+    handle_create_notification,
 )
 from eve.api.api_requests import (
     CancelRequest,
@@ -70,6 +70,7 @@ from eve.api.api_requests import (
     AgentToolsUpdateRequest,
     AgentToolsDeleteRequest,
     UpdateDeploymentRequestV2,
+    CreateNotificationRequest,
 )
 from eve.api.helpers import pre_modal_setup, busy_state_dict
 
@@ -80,21 +81,7 @@ logging.getLogger("ably").setLevel(logging.INFO if db != "PROD" else logging.WAR
 logger = logging.getLogger(__name__)
 
 
-def load_watch_thread():
-    watch_thread = threading.Thread(target=convert_tasks2_to_tasks3, daemon=True)
-    watch_thread.start()
-    return watch_thread
-
-
 # FastAPI setup
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    app.state.watch_thread = load_watch_thread()
-    try:
-        yield
-    finally:
-        if hasattr(app.state, "watch_thread"):
-            app.state.watch_thread.join(timeout=5)
 
 
 class SentryContextMiddleware(BaseHTTPMiddleware):
@@ -122,7 +109,7 @@ class SentryContextMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
-web_app = FastAPI(lifespan=lifespan)
+web_app = FastAPI()
 web_app.add_middleware(SentryContextMiddleware)
 web_app.add_middleware(
     CORSMiddleware,
@@ -335,6 +322,14 @@ async def deployment_farcaster_neynar_webhook(request: Request):
 @web_app.post("/v2/deployments/emission")
 async def deployment_emission(request: DeploymentEmissionRequest):
     return await handle_v2_deployment_emission(request)
+
+
+# Notification routes
+@web_app.post("/notifications/create")
+async def create_notification(
+    request: CreateNotificationRequest, _: dict = Depends(auth.authenticate_admin)
+):
+    return await handle_create_notification(request)
 
 
 @web_app.exception_handler(RequestValidationError)

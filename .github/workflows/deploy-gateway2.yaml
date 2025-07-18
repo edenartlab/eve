@@ -3,7 +3,7 @@ name: Deploy Discord Gateway
 on:
   push:
     branches:
-      - staging
+      - main
     paths:
       - "eve/agent/deployments/gateway_v2.py"
 

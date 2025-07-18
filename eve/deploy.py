@@ -383,13 +383,6 @@ async def stop_client_discord(deployment: Deployment):
             )
             print(f"Sent stop command for deployment {deployment.id} via Ably")
 
-            # Remove discord_search tool from agent's tools
-            agent = Agent.from_mongo(deployment.agent)
-            if agent and agent.tools:
-                if "discord_search" in agent.tools:
-                    agent.tools.pop("discord_search")
-                agent.save()
-
         except Exception as e:
             print(f"Failed to notify gateway service: {e}")
 
@@ -415,12 +408,7 @@ async def stop_client_modal(agent: Agent, platform: ClientType):
 
 
 async def stop_client_twitter(agent: Agent):
-    if agent.tools:
-        for tool in ["tweet", "mentions", "search"]:
-            if tool in agent.tools:
-                agent.tools.pop(tool)
-        agent.save()
-
+    pass
 
 # Add the new function for stopping Telegram client
 async def stop_client_telegram(deployment: Deployment):

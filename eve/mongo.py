@@ -72,7 +72,8 @@ def Collection(name):
         def find_one(cls, query):
             """Find one document matching the query"""
             collection = get_collection(cls.collection_name)
-            return cls(**collection.find_one(query))
+            doc = collection.find_one(query)
+            return cls(**doc) if doc else None
 
         cls.collection_name = name
         cls.find = find
