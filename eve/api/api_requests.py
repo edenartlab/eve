@@ -33,6 +33,8 @@ class CancelSessionRequest(BaseModel):
     session_id: str
     user_id: str
     trace_id: Optional[str] = None
+    tool_call_id: Optional[str] = None
+    tool_call_index: Optional[int] = None
 
 
 class UpdateConfig(BaseModel):
