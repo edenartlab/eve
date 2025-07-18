@@ -21,8 +21,6 @@ from eve.agent.session.models import (
     Deployment,
     DeploymentConfig,
     Notification,
-    NotificationType,
-    NotificationPriority,
     NotificationChannel,
 )
 from eve.deploy import (
@@ -1079,6 +1077,12 @@ async def handle_session_cancel(request: CancelSessionRequest):
         # Include trace_id if provided for trace-specific cancellation
         if request.trace_id:
             cancel_message["trace_id"] = request.trace_id
+
+        # Include tool call specific cancellation
+        if request.tool_call_id:
+            cancel_message["tool_call_id"] = request.tool_call_id
+        if request.tool_call_index is not None:
+            cancel_message["tool_call_index"] = request.tool_call_index
 
         await channel.publish("cancel", cancel_message)
 
