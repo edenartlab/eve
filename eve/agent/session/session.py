@@ -121,7 +121,7 @@ def determine_actor_from_actor_selection_method(session: Session) -> Optional[Ag
 
 
 def parse_mentions(content: str) -> List[str]:
-    return re.findall(r"@(\w+)", content)
+    return re.findall(r"@(\S+)", content)
 
 
 async def determine_actors(
@@ -217,7 +217,12 @@ def print_context_state(session: Session, message: str = ""):
     print(f"Should refresh: {should_refresh}")
 
 
-def build_system_message(session: Session, actor: Agent, context: PromptSessionContext, tools: Dict[str, Tool]):    # Get the last speaker ID for memory prioritization
+def build_system_message(
+    session: Session,
+    actor: Agent,
+    context: PromptSessionContext,
+    tools: Dict[str, Tool],
+):  # Get the last speaker ID for memory prioritization
     last_speaker_id = None
     if context.initiating_user_id:
         last_speaker_id = ObjectId(context.initiating_user_id)
@@ -442,7 +447,9 @@ async def process_tool_call(
 
     try:
         # Check for cancellation before starting tool execution
-        if (cancellation_event and cancellation_event.is_set()) or (tool_cancellation_event and tool_cancellation_event.is_set()):
+        if (cancellation_event and cancellation_event.is_set()) or (
+            tool_cancellation_event and tool_cancellation_event.is_set()
+        ):
             tool_call.status = "cancelled"
             if assistant_message.tool_calls and tool_call_index < len(
                 assistant_message.tool_calls
@@ -612,7 +619,7 @@ async def process_tool_calls(
     tool_calls = assistant_message.tool_calls
     if tool_cancellation_events is None:
         tool_cancellation_events = {}
-        
+
     for b in range(0, len(tool_calls), 4):
         batch = enumerate(tool_calls[b : b + 4])
         tasks = []
@@ -621,7 +628,7 @@ async def process_tool_calls(
             tool_call_id = tool_call.id
             if tool_call_id not in tool_cancellation_events:
                 tool_cancellation_events[tool_call_id] = asyncio.Event()
-                
+
             tasks.append(
                 process_tool_call(
                     session,
@@ -672,7 +679,7 @@ async def async_prompt_session(
                     # Check if this is a tool-specific cancellation
                     tool_call_id = data.get("tool_call_id")
                     tool_call_index = data.get("tool_call_index")
-                    
+
                     if tool_call_id is not None:
                         # Cancel specific tool call
                         if tool_call_id in tool_cancellation_events:
