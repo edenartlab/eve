@@ -161,7 +161,6 @@ class PromptSessionRequest(BaseModel):
     session_id: Optional[str] = None
     message: Optional[ChatMessageRequestInput] = None
     user_id: Optional[str] = None
-    actor_agent_id: Optional[str] = None
     actor_agent_ids: Optional[List[str]] = None
     update_config: Optional[SessionUpdateConfig] = None
     llm_config: Optional[LLMConfig] = None

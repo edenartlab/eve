@@ -134,10 +134,6 @@ async def determine_actors(
         for actor_agent_id in context.actor_agent_ids:
             requested_actor = ObjectId(actor_agent_id)
             actor_ids.append(requested_actor)
-    elif context.actor_agent_id:
-        # Single actor specified in the context (backwards compatibility)
-        requested_actor = ObjectId(context.actor_agent_id)
-        actor_ids.append(requested_actor)
     elif session.autonomy_settings and session.autonomy_settings.auto_reply:
         actor_id = determine_actor_from_actor_selection_method(session)
         actor_ids.append(actor_id)

@@ -259,7 +259,7 @@ class FarcasterClient(PlatformClient):
 
         prompt_session_request = PromptSessionRequest(
             user_id=str(user.id),
-            actor_agent_id=str(deployment.agent),
+            actor_agent_ids=[str(deployment.agent)],
             message=ChatMessageRequestInput(
                 content=cast_data.get("text", ""),
                 sender_name=author_username,

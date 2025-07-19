@@ -1011,7 +1011,6 @@ async def handle_prompt_session(
     context = PromptSessionContext(
         session=session,
         initiating_user_id=request.user_id,
-        actor_agent_id=request.actor_agent_id,
         actor_agent_ids=request.actor_agent_ids,
         message=request.message,
         update_config=request.update_config,
