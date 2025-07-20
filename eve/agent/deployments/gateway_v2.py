@@ -859,14 +859,11 @@ class DiscordGatewayClient:
         # If specific agents are mentioned, use those; otherwise use this deployment's agent
         if mentioned_agent_ids:
             actor_agent_ids = mentioned_agent_ids
-            actor_agent_id = None  # Don't set single agent when multiple are specified
         else:
-            actor_agent_ids = None
-            actor_agent_id = str(self.deployment.agent)
+            actor_agent_ids = [str(self.deployment.agent)]
 
         return PromptSessionRequest(
             user_id=str(user.id),
-            actor_agent_id=actor_agent_id,
             actor_agent_ids=actor_agent_ids,
             message=ChatMessageRequestInput(
                 content=content,
