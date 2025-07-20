@@ -172,7 +172,7 @@ async def create_telegram_session_request(
 
     return PromptSessionRequest(
         user_id=str(user.id),
-        actor_agent_id=str(deployment.agent),
+        actor_agent_ids=[str(deployment.agent)],
         message=ChatMessageRequestInput(
             content=cleaned_text, sender_name=username, attachments=attachments
         ),

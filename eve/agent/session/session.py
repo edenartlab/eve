@@ -121,7 +121,7 @@ def determine_actor_from_actor_selection_method(session: Session) -> Optional[Ag
 
 
 def parse_mentions(content: str) -> List[str]:
-    return re.findall(r"@(\w+)", content)
+    return re.findall(r"@(\S+)", content)
 
 
 async def determine_actors(
@@ -134,10 +134,6 @@ async def determine_actors(
         for actor_agent_id in context.actor_agent_ids:
             requested_actor = ObjectId(actor_agent_id)
             actor_ids.append(requested_actor)
-    elif context.actor_agent_id:
-        # Single actor specified in the context (backwards compatibility)
-        requested_actor = ObjectId(context.actor_agent_id)
-        actor_ids.append(requested_actor)
     elif session.autonomy_settings and session.autonomy_settings.auto_reply:
         actor_id = determine_actor_from_actor_selection_method(session)
         actor_ids.append(actor_id)
@@ -217,7 +213,12 @@ def print_context_state(session: Session, message: str = ""):
     print(f"Should refresh: {should_refresh}")
 
 
-def build_system_message(session: Session, actor: Agent, context: PromptSessionContext, tools: Dict[str, Tool]):    # Get the last speaker ID for memory prioritization
+async def build_system_message(
+    session: Session,
+    actor: Agent,
+    context: PromptSessionContext,
+    tools: Dict[str, Tool],
+):  # Get the last speaker ID for memory prioritization
     last_speaker_id = None
     if context.initiating_user_id:
         last_speaker_id = ObjectId(context.initiating_user_id)
@@ -226,7 +227,7 @@ def build_system_message(session: Session, actor: Agent, context: PromptSessionC
     memory_context = ""
     try:
         start_time = time.time()
-        memory_context = assemble_memory_context(
+        memory_context = await assemble_memory_context(
             actor.id,
             session_id=session.id,
             last_speaker_id=last_speaker_id,
@@ -297,18 +298,19 @@ async def build_llm_context(
     actor: Agent,
     context: PromptSessionContext,
     trace_id: Optional[str] = None,
+    user_message: Optional[ChatMessage] = None,
 ):
     tools = actor.get_tools(cache=True, auth_user=context.initiating_user_id)
 
     # build messages
-    system_message = build_system_message(session, actor, context, tools)
+    system_message = await build_system_message(session, actor, context, tools)
     messages = [system_message]
     messages.extend(select_messages(session))
     messages = convert_message_roles(messages, actor.id)
 
-    if context.initiating_user_id:
-        new_message = add_user_message(session, context)
-        messages.append(new_message)
+    # Add user message if provided (should be created once per prompt session)
+    if user_message:
+        messages.append(user_message)
 
     return LLMContext(
         messages=messages,
@@ -442,7 +444,9 @@ async def process_tool_call(
 
     try:
         # Check for cancellation before starting tool execution
-        if (cancellation_event and cancellation_event.is_set()) or (tool_cancellation_event and tool_cancellation_event.is_set()):
+        if (cancellation_event and cancellation_event.is_set()) or (
+            tool_cancellation_event and tool_cancellation_event.is_set()
+        ):
             tool_call.status = "cancelled"
             if assistant_message.tool_calls and tool_call_index < len(
                 assistant_message.tool_calls
@@ -612,7 +616,7 @@ async def process_tool_calls(
     tool_calls = assistant_message.tool_calls
     if tool_cancellation_events is None:
         tool_cancellation_events = {}
-        
+
     for b in range(0, len(tool_calls), 4):
         batch = enumerate(tool_calls[b : b + 4])
         tasks = []
@@ -621,7 +625,7 @@ async def process_tool_calls(
             tool_call_id = tool_call.id
             if tool_call_id not in tool_cancellation_events:
                 tool_cancellation_events[tool_call_id] = asyncio.Event()
-                
+
             tasks.append(
                 process_tool_call(
                     session,
@@ -672,7 +676,7 @@ async def async_prompt_session(
                     # Check if this is a tool-specific cancellation
                     tool_call_id = data.get("tool_call_id")
                     tool_call_index = data.get("tool_call_index")
-                    
+
                     if tool_call_id is not None:
                         # Cancel specific tool call
                         if tool_call_id in tool_cancellation_events:
@@ -984,6 +988,12 @@ async def _run_prompt_session_internal(
     """Internal function that handles both streaming and non-streaming"""
     session = context.session
     validate_prompt_session(session, context)
+
+    # Create user message first, regardless of whether actors are determined
+    user_message = None
+    if context.initiating_user_id:
+        user_message = add_user_message(session, context)
+
     actors = await determine_actors(session, context)
     is_client_platform = context.update_config is not None
 
@@ -997,7 +1007,7 @@ async def _run_prompt_session_internal(
     if len(actors) == 1:
         actor = actors[0]
         llm_context = await build_llm_context(
-            session, actor, context, trace_id=session_run_id
+            session, actor, context, trace_id=session_run_id, user_message=user_message
         )
         async for update in async_prompt_session(
             session,
@@ -1015,7 +1025,11 @@ async def _run_prompt_session_internal(
             # Each actor gets its own generation ID
             actor_session_run_id = str(uuid.uuid4())
             llm_context = await build_llm_context(
-                session, actor, context, trace_id=actor_session_run_id
+                session,
+                actor,
+                context,
+                trace_id=actor_session_run_id,
+                user_message=user_message,
             )
             async for update in async_prompt_session(
                 session,

@@ -686,7 +686,6 @@ class PromptSessionContext:
     initiating_user_id: str
     message: ChatMessageRequestInput
     update_config: Optional[SessionUpdateConfig] = None
-    actor_agent_id: Optional[str] = None
     actor_agent_ids: Optional[List[str]] = None
     llm_config: Optional[LLMConfig] = None
     custom_tools: Optional[Dict[str, Any]] = None

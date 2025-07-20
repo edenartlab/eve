@@ -1,5 +1,5 @@
 from bson import ObjectId
-from typing import Optional, Literal, List
+from typing import Optional, Literal, List, Dict
 
 from .mongo import (
     Document,
@@ -81,6 +81,9 @@ class User(Document):
     # profile
     username: str
     userImage: Optional[str] = None
+
+    # preferences
+    preferences: Optional[Dict] = {"agent_spend_threshold": 50}
 
     # origins
     discordId: Optional[str] = None

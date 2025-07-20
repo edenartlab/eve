@@ -124,7 +124,7 @@ async def trigger_fn():
             request = PromptSessionRequest(
                 session_id=str(trigger.session) if trigger.session else None,
                 user_id=str(trigger.user),
-                actor_agent_id=str(trigger.agent),
+                actor_agent_ids=[str(trigger.agent)],
                 message={
                     "role": "system",
                     "content": trigger_message.format(instruction=trigger.instruction),
@@ -147,7 +147,7 @@ async def trigger_fn():
             context = PromptSessionContext(
                 session=session,
                 initiating_user_id=request.user_id,
-                actor_agent_id=request.actor_agent_id,
+                actor_agent_ids=request.actor_agent_ids,
                 message=request.message,
                 update_config=request.update_config,
             )
@@ -198,7 +198,7 @@ async def trigger_fn():
                 request = PromptSessionRequest(
                     session_id=str(session.id),
                     user_id=str(trigger.user),
-                    actor_agent_id=str(trigger.agent),
+                    actor_agent_ids=[str(trigger.agent)],
                     message={
                         "role": "system",
                         "content": trigger_message_post.format(
@@ -245,7 +245,7 @@ async def trigger_fn():
                 context = PromptSessionContext(
                     session=session,
                     initiating_user_id=request.user_id,
-                    actor_agent_id=request.actor_agent_id,
+                    actor_agent_ids=request.actor_agent_ids,
                     message=request.message,
                     update_config=request.update_config,
                     custom_tools=custom_tools,
