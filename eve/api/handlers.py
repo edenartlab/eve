@@ -1004,7 +1004,6 @@ def setup_session(
 async def handle_prompt_session(
     request: PromptSessionRequest, background_tasks: BackgroundTasks
 ):
-    print("***debug***Request:", request)
     session = setup_session(
         background_tasks, request.session_id, request.user_id, request
     )
