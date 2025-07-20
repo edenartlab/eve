@@ -217,7 +217,7 @@ def print_context_state(session: Session, message: str = ""):
     print(f"Should refresh: {should_refresh}")
 
 
-def build_system_message(session: Session, actor: Agent, context: PromptSessionContext, tools: Dict[str, Tool]):    # Get the last speaker ID for memory prioritization
+async def build_system_message(session: Session, actor: Agent, context: PromptSessionContext, tools: Dict[str, Tool]):    # Get the last speaker ID for memory prioritization
     last_speaker_id = None
     if context.initiating_user_id:
         last_speaker_id = ObjectId(context.initiating_user_id)
@@ -226,7 +226,7 @@ def build_system_message(session: Session, actor: Agent, context: PromptSessionC
     memory_context = ""
     try:
         start_time = time.time()
-        memory_context = assemble_memory_context(
+        memory_context = await assemble_memory_context(
             actor.id,
             session_id=session.id,
             last_speaker_id=last_speaker_id,
@@ -301,7 +301,7 @@ async def build_llm_context(
     tools = actor.get_tools(cache=True, auth_user=context.initiating_user_id)
 
     # build messages
-    system_message = build_system_message(session, actor, context, tools)
+    system_message = await build_system_message(session, actor, context, tools)
     messages = [system_message]
     messages.extend(select_messages(session))
     messages = convert_message_roles(messages, actor.id)
