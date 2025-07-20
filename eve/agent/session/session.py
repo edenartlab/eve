@@ -298,6 +298,7 @@ async def build_llm_context(
     actor: Agent,
     context: PromptSessionContext,
     trace_id: Optional[str] = None,
+    user_message: Optional[ChatMessage] = None,
 ):
     tools = actor.get_tools(cache=True, auth_user=context.initiating_user_id)
 
@@ -307,9 +308,9 @@ async def build_llm_context(
     messages.extend(select_messages(session))
     messages = convert_message_roles(messages, actor.id)
 
-    if context.initiating_user_id:
-        new_message = add_user_message(session, context)
-        messages.append(new_message)
+    # Add user message if provided (should be created once per prompt session)
+    if user_message:
+        messages.append(user_message)
 
     return LLMContext(
         messages=messages,
@@ -987,6 +988,12 @@ async def _run_prompt_session_internal(
     """Internal function that handles both streaming and non-streaming"""
     session = context.session
     validate_prompt_session(session, context)
+    
+    # Create user message first, regardless of whether actors are determined
+    user_message = None
+    if context.initiating_user_id:
+        user_message = add_user_message(session, context)
+    
     actors = await determine_actors(session, context)
     is_client_platform = context.update_config is not None
 
@@ -1000,7 +1007,7 @@ async def _run_prompt_session_internal(
     if len(actors) == 1:
         actor = actors[0]
         llm_context = await build_llm_context(
-            session, actor, context, trace_id=session_run_id
+            session, actor, context, trace_id=session_run_id, user_message=user_message
         )
         async for update in async_prompt_session(
             session,
@@ -1018,7 +1025,7 @@ async def _run_prompt_session_internal(
             # Each actor gets its own generation ID
             actor_session_run_id = str(uuid.uuid4())
             llm_context = await build_llm_context(
-                session, actor, context, trace_id=actor_session_run_id
+                session, actor, context, trace_id=actor_session_run_id, user_message=user_message
             )
             async for update in async_prompt_session(
                 session,
