@@ -15,9 +15,6 @@ from pydantic import SecretStr, Field, BaseModel, ConfigDict
 # from pydantic.json_schema import SkipJsonSchema
 
 from ..tool_constants import (
-    BASE_TOOLS,
-    FLUX_LORA_TXT2IMG_TOOLS,
-    SDXL_LORA_TXT2IMG_TOOLS,
     TWITTER_TOOLS,
     DISCORD_TOOLS,
     FARCASTER_TOOLS,
@@ -192,7 +189,6 @@ class Agent(User):
         return thread
 
     def _reload(self):
-        t1 = time.time()
         from ..tool import Tool
         from ..agent.session.models import Deployment
 
@@ -224,24 +220,44 @@ class Agent(User):
                 except Exception as e:
                     print(f"Error loading tool {t}: {e}")
                     print(traceback.format_exc())
-                    continue
+                    # continue
+                    raise e
 
         self.tools_ = tools
-        print(f"Refreshed agent in {time.time() - t1} seconds")
 
     def get_tools(self, cache=True, auth_user: str = None):
+        """
+        Cache is disabled until bug is fixed.
+        Problem is agent gets into agent_updated_at, but then loaded as new object later, so tools are not populated.
+        """
         if cache:
             if self.username in agent_updated_at:
                 # outdated, reload tools
-                if self.updatedAt > agent_updated_at[self.username]:
+                if self.updatedAt > agent_updated_at[self.username]["updatedAt"]:
                     self._reload()
+                    agent_updated_at[self.username] = {
+                        "updatedAt": self.updatedAt,
+                        "tools": self.tools_
+                    }
+                
+                # grab cached tools
+                else:
+                    self.tools_ = agent_updated_at[self.username]["tools"]
             else:
                 # first time, load tools, set cache
-                agent_updated_at[self.username] = self.updatedAt
                 self._reload()
+                agent_updated_at[self.username] = {
+                    "updatedAt": self.updatedAt,
+                    "tools": self.tools_
+                }
         else:
             self._reload()
+            agent_updated_at[self.username] = {
+                "updatedAt": self.updatedAt,
+                "tools": self.tools_
+            }
 
+        # self._reload()
         tools = self.tools_
 
         # update tools with platform-specific args
@@ -326,13 +342,13 @@ class Agent(User):
             if "use_lora" in tools[tool].parameters:
                 params["use_lora"] = {"default": True}
             
-            if len(lora_docs) > 1 and "lora2" in tools[tool].parameters:
-                params["lora2"] = {"default": str(lora_docs[1]["_id"])}
-                if "use_lora2" in tools[tool].parameters:
-                    params["use_lora2"] = {
-                        "default": True,
-                        "tip": "Same behavior as first lora"
-                    }
+            # if len(lora_docs) > 1 and "lora2" in tools[tool].parameters:
+            #     params["lora2"] = {"default": str(lora_docs[1]["_id"])}
+            #     if "use_lora2" in tools[tool].parameters:
+            #         params["use_lora2"] = {
+            #             "default": True,
+            #             "tip": "Same behavior as first lora"
+            #         }
 
             tools[tool].update_parameters(params)
 
@@ -475,7 +491,7 @@ async def generate_agent_knowledge_description(agent: Agent):
     client = instructor.from_openai(openai.AsyncOpenAI())
 
     result = await client.chat.completions.create(
-        model="gpt-4o-mini",
+        model="gpt-4o",
         messages=[
             {"role": "system", "content": system_message},
             {"role": "user", "content": prompt},
@@ -497,7 +513,7 @@ async def generate_agent_text(agent: Agent):
 
     client = instructor.from_openai(openai.AsyncOpenAI())
     result = await client.chat.completions.create(
-        model="gpt-4o-mini",
+        model="gpt-4o",
         messages=[
             {"role": "system", "content": system_message},
             {"role": "user", "content": prompt},

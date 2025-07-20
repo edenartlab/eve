@@ -162,10 +162,11 @@ def prepare_result(result, summarize=False):
 
 def upload_result(result, save_thumbnails=False, save_blurhash=False):
     if isinstance(result, dict):
+        exlude_result_processing_keys = ["subtool_calls"]
         return {
             k: upload_result(
                 v, save_thumbnails=save_thumbnails, save_blurhash=save_blurhash
-            )
+            ) if k not in exlude_result_processing_keys else v
             for k, v in result.items()
         }
     elif isinstance(result, list):

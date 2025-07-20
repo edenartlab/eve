@@ -415,6 +415,7 @@ async def process_tool_call(
     tool_call: ToolCall,
     tool_call_index: int,
     cancellation_event: asyncio.Event = None,
+    tool_cancellation_event: asyncio.Event = None,
     is_client_platform: bool = False,
 ):
     # Update the tool call status to running
@@ -441,7 +442,7 @@ async def process_tool_call(
 
     try:
         # Check for cancellation before starting tool execution
-        if cancellation_event and cancellation_event.is_set():
+        if (cancellation_event and cancellation_event.is_set()) or (tool_cancellation_event and tool_cancellation_event.is_set()):
             tool_call.status = "cancelled"
             if assistant_message.tool_calls and tool_call_index < len(
                 assistant_message.tool_calls
@@ -469,13 +470,15 @@ async def process_tool_call(
             )
 
         # Use cancellation-aware tool execution
+        # Use tool-specific cancellation event if available, otherwise use general cancellation event
+        effective_cancellation_event = tool_cancellation_event or cancellation_event
         result = await async_run_tool_call_with_cancellation(
             llm_context,
             tool_call,
             user_id=llm_context.metadata.trace_metadata.user_id
             or llm_context.metadata.trace_metadata.agent_id,
             agent_id=llm_context.metadata.trace_metadata.agent_id,
-            cancellation_event=cancellation_event,
+            cancellation_event=effective_cancellation_event,
             is_client_platform=is_client_platform,
         )
 
@@ -533,6 +536,31 @@ async def process_tool_call(
                 tool_index=tool_call_index,
                 result=result,
             )
+        elif result["status"] == "cancelled":
+            tool_call.status = "cancelled"
+            if assistant_message.tool_calls and tool_call_index < len(
+                assistant_message.tool_calls
+            ):
+                assistant_message.tool_calls[tool_call_index].status = "cancelled"
+                try:
+                    # Force save with direct MongoDB update
+                    from eve.mongo import get_collection
+
+                    messages_collection = get_collection("messages")
+                    result = messages_collection.update_one(
+                        {"_id": assistant_message.id},
+                        {"$set": {f"tool_calls.{tool_call_index}.status": "cancelled"}},
+                    )
+                except Exception as e:
+                    print(f"Direct update failed, trying regular save: {e}")
+                    assistant_message.save()
+
+            return SessionUpdate(
+                type=UpdateType.TOOL_CANCELLED,
+                tool_name=tool_call.tool,
+                tool_index=tool_call_index,
+                result={"status": "cancelled"},
+            )
         else:
             tool_call.status = "failed"
             tool_call.error = result.get("error")
@@ -578,27 +606,38 @@ async def process_tool_calls(
     assistant_message: ChatMessage,
     llm_context: LLMContext,
     cancellation_event: asyncio.Event = None,
+    tool_cancellation_events: dict = None,
     is_client_platform: bool = False,
 ):
     tool_calls = assistant_message.tool_calls
+    if tool_cancellation_events is None:
+        tool_cancellation_events = {}
+        
     for b in range(0, len(tool_calls), 4):
         batch = enumerate(tool_calls[b : b + 4])
-        tasks = [
-            process_tool_call(
-                session,
-                assistant_message,
-                llm_context,
-                tool_call,
-                b + idx,
-                cancellation_event,
-                is_client_platform,
+        tasks = []
+        for idx, tool_call in batch:
+            # Create a cancellation event for this specific tool call if not exists
+            tool_call_id = tool_call.id
+            if tool_call_id not in tool_cancellation_events:
+                tool_cancellation_events[tool_call_id] = asyncio.Event()
+                
+            tasks.append(
+                process_tool_call(
+                    session,
+                    assistant_message,
+                    llm_context,
+                    tool_call,
+                    b + idx,
+                    cancellation_event,
+                    tool_cancellation_events[tool_call_id],
+                    is_client_platform,
+                )
             )
-            for idx, tool_call in batch
-        ]
 
-    results = await asyncio.gather(*tasks, return_exceptions=False)
-    for result in results:
-        yield result
+        results = await asyncio.gather(*tasks, return_exceptions=False)
+        for result in results:
+            yield result
 
 
 async def async_prompt_session(
@@ -615,6 +654,7 @@ async def async_prompt_session(
 
     # Set up cancellation handling via Ably
     cancellation_event = asyncio.Event()
+    tool_cancellation_events = {}  # Dict to track individual tool cancellations
     ably_client = None
 
     try:
@@ -629,12 +669,21 @@ async def async_prompt_session(
             try:
                 data = message.data
                 if isinstance(data, dict) and data.get("session_id") == str(session.id):
-                    # Check if this is a trace-specific cancellation
-                    cancel_trace_id = data.get("trace_id")
-                    if cancel_trace_id is None or cancel_trace_id == session_run_id:
-                        # Cancel if no specific trace_id is provided (cancel all)
-                        # or if the trace_id matches this session_run_id
-                        cancellation_event.set()
+                    # Check if this is a tool-specific cancellation
+                    tool_call_id = data.get("tool_call_id")
+                    tool_call_index = data.get("tool_call_index")
+                    
+                    if tool_call_id is not None:
+                        # Cancel specific tool call
+                        if tool_call_id in tool_cancellation_events:
+                            tool_cancellation_events[tool_call_id].set()
+                    else:
+                        # Check if this is a trace-specific cancellation
+                        cancel_trace_id = data.get("trace_id")
+                        if cancel_trace_id is None or cancel_trace_id == session_run_id:
+                            # Cancel if no specific trace_id is provided (cancel all)
+                            # or if the trace_id matches this session_run_id
+                            cancellation_event.set()
             except Exception as e:
                 print(f"Error in cancellation handler: {e}")
 
@@ -792,6 +841,7 @@ async def async_prompt_session(
                     assistant_message,
                     llm_context,
                     cancellation_event,
+                    tool_cancellation_events,
                     is_client_platform,
                 ):
                     # Check for cancellation during tool execution

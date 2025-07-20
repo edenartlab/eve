@@ -13,7 +13,7 @@ tip: |-
 cost_estimate: 50
 output_type: image
 active: true
-visible: false
+visible: true
 handler: modal
 parameters:
   output:

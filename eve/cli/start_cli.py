@@ -134,18 +134,20 @@ def start(agent: str, db: str, platforms: tuple, local: bool):
     help="DB to save against",
 )
 @click.option(
-    "--local-debug",
+    "--remote_debug",
     is_flag=True,
     default=False,
     help="Enable debug logging",
 )
-def api(host: str, port: int, reload: bool, db: str, local_debug: bool):
+def api(host: str, port: int, reload: bool, db: str, remote_debug: bool):
     """Start the Eve API server"""
     import uvicorn
     import os
     # Set the LOCAL_DEBUG environment variable if the flag is set
-    if local_debug:
+    if not remote_debug:
         os.environ["LOCAL_DEBUG"] = "True"
+    else:
+        os.environ["LOCAL_DEBUG"] = "False"
 
     click.echo(
         click.style(f"Starting API server on {host}:{port} with DB={db}...", fg="blue")

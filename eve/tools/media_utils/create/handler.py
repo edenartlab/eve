@@ -4,7 +4,7 @@ Combined handler for both image and video creation.
 TODO:
  x incorporate lora2
  x a bit too overeager on text precision?
- - when two loras and they are faces, use flux_double_character
+ x when two loras and they are faces, use flux_double_character
  - face_swap, flux_inpainting, outpaint, remix_flux_schnell
  - deal with moderation errors for flux_kontext and openai tools, and errors in general
  - negative prompting
@@ -38,17 +38,13 @@ async def handler(args: dict, user: str = None, agent: str = None):
     print("args", args)
     print("user", user)
     print("agent", agent)
-    
+
     output_type = args.get("output", "image")
-    
+
     if output_type == "image":
-        return await handle_image_creation(
-            args, user, agent
-        )
+        return await handle_image_creation(args, user, agent)
     elif output_type == "video":
-        return await handle_video_creation(
-            args, user, agent
-        )
+        return await handle_video_creation(args, user, agent)
     else:
         raise Exception(f"Invalid output type: {output_type}")
 
@@ -84,13 +80,18 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
     lora2_strength = args.get("lora2_strength", 0.8)
 
     # check if both loras are faces
-    two_faces = len(loras) == 2 and all([(lora.args.get("mode") or lora.args.get("concept_mode")) == "face" for lora in loras])
+    two_faces = len(loras) == 2 and all(
+        [
+            (lora.args.get("mode") or lora.args.get("concept_mode")) == "face"
+            for lora in loras
+        ]
+    )
 
     # Determine tool
     if init_image:
         if text_precision:
             if loras:
-                image_tool = openai_image_edit # preceded by flux_dev_lora call
+                image_tool = openai_image_edit  # preceded by flux_dev_lora call
             else:
                 image_tool = openai_image_generate
         else:
@@ -100,12 +101,17 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
                 else:
                     image_tool = flux_dev_lora
             elif controlnet:
-                image_tool = flux_dev # todo: controlnet vs instructions is kind of a hack
+                image_tool = (
+                    flux_dev  # todo: controlnet vs instructions is kind of a hack
+                )
             else:
                 image_tool = {
-                    "flux": flux_kontext, "seedream": seedream3, "openai": openai_image_edit, "sdxl": txt2img
+                    "flux": flux_kontext,
+                    "seedream": seedream3,
+                    "openai": openai_image_edit,
+                    "sdxl": txt2img,
                 }.get(model_preference, flux_kontext)
-                
+
     else:
         if text_precision:
             if loras:
@@ -120,7 +126,10 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
                     image_tool = flux_dev_lora
             else:
                 image_tool = {
-                    "flux": flux_dev_lora, "seedream": seedream3, "openai": openai_image_generate, "sdxl": txt2img
+                    "flux": flux_dev_lora,
+                    "seedream": seedream3,
+                    "openai": openai_image_generate,
+                    "sdxl": txt2img,
                 }.get(model_preference, seedream3)
 
     # Switch from Flux Dev Lora to Flux Dev if and only if 2 LoRAs or Controlnet
@@ -131,10 +140,6 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
             image_tool = flux_dev
 
     tool_calls = []
-
-    print("\n\n\n\n\n--------------------------------")
-    print("THE SELECTED IMAGE TOOL", image_tool.key)
-    print("--------------------------------")
 
     #########################################################
     # Txt2Img
@@ -149,47 +154,51 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
             args["seed"] = seed
 
         if loras:
-            args.update({
-                "use_lora": True,
-                "lora": str(loras[0].id),
-                "lora_strength": lora_strength,
-            })
+            args.update(
+                {
+                    "use_lora": True,
+                    "lora": str(loras[0].id),
+                    "lora_strength": lora_strength,
+                }
+            )
 
         if init_image:
-            args.update({
-                "init_image": init_image,
-                "use_init_image": True,
-                "denoise": 0.8,
-            })
+            args.update(
+                {
+                    "init_image": init_image,
+                    "use_init_image": True,
+                    "denoise": 0.8,
+                }
+            )
             if controlnet:
-                args.update({
-                    "use_controlnet": True,
-                    "controlnet_strength": 0.6,
-                })
+                args.update(
+                    {
+                        "use_controlnet": True,
+                        "controlnet_strength": 0.6,
+                    }
+                )
 
         args.update(aspect_ratio_to_dimensions(aspect_ratio))
 
         result = await txt2img.async_run(args)
-
 
     #########################################################
     # Flux Schnell
     elif image_tool == flux_schnell:
         if aspect_ratio == "auto":
             aspect_ratio = "1:1"
-        
+
         args = {
             "prompt": prompt,
             "n_samples": n_samples,
             "aspect_ratio": aspect_ratio,
         }
-        
+
         if seed:
             args["seed"] = seed
-        
+
         print("Running flux_schnell", args)
         result = await flux_schnell.async_run(args)
-    
 
     #########################################################
     # Flux Dev Lora
@@ -203,27 +212,28 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
             args["seed"] = seed
 
         if init_image:
-            args.update({
-                "init_image": init_image,
-                "prompt_strength": 0.8 if init_image else 1.0
-            })
+            args.update(
+                {
+                    "init_image": init_image,
+                    "prompt_strength": 0.8 if init_image else 1.0,
+                }
+            )
         else:
             if aspect_ratio != "auto":
                 args["aspect_ratio"] = aspect_ratio
 
         if loras:
-            args.update({
-                "lora": str(loras[0].id),
-                "lora_strength": lora_strength,
-            })
+            args.update(
+                {
+                    "lora": str(loras[0].id),
+                    "lora_strength": lora_strength,
+                }
+            )
         else:
-            args.update({
-                "lora_strength": 0.0
-            })
+            args.update({"lora_strength": 0.0})
 
         print("Running flux_dev_lora", args)
         result = await flux_dev_lora.async_run(args)
-
 
     #########################################################
     # Flux Dev
@@ -239,42 +249,46 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
             args["seed"] = seed
 
         if init_image:
-            args.update({
-                "init_image": init_image, 
-                "use_init_image": True,
-                "denoise": 0.75,
-            })
+            args.update(
+                {
+                    "init_image": init_image,
+                    "use_init_image": True,
+                    "denoise": 0.75,
+                }
+            )
         else:
             if aspect_ratio == "auto":
                 aspect_ratio = "1:1"
 
         if controlnet:
-            args.update({
-                "use_controlnet": True,
-                "controlnet_strength": 0.6,
-            })
+            args.update(
+                {
+                    "use_controlnet": True,
+                    "controlnet_strength": 0.6,
+                }
+            )
 
         if loras:
-            args.update({
-                "use_lora": True,
-                "lora": str(loras[0].id),
-                "lora_strength": lora_strength,
-            })
+            args.update(
+                {
+                    "use_lora": True,
+                    "lora": str(loras[0].id),
+                    "lora_strength": lora_strength,
+                }
+            )
         else:
-            args.update({
-                "lora_strength": 0.0
-            })
+            args.update({"lora_strength": 0.0})
 
         if loras and len(loras) > 1:
-            args.update({
-                "use_lora2": True,
-                "lora2": str(loras[1].id),
-                "lora2_strength": lora2_strength,
-            })
+            args.update(
+                {
+                    "use_lora2": True,
+                    "lora2": str(loras[1].id),
+                    "lora2_strength": lora2_strength,
+                }
+            )
         else:
-            args.update({
-                "lora2_strength": 0.0
-            })
+            args.update({"lora2_strength": 0.0})
 
         args.update(aspect_ratio_to_dimensions(aspect_ratio))
 
@@ -282,18 +296,16 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
         result = await flux_dev.async_run(args)
         # Todo: incorporate style_image / style_strength ?
 
-
     #########################################################
     # Flux Double Character
     elif image_tool == flux_double_character:
-
         # Set the two LoRAs
         if len(loras) < 2:
             raise Exception("flux_double_character requires exactly 2 LoRAs")
 
         print("HERE IS THE PROMPT", prompt)
         for l, lora in enumerate(loras):
-            prompt = prompt.replace(lora.name, f"subj_{l+1}")        
+            prompt = prompt.replace(lora.name, f"subj_{l+1}")
         print("HERE IS THE PROMPT 2", prompt)
 
         args = {
@@ -307,7 +319,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
         if seed:
             args["seed"] = seed
-            
+
         # Note: flux_double_character doesn't support init_image, so we ignore it
         print("Running flux_double_character", args)
         print("the args")
@@ -316,7 +328,6 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
         print("RESULT OF FLUX DOUBLE CHARACTER", result)
 
         print("IMAGE TOOL KEY ??", image_tool.key)
-
 
     #########################################################
     # Flux Kontext
@@ -338,7 +349,6 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
         print("Running flux_kontext", args)
         result = await flux_kontext.async_run(args)
 
-
     #########################################################
     # OpenAI Image Generate
     elif image_tool == openai_image_generate:
@@ -355,18 +365,16 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
             args["size"] = "1024x1024"
         else:
             args["size"] = "auto"
-        
+
         if user:
             args["user"] = str(user)
-        
+
         print("Running openai_image_generate", args)
         result = await openai_image_generate.async_run(args)
-
 
     #########################################################
     # OpenAI Image Edit
     elif image_tool == openai_image_edit:
-
         if loras:
             try:
                 args_pre = {
@@ -377,35 +385,51 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
                 }
 
                 if init_image:
-                    args_pre.update({
-                        "init_image": init_image,
-                        "prompt_strength": 1.0 if init_image else 0.8
-                    })
+                    args_pre.update(
+                        {
+                            "init_image": init_image,
+                            "prompt_strength": 1.0 if init_image else 0.8,
+                        }
+                    )
                 else:
                     if aspect_ratio != "auto":
                         args_pre["aspect_ratio"] = aspect_ratio
 
                 if loras[0].base_model == "sdxl":
-                    args_pre.update({
-                        "enforce_SDXL_resolution": True,
-                        "use_lora": True,
-                    })
+                    args_pre.update(
+                        {
+                            "enforce_SDXL_resolution": True,
+                            "use_lora": True,
+                        }
+                    )
                     if init_image:
-                        args_pre.update({
-                            "use_init_image": True,
-                        })
+                        args_pre.update(
+                            {
+                                "use_init_image": True,
+                            }
+                        )
                         if controlnet:
-                            args_pre.update({
-                                "use_controlnet": True,
-                                "controlnet_strength": 0.6,
-                            })
+                            args_pre.update(
+                                {
+                                    "use_controlnet": True,
+                                    "controlnet_strength": 0.6,
+                                }
+                            )
                     result = await txt2img.async_run(args_pre)
                     init_image = get_full_url(result["output"][0]["filename"])
-                    tool_calls.append({"tool": txt2img.key, "args": args_pre, "output": init_image})
+                    tool_calls.append(
+                        {"tool": txt2img.key, "args": args_pre, "output": init_image}
+                    )
                 else:
                     result = await flux_dev_lora.async_run(args_pre)
                     init_image = get_full_url(result["output"][0]["filename"])
-                    tool_calls.append({"tool": flux_dev_lora.key, "args": args_pre, "output": init_image})
+                    tool_calls.append(
+                        {
+                            "tool": flux_dev_lora.key,
+                            "args": args_pre,
+                            "output": init_image,
+                        }
+                    )
 
                 prompt = f"This was the prompt for the image you see here: {prompt}. Regenerate this exact image in this exact style, as faithfully to the original image as possible, except completely redo any poorly rendered or illegible text rendered that doesn't match what's in the prompt."
 
@@ -413,14 +437,17 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
                 print("oae prompt", prompt)
 
             except Exception as e:
-                print("Error in flux_dev_lora step, so just using openai_image_generate", e)
+                print(
+                    "Error in flux_dev_lora step, so just using openai_image_generate",
+                    e,
+                )
                 raise e
 
         args = {
             "prompt": prompt,
             "n_samples": n_samples,
             # "quality": "high",
-            "size": "auto"
+            "size": "auto",
         }
 
         if user:
@@ -435,7 +462,6 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
             print("No init image, fall back on openai_image_generate", args)
             result = await openai_image_generate.async_run(args)
 
-    
     #########################################################
     # Seedream 3
     elif image_tool == seedream3:
@@ -448,7 +474,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
         if init_image:
             args["image"] = init_image
             args.pop("aspect_ratio", None)
-            
+
         if seed:
             args["seed"] = seed
 
@@ -457,35 +483,40 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
     else:
         raise Exception("Invalid args", args, image_tool)
-    
+
     #########################################################
     # Final result
     assert "output" in result, "No output from image tool"
     assert "filename" in result["output"][0], "No filename in output from image tool"
-    
+
     final_result = get_full_url(result["output"][0]["filename"])
     print("final result", final_result)
 
     # Add sub tool call to tool_calls
-    print("lets save the tool call", image_tool.key, final_result)
     tool_calls.append({"tool": image_tool.key, "args": args, "output": final_result})
 
-    return {
-        "output": final_result,
-        "subtool_calls": tool_calls
-    }
+    # insert args urls
+    for tool_call in tool_calls:
+        for key, value in tool_call["args"].items():
+            if key in ["init_image", "start_image", "end_image", "image"]:
+                if isinstance(value, dict) and "filename" in value:
+                    tool_call["args"][key] = get_full_url(value["filename"])
+                else:
+                    tool_call["args"][key] = value
+
+    return {"output": final_result, "subtool_calls": tool_calls}
 
 
 async def handle_video_creation(args: dict, user: str = None, agent: str = None):
     """Handle video creation - copied from create_video tool handler"""
-    
+
     # veo3 is enabled by default
     # if a specific user is provided (e.g. from the website or api), check if they have access to veo3 and disable it if not
     veo3_enabled = True
     if user:
         user = User.from_mongo(user)
         veo3_enabled = "tool_access_veo3" in user.featureFlags
-    
+
     runway = Tool.load("runway")
     kling = Tool.load("kling")
     kling_pro = Tool.load("kling")
@@ -498,7 +529,9 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
 
     prompt = args["prompt"]
     # n_samples = args.get("n_samples", 1)
-    start_image = args.get("init_image", None)  # Map init_image to start_image for video
+    start_image = args.get(
+        "init_image", None
+    )  # Map init_image to start_image for video
     end_image = args.get("end_image", None)
     seed = args.get("seed", None)
     lora_strength = args.get("lora_strength", 0.75)
@@ -510,7 +543,7 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
     talking_head = "talking_head" in extras
     audio = args.get("audio", None)
     sound_effects = args.get("sound_effects", None)
-    
+
     if end_image:
         assert start_image, "Must provide init_image if end_image is provided"
 
@@ -520,23 +553,26 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
     # Rules
     if talking_head and audio:
         video_tool = hedra
-    elif quality == "standard":        
+    elif quality == "standard":
         video_tool = {
-            "kling": kling, "runway": runway, "seedance": seedance1, "veo": veo2
+            "kling": kling,
+            "runway": runway,
+            "seedance": seedance1,
+            "veo": veo2,
         }.get(model_preference, veo2)
     elif quality == "pro":
         if veo3_enabled:
             if sound_effects and not start_image:
                 video_tool = veo3
             else:
-                video_tool = {
-                    "kling": kling, "seedance": seedance1, "veo": veo2
-                }.get(model_preference, veo2)
+                video_tool = {"kling": kling, "seedance": seedance1, "veo": veo2}.get(
+                    model_preference, veo2
+                )
         else:
-            video_tool = {
-                "kling": kling, "seedance": seedance1, "veo": veo2
-            }.get(model_preference, veo2)
-        
+            video_tool = {"kling": kling, "seedance": seedance1, "veo": veo2}.get(
+                model_preference, veo2
+            )
+
     print("Tool selected", video_tool.key)
 
     tool_calls = []
@@ -550,45 +586,49 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
             print("Generating start image with Lora")
             args = {"prompt": prompt}
             if loras:
-                args.update({
-                    "lora": str(loras[0].id),
-                    "lora_strength": lora_strength,
-                })
+                args.update(
+                    {
+                        "lora": str(loras[0].id),
+                        "lora_strength": lora_strength,
+                    }
+                )
             try:
                 result = await create.async_run(args)
                 start_image = get_full_url(result["output"][0]["filename"])
-                tool_calls.append({"tool": create.key, "args": args, "output": start_image})
+                tool_calls.append(
+                    {"tool": create.key, "args": args, "output": start_image}
+                )
             except Exception as e:
-                raise Exception("Error generating start image for img2vid. Try generating it yourself first with the 'create' tool, and then use it as start_image. Original error: {}".format(e))
+                raise Exception(
+                    "Error generating start image for img2vid. Try generating it yourself first with the 'create' tool, and then use it as start_image. Original error: {}".format(
+                        e
+                    )
+                )
 
     # Get start image attributes if any
     if start_image:
         start_image_attributes, _ = get_media_attributes(start_image)
     else:
         start_image_attributes = None
-    
+
     # Veo-3 doesn't support start images, so fall back to veo-2
     if start_image and video_tool == veo3:
         video_tool = veo2
 
-
     #########################################################
     # Runway
     if video_tool == runway:
-
-        # Runway can only produce 5 or 10s videos        
+        # Runway can only produce 5 or 10s videos
         duration = 10 if duration > 7.5 else 5
-        
+
         # Snap aspect ratio to closest Runway preset
         aspect_ratio = snap_aspect_ratio_to_model(
-            aspect_ratio, 
-            "runway3" if end_image else "runway4", 
-            start_image_attributes
+            aspect_ratio, "runway3" if end_image else "runway4", start_image_attributes
         )
 
         args = {
             "prompt_text": prompt,
-            "start_image": start_image, # Runway requires start image
+            "start_image": start_image,  # Runway requires start image
             "model": "gen4_turbo",
             "duration": duration,
             "ratio": aspect_ratio,
@@ -599,10 +639,12 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
 
         # If ending image, must use gen3a_turbo
         if end_image:
-            args.update({
-                "end_image": end_image,
-                "model": "gen3a_turbo",
-            })
+            args.update(
+                {
+                    "end_image": end_image,
+                    "model": "gen3a_turbo",
+                }
+            )
 
         if seed:
             args["seed"] = seed
@@ -610,64 +652,62 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
         print("Running Runway", args)
         result = await runway.async_run(args)
 
-
     #########################################################
-    # Kling 
+    # Kling
     elif video_tool == kling:
-
-        # Kling can only produce 5 or 10s videos        
+        # Kling can only produce 5 or 10s videos
         duration = 10 if duration > 7.5 else 5
 
         # Snap aspect ratio to closest Kling Pro preset
         aspect_ratio = snap_aspect_ratio_to_model(
-            aspect_ratio, 
-            "kling", 
-            start_image_attributes
+            aspect_ratio, "kling", start_image_attributes
         )
-    
-        args = {
-            "prompt": prompt,
-            "duration": duration
-        }
+
+        args = {"prompt": prompt, "duration": duration}
 
         if start_image:
-            args.update({
-                "start_image": start_image,
-            })
+            args.update(
+                {
+                    "start_image": start_image,
+                }
+            )
 
         # If an end image is requested, fall back to Kling 1.6 Pro which supports it
         if end_image:
-            args.update({
-                "end_image": end_image,
-                "quality": "medium",
-            })
+            args.update(
+                {
+                    "end_image": end_image,
+                    "quality": "medium",
+                }
+            )
 
         print(f"Running Kling {args['quality']}", args)
 
         if "start_image" in args:
-            args.update({
-                "mode": quality,
-            })
+            args.update(
+                {
+                    "mode": quality,
+                }
+            )
             result = await kling.async_run(args)
         else:
-            args.update({
-                "aspect_ratio": aspect_ratio,
-                "quality": "high",  # use Kling 2 optimistically
-            })
+            args.update(
+                {
+                    "aspect_ratio": aspect_ratio,
+                    "quality": "high",  # use Kling 2 optimistically
+                }
+            )
             result = await kling_pro.async_run(args)
 
     #########################################################
     # Seedance
     elif video_tool == seedance1:
-
-        # Seedance can only produce 5 or 10s videos        
+        # Seedance can only produce 5 or 10s videos
         duration = 10 if duration > 7.5 else 5
 
         # Snap aspect ratio to closest Kling Pro preset
         aspect_ratio = snap_aspect_ratio_to_model(
-            aspect_ratio, 
-            "seedance1", 
-            start_image_attributes
+            aspect_ratio, "seedance1", start_image_attributes
         )
 
         args = {
@@ -680,9 +720,11 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
             args["aspect_ratio"] = aspect_ratio
 
         if start_image:
-            args.update({
-                "image": start_image,
-            })
+            args.update(
+                {
+                    "image": start_image,
+                }
+            )
 
         if seed:
             args["seed"] = seed
@@ -690,19 +732,15 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
         print("Running Seedance1", args)
         result = await seedance1.async_run(args)
 
-
     #########################################################
     # Veo-2
     elif video_tool == veo2:
-
         # Veo can only produce 5-8s videos
         duration = min(duration, 8)
 
         # Snap aspect ratio to closest Veo2 preset
         aspect_ratio = snap_aspect_ratio_to_model(
-            aspect_ratio, 
-            "veo2", 
-            start_image_attributes
+            aspect_ratio, "veo2", start_image_attributes
         )
 
         args = {
@@ -712,9 +750,11 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
         }
 
         if start_image:
-            args.update({
-                "image": start_image,
-            })
+            args.update(
+                {
+                    "image": start_image,
+                }
+            )
 
         # if end_image:
         #     args.update({
@@ -724,11 +764,9 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
         print("Running Veo2", args)
         result = await veo2.async_run(args)
 
-
     #########################################################
     # Veo-3
     elif video_tool == veo3:
-
         # Veo can only produce 5-8s videos
         duration = min(duration, 8)
 
@@ -748,19 +786,15 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
 
         print("Running Veo3", args)
         result = await veo3.async_run(args)
-        
 
     #########################################################
     # Hebra
     elif video_tool == hedra:
-        
         # Snap aspect ratio to closest Hebra preset
         aspect_ratio = snap_aspect_ratio_to_model(
-            aspect_ratio, 
-            "hedra", 
-            start_image_attributes
+            aspect_ratio, "hedra", start_image_attributes
         )
-        
+
         args = {
             "image": start_image,
             "prompt": prompt,
@@ -770,10 +804,9 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
 
         print("Running Hebra", args)
         result = await hedra.async_run(args)
-        
+
     else:
         raise Exception("Invalid video tool", video_tool)
-
 
     #########################################################
     # Final video is now generated
@@ -788,7 +821,7 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
             args = {
                 "video": final_video,
                 "caption": sound_effects,  # Use first 100 chars of prompt as caption
-                #"cot": sound_effects,
+                # "cot": sound_effects,
                 "cfg_scale": 5,
                 "num_inference_steps": 24,
             }
@@ -796,15 +829,18 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
             sound_fx = await thinksound.async_run(args)
             final_video = get_full_url(sound_fx["output"][0]["filename"])
             print("Final result with sound effects", final_video)
-            tool_calls.append({"tool": thinksound.key, "args": args, "output": final_video})
-        
-        except Exception as e:
-            print("Error adding sound effects, just return video without it. Error: {}".format(e))
+            tool_calls.append(
+                {"tool": thinksound.key, "args": args, "output": final_video}
+            )
 
-    return {
-        "output": final_video,
-        "subtool_calls": tool_calls
-    }
+        except Exception as e:
+            print(
+                "Error adding sound effects, just return video without it. Error: {}".format(
+                    e
+                )
+            )
+
+    return {"output": final_video, "subtool_calls": tool_calls}
 
 
 def aspect_ratio_to_dimensions(aspect_ratio):
@@ -840,12 +876,12 @@ def get_loras(lora1, lora2):
         if lora_id:
             lora = Model.from_mongo(lora_id)
             if not lora:
-                raise Exception(f"Lora {lora_id} not found on {os.getenv('ENV')}")        
+                raise Exception(f"Lora {lora_id} not found on {os.getenv('ENV')}")
             loras.append(lora)
 
     if len(loras) == 2 and "sdxl" in [lora.base_model for lora in loras]:
         print("Second Lora is not supported for SDXL")
-        
+
     return loras
 
 
@@ -854,12 +890,12 @@ def get_closest_aspect_ratio_preset(aspect_ratio: float, presets: dict) -> str:
     Get closest aspect ratio preset from a list of presets
     """
     closest_preset = None
-    min_difference = float('inf')
+    min_difference = float("inf")
     for preset_name, preset_ratio in presets.items():
         difference = abs(aspect_ratio - preset_ratio)
         if difference < min_difference:
             min_difference = difference
-            closest_preset = preset_name    
+            closest_preset = preset_name
     return closest_preset
 
 
@@ -869,21 +905,33 @@ def snap_aspect_ratio_to_model(aspect_ratio, model_name, start_image_attributes)
     """
 
     presets = {
-        "runway3": {"16:9": 16/9, "9:16": 9/16},
-        "runway4": {"21:9": 21/9, "16:9": 16/9, "4:3": 4/3, "1:1": 1/1, "3:4": 3/4, "9:16": 9/16},
-        "kling": {"16:9": 16/9, "1:1": 1/1, "9:16": 9/16},
-        "veo2": {"16:9": 16/9, "9:16": 9/16},
-        "hedra": {"16:9": 16/9, "1:1": 1/1, "9:16": 9/16},
-        "seedance1": {"21:9": 21/9, "16:9": 16/9, "4:3": 4/3, "1:1": 1/1, "3:4": 3/4, "9:16": 9/16},
+        "runway3": {"16:9": 16 / 9, "9:16": 9 / 16},
+        "runway4": {
+            "21:9": 21 / 9,
+            "16:9": 16 / 9,
+            "4:3": 4 / 3,
+            "1:1": 1 / 1,
+            "3:4": 3 / 4,
+            "9:16": 9 / 16,
+        },
+        "kling": {"16:9": 16 / 9, "1:1": 1 / 1, "9:16": 9 / 16},
+        "veo2": {"16:9": 16 / 9, "9:16": 9 / 16},
+        "hedra": {"16:9": 16 / 9, "1:1": 1 / 1, "9:16": 9 / 16},
+        "seedance1": {
+            "21:9": 21 / 9,
+            "16:9": 16 / 9,
+            "4:3": 4 / 3,
+            "1:1": 1 / 1,
+            "3:4": 3 / 4,
+            "9:16": 9 / 16,
+        },
     }[model_name]
-    
-    if aspect_ratio == "auto":
 
+    if aspect_ratio == "auto":
         # If there is a start image, snap to its aspect ratio
         if start_image_attributes:
             aspect_ratio = get_closest_aspect_ratio_preset(
-                start_image_attributes["aspectRatio"], 
-                presets
+                start_image_attributes["aspectRatio"], presets
             )
 
         # Otherwise, default to 16:9
@@ -892,13 +940,10 @@ def snap_aspect_ratio_to_model(aspect_ratio, model_name, start_image_attributes)
             aspect_ratio = "16:9"
 
     # If aspect ratio is set but not in presets, snap to closest preset
-    else:    
+    else:
         if aspect_ratio not in presets:
             ar = aspect_ratio.split(":")
             aspect_ratio_ = float(ar[0]) / float(ar[1])
-            aspect_ratio = get_closest_aspect_ratio_preset(
-                aspect_ratio_,
-                presets
-            )
+            aspect_ratio = get_closest_aspect_ratio_preset(aspect_ratio_, presets)
 
     return aspect_ratio

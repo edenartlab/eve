@@ -21,8 +21,6 @@ from eve.agent.session.models import (
     Deployment,
     DeploymentConfig,
     Notification,
-    NotificationType,
-    NotificationPriority,
     NotificationChannel,
 )
 from eve.deploy import (
@@ -880,7 +878,7 @@ async def handle_agent_tools_update(request: AgentToolsUpdateRequest):
     # Upsert tools
     tools = agent.tools or {}
     tools.update(request.tools)
-    update = {"tools": tools}
+    update = {"tools": tools, "add_base_tools": True}
     agents = get_collection("users3")
     agents.update_one({"_id": agent.id}, {"$set": update})
     return {"tools": tools}
@@ -1079,6 +1077,12 @@ async def handle_session_cancel(request: CancelSessionRequest):
         # Include trace_id if provided for trace-specific cancellation
         if request.trace_id:
             cancel_message["trace_id"] = request.trace_id
+
+        # Include tool call specific cancellation
+        if request.tool_call_id:
+            cancel_message["tool_call_id"] = request.tool_call_id
+        if request.tool_call_index is not None:
+            cancel_message["tool_call_index"] = request.tool_call_index
 
         await channel.publish("cancel", cancel_message)
 
