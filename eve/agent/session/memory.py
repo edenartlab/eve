@@ -12,15 +12,17 @@ import time
 import traceback
 from enum import Enum
 from typing import List, Optional, Dict, Any
+from datetime import datetime, timezone
 from bson import ObjectId
-from pydantic import BaseModel, field_serializer
+from pydantic import field_serializer
 
 from eve.mongo import Collection, Document, get_collection
 from eve.agent.session.session_llm import async_prompt, LLMContext, LLMConfig
 from eve.agent.session.models import ChatMessage, Session
-
+from eve.agent.session.memory_state import update_session_state, get_session_state
 
 # Flag to easily switch between local and production memory settings (keep this in but always set to False in production):
+# Remember to also deploy bg apps with LODAL_DEV = False!
 LOCAL_DEV = False
 DEFAULT_MESSAGE_LIMIT = 25
 
@@ -46,7 +48,6 @@ SESSION_DIRECTIVE_MEMORY_MAX_WORDS = (
     25  # Target word length for session directive memory
 )
 USER_MEMORY_MAX_WORDS = 150  # Target word count for consolidated user memory blob
-
 
 class MemoryType(Enum):
     EPISODE = "episode"  # Summary of a section of the conversation in a session
@@ -136,7 +137,6 @@ class UserMemory(Document):
     @classmethod
     def convert_from_mongo(cls, schema: dict, **kwargs) -> dict:
         """Convert data from MongoDB"""
-        # Ensure kwargs is a dict to prevent "argument after ** must be a mapping" error
         if kwargs is None:
             kwargs = {}
         return schema
@@ -147,17 +147,19 @@ class UserMemory(Document):
         if defaults is None:
             defaults = {}
 
-        doc = cls.find_one(query)
-        if doc:
-            return doc
-        else:
-            print("the query is", query)
-            print("the defaults are", defaults)
-            # Create new instance and save it
-            new_doc = {**query, **defaults}
-            instance = cls(**new_doc)
-            instance.save()
-            return instance
+        try:
+            doc = cls.find_one(query)
+            if doc:
+                return doc
+        except (TypeError, AttributeError) as e:
+            print(f"Error in find_one: {e}")
+        
+        # If we get here, either find_one returned None or crashed
+        # Create new instance and save it
+        new_doc = {**query, **defaults}
+        instance = cls(**new_doc)
+        instance.save()
+        return instance
         
     @classmethod
     def ensure_indexes(cls):
@@ -258,16 +260,6 @@ def get_memory_source_context(
 def estimate_tokens(text: str) -> int:
     """Rough token estimation (4.5 characters per token)"""
     return int(len(text) / 4.5)
-
-def invalidate_session_memory_cache(session: 'Session') -> 'Session':
-    """
-    Invalidate memory cache for a specific session when memory has been updated.
-    Returns the updated session object.
-    """
-    if session and session.context:
-        session.context.should_refresh_memory = True
-        print(f"🔄 Memory cache invalidated for session {session.id}")
-    return session
 
 
 def store_session_memory(
@@ -460,22 +452,34 @@ Return only the consolidated memory text, no additional formatting or explanatio
 
 
 async def process_memory_formation(
-    agent_id: ObjectId, session_messages: List[ChatMessage], session_id: ObjectId
+    agent_id: ObjectId, session_messages: List[ChatMessage], session: Session
 ) -> bool:
     """
     Extract memories from recent conversation using LLM.
     Called every N messages to form new memories.
+    Only processes messages since session.last_memory_message_id to avoid duplicates.
 
     Returns True if memories were formed, False otherwise.
     """
     logging.debug(
-        f"Processing memory formation for Session {session_id} with {len(session_messages)} messages"
+        f"Processing memory formation for Session {session.id} with {len(session_messages)} messages"
     )
 
-    # Use interval for recent messages to process
-    interval = MEMORY_FORMATION_INTERVAL
-    start_idx = max(0, len(session_messages) - interval)
-    recent_messages = session_messages[start_idx:]
+    # Find messages since last memory formation
+    if session.last_memory_message_id:
+        # Create message ID to index mapping for O(1) lookup
+        message_id_to_index = {msg.id: i for i, msg in enumerate(session_messages)}
+        
+        # Find the position of the last memory formation message
+        last_memory_position = message_id_to_index.get(session.last_memory_message_id, -1)
+        
+        # Get messages since last memory formation (excluding the last memory message itself)
+        start_idx = last_memory_position + 1
+        recent_messages = session_messages[start_idx:]
+    else:
+        # No previous memory formation, use all messages
+        start_idx = 0
+        recent_messages = session_messages
 
     logging.debug(
         f"Extracting memories from messages {start_idx+1}-{len(session_messages)} (total: {len(recent_messages)} messages)"
@@ -495,7 +499,7 @@ async def process_memory_formation(
 
         # Store extracted memories in database
         memories_created = store_session_memory(
-            agent_id, extracted_data, recent_messages, session_id
+            agent_id, extracted_data, recent_messages, session.id
         )
 
         if memories_created:
@@ -607,7 +611,7 @@ CRITICAL REQUIREMENTS:
 
     return extracted_data
 
-def assemble_memory_context(agent_id: ObjectId, session_id: Optional[ObjectId] = None, last_speaker_id: Optional[ObjectId] = None, session: Optional['Session'] = None) -> str:
+async def assemble_memory_context(agent_id: ObjectId, session_id: Optional[ObjectId] = None, last_speaker_id: Optional[ObjectId] = None, session: Optional['Session'] = None) -> str:
     """
     Assemble relevant memories for context injection into prompts.
     Uses session-level caching to minimize database queries.
@@ -627,40 +631,26 @@ def assemble_memory_context(agent_id: ObjectId, session_id: Optional[ObjectId] =
     print(f"🧠 MEMORY ASSEMBLY PROFILING - Agent: {agent_id}")
     print(f"   Session: {session_id}, Last Speaker: {last_speaker_id}")
     
-    # Use provided session object or load from MongoDB if needed
-    if session_id and not session:
+    # Check if we can use cached memory context from modal dict
+    if session_id and agent_id:
         try:
-            from eve.agent.session.models import Session
-            session = Session.from_mongo(session_id)
-        except Exception as e:
-            print(f"   ❌ Error loading session: {e}")
-    
-    # Check if we can use cached memory context
-    if session:
-        try:
-            if session.context:
-                # Check if we can use cached memory (gracefully handle missing attributes)
-                cached_context = getattr(session.context, 'cached_memory_context', None)
-                should_refresh = getattr(session.context, 'should_refresh_memory', None)
-                
-                # If should_refresh is None (not set), default to True (need refresh)
-                if should_refresh is None:
-                    should_refresh = True
-                
-                if not should_refresh:
-                    logging.debug("Not refreshing memory context:")
-                    logging.debug(f"Cached context: {cached_context}")
-                else:
-                    logging.debug(f"Memory context, Should refresh: {should_refresh}")
-                
-                if cached_context and not should_refresh:
-                    total_time = time.time() - start_time
-                    print(f"   ⚡ USING CACHED MEMORY: {total_time:.3f}s")
-                    return cached_context
-                else:
-                    print(f"   🔄 Cache missing or refresh needed")
+            get_session_state_start = time.time()
+            session_state = await get_session_state(agent_id, session_id)
+            get_session_state_time = time.time() - get_session_state_start
+            print(f"   ⏱️  get_session_state took: {get_session_state_time:.3f}s")
+
+            cached_context = session_state.get("cached_memory_context")
+            should_refresh = session_state.get("should_refresh_memory", True)
+            
+            if cached_context and not should_refresh:
+                total_time = time.time() - start_time
+                print(f"   ⚡ USING CACHED MEMORY: {total_time:.3f}s")
+                logging.debug("Not refreshing memory context:")
+                logging.debug(f"Cached context: {cached_context}")
+                return cached_context
             else:
-                print("❌ Error: No session context found.. This should never happen.")
+                print(f"   🔄 Cache missing or refresh needed")
+                logging.debug(f"Memory context, Should refresh: {should_refresh}")
                 
         except Exception as e:
             print(f"   ❌ Error checking cached memory: {e}")
@@ -729,8 +719,6 @@ def assemble_memory_context(agent_id: ObjectId, session_id: Optional[ObjectId] =
         print(f"   ❌ Error assembling session memories: {e}")
 
     # Step 3: Full memory context assembly:
-    string_start = time.time()
-
     memory_context = ""
 
     if len(user_memory_content) > 0:  # user_memory blob:
@@ -755,13 +743,14 @@ def assemble_memory_context(agent_id: ObjectId, session_id: Optional[ObjectId] =
     else:
         memory_context = ""
     
-    # Step 4: Cache the memory context
-    if session and session.context:
+    # Step 4: Cache the memory context in modal dict
+    if session_id and agent_id:
         try:
             cache_start = time.time()
-            session.context.cached_memory_context = memory_context
-            session.context.should_refresh_memory = False
-            session.save()
+            await update_session_state(agent_id, session_id, {
+                "cached_memory_context": memory_context,
+                "should_refresh_memory": False
+            })
             print(f"   💾 Memory context cached for session {session_id} in {time.time() - cache_start:.3f}s")
         except Exception as e:
             print(f"   ❌ Error caching memory context: {e}")
@@ -778,85 +767,79 @@ def assemble_memory_context(agent_id: ObjectId, session_id: Optional[ObjectId] =
 
     return memory_context
 
-
-async def maybe_form_memories(
-    agent_id: ObjectId, session: Session, interval: int = MEMORY_FORMATION_INTERVAL
-) -> bool:
+async def maybe_form_memories(agent_id: ObjectId, session: Session, force_memory_formation: bool = False) -> bool:
     """
     Check if memory formation should run based on messages elapsed since last formation.
+    If force_memory_formation is True, skip the interval check and always form memories.
     Returns True if memories were formed.
     """
     start_time = time.time()
+    
     from eve.agent.session.session import select_messages
-
     session_messages = select_messages(
         session, selection_limit=SESSION_MESSAGES_LOOKBACK_LIMIT
     )
 
-    if not agent_id or not session_messages:
+    if not agent_id or not session_messages or len(session_messages) == 0:
         print(f"No agent or messages found for session {session.id}")
         return False
 
+    # Create message ID to index mapping for O(1) lookup
+    message_id_to_index = {msg.id: i for i, msg in enumerate(session_messages)}
+    
     # Find the position of the last memory formation message
     last_memory_position = -1
     if session.last_memory_message_id:
-        for i, msg in enumerate(session_messages):
-            if msg.id == session.last_memory_message_id:
-                last_memory_position = i
-                break
+        last_memory_position = message_id_to_index.get(session.last_memory_message_id, -1)
 
     # Calculate messages since last memory formation
     messages_since_last = len(session_messages) - last_memory_position - 1
 
+    # Update memory state on new message
+    await update_session_state(agent_id, session.id, {
+        "last_activity": datetime.now(timezone.utc).isoformat(),
+        "message_count_since_memory": messages_since_last
+    })
+
     logging.debug(f"Session {session.id}: {len(session_messages)} total messages, {messages_since_last} since last memory formation")
     
     # Check if we should form memories (early return to avoid slow queries)
-    if messages_since_last < interval:
-        logging.debug(f"No memory formation needed: {messages_since_last} < {interval} interval")
+    if not force_memory_formation and messages_since_last < MEMORY_FORMATION_INTERVAL:
+        logging.debug(f"No memory formation needed: {messages_since_last} < {MEMORY_FORMATION_INTERVAL} interval")
         logging.debug(f"Maybe form memories took {time.time() - start_time:.2f} seconds to complete")
         return False
     
-    print(f"Triggering memory formation: {messages_since_last} >= {interval} interval")
-    
-    # Only query unabsorbed directive count if we're actually going to form memories
-    unabsorbed_directive_count = -1
-    try:
-        # Only query if both agent_id and session.owner are not None
-        if agent_id is not None and session.owner is not None:
-            user_memory = UserMemory.find_one_or_create(
-                {"agent_id": agent_id, "user_id": session.owner}
-            )
-
-            unabsorbed_directive_count = (
-                len(user_memory.unabsorbed_directive_ids) if user_memory else 0
-            )
-    except Exception as e:
-        print(f"Error getting unabsorbed directive count: {e}")
-        traceback.print_exc()
-
-    logging.debug(f"Unabsorbed directive count: {unabsorbed_directive_count} / {MAX_RAW_MEMORY_COUNT}")
-    
-    if unabsorbed_directive_count >= MAX_RAW_MEMORY_COUNT:
-        print(
-            f"Will also absorb unabsorbed directives: {unabsorbed_directive_count} >= {MAX_RAW_MEMORY_COUNT} unabsorbed directives"
-        )
+    if force_memory_formation:
+        print(f"Triggering FORCED memory formation: {messages_since_last} messages to process")
+    else:
+        print(f"Triggering memory formation: {messages_since_last} >= {MEMORY_FORMATION_INTERVAL} interval")
 
     try:
-        # Process memory formation
-        result = await process_memory_formation(
-            agent_id, 
-            session_messages, 
-            session.id
-        )
-        
-        # Update the session's last memory formation position and invalidate memory cache
         if session_messages:
+            # Process memory formation
+            result = await process_memory_formation(
+                agent_id, 
+                session_messages, 
+                session
+            )
+            
+            # Update the session's last memory formation position and invalidate memory cache
             latest_message = session_messages[-1]
             session.last_memory_message_id = latest_message.id
-            # Invalidate memory cache since new memories were formed
-            session = invalidate_session_memory_cache(session)
             session.save()
             logging.debug(f"Updated last_memory_message_id to {latest_message.id}")
+            
+            # Also update the modal.Dict state to reset message count and update last memory message
+            try:
+                await update_session_state(agent_id, session.id, {
+                    "last_memory_message_id": str(latest_message.id),
+                    "message_count_since_memory": 0, 
+                    "should_refresh_memory": True
+                })
+                logging.debug(f"Updated modal.Dict state for agent {agent_id}, session {session.id}")
+            except Exception as e:
+                logging.error(f"Error updating modal.Dict state after memory formation: {e}")
+                traceback.print_exc()
         
         print(f"Maybe form memories took {time.time() - start_time:.2f} seconds to complete")
         return result

@@ -213,7 +213,7 @@ def print_context_state(session: Session, message: str = ""):
     print(f"Should refresh: {should_refresh}")
 
 
-def build_system_message(
+async def build_system_message(
     session: Session,
     actor: Agent,
     context: PromptSessionContext,
@@ -227,7 +227,7 @@ def build_system_message(
     memory_context = ""
     try:
         start_time = time.time()
-        memory_context = assemble_memory_context(
+        memory_context = await assemble_memory_context(
             actor.id,
             session_id=session.id,
             last_speaker_id=last_speaker_id,
@@ -303,7 +303,7 @@ async def build_llm_context(
     tools = actor.get_tools(cache=True, auth_user=context.initiating_user_id)
 
     # build messages
-    system_message = build_system_message(session, actor, context, tools)
+    system_message = await build_system_message(session, actor, context, tools)
     messages = [system_message]
     messages.extend(select_messages(session))
     messages = convert_message_roles(messages, actor.id)
@@ -988,12 +988,12 @@ async def _run_prompt_session_internal(
     """Internal function that handles both streaming and non-streaming"""
     session = context.session
     validate_prompt_session(session, context)
-    
+
     # Create user message first, regardless of whether actors are determined
     user_message = None
     if context.initiating_user_id:
         user_message = add_user_message(session, context)
-    
+
     actors = await determine_actors(session, context)
     is_client_platform = context.update_config is not None
 
@@ -1025,7 +1025,11 @@ async def _run_prompt_session_internal(
             # Each actor gets its own generation ID
             actor_session_run_id = str(uuid.uuid4())
             llm_context = await build_llm_context(
-                session, actor, context, trace_id=actor_session_run_id, user_message=user_message
+                session,
+                actor,
+                context,
+                trace_id=actor_session_run_id,
+                user_message=user_message,
             )
             async for update in async_prompt_session(
                 session,
