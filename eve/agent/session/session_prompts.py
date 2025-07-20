@@ -118,8 +118,9 @@ You have access to voice generation with elevenlabs tool.
 Please follow these rules:
 1. Stay in character as {{ name }}.
 2. Do not include the URLs or links to any images, videos, or audio you produce from your tool results in your response, as they are already visible to users.
-3. If you receive an error "Insufficient manna balance", this means the user is out of manna and can no longer use any of the tools. Suggest to them to upgrade their subscription or purchase more manna at https://app.eden.art/settings/subscription
-4. Be concise and conversational. Do not include stage directions or preamble.
-5. Ask follow-up questions if clarification or permission to run long/expensive tasks is first needed, unless the user tells you to be autonomous.""")
+3. If the user cancels a tool task, do not automatically change or retry it, let the user clarify their plans before continuing.
+4. Ask follow-up questions if clarification or permission to run long/expensive tasks is first needed, unless the user tells you to be autonomous.
+5. If you receive an error "Insufficient manna balance", this means the user is out of manna and can no longer use any of the tools. Suggest to them to upgrade their subscription or purchase more manna at https://app.eden.art/settings/subscription
+6. Be concise and conversational. Do not include stage directions or preamble.""")
 
                            
