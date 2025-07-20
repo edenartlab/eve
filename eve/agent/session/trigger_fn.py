@@ -111,6 +111,8 @@ async def trigger_fn():
             # Update last_run_time at the start of execution
             trigger.last_run_time = datetime.now(timezone.utc)
             trigger.save()
+            print(f"***debug*** Trigger {trigger_id} found")
+            print(f"***debug*** Trigger instruction: {trigger.instruction}")
 
         except Exception as e:
             with sentry_sdk.configure_scope() as scope:
@@ -131,6 +133,7 @@ async def trigger_fn():
                 },
                 update_config=trigger.update_config,
             )
+            print(f"***debug*** Request: {request}")
             if not trigger.session:
                 request.creation_args = SessionCreationArgs(
                     owner_id=str(trigger.user),
