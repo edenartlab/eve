@@ -22,6 +22,7 @@ from eve.agent.session.models import ChatMessage, Session
 from eve.agent.session.memory_state import update_session_state, get_session_state
 
 # Flag to easily switch between local and production memory settings (keep this in but always set to False in production):
+# Remember to also deploy bg apps with LODAL_DEV = False!
 LOCAL_DEV = True
 DEFAULT_MESSAGE_LIMIT = 25
 
@@ -32,6 +33,7 @@ if LOCAL_DEV:
     MAX_RAW_MEMORY_COUNT = 2  # Number of individual memories to store before consolidating them into the agent's user_memory blob
     MAX_N_EPISODES_TO_REMEMBER = 2  # Number of episodes to remember from a session
     MEMORY_LLM_MODEL = "gpt-4o-mini"
+    MEMORY_LLM_MODEL = "gemini-2.5-flash"
 else:
     MEMORY_FORMATION_INTERVAL = DEFAULT_MESSAGE_LIMIT  # Number of messages to wait before forming memories
     SESSION_MESSAGES_LOOKBACK_LIMIT = MEMORY_FORMATION_INTERVAL  # Max messages to look back in a session when forming raw memories
@@ -769,11 +771,10 @@ async def assemble_memory_context(agent_id: ObjectId, session_id: Optional[Objec
 
     return memory_context
 
-async def maybe_form_memories(
-    agent_id: ObjectId, session: Session, interval: int = MEMORY_FORMATION_INTERVAL
-) -> bool:
+async def maybe_form_memories(agent_id: ObjectId, session: Session, force_memory_formation: bool = False) -> bool:
     """
     Check if memory formation should run based on messages elapsed since last formation.
+    If force_memory_formation is True, skip the interval check and always form memories.
     Returns True if memories were formed.
     """
     start_time = time.time()
@@ -783,7 +784,7 @@ async def maybe_form_memories(
         session, selection_limit=SESSION_MESSAGES_LOOKBACK_LIMIT
     )
 
-    if not agent_id or not session_messages:
+    if not agent_id or not session_messages or len(session_messages) == 0:
         print(f"No agent or messages found for session {session.id}")
         return False
 
@@ -807,12 +808,15 @@ async def maybe_form_memories(
     logging.debug(f"Session {session.id}: {len(session_messages)} total messages, {messages_since_last} since last memory formation")
     
     # Check if we should form memories (early return to avoid slow queries)
-    if messages_since_last < interval:
-        logging.debug(f"No memory formation needed: {messages_since_last} < {interval} interval")
+    if not force_memory_formation and messages_since_last < MEMORY_FORMATION_INTERVAL:
+        logging.debug(f"No memory formation needed: {messages_since_last} < {MEMORY_FORMATION_INTERVAL} interval")
         logging.debug(f"Maybe form memories took {time.time() - start_time:.2f} seconds to complete")
         return False
     
-    print(f"Triggering memory formation: {messages_since_last} >= {interval} interval")
+    if force_memory_formation:
+        print(f"Triggering FORCED memory formation: {messages_since_last} messages to process")
+    else:
+        print(f"Triggering memory formation: {messages_since_last} >= {MEMORY_FORMATION_INTERVAL} interval")
 
     try:
         if session_messages:
