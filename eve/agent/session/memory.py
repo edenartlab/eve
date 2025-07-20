@@ -23,7 +23,7 @@ from eve.agent.session.memory_state import update_session_state, get_session_sta
 
 # Flag to easily switch between local and production memory settings (keep this in but always set to False in production):
 # Remember to also deploy bg apps with LODAL_DEV = False!
-LOCAL_DEV = True
+LOCAL_DEV = False
 DEFAULT_MESSAGE_LIMIT = 25
 
 # Memory formation settings:
@@ -33,7 +33,6 @@ if LOCAL_DEV:
     MAX_RAW_MEMORY_COUNT = 2  # Number of individual memories to store before consolidating them into the agent's user_memory blob
     MAX_N_EPISODES_TO_REMEMBER = 2  # Number of episodes to remember from a session
     MEMORY_LLM_MODEL = "gpt-4o-mini"
-    MEMORY_LLM_MODEL = "gemini-2.5-flash"
 else:
     MEMORY_FORMATION_INTERVAL = DEFAULT_MESSAGE_LIMIT  # Number of messages to wait before forming memories
     SESSION_MESSAGES_LOOKBACK_LIMIT = MEMORY_FORMATION_INTERVAL  # Max messages to look back in a session when forming raw memories
@@ -49,9 +48,6 @@ SESSION_DIRECTIVE_MEMORY_MAX_WORDS = (
     25  # Target word length for session directive memory
 )
 USER_MEMORY_MAX_WORDS = 150  # Target word count for consolidated user memory blob
-
-
-
 
 class MemoryType(Enum):
     EPISODE = "episode"  # Summary of a section of the conversation in a session

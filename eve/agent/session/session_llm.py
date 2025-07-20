@@ -25,8 +25,7 @@ supported_models = [
     "gpt-4o-mini",
     "gpt-4o",
     "claude-3-5-haiku-latest",
-    "gemini-2.0-flash",
-    "gemini/gemini-2.5-flash-preview-04-17",
+    "gemini-2.5-flash",
     "claude-sonnet-4-20250514",
     "claude-opus-4-20250514",
 ]
