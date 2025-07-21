@@ -220,17 +220,12 @@ class Agent(User):
             for t in set_tools:
                 try:
                     tool = Tool.from_raw_yaml({"parent_tool": t})
-                    if tool is not None:
-                        tools[t] = tool
-                    else:
-                        print(
-                            f"***debug*** Warning: Failed to load tool {t}, skipping it"
-                        )
+                    tools[t] = tool
                 except Exception as e:
-                    print(f"***debug*** Error loading tool {t}: {e}")
-                    print(f"***debug*** Full traceback: {traceback.format_exc()}")
-                    # Continue loading other tools instead of failing completely
-                    continue
+                    print(f"Error loading tool {t}: {e}")
+                    print(traceback.format_exc())
+                    # continue
+                    raise e
 
         self.tools_ = tools
 
