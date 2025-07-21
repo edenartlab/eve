@@ -111,8 +111,8 @@ class Agent(User):
     test_args: Optional[List[Dict[str, Any]]] = None
 
     tools: Optional[Dict[str, bool]] = {}  # tool sets specified by user
-    tools_: Optional[Dict[str, Dict]] = Field({}, exclude=True)   # actual loaded tools
-    lora_docs: Optional[List[Dict[str, Any]]] = Field([], exclude=True) 
+    tools_: Optional[Dict[str, Dict]] = Field({}, exclude=True)  # actual loaded tools
+    lora_docs: Optional[List[Dict[str, Any]]] = Field([], exclude=True)
     deployments: Optional[List[str]] = Field({}, exclude=True)
 
     owner_pays: Optional[bool] = False
@@ -194,16 +194,20 @@ class Agent(User):
 
         # load deployments to memory
         self.deployments = {
-            deployment.platform.value: deployment 
+            deployment.platform.value: deployment
             for deployment in Deployment.find({"agent": ObjectId(str(self.id))})
         }
 
         # load loras to memory
         models_collection = get_collection(Model.collection_name)
         loras_dict = {m["lora"]: m for m in self.models or []}
-        lora_docs = models_collection.find(
-            {"_id": {"$in": list(loras_dict.keys())}, "deleted": {"$ne": True}}
-        ) if self.models else []
+        lora_docs = (
+            models_collection.find(
+                {"_id": {"$in": list(loras_dict.keys())}, "deleted": {"$ne": True}}
+            )
+            if self.models
+            else []
+        )
         lora_docs = list(lora_docs or [])
         self.lora_docs = lora_docs
 
@@ -216,12 +220,17 @@ class Agent(User):
             for t in set_tools:
                 try:
                     tool = Tool.from_raw_yaml({"parent_tool": t})
-                    tools[t] = tool
+                    if tool is not None:
+                        tools[t] = tool
+                    else:
+                        print(
+                            f"***debug*** Warning: Failed to load tool {t}, skipping it"
+                        )
                 except Exception as e:
-                    print(f"Error loading tool {t}: {e}")
-                    print(traceback.format_exc())
-                    # continue
-                    raise e
+                    print(f"***debug*** Error loading tool {t}: {e}")
+                    print(f"***debug*** Full traceback: {traceback.format_exc()}")
+                    # Continue loading other tools instead of failing completely
+                    continue
 
         self.tools_ = tools
 
@@ -237,9 +246,9 @@ class Agent(User):
                     self._reload()
                     agent_updated_at[self.username] = {
                         "updatedAt": self.updatedAt,
-                        "tools": self.tools_
+                        "tools": self.tools_,
                     }
-                
+
                 # grab cached tools
                 else:
                     self.tools_ = agent_updated_at[self.username]["tools"]
@@ -248,13 +257,13 @@ class Agent(User):
                 self._reload()
                 agent_updated_at[self.username] = {
                     "updatedAt": self.updatedAt,
-                    "tools": self.tools_
+                    "tools": self.tools_,
                 }
         else:
             self._reload()
             agent_updated_at[self.username] = {
                 "updatedAt": self.updatedAt,
-                "tools": self.tools_
+                "tools": self.tools_,
             }
 
         # self._reload()
@@ -265,25 +274,33 @@ class Agent(User):
         if "discord" in self.deployments:
             if "discord_post" in tools:
                 allowed_channels = self.deployments["discord"].get_allowed_channels()
-                channels_description = " | ".join([f"ID {c.id} ({c.note})" for c in allowed_channels])
-                tools["discord_post"].update_parameters({
-                    "channel_id": {
-                        "choices": [c.id for c in allowed_channels],
-                        "tip": f"Some hints about the available channels: {channels_description}"
-                    },
-                })
+                channels_description = " | ".join(
+                    [f"ID {c.id} ({c.note})" for c in allowed_channels]
+                )
+                tools["discord_post"].update_parameters(
+                    {
+                        "channel_id": {
+                            "choices": [c.id for c in allowed_channels],
+                            "tip": f"Some hints about the available channels: {channels_description}",
+                        },
+                    }
+                )
 
         # update telegram post tool with allowed channels
         if "telegram" in self.deployments:
             if "telegram_post" in tools:
                 allowed_channels = self.deployments["telegram"].get_allowed_channels()
-                channels_description = " | ".join([f"ID {c.id} ({c.note})" for c in allowed_channels])
-                tools["telegram_post"].update_parameters({
-                    "channel_id": {
-                        "choices": [c.id for c in allowed_channels],
-                        "tip": f"Some hints about the available topics: {channels_description}"
-                    },
-                })
+                channels_description = " | ".join(
+                    [f"ID {c.id} ({c.note})" for c in allowed_channels]
+                )
+                tools["telegram_post"].update_parameters(
+                    {
+                        "channel_id": {
+                            "choices": [c.id for c in allowed_channels],
+                            "tip": f"Some hints about the available topics: {channels_description}",
+                        },
+                    }
+                )
 
         # if a platform is not deployed, remove all tools for that platform
         if "discord" not in self.deployments:
@@ -307,12 +324,14 @@ class Agent(User):
         # agent-only tools need agent arg injected
         for tool in AGENTIC_TOOLS:
             if tool in tools:
-                tools[tool].update_parameters({
-                    "agent": {
-                        "default": str(self.id),
-                        "hide_from_agent": True,
+                tools[tool].update_parameters(
+                    {
+                        "agent": {
+                            "default": str(self.id),
+                            "hide_from_agent": True,
+                        }
                     }
-                })
+                )
 
         # if models are found, inject them as defaults for any tools that use lora
         for tool in tools:
@@ -327,21 +346,22 @@ class Agent(User):
             # Build LoRA information for the tip
             lora_info = []
             for m in lora_docs:
-                lora_id = m['_id']
+                lora_id = m["_id"]
                 lora_doc = {m["lora"]: m for m in self.models}[lora_id]
                 lora_info.append(
                     f"{{ ID: {lora_id}, Name: {m['name']}, Description: {m['lora_trigger_text']}, Use When: {lora_doc['use_when']} }}"
                 )
-            
+
             params = {
                 "lora": {
-                    "default": str(lora_docs[0]["_id"]), 
-                    "tip": "Users may request one of your known LoRAs, or a different unknown one, or no LoRA at all. When referring to a LoRA, strictly use its name, not its description. Notes on when to use the known LoRAs: " + " | ".join(lora_info)
+                    "default": str(lora_docs[0]["_id"]),
+                    "tip": "Users may request one of your known LoRAs, or a different unknown one, or no LoRA at all. When referring to a LoRA, strictly use its name, not its description. Notes on when to use the known LoRAs: "
+                    + " | ".join(lora_info),
                 },
             }
             if "use_lora" in tools[tool].parameters:
                 params["use_lora"] = {"default": True}
-            
+
             # if len(lora_docs) > 1 and "lora2" in tools[tool].parameters:
             #     params["lora2"] = {"default": str(lora_docs[1]["_id"])}
             #     if "use_lora2" in tools[tool].parameters:
@@ -353,11 +373,7 @@ class Agent(User):
             tools[tool].update_parameters(params)
 
         if "elevenlabs" in tools and self.voice:
-            tools["elevenlabs"].update_parameters({
-                "voice": {
-                    "default": self.voice
-                }
-            })
+            tools["elevenlabs"].update_parameters({"voice": {"default": self.voice}})
 
         return tools
 

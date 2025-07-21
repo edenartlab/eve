@@ -163,23 +163,45 @@ class Tool(Document, ABC):
         key = schema.get("key") or schema.get("parent_tool") or file_path.split("/")[-2]
         parent_tool = schema.get("parent_tool")
         if parent_tool:
-            if file_path:
-                # to make sure key is original, not parent's
-                key = file_path.split("/")[-2]
-            parent_schema = cls._get_schema(parent_tool, from_yaml=from_yaml)
-            parent_schema["parameter_presets"] = schema.pop("parameters", {})
-            if not from_yaml:
-                parent_parameters = {
-                    p["name"]: {**(p.pop("schema")), **p}
-                    for p in parent_schema.pop("parameters", [])
-                }
-            for k, v in parent_schema["parameter_presets"].items():
-                if k in parent_parameters:
-                    parent_parameters[k].update(v)
-            schema.pop("workspace", None)  # we want the parent workspace
-            parent_schema.update(schema)
-            parent_schema["parameters"] = parent_parameters
-            schema = parent_schema
+            try:
+                if file_path:
+                    # to make sure key is original, not parent's
+                    key = file_path.split("/")[-2]
+                parent_schema = cls._get_schema(parent_tool, from_yaml=from_yaml)
+
+                if parent_schema is None:
+                    print(
+                        f"***debug*** Warning: Parent tool '{parent_tool}' not found for tool '{key}'. Skipping parent tool configuration."
+                    )
+                    print(f"***debug*** Schema: {schema}")
+                    print(f"***debug*** File path: {file_path}")
+                    print(f"***debug*** Class: {cls.__name__}")
+                    return None
+
+                parent_schema["parameter_presets"] = schema.pop("parameters", {})
+                if not from_yaml:
+                    parent_parameters = {
+                        p["name"]: {**(p.pop("schema")), **p}
+                        for p in parent_schema.pop("parameters", [])
+                    }
+                for k, v in parent_schema["parameter_presets"].items():
+                    if k in parent_parameters:
+                        parent_parameters[k].update(v)
+                schema.pop("workspace", None)  # we want the parent workspace
+                parent_schema.update(schema)
+                parent_schema["parameters"] = parent_parameters
+                schema = parent_schema
+
+            except Exception as e:
+                print(
+                    f"***debug*** Error processing parent tool '{parent_tool}' for tool '{key}': {str(e)}"
+                )
+                print(f"***debug*** Schema: {schema}")
+                print(f"***debug*** File path: {file_path}")
+                print(f"***debug*** Class: {cls.__name__}")
+                print(f"***debug*** Exception type: {type(e).__name__}")
+                print(f"***debug*** Full traceback: {traceback.format_exc()}")
+                return None
 
         schema["key"] = key
         fields, model_config = parse_schema(schema)
@@ -346,20 +368,32 @@ class Tool(Document, ABC):
     def update_parameters(self, parameters: Dict[str, Any]):
         """Update parameters and re-create BaseModel"""
         eden_utils.overwrite_dict(self.parameters, parameters)
-        fields, model_config = parse_schema({"parameters": self.parameters, "examples": self.examples})
-        self.model = create_model(self.key, __config__=model_config, **fields)
-        self.model.__doc__ = eden_utils.concat_sentences(
-            self.description, self.tip
+        fields, model_config = parse_schema(
+            {"parameters": self.parameters, "examples": self.examples}
         )
+        self.model = create_model(self.key, __config__=model_config, **fields)
+        self.model.__doc__ = eden_utils.concat_sentences(self.description, self.tip)
 
     def save(self, **kwargs):
         return super().save({"key": self.key}, **kwargs)
 
     @classmethod
     def from_raw_yaml(cls, schema, from_yaml=False):
-        schema = cls.convert_from_yaml(schema)
-        sub_cls = cls.get_sub_class(schema, from_yaml=from_yaml)
-        return sub_cls.model_validate(schema)
+        try:
+            converted_schema = cls.convert_from_yaml(schema)
+            if converted_schema is None:
+                print(
+                    f"***debug*** convert_from_yaml returned None for schema: {schema}"
+                )
+                return None
+            sub_cls = cls.get_sub_class(converted_schema, from_yaml=from_yaml)
+            return sub_cls.model_validate(converted_schema)
+        except Exception as e:
+            print(f"***debug*** Error in from_raw_yaml: {str(e)}")
+            print(f"***debug*** Schema: {schema}")
+            print(f"***debug*** Class: {cls.__name__}")
+            print(f"***debug*** Full traceback: {traceback.format_exc()}")
+            return None
 
     @classmethod
     def from_yaml(cls, file_path, cache=False):
