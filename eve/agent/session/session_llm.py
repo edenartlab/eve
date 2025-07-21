@@ -1,15 +1,11 @@
 import logging
 import os
-
-from eve.agent.thread import ChatMessage
-
-logging.getLogger("LiteLLM").setLevel(logging.WARNING)
-
 import json
-from litellm import completion
 import litellm
+from litellm import completion
 from typing import Callable, List, AsyncGenerator, Optional
 
+from eve.agent.thread import ChatMessage
 from eve.agent.session.models import (
     LLMContext,
     LLMConfig,
@@ -19,6 +15,8 @@ from eve.agent.session.models import (
     ToolCall,
 )
 
+logging.getLogger("LiteLLM").setLevel(logging.WARNING)
+
 
 if os.getenv("LANGFUSE_TRACING_ENVIRONMENT"):
     litellm.success_callback = ["langfuse"]
@@ -27,8 +25,7 @@ supported_models = [
     "gpt-4o-mini",
     "gpt-4o",
     "claude-3-5-haiku-latest",
-    "gemini-2.0-flash",
-    "gemini/gemini-2.5-flash-preview-04-17",
+    "gemini-2.5-flash",
     "claude-sonnet-4-20250514",
     "claude-opus-4-20250514",
 ]
@@ -75,6 +72,7 @@ def construct_observability_metadata(context: LLMContext):
         "trace_id": context.metadata.trace_id,
         "trace_name": context.metadata.trace_name,
         "generation_name": context.metadata.generation_name,
+        "generation_id": context.metadata.generation_id,
     }
     if context.metadata.trace_metadata:
         metadata["trace_metadata"] = context.metadata.trace_metadata.model_dump()

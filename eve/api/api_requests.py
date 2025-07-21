@@ -11,6 +11,9 @@ from eve.agent.session.models import (
     DeploymentSecrets,
     DeploymentConfig,
     ClientType,
+    NotificationType,
+    NotificationPriority,
+    NotificationChannel,
 )
 
 
@@ -29,6 +32,9 @@ class CancelRequest(BaseModel):
 class CancelSessionRequest(BaseModel):
     session_id: str
     user_id: str
+    trace_id: Optional[str] = None
+    tool_call_id: Optional[str] = None
+    tool_call_index: Optional[int] = None
 
 
 class UpdateConfig(BaseModel):
@@ -107,7 +113,9 @@ class AllowedChannel(BaseModel):
 
 class PostingInstructions(BaseModel):
     session_id: Optional[str] = None
-    post_to: Optional[Literal['same', 'another', 'discord', 'telegram', 'x', 'farcaster']] = None
+    post_to: Optional[
+        Literal["same", "another", "discord", "telegram", "x", "farcaster"]
+    ] = None
     channel_id: Optional[str] = None
     custom_instructions: Optional[str] = None
 
@@ -119,7 +127,7 @@ class CreateTriggerRequest(BaseModel):
     posting_instructions: Optional[PostingInstructions] = None
     schedule: CronSchedule
     update_config: Optional[UpdateConfig] = None
-    session_type: Literal['new', 'another'] = 'new'
+    session_type: Literal["new", "another"] = "new"
     session: Optional[str] = None
 
 
@@ -153,7 +161,6 @@ class PromptSessionRequest(BaseModel):
     session_id: Optional[str] = None
     message: Optional[ChatMessageRequestInput] = None
     user_id: Optional[str] = None
-    actor_agent_id: Optional[str] = None
     actor_agent_ids: Optional[List[str]] = None
     update_config: Optional[SessionUpdateConfig] = None
     llm_config: Optional[LLMConfig] = None
@@ -192,3 +199,19 @@ class DeploymentEmissionRequest(BaseModel):
     result: Optional[Any] = None
     error: Optional[str] = None
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+# Notification API requests
+class CreateNotificationRequest(BaseModel):
+    user_id: str
+    type: NotificationType
+    title: str
+    message: str
+    priority: Optional[NotificationPriority] = NotificationPriority.NORMAL
+    channels: Optional[List[NotificationChannel]] = None
+    trigger_id: Optional[str] = None
+    session_id: Optional[str] = None
+    agent_id: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+    action_url: Optional[str] = None
+    expires_at: Optional[datetime] = None

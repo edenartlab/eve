@@ -18,6 +18,7 @@ from eve.agent.session.session import (
     async_prompt_session,
     validate_prompt_session,
     async_title_session,
+    add_user_message,
 )
 
 
@@ -38,6 +39,57 @@ trigger_message_post = """
 """
 
 
+async def create_notification(
+    user_id: str,
+    notification_type: str,
+    title: str,
+    message: str,
+    trigger_id: str = None,
+    session_id: str = None,
+    agent_id: str = None,
+    priority: str = "normal",
+    action_url: str = None,
+    metadata: dict = None,
+):
+    """Create a notification via API call"""
+    try:
+        api_url = os.getenv("EDEN_API_URL")
+        if not api_url:
+            return
+
+        notification_data = {
+            "user_id": user_id,
+            "type": notification_type,
+            "title": title,
+            "message": message,
+            "priority": priority,
+        }
+
+        if trigger_id:
+            notification_data["trigger_id"] = trigger_id
+        if session_id:
+            notification_data["session_id"] = session_id
+        if agent_id:
+            notification_data["agent_id"] = agent_id
+        if action_url:
+            notification_data["action_url"] = action_url
+        if metadata:
+            notification_data["metadata"] = metadata
+
+        requests.post(
+            f"{api_url}/notifications/create",
+            headers={
+                "Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}",
+                "Content-Type": "application/json",
+            },
+            json=notification_data,
+        )
+
+    except Exception as e:
+        print(f"Error creating notification: {str(e)}")
+        # Don't raise - notification creation failure shouldn't stop the trigger
+
+
 async def trigger_fn():
     background_tasks = BackgroundTasks()
     trigger_id = os.getenv("TRIGGER_ID")
@@ -56,6 +108,11 @@ async def trigger_fn():
             )
             if not trigger:
                 raise Exception(f"Trigger {trigger_id} not found")
+
+            # Update last_run_time at the start of execution
+            trigger.last_run_time = datetime.now(timezone.utc)
+            trigger.save()
+
         except Exception as e:
             with sentry_sdk.configure_scope() as scope:
                 scope.set_tag("trigger_failure", True)
@@ -68,7 +125,7 @@ async def trigger_fn():
             request = PromptSessionRequest(
                 session_id=str(trigger.session) if trigger.session else None,
                 user_id=str(trigger.user),
-                actor_agent_id=str(trigger.agent),
+                actor_agent_ids=[str(trigger.agent)],
                 message={
                     "role": "system",
                     "content": trigger_message.format(instruction=trigger.instruction),
@@ -91,7 +148,7 @@ async def trigger_fn():
             context = PromptSessionContext(
                 session=session,
                 initiating_user_id=request.user_id,
-                actor_agent_id=request.actor_agent_id,
+                actor_agent_ids=request.actor_agent_ids,
                 message=request.message,
                 update_config=request.update_config,
             )
@@ -107,7 +164,12 @@ async def trigger_fn():
 
         # Stage 3: LLM context building and prompt session
         try:
-            llm_context = await build_llm_context(session, actor, context)
+            # Create user message first, like in session.py
+            user_message = add_user_message(session, context)
+
+            llm_context = await build_llm_context(
+                session, actor, context, user_message=user_message
+            )
 
             async for update in async_prompt_session(
                 session, llm_context, actor, stream=True
@@ -142,7 +204,7 @@ async def trigger_fn():
                 request = PromptSessionRequest(
                     session_id=str(session.id),
                     user_id=str(trigger.user),
-                    actor_agent_id=str(trigger.agent),
+                    actor_agent_ids=[str(trigger.agent)],
                     message={
                         "role": "system",
                         "content": trigger_message_post.format(
@@ -189,13 +251,18 @@ async def trigger_fn():
                 context = PromptSessionContext(
                     session=session,
                     initiating_user_id=request.user_id,
-                    actor_agent_id=request.actor_agent_id,
+                    actor_agent_ids=request.actor_agent_ids,
                     message=request.message,
                     update_config=request.update_config,
                     custom_tools=custom_tools,
                 )
 
-                llm_context = await build_llm_context(session, actor, context)
+                # Create user message first, like in session.py
+                user_message = add_user_message(session, context)
+
+                llm_context = await build_llm_context(
+                    session, actor, context, user_message=user_message
+                )
 
                 async for update in async_prompt_session(
                     session, llm_context, actor, stream=True
@@ -210,6 +277,27 @@ async def trigger_fn():
                 sentry_sdk.capture_exception(e)
                 raise
 
+        # Stage 5.5: Notify trigger completion
+        try:
+            await create_notification(
+                user_id=str(trigger.user),
+                notification_type="trigger_complete",
+                title="Trigger Completed Successfully",
+                message=f"Your scheduled trigger has completed successfully: {trigger.instruction[:100]}...",
+                trigger_id=str(trigger.id),
+                session_id=str(session.id),
+                agent_id=str(trigger.agent),
+                priority="normal",
+                action_url=f"/sessions/{session.id}",
+                metadata={
+                    "trigger_id": trigger_id,
+                    "completion_time": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+        except Exception as e:
+            print(f"Failed to create completion notification: {str(e)}")
+            # Don't raise - notification failure shouldn't stop the trigger
+
         # Stage 6: End date checking and deletion
         try:
             print("end date?", trigger.schedule)
@@ -217,23 +305,31 @@ async def trigger_fn():
             if trigger.schedule.get("end_date"):
                 # Get current time with full precision
                 current_time = datetime.now(timezone.utc)
-                end_date_str = trigger.schedule["end_date"]
+                end_date = trigger.schedule["end_date"]
 
-                # Parse the date string and ensure it's timezone aware
-                try:
-                    # If using fromisoformat, the timezone info should be preserved
-                    end_date = datetime.fromisoformat(end_date_str)
+                # Handle both datetime objects and string formats
+                if isinstance(end_date, str):
+                    # Parse the date string and ensure it's timezone aware
+                    try:
+                        # If using fromisoformat, the timezone info should be preserved
+                        end_date = datetime.fromisoformat(end_date)
 
-                    # If somehow end_date is still naive, make it timezone aware
+                        # If somehow end_date is still naive, make it timezone aware
+                        if end_date.tzinfo is None:
+                            end_date = end_date.replace(tzinfo=timezone.utc)
+                    except ValueError:
+                        # Fallback parsing if there's a format issue
+                        if end_date.endswith("Z"):
+                            end_date = end_date.replace("Z", "+00:00")
+                        end_date = datetime.fromisoformat(end_date)
+                        if end_date.tzinfo is None:
+                            end_date = end_date.replace(tzinfo=timezone.utc)
+                elif isinstance(end_date, datetime):
+                    # Already a datetime object, just ensure it's timezone aware
                     if end_date.tzinfo is None:
                         end_date = end_date.replace(tzinfo=timezone.utc)
-                except ValueError:
-                    # Fallback parsing if there's a format issue
-                    if end_date_str.endswith("Z"):
-                        end_date_str = end_date_str.replace("Z", "+00:00")
-                    end_date = datetime.fromisoformat(end_date_str)
-                    if end_date.tzinfo is None:
-                        end_date = end_date.replace(tzinfo=timezone.utc)
+                else:
+                    raise ValueError(f"Unsupported end_date type: {type(end_date)}")
 
                 # Only round end_date to minute precision
                 end_date = end_date.replace(second=0, microsecond=0)
@@ -251,7 +347,7 @@ async def trigger_fn():
                         headers={
                             "Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}"
                         },
-                        json={"id": trigger.id},
+                        json={"id": str(trigger.id)},
                     )
 
                     if not response.ok:
@@ -266,7 +362,31 @@ async def trigger_fn():
             raise
 
     except Exception as e:
-        # Top-level error handling
+        # Top-level error handling - notify failure
+        try:
+            # Try to get trigger info for failure notification
+            if "trigger" in locals():
+                await create_notification(
+                    user_id=str(trigger.user),
+                    notification_type="trigger_failed",
+                    title="Trigger Failed",
+                    message=f"Your scheduled trigger failed: {str(e)[:200]}...",
+                    trigger_id=str(trigger.id),
+                    session_id=str(session.id) if "session" in locals() else None,
+                    agent_id=str(trigger.agent),
+                    priority="high",
+                    action_url=f"/sessions/{session.id}"
+                    if "session" in locals()
+                    else None,
+                    metadata={
+                        "trigger_id": trigger_id,
+                        "error": str(e),
+                        "failure_time": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
+        except Exception as notification_error:
+            print(f"Failed to create failure notification: {str(notification_error)}")
+
         with sentry_sdk.configure_scope() as scope:
             scope.set_tag("trigger_failure", True)
             scope.set_tag("failure_stage", "general")

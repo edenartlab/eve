@@ -1,17 +1,16 @@
 from eve.agent.session.models import ChatMessage, LLMConfig, LLMContext
 from eve.agent.session.session_llm import ToolMetadataBuilder, async_prompt
-from ....deploy import Deployment
-from ....agent import Agent
+from eve.agent.agent import Agent
+from eve.agent.session.models import Deployment
 from pydantic import BaseModel
 import discord
 from datetime import datetime, timedelta
-from typing import Optional
 
 
 class ChannelSearchParams(BaseModel):
-    channel_note: str  # The note/name of the channel to search
-    message_limit: Optional[int] = None
-    time_window_hours: Optional[int] = None
+    channel_id: str  # The note/name of the channel to search
+    message_limit: int = 10
+    time_window_hours: int = 24
 
 
 class DiscordSearchQuery(BaseModel):
@@ -51,7 +50,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
 2. For each channel, determine if we should fetch a specific number of messages or use a time window
 3. Return a structured query object with a list of channels and their search parameters
 
-Available channel notes:
+Available channel IDs + notes:
 {channel_notes}
 
 Example queries:
@@ -60,13 +59,13 @@ Example queries:
 "Show me the last 5 messages from general discussion" -> Search in general channels, last 5 messages
 
 You must return a list of ChannelSearchParams objects, each containing:
-- channel_note: The note/name of the channel to search (must match one of the available channel notes)
-- message_limit: Optional number of messages to fetch
-- time_window_hours: Optional time window in hours
+- channel_id: The ID of the channel to search (must match one of the available channel IDs)
+- message_limit: Optional number of messages to fetch, REQUIRED, default 10
+- time_window_hours: Optional time window in hours, REQUIRED, default 24
 
 
 At least one of message_limit or time_window_hours must be specified for each channel.""".format(
-        channel_notes="\n".join(f"- {note}" for note in channel_map.keys())
+        channel_notes="\n".join(f"{id}: {note}" for id, note in channel_map.items())
     )
 
     messages = [
@@ -89,54 +88,61 @@ At least one of message_limit or time_window_hours must be specified for each ch
     )
     parsed_query = DiscordSearchQuery.model_validate_json(response.content)
 
-    # Create Discord client
-    client = discord.Client(intents=discord.Intents.default())
+    # Create Discord HTTP client directly
+    http = discord.http.HTTPClient()
+    await http.static_login(deployment.secrets.discord.token)
 
     try:
-        # Login to Discord
-        await client.login(deployment.secrets.discord.token)
-
         # Get messages from relevant channels
         messages = []
         for channel_params in parsed_query.channels:
             # Get the channel ID from the note
-            channel_id = channel_map.get(channel_params.channel_note.lower())
+            channel_id = channel_params.channel_id
             if not channel_id:
-                allowed_notes = list(channel_map.keys())
+                allowed_ids = list(channel_map.keys())
                 raise Exception(
-                    f"Channel note '{channel_params.channel_note}' not found. Available channel notes: {allowed_notes}"
+                    f"Channel note '{channel_params.channel_id}' not found. Available channel notes: {allowed_ids}"
                 )
 
-            try:
-                channel = await client.fetch_channel(int(channel_id))
+            # Get channel data
+            channel_data = await http.get_channel(int(channel_id))
 
-                # Determine time window if specified
-                after = None
-                if channel_params.time_window_hours:
-                    after = datetime.utcnow() - timedelta(
-                        hours=channel_params.time_window_hours
-                    )
-
-                # Get messages based on parsed parameters
-                async for message in channel.history(
-                    limit=channel_params.message_limit, after=after
-                ):
-                    messages.append(
-                        {
-                            "id": str(message.id),
-                            "content": message.content,
-                            "author": str(message.author),
-                            "created_at": message.created_at.isoformat(),
-                            "channel_id": str(channel.id),
-                            "channel_name": channel.name,
-                            "url": f"https://discord.com/channels/{channel.guild.id}/{channel.id}/{message.id}",
-                        }
-                    )
-            except Exception as e:
-                print(f"Error fetching messages from channel {channel_id}: {e}")
+            # Check if channel supports messages (text channels)
+            if channel_data.get("type") not in [
+                0,
+                5,
+                10,
+                11,
+                12,
+            ]:  # Text channel types=
                 continue
+
+            # Determine time window if specified
+            after = datetime.utcnow() - timedelta(
+                hours=channel_params.time_window_hours
+            )
+
+            # Get messages using HTTP client
+            params = {}
+            params["limit"] = channel_params.message_limit
+            params["after"] = int((after.timestamp() - 1420070400) * 1000) << 22
+
+            message_data = await http.logs_from(int(channel_id), **params)
+
+            for msg in message_data:
+                messages.append(
+                    {
+                        "id": str(msg["id"]),
+                        "content": msg.get("content", ""),
+                        "author": msg.get("author", {}).get("username", "Unknown"),
+                        "created_at": msg.get("timestamp", ""),
+                        "channel_id": str(channel_id),
+                        "channel_name": channel_data.get("name", "Unknown"),
+                        "url": f"https://discord.com/channels/{channel_data.get('guild_id', 'Unknown')}/{channel_id}/{msg['id']}",
+                    }
+                )
 
         return {"output": messages}
 
     finally:
-        await client.close()
+        await http.close()

@@ -3,6 +3,7 @@ import os
 from enum import Enum
 from typing import List, Optional, Dict, Any, Literal
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 import magic
 from bson import ObjectId
@@ -23,7 +24,7 @@ class ToolCall(BaseModel):
         Literal["pending", "running", "completed", "failed", "cancelled"]
     ] = None
     result: Optional[List[Dict[str, Any]]] = None
-    reactions: Optional[Dict[str, List[ObjectId]]] = None
+    reactions: Optional[Dict[str, List[str]]] = None
     error: Optional[str] = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -164,13 +165,14 @@ class EdenMessageData(BaseModel):
 @Collection("channels")
 class Channel(Document):
     type: Literal["eden", "discord", "telegram", "twitter"]
-    key: str
+    key: Optional[str] = None
 
 
 class ChatMessageObservability(BaseModel):
     provider: Literal["langfuse"] = "langfuse"
     session_id: Optional[str] = None
     trace_id: Optional[str] = None
+    generation_id: Optional[str] = None
     tokens_spent: Optional[int] = None
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -195,7 +197,7 @@ class ChatMessage(Document):
     sender_name: Optional[str] = None  # ???
 
     content: str = ""
-    reactions: Optional[Dict[str, List[ObjectId]]] = {}
+    reactions: Optional[Dict[str, List[str]]] = {}
 
     attachments: Optional[List[str]] = []
     tool_calls: Optional[List[ToolCall]] = []
@@ -204,6 +206,7 @@ class ChatMessage(Document):
     cost: Optional[float] = None  # ???
 
     observability: Optional[ChatMessageObservability] = None
+    finish_reason: Optional[str] = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -584,6 +587,7 @@ class LLMContextMetadata(BaseModel):
     trace_id: Optional[str] = None
     trace_name: Optional[str] = None
     generation_name: Optional[str] = None
+    generation_id: Optional[str] = None
     trace_metadata: Optional[LLMTraceMetadata] = None
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -640,11 +644,16 @@ class Trigger(Document):
     update_config: Optional[Dict[str, Any]] = None
     status: Optional[Literal["active", "paused", "finished"]] = "active"
     deleted: Optional[bool] = False
+    last_run_time: Optional[datetime] = None
 
 
 class SessionContext(BaseModel):
     memories: Optional[List[ObjectId]] = []
     memory_updated: Optional[ObjectId] = None
+    # Memory caching fields (optional for backward compatibility)
+    cached_memory_context: Optional[str] = None
+    memory_context_timestamp: Optional[datetime] = None
+    should_refresh_memory: Optional[bool] = None  # None means not set, will default to True in logic
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
@@ -662,7 +671,9 @@ class Session(Document):
     scenario: Optional[str] = None
     autonomy_settings: Optional[SessionAutonomySettings] = None
     last_actor_id: Optional[ObjectId] = None
-    last_memory_message_id: Optional[ObjectId] = None
+    last_memory_message_id: Optional[ObjectId] = (
+        None  # Track last message ID when memory formation was run
+    )
     budget: SessionBudget = SessionBudget()
     platform: Optional[Literal["discord", "telegram", "twitter", "farcaster"]] = None
     trigger: Optional[ObjectId] = None
@@ -675,7 +686,6 @@ class PromptSessionContext:
     initiating_user_id: str
     message: ChatMessageRequestInput
     update_config: Optional[SessionUpdateConfig] = None
-    actor_agent_id: Optional[str] = None
     actor_agent_ids: Optional[List[str]] = None
     llm_config: Optional[LLMConfig] = None
     custom_tools: Optional[Dict[str, Any]] = None
@@ -694,6 +704,30 @@ class ClientType(Enum):
     TELEGRAM = "telegram"
     FARCASTER = "farcaster"
     TWITTER = "twitter"
+
+
+class NotificationType(Enum):
+    TRIGGER_COMPLETE = "trigger_complete"
+    TRIGGER_FAILED = "trigger_failed"
+    TRIGGER_STARTED = "trigger_started"
+    SESSION_COMPLETE = "session_complete"
+    SESSION_FAILED = "session_failed"
+    AGENT_MENTIONED = "agent_mentioned"
+    SYSTEM_ALERT = "system_alert"
+
+
+class NotificationPriority(Enum):
+    LOW = "low"
+    NORMAL = "normal"
+    HIGH = "high"
+    URGENT = "urgent"
+
+
+class NotificationChannel(Enum):
+    IN_APP = "in_app"
+    PUSH = "push"
+    EMAIL = "email"
+    SMS = "sms"
 
 
 # Base Models
@@ -800,3 +834,116 @@ class Deployment(Document):
         """Ensure indexes exist"""
         collection = cls.get_collection()
         collection.create_index([("agent", 1), ("platform", 1)], unique=True)
+
+    def get_allowed_channels(self):
+        """Get allowed channels for the deployment"""
+        if self.platform == ClientType.DISCORD:
+            return self.config.discord.channel_allowlist
+        elif self.platform == ClientType.TELEGRAM:
+            return self.config.telegram.topic_allowlist
+        return []
+
+
+@Collection("usernotifications")
+class Notification(Document):
+    """Notification model for delivering app notifications to users"""
+
+    # Core fields
+    user: ObjectId  # recipient user
+    type: NotificationType
+    title: str
+    message: str
+
+    # Status tracking
+    read: bool = False
+    read_at: Optional[datetime] = None
+    priority: NotificationPriority = NotificationPriority.NORMAL
+
+    # Related entities
+    trigger: Optional[ObjectId] = None
+    session: Optional[ObjectId] = None
+    agent: Optional[ObjectId] = None
+
+    # Delivery management
+    channels: List[NotificationChannel] = Field(
+        default_factory=lambda: [NotificationChannel.IN_APP]
+    )
+    delivered_channels: List[NotificationChannel] = Field(default_factory=list)
+    delivery_attempted_at: Optional[datetime] = None
+    delivery_failed_channels: List[NotificationChannel] = Field(default_factory=list)
+
+    # Metadata and context
+    metadata: Optional[Dict[str, Any]] = None
+    action_url: Optional[str] = None  # URL to navigate to when clicked
+
+    # Lifecycle management
+    expires_at: Optional[datetime] = None
+    archived: bool = False
+    archived_at: Optional[datetime] = None
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    @field_serializer("type")
+    def serialize_type(self, value: NotificationType) -> str:
+        return value.value
+
+    @field_serializer("priority")
+    def serialize_priority(self, value: NotificationPriority) -> str:
+        return value.value
+
+    @field_serializer("channels")
+    def serialize_channels(self, value: List[NotificationChannel]) -> List[str]:
+        return [channel.value for channel in value]
+
+    @field_serializer("delivered_channels")
+    def serialize_delivered_channels(
+        self, value: List[NotificationChannel]
+    ) -> List[str]:
+        return [channel.value for channel in value]
+
+    @field_serializer("delivery_failed_channels")
+    def serialize_delivery_failed_channels(
+        self, value: List[NotificationChannel]
+    ) -> List[str]:
+        return [channel.value for channel in value]
+
+    def mark_as_read(self):
+        """Mark notification as read"""
+        if not self.read:
+            self.read = True
+            self.read_at = datetime.now(timezone.utc)
+            self.save()
+
+    def mark_delivered(self, channel: NotificationChannel):
+        """Mark notification as delivered via specific channel"""
+        if channel not in self.delivered_channels:
+            self.delivered_channels.append(channel)
+            self.save()
+
+    def mark_delivery_failed(self, channel: NotificationChannel):
+        """Mark delivery as failed for specific channel"""
+        if channel not in self.delivery_failed_channels:
+            self.delivery_failed_channels.append(channel)
+            self.save()
+
+    def archive(self):
+        """Archive the notification"""
+        if not self.archived:
+            self.archived = True
+            self.archived_at = datetime.now(timezone.utc)
+            self.save()
+
+    @classmethod
+    def ensure_indexes(cls):
+        """Ensure indexes exist for efficient queries"""
+        collection = cls.get_collection()
+        # Index for user notifications queries
+        collection.create_index([("user", 1), ("created_at", -1)])
+        # Index for unread notifications
+        collection.create_index([("user", 1), ("read", 1)])
+        # Index for cleanup of expired notifications
+        collection.create_index([("expires_at", 1)], sparse=True)
+        # Index for trigger-related notifications
+        collection.create_index([("trigger", 1)], sparse=True)
+        # Index for session-related notifications
+        collection.create_index([("session", 1)], sparse=True)

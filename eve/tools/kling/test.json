@@ -1,0 +1,7 @@
+{
+  "prompt": "A person walking through a beautiful garden with flowers blooming in slow motion",
+  "start_image": "https://example.com/garden.jpg",
+  "mode": "standard",
+  "duration": 5,
+  "negative_prompt": "blurry, low quality, distorted"
+}

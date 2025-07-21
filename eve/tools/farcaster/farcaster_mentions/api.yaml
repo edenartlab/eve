@@ -1,0 +1,44 @@
+name: farcaster_mentions
+description: Find mentions of a specific user on Farcaster
+tip: |-
+  This tool finds casts that mention a specific user on Farcaster.
+
+  Usage:
+  - Search for mentions of the agent's own username/FID
+  - Search for mentions of other users by username or FID
+  - Get recent mentions within a time window
+  - Filter by additional keywords in the mentioning cast
+
+  Examples:
+  - "Find all mentions of me in the last 24 hours"
+  - "Check for mentions of vitalik.eth"
+  - "Find mentions of me that also contain the word 'art'"
+
+  This is useful for monitoring brand mentions, responding to user tags, 
+  or tracking conversations involving specific users.
+cost_estimate: 0
+output_type: array
+active: true
+handler: local
+visible: false
+parameters:
+  username:
+    type: string
+    description: Username or FID to search mentions for (if not provided, uses the agent's own account)
+    required: false
+  additional_query:
+    type: string
+    description: Additional keywords that must be present in the mentioning cast
+    required: false
+  limit:
+    type: integer
+    description: Maximum number of results to return (default 10, max 100)
+    required: false
+  time_range_hours:
+    type: integer
+    description: Only return mentions from the last N hours (default 24, set to 0 to disable time filtering)
+    required: false
+  agent:
+    type: string
+    description: Agent ID to run the tool with
+    required: true

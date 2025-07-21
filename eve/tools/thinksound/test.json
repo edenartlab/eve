@@ -1,0 +1,7 @@
+{
+  "cot": "Begin with the sound of hands scooping up loose plastic debris, followed by the subtle cascading noise as the pieces fall and scatter back down. Include soft crinkling and rustling to emphasize the texture of the plastic. Add ambient factory background noise with distant machinery to create an industrial atmosphere.",
+  "video": "https://replicate.delivery/pbxt/NKmVPTu8dfrIHlOCh3QMOs12SuHpYhMDA7hLvxcqYwqJyU7P/replicate-prediction-ebnsmny609rma0cqxycbn5qq60_silenced.mp4",
+  "caption": "Plastic Debris Handling",
+  "cfg_scale": 5,
+  "num_inference_steps": 24
+}

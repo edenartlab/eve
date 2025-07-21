@@ -1,9 +1,10 @@
 import asyncio
+import traceback
+import time
 import json
 import os
 import random
 import re
-import traceback
 from fastapi import BackgroundTasks
 import pytz
 from typing import List, Optional, Dict
@@ -39,6 +40,12 @@ from eve.agent.session.models import LLMConfig
 from eve.agent.session.session_prompts import (
     system_template,
     model_template,
+)
+
+from eve.agent.session.memory import maybe_form_memories, assemble_memory_context
+from eve.agent.session.config import (
+    DEFAULT_SESSION_SELECTION_LIMIT,
+    get_default_session_llm_config,
 )
 
 
@@ -114,7 +121,7 @@ def determine_actor_from_actor_selection_method(session: Session) -> Optional[Ag
 
 
 def parse_mentions(content: str) -> List[str]:
-    return re.findall(r"@(\w+)", content)
+    return re.findall(r"@(\S+)", content)
 
 
 async def determine_actors(
@@ -127,13 +134,6 @@ async def determine_actors(
         for actor_agent_id in context.actor_agent_ids:
             requested_actor = ObjectId(actor_agent_id)
             actor_ids.append(requested_actor)
-    elif context.actor_agent_id:
-        # Single actor specified in the context (backwards compatibility)
-        requested_actor = ObjectId(context.actor_agent_id)
-        if requested_actor in session.agents:
-            actor_ids.append(requested_actor)
-        else:
-            raise ValueError(f"Actor @{context.actor_agent_id} not found in session")
     elif session.autonomy_settings and session.autonomy_settings.auto_reply:
         actor_id = determine_actor_from_actor_selection_method(session)
         actor_ids.append(actor_id)
@@ -172,13 +172,16 @@ async def determine_actors(
     return actors
 
 
-def select_messages(session: Session, selection_limit: int = 25):
+def select_messages(
+    session: Session, selection_limit: Optional[int] = DEFAULT_SESSION_SELECTION_LIMIT
+):
     messages = ChatMessage.get_collection()
-    selected_messages = list(
-        messages.find({"session": session.id, "role": {"$ne": "eden"}})
-        .sort("createdAt", -1)
-        .limit(selection_limit)
+    query = messages.find({"session": session.id, "role": {"$ne": "eden"}}).sort(
+        "createdAt", -1
     )
+    if selection_limit is not None:
+        query = query.limit(selection_limit)
+    selected_messages = list(query)
     selected_messages.reverse()
     selected_messages = [ChatMessage(**msg) for msg in selected_messages]
     # Filter out cancelled tool calls from the messages
@@ -200,8 +203,46 @@ def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
     return messages
 
 
-def build_system_message(session: Session, actor: Agent, context: PromptSessionContext):
+def print_context_state(session: Session, message: str = ""):
+    print(message)
+    print(f"Session ID: {session.id}")
+    cached_context = getattr(session.context, "cached_memory_context", None)
+    should_refresh = getattr(session.context, "should_refresh_memory", None)
+    print("Context state:")
+    print(f"Cached context: {cached_context}")
+    print(f"Should refresh: {should_refresh}")
+
+
+async def build_system_message(
+    session: Session,
+    actor: Agent,
+    context: PromptSessionContext,
+    tools: Dict[str, Tool],
+):  # Get the last speaker ID for memory prioritization
+    last_speaker_id = None
+    if context.initiating_user_id:
+        last_speaker_id = ObjectId(context.initiating_user_id)
+
+    # Get agent memory context (up to 5000 tokens)
+    memory_context = ""
+    try:
+        start_time = time.time()
+        memory_context = await assemble_memory_context(
+            actor.id,
+            session_id=session.id,
+            last_speaker_id=last_speaker_id,
+            session=session,
+        )
+        time_taken = time.time() - start_time
+        print(f"-----> Time taken to assemble memory context: {time_taken:.2f} seconds")
+
+        if memory_context:
+            memory_context = f"\n\n{memory_context}"
+    except Exception as e:
+        print(f"Warning: Could not load memory context for agent {actor.id}: {e}")
+
     # Get text describing models
+    lora_name = None
     if actor.models:
         models_collection = get_collection(Model.collection_name)
         loras_dict = {m["lora"]: m for m in actor.models}
@@ -209,6 +250,8 @@ def build_system_message(session: Session, actor: Agent, context: PromptSessionC
             {"_id": {"$in": list(loras_dict.keys())}, "deleted": {"$ne": True}}
         )
         lora_docs = list(lora_docs or [])
+        if lora_docs:
+            lora_name = lora_docs[0]["name"]
         for doc in lora_docs:
             doc["use_when"] = loras_dict[ObjectId(doc["_id"])].get(
                 "use_when", "This is your default Lora model"
@@ -217,15 +260,20 @@ def build_system_message(session: Session, actor: Agent, context: PromptSessionC
     else:
         loras = ""
 
-    content = system_template.render(
+    # Build system prompt with memory context
+    base_content = system_template.render(
         name=actor.name,
         current_date_time=datetime.now(pytz.utc).strftime("%Y-%m-%d %H:%M:%S"),
+        description=actor.description,
         persona=actor.persona,
         scenario=session.scenario,
         loras=loras,
+        lora_name=lora_name,
         voice=actor.voice,
+        tools=tools,
     )
 
+    content = f"{base_content}{memory_context}"
     return ChatMessage(
         session=session.id, sender=ObjectId(actor.id), role="system", content=content
     )
@@ -246,52 +294,33 @@ def add_user_message(session: Session, context: PromptSessionContext):
 
 
 async def build_llm_context(
-    session: Session, actor: Agent, context: PromptSessionContext
+    session: Session,
+    actor: Agent,
+    context: PromptSessionContext,
+    trace_id: Optional[str] = None,
+    user_message: Optional[ChatMessage] = None,
 ):
     tools = actor.get_tools(cache=True, auth_user=context.initiating_user_id)
 
-    # pass custom tools
-    if context.custom_tools:
-        tools.update(context.custom_tools)
-        tools = {tool: tools[tool] for tool in tools if tool in context.custom_tools}
-
-    # set voice default if tools include elevenlabs
-    if actor.voice and "elevenlabs" in tools.keys():
-        tools["elevenlabs"] = Tool.from_raw_yaml(
-            {
-                "parent_tool": "elevenlabs",
-                "parameters": {"voice": {"default": actor.voice}},
-            }
-        )
-
-    # if models
-    if actor.models:
-        models_collection = get_collection(Model.collection_name)
-        loras_dict = {m["lora"]: m for m in actor.models}
-        lora_docs = models_collection.find(
-            {"_id": {"$in": list(loras_dict.keys())}, "deleted": {"$ne": True}}
-        )
-        lora_docs = list(lora_docs or [])
-
     # build messages
-    system_message = build_system_message(session, actor, context)
+    system_message = await build_system_message(session, actor, context, tools)
     messages = [system_message]
     messages.extend(select_messages(session))
     messages = convert_message_roles(messages, actor.id)
 
-    if context.initiating_user_id:
-        new_message = add_user_message(session, context)
-        messages.append(new_message)
+    # Add user message if provided (should be created once per prompt session)
+    if user_message:
+        messages.append(user_message)
 
     return LLMContext(
         messages=messages,
         tools=tools,
-        config=context.llm_config or LLMConfig(),
+        config=context.llm_config or get_default_session_llm_config(),
         metadata=LLMContextMetadata(
             # for observability purposes. not same as session.id
             session_id=f"{os.getenv('DB')}-{str(context.session.id)}",
             trace_name="prompt_session",
-            trace_id=str(uuid.uuid4()),
+            trace_id=trace_id,  # trace_id represents the entire prompt session
             generation_name="prompt_session",
             trace_metadata=LLMTraceMetadata(
                 user_id=str(context.initiating_user_id)
@@ -388,6 +417,7 @@ async def process_tool_call(
     tool_call: ToolCall,
     tool_call_index: int,
     cancellation_event: asyncio.Event = None,
+    tool_cancellation_event: asyncio.Event = None,
     is_client_platform: bool = False,
 ):
     # Update the tool call status to running
@@ -414,7 +444,9 @@ async def process_tool_call(
 
     try:
         # Check for cancellation before starting tool execution
-        if cancellation_event and cancellation_event.is_set():
+        if (cancellation_event and cancellation_event.is_set()) or (
+            tool_cancellation_event and tool_cancellation_event.is_set()
+        ):
             tool_call.status = "cancelled"
             if assistant_message.tool_calls and tool_call_index < len(
                 assistant_message.tool_calls
@@ -442,13 +474,15 @@ async def process_tool_call(
             )
 
         # Use cancellation-aware tool execution
+        # Use tool-specific cancellation event if available, otherwise use general cancellation event
+        effective_cancellation_event = tool_cancellation_event or cancellation_event
         result = await async_run_tool_call_with_cancellation(
             llm_context,
             tool_call,
             user_id=llm_context.metadata.trace_metadata.user_id
             or llm_context.metadata.trace_metadata.agent_id,
             agent_id=llm_context.metadata.trace_metadata.agent_id,
-            cancellation_event=cancellation_event,
+            cancellation_event=effective_cancellation_event,
             is_client_platform=is_client_platform,
         )
 
@@ -495,11 +529,6 @@ async def process_tool_call(
                     "cost", 0
                 )
                 assistant_message.tool_calls[tool_call_index].task = result.get("task")
-                assistant_message.observability = ChatMessageObservability(
-                    session_id=llm_context.metadata.session_id,
-                    trace_id=llm_context.metadata.trace_id,
-                    tokens_spent=0,
-                )
                 assistant_message.save()
 
             update_session_budget(session, manna_spent=result.get("cost", 0))
@@ -510,6 +539,31 @@ async def process_tool_call(
                 tool_name=tool_call.tool,
                 tool_index=tool_call_index,
                 result=result,
+            )
+        elif result["status"] == "cancelled":
+            tool_call.status = "cancelled"
+            if assistant_message.tool_calls and tool_call_index < len(
+                assistant_message.tool_calls
+            ):
+                assistant_message.tool_calls[tool_call_index].status = "cancelled"
+                try:
+                    # Force save with direct MongoDB update
+                    from eve.mongo import get_collection
+
+                    messages_collection = get_collection("messages")
+                    result = messages_collection.update_one(
+                        {"_id": assistant_message.id},
+                        {"$set": {f"tool_calls.{tool_call_index}.status": "cancelled"}},
+                    )
+                except Exception as e:
+                    print(f"Direct update failed, trying regular save: {e}")
+                    assistant_message.save()
+
+            return SessionUpdate(
+                type=UpdateType.TOOL_CANCELLED,
+                tool_name=tool_call.tool,
+                tool_index=tool_call_index,
+                result={"status": "cancelled"},
             )
         else:
             tool_call.status = "failed"
@@ -556,27 +610,38 @@ async def process_tool_calls(
     assistant_message: ChatMessage,
     llm_context: LLMContext,
     cancellation_event: asyncio.Event = None,
+    tool_cancellation_events: dict = None,
     is_client_platform: bool = False,
 ):
     tool_calls = assistant_message.tool_calls
+    if tool_cancellation_events is None:
+        tool_cancellation_events = {}
+
     for b in range(0, len(tool_calls), 4):
         batch = enumerate(tool_calls[b : b + 4])
-        tasks = [
-            process_tool_call(
-                session,
-                assistant_message,
-                llm_context,
-                tool_call,
-                b + idx,
-                cancellation_event,
-                is_client_platform,
-            )
-            for idx, tool_call in batch
-        ]
+        tasks = []
+        for idx, tool_call in batch:
+            # Create a cancellation event for this specific tool call if not exists
+            tool_call_id = tool_call.id
+            if tool_call_id not in tool_cancellation_events:
+                tool_cancellation_events[tool_call_id] = asyncio.Event()
 
-    results = await asyncio.gather(*tasks, return_exceptions=False)
-    for result in results:
-        yield result
+            tasks.append(
+                process_tool_call(
+                    session,
+                    assistant_message,
+                    llm_context,
+                    tool_call,
+                    b + idx,
+                    cancellation_event,
+                    tool_cancellation_events[tool_call_id],
+                    is_client_platform,
+                )
+            )
+
+        results = await asyncio.gather(*tasks, return_exceptions=False)
+        for result in results:
+            yield result
 
 
 async def async_prompt_session(
@@ -585,11 +650,16 @@ async def async_prompt_session(
     actor: Agent,
     stream: bool = False,
     is_client_platform: bool = False,
+    session_run_id: Optional[str] = None,
 ):
+    # Generate session_run_id if not provided to prevent None from being added to active_requests
+    if session_run_id is None:
+        session_run_id = str(uuid.uuid4())
+
     # Set up cancellation handling via Ably
     cancellation_event = asyncio.Event()
+    tool_cancellation_events = {}  # Dict to track individual tool cancellations
     ably_client = None
-    session_run_id = str(uuid.uuid4())
 
     try:
         from ably import AblyRealtime
@@ -603,7 +673,21 @@ async def async_prompt_session(
             try:
                 data = message.data
                 if isinstance(data, dict) and data.get("session_id") == str(session.id):
-                    cancellation_event.set()
+                    # Check if this is a tool-specific cancellation
+                    tool_call_id = data.get("tool_call_id")
+                    tool_call_index = data.get("tool_call_index")
+
+                    if tool_call_id is not None:
+                        # Cancel specific tool call
+                        if tool_call_id in tool_cancellation_events:
+                            tool_cancellation_events[tool_call_id].set()
+                    else:
+                        # Check if this is a trace-specific cancellation
+                        cancel_trace_id = data.get("trace_id")
+                        if cancel_trace_id is None or cancel_trace_id == session_run_id:
+                            # Cancel if no specific trace_id is provided (cancel all)
+                            # or if the trace_id matches this session_run_id
+                            cancellation_event.set()
             except Exception as e:
                 print(f"Error in cancellation handler: {e}")
 
@@ -640,6 +724,9 @@ async def async_prompt_session(
             # Check for cancellation before each iteration
             if cancellation_event.is_set():
                 raise SessionCancelledException("Session cancelled by user")
+
+            # Generate new generation_id for this LLM call
+            llm_context.metadata.generation_id = str(uuid.uuid4())
 
             if stream:
                 # For streaming, we need to collect the content as it comes in
@@ -715,9 +802,11 @@ async def async_prompt_session(
                     role="assistant",
                     content=content,
                     tool_calls=tool_calls,
+                    finish_reason=stop_reason,
                     observability=ChatMessageObservability(
                         session_id=llm_context.metadata.session_id,
                         trace_id=llm_context.metadata.trace_id,
+                        generation_id=llm_context.metadata.generation_id,
                         tokens_spent=tokens_spent,
                     ),
                 )
@@ -730,9 +819,11 @@ async def async_prompt_session(
                     role="assistant",
                     content=response.content,
                     tool_calls=response.tool_calls,
+                    finish_reason=response.stop,
                     observability=ChatMessageObservability(
                         session_id=llm_context.metadata.session_id,
                         trace_id=llm_context.metadata.trace_id,
+                        generation_id=llm_context.metadata.generation_id,
                         tokens_spent=response.tokens_spent,
                     ),
                 )
@@ -754,6 +845,7 @@ async def async_prompt_session(
                     assistant_message,
                     llm_context,
                     cancellation_event,
+                    tool_cancellation_events,
                     is_client_platform,
                 ):
                     # Check for cancellation during tool execution
@@ -896,35 +988,56 @@ async def _run_prompt_session_internal(
     """Internal function that handles both streaming and non-streaming"""
     session = context.session
     validate_prompt_session(session, context)
+
+    # Create user message first, regardless of whether actors are determined
+    user_message = None
+    if context.initiating_user_id:
+        user_message = add_user_message(session, context)
+
     actors = await determine_actors(session, context)
     is_client_platform = context.update_config is not None
 
     if not actors:
         return
 
+    # Generate session run ID for this prompt session
+    session_run_id = str(uuid.uuid4())
+
     # For single actor, maintain backwards compatibility
     if len(actors) == 1:
         actor = actors[0]
-        llm_context = await build_llm_context(session, actor, context)
+        llm_context = await build_llm_context(
+            session, actor, context, trace_id=session_run_id, user_message=user_message
+        )
         async for update in async_prompt_session(
             session,
             llm_context,
             actor,
             stream=stream,
             is_client_platform=is_client_platform,
+            session_run_id=session_run_id,
         ):
             yield format_session_update(update, context)
     else:
         # Multiple actors - run them in parallel
         async def run_actor_session(actor: Agent):
             actor_updates = []
-            llm_context = await build_llm_context(session, actor, context)
+            # Each actor gets its own generation ID
+            actor_session_run_id = str(uuid.uuid4())
+            llm_context = await build_llm_context(
+                session,
+                actor,
+                context,
+                trace_id=actor_session_run_id,
+                user_message=user_message,
+            )
             async for update in async_prompt_session(
                 session,
                 llm_context,
                 actor,
                 stream=stream,
                 is_client_platform=is_client_platform,
+                session_run_id=actor_session_run_id,
             ):
                 actor_updates.append(format_session_update(update, context))
             return actor_updates
@@ -947,10 +1060,27 @@ async def _run_prompt_session_internal(
                 for update in result:
                     yield update
 
-    # Only queue auto-reply after all actors have completed
-    if session.autonomy_settings and session.autonomy_settings.auto_reply:
-        background_tasks.add_task(
-            _queue_session_action_fastify_background_task, session
+    # Schedule background tasks if available
+    if background_tasks:
+        # Process auto-reply after all actors have completed
+        if session.autonomy_settings and session.autonomy_settings.auto_reply:
+            print(
+                f"🤖 Scheduling auto-reply as background task for session {session.id}"
+            )
+            background_tasks.add_task(
+                _queue_session_action_fastify_background_task, session
+            )
+
+        # Process memory formation for all actors that participated
+        for actor in actors:
+            # TODO move the messages_since_last < interval check to here instead of inside the background task
+            print(
+                f"🧠 Triggering maybe_form_memories() as background task for session {session.id}, agent {actor.id}"
+            )
+            background_tasks.add_task(maybe_form_memories, actor.id, session)
+    else:
+        print(
+            f"⚠️  Warning: No background_tasks available, skipping memory formation and auto-reply"
         )
 
 

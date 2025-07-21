@@ -371,9 +371,9 @@ def parse_props(field: str, props: dict) -> Tuple[Type, dict, dict]:
 
     # Handle choices
     if props["type"] in ["integer", "float", "string"] and "choices" in props:
-        field_kwargs["choices"] = props["choices"]
+        #field_kwargs["choices"] = props["choices"]
         return Literal[tuple(props["choices"])], field_kwargs, json_schema_extra
-
+        
     # Handle file types
     if props["type"] in ["image", "video", "audio", "lora", "zip"]:
         json_schema_extra["file_type"] = props["type"]
@@ -443,10 +443,11 @@ def parse_schema(schema: dict) -> Tuple[Dict[str, Tuple[Type, Any]], dict]:
         if "examples" in props:
             json_schema_extra["examples"] = props["examples"]
 
-        if props.get("required"):
-            field_kwargs["default"] = ...
-        else:
-            field_kwargs["default"] = props.get("default", None)
+        # if props.get("required"):
+        #     field_kwargs["default"] = ...
+        # else:
+        #     field_kwargs["default"] = props.get("default", None)
+        field_kwargs["default"] = props.get("default", None)
 
         if field_kwargs.get("default") == "random":
             field_kwargs["default"] = None

@@ -31,7 +31,11 @@ logger = logging.getLogger(__name__)
 
 
 class FarcasterClient(PlatformClient):
-    TOOLS = {}  # No tools for Farcaster yet
+    TOOLS = [
+        "farcaster_cast",
+        "farcaster_search",
+        "farcaster_mentions",
+    ]
 
     async def predeploy(
         self, secrets: DeploymentSecrets, config: DeploymentConfig
@@ -54,6 +58,12 @@ class FarcasterClient(PlatformClient):
 
             webhook_secret = python_secrets.token_urlsafe(32)
             secrets.farcaster.neynar_webhook_secret = webhook_secret
+
+        try:
+            # Add Farcaster tools to agent
+            self.add_tools()
+        except Exception as e:
+            raise APIError(f"Failed to add Farcaster tools: {str(e)}", status_code=400)
 
         return secrets, config
 
@@ -162,6 +172,12 @@ class FarcasterClient(PlatformClient):
                 except Exception as e:
                     print(f"Error unregistering Neynar webhook: {e}")
 
+        try:
+            # Remove Farcaster tools
+            self.remove_tools()
+        except Exception as e:
+            print(f"Failed to remove Farcaster tools: {e}")
+
     async def interact(self, request: Request) -> None:
         """Interact with the Farcaster client"""
         raise NotImplementedError(
@@ -243,7 +259,7 @@ class FarcasterClient(PlatformClient):
 
         prompt_session_request = PromptSessionRequest(
             user_id=str(user.id),
-            actor_agent_id=str(deployment.agent),
+            actor_agent_ids=[str(deployment.agent)],
             message=ChatMessageRequestInput(
                 content=cast_data.get("text", ""),
                 sender_name=author_username,

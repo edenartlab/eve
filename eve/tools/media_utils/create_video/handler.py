@@ -1,5 +1,6 @@
 """
 VIDEO TODO:
+- hedra doesn't work with no lora or start image
 - fix cost formula
 - add lora2. when two face loras, use double character
 - negative_prompt
@@ -27,16 +28,38 @@ import os
 from eve.api.api import create
 from eve.tool import Tool
 from eve.models import Model
+from eve.user import User
 
 from eve.s3 import get_full_url
 from eve.eden_utils import get_media_attributes
     
 
 async def handler(args: dict, user: str = None, agent: str = None):
+
+    print("THE AGENT IS", agent)
+    print("THE USER IS", user)
+
+    
+    # veo3 is enabled by default
+    # if a specific user is provided (e.g. from the website or api), check if they have access to veo3 and disable it if not
+    veo3_enabled = True
+    if user:
+        user = User.from_mongo(user)
+        print(user.featureFlags)
+        veo3_enabled = "tool_access_veo3" in user.featureFlags
+        print("VEO3 ENABLED", veo3_enabled)
+
+
+    if veo3_enabled:
+        print("VEO3 IS ENABLED &")
+    else:
+        print("VEO3 IS DISABLED !")
+
+
     runway = Tool.load("runway")
     kling_pro = Tool.load("kling_pro")
     veo2 = Tool.load("veo2")
-    veo3 = Tool.load("veo3")
+    veo3 = Tool.load("veo3") if veo3_enabled else None
     hedra = Tool.load("hedra")
     create = Tool.load("create")
     mmaudio = Tool.load("mmaudio")
@@ -65,7 +88,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
     start_image = args.get("start_image", None)
     end_image = args.get("end_image", None)
     seed = args.get("seed", None)
-    lora_strength = args.get("lora_strength", 0.75)
+    lora_strength = args.get("lora_strength", 0.8)
     aspect_ratio = args.get("aspect_ratio", "auto")
     quality = args.get("quality", "standard")
     duration = args.get("duration", 5)
@@ -87,13 +110,13 @@ async def handler(args: dict, user: str = None, agent: str = None):
     elif quality == "standard":
         video_tool = kling_pro
     elif quality == "high_quality":
-        if sound_effects:
-            video_tool = veo3
-        else:
-            if start_image:
-                video_tool = veo2
-            else:
+        if veo3_enabled:
+            if sound_effects and not start_image:
                 video_tool = veo3
+            else:
+                video_tool = veo2
+        else:
+            video_tool = veo2
 
     print("Tool selected", video_tool.key)
 
@@ -102,7 +125,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
     # - Lora is set, so we want to do img2vid with a lora-applied image instead of txt2vid
     # Otherwise, can just do txt2vid without a start image
     if not start_image:
-        if video_tool == runway or loras:
+        if video_tool in [runway, hedra] or loras:
             print("Generating start image with Lora")
             args = {"prompt": prompt}
             if loras:
@@ -122,7 +145,11 @@ async def handler(args: dict, user: str = None, agent: str = None):
     else:
         start_image_attributes = None
     
-    
+    # Veo-3 doesn't support start images, so fall back to veo-2
+    if start_image and video_tool == veo3:
+        video_tool = veo2
+
+
     #########################################################
     # Runway
     if video_tool == runway:
@@ -290,7 +317,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
 
 
     # If sound effects are requested, try to add them
-    if sound_effects and video_tool.key != "veo3":
+    if sound_effects and video_tool != veo3:
         try:
             args = {
                 "prompt": sound_effects,
