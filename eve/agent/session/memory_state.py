@@ -19,7 +19,8 @@ except ImportError:
 
 # Global state dict to track session/memory state per agent_id using modal.Dict
 # This acts like redis to store session state and avoid frequent MongoDB queries
-pending_session_memories = modal.Dict.from_name("pending-session-memories", create_if_missing=True)
+db = os.getenv("DB", "STAGE").upper()
+pending_session_memories = modal.Dict.from_name(f"pending-session-memories-{db.lower()}", create_if_missing=True)
 
 # Default session state structure - defined once to avoid duplication
 DEFAULT_SESSION_STATE = {
