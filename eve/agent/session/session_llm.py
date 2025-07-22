@@ -116,17 +116,56 @@ async def async_run_tool_call(
     return result
 
 
-def prepare_messages(messages: List[ChatMessage]) -> List[dict]:
+def add_anthropic_cache_control(messages: List[dict]) -> List[dict]:
+    """
+    Add cache control for Anthropic models to optimize multi-turn conversations.
+
+    - System messages are cached as static prefix
+    - Second-to-last user message is cached as checkpoint
+    - Final message is cached for continuation in follow-ups
+    """
+    # Add cache control to system message (static prefix)
+    for i, msg in enumerate(messages):
+        if msg.get("role") == "system":
+            messages[i]["cache_control"] = {"type": "ephemeral"}
+            break
+
+    # Find the last user message and second-to-last user message
+    user_message_indices = []
+    for i, msg in enumerate(messages):
+        if msg.get("role") == "user":
+            user_message_indices.append(i)
+
+    # Mark second-to-last user message for caching (checkpoint)
+    if len(user_message_indices) >= 2:
+        messages[user_message_indices[-2]]["cache_control"] = {"type": "ephemeral"}
+
+    # Mark the final message for continuing in followups
+    if len(messages) > 0:
+        messages[-1]["cache_control"] = {"type": "ephemeral"}
+
+    return messages
+
+
+def prepare_messages(
+    messages: List[ChatMessage], model: Optional[str] = None
+) -> List[dict]:
     messages = [schema for msg in messages for schema in msg.openai_schema()]
+
+    # Add Anthropic cache control for models that support it
+    if model and ("claude" in model or "anthropic" in model):
+        messages = add_anthropic_cache_control(messages)
+
     return messages
 
 
 async def async_prompt_litellm(
     context: LLMContext,
 ) -> LLMResponse:
+    messages = prepare_messages(context.messages, context.config.model)
     response = completion(
         model=context.config.model,
-        messages=prepare_messages(context.messages),
+        messages=messages,
         metadata=construct_observability_metadata(context),
         tools=construct_tools(context),
         response_format=context.config.response_format,
@@ -157,7 +196,7 @@ async def async_prompt_stream_litellm(
 ) -> AsyncGenerator[str, None]:
     response = await litellm.acompletion(
         model=context.config.model,
-        messages=prepare_messages(context.messages),
+        messages=prepare_messages(context.messages, context.config.model),
         metadata=construct_observability_metadata(context),
         tools=construct_tools(context),
         stream=True,
