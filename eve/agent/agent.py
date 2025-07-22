@@ -219,6 +219,7 @@ class Agent(User):
 
             for t in set_tools:
                 try:
+                    print(f"Loading tool {t}")
                     tool = Tool.from_raw_yaml({"parent_tool": t})
                     tools[t] = tool
                 except Exception as e:
