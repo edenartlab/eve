@@ -28,6 +28,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
         )
 
     # Create Discord client
+    print(f"***debug*** Creating Discord client for channel {channel_id}")
     client = discord.Client(intents=discord.Intents.default())
 
     try:

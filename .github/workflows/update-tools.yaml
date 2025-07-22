@@ -65,33 +65,18 @@ jobs:
           echo "Changed files:"
           echo "$CHANGED_FILES"
 
-          # Extract unique tool names
+          # Extract unique tool names (folder names)
           TOOLS=""
           for file in $CHANGED_FILES; do
             # Remove the eve/tools/ prefix
-              tool_path=${file#eve/tools/}
+            tool_path=${file#eve/tools/}
             
-            # Extract tool name based on path structure
-            if [[ "$tool_path" == *.py ]]; then
-              # Single file tool (e.g., gcp_tool.py -> gcp_tool)
-              tool_name=$(basename "$tool_path" .py)
-              if [[ "$tool_name" != "tool_handlers" && "$tool_name" != "replicate_tool" && "$tool_name" != "modal_tool" && "$tool_name" != "local_tool" && "$tool_name" != "fal_tool" && "$tool_name" != "comfyui_tool" ]]; then
-                TOOLS="$TOOLS $tool_name"
-              fi
-            else
-              # Directory-based tool
-              # Get the first directory segment
-              first_dir=$(echo "$tool_path" | cut -d'/' -f1)
-              
-              # Check if it's a nested tool structure like discord/discord_post
-              if [[ "$tool_path" == */discord_*/* ]] || [[ "$tool_path" == discord/discord_*/* ]]; then
-                # Extract the specific tool name (e.g., discord_post)
-                tool_name=$(echo "$tool_path" | grep -o 'discord_[^/]*' | head -1)
-                TOOLS="$TOOLS $tool_name"
-              elif [[ "$first_dir" != "__pycache__" && "$first_dir" != "legacy" ]]; then
-                # Regular directory tool
-                TOOLS="$TOOLS $first_dir"
-              fi
+            # Get the first directory segment as the tool name
+            tool_name=$(echo "$tool_path" | cut -d'/' -f1)
+            
+            # Skip system directories and files
+            if [[ "$tool_name" != "__pycache__" && "$tool_name" != "legacy" && "$tool_name" != "" ]]; then
+              TOOLS="$TOOLS $tool_name"
             fi
           done
 
@@ -104,8 +89,14 @@ jobs:
       - name: Update tools
         if: steps.changed-tools.outputs.tools != ''
         working-directory: eve
+        env:
+          DB: ${{ env.DB }}
+          MONGO_URI: ${{ secrets.MONGO_URI }}
+          EDEN_API_KEY: ${{ secrets.EDEN_API_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION_NAME: ${{ secrets.AWS_REGION_NAME }}
         run: |
-          export DB=${{ env.DB }}
           echo "Updating tools in $DB environment..."
 
           for tool in ${{ steps.changed-tools.outputs.tools }}; do
