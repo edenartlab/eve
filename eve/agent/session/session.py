@@ -47,6 +47,7 @@ from eve.agent.session.config import (
     DEFAULT_SESSION_SELECTION_LIMIT,
     get_default_session_llm_config,
 )
+from eve.user import User
 
 
 class SessionCancelledException(Exception):
@@ -300,7 +301,7 @@ async def build_llm_context(
     trace_id: Optional[str] = None,
     user_message: Optional[ChatMessage] = None,
 ):
-    tools = actor.get_tools(cache=True, auth_user=context.initiating_user_id)
+    tools = actor.get_tools(cache=False, auth_user=context.initiating_user_id)
 
     # build messages
     system_message = await build_system_message(session, actor, context, tools)
@@ -312,10 +313,13 @@ async def build_llm_context(
     if user_message:
         messages.append(user_message)
 
+    user = User.from_mongo(context.initiating_user_id)
+    tier = "premium" if user.subscriptionTier and user.subscriptionTier > 0 else "free"
+
     return LLMContext(
         messages=messages,
         tools=tools,
-        config=context.llm_config or get_default_session_llm_config(),
+        config=context.llm_config or get_default_session_llm_config(tier),
         metadata=LLMContextMetadata(
             # for observability purposes. not same as session.id
             session_id=f"{os.getenv('DB')}-{str(context.session.id)}",

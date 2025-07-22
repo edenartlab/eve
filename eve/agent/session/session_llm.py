@@ -28,6 +28,7 @@ supported_models = [
     "gemini-2.5-flash",
     "claude-sonnet-4-20250514",
     "claude-opus-4-20250514",
+    "gemini/gemini-2.5-flash-preview-05-20",
 ]
 
 
