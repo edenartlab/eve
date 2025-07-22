@@ -1,0 +1,114 @@
+name: Update Tools
+
+on:
+  push:
+    branches:
+      - staging
+      - main
+    paths:
+      - "eve/eve/tools/**"
+
+jobs:
+  update-tools:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout workflows repo
+        uses: actions/checkout@v4
+        with:
+          repository: edenartlab/workflows
+          path: workflows
+
+      - name: Checkout main repo
+        uses: actions/checkout@v4
+        with:
+          path: eve
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install the latest version of rye
+        uses: eifinger/setup-rye@v4
+
+      - name: Install dependencies
+        working-directory: eve
+        run: rye sync
+
+      - name: Configure Modal token
+        working-directory: eve
+        run: rye run modal token set --token-id ${{ secrets.MODAL_TOKEN_ID }} --token-secret ${{ secrets.MODAL_TOKEN_SECRET }}
+
+      - name: Set environment variable
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "DB=PROD" >> $GITHUB_ENV
+          elif [ "${{ github.ref }}" = "refs/heads/staging" ]; then
+            echo "DB=STAGE" >> $GITHUB_ENV
+          fi
+
+      - name: Detect changed tools
+        id: changed-tools
+        working-directory: eve
+        run: |
+          # Get the list of changed files in tools directory
+          CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep '^eve/eve/tools/' | grep -v __pycache__ || true)
+
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "No tools changed"
+            echo "tools=" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+
+          # Extract unique tool names
+          TOOLS=""
+          for file in $CHANGED_FILES; do
+            # Remove the eve/eve/tools/ prefix
+            tool_path=${file#eve/eve/tools/}
+            
+            # Extract tool name based on path structure
+            if [[ "$tool_path" == *.py ]]; then
+              # Single file tool (e.g., gcp_tool.py -> gcp_tool)
+              tool_name=$(basename "$tool_path" .py)
+              if [[ "$tool_name" != "tool_handlers" && "$tool_name" != "replicate_tool" && "$tool_name" != "modal_tool" && "$tool_name" != "local_tool" && "$tool_name" != "fal_tool" && "$tool_name" != "comfyui_tool" ]]; then
+                TOOLS="$TOOLS $tool_name"
+              fi
+            else
+              # Directory-based tool
+              # Get the first directory segment
+              first_dir=$(echo "$tool_path" | cut -d'/' -f1)
+              
+              # Check if it's a nested tool structure like discord/discord_post
+              if [[ "$tool_path" == */discord_*/* ]] || [[ "$tool_path" == discord/discord_*/* ]]; then
+                # Extract the specific tool name (e.g., discord_post)
+                tool_name=$(echo "$tool_path" | grep -o 'discord_[^/]*' | head -1)
+                TOOLS="$TOOLS $tool_name"
+              elif [[ "$first_dir" != "__pycache__" && "$first_dir" != "legacy" ]]; then
+                # Regular directory tool
+                TOOLS="$TOOLS $first_dir"
+              fi
+            fi
+          done
+
+          # Remove duplicates and trim whitespace
+          UNIQUE_TOOLS=$(echo "$TOOLS" | tr ' ' '\n' | sort -u | tr '\n' ' ' | sed 's/[[:space:]]*$//')
+
+          echo "Detected tools: $UNIQUE_TOOLS"
+          echo "tools=$UNIQUE_TOOLS" >> $GITHUB_OUTPUT
+
+      - name: Update tools
+        if: steps.changed-tools.outputs.tools != ''
+        working-directory: eve
+        run: |
+          export DB=${{ env.DB }}
+          echo "Updating tools in $DB environment..."
+
+          for tool in ${{ steps.changed-tools.outputs.tools }}; do
+            echo "Updating tool: $tool"
+            rye run eve tool update "$tool" || echo "Failed to update $tool, continuing..."
+          done
