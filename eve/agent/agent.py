@@ -272,15 +272,12 @@ class Agent(User):
                 allowed_channels = self.deployments["discord"].get_allowed_channels()
                 channels_description = " | ".join(
                     [f"ID {c.id} ({c.note})" for c in allowed_channels]
-                )
-                tools["discord_post"].update_parameters(
-                    {
-                        "channel_id": {
-                            "choices": [c.id for c in allowed_channels],
-                            "tip": f"Some hints about the available channels: {channels_description}",
-                        },
-                    }
-                )
+                )                # tools["discord_post"].update_parameters({
+                #     "channel_id": {
+                #         "choices": [c.id for c in allowed_channels],
+                #         "tip": f"Some hints about the available channels: {channels_description}"
+                #     },
+                # })
 
         # update telegram post tool with allowed channels
         if "telegram" in self.deployments:
