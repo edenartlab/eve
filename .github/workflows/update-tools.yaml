@@ -54,7 +54,7 @@ jobs:
         working-directory: eve
         run: |
           # Get the list of changed files in tools directory
-          CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep '^eve/eve/tools/' | grep -v __pycache__ || true)
+          CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep '^eve/tools/' | grep -v __pycache__ || true)
 
           if [ -z "$CHANGED_FILES" ]; then
             echo "No tools changed"
@@ -68,8 +68,8 @@ jobs:
           # Extract unique tool names
           TOOLS=""
           for file in $CHANGED_FILES; do
-            # Remove the eve/eve/tools/ prefix
-            tool_path=${file#eve/eve/tools/}
+            # Remove the eve/tools/ prefix
+              tool_path=${file#eve/tools/}
             
             # Extract tool name based on path structure
             if [[ "$tool_path" == *.py ]]; then
