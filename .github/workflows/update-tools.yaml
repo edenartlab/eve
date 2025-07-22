@@ -6,7 +6,7 @@ on:
       - staging
       - main
     paths:
-      - "eve/eve/tools/**"
+      - "eve/tools/**"
 
 jobs:
   update-tools:
