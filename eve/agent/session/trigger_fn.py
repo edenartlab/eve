@@ -18,6 +18,7 @@ from eve.agent.session.session import (
     async_prompt_session,
     validate_prompt_session,
     async_title_session,
+    add_user_message,
 )
 
 
@@ -163,7 +164,12 @@ async def trigger_fn():
 
         # Stage 3: LLM context building and prompt session
         try:
-            llm_context = await build_llm_context(session, actor, context)
+            # Create user message first, like in session.py
+            user_message = add_user_message(session, context)
+
+            llm_context = await build_llm_context(
+                session, actor, context, user_message=user_message
+            )
 
             async for update in async_prompt_session(
                 session, llm_context, actor, stream=True
@@ -251,7 +257,12 @@ async def trigger_fn():
                     custom_tools=custom_tools,
                 )
 
-                llm_context = await build_llm_context(session, actor, context)
+                # Create user message first, like in session.py
+                user_message = add_user_message(session, context)
+
+                llm_context = await build_llm_context(
+                    session, actor, context, user_message=user_message
+                )
 
                 async for update in async_prompt_session(
                     session, llm_context, actor, stream=True
