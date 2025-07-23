@@ -84,7 +84,20 @@ def construct_observability_metadata(context: LLMContext):
 def construct_tools(context: LLMContext) -> Optional[List[dict]]:
     if not context.tools:
         return None
-    return [tool.openai_schema(exclude_hidden=True) for tool in context.tools.values()]
+    tools = [tool.openai_schema(exclude_hidden=True) for tool in context.tools.values()]
+    
+    # Fix for Gemini/Vertex AI: enum values must be strings and parameter type must be "string"
+    if context.config.model and ("gemini" in context.config.model or "vertex" in context.config.model):
+        for tool in tools:
+            params = tool.get('function', {}).get('parameters', {}).get('properties', {})
+            for param_name, param_def in params.items():
+                if 'enum' in param_def:
+                    # Convert all enum values to strings
+                    param_def['enum'] = [str(val) for val in param_def['enum']]
+                    # Ensure parameter type is "string" when using enum
+                    param_def['type'] = 'string'
+    
+    return tools
 
 
 async def async_run_tool_call(
@@ -163,11 +176,13 @@ async def async_prompt_litellm(
     context: LLMContext,
 ) -> LLMResponse:
     messages = prepare_messages(context.messages, context.config.model)
+    tools = construct_tools(context)
+
     response = completion(
         model=context.config.model,
         messages=messages,
         metadata=construct_observability_metadata(context),
-        tools=construct_tools(context),
+        tools=tools,
         response_format=context.config.response_format,
     )
 
