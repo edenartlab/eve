@@ -14,19 +14,19 @@ ably==2.0.12
     # via eve
 aiofiles==24.1.0
     # via eve
-aiohappyeyeballs==2.4.4
+aiohappyeyeballs==2.6.1
     # via aiohttp
-aiohttp==3.11.10
+aiohttp==3.12.14
     # via instructor
     # via litellm
     # via modal
     # via py-cord
     # via web3
-aiosignal==1.3.1
+aiosignal==1.4.0
     # via aiohttp
 annotated-types==0.7.0
     # via pydantic
-anthropic==0.49.0
+anthropic==0.58.2
     # via eve
 anyio==4.9.0
     # via anthropic
@@ -39,7 +39,7 @@ anyio==4.9.0
     # via watchfiles
 apscheduler==3.11.0
     # via eve
-attrs==24.2.0
+attrs==25.3.0
     # via aiohttp
     # via jsonschema
     # via referencing
@@ -48,20 +48,20 @@ backoff==2.2.1
     # via langfuse
 beanie==1.22.6
     # via eve
-bitarray==3.0.0
+bitarray==3.5.2
     # via eth-account
 blurhash==1.1.4
     # via eve
-boto3==1.35.77
+boto3==1.39.11
     # via eve
-botocore==1.35.77
+botocore==1.39.11
     # via boto3
     # via s3transfer
-cachetools==5.5.0
+cachetools==5.5.2
     # via google-auth
 canonicaljson==2.0.0
     # via farcaster
-certifi==2024.8.30
+certifi==2025.7.14
     # via httpcore
     # via httpx
     # via modal
@@ -71,13 +71,13 @@ cffi==1.17.1
     # via cryptography
 cfgv==3.4.0
     # via pre-commit
-charset-normalizer==3.4.0
+charset-normalizer==3.4.2
     # via requests
-ckzg==1.0.2
-    # via web3
+ckzg==2.1.1
+    # via eth-account
 clerk-backend-api==2.2.0
     # via eve
-click==8.1.7
+click==8.1.8
     # via beanie
     # via eve
     # via litellm
@@ -92,7 +92,9 @@ cytoolz==1.0.1
     # via eth-utils
 decorator==5.2.1
     # via moviepy
-distlib==0.3.9
+diskcache==5.6.3
+    # via instructor
+distlib==0.4.0
     # via virtualenv
 distro==1.9.0
     # via anthropic
@@ -100,33 +102,33 @@ distro==1.9.0
     # via runwayml
 dnspython==2.7.0
     # via pymongo
-docstring-parser==0.16
+docstring-parser==0.17.0
     # via google-cloud-aiplatform
     # via instructor
 elevenlabs==1.13.4
     # via eve
-eth-abi==5.0.1
+eth-abi==5.2.0
     # via eth-account
     # via web3
-eth-account==0.10.0
+eth-account==0.13.7
     # via farcaster
     # via web3
-eth-hash==0.7.0
+eth-hash==0.7.1
     # via eth-utils
     # via web3
 eth-keyfile==0.8.1
     # via eth-account
-eth-keys==0.6.0
+eth-keys==0.7.0
     # via eth-account
     # via eth-keyfile
-eth-rlp==1.0.1
+eth-rlp==2.2.0
     # via eth-account
-eth-typing==4.4.0
+eth-typing==5.2.1
     # via eth-abi
     # via eth-keys
     # via eth-utils
     # via web3
-eth-utils==4.1.1
+eth-utils==5.3.0
     # via eth-abi
     # via eth-account
     # via eth-keyfile
@@ -136,31 +138,31 @@ eth-utils==4.1.1
     # via web3
 fal-client==0.5.9
     # via eve
-farcaster==0.7.11
+farcaster==0.7.12
     # via eve
-fastapi==0.115.6
+fastapi==0.116.1
     # via eve
-filelock==3.16.1
+filelock==3.18.0
     # via huggingface-hub
     # via torch
     # via virtualenv
-frozenlist==1.5.0
+frozenlist==1.7.0
     # via aiohttp
     # via aiosignal
-fsspec==2025.3.2
+fsspec==2025.7.0
     # via huggingface-hub
     # via torch
-gitdb==4.0.11
+gitdb==4.0.12
     # via gitpython
-gitpython==3.1.43
+gitpython==3.1.44
     # via eve
-google-api-core==2.24.0
+google-api-core==2.25.1
     # via google-cloud-aiplatform
     # via google-cloud-bigquery
     # via google-cloud-core
     # via google-cloud-resource-manager
     # via google-cloud-storage
-google-auth==2.36.0
+google-auth==2.40.3
     # via google-api-core
     # via google-cloud-aiplatform
     # via google-cloud-bigquery
@@ -168,55 +170,56 @@ google-auth==2.36.0
     # via google-cloud-resource-manager
     # via google-cloud-storage
     # via google-genai
-google-cloud-aiplatform==1.74.0
+google-cloud-aiplatform==1.104.0
     # via eve
-google-cloud-bigquery==3.27.0
+google-cloud-bigquery==3.35.0
     # via google-cloud-aiplatform
-google-cloud-core==2.4.1
+google-cloud-core==2.4.3
     # via google-cloud-bigquery
     # via google-cloud-storage
-google-cloud-resource-manager==1.13.1
+google-cloud-resource-manager==1.14.2
     # via google-cloud-aiplatform
 google-cloud-storage==2.19.0
     # via google-cloud-aiplatform
-google-crc32c==1.6.0
+google-crc32c==1.7.1
     # via google-cloud-storage
     # via google-resumable-media
 google-genai==1.16.1
     # via eve
+    # via google-cloud-aiplatform
 google-resumable-media==2.7.2
     # via google-cloud-bigquery
     # via google-cloud-storage
-googleapis-common-protos==1.66.0
+googleapis-common-protos==1.70.0
     # via google-api-core
     # via grpc-google-iam-v1
     # via grpcio-status
-grpc-google-iam-v1==0.13.1
+grpc-google-iam-v1==0.14.2
     # via google-cloud-resource-manager
-grpcio==1.68.1
+grpcio==1.73.1
     # via google-api-core
     # via googleapis-common-protos
     # via grpc-google-iam-v1
     # via grpcio-status
-grpcio-status==1.68.1
+grpcio-status==1.73.1
     # via google-api-core
-grpclib==0.4.7
+grpclib==0.4.8
     # via modal
-h11==0.14.0
+h11==0.16.0
     # via httpcore
     # via uvicorn
-h2==4.1.0
+h2==4.2.0
     # via ably
     # via grpclib
-hexbytes==0.3.1
+hexbytes==1.3.1
     # via eth-account
     # via eth-rlp
     # via web3
-hf-xet==1.1.2
+hf-xet==1.1.5
     # via huggingface-hub
-hpack==4.0.0
+hpack==4.1.0
     # via h2
-httpcore==1.0.7
+httpcore==1.0.9
     # via httpx
 httpx==0.28.1
     # via ably
@@ -232,13 +235,13 @@ httpx==0.28.1
     # via python-telegram-bot
     # via replicate
     # via runwayml
-httpx-sse==0.4.0
+httpx-sse==0.4.1
     # via fal-client
-huggingface-hub==0.32.3
+huggingface-hub==0.33.4
     # via tokenizers
-hyperframe==6.0.1
+hyperframe==6.1.0
     # via h2
-identify==2.6.3
+identify==2.6.12
     # via pre-commit
 idna==3.10
     # via anyio
@@ -252,15 +255,15 @@ imageio-ffmpeg==0.6.0
     # via moviepy
 importlib-metadata==8.7.0
     # via litellm
-iniconfig==2.0.0
+iniconfig==2.1.0
     # via pytest
-instructor==1.7.0
+instructor==1.10.0
     # via eve
-jinja2==3.1.4
+jinja2==3.1.6
     # via instructor
     # via litellm
     # via torch
-jiter==0.6.1
+jiter==0.10.0
     # via anthropic
     # via instructor
     # via openai
@@ -269,10 +272,9 @@ jmespath==1.0.1
     # via botocore
 jsonref==1.1.0
     # via eve
-jsonschema==4.23.0
+jsonschema==4.25.0
     # via litellm
-    # via web3
-jsonschema-specifications==2024.10.1
+jsonschema-specifications==2025.4.1
     # via jsonschema
 langfuse==2.59.7
     # via eve
@@ -280,8 +282,6 @@ lazy-model==0.2.0
     # via beanie
 litellm==1.70.0
     # via eve
-lru-dict==1.2.0
-    # via web3
 markdown-it-py==3.0.0
     # via rich
 markupsafe==3.0.2
@@ -290,7 +290,7 @@ mdurl==0.1.2
     # via markdown-it-py
 methoddispatch==3.0.2
     # via ably
-modal==1.0.1
+modal==1.1.0
     # via eve
 motor==3.3.1
     # via beanie
@@ -299,23 +299,23 @@ moviepy==2.2.1
     # via eve
 mpmath==1.3.0
     # via sympy
-msgpack==1.1.0
+msgpack==1.1.1
     # via ably
-multidict==6.1.0
+multidict==6.6.3
     # via aiohttp
     # via grpclib
     # via yarl
-networkx==3.4.2
+networkx==3.5
     # via torch
 nodeenv==1.9.1
     # via pre-commit
-numpy==2.2.0
+numpy==2.3.1
     # via eve
     # via imageio
     # via moviepy
     # via pylance
     # via shapely
-oauthlib==3.2.2
+oauthlib==3.3.1
     # via requests-oauthlib
     # via tweepy
 openai==1.75.0
@@ -329,28 +329,28 @@ packaging==24.2
     # via langfuse
     # via pytest
     # via replicate
-parsimonious==0.9.0
+parsimonious==0.10.0
     # via eth-abi
     # via farcaster
-pillow==11.0.0
+pillow==11.3.0
     # via eve
     # via imageio
     # via moviepy
-platformdirs==4.3.6
+platformdirs==4.3.8
     # via virtualenv
-pluggy==1.5.0
+pluggy==1.6.0
     # via pytest
-pre-commit==4.0.1
+pre-commit==4.2.0
 proglog==0.1.12
     # via moviepy
-propcache==0.2.1
+propcache==0.3.2
     # via aiohttp
     # via yarl
-proto-plus==1.25.0
+proto-plus==1.26.1
     # via google-api-core
     # via google-cloud-aiplatform
     # via google-cloud-resource-manager
-protobuf==5.29.1
+protobuf==6.31.1
     # via google-api-core
     # via google-cloud-aiplatform
     # via google-cloud-resource-manager
@@ -359,28 +359,29 @@ protobuf==5.29.1
     # via grpcio-status
     # via modal
     # via proto-plus
-    # via web3
 psutil==6.0.0
     # via eve
 py-cord==2.6.1
     # via eve
-pyarrow==18.1.0
+pyarrow==21.0.0
     # via pylance
 pyasn1==0.6.1
     # via pyasn1-modules
     # via rsa
-pyasn1-modules==0.4.1
+pyasn1-modules==0.4.2
     # via google-auth
 pycparser==2.22
     # via cffi
-pycryptodome==3.21.0
+pycryptodome==3.23.0
     # via eth-hash
     # via eth-keyfile
-pydantic==2.11.5
+pydantic==2.11.7
     # via anthropic
     # via beanie
     # via clerk-backend-api
     # via elevenlabs
+    # via eth-account
+    # via eth-utils
     # via eve
     # via farcaster
     # via fastapi
@@ -393,28 +394,30 @@ pydantic==2.11.5
     # via openai
     # via replicate
     # via runwayml
+    # via web3
 pydantic-core==2.33.2
     # via elevenlabs
     # via instructor
     # via pydantic
 pydub==0.25.1
     # via eve
-pyee==11.1.1
+pyee==12.1.1
     # via ably
-pygments==2.18.0
+pygments==2.19.2
+    # via pytest
     # via rich
 pyhumps==3.8.0
     # via farcaster
 pyjwt==2.10.1
     # via clerk-backend-api
     # via eve
-pylance==0.20.0
+pylance==0.31.1
 pymongo==4.6.1
     # via eve
     # via motor
-pytest==8.3.4
+pytest==8.4.1
     # via pytest-asyncio
-pytest-asyncio==0.24.0
+pytest-asyncio==1.1.0
 python-dateutil==2.9.0.post0
     # via botocore
     # via google-cloud-bigquery
@@ -425,7 +428,7 @@ python-dotenv==1.0.1
     # via moviepy
 python-magic==0.4.27
     # via eve
-python-telegram-bot==21.9
+python-telegram-bot==22.3
     # via eve
 pytz==2025.2
     # via eve
@@ -435,15 +438,15 @@ pyyaml==6.0.2
     # via eve
     # via huggingface-hub
     # via pre-commit
-referencing==0.35.1
+referencing==0.36.2
     # via jsonschema
     # via jsonschema-specifications
 regex==2024.11.6
     # via parsimonious
     # via tiktoken
-replicate==1.0.4
+replicate==1.0.7
     # via eve
-requests==2.32.3
+requests==2.32.4
     # via elevenlabs
     # via eve
     # via farcaster
@@ -461,30 +464,30 @@ requests==2.32.3
 requests-oauthlib==2.0.0
     # via eve
     # via tweepy
-rich==13.9.4
+rich==14.0.0
     # via instructor
     # via modal
     # via typer
-rlp==4.0.1
+rlp==4.1.0
     # via eth-account
     # via eth-rlp
-rpds-py==0.22.3
+rpds-py==0.26.0
     # via jsonschema
     # via referencing
-rsa==4.9
+rsa==4.9.1
     # via google-auth
-ruff==0.8.2
-runwayml==3.5.0
+ruff==0.12.4
+runwayml==3.7.1
     # via eve
-s3transfer==0.10.4
+s3transfer==0.13.1
     # via boto3
 safetensors==0.5.3
     # via eve
-sentry-sdk==2.19.2
+sentry-sdk==2.33.2
     # via eve
-setuptools==75.6.0
+setuptools==80.9.0
     # via torch
-shapely==2.0.6
+shapely==2.1.1
     # via google-cloud-aiplatform
 shellingham==1.5.4
     # via typer
@@ -492,26 +495,26 @@ sigtools==4.0.1
     # via synchronicity
 six==1.17.0
     # via python-dateutil
-smmap==5.0.1
+smmap==5.0.2
     # via gitdb
 sniffio==1.3.1
     # via anthropic
     # via anyio
     # via openai
     # via runwayml
-starlette==0.41.3
+starlette==0.47.2
     # via eve
     # via fastapi
 sympy==1.14.0
     # via torch
-synchronicity==0.9.12
+synchronicity==0.10.1
     # via modal
-tenacity==9.0.0
+tenacity==9.1.2
     # via eve
     # via instructor
 tiktoken==0.9.0
     # via litellm
-tokenizers==0.21.1
+tokenizers==0.21.2
     # via litellm
 toml==0.10.2
     # via beanie
@@ -525,21 +528,25 @@ tqdm==4.67.1
     # via huggingface-hub
     # via openai
     # via proglog
-tweepy==4.15.0
+tweepy==4.16.0
     # via eve
-typer==0.15.1
+typer==0.16.0
     # via instructor
     # via modal
 types-certifi==2021.10.8.3
     # via modal
+types-requests==2.32.4.20250611
+    # via web3
 types-toml==0.10.8.20240310
     # via modal
-typing-extensions==4.12.2
+typing-extensions==4.14.1
+    # via aiosignal
     # via anthropic
     # via anyio
     # via elevenlabs
     # via eth-typing
     # via fastapi
+    # via google-cloud-aiplatform
     # via google-genai
     # via huggingface-hub
     # via modal
@@ -547,8 +554,10 @@ typing-extensions==4.12.2
     # via pydantic
     # via pydantic-core
     # via pyee
+    # via referencing
     # via replicate
     # via runwayml
+    # via starlette
     # via synchronicity
     # via torch
     # via typer
@@ -556,18 +565,19 @@ typing-extensions==4.12.2
     # via web3
 typing-inspection==0.4.1
     # via pydantic
-tzlocal==5.3
+tzlocal==5.3.1
     # via apscheduler
-urllib3==2.2.3
+urllib3==2.5.0
     # via botocore
     # via requests
     # via sentry-sdk
-uvicorn==0.32.1
-virtualenv==20.28.0
+    # via types-requests
+uvicorn==0.35.0
+virtualenv==20.32.0
     # via pre-commit
-watchfiles==1.0.4
+watchfiles==1.1.0
     # via modal
-web3==6.20.3
+web3==7.6.0
     # via eve
 websockets==13.1
     # via ably
@@ -576,7 +586,7 @@ websockets==13.1
     # via web3
 wrapt==1.17.2
     # via langfuse
-yarl==1.18.3
+yarl==1.20.1
     # via aiohttp
-zipp==3.22.0
+zipp==3.23.0
     # via importlib-metadata

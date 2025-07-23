@@ -1,0 +1,51 @@
+name: Runway Act Two
+description: Control a character by transferring the audio and action from a reference video onto a character image
+tip: |-
+  This tool lets you control a character image from a reference video, including transferring audio, lip-sync, facial and body movements.
+thumbnail: app/runway-tree-orb-woman2-opt.mp4
+cost_estimate: 7.5 * duration
+output_type: video
+base_model: runway
+handler: modal
+active: true
+visible: true
+parameters:
+  character_image:
+    type: image
+    label: Character image
+    description: The image of the character to animate
+    tip: There must be a face in the image.
+    required: true
+  reference_video:
+    type: video
+    label: Reference video
+    description: The audio and action will be transferred from the reference video to the character_image.
+  expression_intensity:
+    type: integer
+    label: Expression intensity
+    description: The intensity of the facial expressions
+    default: 4
+    minimum: 1
+    maximum: 5
+  body_control:
+    type: booleam
+    label: Body control
+    description: To apply non-facial movements and gestures to the character in addition to facial expressions.
+    default: true
+  ratio:
+    type: string
+    label: Ratio
+    description: The aspect ratio of the video
+    default: '16:9'
+    choices: ['16:9', '4:3', '1:1', '3:4', '9:16', '9:21']
+    required: true
+  seed:
+    type: integer
+    label: Seed
+    description: Set random seed for reproducibility. If blank, will be set to a random value.
+    tip: |-
+      You should only set this if you want to start from/copy the seed of a previous image. Unless one is specified, leave this blank.
+    default: random
+    minimum: 0
+    maximum: 2147483647
+  
