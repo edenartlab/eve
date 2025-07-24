@@ -241,12 +241,12 @@ class Tool(Document, ABC):
     def from_pydantic(
         cls,
         model: Type[BaseModel],
-        key: str,
+        key: Optional[str] = None,
         name: Optional[str] = None,
         description: Optional[str] = None,
         tip: Optional[str] = None,
         thumbnail: Optional[str] = None,
-        output_type: OUTPUT_TYPES = "text",
+        output_type: OUTPUT_TYPES = "string",
         cost_estimate: str = "0",
         resolutions: Optional[List[str]] = None,
         base_model: Optional[BASE_MODELS] = None,
@@ -313,11 +313,9 @@ class Tool(Document, ABC):
 
         # Build the tool schema
         schema = {
-            "key": key,
+            "key": key or model.__name__,
             "name": name or model.__name__,
-            "description": description
-            or model.__doc__
-            or f"Tool generated from {model.__name__}",
+            "description": description or model.__doc__ or f"Tool generated from {model.__name__}",
             "tip": tip,
             "thumbnail": thumbnail,
             "output_type": output_type,
