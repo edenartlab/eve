@@ -104,6 +104,24 @@ You have been given the following instructions. Do not ask for clarification, or
                         "trigger": str(trigger.id),
                     }
 
+                # Add notification configuration for trigger completion
+                request_data["notification_config"] = {
+                    "user_id": str(trigger.user),
+                    "notification_type": "trigger_complete",
+                    "title": "Trigger Completed Successfully",
+                    "message": f"Your scheduled trigger has completed successfully: {trigger.instruction[:100]}...",
+                    "trigger_id": str(trigger.id),
+                    "agent_id": str(trigger.agent),
+                    "priority": "normal",
+                    "metadata": {
+                        "trigger_id": trigger.trigger_id,
+                    },
+                    "success_notification": True,
+                    "failure_notification": True,
+                    "failure_title": "Trigger Failed",
+                    "failure_message": f"Your scheduled trigger failed: {trigger.instruction[:100]}...",
+                }
+
                 # Make async HTTP POST to prompt session endpoint
                 async with aiohttp.ClientSession() as session:
                     async with session.post(
@@ -159,6 +177,7 @@ You have been given the following instructions. Do not ask for clarification, or
     except Exception as e:
         logger.error(f"Error in run_scheduled_triggers: {str(e)}")
         sentry_sdk.capture_exception(e)
+
 
 
 async def handle_trigger_posting(trigger, session_id):

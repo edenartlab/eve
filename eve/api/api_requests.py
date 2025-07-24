@@ -165,6 +165,7 @@ class PromptSessionRequest(BaseModel):
     update_config: Optional[SessionUpdateConfig] = None
     llm_config: Optional[LLMConfig] = None
     stream: bool = False
+    notification_config: Optional[Dict[str, Any]] = None
 
     # Session creation fields (used when session_id is not provided)
     creation_args: Optional[SessionCreationArgs] = None

@@ -682,6 +682,25 @@ class Session(Document):
 
 
 @dataclass
+class NotificationConfig:
+    """Configuration for notifications to send upon session completion"""
+    user_id: str
+    notification_type: str = "session_complete"
+    title: str = "Session Complete"
+    message: str = "Your session has completed successfully"
+    trigger_id: Optional[str] = None
+    agent_id: Optional[str] = None
+    priority: str = "normal"
+    metadata: Optional[Dict[str, Any]] = None
+    success_notification: bool = True
+    failure_notification: bool = True
+    success_title: Optional[str] = None
+    success_message: Optional[str] = None
+    failure_title: Optional[str] = None
+    failure_message: Optional[str] = None
+
+
+@dataclass
 class PromptSessionContext:
     session: Session
     initiating_user_id: str
@@ -690,6 +709,7 @@ class PromptSessionContext:
     actor_agent_ids: Optional[List[str]] = None
     llm_config: Optional[LLMConfig] = None
     custom_tools: Optional[Dict[str, Any]] = None
+    notification_config: Optional[NotificationConfig] = None
 
 
 @dataclass

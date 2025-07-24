@@ -22,6 +22,7 @@ from eve.agent.session.models import (
     DeploymentConfig,
     Notification,
     NotificationChannel,
+    NotificationConfig,
 )
 from eve.deploy import (
     Deployment as DeploymentV1,
@@ -1007,6 +1008,11 @@ async def handle_prompt_session(
     session = setup_session(
         background_tasks, request.session_id, request.user_id, request
     )
+    # Convert notification_config dict to NotificationConfig object if present
+    notification_config = None
+    if request.notification_config:
+        notification_config = NotificationConfig(**request.notification_config)
+    
     context = PromptSessionContext(
         session=session,
         initiating_user_id=request.user_id,
@@ -1014,6 +1020,7 @@ async def handle_prompt_session(
         message=request.message,
         update_config=request.update_config,
         llm_config=request.llm_config,
+        notification_config=notification_config,
     )
 
     if request.stream:
