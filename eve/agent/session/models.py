@@ -645,6 +645,7 @@ class Trigger(Document):
     status: Optional[Literal["active", "paused", "finished"]] = "active"
     deleted: Optional[bool] = False
     last_run_time: Optional[datetime] = None
+    next_scheduled_run: Optional[datetime] = None
 
 
 class SessionContext(BaseModel):
