@@ -1,11 +1,8 @@
 import logging
 import os
-import subprocess
 import pytz
-from datetime import datetime
-import modal
-import modal.runner
-import sentry_sdk
+from datetime import datetime, timezone
+from apscheduler.triggers.cron import CronTrigger
 
 from eve.api.api_requests import CronSchedule
 from eve.api.errors import handle_errors
@@ -13,124 +10,61 @@ from eve.api.errors import handle_errors
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 db = os.getenv("DB", "STAGE").upper()
-TRIGGER_ENV_NAME = "triggers"
-
-trigger_app = modal.App()
 
 
-def trigger_fn_with_sentry():
-    """Wrapper function that configures sentry and calls the actual trigger function"""
-    # Configure sentry for trigger execution
-    with sentry_sdk.configure_scope() as scope:
-        scope.set_tag("package", "eve-triggers")
-        scope.set_tag("modal_serve", True)
-        scope.set_tag("environment", os.getenv("DB", "STAGE").upper())
-
-        # Get trigger ID from environment
-        trigger_id = os.getenv("TRIGGER_ID")
-        if trigger_id:
-            scope.set_tag("trigger_id", trigger_id)
-
-    # Import and run the sync trigger function
-    from eve.agent.session.trigger_fn import trigger_fn_sync
-
-    return trigger_fn_sync()
-
-
-def create_image(trigger_id: str):
-    return (
-        modal.Image.debian_slim(python_version="3.12")
-        .apt_install("libmagic1", "ffmpeg", "wget")
-        .pip_install_from_pyproject("/eve/pyproject.toml")
-        .env({"DB": db})
-        .env({"TRIGGER_ID": trigger_id})
+def calculate_next_scheduled_run(schedule: dict) -> datetime:
+    """Calculate the next scheduled run time based on the cron schedule"""
+    # Extract schedule parameters
+    hour = schedule.get("hour", "*")
+    minute = schedule.get("minute", "*")
+    day_of_month = schedule.get("day_of_month") or schedule.get("day", "*")
+    month = schedule.get("month", "*")
+    day_of_week = schedule.get("day_of_week", "*")
+    timezone_str = schedule.get("timezone", "UTC")
+    end_date = schedule.get("end_date")
+    
+    # Create CronTrigger
+    trigger = CronTrigger(
+        hour=hour,
+        minute=minute,
+        day=day_of_month,
+        month=month,
+        day_of_week=day_of_week,
+        timezone=timezone_str,
+        end_date=end_date
     )
+    
+    # Get next fire time
+    next_time = trigger.get_next_fire_time(None, datetime.now(pytz.timezone(timezone_str)))
+    if next_time:
+        # Convert to UTC for storage
+        return next_time.astimezone(pytz.UTC).replace(tzinfo=timezone.utc)
+    return None
+
+
 
 
 @handle_errors
 async def create_trigger_fn(
     schedule: CronSchedule,
     trigger_id: str,
-) -> None:
+) -> datetime:
+    """Calculate and return the next scheduled run time"""
     print(f"Creating session trigger {trigger_id} with schedule {schedule}")
-    """Creates a Modal scheduled function with the provided cron schedule"""
-    with modal.enable_output():
-        schedule_dict = schedule
-
-        # Get hour and minute from schedule
-        hour = schedule_dict.get("hour", "*")
-        minute = schedule_dict.get("minute", "*")
-        timezone_str = schedule_dict.get("timezone")
-
-        # If we have specific hour/minute values and a timezone, convert to UTC
-        if timezone_str and hour != "*" and minute != "*":
-            try:
-                # Convert to integers for calculation
-                hour_int = int(hour)
-                minute_int = int(minute)
-
-                # Create a datetime object with the scheduled time in the specified timezone
-                user_tz = pytz.timezone(timezone_str)
-                now = datetime.now()
-                local_dt = user_tz.localize(
-                    datetime(now.year, now.month, now.day, hour_int, minute_int)
-                )
-
-                # Convert to UTC
-                utc_dt = local_dt.astimezone(pytz.UTC)
-
-                # Update hour and minute to UTC values
-                hour = str(utc_dt.hour)
-                minute = str(utc_dt.minute)
-
-                logger.info(
-                    f"Converted schedule from {timezone_str} to UTC: {hour_int}:{minute_int} -> {hour}:{minute}"
-                )
-            except Exception as e:
-                logger.error(
-                    f"Error converting timezone: {str(e)}. Using original values."
-                )
-
-        # Get day_of_month, fallback to day for backwards compatibility
-        day_of_month = schedule_dict.get("day_of_month") or schedule_dict.get(
-            "day", "*"
-        )
-
-        # Create cron string with potentially adjusted values
-        cron_string = f"{minute} {hour} {day_of_month} {schedule_dict.get('month', '*')} {schedule_dict.get('day_of_week', '*')}"
-
-        trigger_app.function(
-            schedule=modal.Cron(cron_string),
-            image=create_image(trigger_id),
-            secrets=[
-                modal.Secret.from_name("eve-secrets", environment_name="main"),
-                modal.Secret.from_name(f"eve-secrets-{db}", environment_name="main"),
-            ],
-        )(trigger_fn_with_sentry)
-        modal.runner.deploy_app(
-            trigger_app, name=f"{trigger_id}", environment_name=TRIGGER_ENV_NAME
-        )
-
-        timezone_info = f" (converted from {timezone_str})" if timezone_str else ""
-        logger.info(
-            f"Created Modal trigger {trigger_id} with schedule: {cron_string}{timezone_info}"
-        )
+    schedule_dict = schedule
+    
+    # Calculate next scheduled run
+    next_run = calculate_next_scheduled_run(schedule_dict)
+    
+    if next_run:
+        logger.info(f"Trigger {trigger_id} next scheduled run: {next_run}")
+    else:
+        logger.warning(f"Could not calculate next run time for trigger {trigger_id}")
+    
+    return next_run
 
 
 async def stop_trigger(trigger_id: str) -> None:
-    """Deletes a Modal scheduled function"""
-    try:
-        result = subprocess.run(
-            ["modal", "app", "stop", f"{trigger_id}", "-e", TRIGGER_ENV_NAME],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        logger.info(f"Deleted Modal trigger {trigger_id}")
-        if result.returncode != 0:
-            raise Exception(f"Failed to stop trigger: {result.stderr}")
-
-    except Exception as e:
-        error_msg = f"Failed to delete Modal trigger: {str(e)}"
-        logger.error(error_msg)
-        raise Exception(error_msg)
+    """Mark trigger as stopped in database"""
+    logger.info(f"Stopping trigger {trigger_id}")
+    # No need to stop Modal app anymore since we're using a centralized scheduler
