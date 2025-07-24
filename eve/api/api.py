@@ -1,6 +1,5 @@
 import logging
 import os
-import threading
 import json
 import modal
 import replicate
@@ -10,21 +9,10 @@ from fastapi import FastAPI, Depends, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader, HTTPBearer
 from pathlib import Path
-from contextlib import asynccontextmanager
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.exceptions import RequestValidationError
-import time
 
-from eve import auth, db, eden_utils
-from eve.api.runner_tasks import (
-    cancel_stuck_tasks,
-    generate_lora_thumbnails,
-    rotate_agent_metadata,
-)
-from eve.task import task_handler_func, Task
-from eve.tool import Tool
-from eve.tools.tool_handlers import load_handler
-from eve.tools.replicate_tool import replicate_update_task
+from eve import auth, db
 
 from eve.api.handlers import (
     handle_create,
@@ -72,7 +60,17 @@ from eve.api.api_requests import (
     UpdateDeploymentRequestV2,
     CreateNotificationRequest,
 )
-from eve.api.helpers import pre_modal_setup, busy_state_dict
+from eve.api.helpers import pre_modal_setup
+from eve.api.api_functions import (
+    cancel_stuck_tasks_fn,
+    generate_lora_thumbnails_fn,
+    rotate_agent_metadata_fn,
+    run_scheduled_triggers_fn,
+    run,
+    run_task,
+    run_task_replicate,
+    cleanup_stale_busy_states,
+)
 
 
 app_name = f"api-{db.lower()}"
@@ -400,15 +398,9 @@ def fastapi_app():
     return web_app
 
 
-@app.function(
+cancel_stuck_tasks_modal = app.function(
     image=image, max_containers=1, schedule=modal.Period(minutes=15), timeout=3600
-)
-async def cancel_stuck_tasks_fn():
-    try:
-        await cancel_stuck_tasks()
-    except Exception as e:
-        print(f"Error cancelling stuck tasks: {e}")
-        sentry_sdk.capture_exception(e)
+)(cancel_stuck_tasks_fn)
 
 
 # @app.function(
@@ -425,181 +417,36 @@ async def cancel_stuck_tasks_fn():
 #         sentry_sdk.capture_exception(e)
 
 
-@app.function(
+generate_lora_thumbnails_modal = app.function(
     image=image, max_containers=1, schedule=modal.Period(minutes=15), timeout=3600
-)
-async def generate_lora_thumbnails_fn():
-    try:
-        await generate_lora_thumbnails()
-    except Exception as e:
-        print(f"Error generating lora thumbnails: {e}")
-        sentry_sdk.capture_exception(e)
+)(generate_lora_thumbnails_fn)
 
 
-@app.function(
+rotate_agent_metadata_modal = app.function(
     image=image, max_containers=1, schedule=modal.Period(hours=2), timeout=3600
+)(rotate_agent_metadata_fn)
+
+
+run_scheduled_triggers_modal = app.function(
+    image=image, max_containers=1, schedule=modal.Period(minutes=1), timeout=300
+)(run_scheduled_triggers_fn)
+
+
+run = app.function(image=image, max_containers=10, timeout=3600)(
+    modal.concurrent(max_inputs=4)(run)
 )
-async def rotate_agent_metadata_fn():
-    try:
-        await rotate_agent_metadata()
-    except Exception as e:
-        print(f"Error generating lora thumbnails: {e}")
-        sentry_sdk.capture_exception(e)
 
 
-@app.function(image=image, max_containers=10, timeout=3600)
-@modal.concurrent(max_inputs=4)
-async def run(tool_key: str, args: dict, user: str = None, agent: str = None):
-    handler = load_handler(tool_key)
-    result = await handler(args, user, agent)
-    return eden_utils.upload_result(result)
+run_task = app.function(image=image, max_containers=10, timeout=3600)(
+    modal.concurrent(max_inputs=4)(run_task)
+)
 
 
-@app.function(image=image, max_containers=10, timeout=3600)
-@modal.concurrent(max_inputs=4)
-@task_handler_func
-async def run_task(tool_key: str, args: dict, user: str = None, agent: str = None):
-    handler = load_handler(tool_key)
-    return await handler(args, user, agent)
+run_task_replicate = app.function(image=image, max_containers=10, timeout=3600)(
+    modal.concurrent(max_inputs=4)(run_task_replicate)
+)
 
 
-@app.function(image=image, max_containers=10, timeout=3600)
-@modal.concurrent(max_inputs=4)
-async def run_task_replicate(task: Task):
-    task.update(status="running")
-    tool = Tool.load(task.tool)
-    n_samples = task.args.get("n_samples", 1)
-    replicate_model = tool._get_replicate_model(task.args)
-    args = tool.prepare_args(task.args)
-    args = tool._format_args_for_replicate(args)
-    try:
-        outputs = []
-        for i in range(n_samples):
-            task_args = args.copy()
-            if "seed" in task_args:
-                task_args["seed"] = task_args["seed"] + i
-            output = await replicate.async_run(replicate_model, input=task_args)
-            outputs.append(output)
-        outputs = flatten_list(outputs)
-        result = replicate_update_task(task, "succeeded", None, outputs, "normal")
-    except Exception as e:
-        print(f"Error running replicate: {e}")
-        sentry_sdk.capture_exception(e)
-        result = replicate_update_task(task, "failed", str(e), None, "normal")
-    return result
-
-
-@app.function(
+cleanup_stale_busy_states_modal = app.function(
     image=image, max_containers=1, schedule=modal.Period(minutes=2), timeout=3600
-)
-async def cleanup_stale_busy_states():
-    """Clean up any stale busy states in the shared modal.Dict"""
-    try:
-        current_time = time.time()
-        stale_threshold = 300
-        logger.info("Starting stale busy state cleanup...")
-
-        # Get all keys from the dictionary first
-        all_keys = list(busy_state_dict.keys())  # This is not atomic but necessary
-        all_values = list(busy_state_dict.values())
-        print(f"Checking keys: {all_keys}")
-        print(f"Checking values: {all_values}")
-
-        for key in all_keys:
-            try:
-                # Get current state
-                current_state = busy_state_dict.get(key)
-                # Check if state exists and is a dictionary with expected structure
-                if (
-                    not current_state
-                    or not isinstance(current_state, dict)
-                    or not all(
-                        k in current_state
-                        for k in ["requests", "timestamps", "context_map"]
-                    )
-                ):
-                    logger.warning(
-                        f"Removing invalid/stale state for key {key}: {current_state}"
-                    )
-                    # Delete directly if possible and safe
-                    if key in busy_state_dict:
-                        busy_state_dict.pop(key)
-                    continue
-
-                requests = current_state.get("requests", [])
-                timestamps = current_state.get("timestamps", {})
-                context_map = current_state.get("context_map", {})
-
-                # Ensure correct types after retrieval
-                requests = list(requests)
-                timestamps = dict(timestamps)
-                context_map = dict(context_map)
-
-                stale_requests = []
-                active_requests = []
-                updated_timestamps = {}
-                updated_context_map = {}
-
-                # Iterate over a copy of request IDs
-                for request_id in list(requests):
-                    timestamp = timestamps.get(request_id, 0)
-                    if current_time - timestamp > stale_threshold:
-                        stale_requests.append(request_id)
-                        logger.info(
-                            f"Marking request {request_id} as stale for key {key} (age: {current_time - timestamp:.1f}s)."
-                        )
-                    else:
-                        active_requests.append(request_id)
-                        if request_id in timestamps:
-                            updated_timestamps[request_id] = timestamps[request_id]
-                        if request_id in context_map:
-                            updated_context_map[request_id] = context_map[request_id]
-
-                # If any requests were found to be stale, update the state
-                if stale_requests:
-                    logger.info(
-                        f"Cleaning up {len(stale_requests)} stale requests for {key}. Original count: {len(requests)}"
-                    )
-                    # Update the state in the modal.Dict
-                    if not active_requests:
-                        # If no active requests left, remove the whole key
-                        logger.info(
-                            f"Removing key '{key}' as no active requests remain after cleanup."
-                        )
-                        if key in busy_state_dict:  # Check existence before deleting
-                            busy_state_dict.pop(key)
-                    else:
-                        # Otherwise, update with cleaned lists/dicts
-                        new_state = {
-                            "requests": active_requests,
-                            "timestamps": updated_timestamps,
-                            "context_map": updated_context_map,
-                        }
-                        busy_state_dict.put(key, new_state)
-                        logger.info(
-                            f"Updated state for key '{key}'. Active requests: {len(active_requests)}"
-                        )
-                # else: # No stale requests found for this key
-                #    logger.debug(f"No stale requests found for key '{key}'.")
-            except KeyError:
-                logger.warning(
-                    f"Key {key} was deleted concurrently during cleanup processing."
-                )
-                continue  # Key was likely deleted by another process or previous step
-            except Exception as key_e:
-                logger.error(
-                    f"Error processing key '{key}' during cleanup: {key_e}",
-                    exc_info=True,
-                )
-                # Decide how to handle errors: skip key, mark for later deletion, etc.
-                # For now, just log and continue to avoid breaking the whole job.
-
-        logger.info("Finished cleaning up stale busy states.")
-    except Exception as e:
-        logger.error(f"Error in cleanup_stale_busy_states job: {e}", exc_info=True)
-        sentry_sdk.capture_exception(e)
-
-
-def flatten_list(seq):
-    """Flattens a list that is either flat or nested one level deep."""
-    return [x for item in seq for x in (item if isinstance(item, list) else [item])]
+)(cleanup_stale_busy_states)
