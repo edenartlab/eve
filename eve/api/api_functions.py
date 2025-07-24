@@ -64,15 +64,15 @@ async def run_scheduled_triggers_fn():
         current_time = datetime.now(timezone.utc)
 
         # Find active triggers where next_scheduled_run <= current time
-        triggers = Trigger.find(
+        triggers = list(Trigger.find(
             {
                 "status": "active",
                 "deleted": {"$ne": True},
                 "next_scheduled_run": {"$lte": current_time},
             }
-        )
+        ))
 
-        logger.info(f"Found {len(list(triggers.clone()))} triggers to run")
+        logger.info(f"Found {len(triggers)} triggers to run")
 
         for trigger in triggers:
             try:
