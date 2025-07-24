@@ -28,7 +28,3 @@ parameters:
     label: Video
     description: A video URL to include in the tweet.
     tip: If you want to include a video, you can not include any images.
-  agent:
-    type: string
-    description: Agent ID to run the tool with
-    required: true

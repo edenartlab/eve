@@ -11,7 +11,3 @@ parameters:
     label: Start Time
     description: Optional ISO 8601 timestamp to get mentions after this time
     required: false
-  agent:
-    type: string
-    description: Agent ID to run the tool with
-    required: true
