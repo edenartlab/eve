@@ -486,9 +486,6 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
     #########################################################
     # Final result
-    assert "output" in result, "No output from image tool"
-    assert "filename" in result["output"][0], "No filename in output from image tool"
-
     final_result = get_full_url(result["output"][0]["filename"])
     print("final result", final_result)
 
