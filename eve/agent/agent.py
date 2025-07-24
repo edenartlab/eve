@@ -312,6 +312,8 @@ class Agent(User):
             for tool in FARCASTER_TOOLS:
                 tools.pop(tool, None)
 
+                
+
         # remove tools that only the owner can use
         if str(auth_user) != str(self.owner):
             for tool in SOCIAL_MEDIA_TOOLS:

@@ -20,6 +20,7 @@ from .tool_constants import (
 )
 from . import eden_utils
 from .agent.agent import Agent
+from .auth import get_my_eden_user
 from .base import parse_schema
 from .user import User
 from .task import Task
@@ -434,12 +435,7 @@ class Tool(Document, ABC):
         ), f"Cost estimate ({cost_estimate}) not a number (formula: {cost_formula})"
         return cost_estimate
 
-    def prepare_args(
-        self,
-        args: dict,
-        # user: str = None,
-        # agent: str = None,
-    ):
+    def prepare_args(self, args: dict):
         unrecognized_args = set(args.keys()) - set(self.model.model_fields.keys())
         if unrecognized_args:
             # raise ValueError(
@@ -458,12 +454,6 @@ class Tool(Document, ABC):
             elif parameter.get("default") is not None:
                 prepared_args[field] = parameter["default"]
 
-        # Add user and agent context to args
-        # if user is not None:
-        #     prepared_args["user"] = str(user)
-        # if agent is not None:
-        #     prepared_args["agent"] = str(agent)
-
         try:
             self.model(**prepared_args)
 
@@ -479,12 +469,14 @@ class Tool(Document, ABC):
 
         async def async_wrapper(self, args: Dict, mock: bool = False):
             try:
+                user_id = args.pop("user_id", None) or str(get_my_eden_user().id)
+                agent_id = args.pop("agent_id", None) 
                 args = self.prepare_args(args)
                 sentry_sdk.add_breadcrumb(category="handle_run", data=args)
                 if mock:
                     result = {"output": eden_utils.mock_image(args)}
                 else:
-                    result = await run_function(self, args)
+                    result = await run_function(self, args, user_id, agent_id)
                 result["output"] = (
                     result["output"]
                     if isinstance(result["output"], list)
@@ -518,7 +510,7 @@ class Tool(Document, ABC):
         ):
             try:
                 user = User.from_mongo(user_id)
-                args = self.prepare_args(args) #, user=str(user_id), agent=agent_id)
+                args = self.prepare_args(args)
                 sentry_sdk.add_breadcrumb(category="handle_start_task", data=args)
                 cost = self.calculate_cost(args)
 
