@@ -36,12 +36,15 @@ from eve.eden_utils import get_media_attributes
 async def handler(args: dict, user: str = None, agent: str = None):
     # Generate execution plan without executing anything
     execution_plan = _generate_execution_plan(args, user)
+    print("***debug*** execution_plan", execution_plan)
 
     # Calculate costs for the execution plan
     execution_plan_with_costs = _calculate_plan_costs(execution_plan, user)
+    print("***debug*** execution_plan_with_costs", execution_plan_with_costs)
 
     # Execute the plan step by step
     execution_result = await _execute_plan(execution_plan_with_costs["plan"])
+    print("***debug*** execution_result", execution_result)
 
     # Add cost information to the final result
     result = {
