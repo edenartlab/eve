@@ -319,18 +319,6 @@ class Agent(User):
             for tool in SOCIAL_MEDIA_TOOLS:
                 tools.pop(tool, None)
 
-        # agent-only tools need agent arg injected
-        for tool in AGENTIC_TOOLS:
-            if tool in tools:
-                tools[tool].update_parameters(
-                    {
-                        "agent": {
-                            "default": str(self.id),
-                            "hide_from_agent": True,
-                        }
-                    }
-                )
-
         # if models are found, inject them as defaults for any tools that use lora
         for tool in tools:
             if not "lora" in tools[tool].parameters:
