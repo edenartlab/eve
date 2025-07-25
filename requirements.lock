@@ -343,6 +343,8 @@ psutil==6.0.0
     # via eve
 py-cord==2.6.1
     # via eve
+py-expression-eval==0.3.14
+    # via eve
 pyasn1==0.6.1
     # via pyasn1-modules
     # via rsa
@@ -391,6 +393,8 @@ pyjwt==2.10.1
 pymongo==4.6.1
     # via eve
     # via motor
+pyparsing==3.2.3
+    # via eve
 python-dateutil==2.9.0.post0
     # via botocore
     # via google-cloud-bigquery
