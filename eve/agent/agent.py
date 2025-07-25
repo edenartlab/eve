@@ -5,6 +5,7 @@ import traceback
 from elevenlabs import Model
 import openai
 import instructor
+import sentry_sdk
 from datetime import timezone
 from pathlib import Path
 from bson import ObjectId
@@ -20,7 +21,6 @@ from ..tool_constants import (
     FARCASTER_TOOLS,
     TELEGRAM_TOOLS,
     SOCIAL_MEDIA_TOOLS,
-    AGENTIC_TOOLS,
     TOOL_SETS,
 )
 from ..mongo import Collection, get_collection
@@ -219,14 +219,35 @@ class Agent(User):
 
             for t in set_tools:
                 try:
-                    print(f"Loading tool {t}")
+                    print(f"***debug*** Loading tool {t}")
                     tool = Tool.from_raw_yaml({"parent_tool": t})
                     tools[t] = tool
                 except Exception as e:
-                    print(f"Error loading tool {t}: {e}")
+                    print(f"***debug*** Error loading tool {t}: {e}")
                     print(traceback.format_exc())
-                    # continue
-                    raise e
+
+                    # Graceful failure with Sentry tracking
+                    with sentry_sdk.push_scope() as scope:
+                        scope.set_tag("component", "tool_loading")
+                        scope.set_tag("agent_username", self.username)
+                        scope.set_tag("agent_id", str(self.id))
+                        scope.set_tag("tool_name", t)
+                        scope.set_tag("tool_set", tool_set)
+                        scope.set_context(
+                            "tool_loading_context",
+                            {
+                                "tool_name": t,
+                                "tool_set": tool_set,
+                                "agent_username": self.username,
+                                "agent_id": str(self.id),
+                                "error_message": str(e),
+                                "traceback": traceback.format_exc(),
+                            },
+                        )
+                        sentry_sdk.capture_exception(e)
+
+                    # Continue loading other tools instead of crashing
+                    continue
 
         self.tools_ = tools
 
@@ -267,36 +288,46 @@ class Agent(User):
 
         # update tools with platform-specific args
         # update discord post tool with allowed channels
-        if "discord" in self.deployments:
-            if "discord_post" in tools:
-                allowed_channels = self.deployments["discord"].get_allowed_channels()
-                channels_description = " | ".join(
-                    [f"ID {c.id} ({c.note})" for c in allowed_channels]
-                )
-                tools["discord_post"].update_parameters(
-                    {
-                        "channel_id": {
-                            "choices": [c.id for c in allowed_channels],
-                            "tip": f"Some hints about the available channels: {channels_description}",
-                        },
-                    }
-                )
+        try:
+            if "discord" in self.deployments:
+                if "discord_post" in tools:
+                    allowed_channels = self.deployments[
+                        "discord"
+                    ].get_allowed_channels()
+                    channels_description = " | ".join(
+                        [f"ID {c.id} ({c.note})" for c in allowed_channels]
+                    )
+                    tools["discord_post"].update_parameters(
+                        {
+                            "channel_id": {
+                                "choices": [c.id for c in allowed_channels],
+                                "tip": f"Some hints about the available channels: {channels_description}",
+                            },
+                        }
+                    )
+        except Exception as e:
+            _log_tool_operation_error(self, "discord_channel_update", e, platform="discord")
 
         # update telegram post tool with allowed channels
-        if "telegram" in self.deployments:
-            if "telegram_post" in tools:
-                allowed_channels = self.deployments["telegram"].get_allowed_channels()
-                channels_description = " | ".join(
-                    [f"ID {c.id} ({c.note})" for c in allowed_channels]
-                )
-                tools["telegram_post"].update_parameters(
-                    {
-                        "channel_id": {
-                            "choices": [c.id for c in allowed_channels],
-                            "tip": f"Some hints about the available topics: {channels_description}",
-                        },
-                    }
-                )
+        try:
+            if "telegram" in self.deployments:
+                if "telegram_post" in tools:
+                    allowed_channels = self.deployments[
+                        "telegram"
+                    ].get_allowed_channels()
+                    channels_description = " | ".join(
+                        [f"ID {c.id} ({c.note})" for c in allowed_channels]
+                    )
+                    tools["telegram_post"].update_parameters(
+                        {
+                            "channel_id": {
+                                "choices": [c.id for c in allowed_channels],
+                                "tip": f"Some hints about the available topics: {channels_description}",
+                            },
+                        }
+                    )
+        except Exception as e:
+            _log_tool_operation_error(self, "telegram_channel_update", e, platform="telegram")
 
         # if a platform is not deployed, remove all tools for that platform
         if "discord" not in self.deployments:
@@ -312,54 +343,61 @@ class Agent(User):
             for tool in FARCASTER_TOOLS:
                 tools.pop(tool, None)
 
-                
-
         # remove tools that only the owner can use
         if str(auth_user) != str(self.owner):
             for tool in SOCIAL_MEDIA_TOOLS:
                 tools.pop(tool, None)
-
+    
         # if models are found, inject them as defaults for any tools that use lora
         for tool in tools:
-            if not "lora" in tools[tool].parameters:
-                continue
+            try:
+                if not "lora" in tools[tool].parameters:
+                    continue
 
-            lora_docs = self.lora_docs
+                lora_docs = self.lora_docs
 
-            if not lora_docs:
-                continue
+                if not lora_docs:
+                    continue
 
-            # Build LoRA information for the tip
-            lora_info = []
-            for m in lora_docs:
-                lora_id = m["_id"]
-                lora_doc = {m["lora"]: m for m in self.models}[lora_id]
-                lora_info.append(
-                    f"{{ ID: {lora_id}, Name: {m['name']}, Description: {m['lora_trigger_text']}, Use When: {lora_doc['use_when']} }}"
+                # Build LoRA information for the tip
+                lora_info = []
+                for m in lora_docs:
+                    lora_id = m["_id"]
+                    lora_doc = {m["lora"]: m for m in self.models}[lora_id]
+                    lora_info.append(
+                        f"{{ ID: {lora_id}, Name: {m['name']}, Description: {m['lora_trigger_text']}, Use When: {lora_doc['use_when']} }}"
+                    )
+
+                params = {
+                    "lora": {
+                        "default": str(lora_docs[0]["_id"]),
+                        "tip": "Users may request one of your known LoRAs, or a different unknown one, or no LoRA at all. When referring to a LoRA, strictly use its name, not its description. Notes on when to use the known LoRAs: "
+                        + " | ".join(lora_info),
+                    },
+                }
+                if "use_lora" in tools[tool].parameters:
+                    params["use_lora"] = {"default": True}
+
+                # if len(lora_docs) > 1 and "lora2" in tools[tool].parameters:
+                #     params["lora2"] = {"default": str(lora_docs[1]["_id"])}
+                #     if "use_lora2" in tools[tool].parameters:
+                #         params["use_lora2"] = {
+                #             "default": True,
+                #             "tip": "Same behavior as first lora"
+                #         }
+
+                tools[tool].update_parameters(params)
+        
+            except Exception as e:
+                _log_tool_operation_error(self, "lora_parameter_injection", e)
+
+        try:
+            if "elevenlabs" in tools and self.voice:
+                tools["elevenlabs"].update_parameters(
+                    {"voice": {"default": self.voice}}
                 )
-
-            params = {
-                "lora": {
-                    "default": str(lora_docs[0]["_id"]),
-                    "tip": "Users may request one of your known LoRAs, or a different unknown one, or no LoRA at all. When referring to a LoRA, strictly use its name, not its description. Notes on when to use the known LoRAs: "
-                    + " | ".join(lora_info),
-                },
-            }
-            if "use_lora" in tools[tool].parameters:
-                params["use_lora"] = {"default": True}
-
-            # if len(lora_docs) > 1 and "lora2" in tools[tool].parameters:
-            #     params["lora2"] = {"default": str(lora_docs[1]["_id"])}
-            #     if "use_lora2" in tools[tool].parameters:
-            #         params["use_lora2"] = {
-            #             "default": True,
-            #             "tip": "Same behavior as first lora"
-            #         }
-
-            tools[tool].update_parameters(params)
-
-        if "elevenlabs" in tools and self.voice:
-            tools["elevenlabs"].update_parameters({"voice": {"default": self.voice}})
+        except Exception as e:
+            _log_tool_operation_error(self, "elevenlabs_voice_update", e, voice=self.voice)
 
         return tools
 
@@ -557,3 +595,25 @@ async def refresh_agent(agent: Agent):
 
     agents = get_collection(Agent.collection_name)
     agents.update_one({"_id": agent.id}, {"$set": update})
+
+
+def _log_tool_operation_error(agent: Agent, operation_name: str, error: Exception, **context):
+    """Helper to log tool operation errors with Sentry"""
+    print(f"***debug*** Error in {operation_name}: {error}")
+    with sentry_sdk.push_scope() as scope:
+        scope.set_tag("component", "tool_operation")
+        scope.set_tag("operation", operation_name)
+        scope.set_tag("agent_username", agent.username)
+        scope.set_tag("agent_id", str(agent.id))
+        scope.set_context(
+            "tool_operation_context",
+            {
+                "operation": operation_name,
+                "agent_username": agent.username,
+                "agent_id": str(agent.id),
+                "error_message": str(error),
+                "traceback": traceback.format_exc(),
+                **context,
+            },
+        )
+        sentry_sdk.capture_exception(error)
