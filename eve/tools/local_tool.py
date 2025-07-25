@@ -14,9 +14,9 @@ class LocalTool(Tool):
         self._tasks = {}
 
     @Tool.handle_run
-    async def async_run(self, args: Dict, user: str = None, agent: str = None):
+    async def async_run(self, args: Dict, user_id: str = None, agent_id: str = None):
         handler = load_handler(self.parent_tool or self.key)
-        result = await handler(args, user, agent)
+        result = await handler(args, user_id, agent_id)
         return result
 
     @Tool.handle_start_task
