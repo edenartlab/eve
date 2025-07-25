@@ -51,10 +51,9 @@ class ComfyUITool(Tool):
         return super().convert_from_yaml(schema, file_path)
 
     @Tool.handle_run
-    async def async_run(self, args: Dict):
+    async def async_run(self, args: Dict, user_id: str = None, agent_id: str = None):
         db = os.getenv("DB")
-        print("let's run the class")
-        print(f"comfyui-{self.workspace}-{db}")
+        print(f"ComfyUI: comfyui-{self.workspace}-{db}")
         cls = modal.Cls.from_name(
             f"comfyui-{self.workspace}-{db}", "ComfyUIBasic", environment_name="main"
         )

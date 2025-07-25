@@ -25,7 +25,7 @@ class ReplicateTool(Tool):
     output_handler: str = "normal"
 
     @Tool.handle_run
-    async def async_run(self, args: Dict):
+    async def async_run(self, args: Dict, user_id: str = None, agent_id: str = None):
         check_replicate_api_token()
         
         if self.version:

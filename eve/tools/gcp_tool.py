@@ -15,7 +15,7 @@ class GCPTool(Tool):
     gpu: str
     
     @Tool.handle_run
-    async def async_run(self, args: Dict):
+    async def async_run(self, args: Dict, user_id: str = None, agent_id: str = None):
         raise NotImplementedError("Not implemented yet, need a GCP Task ID")
         
     @Tool.handle_start_task
