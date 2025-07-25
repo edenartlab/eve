@@ -419,20 +419,10 @@ class Tool(Document, ABC):
     def calculate_cost(self, args):
         if not self.cost_estimate:
             return 0
-        cost_formula = self.cost_estimate
-        cost_formula = re.sub(
-            r"(\w+)\.length", r"len(\1)", cost_formula
-        )  # Array length
-        cost_formula = re.sub(
-            r"(\w+)\s*\?\s*([^:]+)\s*:\s*([^,\s]+)", r"\2 if \1 else \3", cost_formula
-        )  # Ternary operator for booleans
-        cost_formula = re.sub(
-            r"([^?]+)\s*\?\s*([^:]+)\s*:\s*([^,\s]+)", r"\2 if \1 else \3", cost_formula
-        )  # Ternary operator for a single equality
-        cost_estimate = eval(cost_formula, args.copy())
-        assert isinstance(
-            cost_estimate, (int, float)
-        ), f"Cost estimate ({cost_estimate}) not a number (formula: {cost_formula})"
+        cost_estimate = eden_utils.eval_cost(
+            self.cost_estimate, 
+            **self.prepare_args(args.copy())
+        )
         return cost_estimate
 
     def prepare_args(self, args: dict):
@@ -557,7 +547,8 @@ class Tool(Document, ABC):
             # start task
             try:
                 if mock:
-                    handler_id = eden_utils.random_string()
+                    handler_id = "".join(random.choices("abcdefghijklmnopqrstuvwxyz0123456789", k=28))
+
                     output = [{"output": [eden_utils.mock_image(args)]}]
                     result = eden_utils.upload_result(output)
                     task.update(
