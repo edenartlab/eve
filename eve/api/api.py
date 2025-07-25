@@ -74,7 +74,7 @@ from eve.api.api_functions import (
 
 
 app_name = f"api-{db.lower()}"
-logging.getLogger("ably").setLevel(logging.INFO if db != "PROD" else logging.WARNING)
+logging.getLogger("ably").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 
