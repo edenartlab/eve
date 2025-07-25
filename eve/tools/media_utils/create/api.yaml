@@ -10,7 +10,7 @@ tip: |-
   - For images: If the user has an init_image but also has a lora or "controlnet" in extras, ignore the last rule about being an instruction and instead make a normal text-to-image prompt.
   - For videos: If you want to put specific lines of dialogue into the video, you must use "pro" quality with sound_effects, and no start_image).
   - For videos: Audio files are *only* supported when "talking_head" is in extras, so don't use one otherwise. If you want to mix an audio file over video, use the media_editor tool instead.
-cost_estimate: 5
+cost_estimate: '(output == "video" ? (((quality == "pro" ? 40 : 20) + (sound_effects ? 5 : 0)) * duration) : (5 * n_samples))'
 output_type: image
 active: true
 visible: true
@@ -69,7 +69,7 @@ parameters:
       - text_precision: For images only. Maximize the quality and legibility small details, especially text. Useful for infographics, signs, logos, thought bubbles, data visualizations, and other images that require a high degree of coherence, detail, and legibility, especially with text. *Not* compatible with LoRA! If you need to combine this with LoRA, it is better to first generate the initial image with the LoRA, then edit that image in a suqbsequent step with text_precision.
       - talking_head: For videos only. Special mode for outputting talking avatar or lipsyncing videos with Hedra. You must feature a face in the prompt or init_image, your audio must feature speech, and you want to make a video with the face speaking, singing, or lipsyncing.
       - double_character: For images only. Use this only when there are two LoRAs of characters/faces/people, or if the user requests it. It will attempt to make one image that generates both characters in it.
-      - controlnet: You should almost never use this. For images only. Conform the output image to the match the contours of the init_image. Useful for style transfer with strict content preservation. Generic image editing tasks should not use this.
+      - controlnet: You should almost NEVER use this. For images only. Conform the output image to the match the contours of the init_image. Useful for style transfer with strict content preservation. Generic image editing tasks should not use this.
 
     default: []
   end_image:
