@@ -72,7 +72,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
     controlnet = "controlnet" in extras
     seed = args.get("seed", None)
     aspect_ratio = args.get("aspect_ratio", "auto")
-    model_preference = args.get("model_preference", "seedream").lower()
+    model_preference = args.get("model_preference", "").lower()
 
     # get loras
     loras = get_loras(args.get("lora"), args.get("lora2"))
