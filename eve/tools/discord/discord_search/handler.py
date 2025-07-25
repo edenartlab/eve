@@ -18,7 +18,9 @@ class DiscordSearchQuery(BaseModel):
 
 
 async def handler(args: dict, user: str = None, agent: str = None):
-    agent = Agent.from_mongo(args["agent"])
+    if not agent:
+        raise Exception("Agent is required")
+    agent = Agent.from_mongo(agent)
     deployment = Deployment.load(agent=agent.id, platform="discord")
     if not deployment:
         raise Exception("No valid discord deployments found")

@@ -4,7 +4,9 @@ from telegram import Bot
 
 
 async def handler(args: dict, user: str = None, agent: str = None):
-    agent = Agent.from_mongo(args["agent"])
+    if not agent:
+        raise Exception("Agent is required")
+    agent = Agent.from_mongo(agent)
     deployment = Deployment.load(agent=agent.id, platform="telegram")
     if not deployment:
         raise Exception("No valid Telegram deployments found")

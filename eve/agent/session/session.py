@@ -22,6 +22,7 @@ from eve.agent.session.models import (
     ChatMessage,
     ChatMessageObservability,
     LLMTraceMetadata,
+    NotificationConfig,
     PromptSessionContext,
     Session,
     SessionUpdate,
@@ -47,6 +48,7 @@ from eve.agent.session.config import (
     DEFAULT_SESSION_SELECTION_LIMIT,
     get_default_session_llm_config,
 )
+from eve.user import User
 
 
 class SessionCancelledException(Exception):
@@ -300,7 +302,10 @@ async def build_llm_context(
     trace_id: Optional[str] = None,
     user_message: Optional[ChatMessage] = None,
 ):
-    tools = actor.get_tools(cache=True, auth_user=context.initiating_user_id)
+    tools = actor.get_tools(cache=False, auth_user=context.initiating_user_id)
+
+    if context.custom_tools:
+        tools.update(context.custom_tools)
 
     # build messages
     system_message = await build_system_message(session, actor, context, tools)
@@ -312,10 +317,13 @@ async def build_llm_context(
     if user_message:
         messages.append(user_message)
 
+    user = User.from_mongo(context.initiating_user_id)
+    tier = "premium" if user.subscriptionTier and user.subscriptionTier > 0 else "free"
+
     return LLMContext(
         messages=messages,
         tools=tools,
-        config=context.llm_config or get_default_session_llm_config(),
+        config=context.llm_config or get_default_session_llm_config(tier),
         metadata=LLMContextMetadata(
             # for observability purposes. not same as session.id
             session_id=f"{os.getenv('DB')}-{str(context.session.id)}",
@@ -987,49 +995,29 @@ async def _run_prompt_session_internal(
 ):
     """Internal function that handles both streaming and non-streaming"""
     session = context.session
-    validate_prompt_session(session, context)
+    
+    try:
+        validate_prompt_session(session, context)
 
-    # Create user message first, regardless of whether actors are determined
-    user_message = None
-    if context.initiating_user_id:
-        user_message = add_user_message(session, context)
+        # Create user message first, regardless of whether actors are determined
+        user_message = None
+        if context.initiating_user_id:
+            user_message = add_user_message(session, context)
 
-    actors = await determine_actors(session, context)
-    is_client_platform = context.update_config is not None
+        actors = await determine_actors(session, context)
+        is_client_platform = context.update_config is not None
 
-    if not actors:
-        return
+        if not actors:
+            return
 
-    # Generate session run ID for this prompt session
-    session_run_id = str(uuid.uuid4())
+        # Generate session run ID for this prompt session
+        session_run_id = str(uuid.uuid4())
 
-    # For single actor, maintain backwards compatibility
-    if len(actors) == 1:
-        actor = actors[0]
-        llm_context = await build_llm_context(
-            session, actor, context, trace_id=session_run_id, user_message=user_message
-        )
-        async for update in async_prompt_session(
-            session,
-            llm_context,
-            actor,
-            stream=stream,
-            is_client_platform=is_client_platform,
-            session_run_id=session_run_id,
-        ):
-            yield format_session_update(update, context)
-    else:
-        # Multiple actors - run them in parallel
-        async def run_actor_session(actor: Agent):
-            actor_updates = []
-            # Each actor gets its own generation ID
-            actor_session_run_id = str(uuid.uuid4())
+        # For single actor, maintain backwards compatibility
+        if len(actors) == 1:
+            actor = actors[0]
             llm_context = await build_llm_context(
-                session,
-                actor,
-                context,
-                trace_id=actor_session_run_id,
-                user_message=user_message,
+                session, actor, context, trace_id=session_run_id, user_message=user_message
             )
             async for update in async_prompt_session(
                 session,
@@ -1037,51 +1025,97 @@ async def _run_prompt_session_internal(
                 actor,
                 stream=stream,
                 is_client_platform=is_client_platform,
-                session_run_id=actor_session_run_id,
+                session_run_id=session_run_id,
             ):
-                actor_updates.append(format_session_update(update, context))
-            return actor_updates
+                yield format_session_update(update, context)
+        else:
+            # Multiple actors - run them in parallel
+            async def run_actor_session(actor: Agent):
+                actor_updates = []
+                # Each actor gets its own generation ID
+                actor_session_run_id = str(uuid.uuid4())
+                llm_context = await build_llm_context(
+                    session,
+                    actor,
+                    context,
+                    trace_id=actor_session_run_id,
+                    user_message=user_message,
+                )
+                async for update in async_prompt_session(
+                    session,
+                    llm_context,
+                    actor,
+                    stream=stream,
+                    is_client_platform=is_client_platform,
+                    session_run_id=actor_session_run_id,
+                ):
+                    actor_updates.append(format_session_update(update, context))
+                return actor_updates
 
-        # Run all actors in parallel
-        tasks = [run_actor_session(actor) for actor in actors]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+            # Run all actors in parallel
+            tasks = [run_actor_session(actor) for actor in actors]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Yield updates from all actors in the order they complete
-        for result in results:
-            if isinstance(result, Exception):
-                yield {
-                    "type": UpdateType.ERROR.value,
-                    "error": str(result),
-                    "update_config": context.update_config.model_dump()
-                    if context.update_config
-                    else None,
-                }
-            else:
-                for update in result:
-                    yield update
+            # Yield updates from all actors in the order they complete
+            for result in results:
+                if isinstance(result, Exception):
+                    yield {
+                        "type": UpdateType.ERROR.value,
+                        "error": str(result),
+                        "update_config": context.update_config.model_dump()
+                        if context.update_config
+                        else None,
+                    }
+                else:
+                    for update in result:
+                        yield update
 
-    # Schedule background tasks if available
-    if background_tasks:
-        # Process auto-reply after all actors have completed
-        if session.autonomy_settings and session.autonomy_settings.auto_reply:
+        # Schedule background tasks if available
+        if background_tasks:
+            # Process auto-reply after all actors have completed
+            if session.autonomy_settings and session.autonomy_settings.auto_reply:
+                print(
+                    f"🤖 Scheduling auto-reply as background task for session {session.id}"
+                )
+                background_tasks.add_task(
+                    _queue_session_action_fastify_background_task, session
+                )
+
+            # Process memory formation for all actors that participated
+            for actor in actors:
+                # TODO move the messages_since_last < interval check to here instead of inside the background task
+                print(
+                    f"🧠 Triggering maybe_form_memories() as background task for session {session.id}, agent {actor.id}"
+                )
+                background_tasks.add_task(maybe_form_memories, actor.id, session)
+            
+            # Send success notification if configured
+            if context.notification_config and context.notification_config.success_notification:
+                background_tasks.add_task(
+                    _send_session_notification, 
+                    context.notification_config, 
+                    session, 
+                    success=True
+                )
+        else:
             print(
-                f"🤖 Scheduling auto-reply as background task for session {session.id}"
+                f"⚠️  Warning: No background_tasks available, skipping memory formation and auto-reply"
             )
+    
+    except Exception as e:
+        # Send failure notification if configured
+        if (background_tasks and 
+            context.notification_config and 
+            context.notification_config.failure_notification):
             background_tasks.add_task(
-                _queue_session_action_fastify_background_task, session
+                _send_session_notification, 
+                context.notification_config, 
+                session, 
+                success=False,
+                error=str(e)
             )
-
-        # Process memory formation for all actors that participated
-        for actor in actors:
-            # TODO move the messages_since_last < interval check to here instead of inside the background task
-            print(
-                f"🧠 Triggering maybe_form_memories() as background task for session {session.id}, agent {actor.id}"
-            )
-            background_tasks.add_task(maybe_form_memories, actor.id, session)
-    else:
-        print(
-            f"⚠️  Warning: No background_tasks available, skipping memory formation and auto-reply"
-        )
+        # Re-raise the exception
+        raise
 
 
 async def run_prompt_session_stream(
@@ -1129,6 +1163,73 @@ async def _queue_session_action_fastify_background_task(session: Session):
             response.raise_for_status()
     except Exception as e:
         print("HTTP request failed:", str(e))
+        capture_exception(e)
+
+
+async def _send_session_notification(
+    notification_config, 
+    session: Session, 
+    success: bool = True, 
+    error: str = None
+):
+    """Send a notification about session completion"""
+    import httpx
+    from datetime import datetime, timezone
+    
+    try:
+        api_url = os.getenv("EDEN_API_URL")
+        if not api_url:
+            return
+
+        # Determine notification details based on success/failure
+        if success:
+            notification_type = notification_config.notification_type
+            title = notification_config.success_title or notification_config.title
+            message = notification_config.success_message or notification_config.message
+            priority = notification_config.priority
+        else:
+            notification_type = "session_failed"
+            title = notification_config.failure_title or "Session Failed"
+            message = notification_config.failure_message or f"Your session failed: {error[:200]}..."
+            priority = "high"
+
+        notification_data = {
+            "user_id": notification_config.user_id,
+            "type": notification_type,
+            "title": title,
+            "message": message,
+            "priority": priority,
+            "session_id": str(session.id),
+            "action_url": f"/sessions/{session.id}",
+            "metadata": {
+                "session_id": str(session.id),
+                "completion_time": datetime.now(timezone.utc).isoformat(),
+                **(notification_config.metadata or {}),
+                **({"error": error} if error else {})
+            }
+        }
+
+        # Add optional fields
+        if notification_config.trigger_id:
+            notification_data["trigger_id"] = notification_config.trigger_id
+        if notification_config.agent_id:
+            notification_data["agent_id"] = notification_config.agent_id
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{api_url}/notifications/create",
+                headers={
+                    "Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}",
+                    "Content-Type": "application/json",
+                },
+                json=notification_data,
+            )
+            if response.status_code != 200:
+                error_text = await response.aread()
+                print(f"Failed to create notification: {error_text}")
+
+    except Exception as e:
+        print(f"Error creating session notification: {str(e)}")
         capture_exception(e)
 
 

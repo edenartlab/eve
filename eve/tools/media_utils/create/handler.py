@@ -130,7 +130,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
                     "seedream": seedream3,
                     "openai": openai_image_generate,
                     "sdxl": txt2img,
-                }.get(model_preference, seedream3)
+                }.get(model_preference, flux_dev_lora)
 
     # Switch from Flux Dev Lora to Flux Dev if and only if 2 LoRAs or Controlnet
     if image_tool == flux_dev_lora:
@@ -303,10 +303,8 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
         if len(loras) < 2:
             raise Exception("flux_double_character requires exactly 2 LoRAs")
 
-        print("HERE IS THE PROMPT", prompt)
         for l, lora in enumerate(loras):
             prompt = prompt.replace(lora.name, f"subj_{l+1}")
-        print("HERE IS THE PROMPT 2", prompt)
 
         args = {
             "prompt": prompt,
@@ -322,12 +320,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
         # Note: flux_double_character doesn't support init_image, so we ignore it
         print("Running flux_double_character", args)
-        print("the args")
         result = await flux_double_character.async_run(args)
-
-        print("RESULT OF FLUX DOUBLE CHARACTER", result)
-
-        print("IMAGE TOOL KEY ??", image_tool.key)
 
     #########################################################
     # Flux Kontext
@@ -486,9 +479,6 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
     #########################################################
     # Final result
-    assert "output" in result, "No output from image tool"
-    assert "filename" in result["output"][0], "No filename in output from image tool"
-
     final_result = get_full_url(result["output"][0]["filename"])
     print("final result", final_result)
 
@@ -529,9 +519,7 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
 
     prompt = args["prompt"]
     # n_samples = args.get("n_samples", 1)
-    start_image = args.get(
-        "init_image", None
-    )  # Map init_image to start_image for video
+    start_image = args.get("init_image", None)  # Map init_image to start_image for video
     end_image = args.get("end_image", None)
     seed = args.get("seed", None)
     lora_strength = args.get("lora_strength", 0.75)

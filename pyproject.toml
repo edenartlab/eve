@@ -26,8 +26,8 @@ dependencies = [
     "python-magic>=0.4.27",
     "pyyaml>=6.0.2",
     "replicate>=1.0.4",
-    "requests>=2.32.3",
-    "runwayml>=3.5.0",
+    "requests>=2.32.4",
+    "runwayml>=3.7.1",
     "sentry-sdk>=2.18.0",
     "starlette>=0.41.3",
     "tenacity>=9.0.0",
@@ -56,6 +56,8 @@ dependencies = [
     "langfuse==2.59.7",
     "litellm==1.70.0",
     "tweepy>=4.15.0",
+    "py-expression-eval>=0.3.14",
+    "pyparsing>=3.2.3",
 ]
 
 [build-system]

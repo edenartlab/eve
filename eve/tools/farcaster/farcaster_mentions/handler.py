@@ -6,7 +6,9 @@ from eve.agent import Agent
 
 
 async def handler(args: dict, user: str = None, agent: str = None):
-    agent = Agent.from_mongo(args["agent"])
+    if not agent:
+        raise Exception("Agent is required")
+    agent = Agent.from_mongo(agent)
     deployment = Deployment.load(agent=agent.id, platform="farcaster")
     if not deployment:
         raise Exception("No valid Farcaster deployments found")
