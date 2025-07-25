@@ -145,7 +145,7 @@ def save_baseline(baseline: dict[str, float]) -> None:
 
 # ---------------------------------------------------------------------------
 # 3.  Main handler ----------------------------------------------------------
-async def handler(args: dict):
+async def handler(args: dict, user: str = None, agent: str = None):
     """
     Required
     --------
@@ -158,7 +158,9 @@ async def handler(args: dict):
     outfile          – path for spike dump (default cwd/tech_spikes_<ts>.json)
     """
     # ----- Auth boilerplate -------------------------------------------------
-    agent = Agent.from_mongo(args["agent"])
+    if not agent:
+        raise Exception("Agent is required")
+    agent = Agent.from_mongo(agent)
     deployment = Deployment.load(agent=agent.id, platform="twitter")
     if not deployment:
         raise Exception("No valid Twitter deployment")

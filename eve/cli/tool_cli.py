@@ -198,7 +198,7 @@ def run(ctx, tool: str, db: str):
 
     # inject
     if args.get("agent"):
-        args["agent"] = str(Agent.from_mongo(args["agent"]).id)
+        args["agent_id"] = str(Agent.from_mongo(args["agent"]).id)
 
     result = tool.run(args)
     color = random.choice(CLICK_COLORS)
@@ -255,9 +255,10 @@ def test(
 
         if api:
             user = get_my_eden_user()
+            agent_id = tool.test_args.pop("agent_id", None)
             task = await tool.async_start_task(
                 user_id=user.id,
-                agent_id=None,
+                agent_id=agent_id,
                 args=tool.test_args,
                 mock=mock,
                 public=False,
@@ -265,7 +266,7 @@ def test(
             result = await tool.async_wait(task)
         else:
             result = await tool.async_run(tool.test_args, mock=mock)
-
+            
         if isinstance(result, dict) and result.get("error"):
             click.echo(
                 click.style(

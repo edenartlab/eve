@@ -21,7 +21,6 @@ from ..tool_constants import (
     FARCASTER_TOOLS,
     TELEGRAM_TOOLS,
     SOCIAL_MEDIA_TOOLS,
-    AGENTIC_TOOLS,
     TOOL_SETS,
 )
 from ..mongo import Collection, get_collection
@@ -287,27 +286,6 @@ class Agent(User):
         # self._reload()
         tools = self.tools_
 
-        def _log_tool_operation_error(operation_name: str, error: Exception, **context):
-            """Helper to log tool operation errors with Sentry"""
-            print(f"***debug*** Error in {operation_name}: {error}")
-            with sentry_sdk.push_scope() as scope:
-                scope.set_tag("component", "tool_operation")
-                scope.set_tag("operation", operation_name)
-                scope.set_tag("agent_username", self.username)
-                scope.set_tag("agent_id", str(self.id))
-                scope.set_context(
-                    "tool_operation_context",
-                    {
-                        "operation": operation_name,
-                        "agent_username": self.username,
-                        "agent_id": str(self.id),
-                        "error_message": str(error),
-                        "traceback": traceback.format_exc(),
-                        **context,
-                    },
-                )
-                sentry_sdk.capture_exception(error)
-
         # update tools with platform-specific args
         # update discord post tool with allowed channels
         try:
@@ -328,7 +306,7 @@ class Agent(User):
                         }
                     )
         except Exception as e:
-            _log_tool_operation_error("discord_channel_update", e, platform="discord")
+            _log_tool_operation_error(self, "discord_channel_update", e, platform="discord")
 
         # update telegram post tool with allowed channels
         try:
@@ -349,52 +327,30 @@ class Agent(User):
                         }
                     )
         except Exception as e:
-            _log_tool_operation_error("telegram_channel_update", e, platform="telegram")
+            _log_tool_operation_error(self, "telegram_channel_update", e, platform="telegram")
 
         # if a platform is not deployed, remove all tools for that platform
-        try:
-            if "discord" not in self.deployments:
-                for tool in DISCORD_TOOLS:
-                    tools.pop(tool, None)
-            if "telegram" not in self.deployments:
-                for tool in TELEGRAM_TOOLS:
-                    tools.pop(tool, None)
-            if "twitter" not in self.deployments:
-                for tool in TWITTER_TOOLS:
-                    tools.pop(tool, None)
-            if "farcaster" not in self.deployments:
-                for tool in FARCASTER_TOOLS:
-                    tools.pop(tool, None)
-        except Exception as e:
-            _log_tool_operation_error("platform_tool_removal", e)
+        if "discord" not in self.deployments:
+            for tool in DISCORD_TOOLS:
+                tools.pop(tool, None)
+        if "telegram" not in self.deployments:
+            for tool in TELEGRAM_TOOLS:
+                tools.pop(tool, None)
+        if "twitter" not in self.deployments:
+            for tool in TWITTER_TOOLS:
+                tools.pop(tool, None)
+        if "farcaster" not in self.deployments:
+            for tool in FARCASTER_TOOLS:
+                tools.pop(tool, None)
 
         # remove tools that only the owner can use
-        try:
-            if str(auth_user) != str(self.owner):
-                for tool in SOCIAL_MEDIA_TOOLS:
-                    tools.pop(tool, None)
-        except Exception as e:
-            _log_tool_operation_error("owner_tool_removal", e, auth_user=str(auth_user))
-
-        # agent-only tools need agent arg injected
-        try:
-            for tool in AGENTIC_TOOLS:
-                if tool in tools:
-                    tools[tool].update_parameters(
-                        {
-                            "agent": {
-                                "type": "string",
-                                "default": str(self.id),
-                                "hide_from_agent": True,
-                            }
-                        }
-                    )
-        except Exception as e:
-            _log_tool_operation_error("agent_parameter_injection", e)
-
+        if str(auth_user) != str(self.owner):
+            for tool in SOCIAL_MEDIA_TOOLS:
+                tools.pop(tool, None)
+    
         # if models are found, inject them as defaults for any tools that use lora
-        try:
-            for tool in tools:
+        for tool in tools:
+            try:
                 if not "lora" in tools[tool].parameters:
                     continue
 
@@ -431,8 +387,9 @@ class Agent(User):
                 #         }
 
                 tools[tool].update_parameters(params)
-        except Exception as e:
-            _log_tool_operation_error("lora_parameter_injection", e)
+        
+            except Exception as e:
+                _log_tool_operation_error(self, "lora_parameter_injection", e)
 
         try:
             if "elevenlabs" in tools and self.voice:
@@ -440,7 +397,7 @@ class Agent(User):
                     {"voice": {"default": self.voice}}
                 )
         except Exception as e:
-            _log_tool_operation_error("elevenlabs_voice_update", e, voice=self.voice)
+            _log_tool_operation_error(self, "elevenlabs_voice_update", e, voice=self.voice)
 
         return tools
 
@@ -638,3 +595,25 @@ async def refresh_agent(agent: Agent):
 
     agents = get_collection(Agent.collection_name)
     agents.update_one({"_id": agent.id}, {"$set": update})
+
+
+def _log_tool_operation_error(agent: Agent, operation_name: str, error: Exception, **context):
+    """Helper to log tool operation errors with Sentry"""
+    print(f"***debug*** Error in {operation_name}: {error}")
+    with sentry_sdk.push_scope() as scope:
+        scope.set_tag("component", "tool_operation")
+        scope.set_tag("operation", operation_name)
+        scope.set_tag("agent_username", agent.username)
+        scope.set_tag("agent_id", str(agent.id))
+        scope.set_context(
+            "tool_operation_context",
+            {
+                "operation": operation_name,
+                "agent_username": agent.username,
+                "agent_id": str(agent.id),
+                "error_message": str(error),
+                "traceback": traceback.format_exc(),
+                **context,
+            },
+        )
+        sentry_sdk.capture_exception(error)

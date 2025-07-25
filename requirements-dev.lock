@@ -363,6 +363,8 @@ psutil==6.0.0
     # via eve
 py-cord==2.6.1
     # via eve
+py-expression-eval==0.3.14
+    # via eve
 pyarrow==21.0.0
     # via pylance
 pyasn1==0.6.1
@@ -415,6 +417,8 @@ pylance==0.31.1
 pymongo==4.6.1
     # via eve
     # via motor
+pyparsing==3.2.3
+    # via eve
 pytest==8.4.1
     # via pytest-asyncio
 pytest-asyncio==1.1.0

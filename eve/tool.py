@@ -20,6 +20,7 @@ from .tool_constants import (
 )
 from . import eden_utils
 from .agent.agent import Agent
+from .auth import get_my_eden_user
 from .base import parse_schema
 from .user import User
 from .task import Task
@@ -241,12 +242,12 @@ class Tool(Document, ABC):
     def from_pydantic(
         cls,
         model: Type[BaseModel],
-        key: str,
+        key: Optional[str] = None,
         name: Optional[str] = None,
         description: Optional[str] = None,
         tip: Optional[str] = None,
         thumbnail: Optional[str] = None,
-        output_type: OUTPUT_TYPES = "text",
+        output_type: OUTPUT_TYPES = "string",
         cost_estimate: str = "0",
         resolutions: Optional[List[str]] = None,
         base_model: Optional[BASE_MODELS] = None,
@@ -313,11 +314,9 @@ class Tool(Document, ABC):
 
         # Build the tool schema
         schema = {
-            "key": key,
+            "key": key or model.__name__,
             "name": name or model.__name__,
-            "description": description
-            or model.__doc__
-            or f"Tool generated from {model.__name__}",
+            "description": description or model.__doc__ or f"Tool generated from {model.__name__}",
             "tip": tip,
             "thumbnail": thumbnail,
             "output_type": output_type,
@@ -420,28 +419,13 @@ class Tool(Document, ABC):
     def calculate_cost(self, args):
         if not self.cost_estimate:
             return 0
-        cost_formula = self.cost_estimate
-        cost_formula = re.sub(
-            r"(\w+)\.length", r"len(\1)", cost_formula
-        )  # Array length
-        cost_formula = re.sub(
-            r"(\w+)\s*\?\s*([^:]+)\s*:\s*([^,\s]+)", r"\2 if \1 else \3", cost_formula
-        )  # Ternary operator for booleans
-        cost_formula = re.sub(
-            r"([^?]+)\s*\?\s*([^:]+)\s*:\s*([^,\s]+)", r"\2 if \1 else \3", cost_formula
-        )  # Ternary operator for a single equality
-        cost_estimate = eval(cost_formula, args.copy())
-        assert isinstance(
-            cost_estimate, (int, float)
-        ), f"Cost estimate ({cost_estimate}) not a number (formula: {cost_formula})"
+        cost_estimate = eden_utils.eval_cost(
+            self.cost_estimate, 
+            **self.prepare_args(args.copy())
+        )
         return cost_estimate
 
-    def prepare_args(
-        self,
-        args: dict,
-        user: str = None,
-        agent: str = None,
-    ):
+    def prepare_args(self, args: dict):
         unrecognized_args = set(args.keys()) - set(self.model.model_fields.keys())
         if unrecognized_args:
             # raise ValueError(
@@ -460,12 +444,6 @@ class Tool(Document, ABC):
             elif parameter.get("default") is not None:
                 prepared_args[field] = parameter["default"]
 
-        # Add user and agent context to args
-        if user is not None:
-            prepared_args["user"] = str(user)
-        if agent is not None:
-            prepared_args["agent"] = str(agent)
-
         try:
             self.model(**prepared_args)
 
@@ -481,12 +459,14 @@ class Tool(Document, ABC):
 
         async def async_wrapper(self, args: Dict, mock: bool = False):
             try:
+                user_id = args.pop("user_id", None) or str(get_my_eden_user().id)
+                agent_id = args.pop("agent_id", None) 
                 args = self.prepare_args(args)
                 sentry_sdk.add_breadcrumb(category="handle_run", data=args)
                 if mock:
                     result = {"output": eden_utils.mock_image(args)}
                 else:
-                    result = await run_function(self, args)
+                    result = await run_function(self, args, user_id, agent_id)
                 result["output"] = (
                     result["output"]
                     if isinstance(result["output"], list)
@@ -520,7 +500,7 @@ class Tool(Document, ABC):
         ):
             try:
                 user = User.from_mongo(user_id)
-                args = self.prepare_args(args, user=str(user_id), agent=agent_id)
+                args = self.prepare_args(args)
                 sentry_sdk.add_breadcrumb(category="handle_start_task", data=args)
                 cost = self.calculate_cost(args)
 
@@ -567,7 +547,8 @@ class Tool(Document, ABC):
             # start task
             try:
                 if mock:
-                    handler_id = eden_utils.random_string()
+                    handler_id = "".join(random.choices("abcdefghijklmnopqrstuvwxyz0123456789", k=28))
+
                     output = [{"output": [eden_utils.mock_image(args)]}]
                     result = eden_utils.upload_result(output)
                     task.update(

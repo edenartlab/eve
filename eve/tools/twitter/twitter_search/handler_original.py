@@ -11,8 +11,10 @@ class TwitterSearchQuery(BaseModel):
     query: str
 
 
-async def handler(args: dict): #, user: User, agent: Agent):
-    agent = Agent.from_mongo(args["agent"])
+async def handler(args: dict, user: str = None, agent: str = None):
+    if not agent:
+        raise Exception("Agent is required")
+    agent = Agent.from_mongo(agent)
     deployment = Deployment.load(agent=agent.id, platform="twitter")
     if not deployment:
         raise Exception("No valid twitter deployments found")

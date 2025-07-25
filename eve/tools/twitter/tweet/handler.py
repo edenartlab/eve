@@ -4,8 +4,9 @@ from eve.agent.session.models import Deployment
 
 
 async def handler(args: dict, user: str = None, agent: str = None):
-    agent_id = args.get("agent") or agent
-    agent_obj = Agent.from_mongo(agent_id)
+    if not agent:
+        raise Exception("Agent is required")
+    agent_obj = Agent.from_mongo(agent)
     deployment = Deployment.load(agent=agent_obj.id, platform="twitter")
     if not deployment:
         raise Exception("No valid twitter deployments found")

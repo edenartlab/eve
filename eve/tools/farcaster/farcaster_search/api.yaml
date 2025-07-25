@@ -42,7 +42,3 @@ parameters:
     type: integer
     description: Only return casts from the last N hours
     required: false
-  agent:
-    type: string
-    description: Agent ID to run the tool with
-    required: true

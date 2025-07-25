@@ -304,6 +304,9 @@ async def build_llm_context(
 ):
     tools = actor.get_tools(cache=False, auth_user=context.initiating_user_id)
 
+    if context.custom_tools:
+        tools.update(context.custom_tools)
+
     # build messages
     system_message = await build_system_message(session, actor, context, tools)
     messages = [system_message]

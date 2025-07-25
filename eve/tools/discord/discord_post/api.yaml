@@ -21,7 +21,3 @@ parameters:
     type: string
     description: The message content to post
     required: true
-  agent:
-    type: string
-    description: Agent ID to run the tool with
-    required: true
