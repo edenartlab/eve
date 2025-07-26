@@ -24,7 +24,7 @@ DEFAULT_SESSION_LLM_CONFIG_PROD = {
         model="claude-sonnet-4-20250514",
     ),
     "free": LLMConfig(
-        model="gemini/gemini-2.5-flash-preview-05-20",
+        model="claude-sonnet-4-20250514",
     ),
 }
 
