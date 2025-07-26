@@ -302,7 +302,7 @@ async def build_llm_context(
     trace_id: Optional[str] = None,
     user_message: Optional[ChatMessage] = None,
 ):
-    tools = actor.get_tools(cache=False, auth_user=context.initiating_user_id)
+    tools = actor.get_tools_optimized(cache=False, auth_user=context.initiating_user_id)
 
     if context.custom_tools:
         tools.update(context.custom_tools)
@@ -995,7 +995,7 @@ async def _run_prompt_session_internal(
 ):
     """Internal function that handles both streaming and non-streaming"""
     session = context.session
-    
+
     try:
         validate_prompt_session(session, context)
 
@@ -1017,7 +1017,11 @@ async def _run_prompt_session_internal(
         if len(actors) == 1:
             actor = actors[0]
             llm_context = await build_llm_context(
-                session, actor, context, trace_id=session_run_id, user_message=user_message
+                session,
+                actor,
+                context,
+                trace_id=session_run_id,
+                user_message=user_message,
             )
             async for update in async_prompt_session(
                 session,
@@ -1088,31 +1092,36 @@ async def _run_prompt_session_internal(
                     f"🧠 Triggering maybe_form_memories() as background task for session {session.id}, agent {actor.id}"
                 )
                 background_tasks.add_task(maybe_form_memories, actor.id, session)
-            
+
             # Send success notification if configured
-            if context.notification_config and context.notification_config.success_notification:
+            if (
+                context.notification_config
+                and context.notification_config.success_notification
+            ):
                 background_tasks.add_task(
-                    _send_session_notification, 
-                    context.notification_config, 
-                    session, 
-                    success=True
+                    _send_session_notification,
+                    context.notification_config,
+                    session,
+                    success=True,
                 )
         else:
             print(
                 f"⚠️  Warning: No background_tasks available, skipping memory formation and auto-reply"
             )
-    
+
     except Exception as e:
         # Send failure notification if configured
-        if (background_tasks and 
-            context.notification_config and 
-            context.notification_config.failure_notification):
+        if (
+            background_tasks
+            and context.notification_config
+            and context.notification_config.failure_notification
+        ):
             background_tasks.add_task(
-                _send_session_notification, 
-                context.notification_config, 
-                session, 
+                _send_session_notification,
+                context.notification_config,
+                session,
                 success=False,
-                error=str(e)
+                error=str(e),
             )
         # Re-raise the exception
         raise
@@ -1167,15 +1176,12 @@ async def _queue_session_action_fastify_background_task(session: Session):
 
 
 async def _send_session_notification(
-    notification_config, 
-    session: Session, 
-    success: bool = True, 
-    error: str = None
+    notification_config, session: Session, success: bool = True, error: str = None
 ):
     """Send a notification about session completion"""
     import httpx
     from datetime import datetime, timezone
-    
+
     try:
         api_url = os.getenv("EDEN_API_URL")
         if not api_url:
@@ -1190,7 +1196,10 @@ async def _send_session_notification(
         else:
             notification_type = "session_failed"
             title = notification_config.failure_title or "Session Failed"
-            message = notification_config.failure_message or f"Your session failed: {error[:200]}..."
+            message = (
+                notification_config.failure_message
+                or f"Your session failed: {error[:200]}..."
+            )
             priority = "high"
 
         notification_data = {
@@ -1205,8 +1214,8 @@ async def _send_session_notification(
                 "session_id": str(session.id),
                 "completion_time": datetime.now(timezone.utc).isoformat(),
                 **(notification_config.metadata or {}),
-                **({"error": error} if error else {})
-            }
+                **({"error": error} if error else {}),
+            },
         }
 
         # Add optional fields
