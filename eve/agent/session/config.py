@@ -32,7 +32,7 @@ DEFAULT_SESSION_LLM_CONFIG_PROD = {
 def get_default_session_llm_config(tier: Literal["premium", "free"] = "free"):
     if os.getenv("LANGFUSE_TRACING_ENVIRONMENT") == "jmill-dev":
         return DEFAULT_SESSION_LLM_CONFIG_DEV[tier]
-    if os.getenv("DB") == "prod":
+    if os.getenv("DB") == "PROD":
         return DEFAULT_SESSION_LLM_CONFIG_PROD[tier]
     else:
         return DEFAULT_SESSION_LLM_CONFIG_STAGE[tier]
