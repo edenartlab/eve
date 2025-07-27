@@ -324,7 +324,7 @@ def _save_to_volume_cache(url, local_filepath):
         cache_filepath = volume_cache_dir / cache_filename
         
         if not cache_filepath.exists():
-            print(f"Saving {cache_filename} to volume cache")
+            print(f"<**> Saving {cache_filename} to volume cache")
             import shutil
             shutil.copy2(str(local_filepath), str(cache_filepath))
             
