@@ -6,6 +6,9 @@ from eve.clients.farcaster.client import create_app
 
 root_dir = Path(__file__).parent.parent.parent.parent
 
+# Create shared media cache volume
+media_cache_vol = modal.Volume.from_name("media-cache", create_if_missing=True)
+
 app = modal.App(
     name=f"client-farcaster-{db}",
     secrets=[
@@ -30,6 +33,7 @@ image = (
     image=image,
     min_containers=1,
     max_containers=1,
+    volumes={"/data/media-cache": media_cache_vol},
 )
 @modal.asgi_app()
 def fastapi_app():
