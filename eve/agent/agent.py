@@ -32,11 +32,6 @@ from .thread import Thread
 
 agent_updated_at = {}
 
-# Global cache for batch-loaded tool schemas
-_tool_schema_cache = {}
-_cache_timestamp = None
-CACHE_TTL = 300  # 5 minutes
-
 
 def profile_method(method_name):
     """Decorator to profile method execution time"""
@@ -277,11 +272,9 @@ class Agent(User):
 
     @profile_method("_reload_optimized")
     def _reload_optimized(self):
-        """Optimized version of _reload that batches MongoDB queries and uses caching"""
+        """Optimized version of _reload that batches MongoDB queries"""
         from ..tool import Tool
         from ..agent.session.models import Deployment
-
-        global _tool_schema_cache, _cache_timestamp
 
         # load deployments to memory
         self.deployments = {
@@ -311,123 +304,106 @@ class Agent(User):
         else:
             self.lora_docs = []
 
-        # Check if we need to refresh the cache
-        now = time.time()
-        if _cache_timestamp is None or (now - _cache_timestamp) > CACHE_TTL:
-            _tool_schema_cache.clear()
-            _cache_timestamp = now
-
         # Collect all tools needed
         needed_tools = []
         for tool_set, set_tools in TOOL_SETS.items():
             if self.tools.get(tool_set):
                 needed_tools.extend(set_tools)
 
-        # Batch load schemas for tools not in cache using single MongoDB query
-        schemas_to_load = [t for t in needed_tools if t not in _tool_schema_cache]
-
-        if schemas_to_load:
-            print(f"PERF_PROFILE: batch loading {len(schemas_to_load)} tool schemas...")
+        # Batch load ALL tool schemas from MongoDB
+        if needed_tools:
+            print(f"PERF_PROFILE: batch loading {len(needed_tools)} tool schemas...")
             start_time = time.time()
 
-            # Single batch query to MongoDB instead of individual queries
+            # Single batch query to MongoDB
             tools_collection = get_collection(Tool.collection_name)
             batch_schemas = list(
-                tools_collection.find({"key": {"$in": schemas_to_load}})
+                tools_collection.find({"key": {"$in": needed_tools}})
             )
 
-            # Store schemas in cache, indexed by key
-            for schema in batch_schemas:
-                tool_key = schema.get("key")
-                if tool_key:
-                    _tool_schema_cache[tool_key] = schema
-
-            # Mark missing tools as None in cache
-            loaded_keys = {s.get("key") for s in batch_schemas}
-            for tool_name in schemas_to_load:
-                if tool_name not in loaded_keys:
-                    print(f"Tool schema not found in DB: {tool_name}")
-                    _tool_schema_cache[tool_name] = None
+            # Create a dict for easy lookup
+            schemas_by_key = {schema.get("key"): schema for schema in batch_schemas}
 
             print(
                 f"PERF_PROFILE: batch loaded {len(batch_schemas)} schemas in {time.time() - start_time:.3f}s"
             )
 
-        # Convert schemas to tools
-        tools = {}
-        for t in needed_tools:
-            try:
-                start_time = time.time()
+            # Convert ALL schemas to tools (no caching, fresh every time)
+            tools = {}
+            for t in needed_tools:
+                try:
+                    start_time = time.time()
 
-                if t in _tool_schema_cache and _tool_schema_cache[t] is not None:
-                    print(f"PERF_PROFILE: using cached schema for {t}")
-                    cached_schema = _tool_schema_cache[t]
+                    if t in schemas_by_key:
+                        schema = schemas_by_key[t]
 
-                    # Check if parameters are in list format (older MongoDB format) or dict format (newer)
-                    parameters = cached_schema.get("parameters", {})
-                    if isinstance(parameters, list):
-                        # Use convert_from_mongo for list format
-                        print(
-                            f"PERF_PROFILE: using convert_from_mongo for {t} (list format)"
-                        )
-                        schema = Tool.convert_from_mongo(cached_schema)
+                        # Check if parameters are in list format (older MongoDB format) or dict format (newer)
+                        parameters = schema.get("parameters", {})
+                        if isinstance(parameters, list):
+                            # Use convert_from_mongo for list format
+                            print(
+                                f"PERF_PROFILE: using convert_from_mongo for {t} (list format)"
+                            )
+                            schema = Tool.convert_from_mongo(schema)
+                        else:
+                            # Parameters are already in dict format, use them directly
+                            print(
+                                f"PERF_PROFILE: using schema directly for {t} (dict format)"
+                            )
+                            schema = schema.copy()
+                            # Create the model for this schema
+                            from ..base import parse_schema
+                            from pydantic import create_model
+                            from .. import eden_utils
+
+                            fields, model_config = parse_schema(schema)
+                            model = create_model(
+                                schema["key"], __config__=model_config, **fields
+                            )
+                            model.__doc__ = eden_utils.concat_sentences(
+                                schema.get("description"), schema.get("tip", "")
+                            )
+                            schema["model"] = model
                     else:
-                        # Parameters are already in dict format, use them directly
-                        print(
-                            f"PERF_PROFILE: using cached schema directly for {t} (dict format)"
-                        )
-                        schema = cached_schema.copy()
-                        # Create the model for this schema
-                        from ..base import parse_schema
-                        from pydantic import create_model
-                        from .. import eden_utils
+                        # Fallback to original YAML-based method if not in DB
+                        print(f"PERF_PROFILE: falling back to YAML method for {t}")
+                        schema = Tool.convert_from_yaml({"parent_tool": t})
 
-                        fields, model_config = parse_schema(schema)
-                        model = create_model(
-                            schema["key"], __config__=model_config, **fields
-                        )
-                        model.__doc__ = eden_utils.concat_sentences(
-                            schema.get("description"), schema.get("tip", "")
-                        )
-                        schema["model"] = model
-                else:
-                    # Fallback to original YAML-based method if not in cache
-                    print(f"PERF_PROFILE: falling back to YAML method for {t}")
-                    schema = Tool.convert_from_yaml({"parent_tool": t})
+                    sub_cls = Tool.get_sub_class(schema, from_yaml=False)
+                    tool = sub_cls.model_validate(schema)
+                    tools[t] = tool
 
-                sub_cls = Tool.get_sub_class(schema, from_yaml=False)
-                tool = sub_cls.model_validate(schema)
-                tools[t] = tool
-
-                print(
-                    f"PERF_PROFILE: tool creation took {time.time() - start_time:.3f}s for {t}"
-                )
-
-            except Exception as e:
-                print(f"Error loading tool {t}: {e}")
-                print(traceback.format_exc())
-
-                # Graceful failure with Sentry tracking
-                with sentry_sdk.push_scope() as scope:
-                    scope.set_tag("component", "tool_loading_optimized")
-                    scope.set_tag("agent_username", self.username)
-                    scope.set_tag("agent_id", str(self.id))
-                    scope.set_tag("tool_name", t)
-                    scope.set_context(
-                        "tool_loading_context",
-                        {
-                            "tool_name": t,
-                            "agent_username": self.username,
-                            "agent_id": str(self.id),
-                            "error_message": str(e),
-                            "traceback": traceback.format_exc(),
-                        },
+                    print(
+                        f"PERF_PROFILE: tool creation took {time.time() - start_time:.3f}s for {t}"
                     )
-                    sentry_sdk.capture_exception(e)
 
-                continue
+                except Exception as e:
+                    print(f"Error loading tool {t}: {e}")
+                    print(traceback.format_exc())
 
-        self.tools_ = tools
+                    # Graceful failure with Sentry tracking
+                    with sentry_sdk.push_scope() as scope:
+                        scope.set_tag("component", "tool_loading_optimized")
+                        scope.set_tag("agent_username", self.username)
+                        scope.set_tag("agent_id", str(self.id))
+                        scope.set_tag("tool_name", t)
+                        scope.set_context(
+                            "tool_loading_context",
+                            {
+                                "tool_name": t,
+                                "agent_username": self.username,
+                                "agent_id": str(self.id),
+                                "error_message": str(e),
+                                "traceback": traceback.format_exc(),
+                            },
+                        )
+                        sentry_sdk.capture_exception(e)
+
+                    continue
+
+            self.tools_ = tools
+        else:
+            self.tools_ = {}
 
     @profile_method("get_tools (original)")
     def get_tools(self, cache=True, auth_user: str = None):
@@ -589,37 +565,14 @@ class Agent(User):
     @profile_method("get_tools_optimized")
     def get_tools_optimized(self, cache=True, auth_user: str = None):
         """
-        Optimized version of get_tools that uses batch loading and caching.
+        Optimized version of get_tools that uses batch loading.
         """
-        if cache:
-            if self.username in agent_updated_at:
-                # outdated, reload tools
-                if self.updatedAt > agent_updated_at[self.username]["updatedAt"]:
-                    self._reload_optimized()
-                    agent_updated_at[self.username] = {
-                        "updatedAt": self.updatedAt,
-                        "tools": self.tools_,
-                    }
+        # Always reload tools fresh - no caching
+        self._reload_optimized()
 
-                # grab cached tools
-                else:
-                    self.tools_ = agent_updated_at[self.username]["tools"]
-            else:
-                # first time, load tools, set cache
-                self._reload_optimized()
-                agent_updated_at[self.username] = {
-                    "updatedAt": self.updatedAt,
-                    "tools": self.tools_,
-                }
-        else:
-            self._reload_optimized()
-            agent_updated_at[self.username] = {
-                "updatedAt": self.updatedAt,
-                "tools": self.tools_,
-            }
-
-        # Get tools reference (after optimization, this is fast)
-        tools = self.tools_
+        # Deep copy tools to avoid any shared state between agents
+        import copy
+        tools = copy.deepcopy(self.tools_)
 
         # Apply the same post-processing as original method
         # (All the platform-specific logic remains the same)
