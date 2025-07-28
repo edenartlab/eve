@@ -163,6 +163,7 @@ def prepare_result(result, summarize=False):
 
 def upload_result(result, save_thumbnails=False, save_blurhash=False):
     if isinstance(result, dict):
+        t1 = time.time()
         exlude_result_processing_keys = ["subtool_calls"]
         return {
             k: upload_result(
@@ -170,6 +171,8 @@ def upload_result(result, save_thumbnails=False, save_blurhash=False):
             ) if k not in exlude_result_processing_keys else v
             for k, v in result.items()
         }
+        t2 = time.time()
+        print(f"UPLAD RES PERF_PROFILE: upload_result took {t2 - t1:.3f}s")
     elif isinstance(result, list):
         return [
             upload_result(
@@ -186,21 +189,20 @@ def upload_result(result, save_thumbnails=False, save_blurhash=False):
 
 
 def upload_media(output, save_thumbnails=True, save_blurhash=True):
+    t1 = time.time()
     file_url, sha = s3.upload_file(output)
     filename = file_url.split("/")[-1]
 
     media_attributes, thumbnail = get_media_attributes(output)
-
     if save_thumbnails and thumbnail:
-        for width in [384, 768, 1024, 2560]:
+        for width in [1024]:  # [384, 768, 1024, 2560]
             img = thumbnail.copy()
             img.thumbnail(
                 (width, 2560), Image.Resampling.LANCZOS
             ) if width < thumbnail.width else thumbnail
             img_bytes = PIL_to_bytes(img)
             s3.upload_buffer(img_bytes, name=f"{sha}_{width}", file_type=".webp")
-            s3.upload_buffer(img_bytes, name=f"{sha}_{width}", file_type=".jpg")
-
+            # s3.upload_buffer(img_bytes, name=f"{sha}_{width}", file_type=".jpg")
     if save_blurhash and thumbnail:
         try:
             img = thumbnail.copy()
