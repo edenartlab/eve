@@ -441,12 +441,12 @@ run = app.function(
 
 
 run_task = app.function(
-    image=image, max_containers=10, timeout=3600, volumes={"/data/media-cache": media_cache_vol}
+    image=image, min_containers=2, max_containers=10, timeout=3600, volumes={"/data/media-cache": media_cache_vol}
 )(modal.concurrent(max_inputs=4)(run_task))
 
 
 run_task_replicate = app.function(
-    image=image, max_containers=10, timeout=3600, volumes={"/data/media-cache": media_cache_vol}
+    image=image, min_containers=2, max_containers=10, timeout=3600, volumes={"/data/media-cache": media_cache_vol}
 )(modal.concurrent(max_inputs=4)(run_task_replicate)
 )
 
