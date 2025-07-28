@@ -30,8 +30,6 @@ from ..user import User, Manna
 from ..eden_utils import load_template
 from .thread import Thread
 
-agent_updated_at = {}
-
 
 def profile_method(method_name):
     """Decorator to profile method execution time"""
@@ -207,9 +205,10 @@ class Agent(User):
         thread.save()
         return thread
 
-    @profile_method("_reload (original)")
+    @profile_method("_reload")
     def _reload(self):
-        from ..tool import Tool
+        """Reload all tools, loras, and deployments from mongo"""
+        from ..tool import get_tools_from_mongo
         from ..agent.session.models import Deployment
 
         # load deployments to memory
@@ -219,74 +218,11 @@ class Agent(User):
         }
 
         # load loras to memory
-        models_collection = get_collection(Model.collection_name)
-        loras_dict = {m["lora"]: m for m in self.models or []}
-        lora_docs = (
-            models_collection.find(
-                {"_id": {"$in": list(loras_dict.keys())}, "deleted": {"$ne": True}}
-            )
-            if self.models
-            else []
-        )
-        lora_docs = list(lora_docs or [])
-        self.lora_docs = lora_docs
-
-        # load tools to memory
-        tools = {}
-        for tool_set, set_tools in TOOL_SETS.items():
-            if not self.tools.get(tool_set):
-                continue
-
-            for t in set_tools:
-                try:
-                    tool = Tool.from_raw_yaml({"parent_tool": t})
-                    tools[t] = tool
-                except Exception as e:
-                    print(f"Error loading tool {t}: {e}")
-                    print(traceback.format_exc())
-
-                    # Graceful failure with Sentry tracking
-                    with sentry_sdk.push_scope() as scope:
-                        scope.set_tag("component", "tool_loading")
-                        scope.set_tag("agent_username", self.username)
-                        scope.set_tag("agent_id", str(self.id))
-                        scope.set_tag("tool_name", t)
-                        scope.set_tag("tool_set", tool_set)
-                        scope.set_context(
-                            "tool_loading_context",
-                            {
-                                "tool_name": t,
-                                "tool_set": tool_set,
-                                "agent_username": self.username,
-                                "agent_id": str(self.id),
-                                "error_message": str(e),
-                                "traceback": traceback.format_exc(),
-                            },
-                        )
-                        sentry_sdk.capture_exception(e)
-
-                    # Continue loading other tools instead of crashing
-                    continue
-
-        self.tools_ = tools
-
-    @profile_method("_reload_optimized")
-    def _reload_optimized(self):
-        """Optimized version of _reload that batches MongoDB queries"""
-        from ..tool import Tool
-        from ..agent.session.models import Deployment
-
-        # load deployments to memory
-        self.deployments = {
-            deployment.platform.value: deployment
-            for deployment in Deployment.find({"agent": ObjectId(str(self.id))})
-        }
-
-        # load loras to memory - batch query
         start_time = time.time()
         models_collection = get_collection(Model.collection_name)
         loras_dict = {m["lora"]: m for m in self.models or []}
 
+        # load loras to memory
         if self.models:
             lora_ids = list(loras_dict.keys())
             print(f"PERF_PROFILE: batch loading {len(lora_ids)} parent schemas...")
@@ -305,140 +241,21 @@ class Agent(User):
             self.lora_docs = []
 
         # Collect all tools needed
-        needed_tools = []
+        print(f"PERF_PROFILE: collecting tools to load...")
+        tools_to_load = []
         for tool_set, set_tools in TOOL_SETS.items():
-            if self.tools.get(tool_set):
-                needed_tools.extend(set_tools)
+            if not self.tools.get(tool_set):
+                continue
+            tools_to_load.extend(set_tools)
 
-        # Batch load ALL tool schemas from MongoDB
-        if needed_tools:
-            print(f"PERF_PROFILE: batch loading {len(needed_tools)} tool schemas...")
-            start_time = time.time()
+        self.tools_ = get_tools_from_mongo(tools_to_load)        
+        print(
+            f"PERF_PROFILE: batch loaded {len(self.tools_)} schemas in {time.time() - start_time:.3f}s"
+        )
 
-            # Single batch query to MongoDB
-            tools_collection = get_collection(Tool.collection_name)
-            batch_schemas = list(
-                tools_collection.find({"key": {"$in": needed_tools}})
-            )
-
-            # Create a dict for easy lookup
-            schemas_by_key = {schema.get("key"): schema for schema in batch_schemas}
-
-            print(
-                f"PERF_PROFILE: batch loaded {len(batch_schemas)} schemas in {time.time() - start_time:.3f}s"
-            )
-
-            # Convert ALL schemas to tools (no caching, fresh every time)
-            tools = {}
-            for t in needed_tools:
-                try:
-                    start_time = time.time()
-
-                    if t in schemas_by_key:
-                        schema = schemas_by_key[t]
-
-                        # Check if parameters are in list format (older MongoDB format) or dict format (newer)
-                        parameters = schema.get("parameters", {})
-                        if isinstance(parameters, list):
-                            # Use convert_from_mongo for list format
-                            print(
-                                f"PERF_PROFILE: using convert_from_mongo for {t} (list format)"
-                            )
-                            schema = Tool.convert_from_mongo(schema)
-                        else:
-                            # Parameters are already in dict format, use them directly
-                            print(
-                                f"PERF_PROFILE: using schema directly for {t} (dict format)"
-                            )
-                            schema = schema.copy()
-                            # Create the model for this schema
-                            from ..base import parse_schema
-                            from pydantic import create_model
-                            from .. import eden_utils
-
-                            fields, model_config = parse_schema(schema)
-                            model = create_model(
-                                schema["key"], __config__=model_config, **fields
-                            )
-                            model.__doc__ = eden_utils.concat_sentences(
-                                schema.get("description"), schema.get("tip", "")
-                            )
-                            schema["model"] = model
-                    else:
-                        # Fallback to original YAML-based method if not in DB
-                        print(f"PERF_PROFILE: falling back to YAML method for {t}")
-                        schema = Tool.convert_from_yaml({"parent_tool": t})
-
-                    sub_cls = Tool.get_sub_class(schema, from_yaml=False)
-                    tool = sub_cls.model_validate(schema)
-                    tools[t] = tool
-
-                    print(
-                        f"PERF_PROFILE: tool creation took {time.time() - start_time:.3f}s for {t}"
-                    )
-
-                except Exception as e:
-                    print(f"Error loading tool {t}: {e}")
-                    print(traceback.format_exc())
-
-                    # Graceful failure with Sentry tracking
-                    with sentry_sdk.push_scope() as scope:
-                        scope.set_tag("component", "tool_loading_optimized")
-                        scope.set_tag("agent_username", self.username)
-                        scope.set_tag("agent_id", str(self.id))
-                        scope.set_tag("tool_name", t)
-                        scope.set_context(
-                            "tool_loading_context",
-                            {
-                                "tool_name": t,
-                                "agent_username": self.username,
-                                "agent_id": str(self.id),
-                                "error_message": str(e),
-                                "traceback": traceback.format_exc(),
-                            },
-                        )
-                        sentry_sdk.capture_exception(e)
-
-                    continue
-
-            self.tools_ = tools
-        else:
-            self.tools_ = {}
-
-    @profile_method("get_tools (original)")
+    @profile_method("get_tools")
     def get_tools(self, cache=True, auth_user: str = None):
-        """
-        Cache is disabled until bug is fixed.
-        Problem is agent gets into agent_updated_at, but then loaded as new object later, so tools are not populated.
-        """
-        if cache:
-            if self.username in agent_updated_at:
-                # outdated, reload tools
-                if self.updatedAt > agent_updated_at[self.username]["updatedAt"]:
-                    self._reload()
-                    agent_updated_at[self.username] = {
-                        "updatedAt": self.updatedAt,
-                        "tools": self.tools_,
-                    }
-
-                # grab cached tools
-                else:
-                    self.tools_ = agent_updated_at[self.username]["tools"]
-            else:
-                # first time, load tools, set cache
-                self._reload()
-                agent_updated_at[self.username] = {
-                    "updatedAt": self.updatedAt,
-                    "tools": self.tools_,
-                }
-        else:
-            self._reload()
-            agent_updated_at[self.username] = {
-                "updatedAt": self.updatedAt,
-                "tools": self.tools_,
-            }
-
-        # self._reload()
+        self._reload()
         tools = self.tools_
 
         # update tools with platform-specific args
@@ -562,216 +379,6 @@ class Agent(User):
 
         return tools
 
-    @profile_method("get_tools_optimized")
-    def get_tools_optimized(self, cache=True, auth_user: str = None):
-        """
-        Optimized version of get_tools that uses batch loading.
-        """
-        # Always reload tools fresh - no caching
-        self._reload_optimized()
-
-        # Deep copy tools to avoid any shared state between agents
-        import copy
-        tools = copy.deepcopy(self.tools_)
-
-        # Apply the same post-processing as original method
-        # (All the platform-specific logic remains the same)
-
-        # update tools with platform-specific args
-        # update discord post tool with allowed channels
-        try:
-            if "discord" in self.deployments:
-                if "discord_post" in tools:
-                    allowed_channels = self.deployments[
-                        "discord"
-                    ].get_allowed_channels()
-                    channels_description = " | ".join(
-                        [f"ID {c.id} ({c.note})" for c in allowed_channels]
-                    )
-                    tools["discord_post"].update_parameters(
-                        {
-                            "channel_id": {
-                                "choices": [c.id for c in allowed_channels],
-                                "tip": f"Some hints about the available channels: {channels_description}",
-                            },
-                        }
-                    )
-        except Exception as e:
-            _log_tool_operation_error(
-                self, "discord_channel_update", e, platform="discord"
-            )
-
-        # update telegram post tool with allowed channels
-        try:
-            if "telegram" in self.deployments:
-                if "telegram_post" in tools:
-                    allowed_channels = self.deployments[
-                        "telegram"
-                    ].get_allowed_channels()
-                    channels_description = " | ".join(
-                        [f"ID {c.id} ({c.note})" for c in allowed_channels]
-                    )
-                    tools["telegram_post"].update_parameters(
-                        {
-                            "channel_id": {
-                                "choices": [c.id for c in allowed_channels],
-                                "tip": f"Some hints about the available topics: {channels_description}",
-                            },
-                        }
-                    )
-        except Exception as e:
-            _log_tool_operation_error(
-                self, "telegram_channel_update", e, platform="telegram"
-            )
-
-        # if a platform is not deployed, remove all tools for that platform
-        if "discord" not in self.deployments:
-            for tool in DISCORD_TOOLS:
-                tools.pop(tool, None)
-        if "telegram" not in self.deployments:
-            for tool in TELEGRAM_TOOLS:
-                tools.pop(tool, None)
-        if "twitter" not in self.deployments:
-            for tool in TWITTER_TOOLS:
-                tools.pop(tool, None)
-        if "farcaster" not in self.deployments:
-            for tool in FARCASTER_TOOLS:
-                tools.pop(tool, None)
-
-        # remove tools that only the owner can use
-        if str(auth_user) != str(self.owner):
-            for tool in SOCIAL_MEDIA_TOOLS:
-                tools.pop(tool, None)
-
-        # if models are found, inject them as defaults for any tools that use lora
-        for tool in tools:
-            try:
-                if "lora" not in tools[tool].parameters:
-                    continue
-
-                lora_docs = self.lora_docs
-
-                if not lora_docs:
-                    continue
-
-                # Build LoRA information for the tip
-                lora_info = []
-                for m in lora_docs:
-                    lora_id = m["_id"]
-                    lora_doc = {m["lora"]: m for m in self.models}[lora_id]
-                    lora_info.append(
-                        f"{{ ID: {lora_id}, Name: {m['name']}, Description: {m['lora_trigger_text']}, Use When: {lora_doc['use_when']} }}"
-                    )
-
-                params = {
-                    "lora": {
-                        "default": str(lora_docs[0]["_id"]),
-                        "tip": "Users may request one of your known LoRAs, or a different unknown one, or no LoRA at all. When referring to a LoRA, strictly use its name, not its description. Notes on when to use the known LoRAs: "
-                        + " | ".join(lora_info),
-                    },
-                }
-                if "use_lora" in tools[tool].parameters:
-                    params["use_lora"] = {"default": True}
-
-                tools[tool].update_parameters(params)
-
-            except Exception as e:
-                _log_tool_operation_error(self, "lora_parameter_injection", e)
-
-        try:
-            if "elevenlabs" in tools and self.voice:
-                tools["elevenlabs"].update_parameters(
-                    {"voice": {"default": self.voice}}
-                )
-        except Exception as e:
-            _log_tool_operation_error(
-                self, "elevenlabs_voice_update", e, voice=self.voice
-            )
-
-        return tools
-
-    def benchmark_tool_loading(self, auth_user: str = None):
-        """
-        Benchmark method to compare original vs optimized tool loading performance.
-        Runs both methods and prints detailed timing comparisons.
-        """
-        print("\n" + "=" * 60)
-        print("TOOL LOADING PERFORMANCE BENCHMARK")
-        print("=" * 60)
-
-        # Clear any existing cache to ensure fair comparison
-        global agent_updated_at, _tool_schema_cache, _cache_timestamp
-        if self.username in agent_updated_at:
-            del agent_updated_at[self.username]
-        _tool_schema_cache.clear()
-        _cache_timestamp = None
-
-        print(f"Agent: {self.username}")
-        enabled_tool_sets = [ts for ts, enabled in self.tools.items() if enabled]
-        total_tools = sum(len(TOOL_SETS.get(ts, [])) for ts in enabled_tool_sets)
-        print(f"Enabled tool sets: {enabled_tool_sets}")
-        print(f"Total tools to load: {total_tools}")
-        print("\n" + "-" * 60)
-
-        # Test original method
-        print("🐌 TESTING ORIGINAL METHOD:")
-        original_start = time.time()
-        original_tools = self.get_tools(cache=False, auth_user=auth_user)
-        original_time = time.time() - original_start
-        print(f"✅ Original method completed: {original_time:.3f}s")
-        print(f"   Loaded {len(original_tools)} tools")
-
-        # Clear cache for optimized test
-        if self.username in agent_updated_at:
-            del agent_updated_at[self.username]
-        _tool_schema_cache.clear()
-        _cache_timestamp = None
-
-        print("\n" + "-" * 60)
-        print("🚀 TESTING OPTIMIZED METHOD:")
-        optimized_start = time.time()
-        optimized_tools = self.get_tools_optimized(cache=False, auth_user=auth_user)
-        optimized_time = time.time() - optimized_start
-        print(f"✅ Optimized method completed: {optimized_time:.3f}s")
-        print(f"   Loaded {len(optimized_tools)} tools")
-
-        # Calculate improvement
-        improvement = ((original_time - optimized_time) / original_time) * 100
-        speedup = original_time / optimized_time if optimized_time > 0 else float("inf")
-
-        print("\n" + "=" * 60)
-        print("📊 PERFORMANCE SUMMARY:")
-        print("=" * 60)
-        print(f"Original method:  {original_time:.3f}s")
-        print(f"Optimized method: {optimized_time:.3f}s")
-        print(f"Performance improvement: {improvement:.1f}%")
-        print(f"Speed multiplier: {speedup:.1f}x faster")
-
-        if optimized_time < original_time:
-            print(f"🎉 SUCCESS: Optimized method is {speedup:.1f}x faster!")
-        else:
-            print("⚠️  REGRESSION: Optimized method is slower")
-
-        # Verify tools are equivalent
-        original_keys = set(original_tools.keys())
-        optimized_keys = set(optimized_tools.keys())
-        if original_keys == optimized_keys:
-            print("✅ Tool sets are identical")
-        else:
-            print("❌ Tool sets differ!")
-            print(f"   Original only: {original_keys - optimized_keys}")
-            print(f"   Optimized only: {optimized_keys - original_keys}")
-
-        print("=" * 60)
-
-        return {
-            "original_time": original_time,
-            "optimized_time": optimized_time,
-            "improvement_percent": improvement,
-            "speedup": speedup,
-            "tools_match": original_keys == optimized_keys,
-        }
-
 
 def get_agents_from_mongo(
     agents: List[str] = None, include_inactive: bool = False
@@ -794,30 +401,6 @@ def get_agents_from_mongo(
             print(traceback.format_exc())
 
     return agents
-
-
-def get_api_files(root_dir: str = None) -> List[str]:
-    """Get all agent directories inside a directory"""
-
-    db = os.getenv("DB").lower()
-
-    if root_dir:
-        root_dirs = [root_dir]
-    else:
-        eve_root = os.path.dirname(os.path.abspath(__file__))
-        root_dirs = [
-            os.path.join(eve_root, agents_dir) for agents_dir in [f"agents/{db}"]
-        ]
-
-    api_files = {}
-    for root_dir in root_dirs:
-        for root, _, files in os.walk(root_dir):
-            if "api.yaml" in files and "test.json" in files:
-                api_path = os.path.join(root, "api.yaml")
-                key = os.path.relpath(root).split("/")[-1]
-                api_files[key] = api_path
-
-    return api_files
 
 
 class AgentText(BaseModel):

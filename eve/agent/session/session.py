@@ -302,7 +302,7 @@ async def build_llm_context(
     trace_id: Optional[str] = None,
     user_message: Optional[ChatMessage] = None,
 ):
-    tools = actor.get_tools_optimized(cache=False, auth_user=context.initiating_user_id)
+    tools = actor.get_tools(cache=False, auth_user=context.initiating_user_id)
 
     if context.custom_tools:
         tools.update(context.custom_tools)
