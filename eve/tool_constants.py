@@ -86,12 +86,14 @@ DISCORD_TOOLS = ["discord_post", "discord_search"]
 TELEGRAM_TOOLS = ["telegram_post"]
 TWITTER_TOOLS = ["tweet", "twitter_mentions", "twitter_search"]
 FARCASTER_TOOLS = ["farcaster_cast", "farcaster_mentions", "farcaster_search"]
+SHOPIFY_TOOLS = ["shopify"]
 
 SOCIAL_MEDIA_TOOLS = [
     *TWITTER_TOOLS,
     *DISCORD_TOOLS,
     *FARCASTER_TOOLS,
     *TELEGRAM_TOOLS,
+    *SHOPIFY_TOOLS,
 ]
 
 TOOL_SETS = {

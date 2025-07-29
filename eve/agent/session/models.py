@@ -731,6 +731,7 @@ class ClientType(Enum):
     TELEGRAM = "telegram"
     FARCASTER = "farcaster"
     TWITTER = "twitter"
+    SHOPIFY = "shopify"
 
 
 class NotificationType(Enum):
@@ -819,12 +820,24 @@ class DeploymentSecretsTwitter(BaseModel):
     access_token_secret: str
 
 
+# Shopify Models
+class DeploymentSettingsShopify(BaseModel):
+    pass
+
+
+class DeploymentSecretsShopify(BaseModel):
+    store_name: str
+    access_token: str
+    location_id: int
+
+
 # Combined Models
 class DeploymentSecrets(BaseModel):
     discord: DeploymentSecretsDiscord | None = None
     telegram: DeploymentSecretsTelegram | None = None
     farcaster: DeploymentSecretsFarcaster | None = None
     twitter: DeploymentSecretsTwitter | None = None
+    shopify: DeploymentSecretsShopify | None = None
 
 
 class DeploymentConfig(BaseModel):
@@ -832,6 +845,7 @@ class DeploymentConfig(BaseModel):
     telegram: DeploymentSettingsTelegram | None = None
     farcaster: DeploymentSettingsFarcaster | None = None
     twitter: DeploymentSettingsTwitter | None = None
+    shopify: DeploymentSettingsShopify | None = None
 
 
 @Collection("deployments2")

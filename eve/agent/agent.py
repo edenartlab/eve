@@ -7,12 +7,12 @@ import openai
 import instructor
 import sentry_sdk
 from datetime import timezone
-from pathlib import Path
+# from pathlib import Path
 from bson import ObjectId
 from typing import Optional, Literal, Any, Dict, List
 from datetime import datetime
-from dotenv import dotenv_values
-from pydantic import SecretStr, Field, BaseModel, ConfigDict
+# from dotenv import dotenv_values
+from pydantic import Field, BaseModel, ConfigDict
 from functools import wraps
 # from pydantic.json_schema import SkipJsonSchema
 
@@ -21,6 +21,7 @@ from ..tool_constants import (
     DISCORD_TOOLS,
     FARCASTER_TOOLS,
     TELEGRAM_TOOLS,
+    SHOPIFY_TOOLS,
     SOCIAL_MEDIA_TOOLS,
     TOOL_SETS,
 )
@@ -103,7 +104,7 @@ class Agent(User):
 
     type: Literal["agent"] = "agent"
     owner: ObjectId
-    secrets: Optional[Dict[str, SecretStr]] = Field(None, exclude=True)
+    # secrets: Optional[Dict[str, SecretStr]] = Field(None, exclude=True)
 
     # status: Optional[Literal["inactive", "stage", "prod"]] = "stage"
     public: Optional[bool] = False
@@ -123,7 +124,7 @@ class Agent(User):
 
     mute: Optional[bool] = False
     reply_criteria: Optional[str] = None
-    model: Optional[ObjectId] = None  # deprecated
+    # model: Optional[ObjectId] = None  # deprecated
     models: Optional[List[Dict[str, Any]]] = None
     test_args: Optional[List[Dict[str, Any]]] = None
 
@@ -135,17 +136,17 @@ class Agent(User):
     owner_pays: Optional[bool] = False
     agent_extras: Optional[AgentExtras] = None
 
-    def __init__(self, **data):
-        if isinstance(data.get("owner"), str):
-            data["owner"] = ObjectId(data["owner"])
-        if isinstance(data.get("owner"), str):
-            data["model"] = ObjectId(data["model"])
-        # Load environment variables into secrets dictionary
-        db = os.getenv("DB")
-        env_dir = Path(__file__).parent / "agents"
-        env_vars = dotenv_values(f"{str(env_dir)}/{db.lower()}/{data['username']}/.env")
-        data["secrets"] = {key: SecretStr(value) for key, value in env_vars.items()}
-        super().__init__(**data)
+    # def __init__(self, **data):
+    #     if isinstance(data.get("owner"), str):
+    #         data["owner"] = ObjectId(data["owner"])
+    #     if isinstance(data.get("owner"), str):
+    #         data["model"] = ObjectId(data["model"])
+    #     # Load environment variables into secrets dictionary
+    #     # db = os.getenv("DB")
+    #     # env_dir = Path(__file__).parent / "agents"
+    #     # env_vars = dotenv_values(f"{str(env_dir)}/{db.lower()}/{data['username']}/.env")
+    #     # data["secrets"] = {key: SecretStr(value) for key, value in env_vars.items()}
+    #     super().__init__(**data)
 
     @classmethod
     def convert_from_yaml(cls, schema: dict, file_path: str = None) -> dict:
@@ -161,11 +162,11 @@ class Agent(User):
             if isinstance(schema.get("owner"), str)
             else schema.get("owner")
         )
-        schema["model"] = (
-            ObjectId(schema.get("model"))
-            if isinstance(schema.get("model"), str)
-            else schema.get("model")
-        )  # deprecated
+        # schema["model"] = (
+        #     ObjectId(schema.get("model"))
+        #     if isinstance(schema.get("model"), str)
+        #     else schema.get("model")
+        # )  # deprecated
         for model in schema.get("models", []):
             model["lora"] = (
                 ObjectId(model["lora"])
@@ -218,14 +219,12 @@ class Agent(User):
         }
 
         # load loras to memory
-        start_time = time.time()
         models_collection = get_collection(Model.collection_name)
         loras_dict = {m["lora"]: m for m in self.models or []}
 
         # load loras to memory
         if self.models:
             lora_ids = list(loras_dict.keys())
-            print(f"PERF_PROFILE: batch loading {len(lora_ids)} parent schemas...")
 
             # Single batch query for all loras
             lora_docs = list(
@@ -234,14 +233,10 @@ class Agent(User):
                 )
             )
             self.lora_docs = lora_docs
-            print(
-                f"PERF_PROFILE: batch loaded {len(lora_docs)} parent schemas in {time.time() - start_time:.3f}s"
-            )
         else:
             self.lora_docs = []
 
         # Collect all tools needed
-        print(f"PERF_PROFILE: collecting tools to load...")
         tools_to_load = []
         for tool_set, set_tools in TOOL_SETS.items():
             if not self.tools.get(tool_set):
@@ -249,9 +244,6 @@ class Agent(User):
             tools_to_load.extend(set_tools)
 
         self.tools_ = get_tools_from_mongo(tools_to_load)        
-        print(
-            f"PERF_PROFILE: batch loaded {len(self.tools_)} schemas in {time.time() - start_time:.3f}s"
-        )
 
     @profile_method("get_tools")
     def get_tools(self, cache=True, auth_user: str = None):
@@ -317,6 +309,9 @@ class Agent(User):
                 tools.pop(tool, None)
         if "farcaster" not in self.deployments:
             for tool in FARCASTER_TOOLS:
+                tools.pop(tool, None)
+        if "shopify" not in self.deployments:
+            for tool in SHOPIFY_TOOLS:
                 tools.pop(tool, None)
 
         # remove tools that only the owner can use
