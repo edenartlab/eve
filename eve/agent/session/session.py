@@ -22,7 +22,6 @@ from eve.agent.session.models import (
     ChatMessage,
     ChatMessageObservability,
     LLMTraceMetadata,
-    NotificationConfig,
     PromptSessionContext,
     Session,
     SessionUpdate,

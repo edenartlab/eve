@@ -344,12 +344,14 @@ class ChatMessage(Document):
                             {
                                 "type": "image_url",
                                 "image_url": {
-                                    "url": f"""data:image/jpeg;base64,{image_to_base64(
-                                file_path, 
-                                max_size=512, 
-                                quality=95, 
-                                truncate=truncate_images
-                            )}"""
+                                    "url": f"""data:image/jpeg;base64,{
+                                        image_to_base64(
+                                            file_path,
+                                            max_size=512,
+                                            quality=95,
+                                            truncate=truncate_images,
+                                        )
+                                    }"""
                                 },
                             }
                         )
@@ -654,13 +656,16 @@ class SessionContext(BaseModel):
     # Memory caching fields (optional for backward compatibility)
     cached_memory_context: Optional[str] = None
     memory_context_timestamp: Optional[datetime] = None
-    should_refresh_memory: Optional[bool] = None  # None means not set, will default to True in logic
+    should_refresh_memory: Optional[bool] = (
+        None  # None means not set, will default to True in logic
+    )
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 @Collection("sessions")
 class Session(Document):
     owner: ObjectId
+    users: Optional[List[ObjectId]] = None  # List of allowed users (defaults to null)
     session_key: Optional[str] = None
     channel: Optional[Channel] = None
     parent_session: Optional[ObjectId] = None
@@ -684,6 +689,7 @@ class Session(Document):
 @dataclass
 class NotificationConfig:
     """Configuration for notifications to send upon session completion"""
+
     user_id: str
     notification_type: str = "session_complete"
     title: str = "Session Complete"
