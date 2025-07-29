@@ -355,6 +355,8 @@ async def catch_all_exception_handler(request, exc):
 
 
 # Modal app setup
+media_cache_vol = modal.Volume.from_name("media-cache", create_if_missing=True)
+
 app = modal.App(
     name=app_name,
     secrets=[
@@ -391,6 +393,7 @@ image = (
     max_containers=10,
     scaledown_window=60,
     timeout=3600 * 3,  # 3 hours
+    volumes={"/data/media-cache": media_cache_vol},
 )
 @modal.concurrent(max_inputs=25)
 @modal.asgi_app()
@@ -432,18 +435,19 @@ run_scheduled_triggers_modal = app.function(
 )(run_scheduled_triggers_fn)
 
 
-run = app.function(image=image, max_containers=10, timeout=3600)(
-    modal.concurrent(max_inputs=4)(run)
-)
+run = app.function(
+    image=image, max_containers=10, timeout=3600, volumes={"/data/media-cache": media_cache_vol}
+)(modal.concurrent(max_inputs=4)(run))
 
 
-run_task = app.function(image=image, max_containers=10, timeout=3600)(
-    modal.concurrent(max_inputs=4)(run_task)
-)
+run_task = app.function(
+    image=image, min_containers=2, max_containers=10, timeout=3600, volumes={"/data/media-cache": media_cache_vol}
+)(modal.concurrent(max_inputs=4)(run_task))
 
 
-run_task_replicate = app.function(image=image, max_containers=10, timeout=3600)(
-    modal.concurrent(max_inputs=4)(run_task_replicate)
+run_task_replicate = app.function(
+    image=image, min_containers=2, max_containers=10, timeout=3600, volumes={"/data/media-cache": media_cache_vol}
+)(modal.concurrent(max_inputs=4)(run_task_replicate)
 )
 
 
