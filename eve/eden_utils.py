@@ -39,6 +39,8 @@ from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from . import s3
 
+USE_MEDIA_CACHE = True
+
 
 class CommandValidator:
     """Simple validator to ensure basic command security"""
@@ -163,7 +165,6 @@ def prepare_result(result, summarize=False):
 
 def upload_result(result, save_thumbnails=False, save_blurhash=False):
     if isinstance(result, dict):
-        t1 = time.time()
         exlude_result_processing_keys = ["subtool_calls"]
         return {
             k: upload_result(
@@ -171,8 +172,6 @@ def upload_result(result, save_thumbnails=False, save_blurhash=False):
             ) if k not in exlude_result_processing_keys else v
             for k, v in result.items()
         }
-        t2 = time.time()
-        print(f"UPLAD RES PERF_PROFILE: upload_result took {t2 - t1:.3f}s")
     elif isinstance(result, list):
         return [
             upload_result(
@@ -188,7 +187,7 @@ def upload_result(result, save_thumbnails=False, save_blurhash=False):
         return result
 
 
-def upload_media1(output, save_thumbnails=True, save_blurhash=True):
+def upload_media(output, save_thumbnails=True, save_blurhash=True):
     file_url, sha = s3.upload_file(output)
     filename = file_url.split("/")[-1]
 
@@ -212,62 +211,6 @@ def upload_media1(output, save_thumbnails=True, save_blurhash=True):
             print(f"Error encoding blurhash: {e}")
 
     return {"filename": filename, "mediaAttributes": media_attributes}
-
-
-
-
-def _resize_and_upload(base_thumbnail, width, sha):
-    img = base_thumbnail.copy()
-    if width < base_thumbnail.width:
-        img.thumbnail((width, 2560), Image.Resampling.LANCZOS)
-    buf = PIL_to_bytes(img)
-    s3.upload_buffer(buf, name=f"{sha}_{width}", file_type=".webp")
-
-def upload_media2(output, save_thumbnails=True, save_blurhash=True):
-    file_url, sha = s3.upload_file(output)
-    filename = file_url.split("/")[-1]
-
-    media_attributes, thumbnail = get_media_attributes(output)
-
-    if save_thumbnails and thumbnail:
-        with ThreadPoolExecutor(max_workers=4) as ex:
-            futs = [ex.submit(_resize_and_upload, thumbnail, w, sha)
-                    for w in (384, 768, 1024, 2560)]
-            for f in as_completed(futs):
-                f.result()      # surfacing exceptions
-
-    if save_blurhash and thumbnail:
-        try:
-            img = thumbnail.copy()
-            img.thumbnail((100, 100), Image.LANCZOS)
-            media_attributes["blurhash"] = blurhash.encode(np.array(img), 4, 4)
-        except Exception as e:
-            print(f"Error encoding blurhash: {e}")
-
-    return {"filename": filename, "mediaAttributes": media_attributes}
-
-
-
-def upload_media(output, save_thumbnails=True, save_blurhash=True):
-    r = random.random()
-    if r<0.5:
-        t1 = time.time()
-        r = upload_media2(output, save_thumbnails, save_blurhash)
-        t2 = time.time()
-        print("UPLOAD_MEDIA 1", t2 - t1)
-        return r
-    else:
-        t1 = time.time()
-        r = upload_media1(output, save_thumbnails, save_blurhash)
-        t2 = time.time()
-        print("UPLOAD_MEDIA 2", t2 - t1)
-        return r
-
-
-
-
-
-
 
 
 def get_media_attributes(file):
@@ -421,9 +364,10 @@ def download_file(url, local_filepath, overwrite=False):
         return str(local_filepath)
 
     # Check for Modal Volume cache
-    cache_path = _check_volume_cache(url, local_filepath, overwrite)
-    if cache_path:
-        return cache_path
+    if USE_MEDIA_CACHE:
+        cache_path = _check_volume_cache(url, local_filepath, overwrite)
+        if cache_path:
+            return cache_path
     
     print(f"Downloading file from {url} to {local_filepath}")
 
@@ -453,8 +397,9 @@ def download_file(url, local_filepath, overwrite=False):
             try:
                 print(f"Downloading {key} from S3 bucket {bucket_name}")
                 s3_client.download_file(bucket_name, key, str(local_filepath))
-                # Save to volume cache after successful download
-                _save_to_volume_cache(url, local_filepath)
+                if USE_MEDIA_CACHE:
+                    # Save to volume cache after successful download
+                    _save_to_volume_cache(url, local_filepath)
                 return str(local_filepath)
             except Exception as s3_error:
                 print(f"S3 download error: {s3_error}")
