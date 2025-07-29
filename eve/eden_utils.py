@@ -188,14 +188,14 @@ def upload_result(result, save_thumbnails=False, save_blurhash=False):
         return result
 
 
-def upload_media(output, save_thumbnails=True, save_blurhash=True):
-    t1 = time.time()
+def upload_media1(output, save_thumbnails=True, save_blurhash=True):
     file_url, sha = s3.upload_file(output)
     filename = file_url.split("/")[-1]
 
     media_attributes, thumbnail = get_media_attributes(output)
+    
     if save_thumbnails and thumbnail:
-        for width in [1024]:  # [384, 768, 1024, 2560]
+        for width in [384, 768, 1024, 2560]:
             img = thumbnail.copy()
             img.thumbnail(
                 (width, 2560), Image.Resampling.LANCZOS
@@ -212,6 +212,62 @@ def upload_media(output, save_thumbnails=True, save_blurhash=True):
             print(f"Error encoding blurhash: {e}")
 
     return {"filename": filename, "mediaAttributes": media_attributes}
+
+
+
+
+def _resize_and_upload(base_thumbnail, width, sha):
+    img = base_thumbnail.copy()
+    if width < base_thumbnail.width:
+        img.thumbnail((width, 2560), Image.Resampling.LANCZOS)
+    buf = PIL_to_bytes(img)
+    s3.upload_buffer(buf, name=f"{sha}_{width}", file_type=".webp")
+
+def upload_media2(output, save_thumbnails=True, save_blurhash=True):
+    file_url, sha = s3.upload_file(output)
+    filename = file_url.split("/")[-1]
+
+    media_attributes, thumbnail = get_media_attributes(output)
+
+    if save_thumbnails and thumbnail:
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            futs = [ex.submit(_resize_and_upload, thumbnail, w, sha)
+                    for w in (384, 768, 1024, 2560)]
+            for f in as_completed(futs):
+                f.result()      # surfacing exceptions
+
+    if save_blurhash and thumbnail:
+        try:
+            img = thumbnail.copy()
+            img.thumbnail((100, 100), Image.LANCZOS)
+            media_attributes["blurhash"] = blurhash.encode(np.array(img), 4, 4)
+        except Exception as e:
+            print(f"Error encoding blurhash: {e}")
+
+    return {"filename": filename, "mediaAttributes": media_attributes}
+
+
+
+def upload_media(output, save_thumbnails=True, save_blurhash=True):
+    r = random.random()
+    if r<0.5:
+        t1 = time.time()
+        r = upload_media2(output, save_thumbnails, save_blurhash)
+        t2 = time.time()
+        print("UPLOAD_MEDIA 1", t2 - t1)
+        return r
+    else:
+        t1 = time.time()
+        r = upload_media1(output, save_thumbnails, save_blurhash)
+        t2 = time.time()
+        print("UPLOAD_MEDIA 2", t2 - t1)
+        return r
+
+
+
+
+
+
 
 
 def get_media_attributes(file):
