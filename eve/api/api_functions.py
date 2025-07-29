@@ -265,12 +265,13 @@ async def run_task_replicate(task: Task):
     task.update(status="running")
     tool = Tool.load(task.tool)
     n_samples = task.args.get("n_samples", 1)
+    n_runs = 1 if tool.parameters.get("n_samples") else n_samples
     replicate_model = tool._get_replicate_model(task.args)
     args = tool.prepare_args(task.args)
     args = tool._format_args_for_replicate(args)
     try:
         outputs = []
-        for i in range(n_samples):
+        for i in range(n_runs):
             task_args = args.copy()
             if "seed" in task_args:
                 task_args["seed"] = task_args["seed"] + i
