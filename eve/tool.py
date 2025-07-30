@@ -1,5 +1,4 @@
 import os
-import re
 import yaml
 import json
 import random
@@ -701,6 +700,20 @@ def get_tools_from_mongo(
                 found_tools[tool.key] = tool
         except Exception as e:
             print(traceback.format_exc())
+            # Graceful failure with Sentry tracking
+            with sentry_sdk.push_scope() as scope:
+                scope.set_tag("component", "tool_loading")
+                scope.set_tag("tool_name", tool.key)
+                scope.set_context(
+                    "tool_loading_context",
+                    {
+                        "tool_name": tool.key,
+                        "error_message": str(e),
+                        "traceback": traceback.format_exc(),
+                    },
+                )
+                sentry_sdk.capture_exception(e)
+
 
     return found_tools
 

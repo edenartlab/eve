@@ -48,9 +48,9 @@ async def handler(args: dict, user: str = None, agent: str = None):
     else:
         raise Exception(f"Invalid output type: {output_type}")
 
-
 async def handle_image_creation(args: dict, user: str = None, agent: str = None):
     """Handle image creation - copied from original create tool handler"""
+
     # load tools
     flux_schnell = Tool.load("flux_schnell")
     flux_dev_lora = Tool.load("flux_dev_lora")
@@ -61,7 +61,6 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
     openai_image_edit = Tool.load("openai_image_edit")
     openai_image_generate = Tool.load("openai_image_generate")
     seedream3 = Tool.load("seedream3")
-
     # get args
     prompt = args["prompt"]
     n_samples = args.get("n_samples", 1)
@@ -871,6 +870,17 @@ def get_loras(lora1, lora2):
         print("Second Lora is not supported for SDXL")
 
     return loras
+
+# def get_loras(lora1, lora2):
+#     lora_ids = [lora for lora in [lora1, lora2] if lora]
+#     loras = Model.find({"_id": {"$in": lora_ids}})
+#     if len(loras) != len(lora_ids):
+#         raise Exception(f"Lora {lora_ids} not found on {os.getenv('ENV')}")
+
+#     if len(loras) == 2 and "sdxl" in [lora.base_model for lora in loras]:
+#         print("Second Lora is not supported for SDXL")
+
+#     return loras
 
 
 def get_closest_aspect_ratio_preset(aspect_ratio: float, presets: dict) -> str:

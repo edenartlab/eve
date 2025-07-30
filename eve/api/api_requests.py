@@ -114,7 +114,7 @@ class AllowedChannel(BaseModel):
 class PostingInstructions(BaseModel):
     session_id: Optional[str] = None
     post_to: Optional[
-        Literal["same", "another", "discord", "telegram", "x", "farcaster"]
+        Literal["same", "another", "discord", "telegram", "x", "farcaster", "shopify"]
     ] = None
     channel_id: Optional[str] = None
     custom_instructions: Optional[str] = None

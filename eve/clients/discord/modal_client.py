@@ -5,6 +5,9 @@ from eve.clients.discord.client import create_discord_app
 
 root_dir = Path(__file__).parent.parent.parent.parent
 
+# Create shared media cache volume
+media_cache_vol = modal.Volume.from_name("media-cache", create_if_missing=True)
+
 app = modal.App(
     name=f"client-discord-{db}",
     secrets=[
@@ -25,7 +28,13 @@ image = (
 )
 
 
-@app.function(image=image, min_containers=1, max_containers=1, timeout=60 * 60 * 24)
+@app.function(
+    image=image, 
+    min_containers=1, 
+    max_containers=1, 
+    timeout=60 * 60 * 24,
+    volumes={"/data/media-cache": media_cache_vol}
+)
 @modal.asgi_app()
 def modal_app():
     return create_discord_app()

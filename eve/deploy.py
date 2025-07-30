@@ -25,6 +25,7 @@ class ClientType(Enum):
     TELEGRAM = "telegram"
     FARCASTER = "farcaster"
     TWITTER = "twitter"
+    SHOPIFY = "shopify"
     TELEGRAM_MODAL = "telegram_modal"
     DISCORD_MODAL = "discord_modal"
     WEB = "web"
@@ -82,11 +83,22 @@ class DeploymentSecretsTwitter(BaseModel):
     access_token_secret: str
 
 
+class DeploymentSettingsShopify(BaseModel):
+    pass
+
+
+class DeploymentSecretsShopify(BaseModel):
+    store_name: str
+    access_token: str
+    location_id: int
+
+
 class DeploymentSecrets(BaseModel):
     discord: DeploymentSecretsDiscord | None = None
     telegram: DeploymentSecretsTelegram | None = None
     farcaster: DeploymentSecretsFarcaster | None = None
     twitter: DeploymentSecretsTwitter | None = None
+    shopify: DeploymentSecretsShopify | None = None
 
 
 class DeploymentConfig(BaseModel):
@@ -94,6 +106,7 @@ class DeploymentConfig(BaseModel):
     telegram: DeploymentSettingsTelegram | None = None
     farcaster: DeploymentSettingsFarcaster | None = None
     twitter: DeploymentSettingsTwitter | None = None
+    shopify: DeploymentSettingsShopify | None = None
 
 
 @Collection("deployments")

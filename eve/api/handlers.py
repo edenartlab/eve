@@ -296,7 +296,7 @@ async def handle_trigger_create(
         schedule=schedule_dict,
         trigger_id=trigger_id,
     )
-    
+
     if not next_run:
         raise APIError("Failed to calculate next scheduled run time", status_code=400)
 
@@ -1012,7 +1012,7 @@ async def handle_prompt_session(
     notification_config = None
     if request.notification_config:
         notification_config = NotificationConfig(**request.notification_config)
-    
+
     context = PromptSessionContext(
         session=session,
         initiating_user_id=request.user_id,
@@ -1240,6 +1240,7 @@ async def handle_v2_deployment_emission(request: DeploymentEmissionRequest):
     client = get_platform_client(
         agent=agent, platform=deployment.platform, deployment=deployment
     )
+    print("***debug*** EMISSION REQUEST:", request)
     await client.handle_emission(request)
 
 
@@ -1247,7 +1248,6 @@ async def handle_v2_deployment_emission(request: DeploymentEmissionRequest):
 @handle_errors
 async def handle_create_notification(request: CreateNotificationRequest):
     """Create a new notification"""
-    from datetime import datetime, timezone
 
     # Validate user exists
     user = User.from_mongo(ObjectId(request.user_id))

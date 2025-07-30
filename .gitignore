@@ -10,3 +10,4 @@ logs/
 *.log
 scripts/analytics/data
 scripts/analytics/results
+.claude

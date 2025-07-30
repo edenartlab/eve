@@ -24,8 +24,8 @@ if os.getenv("LANGFUSE_TRACING_ENVIRONMENT"):
 supported_models = [
     "gpt-4o-mini",
     "gpt-4o",
-    "claude-3-5-haiku-latest",
     "gemini-2.5-flash",
+    "claude-3-haiku-20240307",
     "claude-sonnet-4-20250514",
     "claude-opus-4-20250514",
     "gemini/gemini-2.5-flash-preview-05-20",
@@ -85,18 +85,22 @@ def construct_tools(context: LLMContext) -> Optional[List[dict]]:
     if not context.tools:
         return None
     tools = [tool.openai_schema(exclude_hidden=True) for tool in context.tools.values()]
-    
+
     # Fix for Gemini/Vertex AI: enum values must be strings and parameter type must be "string"
-    if context.config.model and ("gemini" in context.config.model or "vertex" in context.config.model):
+    if context.config.model and (
+        "gemini" in context.config.model or "vertex" in context.config.model
+    ):
         for tool in tools:
-            params = tool.get('function', {}).get('parameters', {}).get('properties', {})
+            params = (
+                tool.get("function", {}).get("parameters", {}).get("properties", {})
+            )
             for param_name, param_def in params.items():
-                if 'enum' in param_def:
+                if "enum" in param_def:
                     # Convert all enum values to strings
-                    param_def['enum'] = [str(val) for val in param_def['enum']]
+                    param_def["enum"] = [str(val) for val in param_def["enum"]]
                     # Ensure parameter type is "string" when using enum
-                    param_def['type'] = 'string'
-    
+                    param_def["type"] = "string"
+
     return tools
 
 

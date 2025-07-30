@@ -39,6 +39,8 @@ from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from . import s3
 
+USE_MEDIA_CACHE = True
+
 
 class CommandValidator:
     """Simple validator to ensure basic command security"""
@@ -126,7 +128,7 @@ def log_memory_info():
         )
         total_mem, used_mem = map(int, result.decode("utf-8").strip().split(","))
         gpu_percent = (used_mem / total_mem) * 100
-        print(f"GPU Memory: {gpu_percent:.1f}% of {total_mem/1024:.1f}GB")
+        print(f"GPU Memory: {gpu_percent:.1f}% of {total_mem / 1024:.1f}GB")
     except (subprocess.CalledProcessError, FileNotFoundError):
         print("GPU info not available")
 
@@ -143,7 +145,7 @@ def log_memory_info():
 
 def prepare_result(result, summarize=False):
     if isinstance(result, dict):
-        if "error" in result:
+        if "error" in result and result["error"] is not None:
             return result
         if "mediaAttributes" in result:
             result["mediaAttributes"].pop("blurhash", None)
@@ -167,7 +169,9 @@ def upload_result(result, save_thumbnails=False, save_blurhash=False):
         return {
             k: upload_result(
                 v, save_thumbnails=save_thumbnails, save_blurhash=save_blurhash
-            ) if k not in exlude_result_processing_keys else v
+            )
+            if k not in exlude_result_processing_keys
+            else v
             for k, v in result.items()
         }
     elif isinstance(result, list):
@@ -199,8 +203,7 @@ def upload_media(output, save_thumbnails=True, save_blurhash=True):
             ) if width < thumbnail.width else thumbnail
             img_bytes = PIL_to_bytes(img)
             s3.upload_buffer(img_bytes, name=f"{sha}_{width}", file_type=".webp")
-            s3.upload_buffer(img_bytes, name=f"{sha}_{width}", file_type=".jpg")
-
+            # s3.upload_buffer(img_bytes, name=f"{sha}_{width}", file_type=".jpg")
     if save_blurhash and thumbnail:
         try:
             img = thumbnail.copy()
@@ -222,7 +225,7 @@ def get_media_attributes(file):
         is_url = file.startswith("http://") or file.startswith("https://")
         if is_url:
             temp_file = tempfile.NamedTemporaryFile(delete=False)
-            file = download_file(file, temp_file.name, overwrite=True)
+            file = download_file(file, temp_file.name, overwrite=False)
         mime_type = magic.from_file(file, mime=True)
 
     thumbnail = None
@@ -261,9 +264,95 @@ def get_media_attributes(file):
     return media_attributes, thumbnail
 
 
+def _check_volume_cache(url, local_filepath, overwrite=False):
+    """
+    Check if file exists in Modal Volume cache and copy it if found.
+
+    Args:
+        url: Original URL being downloaded
+        local_filepath: Target local path
+        overwrite: Whether to overwrite existing files
+
+    Returns:
+        str: Path to file if found in cache, None otherwise
+    """
+    try:
+        # Check if we're in Modal environment with volume access
+        volume_cache_dir = pathlib.Path("/data/media-cache")
+        if not volume_cache_dir.exists():
+            return None
+
+        # Generate cache key from URL filename (filenames are designed to be unique)
+        cache_filename = pathlib.Path(url).name
+        # Remove query parameters from filename
+        cache_filename = re.sub(r"\?.*$", "", cache_filename)
+
+        cache_filepath = volume_cache_dir / cache_filename
+
+        if cache_filepath.exists():
+            print(
+                f"<**> Found {cache_filename} in volume cache, copying to {local_filepath}"
+            )
+            # Copy from cache to target location
+            import shutil
+
+            shutil.copy2(str(cache_filepath), str(local_filepath))
+            return str(local_filepath)
+
+    except Exception as e:
+        # If volume access fails, silently continue with normal download
+        print(f"Volume cache check failed: {e}")
+
+    return None
+
+
+def _save_to_volume_cache(url, local_filepath):
+    """
+    Save downloaded file to Modal Volume cache for future use.
+
+    Args:
+        url: Original URL that was downloaded
+        local_filepath: Path to the downloaded file
+    """
+    try:
+        # Check if we're in Modal environment with volume access
+        volume_cache_dir = pathlib.Path("/data/media-cache")
+        if not volume_cache_dir.exists():
+            return
+
+        volume_cache_dir.mkdir(parents=True, exist_ok=True)
+
+        # Generate cache key from URL filename
+        cache_filename = pathlib.Path(url).name
+        # Remove query parameters from filename
+        cache_filename = re.sub(r"\?.*$", "", cache_filename)
+
+        cache_filepath = volume_cache_dir / cache_filename
+
+        if not cache_filepath.exists():
+            print(f"<**> Saving {cache_filename} to volume cache")
+            import shutil
+
+            shutil.copy2(str(local_filepath), str(cache_filepath))
+
+            # Commit volume changes if we have access to modal
+            try:
+                import modal
+                # Try to get the volume and commit changes
+                # This will only work if we're in a Modal function with volume access
+                # We can't directly access the volume object, so we rely on Modal's auto-commit
+            except:
+                pass
+
+    except Exception as e:
+        # If volume access fails, silently continue
+        print(f"Volume cache save failed: {e}")
+
+
 def download_file(url, local_filepath, overwrite=False):
     """
     Download a file from a URL to a local filepath, with special handling for AWS S3 URLs.
+    Uses Modal Volume caching when available to avoid re-downloading files.
 
     Args:
         url: URL to download from
@@ -279,8 +368,14 @@ def download_file(url, local_filepath, overwrite=False):
     if local_filepath.exists() and not overwrite:
         print(f"File {local_filepath} already exists. Skipping download.")
         return str(local_filepath)
-    else:
-        print(f"Downloading file from {url} to {local_filepath}")
+
+    # Check for Modal Volume cache
+    if USE_MEDIA_CACHE:
+        cache_path = _check_volume_cache(url, local_filepath, overwrite)
+        if cache_path:
+            return cache_path
+
+    print(f"Downloading file from {url} to {local_filepath}")
 
     try:
         # Parse S3 URL to extract bucket and key
@@ -308,6 +403,9 @@ def download_file(url, local_filepath, overwrite=False):
             try:
                 print(f"Downloading {key} from S3 bucket {bucket_name}")
                 s3_client.download_file(bucket_name, key, str(local_filepath))
+                if USE_MEDIA_CACHE:
+                    # Save to volume cache after successful download
+                    _save_to_volume_cache(url, local_filepath)
                 return str(local_filepath)
             except Exception as s3_error:
                 print(f"S3 download error: {s3_error}")
@@ -346,6 +444,8 @@ def download_file(url, local_filepath, overwrite=False):
                         )
                         num_bytes_downloaded = response.num_bytes_downloaded
 
+        # Save to volume cache after successful download
+        _save_to_volume_cache(url, local_filepath)
         return str(local_filepath)
 
     except httpx.HTTPStatusError as e:
@@ -1059,6 +1159,7 @@ def overwrite_dict(base: dict, updates: dict):
         else:
             base[key] = value
 
+
 def load_template(filename: str) -> Template:
     """Load and compile a template from the templates directory"""
     TEMPLATE_DIR = pathlib.Path(__file__).parent / "prompt_templates"
@@ -1107,6 +1208,7 @@ from pyparsing import (
 # Enable memoisation to speed up recursive parsing.  This has a global effect but does not interfere with other parsers in normal usage.
 ParserElement.enablePackrat()
 
+
 def _build_expression_parser(variables: Dict[str, Any]) -> ParserElement:
     """Construct a pyparsing parser for evaluating JS‑style expressions.
 
@@ -1133,9 +1235,7 @@ def _build_expression_parser(variables: Dict[str, Any]) -> ParserElement:
     integer = pyparsing_common.signed_integer.copy().setParseAction(
         lambda t: [int(t[0])]
     )
-    real = pyparsing_common.fnumber.copy().setParseAction(
-        lambda t: [float(t[0])]
-    )
+    real = pyparsing_common.fnumber.copy().setParseAction(lambda t: [float(t[0])])
     number = real | integer
 
     # Define string literals (single or double quoted).  These return
@@ -1153,12 +1253,12 @@ def _build_expression_parser(variables: Dict[str, Any]) -> ParserElement:
     true_literal = (Keyword("true", caseless=True) | Keyword("True")).setParseAction(
         lambda: [True]
     )
-    false_literal = (
-        Keyword("false", caseless=True) | Keyword("False")
-    ).setParseAction(lambda: [False])
-    null_literal = (
-        Keyword("null", caseless=True) | Keyword("None")
-    ).setParseAction(lambda: [None])
+    false_literal = (Keyword("false", caseless=True) | Keyword("False")).setParseAction(
+        lambda: [False]
+    )
+    null_literal = (Keyword("null", caseless=True) | Keyword("None")).setParseAction(
+        lambda: [None]
+    )
 
     # Identifiers: variable names consisting of letters, digits and
     # underscores.  When encountered, look up the value in ``variables``.
@@ -1316,7 +1416,9 @@ def eval_cost(expression: str, **variables: Any) -> Any:
         result = parser.parseString(expression, parseAll=True)[0]
     except Exception as exc:
         # Re‑raise with additional context for easier debugging.
-        raise ValueError(f"Failed to evaluate expression '{expression}': {exc}") from exc
+        raise ValueError(
+            f"Failed to evaluate expression '{expression}': {exc}"
+        ) from exc
     # Coerce floats that are mathematically integers back to int for
     # convenience.  Many arithmetic operations produce floats via the
     # numeric grammar; this step normalises results such as 25.0 to 25.

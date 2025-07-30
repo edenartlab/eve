@@ -64,19 +64,123 @@ async def run_scheduled_triggers_fn():
         current_time = datetime.now(timezone.utc)
 
         # Find active triggers where next_scheduled_run <= current time
-        triggers = list(Trigger.find(
-            {
-                "status": "active",
-                "deleted": {"$ne": True},
-                "next_scheduled_run": {"$lte": current_time},
-            }
-        ))
+        triggers = list(
+            Trigger.find(
+                {
+                    "status": "active",
+                    "deleted": {"$ne": True},
+                    "next_scheduled_run": {"$lte": current_time},
+                }
+            )
+        )
 
         logger.info(f"Found {len(triggers)} triggers to run")
 
-        for trigger in triggers:
+        # Fast update all trigger timing to prevent duplicates
+        if triggers:
+            from eve.agent.session.triggers import calculate_next_scheduled_run
+
+            current_time = datetime.now(timezone.utc)
+            valid_triggers = []
+
+            # Try bulk update first, fallback to individual updates
             try:
-                logger.info(f"Running trigger {trigger.trigger_id}")
+                from pymongo import UpdateOne
+                from eve.agent.session.models import Trigger
+
+                bulk_operations = []
+
+                # Prepare all updates in memory first
+                for trigger in triggers:
+                    try:
+                        # Calculate next run time
+                        next_run = calculate_next_scheduled_run(trigger.schedule)
+
+                        update_doc = {
+                            "last_run_time": current_time,
+                        }
+
+                        if next_run:
+                            update_doc["next_scheduled_run"] = next_run
+                            logger.info(
+                                f"Scheduling next run for trigger {trigger.trigger_id} at {next_run}"
+                            )
+                        else:
+                            # No next run (possibly due to end_date)
+                            update_doc["status"] = "finished"
+                            logger.info(
+                                f"Trigger {trigger.trigger_id} has no next run, marking as finished"
+                            )
+
+                        # Add to bulk operations
+                        bulk_operations.append(
+                            UpdateOne({"_id": trigger.id}, {"$set": update_doc})
+                        )
+                        valid_triggers.append(trigger)
+
+                    except Exception as e:
+                        logger.error(
+                            f"Error preparing update for trigger {trigger.trigger_id}: {str(e)}"
+                        )
+                        sentry_sdk.capture_exception(e)
+                        continue
+
+                # Try bulk operation
+                if bulk_operations:
+                    result = Trigger.get_collection().bulk_write(
+                        bulk_operations, ordered=False
+                    )
+                    logger.info(
+                        f"Bulk updated {result.modified_count} triggers in single operation"
+                    )
+                    triggers = valid_triggers
+
+            except Exception as bulk_error:
+                logger.warning(
+                    f"Bulk update failed, falling back to individual updates: {bulk_error}"
+                )
+
+                # Fallback to individual updates
+                valid_triggers = []
+                for trigger in triggers:
+                    try:
+                        # Calculate next run time
+                        next_run = calculate_next_scheduled_run(trigger.schedule)
+
+                        trigger.last_run_time = current_time
+
+                        if next_run:
+                            trigger.next_scheduled_run = next_run
+                            logger.info(
+                                f"Scheduling next run for trigger {trigger.trigger_id} at {next_run}"
+                            )
+                        else:
+                            # No next run (possibly due to end_date)
+                            trigger.status = "finished"
+                            logger.info(
+                                f"Trigger {trigger.trigger_id} has no next run, marking as finished"
+                            )
+
+                        # Save individual trigger
+                        trigger.save()
+                        valid_triggers.append(trigger)
+
+                    except Exception as e:
+                        logger.error(
+                            f"Error updating timing for trigger {trigger.trigger_id}: {str(e)}"
+                        )
+                        sentry_sdk.capture_exception(e)
+                        continue
+
+                triggers = valid_triggers
+                logger.info(f"Updated {len(triggers)} triggers individually")
+
+        # Now execute all triggers concurrently
+        import asyncio
+
+        async def execute_trigger(trigger):
+            try:
+                logger.info(f"Executing trigger {trigger.trigger_id}")
 
                 # Prepare the prompt session request
                 request_data = {
@@ -108,8 +212,8 @@ You have been given the following instructions. Do not ask for clarification, or
                 request_data["notification_config"] = {
                     "user_id": str(trigger.user),
                     "notification_type": "trigger_complete",
-                    "title": "Trigger Completed Successfully",
-                    "message": f"Your scheduled trigger has completed successfully: {trigger.instruction[:100]}...",
+                    "title": "Task Completed Successfully",
+                    "message": f"Your scheduled task has completed successfully: {trigger.instruction[:100]}...",
                     "trigger_id": str(trigger.id),
                     "agent_id": str(trigger.agent),
                     "priority": "normal",
@@ -118,8 +222,8 @@ You have been given the following instructions. Do not ask for clarification, or
                     },
                     "success_notification": True,
                     "failure_notification": True,
-                    "failure_title": "Trigger Failed",
-                    "failure_message": f"Your scheduled trigger failed: {trigger.instruction[:100]}...",
+                    "failure_title": "Task Failed",
+                    "failure_message": f"Your scheduled task failed: {trigger.instruction[:100]}...",
                 }
 
                 # Make async HTTP POST to prompt session endpoint
@@ -137,7 +241,7 @@ You have been given the following instructions. Do not ask for clarification, or
                             logger.error(
                                 f"Failed to run trigger {trigger.trigger_id}: {error_text}"
                             )
-                            continue
+                            return
 
                         result = await response.json()
                         session_id = result.get("session_id")
@@ -145,39 +249,24 @@ You have been given the following instructions. Do not ask for clarification, or
                         # Update trigger with session if it was created
                         if not trigger.session and session_id:
                             trigger.session = ObjectId(session_id)
-
-                # Update last_run_time and calculate next_scheduled_run
-                trigger.last_run_time = current_time
-
-                # Calculate next run time
-                from eve.agent.session.triggers import calculate_next_scheduled_run
-
-                next_run = calculate_next_scheduled_run(trigger.schedule)
-
-                if next_run:
-                    trigger.next_scheduled_run = next_run
-                else:
-                    # No next run (possibly due to end_date)
-                    trigger.status = "finished"
-                    logger.info(
-                        f"Trigger {trigger.trigger_id} has no next run, marking as finished"
-                    )
-
-                trigger.save()
+                            trigger.save()
 
                 # Handle posting instructions if present
                 if trigger.posting_instructions:
                     await handle_trigger_posting(trigger, session_id)
 
             except Exception as e:
-                logger.error(f"Error running trigger {trigger.trigger_id}: {str(e)}")
+                logger.error(f"Error executing trigger {trigger.trigger_id}: {str(e)}")
                 sentry_sdk.capture_exception(e)
-                continue
+
+        # Execute all triggers concurrently
+        if triggers:
+            tasks = [execute_trigger(trigger) for trigger in triggers]
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     except Exception as e:
         logger.error(f"Error in run_scheduled_triggers: {str(e)}")
         sentry_sdk.capture_exception(e)
-
 
 
 async def handle_trigger_posting(trigger, session_id):
@@ -196,9 +285,9 @@ async def handle_trigger_posting(trigger, session_id):
             "message": {
                 "role": "system",
                 "content": f"""## Posting instructions
-{posting_instructions.get('post_to', '')} channel {posting_instructions.get('channel_id', '')}
+{posting_instructions.get("post_to", "")} channel {posting_instructions.get("channel_id", "")}
 
-{posting_instructions.get('custom_instructions', '')}
+{posting_instructions.get("custom_instructions", "")}
 """,
             },
             "update_config": trigger.update_config,
@@ -265,12 +354,13 @@ async def run_task_replicate(task: Task):
     task.update(status="running")
     tool = Tool.load(task.tool)
     n_samples = task.args.get("n_samples", 1)
+    n_runs = 1 if tool.parameters.get("n_samples") else n_samples
     replicate_model = tool._get_replicate_model(task.args)
     args = tool.prepare_args(task.args)
     args = tool._format_args_for_replicate(args)
     try:
         outputs = []
-        for i in range(n_samples):
+        for i in range(n_runs):
             task_args = args.copy()
             if "seed" in task_args:
                 task_args["seed"] = task_args["seed"] + i

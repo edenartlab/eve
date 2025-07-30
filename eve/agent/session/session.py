@@ -22,7 +22,6 @@ from eve.agent.session.models import (
     ChatMessage,
     ChatMessageObservability,
     LLMTraceMetadata,
-    NotificationConfig,
     PromptSessionContext,
     Session,
     SessionUpdate,
@@ -150,12 +149,6 @@ async def determine_actors(
                         break
             if not actor_ids:
                 raise ValueError("No mentioned agents found in session")
-        else:
-            # No mentions, no specific actor - could potentially use all agents
-            # For now, return empty list to maintain backwards compatibility
-            pass
-    elif len(session.agents) == 1:
-        actor_ids.append(session.agents[0])
 
     if not actor_ids:
         # TODO: do something more graceful than returning empty list if no actors are determined
@@ -995,7 +988,8 @@ async def _run_prompt_session_internal(
 ):
     """Internal function that handles both streaming and non-streaming"""
     session = context.session
-    
+    print(f"🤖 ***debug*** context: {context}")
+
     try:
         validate_prompt_session(session, context)
 
@@ -1005,6 +999,7 @@ async def _run_prompt_session_internal(
             user_message = add_user_message(session, context)
 
         actors = await determine_actors(session, context)
+        print(f"🤖 ***debug*** Actors: {actors}")
         is_client_platform = context.update_config is not None
 
         if not actors:
@@ -1017,7 +1012,11 @@ async def _run_prompt_session_internal(
         if len(actors) == 1:
             actor = actors[0]
             llm_context = await build_llm_context(
-                session, actor, context, trace_id=session_run_id, user_message=user_message
+                session,
+                actor,
+                context,
+                trace_id=session_run_id,
+                user_message=user_message,
             )
             async for update in async_prompt_session(
                 session,
@@ -1088,31 +1087,36 @@ async def _run_prompt_session_internal(
                     f"🧠 Triggering maybe_form_memories() as background task for session {session.id}, agent {actor.id}"
                 )
                 background_tasks.add_task(maybe_form_memories, actor.id, session)
-            
+
             # Send success notification if configured
-            if context.notification_config and context.notification_config.success_notification:
+            if (
+                context.notification_config
+                and context.notification_config.success_notification
+            ):
                 background_tasks.add_task(
-                    _send_session_notification, 
-                    context.notification_config, 
-                    session, 
-                    success=True
+                    _send_session_notification,
+                    context.notification_config,
+                    session,
+                    success=True,
                 )
         else:
             print(
                 f"⚠️  Warning: No background_tasks available, skipping memory formation and auto-reply"
             )
-    
+
     except Exception as e:
         # Send failure notification if configured
-        if (background_tasks and 
-            context.notification_config and 
-            context.notification_config.failure_notification):
+        if (
+            background_tasks
+            and context.notification_config
+            and context.notification_config.failure_notification
+        ):
             background_tasks.add_task(
-                _send_session_notification, 
-                context.notification_config, 
-                session, 
+                _send_session_notification,
+                context.notification_config,
+                session,
                 success=False,
-                error=str(e)
+                error=str(e),
             )
         # Re-raise the exception
         raise
@@ -1167,15 +1171,12 @@ async def _queue_session_action_fastify_background_task(session: Session):
 
 
 async def _send_session_notification(
-    notification_config, 
-    session: Session, 
-    success: bool = True, 
-    error: str = None
+    notification_config, session: Session, success: bool = True, error: str = None
 ):
     """Send a notification about session completion"""
     import httpx
     from datetime import datetime, timezone
-    
+
     try:
         api_url = os.getenv("EDEN_API_URL")
         if not api_url:
@@ -1190,7 +1191,10 @@ async def _send_session_notification(
         else:
             notification_type = "session_failed"
             title = notification_config.failure_title or "Session Failed"
-            message = notification_config.failure_message or f"Your session failed: {error[:200]}..."
+            message = (
+                notification_config.failure_message
+                or f"Your session failed: {error[:200]}..."
+            )
             priority = "high"
 
         notification_data = {
@@ -1205,8 +1209,8 @@ async def _send_session_notification(
                 "session_id": str(session.id),
                 "completion_time": datetime.now(timezone.utc).isoformat(),
                 **(notification_config.metadata or {}),
-                **({"error": error} if error else {})
-            }
+                **({"error": error} if error else {}),
+            },
         }
 
         # Add optional fields
