@@ -23,6 +23,7 @@ import eve.mongo
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 
+
 logger = logging.getLogger(__name__)
 root_dir = Path(__file__).parent.parent.parent.parent
 
