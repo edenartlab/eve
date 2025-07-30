@@ -857,6 +857,7 @@ class DiscordGatewayClient:
     ) -> PromptSessionRequest:
         """Create a PromptSessionRequest object"""
         # If specific agents are mentioned, use those; otherwise use this deployment's agent
+        
         if mentioned_agent_ids:
             actor_agent_ids = mentioned_agent_ids
         else:
