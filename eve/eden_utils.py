@@ -144,40 +144,22 @@ def log_memory_info():
 
 
 def prepare_result(result, summarize=False):
-    print(
-        f"***debug*** prepare_result called with: {type(result)}, summarize={summarize}"
-    )
     if isinstance(result, dict):
-        print(f"***debug*** processing dict with keys: {list(result.keys())}")
         if "error" in result and result["error"] is not None:
-            print("***debug*** found actual error in result, returning as-is")
             return result
         if "mediaAttributes" in result:
-            print("***debug*** removing blurhash from mediaAttributes")
             result["mediaAttributes"].pop("blurhash", None)
         if "filename" in result:
             filename = result.pop("filename")
-            print(f"***debug*** found filename: {filename}")
             url = s3.get_full_url(filename)
-            print(f"***debug*** converted filename to url: {url}")
             if summarize:
-                print("***debug*** summarize=True, returning URL directly")
                 return url
             else:
                 result["url"] = url
-                print(f"***debug*** added url to result: {url}")
-        processed = {k: prepare_result(v, summarize) for k, v in result.items()}
-        print(
-            f"***debug*** returning processed dict with keys: {list(processed.keys())}"
-        )
-        return processed
+        return {k: prepare_result(v, summarize) for k, v in result.items()}
     elif isinstance(result, list):
-        print(f"***debug*** processing list with {len(result)} items")
-        processed = [prepare_result(item, summarize) for item in result]
-        print(f"***debug*** returning processed list with {len(processed)} items")
-        return processed
+        return [prepare_result(item, summarize) for item in result]
     else:
-        print(f"***debug*** returning primitive value: {result}")
         return result
 
 
