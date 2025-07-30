@@ -149,8 +149,8 @@ def prepare_result(result, summarize=False):
     )
     if isinstance(result, dict):
         print(f"***debug*** processing dict with keys: {list(result.keys())}")
-        if "error" in result:
-            print("***debug*** found error in result, returning as-is")
+        if "error" in result and result["error"] is not None:
+            print("***debug*** found actual error in result, returning as-is")
             return result
         if "mediaAttributes" in result:
             print("***debug*** removing blurhash from mediaAttributes")
