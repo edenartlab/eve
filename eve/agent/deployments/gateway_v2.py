@@ -544,10 +544,6 @@ class DiscordGatewayClient:
             if not discord_id:
                 continue
 
-            # Skip if this is the current bot itself
-            if discord_id == self.deployment.secrets.discord.application_id:
-                continue
-
             try:
                 # Find deployment with this Discord application_id
                 deployments = list(
@@ -686,6 +682,7 @@ class DiscordGatewayClient:
         logger.info("Processing message content", extra={"message_data": message_data})
         content = message_data["content"]
         mentioned_agent_ids = []
+        print(f"message_data: {message_data}")
 
         # Handle mentions
         if "mentions" in message_data:
@@ -857,10 +854,13 @@ class DiscordGatewayClient:
     ) -> PromptSessionRequest:
         """Create a PromptSessionRequest object"""
         # If specific agents are mentioned, use those; otherwise use this deployment's agent
+        print(f"mentioned_agent_ids: {mentioned_agent_ids}")
+
         if mentioned_agent_ids:
             actor_agent_ids = mentioned_agent_ids
         else:
-            actor_agent_ids = [str(self.deployment.agent)]
+            actor_agent_ids = []
+        print(f"actor_agent_ids: {actor_agent_ids}")
 
         return PromptSessionRequest(
             user_id=str(user.id),
