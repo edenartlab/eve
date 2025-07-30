@@ -1,0 +1,51 @@
+name: Shopify Create Product
+description: Add a product to Shopify storefront
+cost_estimate: 1
+output_type: string
+active: true
+handler: local
+visible: false
+parameters:
+  title:
+    type: string
+    label: Title
+    description: Title of the product
+    required: true
+  description:
+    type: string
+    label: Description
+    description: Description of the product
+    required: true
+  image:
+    type: string
+    label: Image
+    description: Image URL of the product
+    tip: Provide a full URL to the image
+    required: true
+  alt_text:
+    type: string
+    label: Alt Text
+    description: Alt text for the image.
+    tip: Make this a short description of the image content. For accessibility.
+    required: true
+  price:
+    type: float
+    label: Price
+    description: Price of the product in USD
+    required: true
+    minimum: 0.00
+    maximum: 1000.00
+  quantity:
+    type: integer
+    label: Quantity
+    description: Quantity of the product
+    tip: How many of the product are in stock.
+    default: 1
+    minimum: 0
+    maximum: 10000
+  auto_publish:
+    type: boolean
+    label: Auto Publish
+    description: Whether to automatically publish the product to the storefront.
+    tip: If this is false, tell the user they need to manually publish the product to the storefront from the Shopify admin panel.
+    default: false
