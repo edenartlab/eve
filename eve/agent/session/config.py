@@ -4,10 +4,10 @@ from eve.agent.session.models import LLMConfig
 
 DEFAULT_SESSION_LLM_CONFIG_DEV = {
     "premium": LLMConfig(
-        model="gemini/gemini-2.5-flash-preview-05-20",
+        model="claude-3-haiku-20240307",
     ),
     "free": LLMConfig(
-        model="gemini/gemini-2.5-flash-preview-05-20",
+        model="claude-3-haiku-20240307",
     ),
 }
 DEFAULT_SESSION_LLM_CONFIG_STAGE = {
@@ -15,7 +15,7 @@ DEFAULT_SESSION_LLM_CONFIG_STAGE = {
         model="claude-sonnet-4-20250514",
     ),
     "free": LLMConfig(
-        model="gemini/gemini-2.5-flash-preview-05-20",
+        model="claude-sonnet-4-20250514",
     ),
 }
 
@@ -24,7 +24,7 @@ DEFAULT_SESSION_LLM_CONFIG_PROD = {
         model="claude-sonnet-4-20250514",
     ),
     "free": LLMConfig(
-        model="gemini/gemini-2.5-flash-preview-05-20",
+        model="claude-sonnet-4-20250514",
     ),
 }
 
