@@ -860,7 +860,7 @@ class DiscordGatewayClient:
         if mentioned_agent_ids:
             actor_agent_ids = mentioned_agent_ids
         else:
-            actor_agent_ids = [str(self.deployment.agent)]
+            actor_agent_ids = []
 
         return PromptSessionRequest(
             user_id=str(user.id),
