@@ -578,6 +578,7 @@ class DiscordGatewayClient:
             )
             return True
 
+
         # If not directly allowlisted, check if this might be a thread
         try:
             async with aiohttp.ClientSession() as session:
