@@ -128,7 +128,7 @@ def log_memory_info():
         )
         total_mem, used_mem = map(int, result.decode("utf-8").strip().split(","))
         gpu_percent = (used_mem / total_mem) * 100
-        print(f"GPU Memory: {gpu_percent:.1f}% of {total_mem/1024:.1f}GB")
+        print(f"GPU Memory: {gpu_percent:.1f}% of {total_mem / 1024:.1f}GB")
     except (subprocess.CalledProcessError, FileNotFoundError):
         print("GPU info not available")
 
@@ -144,22 +144,40 @@ def log_memory_info():
 
 
 def prepare_result(result, summarize=False):
+    print(
+        f"***debug*** prepare_result called with: {type(result)}, summarize={summarize}"
+    )
     if isinstance(result, dict):
+        print(f"***debug*** processing dict with keys: {list(result.keys())}")
         if "error" in result:
+            print("***debug*** found error in result, returning as-is")
             return result
         if "mediaAttributes" in result:
+            print("***debug*** removing blurhash from mediaAttributes")
             result["mediaAttributes"].pop("blurhash", None)
         if "filename" in result:
             filename = result.pop("filename")
+            print(f"***debug*** found filename: {filename}")
             url = s3.get_full_url(filename)
+            print(f"***debug*** converted filename to url: {url}")
             if summarize:
+                print("***debug*** summarize=True, returning URL directly")
                 return url
             else:
                 result["url"] = url
-        return {k: prepare_result(v, summarize) for k, v in result.items()}
+                print(f"***debug*** added url to result: {url}")
+        processed = {k: prepare_result(v, summarize) for k, v in result.items()}
+        print(
+            f"***debug*** returning processed dict with keys: {list(processed.keys())}"
+        )
+        return processed
     elif isinstance(result, list):
-        return [prepare_result(item, summarize) for item in result]
+        print(f"***debug*** processing list with {len(result)} items")
+        processed = [prepare_result(item, summarize) for item in result]
+        print(f"***debug*** returning processed list with {len(processed)} items")
+        return processed
     else:
+        print(f"***debug*** returning primitive value: {result}")
         return result
 
 
@@ -169,7 +187,9 @@ def upload_result(result, save_thumbnails=False, save_blurhash=False):
         return {
             k: upload_result(
                 v, save_thumbnails=save_thumbnails, save_blurhash=save_blurhash
-            ) if k not in exlude_result_processing_keys else v
+            )
+            if k not in exlude_result_processing_keys
+            else v
             for k, v in result.items()
         }
     elif isinstance(result, list):
@@ -192,7 +212,7 @@ def upload_media(output, save_thumbnails=True, save_blurhash=True):
     filename = file_url.split("/")[-1]
 
     media_attributes, thumbnail = get_media_attributes(output)
-    
+
     if save_thumbnails and thumbnail:
         for width in [384, 768, 1024, 2560]:
             img = thumbnail.copy()
@@ -265,12 +285,12 @@ def get_media_attributes(file):
 def _check_volume_cache(url, local_filepath, overwrite=False):
     """
     Check if file exists in Modal Volume cache and copy it if found.
-    
+
     Args:
         url: Original URL being downloaded
         local_filepath: Target local path
         overwrite: Whether to overwrite existing files
-        
+
     Returns:
         str: Path to file if found in cache, None otherwise
     """
@@ -279,32 +299,35 @@ def _check_volume_cache(url, local_filepath, overwrite=False):
         volume_cache_dir = pathlib.Path("/data/media-cache")
         if not volume_cache_dir.exists():
             return None
-            
+
         # Generate cache key from URL filename (filenames are designed to be unique)
         cache_filename = pathlib.Path(url).name
         # Remove query parameters from filename
-        cache_filename = re.sub(r'\?.*$', '', cache_filename)
-        
+        cache_filename = re.sub(r"\?.*$", "", cache_filename)
+
         cache_filepath = volume_cache_dir / cache_filename
-        
+
         if cache_filepath.exists():
-            print(f"<**> Found {cache_filename} in volume cache, copying to {local_filepath}")
+            print(
+                f"<**> Found {cache_filename} in volume cache, copying to {local_filepath}"
+            )
             # Copy from cache to target location
             import shutil
+
             shutil.copy2(str(cache_filepath), str(local_filepath))
             return str(local_filepath)
-            
+
     except Exception as e:
         # If volume access fails, silently continue with normal download
         print(f"Volume cache check failed: {e}")
-        
+
     return None
 
 
 def _save_to_volume_cache(url, local_filepath):
     """
     Save downloaded file to Modal Volume cache for future use.
-    
+
     Args:
         url: Original URL that was downloaded
         local_filepath: Path to the downloaded file
@@ -314,21 +337,22 @@ def _save_to_volume_cache(url, local_filepath):
         volume_cache_dir = pathlib.Path("/data/media-cache")
         if not volume_cache_dir.exists():
             return
-            
+
         volume_cache_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Generate cache key from URL filename
         cache_filename = pathlib.Path(url).name
         # Remove query parameters from filename
-        cache_filename = re.sub(r'\?.*$', '', cache_filename)
-        
+        cache_filename = re.sub(r"\?.*$", "", cache_filename)
+
         cache_filepath = volume_cache_dir / cache_filename
-        
+
         if not cache_filepath.exists():
             print(f"<**> Saving {cache_filename} to volume cache")
             import shutil
+
             shutil.copy2(str(local_filepath), str(cache_filepath))
-            
+
             # Commit volume changes if we have access to modal
             try:
                 import modal
@@ -337,7 +361,7 @@ def _save_to_volume_cache(url, local_filepath):
                 # We can't directly access the volume object, so we rely on Modal's auto-commit
             except:
                 pass
-                
+
     except Exception as e:
         # If volume access fails, silently continue
         print(f"Volume cache save failed: {e}")
@@ -368,7 +392,7 @@ def download_file(url, local_filepath, overwrite=False):
         cache_path = _check_volume_cache(url, local_filepath, overwrite)
         if cache_path:
             return cache_path
-    
+
     print(f"Downloading file from {url} to {local_filepath}")
 
     try:
@@ -1153,6 +1177,7 @@ def overwrite_dict(base: dict, updates: dict):
         else:
             base[key] = value
 
+
 def load_template(filename: str) -> Template:
     """Load and compile a template from the templates directory"""
     TEMPLATE_DIR = pathlib.Path(__file__).parent / "prompt_templates"
@@ -1201,6 +1226,7 @@ from pyparsing import (
 # Enable memoisation to speed up recursive parsing.  This has a global effect but does not interfere with other parsers in normal usage.
 ParserElement.enablePackrat()
 
+
 def _build_expression_parser(variables: Dict[str, Any]) -> ParserElement:
     """Construct a pyparsing parser for evaluating JS‑style expressions.
 
@@ -1227,9 +1253,7 @@ def _build_expression_parser(variables: Dict[str, Any]) -> ParserElement:
     integer = pyparsing_common.signed_integer.copy().setParseAction(
         lambda t: [int(t[0])]
     )
-    real = pyparsing_common.fnumber.copy().setParseAction(
-        lambda t: [float(t[0])]
-    )
+    real = pyparsing_common.fnumber.copy().setParseAction(lambda t: [float(t[0])])
     number = real | integer
 
     # Define string literals (single or double quoted).  These return
@@ -1247,12 +1271,12 @@ def _build_expression_parser(variables: Dict[str, Any]) -> ParserElement:
     true_literal = (Keyword("true", caseless=True) | Keyword("True")).setParseAction(
         lambda: [True]
     )
-    false_literal = (
-        Keyword("false", caseless=True) | Keyword("False")
-    ).setParseAction(lambda: [False])
-    null_literal = (
-        Keyword("null", caseless=True) | Keyword("None")
-    ).setParseAction(lambda: [None])
+    false_literal = (Keyword("false", caseless=True) | Keyword("False")).setParseAction(
+        lambda: [False]
+    )
+    null_literal = (Keyword("null", caseless=True) | Keyword("None")).setParseAction(
+        lambda: [None]
+    )
 
     # Identifiers: variable names consisting of letters, digits and
     # underscores.  When encountered, look up the value in ``variables``.
@@ -1410,7 +1434,9 @@ def eval_cost(expression: str, **variables: Any) -> Any:
         result = parser.parseString(expression, parseAll=True)[0]
     except Exception as exc:
         # Re‑raise with additional context for easier debugging.
-        raise ValueError(f"Failed to evaluate expression '{expression}': {exc}") from exc
+        raise ValueError(
+            f"Failed to evaluate expression '{expression}': {exc}"
+        ) from exc
     # Coerce floats that are mathematically integers back to int for
     # convenience.  Many arithmetic operations produce floats via the
     # numeric grammar; this step normalises results such as 25.0 to 25.

@@ -161,12 +161,36 @@ class DiscordClient(PlatformClient):
 
                 elif update_type == UpdateType.TOOL_COMPLETE:
                     result = emission.result
+                    print("***debug*** RAW EMISSION RESULT:", result)
                     if not result:
                         logger.debug("No tool result to post")
                         return
 
                     # Process result to extract media URLs
-                    processed_result = prepare_result(json.loads(result))
+                    raw_result = json.loads(result)
+                    print("***debug*** PARSED JSON RESULT:", raw_result)
+                    processed_result = prepare_result(raw_result)
+                    print("***debug*** PROCESSED RESULT:", processed_result)
+
+                    print("***debug*** CHECKING STRUCTURE...")
+                    print(
+                        "***debug*** processed_result.get('result'):",
+                        processed_result.get("result"),
+                    )
+                    if processed_result.get("result"):
+                        print(
+                            "***debug*** len(processed_result['result']):",
+                            len(processed_result["result"]),
+                        )
+                        if len(processed_result["result"]) > 0:
+                            print(
+                                "***debug*** processed_result['result'][0]:",
+                                processed_result["result"][0],
+                            )
+                            print(
+                                "***debug*** 'output' in processed_result['result'][0]:",
+                                "output" in processed_result["result"][0],
+                            )
 
                     if (
                         processed_result.get("result")
@@ -174,26 +198,52 @@ class DiscordClient(PlatformClient):
                         and "output" in processed_result["result"][0]
                     ):
                         outputs = processed_result["result"][0]["output"]
+                        print("***debug*** OUTPUTS:", outputs)
+                        print("***debug*** OUTPUTS TYPE:", type(outputs))
+                        print(
+                            "***debug*** OUTPUTS LENGTH:",
+                            len(outputs) if isinstance(outputs, list) else "not a list",
+                        )
 
                         # Extract URLs from outputs
                         urls = []
-                        for output in outputs[:4]:  # Discord supports up to 4 embeds
-                            if isinstance(output, dict) and "url" in output:
-                                urls.append(output["url"])
+                        for i, output in enumerate(
+                            outputs[:4]
+                        ):  # Discord supports up to 4 embeds
+                            print(f"***debug*** OUTPUT {i}:", output)
+                            print(f"***debug*** OUTPUT {i} TYPE:", type(output))
+                            if isinstance(output, dict):
+                                print(
+                                    f"***debug*** OUTPUT {i} KEYS:", list(output.keys())
+                                )
+                                print(
+                                    f"***debug*** OUTPUT {i} HAS URL:", "url" in output
+                                )
+                                if "url" in output:
+                                    print(
+                                        f"***debug*** OUTPUT {i} URL VALUE:",
+                                        output["url"],
+                                    )
+                                    urls.append(output["url"])
+
+                        print("***debug*** EXTRACTED URLS:", urls)
 
                         if urls:
                             # Prepare message content with URLs
                             content = "\n".join(urls)
                             payload["content"] = content
+                            print("***debug*** FINAL PAYLOAD CONTENT:", content)
 
                             # Get creation ID from the first output for Eden link
                             creation_id = None
                             if isinstance(outputs, list) and len(outputs) > 0:
                                 creation_id = str(outputs[0].get("creation"))
+                                print("***debug*** CREATION ID:", creation_id)
 
                             # Add components for Eden link if creation_id exists
                             if creation_id:
                                 eden_url = get_eden_creation_url(creation_id)
+                                print("***debug*** EDEN URL:", eden_url)
                                 payload["components"] = [
                                     {
                                         "type": 1,  # Action Row
@@ -208,10 +258,12 @@ class DiscordClient(PlatformClient):
                                     }
                                 ]
                         else:
+                            print("***debug*** NO URLS FOUND - WARNING TRIGGERED")
                             logger.warning(
                                 "No valid URLs found in tool result for Discord"
                             )
                     else:
+                        print("***debug*** STRUCTURE CHECK FAILED - WARNING TRIGGERED")
                         logger.warning(
                             "Unexpected tool result structure for Discord emission"
                         )

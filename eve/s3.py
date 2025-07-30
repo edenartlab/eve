@@ -36,18 +36,30 @@ file_extensions = {
 
 def get_root_url(s3=False):
     """Returns the root URL, CloudFront by default, or S3"""
+    print(f"***debug*** get_root_url called with s3={s3}")
     if s3:
         db = os.getenv("DB", "STAGE").upper()
         AWS_BUCKET_NAME = os.getenv(f"AWS_BUCKET_NAME_{db}")
         AWS_REGION_NAME = os.getenv("AWS_REGION_NAME")
+        print(
+            f"***debug*** S3 mode - db={db}, bucket={AWS_BUCKET_NAME}, region={AWS_REGION_NAME}"
+        )
         url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION_NAME}.amazonaws.com"
+        print(f"***debug*** S3 URL: {url}")
         return url
     else:
-        return os.getenv("CLOUDFRONT_URL")
+        cloudfront_url = os.getenv("CLOUDFRONT_URL")
+        print(f"***debug*** CloudFront mode - CLOUDFRONT_URL env var: {cloudfront_url}")
+        return cloudfront_url
 
 
 def get_full_url(filename):
-    return f"{get_root_url()}/{filename}"
+    print(f"***debug*** get_full_url called with filename: {filename}")
+    root_url = get_root_url()
+    print(f"***debug*** root_url from get_root_url(): {root_url}")
+    full_url = f"{root_url}/{filename}"
+    print(f"***debug*** final full_url: {full_url}")
+    return full_url
 
 
 def upload_file_from_url(url, name=None, file_type=None):
@@ -93,22 +105,21 @@ def upload_file(file, name=None, file_type=None):
 def upload_buffer(buffer, name=None, file_type=None):
     """Uploads a buffer to an S3 bucket and returns the file URL."""
 
-    assert (
-        file_type
-        in [
-            None,
-            ".jpg",
-            ".webp",
-            ".png",
-            ".mp3",
-            ".mp4",
-            ".flac",
-            ".wav",
-            ".tar",
-            ".zip",
-            ".safetensors",
-        ]
-    ), "file_type must be one of ['.jpg', '.webp', '.png', '.mp3', '.mp4', '.flac', '.wav', '.tar', '.zip', '.safetensors']"
+    assert file_type in [
+        None,
+        ".jpg",
+        ".webp",
+        ".png",
+        ".mp3",
+        ".mp4",
+        ".flac",
+        ".wav",
+        ".tar",
+        ".zip",
+        ".safetensors",
+    ], (
+        "file_type must be one of ['.jpg', '.webp', '.png', '.mp3', '.mp4', '.flac', '.wav', '.tar', '.zip', '.safetensors']"
+    )
 
     if isinstance(buffer, Iterator):
         buffer = b"".join(buffer)
