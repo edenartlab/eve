@@ -637,19 +637,19 @@ async def assemble_memory_context(agent_id: ObjectId, session_id: Optional[Objec
             get_session_state_start = time.time()
             session_state = await get_session_state(agent_id, session_id)
             get_session_state_time = time.time() - get_session_state_start
-            print(f"   ⏱️  get_session_state took: {get_session_state_time:.3f}s")
+            # print(f"   ⏱️  get_session_state took: {get_session_state_time:.3f}s")
 
             cached_context = session_state.get("cached_memory_context")
             should_refresh = session_state.get("should_refresh_memory", True)
             
             if cached_context and not should_refresh:
                 total_time = time.time() - start_time
-                print(f"   ⚡ USING CACHED MEMORY: {total_time:.3f}s")
+                # print(f"   ⚡ USING CACHED MEMORY: {total_time:.3f}s")
                 logging.debug("Not refreshing memory context:")
                 logging.debug(f"Cached context: {cached_context}")
                 return cached_context
             else:
-                print(f"   🔄 Cache missing or refresh needed")
+                # print(f"   🔄 Cache missing or refresh needed")
                 logging.debug(f"Memory context, Should refresh: {should_refresh}")
                 
         except Exception as e:

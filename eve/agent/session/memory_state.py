@@ -27,7 +27,8 @@ DEFAULT_SESSION_STATE = {
     "last_memory_message_id": None,
     "message_count_since_memory": 0,
     "cached_memory_context": None,
-    "should_refresh_memory": True
+    "should_refresh_memory": True,
+    "agent_collective_memory_timestamp": None # Timestamp of the last time the agent's collective memory was fetched in this session
 }
 
 async def get_session_state(agent_id: ObjectId, session_id: ObjectId) -> Dict[str, Any]:
@@ -42,6 +43,7 @@ async def get_session_state(agent_id: ObjectId, session_id: ObjectId) -> Dict[st
         pending_session_memories[agent_key] = {}
         agent_dict = pending_session_memories[agent_key]
     
+    # Initialize session state if not present
     if session_key not in agent_dict:
         agent_dict[session_key] = DEFAULT_SESSION_STATE.copy()
         pending_session_memories[agent_key] = agent_dict
