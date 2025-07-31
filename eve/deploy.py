@@ -90,7 +90,7 @@ class DeploymentSettingsShopify(BaseModel):
 class DeploymentSecretsShopify(BaseModel):
     store_name: str
     access_token: str
-    location_id: int
+    location_id: str
 
 
 class DeploymentSecrets(BaseModel):
