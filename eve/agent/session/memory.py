@@ -10,164 +10,89 @@ import json
 import logging
 import time
 import traceback
-from enum import Enum
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
 from bson import ObjectId
-from pydantic import field_serializer
-
-from eve.mongo import Collection, Document, get_collection
 from eve.agent.session.session_llm import async_prompt, LLMContext, LLMConfig
 from eve.agent.session.models import ChatMessage, Session
 from eve.agent.session.memory_state import update_session_state, get_session_state
+from eve.agent.session.memory_primitives import MemoryType, SessionMemory, UserMemory, AgentMemory
+from eve.agent.session.config import DEFAULT_SESSION_SELECTION_LIMIT
+
+
+"""
+Main flow of memory formation:
+Raw messages → LLM extraction → Raw Memories → Consolidation → Consolidated text blob
+
+Database collections:
+- memory_sessions: Raw memories formed inside of sessions.
+    Contains a single document per raw memory (episode, directive, suggestion, fact)
+- memory_user: Agent/User memory containing raw_memory_ids and a consolidated blob
+    Contains a single document per agent/user pair
+- memory_agent: Agent collective memory blobs containing raw_memory_ids and a consolidated blob
+    Contains a single document per agent shard, where shards are specific topics / events / projects / etc that require a shared memory.
+
+Main algorithm:
+- Every N messages, trigger raw memory formation inside a session
+- Run one LLM call to extract episodes and directives
+- (if active) Run one extra LLM call for each collective agent shard to extract suggestions and facts (this includes the agent's persona and a custom shard prompt)
+- Store all raw memories (episodes, directives, suggestions, facts) in memory_sessions and keep track of their ids
+- Update memory_user and memory_agent with the corresponding new raw_memory_ids, trigger consolidations where needed
+- Set SESSION_STATE.should_refresh_memory = True in modal dict to trigger a refresh of the memory context in the session
+- (if active) Update AgentMemory.last_updated_at so that other sessions with this agent also refresh their collective memory cache
+
+
+TODO:
+Near term:
+- actually use AgentMemory.is_active
+- actually use AgentMemory.last_updated_at when checking session memory cache
+
+
+Next:
+- trigger memory formation based on token count instead of message count
+- actually deploy background tasks for memory formation
+- extract all hardcoded prompts into a single file
+
+Finally:
+- Create UI for memory shards and prompts, facts, suggestions, version history, ...
+
+"""
+
 
 # Flag to easily switch between local and production memory settings (keep this in but always set to False in production):
 # Remember to also deploy bg apps with LODAL_DEV = False!
-LOCAL_DEV = False
-DEFAULT_MESSAGE_LIMIT = 25
+LOCAL_DEV = True
 
 # Memory formation settings:
 if LOCAL_DEV:
+    MEMORY_LLM_MODEL = "gpt-4o-mini"
     MEMORY_FORMATION_INTERVAL = 4  # Number of messages to wait before forming memories
     SESSION_MESSAGES_LOOKBACK_LIMIT = MEMORY_FORMATION_INTERVAL  # Max messages to look back in a session when forming raw memories
-    MAX_RAW_MEMORY_COUNT = 2  # Number of individual memories to store before consolidating them into the agent's user_memory blob
+    
+    # Normal memory settings:
+    MAX_DIRECTIVES_COUNT_BEFORE_CONSOLIDATION = 2  # Number of individual memories to store before consolidating them into the agent's user_memory blob
     MAX_N_EPISODES_TO_REMEMBER = 2  # Number of episodes to remember from a session
-    MEMORY_LLM_MODEL = "gpt-4o-mini"
+    # Collective memory settings:
+    MAX_SUGGESTIONS_COUNT_BEFORE_CONSOLIDATION = 2 # Number of suggestions to store before consolidating them into the agent's collective memory blob
+    MAX_FACTS_PER_SHARD = 3 # Max number of facts to store per agent shard (fifo)
+    
 else:
-    MEMORY_FORMATION_INTERVAL = DEFAULT_MESSAGE_LIMIT  # Number of messages to wait before forming memories
-    SESSION_MESSAGES_LOOKBACK_LIMIT = MEMORY_FORMATION_INTERVAL  # Max messages to look back in a session when forming raw memories
-    MAX_RAW_MEMORY_COUNT = 5  # Number of individual memories to store before consolidating them into the agent's user_memory blob
-    MAX_N_EPISODES_TO_REMEMBER = 10  # Number of episodes to remember from a session
     MEMORY_LLM_MODEL = "gpt-4o"
+    MEMORY_FORMATION_INTERVAL = DEFAULT_SESSION_SELECTION_LIMIT  # Number of messages to wait before forming memories
+    SESSION_MESSAGES_LOOKBACK_LIMIT = MEMORY_FORMATION_INTERVAL  # Max messages to look back in a session when forming raw memories
 
+    # Normal memory settings:
+    MAX_DIRECTIVES_COUNT_BEFORE_CONSOLIDATION = 5  # Number of individual memories to store before consolidating them into the agent's user_memory blob
+    MAX_N_EPISODES_TO_REMEMBER = 10  # Number of episodes to remember from a session
+    # Collective memory settings:
+    MAX_SUGGESTIONS_COUNT_BEFORE_CONSOLIDATION = 10 # Number of suggestions to store before consolidating them into the agent's collective memory blob
+    MAX_FACTS_PER_SHARD = 30 # Max number of facts to store per agent shard (fifo)
+    
 # LLMs cannot count tokens at all (weirdly), so instruct with word count:
-SESSION_CONSOLIDATED_MEMORY_MAX_WORDS = (
-    50  # Target word length for session consolidated memory
-)
-SESSION_DIRECTIVE_MEMORY_MAX_WORDS = (
-    25  # Target word length for session directive memory
-)
+SESSION_CONSOLIDATED_MEMORY_MAX_WORDS = 50  # Target word length for session consolidated memory
+SESSION_DIRECTIVE_MEMORY_MAX_WORDS = 25  # Target word length for session directive memory
 USER_MEMORY_MAX_WORDS = 150  # Target word count for consolidated user memory blob
-
-class MemoryType(Enum):
-    EPISODE = "episode"  # Summary of a section of the conversation in a session
-    DIRECTIVE = "directive"  # User instructions, preferences, behavioral rules
-
-
-@Collection("memory_sessions")
-class SessionMemory(Document):
-    """Individual memory record stored in MongoDB"""
-
-    agent_id: ObjectId
-    source_session_id: ObjectId
-    memory_type: MemoryType
-    content: str
-
-    # Context tracking for traceability
-    source_message_ids: List[ObjectId] = []
-    related_users: List[ObjectId] = []
-
-    agent_owner: Optional[ObjectId] = None
-
-    @field_serializer("memory_type")
-    def serialize_memory_type(self, value: MemoryType) -> str:
-        return value.value
-
-    @classmethod
-    def convert_to_mongo(cls, schema: dict, **kwargs) -> dict:
-        """Convert enum to string for MongoDB storage"""
-        # Ensure kwargs is a dict to prevent "argument after ** must be a mapping" error
-        if kwargs is None:
-            kwargs = {}
-        if "memory_type" in schema and hasattr(schema["memory_type"], "value"):
-            schema["memory_type"] = schema["memory_type"].value
-        return schema
-
-    @classmethod
-    def convert_from_mongo(cls, schema: dict, **kwargs) -> dict:
-        """Convert string back to enum from MongoDB"""
-        # Ensure kwargs is a dict to prevent "argument after ** must be a mapping" error
-        if kwargs is None:
-            kwargs = {}
-        if "memory_type" in schema and isinstance(schema["memory_type"], str):
-            schema["memory_type"] = MemoryType(schema["memory_type"])
-        return schema
-
-    @classmethod
-    def ensure_indexes(cls):
-        """Ensure indexes exist for optimal query performance"""
-        collection = cls.get_collection()
-        
-        # Compound index for unabsorbed directives query (lines 663-670)
-        # Query: {"agent_id": agent_id, "memory_type": "directive", "related_users": user_id, "_id": {"$in": ids}}
-        collection.create_index([
-            ("agent_id", 1),
-            ("memory_type", 1), 
-            ("related_users", 1)
-        ])
-        
-        # Compound index for episode memories query (line 684)
-        # Query: {"source_session_id": session_id, "memory_type": MemoryType.EPISODE.value}
-        # With sort: sort="createdAt", desc=True
-        collection.create_index([
-            ("source_session_id", 1),
-            ("memory_type", 1),
-            ("createdAt", -1)
-        ])
-
-@Collection("memory_user")
-class UserMemory(Document):
-    """Consolidated user memory blob for agent/user pairs"""
-
-    agent_id: ObjectId
-    user_id: ObjectId
-    content: Optional[str] = ""
-    agent_owner: Optional[ObjectId] = None
-    # Track which directive memories haven't been consolidated yet:
-    unabsorbed_directive_ids: List[ObjectId] = []  
-
-    @classmethod
-    def convert_to_mongo(cls, schema: dict, **kwargs) -> dict:
-        """Convert data for MongoDB storage"""
-        # Ensure kwargs is a dict to prevent "argument after ** must be a mapping" error
-        if kwargs is None:
-            kwargs = {}
-        return schema
-
-    @classmethod
-    def convert_from_mongo(cls, schema: dict, **kwargs) -> dict:
-        """Convert data from MongoDB"""
-        if kwargs is None:
-            kwargs = {}
-        return schema
-
-    @classmethod
-    def find_one_or_create(cls, query, defaults=None):
-        """Find a document or create and save a new one if it doesn't exist."""
-        if defaults is None:
-            defaults = {}
-
-        try:
-            doc = cls.find_one(query)
-            if doc:
-                return doc
-        except (TypeError, AttributeError) as e:
-            print(f"Error in find_one: {e}")
-        
-        # If we get here, either find_one returned None or crashed
-        # Create new instance and save it
-        new_doc = {**query, **defaults}
-        instance = cls(**new_doc)
-        instance.save()
-        return instance
-        
-    @classmethod
-    def ensure_indexes(cls):
-        """Ensure indexes exist"""
-        collection = cls.get_collection()
-        collection.create_index([("agent_id", 1), ("user_id", 1)], unique=True)
-
-
+MEMORY_SHARD_MAX_WORDS = 1000  # Target word count for consolidated agent collective memory blob
 
 def get_agent_owner(agent_id: ObjectId) -> Optional[ObjectId]:
     """Get the owner of the agent"""
@@ -350,7 +275,7 @@ def _update_user_memory(
         )
 
         # Check if we need to consolidate
-        if len(user_memory.unabsorbed_directive_ids) >= MAX_RAW_MEMORY_COUNT:
+        if len(user_memory.unabsorbed_directive_ids) >= MAX_DIRECTIVES_COUNT_BEFORE_CONSOLIDATION:
             logging.debug(
                 f"Triggering user memory consolidation for agent {agent_id}, user {user_id}: integrating {len(user_memory.unabsorbed_directive_ids)} unabsorbed directives"
             )
