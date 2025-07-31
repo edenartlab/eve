@@ -302,23 +302,19 @@ async def build_llm_context(
     user_message: Optional[ChatMessage] = None,
 ):
     tools = actor.get_tools(cache=False, auth_user=context.initiating_user_id)
-
     if context.custom_tools:
         tools.update(context.custom_tools)
-
     # build messages
     system_message = await build_system_message(session, actor, context, tools)
     messages = [system_message]
     messages.extend(select_messages(session))
     messages = convert_message_roles(messages, actor.id)
-
     # Add user message if provided (should be created once per prompt session)
     if user_message:
         messages.append(user_message)
 
     user = User.from_mongo(context.initiating_user_id)
     tier = "premium" if user.subscriptionTier and user.subscriptionTier > 0 else "free"
-
     return LLMContext(
         messages=messages,
         tools=tools,
