@@ -5,7 +5,7 @@ from openai import OpenAI
 from PIL import Image
 from io import BytesIO
 
-from eve.eden_utils import download_file, PIL_to_bytes
+from eve.utils import download_file, PIL_to_bytes
 
 # Maximum dimension (width or height) for resizing
 MAX_DIMENSION = 2048

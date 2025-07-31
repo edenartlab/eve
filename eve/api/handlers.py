@@ -56,7 +56,7 @@ from eve.api.helpers import (
     create_telegram_chat_request,
     update_busy_state,
 )
-from eve.eden_utils import prepare_result, dumps_json, serialize_json
+from eve.utils import prepare_result, dumps_json, serialize_json
 from eve.tools.replicate_tool import replicate_update_task
 from eve.agent.llm import UpdateType
 from eve.agent.run_thread import async_prompt_thread

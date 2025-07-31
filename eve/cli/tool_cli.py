@@ -4,7 +4,7 @@ import random
 import asyncio
 import traceback
 
-from ..eden_utils import save_test_results, prepare_result, dumps_json, CLICK_COLORS
+from ..utils import save_test_results, prepare_result, dumps_json, CLICK_COLORS
 from ..auth import get_my_eden_user
 from ..agent import Agent
 from ..tool import Tool, get_tools_from_mongo, get_tools_from_api_files, get_api_files

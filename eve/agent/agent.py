@@ -28,7 +28,7 @@ from ..tool_constants import (
 from ..mongo import Collection, get_collection
 from ..models import Model
 from ..user import User, Manna
-from ..eden_utils import load_template
+from ..utils import load_template
 from .thread import Thread
 
 

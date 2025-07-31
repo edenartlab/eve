@@ -2,7 +2,7 @@ import openai
 import os
 import json
 import tempfile
-from ... import eden_utils
+from ... import utils
 
 async def handler(args: dict, user: str = None, agent: str = None):
     """
@@ -13,7 +13,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
     client = openai.AsyncOpenAI()
 
     temp_audio = tempfile.NamedTemporaryFile(suffix='.mp3', delete=False)
-    file_path_str = eden_utils.download_file(args["audio"], temp_audio.name, overwrite=True)
+    file_path_str = utils.download_file(args["audio"], temp_audio.name, overwrite=True)
     selected_model_arg = args.get("model", "gpt-4o-transcribe")
     enable_timestamps = args.get("use_timestamps", False)
     prompt_text = args.get("prompt")
