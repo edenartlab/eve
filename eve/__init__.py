@@ -29,13 +29,13 @@ def setup_eve():
         sentry_env = os.getenv(
             "SENTRY_ENV", "production" if db == "PROD" else "staging"
         )
-        print(f"Setting up sentry for {sentry_env}")
+        # print(f"Setting up sentry for {sentry_env}")
 
         # Set sampling rates
         traces_sample_rate = 1.0 if os.getenv("SENTRY_ENV") else 0.01
         profiles_sample_rate = 1.0 if os.getenv("SENTRY_ENV") else 0.01
-        print(f"Traces sample rate: {traces_sample_rate}")
-        print(f"Profiles sample rate: {profiles_sample_rate}")
+        # print(f"Traces sample rate: {traces_sample_rate}")
+        # print(f"Profiles sample rate: {profiles_sample_rate}")
 
         sentry_sdk.init(
             dsn=sentry_dsn,
@@ -51,7 +51,7 @@ def setup_eve():
         )
 
     if os.getenv("SETUP_SENTRY") == "no":
-        # print("Skipping sentry setup because SETUP_SENTRY is no")
+        print("Skipping sentry setup because SETUP_SENTRY is no")
         pass
     else:
         setup_sentry()
