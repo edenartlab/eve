@@ -149,12 +149,6 @@ async def determine_actors(
                         break
             if not actor_ids:
                 raise ValueError("No mentioned agents found in session")
-        else:
-            # No mentions, no specific actor - could potentially use all agents
-            # For now, return empty list to maintain backwards compatibility
-            pass
-    elif len(session.agents) == 1:
-        actor_ids.append(session.agents[0])
 
     if not actor_ids:
         # TODO: do something more graceful than returning empty list if no actors are determined
@@ -990,6 +984,7 @@ async def _run_prompt_session_internal(
 ):
     """Internal function that handles both streaming and non-streaming"""
     session = context.session
+    print(f"🤖 ***debug*** context: {context}")
 
     try:
         validate_prompt_session(session, context)
@@ -1000,6 +995,7 @@ async def _run_prompt_session_internal(
             user_message = add_user_message(session, context)
 
         actors = await determine_actors(session, context)
+        print(f"🤖 ***debug*** Actors: {actors}")
         is_client_platform = context.update_config is not None
 
         if not actors:

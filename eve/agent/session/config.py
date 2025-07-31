@@ -4,10 +4,10 @@ from eve.agent.session.models import LLMConfig
 
 DEFAULT_SESSION_LLM_CONFIG_DEV = {
     "premium": LLMConfig(
-        model="claude-3-haiku-20240307",
+        model="claude-sonnet-4-20250514",
     ),
     "free": LLMConfig(
-        model="claude-3-haiku-20240307",
+        model="claude-sonnet-4-20250514",
     ),
 }
 DEFAULT_SESSION_LLM_CONFIG_STAGE = {
