@@ -42,13 +42,14 @@ from eve.agent.session.session_prompts import (
     model_template,
 )
 
-from eve.agent.session.memory import maybe_form_memories, assemble_memory_context
+from eve.agent.session.memory import maybe_form_memories
+from eve.agent.session.memory_assemble_context import assemble_memory_context
+
 from eve.agent.session.config import (
     DEFAULT_SESSION_SELECTION_LIMIT,
     get_default_session_llm_config,
 )
 from eve.user import User
-
 
 class SessionCancelledException(Exception):
     """Exception raised when a session is cancelled via Ably signal."""

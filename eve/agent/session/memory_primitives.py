@@ -1,10 +1,44 @@
-
 from enum import Enum
 from typing import List, Optional
 from bson import ObjectId
-from eve.mongo import Collection, Document, get_collection
+from eve.mongo import Collection, Document
 from pydantic import field_serializer
 from datetime import datetime
+
+from eve.agent.session.models import ChatMessage
+
+def estimate_tokens(text: str) -> int:
+    """Rough token estimation (4.5 characters per token)"""
+    return int(len(text) / 4.5)
+
+def get_agent_owner(agent_id: ObjectId) -> Optional[ObjectId]:
+    """Get the owner of the agent"""
+    try:
+        from eve.agent.agent import Agent
+
+        agent = Agent.from_mongo(agent_id)
+        return agent.owner
+    except Exception as e:
+        print(f"Warning: Could not load agent owner for {agent_id}: {e}")
+        return None
+    
+def messages_to_text(messages: List[ChatMessage]) -> str:
+    """Convert messages to readable text for LLM processing"""
+    text_parts = []
+    for msg in messages:
+        speaker = msg.name or msg.role
+        content = msg.content
+
+        # Add tool calls summary if present
+        if msg.tool_calls:
+            tools_summary = (
+                f" [Used tools: {', '.join([tc.tool for tc in msg.tool_calls])}]"
+            )
+            content += tools_summary
+
+        text_parts.append(f"{speaker}: {content}")
+    return "\n".join(text_parts)
+
 
 class MemoryType(Enum):
     EPISODE    = "episode"    # Summary of a section of the conversation in a session
@@ -24,6 +58,9 @@ class SessionMemory(Document):
     # Context tracking for traceability
     source_message_ids: List[ObjectId] = []
     related_users: List[ObjectId] = []
+
+    # For collective memory tracking - which shard this memory belongs to
+    shard_id: Optional[ObjectId] = None
 
     agent_owner: Optional[ObjectId] = None
 

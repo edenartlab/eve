@@ -1,6 +1,6 @@
 import modal
 from bson import ObjectId
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 import logging
 import os
 from pathlib import Path
