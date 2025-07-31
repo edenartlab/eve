@@ -628,8 +628,8 @@ async def assemble_memory_context(agent_id: ObjectId, session_id: Optional[Objec
 
     start_time = time.time()
     
-    print(f"🧠 MEMORY ASSEMBLY PROFILING - Agent: {agent_id}")
-    print(f"   Session: {session_id}, Last Speaker: {last_speaker_id}")
+    # print(f"🧠 MEMORY ASSEMBLY PROFILING - Agent: {agent_id}")
+    # print(f"   Session: {session_id}, Last Speaker: {last_speaker_id}")
     
     # Check if we can use cached memory context from modal dict
     if session_id and agent_id:
@@ -692,9 +692,9 @@ async def assemble_memory_context(agent_id: ObjectId, session_id: Optional[Objec
                         }
                     )
         query_time = time.time() - query_start
-        print(
-            f"   ⏱️  User Memory Assembly: {query_time:.3f}s (user_memory: {'yes' if user_memory else 'no'}, {len(unabsorbed_directives)} unabsorbed directives)"
-        )
+        # print(
+        #     f"   ⏱️  User Memory Assembly: {query_time:.3f}s (user_memory: {'yes' if user_memory else 'no'}, {len(unabsorbed_directives)} unabsorbed directives)"
+        # )
 
     except Exception as e:
         print(f"   ❌ Error retrieving user memory: {e}")
@@ -712,9 +712,9 @@ async def assemble_memory_context(agent_id: ObjectId, session_id: Optional[Objec
             episode_memories.reverse()
 
             query_time = time.time() - query_start
-            print(
-                f"   ⏱️  Session memory assembly: {query_time:.3f}s (user_memory: {'yes' if user_memory else 'no'}, {len(episode_memories)} episodes)"
-            )
+            # print(
+            #     f"   ⏱️  Session memory assembly: {query_time:.3f}s (user_memory: {'yes' if user_memory else 'no'}, {len(episode_memories)} episodes)"
+            # )
     except Exception as e:
         print(f"   ❌ Error assembling session memories: {e}")
 
@@ -751,15 +751,15 @@ async def assemble_memory_context(agent_id: ObjectId, session_id: Optional[Objec
                 "cached_memory_context": memory_context,
                 "should_refresh_memory": False
             })
-            print(f"   💾 Memory context cached for session {session_id} in {time.time() - cache_start:.3f}s")
+            # print(f"   💾 Memory context cached for session {session_id} in {time.time() - cache_start:.3f}s")
         except Exception as e:
             print(f"   ❌ Error caching memory context: {e}")
     
     # Step 5: Final stats
     total_time = time.time() - start_time
     final_tokens = estimate_tokens(memory_context)
-    print(f"   ⏱️  TOTAL TIME: {total_time:.3f}s")
-    print(f"   📏 Context Length: {len(memory_context)} chars (~{final_tokens} tokens)")
+    # print(f"   ⏱️  TOTAL TIME: {total_time:.3f}s")
+    # print(f"   📏 Context Length: {len(memory_context)} chars (~{final_tokens} tokens)")
 
     logging.debug(f"Fully Assembled Memory context:\n{memory_context}")
     if LOCAL_DEV:

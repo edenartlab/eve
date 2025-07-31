@@ -24,10 +24,11 @@ if os.getenv("LANGFUSE_TRACING_ENVIRONMENT"):
 supported_models = [
     "gpt-4o-mini",
     "gpt-4o",
-    "claude-3-5-haiku-latest",
     "gemini-2.5-flash",
+    "claude-3-haiku-20240307",
     "claude-sonnet-4-20250514",
     "claude-opus-4-20250514",
+    "gemini/gemini-2.5-flash-preview-05-20",
 ]
 
 
@@ -83,7 +84,24 @@ def construct_observability_metadata(context: LLMContext):
 def construct_tools(context: LLMContext) -> Optional[List[dict]]:
     if not context.tools:
         return None
-    return [tool.openai_schema(exclude_hidden=True) for tool in context.tools.values()]
+    tools = [tool.openai_schema(exclude_hidden=True) for tool in context.tools.values()]
+
+    # Fix for Gemini/Vertex AI: enum values must be strings and parameter type must be "string"
+    if context.config.model and (
+        "gemini" in context.config.model or "vertex" in context.config.model
+    ):
+        for tool in tools:
+            params = (
+                tool.get("function", {}).get("parameters", {}).get("properties", {})
+            )
+            for param_name, param_def in params.items():
+                if "enum" in param_def:
+                    # Convert all enum values to strings
+                    param_def["enum"] = [str(val) for val in param_def["enum"]]
+                    # Ensure parameter type is "string" when using enum
+                    param_def["type"] = "string"
+
+    return tools
 
 
 async def async_run_tool_call(
@@ -115,19 +133,60 @@ async def async_run_tool_call(
     return result
 
 
-def prepare_messages(messages: List[ChatMessage]) -> List[dict]:
+def add_anthropic_cache_control(messages: List[dict]) -> List[dict]:
+    """
+    Add cache control for Anthropic models to optimize multi-turn conversations.
+
+    - System messages are cached as static prefix
+    - Second-to-last user message is cached as checkpoint
+    - Final message is cached for continuation in follow-ups
+    """
+    # Add cache control to system message (static prefix)
+    for i, msg in enumerate(messages):
+        if msg.get("role") == "system":
+            messages[i]["cache_control"] = {"type": "ephemeral"}
+            break
+
+    # Find the last user message and second-to-last user message
+    user_message_indices = []
+    for i, msg in enumerate(messages):
+        if msg.get("role") == "user":
+            user_message_indices.append(i)
+
+    # Mark second-to-last user message for caching (checkpoint)
+    if len(user_message_indices) >= 2:
+        messages[user_message_indices[-2]]["cache_control"] = {"type": "ephemeral"}
+
+    # Mark the final message for continuing in followups
+    if len(messages) > 0:
+        messages[-1]["cache_control"] = {"type": "ephemeral"}
+
+    return messages
+
+
+def prepare_messages(
+    messages: List[ChatMessage], model: Optional[str] = None
+) -> List[dict]:
     messages = [schema for msg in messages for schema in msg.openai_schema()]
+
+    # Add Anthropic cache control for models that support it
+    if model and ("claude" in model or "anthropic" in model):
+        messages = add_anthropic_cache_control(messages)
+
     return messages
 
 
 async def async_prompt_litellm(
     context: LLMContext,
 ) -> LLMResponse:
+    messages = prepare_messages(context.messages, context.config.model)
+    tools = construct_tools(context)
+
     response = completion(
         model=context.config.model,
-        messages=prepare_messages(context.messages),
+        messages=messages,
         metadata=construct_observability_metadata(context),
-        tools=construct_tools(context),
+        tools=tools,
         response_format=context.config.response_format,
     )
 
@@ -156,7 +215,7 @@ async def async_prompt_stream_litellm(
 ) -> AsyncGenerator[str, None]:
     response = await litellm.acompletion(
         model=context.config.model,
-        messages=prepare_messages(context.messages),
+        messages=prepare_messages(context.messages, context.config.model),
         metadata=construct_observability_metadata(context),
         tools=construct_tools(context),
         stream=True,

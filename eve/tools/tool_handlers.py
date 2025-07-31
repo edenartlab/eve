@@ -138,6 +138,11 @@ def load_handler(name):
 
             handlers[name] = handler
 
+        elif name == "shopify":
+            from .shopify.handler import handler
+
+            handlers[name] = handler
+
         elif name == "news":
             from .news.handler import handler
 
@@ -150,6 +155,11 @@ def load_handler(name):
 
         elif name == "runway":
             from .runway.handler import handler
+
+            handlers[name] = handler
+
+        elif name == "runway2":
+            from .runway2.handler import handler
 
             handlers[name] = handler
 

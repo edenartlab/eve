@@ -48,9 +48,9 @@ async def handler(args: dict, user: str = None, agent: str = None):
     else:
         raise Exception(f"Invalid output type: {output_type}")
 
-
 async def handle_image_creation(args: dict, user: str = None, agent: str = None):
     """Handle image creation - copied from original create tool handler"""
+
     # load tools
     flux_schnell = Tool.load("flux_schnell")
     flux_dev_lora = Tool.load("flux_dev_lora")
@@ -61,7 +61,6 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
     openai_image_edit = Tool.load("openai_image_edit")
     openai_image_generate = Tool.load("openai_image_generate")
     seedream3 = Tool.load("seedream3")
-
     # get args
     prompt = args["prompt"]
     n_samples = args.get("n_samples", 1)
@@ -72,7 +71,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
     controlnet = "controlnet" in extras
     seed = args.get("seed", None)
     aspect_ratio = args.get("aspect_ratio", "auto")
-    model_preference = args.get("model_preference", "seedream").lower()
+    model_preference = args.get("model_preference", "").lower()
 
     # get loras
     loras = get_loras(args.get("lora"), args.get("lora2"))
@@ -130,7 +129,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
                     "seedream": seedream3,
                     "openai": openai_image_generate,
                     "sdxl": txt2img,
-                }.get(model_preference, seedream3)
+                }.get(model_preference, flux_dev_lora)
 
     # Switch from Flux Dev Lora to Flux Dev if and only if 2 LoRAs or Controlnet
     if image_tool == flux_dev_lora:
@@ -303,10 +302,8 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
         if len(loras) < 2:
             raise Exception("flux_double_character requires exactly 2 LoRAs")
 
-        print("HERE IS THE PROMPT", prompt)
         for l, lora in enumerate(loras):
             prompt = prompt.replace(lora.name, f"subj_{l+1}")
-        print("HERE IS THE PROMPT 2", prompt)
 
         args = {
             "prompt": prompt,
@@ -322,12 +319,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
         # Note: flux_double_character doesn't support init_image, so we ignore it
         print("Running flux_double_character", args)
-        print("the args")
         result = await flux_double_character.async_run(args)
-
-        print("RESULT OF FLUX DOUBLE CHARACTER", result)
-
-        print("IMAGE TOOL KEY ??", image_tool.key)
 
     #########################################################
     # Flux Kontext
@@ -486,9 +478,6 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
     #########################################################
     # Final result
-    assert "output" in result, "No output from image tool"
-    assert "filename" in result["output"][0], "No filename in output from image tool"
-
     final_result = get_full_url(result["output"][0]["filename"])
     print("final result", final_result)
 
@@ -529,9 +518,7 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
 
     prompt = args["prompt"]
     # n_samples = args.get("n_samples", 1)
-    start_image = args.get(
-        "init_image", None
-    )  # Map init_image to start_image for video
+    start_image = args.get("init_image", None)  # Map init_image to start_image for video
     end_image = args.get("end_image", None)
     seed = args.get("seed", None)
     lora_strength = args.get("lora_strength", 0.75)
@@ -883,6 +870,17 @@ def get_loras(lora1, lora2):
         print("Second Lora is not supported for SDXL")
 
     return loras
+
+# def get_loras(lora1, lora2):
+#     lora_ids = [lora for lora in [lora1, lora2] if lora]
+#     loras = Model.find({"_id": {"$in": lora_ids}})
+#     if len(loras) != len(lora_ids):
+#         raise Exception(f"Lora {lora_ids} not found on {os.getenv('ENV')}")
+
+#     if len(loras) == 2 and "sdxl" in [lora.base_model for lora in loras]:
+#         print("Second Lora is not supported for SDXL")
+
+#     return loras
 
 
 def get_closest_aspect_ratio_preset(aspect_ratio: float, presets: dict) -> str:

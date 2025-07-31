@@ -22,6 +22,7 @@ from eve.agent.session.models import (
     DeploymentConfig,
     Notification,
     NotificationChannel,
+    NotificationConfig,
 )
 from eve.deploy import (
     Deployment as DeploymentV1,
@@ -289,24 +290,22 @@ async def handle_trigger_create(
 
     trigger_id = f"{db}_{str(user.id)}_{int(time.time())}"
 
-    # Wait for modal deployment to succeed before creating mongo object
-    try:
-        await create_trigger_fn(
-            schedule=request.schedule.to_cron_dict(),
-            trigger_id=trigger_id,
-        )
-    except Exception as e:
-        logger.error(
-            f"Modal container deployment failed for trigger {trigger_id}: {str(e)}"
-        )
-        raise APIError(f"Failed to deploy trigger container: {str(e)}", status_code=500)
+    # Calculate next scheduled run
+    schedule_dict = request.schedule.to_cron_dict()
+    next_run = await create_trigger_fn(
+        schedule=schedule_dict,
+        trigger_id=trigger_id,
+    )
 
-    # Only create mongo object if deployment succeeded
+    if not next_run:
+        raise APIError("Failed to calculate next scheduled run time", status_code=400)
+
+    # Create trigger in database
     trigger = Trigger(
         trigger_id=trigger_id,
         user=ObjectId(user.id),
         agent=ObjectId(agent.id),
-        schedule=request.schedule.to_cron_dict(),
+        schedule=schedule_dict,
         instruction=request.instruction,
         posting_instructions=request.posting_instructions.model_dump()
         if request.posting_instructions
@@ -316,12 +315,14 @@ async def handle_trigger_create(
         else None,
         session=ObjectId(request.session) if request.session else None,
         session_type=request.session_type,
+        next_scheduled_run=next_run,
     )
     trigger.save()
 
     return {
         "id": str(trigger.id),
         "trigger_id": trigger_id,
+        "next_scheduled_run": next_run.isoformat(),
     }
 
 
@@ -1007,14 +1008,19 @@ async def handle_prompt_session(
     session = setup_session(
         background_tasks, request.session_id, request.user_id, request
     )
+    # Convert notification_config dict to NotificationConfig object if present
+    notification_config = None
+    if request.notification_config:
+        notification_config = NotificationConfig(**request.notification_config)
+
     context = PromptSessionContext(
         session=session,
         initiating_user_id=request.user_id,
-        actor_agent_id=request.actor_agent_id,
         actor_agent_ids=request.actor_agent_ids,
         message=request.message,
         update_config=request.update_config,
         llm_config=request.llm_config,
+        notification_config=notification_config,
     )
 
     if request.stream:
@@ -1234,6 +1240,7 @@ async def handle_v2_deployment_emission(request: DeploymentEmissionRequest):
     client = get_platform_client(
         agent=agent, platform=deployment.platform, deployment=deployment
     )
+    print("***debug*** EMISSION REQUEST:", request)
     await client.handle_emission(request)
 
 
@@ -1241,7 +1248,6 @@ async def handle_v2_deployment_emission(request: DeploymentEmissionRequest):
 @handle_errors
 async def handle_create_notification(request: CreateNotificationRequest):
     """Create a new notification"""
-    from datetime import datetime, timezone
 
     # Validate user exists
     user = User.from_mongo(ObjectId(request.user_id))

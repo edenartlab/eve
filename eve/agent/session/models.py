@@ -344,12 +344,14 @@ class ChatMessage(Document):
                             {
                                 "type": "image_url",
                                 "image_url": {
-                                    "url": f"""data:image/jpeg;base64,{image_to_base64(
-                                file_path, 
-                                max_size=512, 
-                                quality=95, 
-                                truncate=truncate_images
-                            )}"""
+                                    "url": f"""data:image/jpeg;base64,{
+                                        image_to_base64(
+                                            file_path,
+                                            max_size=512,
+                                            quality=95,
+                                            truncate=truncate_images,
+                                        )
+                                    }"""
                                 },
                             }
                         )
@@ -645,6 +647,7 @@ class Trigger(Document):
     status: Optional[Literal["active", "paused", "finished"]] = "active"
     deleted: Optional[bool] = False
     last_run_time: Optional[datetime] = None
+    next_scheduled_run: Optional[datetime] = None
 
 
 class SessionContext(BaseModel):
@@ -653,13 +656,16 @@ class SessionContext(BaseModel):
     # Memory caching fields (optional for backward compatibility)
     cached_memory_context: Optional[str] = None
     memory_context_timestamp: Optional[datetime] = None
-    should_refresh_memory: Optional[bool] = None  # None means not set, will default to True in logic
+    should_refresh_memory: Optional[bool] = (
+        None  # None means not set, will default to True in logic
+    )
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 @Collection("sessions")
 class Session(Document):
     owner: ObjectId
+    users: Optional[List[ObjectId]] = None  # List of allowed users (defaults to null)
     session_key: Optional[str] = None
     channel: Optional[Channel] = None
     parent_session: Optional[ObjectId] = None
@@ -681,15 +687,35 @@ class Session(Document):
 
 
 @dataclass
+class NotificationConfig:
+    """Configuration for notifications to send upon session completion"""
+
+    user_id: str
+    notification_type: str = "session_complete"
+    title: str = "Session Complete"
+    message: str = "Your session has completed successfully"
+    trigger_id: Optional[str] = None
+    agent_id: Optional[str] = None
+    priority: str = "normal"
+    metadata: Optional[Dict[str, Any]] = None
+    success_notification: bool = True
+    failure_notification: bool = True
+    success_title: Optional[str] = None
+    success_message: Optional[str] = None
+    failure_title: Optional[str] = None
+    failure_message: Optional[str] = None
+
+
+@dataclass
 class PromptSessionContext:
     session: Session
     initiating_user_id: str
     message: ChatMessageRequestInput
     update_config: Optional[SessionUpdateConfig] = None
-    actor_agent_id: Optional[str] = None
     actor_agent_ids: Optional[List[str]] = None
     llm_config: Optional[LLMConfig] = None
     custom_tools: Optional[Dict[str, Any]] = None
+    notification_config: Optional[NotificationConfig] = None
 
 
 @dataclass
@@ -705,6 +731,7 @@ class ClientType(Enum):
     TELEGRAM = "telegram"
     FARCASTER = "farcaster"
     TWITTER = "twitter"
+    SHOPIFY = "shopify"
 
 
 class NotificationType(Enum):
@@ -793,12 +820,24 @@ class DeploymentSecretsTwitter(BaseModel):
     access_token_secret: str
 
 
+# Shopify Models
+class DeploymentSettingsShopify(BaseModel):
+    pass
+
+
+class DeploymentSecretsShopify(BaseModel):
+    store_name: str
+    access_token: str
+    location_id: str
+
+
 # Combined Models
 class DeploymentSecrets(BaseModel):
     discord: DeploymentSecretsDiscord | None = None
     telegram: DeploymentSecretsTelegram | None = None
     farcaster: DeploymentSecretsFarcaster | None = None
     twitter: DeploymentSecretsTwitter | None = None
+    shopify: DeploymentSecretsShopify | None = None
 
 
 class DeploymentConfig(BaseModel):
@@ -806,6 +845,7 @@ class DeploymentConfig(BaseModel):
     telegram: DeploymentSettingsTelegram | None = None
     farcaster: DeploymentSettingsFarcaster | None = None
     twitter: DeploymentSettingsTwitter | None = None
+    shopify: DeploymentSettingsShopify | None = None
 
 
 @Collection("deployments2")

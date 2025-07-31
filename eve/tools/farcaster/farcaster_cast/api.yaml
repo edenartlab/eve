@@ -28,7 +28,3 @@ parameters:
     type: integer
     description: Optional parent cast author FID if replying to another cast
     required: false
-  agent:
-    type: string
-    description: Agent ID to run the tool with
-    required: true

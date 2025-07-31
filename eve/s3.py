@@ -93,22 +93,21 @@ def upload_file(file, name=None, file_type=None):
 def upload_buffer(buffer, name=None, file_type=None):
     """Uploads a buffer to an S3 bucket and returns the file URL."""
 
-    assert (
-        file_type
-        in [
-            None,
-            ".jpg",
-            ".webp",
-            ".png",
-            ".mp3",
-            ".mp4",
-            ".flac",
-            ".wav",
-            ".tar",
-            ".zip",
-            ".safetensors",
-        ]
-    ), "file_type must be one of ['.jpg', '.webp', '.png', '.mp3', '.mp4', '.flac', '.wav', '.tar', '.zip', '.safetensors']"
+    assert file_type in [
+        None,
+        ".jpg",
+        ".webp",
+        ".png",
+        ".mp3",
+        ".mp4",
+        ".flac",
+        ".wav",
+        ".tar",
+        ".zip",
+        ".safetensors",
+    ], (
+        "file_type must be one of ['.jpg', '.webp', '.png', '.mp3', '.mp4', '.flac', '.wav', '.tar', '.zip', '.safetensors']"
+    )
 
     if isinstance(buffer, Iterator):
         buffer = b"".join(buffer)

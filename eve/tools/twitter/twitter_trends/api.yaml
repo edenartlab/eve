@@ -11,7 +11,3 @@ parameters:
     label: Search Query
     description: The search query to find tweets
     required: true
-  agent:
-    type: string
-    description: Agent ID to run the tool with
-    required: true

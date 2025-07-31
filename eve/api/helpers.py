@@ -431,6 +431,7 @@ def get_platform_client(
     from eve.agent.deployments.telegram import TelegramClient
     from eve.agent.deployments.farcaster import FarcasterClient
     from eve.agent.deployments.twitter import TwitterClient
+    from eve.agent.deployments.shopify import ShopifyClient
 
     """Helper function to get the appropriate platform client"""
     if platform == ClientType.DISCORD:
@@ -441,6 +442,8 @@ def get_platform_client(
         return FarcasterClient(agent=agent, deployment=deployment)
     elif platform == ClientType.TWITTER:
         return TwitterClient(agent=agent, deployment=deployment)
+    elif platform == ClientType.SHOPIFY:
+        return ShopifyClient(agent=agent, deployment=deployment)
 
 
 def authenticate_modal_key() -> bool:

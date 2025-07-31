@@ -114,7 +114,7 @@ class AllowedChannel(BaseModel):
 class PostingInstructions(BaseModel):
     session_id: Optional[str] = None
     post_to: Optional[
-        Literal["same", "another", "discord", "telegram", "x", "farcaster"]
+        Literal["same", "another", "discord", "telegram", "x", "farcaster", "shopify"]
     ] = None
     channel_id: Optional[str] = None
     custom_instructions: Optional[str] = None
@@ -161,11 +161,11 @@ class PromptSessionRequest(BaseModel):
     session_id: Optional[str] = None
     message: Optional[ChatMessageRequestInput] = None
     user_id: Optional[str] = None
-    actor_agent_id: Optional[str] = None
     actor_agent_ids: Optional[List[str]] = None
     update_config: Optional[SessionUpdateConfig] = None
     llm_config: Optional[LLMConfig] = None
     stream: bool = False
+    notification_config: Optional[Dict[str, Any]] = None
 
     # Session creation fields (used when session_id is not provided)
     creation_args: Optional[SessionCreationArgs] = None

@@ -13,15 +13,11 @@ active: true
 handler: local
 visible: false
 parameters:
-  query:
+  channel_id:
     type: string
-    description: Natural language description of where to post (e.g., "post to general chat", "send to announcements")
+    description: The Discord channel ID to post to
     required: true
   content:
     type: string
     description: The message content to post
-    required: true
-  agent:
-    type: string
-    description: Agent ID to run the tool with
     required: true

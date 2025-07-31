@@ -5,13 +5,15 @@ import traceback
 from elevenlabs import Model
 import openai
 import instructor
+import sentry_sdk
 from datetime import timezone
-from pathlib import Path
+# from pathlib import Path
 from bson import ObjectId
 from typing import Optional, Literal, Any, Dict, List
 from datetime import datetime
-from dotenv import dotenv_values
-from pydantic import SecretStr, Field, BaseModel, ConfigDict
+# from dotenv import dotenv_values
+from pydantic import Field, BaseModel, ConfigDict
+from functools import wraps
 # from pydantic.json_schema import SkipJsonSchema
 
 from ..tool_constants import (
@@ -19,8 +21,8 @@ from ..tool_constants import (
     DISCORD_TOOLS,
     FARCASTER_TOOLS,
     TELEGRAM_TOOLS,
+    SHOPIFY_TOOLS,
     SOCIAL_MEDIA_TOOLS,
-    AGENTIC_TOOLS,
     TOOL_SETS,
 )
 from ..mongo import Collection, get_collection
@@ -29,7 +31,23 @@ from ..user import User, Manna
 from ..eden_utils import load_template
 from .thread import Thread
 
-agent_updated_at = {}
+
+def profile_method(method_name):
+    """Decorator to profile method execution time"""
+
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            start_time = time.time()
+            result = func(*args, **kwargs)
+            end_time = time.time()
+            elapsed = end_time - start_time
+            print(f"PERF_PROFILE: {method_name} took {elapsed:.3f}s")
+            return result
+
+        return wrapper
+
+    return decorator
 
 
 class KnowledgeDescription(BaseModel):
@@ -86,7 +104,7 @@ class Agent(User):
 
     type: Literal["agent"] = "agent"
     owner: ObjectId
-    secrets: Optional[Dict[str, SecretStr]] = Field(None, exclude=True)
+    # secrets: Optional[Dict[str, SecretStr]] = Field(None, exclude=True)
 
     # status: Optional[Literal["inactive", "stage", "prod"]] = "stage"
     public: Optional[bool] = False
@@ -106,29 +124,29 @@ class Agent(User):
 
     mute: Optional[bool] = False
     reply_criteria: Optional[str] = None
-    model: Optional[ObjectId] = None  # deprecated
+    # model: Optional[ObjectId] = None  # deprecated
     models: Optional[List[Dict[str, Any]]] = None
     test_args: Optional[List[Dict[str, Any]]] = None
 
     tools: Optional[Dict[str, bool]] = {}  # tool sets specified by user
-    tools_: Optional[Dict[str, Dict]] = Field({}, exclude=True)   # actual loaded tools
-    lora_docs: Optional[List[Dict[str, Any]]] = Field([], exclude=True) 
+    tools_: Optional[Dict[str, Dict]] = Field({}, exclude=True)  # actual loaded tools
+    lora_docs: Optional[List[Dict[str, Any]]] = Field([], exclude=True)
     deployments: Optional[List[str]] = Field({}, exclude=True)
 
     owner_pays: Optional[bool] = False
     agent_extras: Optional[AgentExtras] = None
 
-    def __init__(self, **data):
-        if isinstance(data.get("owner"), str):
-            data["owner"] = ObjectId(data["owner"])
-        if isinstance(data.get("owner"), str):
-            data["model"] = ObjectId(data["model"])
-        # Load environment variables into secrets dictionary
-        db = os.getenv("DB")
-        env_dir = Path(__file__).parent / "agents"
-        env_vars = dotenv_values(f"{str(env_dir)}/{db.lower()}/{data['username']}/.env")
-        data["secrets"] = {key: SecretStr(value) for key, value in env_vars.items()}
-        super().__init__(**data)
+    # def __init__(self, **data):
+    #     if isinstance(data.get("owner"), str):
+    #         data["owner"] = ObjectId(data["owner"])
+    #     if isinstance(data.get("owner"), str):
+    #         data["model"] = ObjectId(data["model"])
+    #     # Load environment variables into secrets dictionary
+    #     # db = os.getenv("DB")
+    #     # env_dir = Path(__file__).parent / "agents"
+    #     # env_vars = dotenv_values(f"{str(env_dir)}/{db.lower()}/{data['username']}/.env")
+    #     # data["secrets"] = {key: SecretStr(value) for key, value in env_vars.items()}
+    #     super().__init__(**data)
 
     @classmethod
     def convert_from_yaml(cls, schema: dict, file_path: str = None) -> dict:
@@ -144,11 +162,11 @@ class Agent(User):
             if isinstance(schema.get("owner"), str)
             else schema.get("owner")
         )
-        schema["model"] = (
-            ObjectId(schema.get("model"))
-            if isinstance(schema.get("model"), str)
-            else schema.get("model")
-        )  # deprecated
+        # schema["model"] = (
+        #     ObjectId(schema.get("model"))
+        #     if isinstance(schema.get("model"), str)
+        #     else schema.get("model")
+        # )  # deprecated
         for model in schema.get("models", []):
             model["lora"] = (
                 ObjectId(model["lora"])
@@ -188,102 +206,96 @@ class Agent(User):
         thread.save()
         return thread
 
+    @profile_method("_reload")
     def _reload(self):
-        from ..tool import Tool
+        """Reload all tools, loras, and deployments from mongo"""
+        from ..tool import get_tools_from_mongo
         from ..agent.session.models import Deployment
 
         # load deployments to memory
         self.deployments = {
-            deployment.platform.value: deployment 
+            deployment.platform.value: deployment
             for deployment in Deployment.find({"agent": ObjectId(str(self.id))})
         }
 
         # load loras to memory
         models_collection = get_collection(Model.collection_name)
         loras_dict = {m["lora"]: m for m in self.models or []}
-        lora_docs = models_collection.find(
-            {"_id": {"$in": list(loras_dict.keys())}, "deleted": {"$ne": True}}
-        ) if self.models else []
-        lora_docs = list(lora_docs or [])
-        self.lora_docs = lora_docs
 
-        # load tools to memory
-        tools = {}
+        # load loras to memory
+        if self.models:
+            lora_ids = list(loras_dict.keys())
+
+            # Single batch query for all loras
+            lora_docs = list(
+                models_collection.find(
+                    {"_id": {"$in": lora_ids}, "deleted": {"$ne": True}}
+                )
+            )
+            self.lora_docs = lora_docs
+        else:
+            self.lora_docs = []
+
+        # Collect all tools needed
+        tools_to_load = []
         for tool_set, set_tools in TOOL_SETS.items():
             if not self.tools.get(tool_set):
                 continue
+            tools_to_load.extend(set_tools)
 
-            for t in set_tools:
-                try:
-                    tool = Tool.from_raw_yaml({"parent_tool": t})
-                    tools[t] = tool
-                except Exception as e:
-                    print(f"Error loading tool {t}: {e}")
-                    print(traceback.format_exc())
-                    # continue
-                    raise e
+        self.tools_ = get_tools_from_mongo(tools_to_load)        
 
-        self.tools_ = tools
-
+    @profile_method("get_tools")
     def get_tools(self, cache=True, auth_user: str = None):
-        """
-        Cache is disabled until bug is fixed.
-        Problem is agent gets into agent_updated_at, but then loaded as new object later, so tools are not populated.
-        """
-        if cache:
-            if self.username in agent_updated_at:
-                # outdated, reload tools
-                if self.updatedAt > agent_updated_at[self.username]["updatedAt"]:
-                    self._reload()
-                    agent_updated_at[self.username] = {
-                        "updatedAt": self.updatedAt,
-                        "tools": self.tools_
-                    }
-                
-                # grab cached tools
-                else:
-                    self.tools_ = agent_updated_at[self.username]["tools"]
-            else:
-                # first time, load tools, set cache
-                self._reload()
-                agent_updated_at[self.username] = {
-                    "updatedAt": self.updatedAt,
-                    "tools": self.tools_
-                }
-        else:
-            self._reload()
-            agent_updated_at[self.username] = {
-                "updatedAt": self.updatedAt,
-                "tools": self.tools_
-            }
-
-        # self._reload()
+        self._reload()
         tools = self.tools_
 
         # update tools with platform-specific args
         # update discord post tool with allowed channels
-        if "discord" in self.deployments:
-            if "discord_post" in tools:
-                allowed_channels = self.deployments["discord"].get_allowed_channels()
-                channels_description = " | ".join([f"ID {c.id} ({c.note})" for c in allowed_channels])
-                tools["discord_post"].update_parameters({
-                    "channel_id": {
-                        "choices": [c.id for c in allowed_channels],
-                        "tip": f"Some hints about the available channels: {channels_description}"
-                    },
-                })
+        try:
+            if "discord" in self.deployments:
+                if "discord_post" in tools:
+                    allowed_channels = self.deployments[
+                        "discord"
+                    ].get_allowed_channels()
+                    channels_description = " | ".join(
+                        [f"ID {c.id} ({c.note})" for c in allowed_channels]
+                    )
+                    tools["discord_post"].update_parameters(
+                        {
+                            "channel_id": {
+                                "choices": [c.id for c in allowed_channels],
+                                "tip": f"Some hints about the available channels: {channels_description}",
+                            },
+                        }
+                    )
+        except Exception as e:
+            _log_tool_operation_error(
+                self, "discord_channel_update", e, platform="discord"
+            )
 
         # update telegram post tool with allowed channels
-        if "telegram" in self.deployments:
-            if "telegram_post" in tools:
-                allowed_channels = self.deployments["telegram"].get_allowed_channels()
-                channels_description = " | ".join([f"ID {c.id} ({c.note})" for c in allowed_channels])
-                tools["telegram_post"].update_parameters({
-                    "channel_id": {
-                        "choices": [c.id for c in allowed_channels],
-                        "tip": f"Some hints about the available topics: {channels_description}"
-                    },
-                })
+        try:
+            if "telegram" in self.deployments:
+                if "telegram_post" in tools:
+                    allowed_channels = self.deployments[
+                        "telegram"
+                    ].get_allowed_channels()
+                    channels_description = " | ".join(
+                        [f"ID {c.id} ({c.note})" for c in allowed_channels]
+                    )
+                    tools["telegram_post"].update_parameters(
+                        {
+                            "channel_id": {
+                                "choices": [c.id for c in allowed_channels],
+                                "tip": f"Some hints about the available topics: {channels_description}",
+                            },
+                        }
+                    )
+        except Exception as e:
+            _log_tool_operation_error(
+                self, "telegram_channel_update", e, platform="telegram"
+            )
 
         # if a platform is not deployed, remove all tools for that platform
         if "discord" not in self.deployments:
@@ -298,66 +310,67 @@ class Agent(User):
         if "farcaster" not in self.deployments:
             for tool in FARCASTER_TOOLS:
                 tools.pop(tool, None)
+        if "shopify" not in self.deployments:
+            for tool in SHOPIFY_TOOLS:
+                tools.pop(tool, None)
 
         # remove tools that only the owner can use
         if str(auth_user) != str(self.owner):
             for tool in SOCIAL_MEDIA_TOOLS:
                 tools.pop(tool, None)
 
-        # agent-only tools need agent arg injected
-        for tool in AGENTIC_TOOLS:
-            if tool in tools:
-                tools[tool].update_parameters({
-                    "agent": {
-                        "default": str(self.id),
-                        "hide_from_agent": True,
-                    }
-                })
-
         # if models are found, inject them as defaults for any tools that use lora
         for tool in tools:
-            if not "lora" in tools[tool].parameters:
-                continue
+            try:
+                if "lora" not in tools[tool].parameters:
+                    continue
 
-            lora_docs = self.lora_docs
+                lora_docs = self.lora_docs
 
-            if not lora_docs:
-                continue
+                if not lora_docs:
+                    continue
 
-            # Build LoRA information for the tip
-            lora_info = []
-            for m in lora_docs:
-                lora_id = m['_id']
-                lora_doc = {m["lora"]: m for m in self.models}[lora_id]
-                lora_info.append(
-                    f"{{ ID: {lora_id}, Name: {m['name']}, Description: {m['lora_trigger_text']}, Use When: {lora_doc['use_when']} }}"
-                )
-            
-            params = {
-                "lora": {
-                    "default": str(lora_docs[0]["_id"]), 
-                    "tip": "Users may request one of your known LoRAs, or a different unknown one, or no LoRA at all. When referring to a LoRA, strictly use its name, not its description. Notes on when to use the known LoRAs: " + " | ".join(lora_info)
-                },
-            }
-            if "use_lora" in tools[tool].parameters:
-                params["use_lora"] = {"default": True}
-            
-            # if len(lora_docs) > 1 and "lora2" in tools[tool].parameters:
-            #     params["lora2"] = {"default": str(lora_docs[1]["_id"])}
-            #     if "use_lora2" in tools[tool].parameters:
-            #         params["use_lora2"] = {
-            #             "default": True,
-            #             "tip": "Same behavior as first lora"
-            #         }
+                # Build LoRA information for the tip
+                lora_info = []
+                for m in lora_docs:
+                    lora_id = m["_id"]
+                    lora_doc = {m["lora"]: m for m in self.models}[lora_id]
+                    lora_info.append(
+                        f"{{ ID: {lora_id}, Name: {m['name']}, Description: {m['lora_trigger_text']}, Use When: {lora_doc['use_when']} }}"
+                    )
 
-            tools[tool].update_parameters(params)
-
-        if "elevenlabs" in tools and self.voice:
-            tools["elevenlabs"].update_parameters({
-                "voice": {
-                    "default": self.voice
+                params = {
+                    "lora": {
+                        "default": str(lora_docs[0]["_id"]),
+                        "tip": "Users may request one of your known LoRAs, or a different unknown one, or no LoRA at all. When referring to a LoRA, strictly use its name, not its description. Notes on when to use the known LoRAs: "
+                        + " | ".join(lora_info),
+                    },
                 }
-            })
+                if "use_lora" in tools[tool].parameters:
+                    params["use_lora"] = {"default": True}
+
+                # if len(lora_docs) > 1 and "lora2" in tools[tool].parameters:
+                #     params["lora2"] = {"default": str(lora_docs[1]["_id"])}
+                #     if "use_lora2" in tools[tool].parameters:
+                #         params["use_lora2"] = {
+                #             "default": True,
+                #             "tip": "Same behavior as first lora"
+                #         }
+
+                tools[tool].update_parameters(params)
+
+            except Exception as e:
+                _log_tool_operation_error(self, "lora_parameter_injection", e)
+
+        try:
+            if "elevenlabs" in tools and self.voice:
+                tools["elevenlabs"].update_parameters(
+                    {"voice": {"default": self.voice}}
+                )
+        except Exception as e:
+            _log_tool_operation_error(
+                self, "elevenlabs_voice_update", e, voice=self.voice
+            )
 
         return tools
 
@@ -383,30 +396,6 @@ def get_agents_from_mongo(
             print(traceback.format_exc())
 
     return agents
-
-
-def get_api_files(root_dir: str = None) -> List[str]:
-    """Get all agent directories inside a directory"""
-
-    db = os.getenv("DB").lower()
-
-    if root_dir:
-        root_dirs = [root_dir]
-    else:
-        eve_root = os.path.dirname(os.path.abspath(__file__))
-        root_dirs = [
-            os.path.join(eve_root, agents_dir) for agents_dir in [f"agents/{db}"]
-        ]
-
-    api_files = {}
-    for root_dir in root_dirs:
-        for root, _, files in os.walk(root_dir):
-            if "api.yaml" in files and "test.json" in files:
-                api_path = os.path.join(root, "api.yaml")
-                key = os.path.relpath(root).split("/")[-1]
-                api_files[key] = api_path
-
-    return api_files
 
 
 class AgentText(BaseModel):
@@ -555,3 +544,27 @@ async def refresh_agent(agent: Agent):
 
     agents = get_collection(Agent.collection_name)
     agents.update_one({"_id": agent.id}, {"$set": update})
+
+
+def _log_tool_operation_error(
+    agent: Agent, operation_name: str, error: Exception, **context
+):
+    """Helper to log tool operation errors with Sentry"""
+    print(f"Error in {operation_name}: {error}")
+    with sentry_sdk.push_scope() as scope:
+        scope.set_tag("component", "tool_operation")
+        scope.set_tag("operation", operation_name)
+        scope.set_tag("agent_username", agent.username)
+        scope.set_tag("agent_id", str(agent.id))
+        scope.set_context(
+            "tool_operation_context",
+            {
+                "operation": operation_name,
+                "agent_username": agent.username,
+                "agent_id": str(agent.id),
+                "error_message": str(error),
+                "traceback": traceback.format_exc(),
+                **context,
+            },
+        )
+        sentry_sdk.capture_exception(error)
