@@ -1,6 +1,6 @@
+import os
 import logging
 from pathlib import Path
-import os
 from dotenv import load_dotenv
 from pydantic import SecretStr
 

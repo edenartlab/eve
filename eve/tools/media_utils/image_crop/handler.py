@@ -1,15 +1,15 @@
 import os
 from PIL import Image
-# from ... import eden_utils
+# from ... import utils
 
 
 async def handler(args: dict, user: str = None, agent: str = None):
-    from .... import eden_utils
+    from .... import utils
     
     image_url = args.get("image")
 
     image_filename = image_url.split("/")[-1]
-    image = eden_utils.download_file(image_url, image_filename)
+    image = utils.download_file(image_url, image_filename)
     
     image = Image.open(image)
     width, height = image.size

@@ -8,7 +8,7 @@ from pydantic.config import ConfigDict
 from typing import List, Optional, Dict, Any, Literal, Union
 
 from ..mongo import Document, Collection
-from ..eden_utils import download_file, image_to_base64, prepare_result, dumps_json
+from ..utils import download_file, image_to_base64, prepare_result, dumps_json
 
 
 class ChatMessage(BaseModel):

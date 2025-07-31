@@ -14,7 +14,7 @@ import traceback
 from ...agent import Agent
 from ...agent.llm import UpdateType
 from ...user import User
-from ...eden_utils import prepare_result
+from ...utils import prepare_result
 
 logger = logging.getLogger(__name__)
 

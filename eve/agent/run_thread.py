@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from pydantic.config import ConfigDict
 from sentry_sdk import trace, start_transaction, add_breadcrumb, capture_exception
 
-from ..eden_utils import load_template
+from ..utils import load_template
 from ..mongo import get_collection
 from ..models import Model
 from ..tool import Tool

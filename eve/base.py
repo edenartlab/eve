@@ -14,7 +14,7 @@ from typing import (
     get_args,
 )
 
-from . import eden_utils
+from . import utils
 
 warnings.filterwarnings(
     "ignore",
@@ -346,7 +346,7 @@ def parse_props(field: str, props: dict) -> Tuple[Type, dict, dict]:
     if "description" in props:
         field_kwargs["description"] = props["description"]
         if "tip" in props:
-            field_kwargs["description"] = eden_utils.concat_sentences(
+            field_kwargs["description"] = utils.concat_sentences(
                 field_kwargs["description"], props["tip"]
             )
     if "example" in props:
