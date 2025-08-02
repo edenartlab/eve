@@ -57,8 +57,6 @@ class Transaction(Document):
 
 @Collection("users3")
 class User(Document):
-    # todo underscore
-    # type of user
     type: Optional[Literal["user", "agent"]] = "user"
     isAdmin: Optional[bool] = False
     deleted: Optional[bool] = False
@@ -92,6 +90,11 @@ class User(Document):
     telegramUsername: Optional[str] = None
     farcasterId: Optional[str] = None
     farcasterUsername: Optional[str] = None
+
+
+    @classmethod
+    def load(cls, username, cache=False):
+        return super().load(username=username)
 
     def check_manna(self, amount: float):
         if "free_tools" in (self.featureFlags or []):

@@ -8,7 +8,7 @@ from elevenlabs.types.voice_settings import VoiceSettings
 from openai import OpenAI
 from typing import Iterator
 
-from eve import eden_utils
+from eve import utils
 
 eleven = ElevenLabs(
     api_key=os.getenv("ELEVEN_API_KEY")
@@ -54,7 +54,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
             model="eleven_multilingual_v2"
         )
 
-    audio_generator = await eden_utils.async_exponential_backoff(
+    audio_generator = await utils.async_exponential_backoff(
         generate_with_params,
         max_attempts=args["max_attempts"],
         initial_delay=args["initial_delay"],
@@ -79,7 +79,7 @@ def clone_voice(name, description, voice_urls):
     voice_files = []
     for url in voice_urls:
         with NamedTemporaryFile(delete=False) as file:
-            file = eden_utils.download_file(url, file.name)
+            file = utils.download_file(url, file.name)
             voice_files.append(file)
     voice = eleven.clone(name, voice_files, description)    
     for file in voice_files:
@@ -171,7 +171,7 @@ def select_random_voice(
 
 
 def get_voice_summary():
-    response = eleven.voices.get_all(show_legacy=True)
+    response = eleven.voices.get_all(show_legacy=False)
     full_description = ""
     
     ids, names = [], []

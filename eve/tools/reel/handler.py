@@ -20,7 +20,7 @@ import instructor
 import uuid
 
 from ... import s3
-from ... import eden_utils
+from ... import utils
 from ...agent import Agent
 # import voice
 # from tool import load_tool_from_dir
@@ -297,9 +297,9 @@ async def handler(args: dict, user: str = None, agent: str = None):
         if music_audio.get("error"):
             raise Exception(f"Music generation failed: {music_audio['error']}")
         
-        music_audio = eden_utils.prepare_result(music_audio)
+        music_audio = utils.prepare_result(music_audio)
         temp_file = tempfile.NamedTemporaryFile(delete=False)
-        music_file = eden_utils.download_file(music_audio['output'][0]['url'], temp_file.name+".mp3")
+        music_file = utils.download_file(music_audio['output'][0]['url'], temp_file.name+".mp3")
         with open(music_file, 'rb') as f:
             music_audio = AudioSegment.from_file(BytesIO(f.read()))
         
@@ -383,7 +383,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
                 image_url = None
             else:
                 image = await flux.async_run(args)
-                image = eden_utils.prepare_result(image)
+                image = utils.prepare_result(image)
                 image_url = image['output'][0]["url"]
                 print(f"--> Completed image generation: {image_url}")
 
@@ -451,7 +451,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
             if not video or "output" not in video:
                 raise Exception("Video generation failed for unknown reasons")
 
-            video = eden_utils.prepare_result(video)
+            video = utils.prepare_result(video)
             t2 = datetime.now()
             duration_seconds = (t2 - t1).total_seconds()
             
@@ -468,7 +468,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
                 print("Error preparing video", e)
                 raise Exception(f"Failed to generate video: {str(e)}")
         
-        return await eden_utils.async_exponential_backoff(
+        return await utils.async_exponential_backoff(
             _generate,
             max_attempts=2,
             initial_delay=1,
@@ -515,7 +515,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
         raise Exception(f"Failed to generate all clips: {str(e)}")
 
     video = await video_concat.async_run({"videos": videos})
-    video = eden_utils.prepare_result(video)
+    video = utils.prepare_result(video)
     print("video ^^", video)
     video_url = video['output'][0]['url']
     
@@ -524,7 +524,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
             "audio": audio_url,
             "video": video_url
         })
-        final_video = eden_utils.prepare_result(output)
+        final_video = utils.prepare_result(output)
         final_video_url = final_video['output'][0]['url']
 
     return {

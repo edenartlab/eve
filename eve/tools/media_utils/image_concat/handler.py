@@ -1,9 +1,9 @@
 from PIL import Image
-# from ... import eden_utils
+# from ... import utils
 
 
 async def handler(args: dict, user: str = None, agent: str = None):
-    from .... import eden_utils
+    from .... import utils
 
     image_urls = args.get("images")
     height = args.get("height")
@@ -11,7 +11,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
     images = []
     for image_url in image_urls:
         image_filename = image_url.split("/")[-1]
-        image = eden_utils.download_file(image_url, image_filename)
+        image = utils.download_file(image_url, image_filename)
         image = Image.open(image)
         width = int(height * image.size[0] / image.size[1])
         image = image.resize((width, height), Image.Resampling.LANCZOS)

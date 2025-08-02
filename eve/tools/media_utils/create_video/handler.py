@@ -31,7 +31,7 @@ from eve.models import Model
 from eve.user import User
 
 from eve.s3 import get_full_url
-from eve.eden_utils import get_media_attributes
+from eve.utils import get_media_attributes
     
 
 async def handler(args: dict, user: str = None, agent: str = None):

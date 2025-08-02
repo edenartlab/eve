@@ -14,7 +14,7 @@ import aiohttp
 import os
 import sentry_sdk
 
-from eve import eden_utils
+from eve import utils
 from eve.agent import Agent, refresh_agent
 from eve.agent.deployments import Deployment
 from eve.task import Task
@@ -92,7 +92,7 @@ async def run_nsfw_detection():
     ]
 
     images = [
-        Image.open(eden_utils.download_file(url, f"{i}.jpg")).convert("RGB")
+        Image.open(utils.download_file(url, f"{i}.jpg")).convert("RGB")
         for i, url in enumerate(image_paths)
     ]
 
@@ -162,7 +162,7 @@ async def generate_lora_thumbnails():
                                 "aspect_ratio": "1:1",
                             }
                         )
-                        result = eden_utils.prepare_result(result)
+                        result = utils.prepare_result(result)
                         output = result.get("output")
                         if output:
                             url = output[0].get("url")
@@ -170,7 +170,7 @@ async def generate_lora_thumbnails():
                             img = Image.open(BytesIO(response.content))
                             return img
 
-                    thumbnail = await eden_utils.async_exponential_backoff(
+                    thumbnail = await utils.async_exponential_backoff(
                         generate_thumbnail,
                         max_attempts=3,
                         initial_delay=1,
@@ -196,7 +196,7 @@ async def generate_lora_thumbnails():
 
                 with tempfile.NamedTemporaryFile(suffix=".jpg", delete=True) as f:
                     grid.save(f.name)
-                    output = eden_utils.upload_result(
+                    output = utils.upload_result(
                         f.name, save_thumbnails=True, save_blurhash=True
                     )
 
@@ -204,7 +204,7 @@ async def generate_lora_thumbnails():
 
             # SDXL - just reupload existing thumbnail
             else:
-                output = eden_utils.upload_result(
+                output = utils.upload_result(
                     model.get("thumbnail"), save_thumbnails=True, save_blurhash=True
                 )
                 thumbnail = output.get("filename")

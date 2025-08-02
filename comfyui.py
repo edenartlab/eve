@@ -43,7 +43,7 @@ import traceback
 import sys
 import socket
 
-import eve.eden_utils as eden_utils
+import eve.utils as eden_utils
 from eve.tool import Tool
 from eve.mongo import get_collection
 from eve.task import task_handler_method

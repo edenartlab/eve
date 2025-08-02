@@ -1,20 +1,20 @@
 import tempfile
 import subprocess
-# from ... import eden_utils
+# from ... import utils
 
 
 async def handler(args: dict, user: str = None, agent: str = None):
-    from .... import eden_utils
+    from .... import utils
     
     video_url = args.get("video")
     audio_url = args.get("audio")
 
-    video_file = eden_utils.get_file_handler(".mp4", video_url)
+    video_file = utils.get_file_handler(".mp4", video_url)
     output_file = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
 
     if audio_url:
-        audio_file = eden_utils.get_file_handler(".mp3", audio_url)
-        audio_duration = eden_utils.get_media_duration(audio_file)
+        audio_file = utils.get_file_handler(".mp3", audio_url)
+        audio_duration = utils.get_media_duration(audio_file)
 
         # loop the video to match the audio duration
         looped_video = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
@@ -37,7 +37,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
 
     else:
         # if no audio, create a silent audio track with same duration as video
-        video_duration = eden_utils.get_media_duration(video_file)
+        video_duration = utils.get_media_duration(video_file)
         cmd = [
             "ffmpeg", "-y", "-loglevel", "panic",
             "-i", video_file,

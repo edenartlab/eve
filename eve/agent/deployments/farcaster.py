@@ -20,7 +20,7 @@ from eve.api.api_requests import SessionCreationArgs
 from eve.api.errors import APIError
 from eve.agent.deployments import PlatformClient
 from eve.agent.llm import UpdateType
-from eve.eden_utils import prepare_result
+from eve.utils import prepare_result
 from eve.user import User
 import eve.mongo
 

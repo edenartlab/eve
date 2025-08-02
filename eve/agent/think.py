@@ -3,7 +3,7 @@ from jinja2 import Template
 from pydantic import BaseModel, Field
 from typing import Literal
 
-from ..eden_utils import dumps_json
+from ..utils import dumps_json
 from .llm import async_prompt
 from .agent import Agent, refresh_agent
 from .thread import UserMessage, Thread

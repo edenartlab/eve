@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from .user import Manna, Transaction
 from .mongo import Document, Collection
 from .models import Model
-from . import eden_utils
+from . import utils
 import sentry_sdk
 
 
@@ -220,7 +220,7 @@ async def _task_handler(func, *args, **kwargs):
                     if isinstance(result["output"], list)
                     else [result["output"]]
                 )
-                result = eden_utils.upload_result(
+                result = utils.upload_result(
                     result, save_thumbnails=True, save_blurhash=True
                 )
 
