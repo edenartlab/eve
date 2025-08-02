@@ -171,7 +171,7 @@ def select_random_voice(
 
 
 def get_voice_summary():
-    response = eleven.voices.get_all(show_legacy=True)
+    response = eleven.voices.get_all(show_legacy=False)
     full_description = ""
     
     ids, names = [], []
