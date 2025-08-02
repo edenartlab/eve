@@ -92,7 +92,21 @@ def _build_expression_parser(variables: Dict[str, Any]) -> ParserElement:
     # Parenthesised expressions.  Suppress the parentheses so they do not
     # clutter the parse result.  The enclosed expression is parsed
     # recursively by referencing ``expr``.
-    operand <<= atom | (Suppress("(") + expr + Suppress(")"))
+    _base_operand = atom | (Suppress("(") + expr + Suppress(")"))
+
+    # Support JavaScript‑style ".length" postfix on any operand.
+    length_suffix = Suppress(".") + Keyword("length")
+
+    def length_action(tokens):
+        val = tokens[0]
+        try:
+            return len(val)
+        except TypeError as e:
+            raise ValueError(
+                f"Cannot take .length of value of type {type(val).__name__}"
+            ) from e
+
+    operand <<= (_base_operand + length_suffix).setParseAction(length_action) | _base_operand
 
     # Define evaluation functions for unary and binary operators.  The
     # parse actions receive a nested list structure representing the
@@ -182,14 +196,15 @@ def eval_cost(expression: str, **variables: Any) -> Any:
     """Evaluate a JavaScript‑style expression in Python.
 
     The expression may contain nested ternary operators (``a ? b : c``),
-    comparison operators (``==``, ``!=``, ``<``, ``<=``, ``>``, ``>=``),
-    logical operators (``&&``, ``||``, ``!``/``not``), arithmetic
-    operations (``+``, ``-``, ``*``, ``/``, ``%``) and parentheses for
-    grouping.  JavaScript boolean literals (``true``/``false``), the
-    ``null`` literal (interpreted as Python ``None``) and string
-    literals (single or double quoted) are recognised.  Variable names
-    consisting of letters, digits and underscores are looked up in the
-    keyword arguments provided to this function.
+    comparison operators (``==``, ``!=``, ``<``, ``<=``,
+    ``>``, ``>=``), logical operators (``&&``, ``||``, ``!``/``not``),
+    arithmetic operations (``+``, ``-``, ``*``, ``/``, ``%``) and
+    parentheses for grouping.  JavaScript boolean literals
+    (``true``/``false``), the ``null`` literal (interpreted as Python
+    ``None``) and string literals (single or double quoted) are
+    recognised.  Variable names consisting of letters, digits and
+    underscores are looked up in the keyword arguments provided to this
+    function.
 
     Examples
     --------
