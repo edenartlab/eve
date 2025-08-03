@@ -221,7 +221,7 @@ async def async_prompt_thread(
         return
 
     # Get text describing models
-    if agent.models or agent.model:
+    if agent.models:
         models_collection = get_collection(Model.collection_name)
         models = agent.models or [
             {"lora": agent.model, "use_when": "This is the default Lora model"}
