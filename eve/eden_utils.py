@@ -39,7 +39,7 @@ from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from . import s3
 
-USE_MEDIA_CACHE = True
+USE_MEDIA_CACHE = False
 
 
 class CommandValidator:

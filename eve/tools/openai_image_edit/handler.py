@@ -27,7 +27,8 @@ def preprocess_image(file_input, is_mask=False):
         if isinstance(file_input, str) and file_input.startswith(("http://", "https://")):
             print(f"Input is URL, downloading: {file_input}")
             # Create a temporary file to store the download
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".tmp") as temp_file:
+            file_type = file_input.split(".")[-1]
+            with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_type}") as temp_file:
                 temp_file_path = temp_file.name
             # Download the file
             download_file(file_input, temp_file_path, overwrite=True)
