@@ -408,12 +408,14 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
                                 }
                             )
                     result = await txt2img.async_run(args_pre)
+                    print("init image result", result)
                     init_image = get_full_url(result["output"][0]["filename"])
                     tool_calls.append(
                         {"tool": txt2img.key, "args": args_pre, "output": init_image}
                     )
                 else:
                     result = await flux_dev_lora.async_run(args_pre)
+                    print("init image result", result)
                     init_image = get_full_url(result["output"][0]["filename"])
                     tool_calls.append(
                         {
@@ -478,6 +480,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
     #########################################################
     # Final result
+    print("result", result)
     final_result = get_full_url(result["output"][0]["filename"])
     print("final result", final_result)
 
@@ -581,6 +584,7 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
                 )
             try:
                 result = await create.async_run(args)
+                print("create result", result)
                 start_image = get_full_url(result["output"][0]["filename"])
                 tool_calls.append(
                     {"tool": create.key, "args": args, "output": start_image}
@@ -797,6 +801,7 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
 
     #########################################################
     # Final video is now generated
+    print("result", result)
     final_video = get_full_url(result["output"][0]["filename"])
     print("final result", final_video)
 
