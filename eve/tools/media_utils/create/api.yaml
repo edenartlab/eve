@@ -8,7 +8,7 @@ tip: |-
   - For images: If the user wants to make an infographic, logo, or any other image that requires a lot of coherent and legible text, or the user requests OpenAI image tools, you should include "text_precision" in extras.
   - For images: If either "text_precision" is in extras or there is an init_image, *and* there is no lora, the prompt should be structured as an **INSTRUCTION**.
   - For images: If the user has an init_image but also has a lora or "controlnet" in extras, ignore the last rule about being an instruction and instead make a normal text-to-image prompt.
-  - For videos: If you want to put specific lines of dialogue into the video, you must use "pro" quality with sound_effects, and no start_image).
+  - For videos: If you want to put specific lines of dialogue into the video, you must use "pro" quality with sound_effects, and no init_image).
   - For videos: Audio files are *only* supported when "talking_head" is in extras, so don't use one otherwise. If you want to mix an audio file over video, use the media_editor tool instead.
 cost_estimate: '(output == "video" ? (((quality == "pro" ? 40 : 20) + (sound_effects ? 5 : 0)) * duration) : (5 * n_samples))'
 output_type: image
@@ -50,7 +50,7 @@ parameters:
     description: Input image.
     tip: |-
       For images: Only use this if you are editing an image, generating an image based on a reference image, or using "controlnet" in extras.
-      For videos: Use this as start_image if you are animating an image, i.e. using it as the first frame of the video. If generating a video from scratch, do not use this.
+      For videos: Use this as init_image if you are animating an image, i.e. using it as the first frame of the video. If generating a video from scratch, do not use this.
   seed:
     type: integer
     label: Seed
