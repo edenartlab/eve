@@ -76,10 +76,14 @@ def get_media_attributes(file):
 
 
 def upload_media(output, save_thumbnails=True, save_blurhash=True):
+    print(f"***debug*** upload_media called with: {type(output)}")
+    print(f"***debug*** upload_media value: {output}")
     file_url, sha = s3.upload_file(output)
     filename = file_url.split("/")[-1]
 
     media_attributes, thumbnail = get_media_attributes(output)
+    print(f"***debug*** upload_media media_attributes: {media_attributes}")
+    print(f"***debug*** upload_media thumbnail: {thumbnail}")
 
     if save_thumbnails and thumbnail:
         for width in [384, 768, 1024, 2560]:

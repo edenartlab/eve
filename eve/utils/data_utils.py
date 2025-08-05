@@ -35,6 +35,9 @@ def upload_result(result, save_thumbnails=False, save_blurhash=False):
         f"***debug*** upload_result called with: {type(result)}, save_thumbnails={save_thumbnails}, save_blurhash={save_blurhash}"
     )
     print(f"***debug*** upload_result value: {result}")
+    print(
+        f"***debug*** upload_result is_downloadable_file: {is_downloadable_file(result)}"
+    )
 
     if isinstance(result, dict):
         exlude_result_processing_keys = ["subtool_calls"]
