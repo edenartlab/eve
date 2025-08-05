@@ -120,7 +120,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
 
         args.update(aspect_ratio_to_dimensions(aspect_ratio))
 
-        result = await txt2img.async_run(args)
+        result = await txt2img.async_run(args, save_thumbnails=True)
 
     #########################################################
     # Flux Schnell
@@ -138,7 +138,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
             args["seed"] = seed
 
         print("Running flux_schnell", args)
-        result = await flux_schnell.async_run(args)
+        result = await flux_schnell.async_run(args, save_thumbnails=True)
 
     #########################################################
     # Flux Dev Lora
@@ -173,7 +173,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
             args.update({"lora_strength": 0.0})
 
         print("Running flux_dev_lora", args)
-        result = await flux_dev_lora.async_run(args)
+        result = await flux_dev_lora.async_run(args, save_thumbnails=True)
 
     #########################################################
     # Flux Dev
@@ -233,7 +233,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
         args.update(aspect_ratio_to_dimensions(aspect_ratio))
 
         print("Running flux_dev", args)
-        result = await flux_dev.async_run(args)
+        result = await flux_dev.async_run(args, save_thumbnails=True)
         # Todo: incorporate style_image / style_strength ?
 
     #########################################################
@@ -254,7 +254,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
             args["seed"] = seed
 
         print("Running flux_kontext", args)
-        result = await flux_kontext.async_run(args)
+        result = await flux_kontext.async_run(args, save_thumbnails=True)
 
     #########################################################
     # OpenAI Image Generate
@@ -277,7 +277,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
             args["user"] = str(user)
 
         print("Running openai_image_generate", args)
-        result = await openai_image_generate.async_run(args)
+        result = await openai_image_generate.async_run(args, save_thumbnails=True)
 
     #########################################################
     # OpenAI Image Edit
@@ -353,11 +353,11 @@ async def handler(args: dict, user: str = None, agent: str = None):
         if init_image:
             args["image"] = [init_image]
             print("Running openai_image_edit", args)
-            result = await openai_image_edit.async_run(args)
+            result = await openai_image_edit.async_run(args, save_thumbnails=True)
 
         else:
             print("No init image, fall back on openai_image_generate", args)
-            result = await openai_image_generate.async_run(args)
+            result = await openai_image_generate.async_run(args, save_thumbnails=True)
 
     else:
         raise Exception("Invalid args", args, image_tool)
