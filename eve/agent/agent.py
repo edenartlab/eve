@@ -206,7 +206,7 @@ class Agent(User):
         thread.save()
         return thread
 
-    @profile_method("_reload")
+    # @profile_method("_reload")
     def _reload(self):
         """Reload all tools, loras, and deployments from mongo"""
         from ..tool import get_tools_from_mongo
@@ -245,7 +245,7 @@ class Agent(User):
 
         self.tools_ = get_tools_from_mongo(tools_to_load)        
 
-    @profile_method("get_tools")
+    # @profile_method("get_tools")
     def get_tools(self, cache=True, auth_user: str = None):
         self._reload()
         tools = self.tools_
