@@ -87,6 +87,8 @@ TELEGRAM_TOOLS = ["telegram_post"]
 TWITTER_TOOLS = ["tweet", "twitter_mentions", "twitter_search"]
 FARCASTER_TOOLS = ["farcaster_cast", "farcaster_mentions", "farcaster_search"]
 SHOPIFY_TOOLS = ["shopify"]
+PRINTIFY_TOOLS = ["printify"]
+CAPTIONS_TOOLS = ["captions"]
 
 SOCIAL_MEDIA_TOOLS = [
     *TWITTER_TOOLS,
@@ -94,12 +96,13 @@ SOCIAL_MEDIA_TOOLS = [
     *FARCASTER_TOOLS,
     *TELEGRAM_TOOLS,
     *SHOPIFY_TOOLS,
+    *PRINTIFY_TOOLS,
+    *CAPTIONS_TOOLS,
 ]
 
 TOOL_SETS = {
     "create_image": ["create", "reel", "media_editor"],
     "create_video": ["create", "reel", "media_editor"],  # deprecated
-    
     "create_audio": ["elevenlabs", "musicgen"],
     "vj_tools": ["texture_flow", "video_FX"],
     "news": ["news"],
@@ -127,7 +130,4 @@ FLUX_LORA_TXT2IMG_TOOLS = ["flux_dev_lora", "flux_dev", "flux_schnell"]
 
 SDXL_LORA_TXT2IMG_TOOLS = ["txt2img"]
 
-AGENTIC_TOOLS = [
-    *SOCIAL_MEDIA_TOOLS,
-    "reel"
-]
+AGENTIC_TOOLS = [*SOCIAL_MEDIA_TOOLS, "reel"]

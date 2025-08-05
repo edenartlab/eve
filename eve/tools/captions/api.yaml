@@ -1,7 +1,7 @@
 name: Captions Generate AI Ad
 description: Generate an AI-powered advertisement video using Captions AI
 cost_estimate: 1
-output_type: string
+output_type: video
 active: true
 handler: local
 visible: false
@@ -10,14 +10,15 @@ parameters:
     type: string
     label: Script
     description: The script for the advertisement
-    tip: Minimum 10 characters. Should be engaging and promotional.
+    tip: Minimum 10 characters. Maximum 800 characters. Should be engaging and promotional.
     required: true
     minimum: 10
+    maximum: 800
   creator_name:
     type: string
     label: AI Creator
     description: Name of the AI creator/voice to use
-    tip: Available creators - Jason, Sarah, etc. Leave empty for random selection.
+    tip: Available creators include Jason, Grace-1, Isabella-1, James, Ava-1, Michael, Olivia, and many more. Leave empty for random selection.
     required: false
   media_urls:
     type: array
@@ -37,13 +38,7 @@ parameters:
     default: fhd
     enum:
       - fhd
-      - hd
       - 4k
-  webhook_id:
-    type: string
-    label: Webhook ID
-    description: Webhook identifier for notifications
-    required: false
   wait_for_completion:
     type: boolean
     label: Wait for Completion
