@@ -30,7 +30,11 @@ def prepare_result(result, summarize=False):
 
 def upload_result(result, save_thumbnails=False, save_blurhash=False):
     from .media_utils import upload_media
-    
+
+    print(
+        f"***debug*** upload_result called with: {type(result)}, save_thumbnails={save_thumbnails}, save_blurhash={save_blurhash}"
+    )
+
     if isinstance(result, dict):
         exlude_result_processing_keys = ["subtool_calls"]
         return {
