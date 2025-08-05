@@ -1,0 +1,9 @@
+{
+  "title": "Eden Test T-Shirt",
+  "description": "A test product created via Eden Printify integration",
+  "image": "https://placekitten.com/800/800",
+  "blueprint_id": 5,
+  "print_provider_id": 99,
+  "price": 29.99,
+  "auto_publish": false
+}
