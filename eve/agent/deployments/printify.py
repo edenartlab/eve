@@ -17,6 +17,9 @@ class PrintifyClient(PlatformClient):
     ) -> tuple[DeploymentSecrets, DeploymentConfig]:
         """Validate Printify credentials and add Printify tools"""
         # Validate that required fields are present
+        if not secrets:
+            raise ValueError("Deployment secrets are required")
+            
         if not secrets.printify:
             raise ValueError("Printify secrets are required")
         

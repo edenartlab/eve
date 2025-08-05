@@ -17,6 +17,9 @@ class CaptionsClient(PlatformClient):
     ) -> tuple[DeploymentSecrets, DeploymentConfig]:
         """Validate Captions credentials and add Captions tools"""
         # Validate that required fields are present
+        if not secrets:
+            raise ValueError("Deployment secrets are required")
+            
         if not secrets.captions:
             raise ValueError("Captions secrets are required")
         
