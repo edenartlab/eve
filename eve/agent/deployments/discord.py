@@ -10,7 +10,7 @@ from eve.api.errors import APIError
 from eve.agent.deployments import PlatformClient
 from eve.agent.session.models import DeploymentSecrets, DeploymentConfig
 from eve.agent.llm import UpdateType
-from eve.eden_utils import prepare_result
+from eve.utils import prepare_result
 from eve.api.helpers import get_eden_creation_url
 
 logger = logging.getLogger(__name__)

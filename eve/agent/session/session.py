@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime
 from bson import ObjectId
 from sentry_sdk import capture_exception
-from eve.eden_utils import dumps_json
+from eve.utils import dumps_json
 from eve.agent.agent import Agent
 from eve.tool import Tool
 from eve.mongo import get_collection

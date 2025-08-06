@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from pydantic.config import ConfigDict
 from sentry_sdk import trace, start_transaction, add_breadcrumb, capture_exception
 
-from ..eden_utils import load_template
+from ..utils import load_template
 from ..mongo import get_collection
 from ..models import Model
 from ..tool import Tool
@@ -221,7 +221,7 @@ async def async_prompt_thread(
         return
 
     # Get text describing models
-    if agent.models or agent.model:
+    if agent.models:
         models_collection = get_collection(Model.collection_name)
         models = agent.models or [
             {"lora": agent.model, "use_when": "This is the default Lora model"}

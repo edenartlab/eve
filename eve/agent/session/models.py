@@ -9,7 +9,7 @@ import magic
 from bson import ObjectId
 from pydantic import ConfigDict, Field, BaseModel, field_serializer
 
-from eve.eden_utils import download_file, image_to_base64, prepare_result, dumps_json
+from eve.utils import download_file, image_to_base64, prepare_result, dumps_json
 from eve.mongo import Collection, Document
 from eve.tool import Tool
 

@@ -31,7 +31,7 @@ from eve.models import Model
 from eve.user import User
 
 from eve.s3 import get_full_url
-from eve.eden_utils import get_media_attributes
+from eve.utils import get_media_attributes
     
 
 async def handler(args: dict, user: str = None, agent: str = None):
@@ -134,7 +134,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
                     "lora_strength": lora_strength,
                 })
             try:
-                result = await create.async_run(args)
+                result = await create.async_run(args, save_thumbnails=True)
                 start_image = get_full_url(result["output"][0]["filename"])
             except Exception as e:
                 raise Exception("Error generating start image for img2vid. Try generating it yourself first with the 'create' tool, and then use it as start_image. Original error: {}".format(e))
@@ -186,7 +186,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
             args["seed"] = seed
 
         print("Running Runway", args)
-        result = await runway.async_run(args)
+        result = await runway.async_run(args, save_thumbnails=True)
 
 
     #########################################################
@@ -223,7 +223,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
             })
 
         print(f"Running Kling Pro {args['quality']}", args)
-        result = await kling_pro.async_run(args)
+        result = await kling_pro.async_run(args, save_thumbnails=True)
 
 
     #########################################################
@@ -257,7 +257,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
         #     })
 
         print("Running Veo2", args)
-        result = await veo2.async_run(args)
+        result = await veo2.async_run(args, save_thumbnails=True)
 
 
     #########################################################
@@ -282,7 +282,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
             args["seed"] = seed
 
         print("Running Veo3", args)
-        result = await veo3.async_run(args)
+        result = await veo3.async_run(args, save_thumbnails=True)
         
 
     #########################################################
@@ -304,7 +304,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
         }
 
         print("Running Hebra", args)
-        result = await hedra.async_run(args)
+        result = await hedra.async_run(args, save_thumbnails=True)
         
     else:
         raise Exception("Invalid video tool", video_tool)
@@ -327,7 +327,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
             if seed:
                 args["seed"] = seed
             print("Running MMAudio", args)
-            sound_fx = await mmaudio.async_run(args)
+            sound_fx = await mmaudio.async_run(args, save_thumbnails=True)
             final_video = get_full_url(sound_fx["output"][0]["filename"])
             print("Final result with sound effects", final_video)
         

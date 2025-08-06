@@ -10,7 +10,7 @@ from typing import Dict, Optional
 from datetime import datetime, timezone
 
 from .. import s3
-from .. import eden_utils
+from .. import utils
 from ..tool import Tool, tool_context
 from ..models import Model
 from ..task import Task, Creation
@@ -53,7 +53,6 @@ class ReplicateTool(Tool):
                 output = temp_file.name
             result = {"output": output}
 
-        result = eden_utils.upload_result(result)
         return result
 
     @Tool.handle_start_task
@@ -165,7 +164,6 @@ class ReplicateTool(Tool):
         print(f"DEBUG: Model selection - args keys: {list(args.keys())}")
         print(f"DEBUG: lora value: {args.get('lora')} (type: {type(args.get('lora'))})")
 
-
         if self.replicate_model_substitutions:
             for cond, model in self.replicate_model_substitutions.items():
                 print(f"DEBUG: Checking condition '{cond}' -> {model}")
@@ -257,19 +255,19 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
         if output_handler in ["eden", "trainer"]:
             thumbnails = output[-1]["thumbnails"]
             output = output[-1]["files"]
-            output = eden_utils.upload_result(
+            output = utils.upload_result(
                 output, save_thumbnails=True, save_blurhash=True
             )
             if thumbnails:
                 for thumb in thumbnails:
-                    eden_utils.upload_media(
+                    utils.upload_media(
                         thumb, 
                         save_thumbnails=True,
                         save_blurhash=True
                     )
             result = [{"output": [out]} for out in output]
         else:
-            output = eden_utils.upload_result(
+            output = utils.upload_result(
                 output, save_thumbnails=True, save_blurhash=True
             )
             result = [{"output": [out]} for out in output]
@@ -279,7 +277,7 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
                 if output_handler == "trainer":
                     filename = output["filename"]
                     thumbnail = (
-                        eden_utils.upload_media(
+                        utils.upload_media(
                             thumbnails[0], save_thumbnails=True, save_blurhash=True
                         )
                         if thumbnails

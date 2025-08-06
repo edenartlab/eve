@@ -6,7 +6,7 @@ from typing import List
 
 from ....agent import Agent
 from ....mongo import get_collection
-# from ... import eden_utils
+# from ... import utils
 
 
 agent_template = Template("""<Agent>

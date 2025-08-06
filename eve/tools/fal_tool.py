@@ -5,7 +5,7 @@ from typing import Dict, Optional, List, Any, Tuple
 from pydantic import Field
 import logging
 
-from .. import eden_utils
+from .. import utils
 from ..tool import Tool, tool_context
 from ..task import Task, Creation
 from ..mongo import get_collection
@@ -35,7 +35,7 @@ class FalTool(Tool):
             on_queue_update=on_queue_update if self.with_logs else None,
         )
         
-        result = eden_utils.upload_result({"output": result})
+        result = utils.upload_result({"output": result})
         return result
 
     @Tool.handle_start_task
@@ -171,7 +171,7 @@ class FalTool(Tool):
                 # upload_result expects a dict structure. We wrap the single URL.
                 # It will upload the URL and return metadata.
                 logger.info(f"Attempting to upload FAL URL to Eden: {url}")
-                uploaded_data = eden_utils.upload_result(
+                uploaded_data = utils.upload_result(
                     {"output": url}, # Pass the URL directly for uploading
                     save_thumbnails=True,
                     save_blurhash=True

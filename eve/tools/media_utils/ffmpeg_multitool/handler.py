@@ -10,7 +10,7 @@ import asyncio
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 from instructor.function_calls import openai_schema
-from .... import eden_utils
+from .... import utils
 
 class CommandSecurityError(Exception):
     """Custom exception for command security validation errors"""
@@ -251,7 +251,7 @@ async def generate_ffmpeg_command(
         raise FFmpegError(f"Failed to generate FFmpeg command: {str(e)}", "")
 
 
-ffmpeg_validator = eden_utils.CommandValidator({'ffmpeg'})
+ffmpeg_validator = utils.CommandValidator({'ffmpeg'})
 
 async def execute_ffmpeg_command(command: str, timeout: int = 60) -> None:
     """Execute FFmpeg command with timeout and basic security validation"""
@@ -307,7 +307,7 @@ def validate_and_prepare_media(args: Dict[str, Any], tmp_dir: Optional[str] = No
                 
             try:
                 image_filename = Path(image_url).name
-                original_path = eden_utils.download_file(image_url, image_filename)
+                original_path = utils.download_file(image_url, image_filename)
                 
                 extension = Path(original_path).suffix.lstrip('.')
                 new_path = os.path.join(tmp_dir, f"img{idx}.{extension}")
@@ -322,7 +322,7 @@ def validate_and_prepare_media(args: Dict[str, Any], tmp_dir: Optional[str] = No
             if url := args.get(media_type):
                 try:
                     extension = Path(url).suffix.lstrip('.')
-                    original_handler = eden_utils.get_file_handler(extension, url)
+                    original_handler = utils.get_file_handler(extension, url)
                     
                     new_path = os.path.join(tmp_dir, f"{media_type}.{extension}")
                     shutil.copy2(original_handler, new_path)

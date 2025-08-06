@@ -4,7 +4,7 @@ import tempfile
 import subprocess
 import numpy as np
 from PIL import Image
-from .... import eden_utils
+from .... import utils
 
 def cosine_interpolation(x):
     """Cosine interpolation for smoother blending"""
@@ -57,7 +57,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
     loop_seamless = args["loop_seamless"]
 
     # Download video
-    input_video = eden_utils.download_file(video_url, video_url.split("/")[-1])
+    input_video = utils.download_file(video_url, video_url.split("/")[-1])
     
     # Create temporary directories for frames
     with tempfile.TemporaryDirectory() as temp_dir:

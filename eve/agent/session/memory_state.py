@@ -19,7 +19,8 @@ except ImportError:
 
 # Global state dict to track session/memory state per agent_id using modal.Dict
 # This acts like redis to store session state and avoid frequent MongoDB queries
-pending_session_memories = modal.Dict.from_name("pending-session-memories", create_if_missing=True)
+db = os.getenv("DB", "STAGE").upper()
+pending_session_memories = modal.Dict.from_name(f"pending-session-memories-{db.lower()}", create_if_missing=True)
 
 # Default session state structure - defined once to avoid duplication
 DEFAULT_SESSION_STATE = {
@@ -69,10 +70,10 @@ async def update_session_state(agent_id: ObjectId, session_id: ObjectId, updates
     # Save back to modal.Dict
     pending_session_memories[agent_key] = agent_dict
 
-    print("-----------------------------------")
-    print("Updated session_state state:")
-    print(json.dumps(session_state, indent=4))
-    print("-----------------------------------")
+    # print("-----------------------------------")
+    # print("Updated session_state state:")
+    # print(json.dumps(session_state, indent=4))
+    # print("-----------------------------------")
 
 ######## Background task to process cold sessions #########
 

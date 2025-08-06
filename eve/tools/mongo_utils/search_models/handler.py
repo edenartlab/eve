@@ -4,7 +4,7 @@ from jinja2 import Template
 from pydantic import BaseModel, Field
 from typing import List
 
-from ....eden_utils import load_template
+from ....utils import load_template
 from ....models import Model
 from ....mongo import get_collection
 

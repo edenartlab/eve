@@ -10,7 +10,7 @@ import replicate
 import sentry_sdk
 from bson import ObjectId
 
-from eve import eden_utils
+from eve import utils
 from eve.task import task_handler_func, Task
 from eve.tool import Tool
 from eve.tools.tool_handlers import load_handler
@@ -341,7 +341,7 @@ async def handle_trigger_posting(trigger, session_id):
 async def run(tool_key: str, args: dict, user: str = None, agent: str = None):
     handler = load_handler(tool_key)
     result = await handler(args, user, agent)
-    return eden_utils.upload_result(result)
+    return utils.upload_result(result)
 
 
 @task_handler_func

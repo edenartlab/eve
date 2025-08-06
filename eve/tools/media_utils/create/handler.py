@@ -31,7 +31,7 @@ from eve.tool import Tool
 from eve.models import Model
 from eve.api.api import create
 from eve.user import User
-from eve.eden_utils import get_media_attributes
+from eve.utils import get_media_attributes
 
 
 async def handler(args: dict, user: str = None, agent: str = None):
@@ -179,7 +179,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
         args.update(aspect_ratio_to_dimensions(aspect_ratio))
 
-        result = await txt2img.async_run(args)
+        result = await txt2img.async_run(args, save_thumbnails=True)
 
     #########################################################
     # Flux Schnell
@@ -197,7 +197,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
             args["seed"] = seed
 
         print("Running flux_schnell", args)
-        result = await flux_schnell.async_run(args)
+        result = await flux_schnell.async_run(args, save_thumbnails=True)
 
     #########################################################
     # Flux Dev Lora
@@ -232,7 +232,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
             args.update({"lora_strength": 0.0})
 
         print("Running flux_dev_lora", args)
-        result = await flux_dev_lora.async_run(args)
+        result = await flux_dev_lora.async_run(args, save_thumbnails=True)
 
     #########################################################
     # Flux Dev
@@ -292,7 +292,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
         args.update(aspect_ratio_to_dimensions(aspect_ratio))
 
         print("Running flux_dev", args)
-        result = await flux_dev.async_run(args)
+        result = await flux_dev.async_run(args, save_thumbnails=True)
         # Todo: incorporate style_image / style_strength ?
 
     #########################################################
@@ -319,7 +319,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
         # Note: flux_double_character doesn't support init_image, so we ignore it
         print("Running flux_double_character", args)
-        result = await flux_double_character.async_run(args)
+        result = await flux_double_character.async_run(args, save_thumbnails=True)
 
     #########################################################
     # Flux Kontext
@@ -339,7 +339,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
             args["seed"] = seed
 
         print("Running flux_kontext", args)
-        result = await flux_kontext.async_run(args)
+        result = await flux_kontext.async_run(args, save_thumbnails=True)
 
     #########################################################
     # OpenAI Image Generate
@@ -362,7 +362,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
             args["user"] = str(user)
 
         print("Running openai_image_generate", args)
-        result = await openai_image_generate.async_run(args)
+        result = await openai_image_generate.async_run(args, save_thumbnails=True)
 
     #########################################################
     # OpenAI Image Edit
@@ -408,12 +408,14 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
                                 }
                             )
                     result = await txt2img.async_run(args_pre)
+                    print("init image result", result)
                     init_image = get_full_url(result["output"][0]["filename"])
                     tool_calls.append(
                         {"tool": txt2img.key, "args": args_pre, "output": init_image}
                     )
                 else:
                     result = await flux_dev_lora.async_run(args_pre)
+                    print("init image result", result)
                     init_image = get_full_url(result["output"][0]["filename"])
                     tool_calls.append(
                         {
@@ -448,11 +450,11 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
         if init_image:
             args["image"] = [init_image]
             print("Running openai_image_edit", args)
-            result = await openai_image_edit.async_run(args)
+            result = await openai_image_edit.async_run(args, save_thumbnails=True)
 
         else:
             print("No init image, fall back on openai_image_generate", args)
-            result = await openai_image_generate.async_run(args)
+            result = await openai_image_generate.async_run(args, save_thumbnails=True)
 
     #########################################################
     # Seedream 3
@@ -471,13 +473,14 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
             args["seed"] = seed
 
         print("Running Seedream3", args)
-        result = await seedream3.async_run(args)
+        result = await seedream3.async_run(args, save_thumbnails=True)
 
     else:
         raise Exception("Invalid args", args, image_tool)
 
     #########################################################
     # Final result
+    print("result", result)
     final_result = get_full_url(result["output"][0]["filename"])
     print("final result", final_result)
 
@@ -580,7 +583,8 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
                     }
                 )
             try:
-                result = await create.async_run(args)
+                result = await create.async_run(args, save_thumbnails=True)
+                print("create result", result)
                 start_image = get_full_url(result["output"][0]["filename"])
                 tool_calls.append(
                     {"tool": create.key, "args": args, "output": start_image}
@@ -637,7 +641,7 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
             args["seed"] = seed
 
         print("Running Runway", args)
-        result = await runway.async_run(args)
+        result = await runway.async_run(args, save_thumbnails=True)
 
     #########################################################
     # Kling
@@ -676,7 +680,7 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
                     "mode": quality,
                 }
             )
-            result = await kling.async_run(args)
+            result = await kling.async_run(args, save_thumbnails=True)
         else:
             args.update(
                 {
@@ -684,7 +688,7 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
                     "quality": "high",  # use Kling 2 optimistically
                 }
             )
-            result = await kling_pro.async_run(args)
+            result = await kling_pro.async_run(args, save_thumbnails=True)
 
     #########################################################
     # Seedance
@@ -717,7 +721,7 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
             args["seed"] = seed
 
         print("Running Seedance1", args)
-        result = await seedance1.async_run(args)
+        result = await seedance1.async_run(args, save_thumbnails=True)
 
     #########################################################
     # Veo-2
@@ -749,7 +753,7 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
         #     })
 
         print("Running Veo2", args)
-        result = await veo2.async_run(args)
+        result = await veo2.async_run(args, save_thumbnails=True)
 
     #########################################################
     # Veo-3
@@ -772,7 +776,7 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
             args["seed"] = seed
 
         print("Running Veo3", args)
-        result = await veo3.async_run(args)
+        result = await veo3.async_run(args, save_thumbnails=True)
 
     #########################################################
     # Hebra
@@ -790,13 +794,14 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
         }
 
         print("Running Hebra", args)
-        result = await hedra.async_run(args)
+        result = await hedra.async_run(args, save_thumbnails=True)
 
     else:
         raise Exception("Invalid video tool", video_tool)
 
     #########################################################
     # Final video is now generated
+    print("result", result)
     final_video = get_full_url(result["output"][0]["filename"])
     print("final result", final_video)
 
@@ -813,7 +818,7 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
                 "num_inference_steps": 24,
             }
             print("Running ThinkSound", args)
-            sound_fx = await thinksound.async_run(args)
+            sound_fx = await thinksound.async_run(args, save_thumbnails=True)
             final_video = get_full_url(sound_fx["output"][0]["filename"])
             print("Final result with sound effects", final_video)
             tool_calls.append(

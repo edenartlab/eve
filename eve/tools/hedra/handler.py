@@ -4,7 +4,7 @@ import logging
 import requests
 import tempfile
 import asyncio
-from ... import eden_utils
+from ... import utils
 
 
 logger = logging.getLogger()
@@ -34,9 +34,9 @@ async def handler(args: dict, user: str = None, agent: str = None):
     temp_audio = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
 
     try:
-        # Download files using eden_utils
-        image = eden_utils.download_file(args["image"], temp_image.name, overwrite=True)
-        audio_file = eden_utils.download_file(
+        # Download files using utils
+        image = utils.download_file(args["image"], temp_image.name, overwrite=True)
+        audio_file = utils.download_file(
             args["audio"], temp_audio.name, overwrite=True
         )
 

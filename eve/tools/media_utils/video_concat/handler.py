@@ -1,13 +1,13 @@
 import os
 import tempfile
 import subprocess
-# from ... import eden_utils
+# from ... import utils
 
 
 # bug: if some videos are silent but others have sound, the concatenated video will have no sound
 
 async def handler(args: dict, user: str = None, agent: str = None):
-    from .... import eden_utils
+    from .... import utils
     
     video_urls = args.get("videos")
     fps = args.get("fps", 30)
@@ -16,7 +16,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
     print(f"Frames per second (fps): {fps}")
 
     video_files = [
-        eden_utils.download_file(video_url, video_url.split("/")[-1])
+        utils.download_file(video_url, video_url.split("/")[-1])
         for video_url in video_urls
     ]
     print("Downloaded video files:", video_files)

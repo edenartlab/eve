@@ -17,7 +17,7 @@ from .tool_constants import (
     HANDLERS,
     BASE_MODELS,
 )
-from . import eden_utils
+from . import utils
 from .agent.agent import Agent
 from .auth import get_my_eden_user
 from .base import parse_schema
@@ -184,7 +184,7 @@ class Tool(Document, ABC):
         schema["key"] = key
         fields, model_config = parse_schema(schema)
         model = create_model(schema["key"], __config__=model_config, **fields)
-        model.__doc__ = eden_utils.concat_sentences(
+        model.__doc__ = utils.concat_sentences(
             schema.get("description"), schema.get("tip", "")
         )
         schema["model"] = model
@@ -216,7 +216,7 @@ class Tool(Document, ABC):
         }
         fields, model_config = parse_schema(schema)
         model = create_model(schema["key"], __config__=model_config, **fields)
-        model.__doc__ = eden_utils.concat_sentences(
+        model.__doc__ = utils.concat_sentences(
             schema.get("description"), schema.get("tip", "")
         )
         schema["model"] = model
@@ -343,12 +343,12 @@ class Tool(Document, ABC):
 
     def update_parameters(self, parameters: Dict[str, Any]):
         """Update parameters and re-create BaseModel"""
-        eden_utils.overwrite_dict(self.parameters, parameters)
+        utils.overwrite_dict(self.parameters, parameters)
         fields, model_config = parse_schema(
             {"parameters": self.parameters, "examples": self.examples}
         )
         self.model = create_model(self.key, __config__=model_config, **fields)
-        self.model.__doc__ = eden_utils.concat_sentences(self.description, self.tip)
+        self.model.__doc__ = utils.concat_sentences(self.description, self.tip)
 
     def save(self, **kwargs):
         return super().save({"key": self.key}, **kwargs)
@@ -418,7 +418,7 @@ class Tool(Document, ABC):
     def calculate_cost(self, args):
         if not self.cost_estimate:
             return 0
-        cost_estimate = eden_utils.eval_cost(
+        cost_estimate = utils.eval_cost(
             self.cost_estimate, 
             **self.prepare_args(args.copy())
         )
@@ -448,7 +448,7 @@ class Tool(Document, ABC):
 
         except ValidationError as e:
             print(traceback.format_exc())
-            error_str = eden_utils.get_human_readable_error(e.errors())
+            error_str = utils.get_human_readable_error(e.errors())
             raise ValueError(error_str)
 
         return prepared_args
@@ -456,14 +456,14 @@ class Tool(Document, ABC):
     def handle_run(run_function):
         """Wrapper for calling a tool directly and waiting for the result"""
 
-        async def async_wrapper(self, args: Dict, mock: bool = False):
+        async def async_wrapper(self, args: Dict, mock: bool = False, save_thumbnails: bool = False):
             try:
                 user_id = args.pop("user_id", None) or str(get_my_eden_user().id)
                 agent_id = args.pop("agent_id", None) 
                 args = self.prepare_args(args)
                 sentry_sdk.add_breadcrumb(category="handle_run", data=args)
                 if mock:
-                    result = {"output": eden_utils.mock_image(args)}
+                    result = {"output": utils.mock_image(args)}
                 else:
                     result = await run_function(self, args, user_id, agent_id)
                 result["output"] = (
@@ -471,7 +471,10 @@ class Tool(Document, ABC):
                     if isinstance(result["output"], list)
                     else [result["output"]]
                 )
-                result = eden_utils.upload_result(result)
+                result = utils.upload_result(
+                    result, 
+                    save_thumbnails=save_thumbnails
+                )
                 result["status"] = "completed"
                 sentry_sdk.add_breadcrumb(category="handle_run", data=result)
 
@@ -548,8 +551,8 @@ class Tool(Document, ABC):
                 if mock:
                     handler_id = "".join(random.choices("abcdefghijklmnopqrstuvwxyz0123456789", k=28))
 
-                    output = [{"output": [eden_utils.mock_image(args)]}]
-                    result = eden_utils.upload_result(output)
+                    output = [{"output": [utils.mock_image(args)]}]
+                    result = utils.upload_result(output, save_thumbnails=True)
                     task.update(
                         handler_id=handler_id,
                         status="completed",
