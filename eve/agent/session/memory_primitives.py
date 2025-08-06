@@ -3,7 +3,9 @@ from typing import List, Optional
 from bson import ObjectId
 from eve.mongo import Collection, Document
 from pydantic import field_serializer
-from datetime import datetime
+from datetime import datetime, timezone
+import logging
+import traceback
 
 from eve.agent.session.models import ChatMessage
 
@@ -38,6 +40,29 @@ def messages_to_text(messages: List[ChatMessage]) -> str:
 
         text_parts.append(f"{speaker}: {content}")
     return "\n".join(text_parts)
+
+
+async def _update_agent_memory_timestamp(agent_id: ObjectId):
+    """
+    Update the agent memory status timestamp to indicate collective memory has changed.
+    This allows sessions to detect when they need to refresh their cached agent memory.
+    """
+    try:
+        from eve.agent.session.memory_state import agent_memory_status
+        
+        agent_key = str(agent_id)
+        current_time = datetime.now(timezone.utc).isoformat()
+
+        if agent_key in agent_memory_status:
+            agent_memory_status[agent_key]["last_updated_at"] = current_time
+        else:
+            agent_memory_status[agent_key] = {"last_updated_at": current_time}
+        
+        logging.debug(f"Updated agent memory status timestamp for agent {agent_id}: {current_time}")
+        
+    except Exception as e:
+        print(f"Error updating agent memory status for agent {agent_id}: {e}")
+        traceback.print_exc()
 
 
 class MemoryType(Enum):
@@ -119,7 +144,9 @@ class UserMemory(Document):
     content: Optional[str] = ""
     agent_owner: Optional[ObjectId] = None
     # Track which directive memories haven't been consolidated yet:
-    unabsorbed_directive_ids: List[ObjectId] = []  
+    unabsorbed_directive_ids: List[ObjectId] = []
+    # Track when the memory blob was last updated:
+    last_updated_at: Optional[datetime] = None  
 
     @classmethod
     def convert_to_mongo(cls, schema: dict, **kwargs) -> dict:
@@ -179,6 +206,9 @@ class AgentMemory(Document):
 
     # List of relevant facts (raw_memory_ids):
     facts: List[ObjectId] = []
+
+    # Fully formed memory shard containing consolidated content + recent facts + unabsorbed suggestions as a single string
+    fully_formed_memory_shard: Optional[str] = ""
 
     # Track when the memory blob was last updated:
     last_updated_at: Optional[datetime] = None

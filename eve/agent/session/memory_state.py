@@ -22,6 +22,10 @@ except ImportError:
 db = os.getenv("DB", "STAGE").upper()
 pending_session_memories = modal.Dict.from_name(f"pending-session-memories-{db.lower()}", create_if_missing=True)
 
+# Global state dict to track agent memory update timestamps
+# Key: agent_id (str), Value: {"last_updated_at": timestamp_string}
+agent_memory_status = modal.Dict.from_name(f"agent-memory-status-{db.lower()}", create_if_missing=True)
+
 # Default session state structure - defined once to avoid duplication
 DEFAULT_SESSION_STATE = {
     "last_activity": None,
@@ -29,7 +33,8 @@ DEFAULT_SESSION_STATE = {
     "message_count_since_memory": 0,
     "cached_memory_context": None,
     "should_refresh_memory": True,
-    "agent_collective_memory_timestamp": None # Timestamp of the last time the agent's collective memory was fetched in this session
+    "agent_collective_memory_timestamp": None, # Timestamp of the last time the agent's collective memory was fetched in this session
+    "user_memory_timestamp": None # Timestamp of the last time the user memory was fetched in this session
 }
 
 async def get_session_state(agent_id: ObjectId, session_id: ObjectId) -> Dict[str, Any]:
