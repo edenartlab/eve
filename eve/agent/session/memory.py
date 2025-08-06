@@ -1,23 +1,16 @@
 """
-Agent Memory System for Eve Platform
-
-Provides automatic memory formation and context assembly for multi-agent conversations.
-Memories are categorized as directives (behavioral rules) and episodes (conversation summaries
-including contextual information) with full source message traceability.
+Agent Memory System for Eden
 """
 
-import json
 import logging
 import time
 import traceback
 from typing import List, Dict, Any
 from datetime import datetime, timezone
 from bson import ObjectId
-from eve.agent.session.session_llm import async_prompt, LLMContext, LLMConfig
-
 from pydantic import BaseModel, Field, create_model
 
-
+from eve.agent.session.session_llm import async_prompt, LLMContext, LLMConfig
 from eve.agent.session.models import ChatMessage, Session
 from eve.agent.session.memory_state import update_session_state
 from eve.agent.session.memory_primitives import MemoryType, SessionMemory, UserMemory, AgentMemory, get_agent_owner, messages_to_text
@@ -37,7 +30,7 @@ Database collections:
 
 Main algorithm:
 - Every N messages, trigger raw memory formation inside a session
-- Run one LLM call to extract episodes and directives
+- Run one LLM call to extract an episode and optional directive
 - (if active) Run one extra LLM call for each collective agent shard to extract suggestions and facts (this includes the agent's persona and a custom shard prompt)
 - Store all raw memories (episodes, directives, suggestions, facts) in memory_sessions and keep track of their ids
 - Update memory_user and memory_agent with the corresponding new raw_memory_ids, trigger consolidations where needed
@@ -47,15 +40,15 @@ Main algorithm:
 
 TODO:
 Near term:
-- verify that json extraction from llm is working (standalone test script) (multiple memories of each type, missing type, etc)
 - generalize consolidation logic to all memory types
 - actually use AgentMemory.last_updated_at when checking session memory cache
-
+- get everything to work on localhost
 
 Next:
 - trigger memory formation based on token count instead of message count
 - actually deploy background tasks for memory formation
 - extract all hardcoded prompts into a single file
+- add langfuse tracking for memory: https://discord.com/channels/573691888050241543/898297428011266080/1400817817896353914
 
 Finally:
 - Create UI for memory shards and prompts, facts, suggestions, version history, ...
@@ -75,7 +68,7 @@ if LOCAL_DEV:
     
     # Normal memory settings:
     MAX_DIRECTIVES_COUNT_BEFORE_CONSOLIDATION = 2  # Number of individual memories to store before consolidating them into the agent's user_memory blob
-    MAX_N_EPISODES_TO_REMEMBER = 2  # Number of episodes to remember from a session
+    MAX_N_EPISODES_TO_REMEMBER = 2  # Number of episodes to keep in context from a session
     # Collective memory settings:
     MAX_SUGGESTIONS_COUNT_BEFORE_CONSOLIDATION = 2 # Number of suggestions to store before consolidating them into the agent's collective memory blob
     MAX_FACTS_PER_SHARD = 3 # Max number of facts to store per agent shard (fifo)
@@ -87,7 +80,7 @@ else:
 
     # Normal memory settings:
     MAX_DIRECTIVES_COUNT_BEFORE_CONSOLIDATION = 5  # Number of individual memories to store before consolidating them into the agent's user_memory blob
-    MAX_N_EPISODES_TO_REMEMBER = 10  # Number of episodes to remember from a session
+    MAX_N_EPISODES_TO_REMEMBER = 10  # Number of episodes to keep in context from a session
     # Collective memory settings:
     MAX_SUGGESTIONS_COUNT_BEFORE_CONSOLIDATION = 10 # Number of suggestions to store before consolidating them into the agent's collective memory blob
     MAX_FACTS_PER_SHARD = 30 # Max number of facts to store per agent shard (fifo)
@@ -103,8 +96,8 @@ CONVERSATION_TEXT_TOKEN = "---conversation_text---"
 MEMORY_EXTRACTION_PROMPT = f"""Task: Extract persistent memories from the conversation.
 Return **exactly** this JSON:
 {{
-  "episode": "<ONE factual digest, ≤{SESSION_CONSOLIDATED_MEMORY_MAX_WORDS} words>",
-  "directive": "<at most one persistent rule, ≤{SESSION_DIRECTIVE_MEMORY_MAX_WORDS} words OR an empty string>"
+  "episode": "<ONE factual digest of ≤{SESSION_CONSOLIDATED_MEMORY_MAX_WORDS} words>",
+  "directive": "<(at most) one persistent rule of ≤{SESSION_DIRECTIVE_MEMORY_MAX_WORDS} words OR an empty string>"
 }}
 
 Conversation text:
@@ -119,12 +112,12 @@ Create new memories following these rules:
 
 2. DIRECTIVE: Create AT MOST ONE permanent directive (maximum {SESSION_DIRECTIVE_MEMORY_MAX_WORDS} words) ONLY if there are clear, long-lasting rules, preferences, or behavioral guidelines that should be applied consistently in all future interactions with the user. If none exist (highly likely), just leave empty.
    
-   ONLY include as long-lasting directives:
+   ONLY include long-lasting rules:
    - Explicit behavioral rules or guidelines ("always ask permission before...", "never do X", "remember to always Y")
    - Stable, long-term preferences that should guide future behavior consistently
    - Clear exceptions or special handling rules for interaction patterns with the current user that should persist across many future conversations ("Whenever I ask you to do X, you should do it like so..")
    
-   DO NOT include as directives:
+   DO NOT include as directive:
    - One-time requests or specific tasks ("create a story about...", "make an image of...")
    - Ad hoc instructions relevant for the current conversation context only
    - Temporary or situational commands
@@ -169,7 +162,7 @@ def store_raw_memories_in_db(
     new_directive_memories = []
 
     # Store directives
-    for directive in extracted_data.get("directives", []):
+    for directive in extracted_data.get("directive", []):
         memory = SessionMemory(
             agent_id=agent_id,
             source_session_id=session_id,
@@ -184,7 +177,7 @@ def store_raw_memories_in_db(
         new_directive_memories.append(memory)
 
     # Store episodes
-    for episode in extracted_data.get("episodes", []):
+    for episode in extracted_data.get("episode", []):
         memory = SessionMemory(
             agent_id=agent_id,
             source_session_id=session_id,
@@ -199,7 +192,7 @@ def store_raw_memories_in_db(
 
     # Store facts with shard tracking - facts MUST have a shard_id
     new_fact_memories = []
-    for idx, fact in enumerate(extracted_data.get("facts", [])):
+    for idx, fact in enumerate(extracted_data.get("fact", [])):
         shard_id = memory_to_shard_map.get(f"facts_{idx}") if memory_to_shard_map else None
         if shard_id is None:
             print(f"WARNING: Fact memory '{fact}' has no corresponding shard_id - this should not happen for collective memories!")
@@ -244,7 +237,7 @@ def store_raw_memories_in_db(
         if user_id:  # Only process non-None user IDs
             _update_user_memory(agent_id, user_id, new_directive_memories)
 
-    # Update agent memories with new facts and suggestions
+    # Update agent memories with new fact and suggestion
     if new_fact_memories or new_suggestion_memories:
         _update_agent_memories(agent_id, new_fact_memories, new_suggestion_memories)
 
@@ -286,10 +279,8 @@ def _update_user_memory(
             logging.debug(
                 f"Triggering user memory consolidation for agent {agent_id}, user {user_id}: integrating {len(user_memory.unabsorbed_directive_ids)} unabsorbed directives"
             )
-            # Store the user_memory for async consolidation
+            # Create a task to run the user_memory consolidation asynchronously
             import asyncio
-
-            # Create a task to run the consolidation asynchronously
             loop = asyncio.get_event_loop()
             loop.create_task(_consolidate_user_directives(user_memory))
 
@@ -305,7 +296,7 @@ def _update_agent_memories(
 ):
     """
     Add new facts and suggestions to their originating agent memory shards only.
-    Facts are added to relevant_facts (FIFO up to MAX_FACTS_PER_SHARD).
+    Facts are added to shard.facts (FIFO up to MAX_FACTS_PER_SHARD).
     Suggestions are added to unabsorbed_memory_ids for consolidation.
     """
     try:
@@ -349,17 +340,17 @@ def _update_agent_memories(
             
             shard_updated = False
             
-            # Add new facts to this shard's relevant_facts (FIFO)
+            # Add new facts to this shard's facts (FIFO)
             if shard_id in facts_by_shard:
                 for fact_memory in facts_by_shard[shard_id]:
-                    shard.relevant_facts.append(fact_memory.id)
+                    shard.facts.append(fact_memory.id)
                     shard_updated = True
                 
                 # Maintain FIFO - keep only the most recent facts
-                if len(shard.relevant_facts) > MAX_FACTS_PER_SHARD:
-                    shard.relevant_facts = shard.relevant_facts[-MAX_FACTS_PER_SHARD:]
+                if len(shard.facts) > MAX_FACTS_PER_SHARD:
+                    shard.facts = shard.facts[-MAX_FACTS_PER_SHARD:]
                 
-                logging.debug(f"Added {len(facts_by_shard[shard_id])} facts to shard '{shard.shard_name}' (shard_id: {shard_id}, total: {len(shard.relevant_facts)})")
+                logging.debug(f"Added {len(facts_by_shard[shard_id])} facts to shard '{shard.shard_name}' (shard_id: {shard_id}, total: {len(shard.facts)})")
             
             # Add new suggestions to this shard's unabsorbed_memory_ids
             if shard_id in suggestions_by_shard:
@@ -504,8 +495,8 @@ async def process_memory_formation(
         extracted_data = {}
         memory_to_shard_map = {}  # Track which shard each individual memory comes from
         
-        # Extract regular memories (episodes and directives) - no shard tracking needed
-        regular_memories = await extract_memories_with_llm(conversation_text, extraction_prompt=MEMORY_EXTRACTION_PROMPT, extraction_elements=["episodes", "directives"])
+        # Extract regular memories (episode and directive) - no shard tracking needed
+        regular_memories = await extract_memories_with_llm(conversation_text, extraction_prompt=MEMORY_EXTRACTION_PROMPT, extraction_elements=["episode", "directive"])
         extracted_data.update(regular_memories)
         
         # Extract collective memories from active agent shards
@@ -612,88 +603,6 @@ async def extract_memories_with_llm(
     logging.debug("########################")
     
     return formatted_data
-
-async def extract_memories_with_llm_old(
-    conversation_text: str, 
-    extraction_prompt: str,
-    extraction_elements: List[str]
-) -> Dict[str, List[str]]:
-    """Use LLM to extract categorized memories from conversation text"""
-
-    if CONVERSATION_TEXT_TOKEN not in extraction_prompt:
-        extraction_prompt = "Conversation text:\n" + CONVERSATION_TEXT_TOKEN + "\n" + extraction_prompt
-    
-    # Replace conversation_text in the prompt using string replacement
-    memory_extraction_prompt = extraction_prompt.replace(CONVERSATION_TEXT_TOKEN, conversation_text)
-
-    # Use LLM to extract memories
-    context = LLMContext(
-        messages=[ChatMessage(role="user", content=memory_extraction_prompt)],
-        config=LLMConfig(model=MEMORY_LLM_MODEL),
-    )
-
-    response = await async_prompt(context)
-
-    # Clean up response to extract JSON
-    response_text = response.content.strip()
-    if response_text.startswith("```json"):
-        response_text = response_text[7:]
-    if response_text.endswith("```"):
-        response_text = response_text[:-3]
-    response_text = response_text.strip()
-
-    # Parse JSON response
-    try:
-        extracted_data = json.loads(response_text)
-        # Convert to the expected format for storage based on extraction_elements
-        formatted_data = {}
-        
-        # Handle episodes
-        if "episodes" in extraction_elements:
-            if extracted_data.get("consolidated_memory", "").strip():
-                formatted_data["episodes"] = [extracted_data.get("consolidated_memory", "")]
-            else:
-                formatted_data["episodes"] = []
-        
-        # Handle directives  
-        if "directives" in extraction_elements:
-            if extracted_data.get("directive", "").strip():
-                formatted_data["directives"] = [extracted_data.get("directive", "")]
-            else:
-                formatted_data["directives"] = []
-        
-        # Handle facts
-        if "facts" in extraction_elements:
-            facts = extracted_data.get("facts", [])
-            if isinstance(facts, list):
-                formatted_data["facts"] = [fact for fact in facts if fact.strip()]
-            else:
-                formatted_data["facts"] = []
-        
-        # Handle suggestions
-        if "suggestions" in extraction_elements:
-            suggestions = extracted_data.get("suggestions", [])
-            if isinstance(suggestions, list):
-                formatted_data["suggestions"] = [suggestion for suggestion in suggestions if suggestion.strip()]
-            else:
-                formatted_data["suggestions"] = []
-        
-        return formatted_data
-    except json.JSONDecodeError:
-        print(f"Failed to parse JSON from LLM response: {response_text[:200]}...")
-        # Return empty dict with all requested extraction elements
-        extracted_data = {element: [] for element in extraction_elements}
-
-    # Print the messages and the prompt:
-    logging.debug("########################")
-    logging.debug("Forming new memories...")
-    logging.debug(f"--- Messages: ---\n{context.messages}")
-    logging.debug(f"--- Prompt: ---\n{memory_extraction_prompt}")
-    logging.debug(f"--- Memories: ---\n{extracted_data}")
-    logging.debug("########################")
-
-    return extracted_data
-
 
 async def maybe_form_memories(agent_id: ObjectId, session: Session, force_memory_formation: bool = False) -> bool:
     """

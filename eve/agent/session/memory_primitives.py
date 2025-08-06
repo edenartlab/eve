@@ -178,7 +178,7 @@ class AgentMemory(Document):
     unabsorbed_memory_ids: List[ObjectId] = []
 
     # List of relevant facts (raw_memory_ids):
-    relevant_facts: List[ObjectId] = []
+    facts: List[ObjectId] = []
 
     # Track when the memory blob was last updated:
     last_updated_at: Optional[datetime] = None

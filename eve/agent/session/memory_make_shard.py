@@ -1,6 +1,10 @@
 from bson import ObjectId
 from datetime import datetime
 from typing import Optional
+
+import sys, os
+eve_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append('')
 from eve.agent.session.memory_primitives import MemoryType, SessionMemory, UserMemory, AgentMemory
 
 def create_memory_shard(
