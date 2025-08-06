@@ -56,7 +56,7 @@ CONVERSATION_TEXT_TOKEN = "---conversation_text---"
 
 # Define memory types with their limits
 MEMORY_TYPES = {
-    "episode": MemoryType("episode",  0, 1, "Summary of a section of the conversation in a session"),
+    "episode": MemoryType("episode",  1, 1, "Summary of a section of the conversation in a session"),
     "directive": MemoryType("directive", 0, 1, "User instructions, preferences, behavioral rules"), 
     "suggestion": MemoryType("suggestion", 0, 1, "Suggestions/ideas for the agent to consider integrating into collective memory"),
     "fact": MemoryType("fact", 0, 3, "Atomic facts about the user or the world")
@@ -70,7 +70,7 @@ MEMORY_TYPES = {
 REGULAR_MEMORY_EXTRACTION_PROMPT = f"""Task: Extract persistent memories from the conversation.
 Return **exactly** this JSON:
 {{
-  "episode": ["list of {MEMORY_TYPES['episode'].min_items}-{MEMORY_TYPES['episode'].max_items} factual digest (≤{SESSION_EPISODE_MEMORY_MAX_WORDS} words each)"],
+  "episode": ["list of exactly one factual digest (≤{SESSION_EPISODE_MEMORY_MAX_WORDS} words each)"],
   "directive": ["list of {MEMORY_TYPES['directive'].min_items}-{MEMORY_TYPES['directive'].max_items} persistent rules (≤{SESSION_DIRECTIVE_MEMORY_MAX_WORDS} words each)"]
 }}
 
