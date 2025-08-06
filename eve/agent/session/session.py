@@ -42,7 +42,7 @@ from eve.agent.session.session_prompts import (
     model_template,
 )
 
-from eve.agent.session.memory import maybe_form_memories
+from eve.agent.session.memory import should_form_memories, form_memories
 from eve.agent.session.memory_assemble_context import assemble_memory_context
 
 from eve.agent.session.config import (
@@ -1079,11 +1079,11 @@ async def _run_prompt_session_internal(
 
             # Process memory formation for all actors that participated
             for actor in actors:
-                # TODO move the messages_since_last < interval check to here instead of inside the background task
-                print(
-                    f"🧠 Triggering maybe_form_memories() as background task for session {session.id}, agent {actor.id}"
-                )
-                background_tasks.add_task(maybe_form_memories, actor.id, session)
+                if should_form_memories(actor.id, session):
+                    print(
+                        f"🧠 Triggering form_memories() as background task for session {session.id}, agent {actor.id}"
+                    )
+                    background_tasks.add_task(form_memories, actor.id, session)
 
             # Send success notification if configured
             if (

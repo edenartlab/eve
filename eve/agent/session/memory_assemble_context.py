@@ -1,6 +1,6 @@
 from eve.agent.session.memory_primitives import MemoryType, SessionMemory, UserMemory, AgentMemory, estimate_tokens
 from eve.agent.session.memory_state import get_session_state, update_session_state, agent_memory_status
-from eve.agent.session.memory import MAX_N_EPISODES_TO_REMEMBER, LOCAL_DEV
+from eve.agent.session.memory_constants import MAX_N_EPISODES_TO_REMEMBER, LOCAL_DEV
 
 import time, logging
 from bson import ObjectId
@@ -61,6 +61,35 @@ async def assemble_memory_context(agent_id: ObjectId, session_id: Optional[Objec
                     # If either timestamp is missing, refresh to be safe
                     agent_memory_updated = True
             
+            # Check if user memory has been updated since last fetch (only check if we have necessary IDs)
+            if session_id and agent_id and last_speaker_id:
+                try:
+                    user_memory_obj = UserMemory.find_one({"agent_id": agent_id, "user_id": last_speaker_id})
+                    
+                    if user_memory_obj and user_memory_obj.last_updated_at:
+                        session_user_memory_timestamp = session_state.get("user_memory_timestamp")
+                        
+                        if session_user_memory_timestamp:
+                            try:
+                                user_updated_dt = user_memory_obj.last_updated_at
+                                if not user_updated_dt.tzinfo:
+                                    user_updated_dt = user_updated_dt.replace(tzinfo=timezone.utc)
+                                session_user_fetched_dt = datetime.fromisoformat(session_user_memory_timestamp.replace('Z', '+00:00'))
+                                user_memory_updated = user_updated_dt > session_user_fetched_dt
+                                logging.debug(f"User memory timestamp check: user_updated={user_updated_dt.isoformat()}, session_fetched={session_user_memory_timestamp}, needs_refresh={user_memory_updated}")
+                            except Exception as e:
+                                logging.warning(f"Error parsing timestamps for user memory check: {e}")
+                                user_memory_updated = True
+                        else:
+                            # If session timestamp is missing, refresh to be safe
+                            user_memory_updated = True
+                    else:
+                        # If no user memory exists or no timestamp, don't force refresh
+                        user_memory_updated = False
+                except Exception as e:
+                    logging.warning(f"Error checking user memory timestamp: {e}")
+                    user_memory_updated = True
+            
             if cached_context and not should_refresh and not agent_memory_updated and not user_memory_updated:
                 total_time = time.time() - start_time
                 # print(f"   ⚡ USING CACHED MEMORY: {total_time:.3f}s")
@@ -92,35 +121,6 @@ async def assemble_memory_context(agent_id: ObjectId, session_id: Optional[Objec
     episode_memories = []
     user_memory = None
 
-    # Check if user memory has been updated since last fetch (only check if we have necessary IDs)
-    if session_id and agent_id and user_id:
-        try:
-            session_state = await get_session_state(agent_id, session_id)
-            user_memory_obj = UserMemory.find_one({"agent_id": agent_id, "user_id": user_id})
-            
-            if user_memory_obj and user_memory_obj.last_updated_at:
-                session_user_memory_timestamp = session_state.get("user_memory_timestamp")
-                
-                if session_user_memory_timestamp:
-                    try:
-                        user_updated_dt = user_memory_obj.last_updated_at
-                        if not user_updated_dt.tzinfo:
-                            user_updated_dt = user_updated_dt.replace(tzinfo=timezone.utc)
-                        session_user_fetched_dt = datetime.fromisoformat(session_user_memory_timestamp.replace('Z', '+00:00'))
-                        user_memory_updated = user_updated_dt > session_user_fetched_dt
-                        logging.debug(f"User memory timestamp check: user_updated={user_updated_dt.isoformat()}, session_fetched={session_user_memory_timestamp}, needs_refresh={user_memory_updated}")
-                    except Exception as e:
-                        logging.warning(f"Error parsing timestamps for user memory check: {e}")
-                        user_memory_updated = True
-                else:
-                    # If session timestamp is missing, refresh to be safe
-                    user_memory_updated = True
-            else:
-                # If no user memory exists or no timestamp, don't force refresh
-                user_memory_updated = False
-        except Exception as e:
-            logging.warning(f"Error checking user memory timestamp: {e}")
-            user_memory_updated = True
 
     # Step 1: User Memory
     try:
@@ -134,19 +134,17 @@ async def assemble_memory_context(agent_id: ObjectId, session_id: Optional[Objec
             )
             if user_memory:
                 user_memory_content = user_memory.content or ""  # Handle None content
-                unabsorbed_directive_ids = (
-                    user_memory.unabsorbed_directive_ids or []
+                unabsorbed_memory_ids = (
+                    user_memory.unabsorbed_memory_ids or []
                 )  # Handle None list
                 # Get unabsorbed directives:
-                if (
-                    unabsorbed_directive_ids and user_id is not None
-                ):  # Only query if there are IDs to look up and user_id is valid
+                if unabsorbed_memory_ids and user_id:  # Only query if there are IDs to look up and user_id is valid
                     unabsorbed_directives = SessionMemory.find(
                         {
                             "agent_id": agent_id,
                             "memory_type": "directive",
                             "related_users": user_id,
-                            "_id": {"$in": unabsorbed_directive_ids},
+                            "_id": {"$in": unabsorbed_memory_ids},
                         }
                     )
         query_time = time.time() - query_start

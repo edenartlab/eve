@@ -94,7 +94,7 @@ async def process_cold_sessions():
     
     try:
         # Import here to avoid circular imports
-        from eve.agent.session.memory import maybe_form_memories
+        from eve.agent.session.memory import form_memories
         from eve.agent.session.models import Session
         
         current_time = datetime.now(timezone.utc)
@@ -132,7 +132,7 @@ async def process_cold_sessions():
                             # Load the session from MongoDB
                             session = Session.from_mongo(session_id)
                             if session:
-                                success = await maybe_form_memories(agent_id, session, force_memory_formation=True)
+                                success = await form_memories(agent_id, session)
                                 if success:
                                     print(f"✓ Memory formation completed for session {session_id}")
                                     processed_sessions += 1

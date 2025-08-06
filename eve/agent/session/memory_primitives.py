@@ -7,7 +7,21 @@ from datetime import datetime, timezone
 import logging
 import traceback
 
-from eve.agent.session.models import ChatMessage
+from eve.agent.session.models import ChatMessage, SessionMemory
+
+
+def _get_recent_messages(
+    session_messages: List[ChatMessage], 
+    last_memory_message_id: ObjectId
+) -> List[ChatMessage]:
+    """Get messages since the last memory formation."""
+    if not last_memory_message_id:
+        return session_messages
+    
+    # Create message ID to index mapping for O(1) lookup
+    message_id_to_index = {msg.id: i for i, msg in enumerate(session_messages)}
+    last_memory_position = message_id_to_index.get(last_memory_message_id, -1)
+    return session_messages[last_memory_position + 1:]
 
 def estimate_tokens(text: str) -> int:
     """Rough token estimation (4.5 characters per token)"""
@@ -41,6 +55,18 @@ def messages_to_text(messages: List[ChatMessage]) -> str:
         text_parts.append(f"{speaker}: {content}")
     return "\n".join(text_parts)
 
+def _format_facts_with_age(facts: List[SessionMemory]) -> str:
+    """
+    Format facts with age information.
+    """
+    if not facts:
+        return ""
+    
+    fact_lines = []
+    for fact in facts:
+        age_days = (datetime.now(timezone.utc) - fact.createdAt).days if fact.createdAt else 0
+        fact_lines.append(f"- {fact.content} (age: {age_days} days ago)")
+    return "\n".join(fact_lines)
 
 async def _update_agent_memory_timestamp(agent_id: ObjectId):
     """
@@ -86,7 +112,6 @@ class SessionMemory(Document):
 
     # For collective memory tracking - which shard this memory belongs to
     shard_id: Optional[ObjectId] = None
-
     agent_owner: Optional[ObjectId] = None
 
     @field_serializer("memory_type")
@@ -144,7 +169,7 @@ class UserMemory(Document):
     content: Optional[str] = ""
     agent_owner: Optional[ObjectId] = None
     # Track which directive memories haven't been consolidated yet:
-    unabsorbed_directive_ids: List[ObjectId] = []
+    unabsorbed_memory_ids: List[ObjectId] = []
     # Track when the memory blob was last updated:
     last_updated_at: Optional[datetime] = None  
 

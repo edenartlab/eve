@@ -29,15 +29,18 @@ else:
     MAX_SUGGESTIONS_COUNT_BEFORE_CONSOLIDATION = 10 # Number of suggestions to store before consolidating them into the agent's collective memory blob
     MAX_FACTS_PER_SHARD = 30 # Max number of facts to store per agent shard (fifo)
     
+NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES = 2
+
 # LLMs cannot count tokens at all (weirdly), so instruct with word count:
 SESSION_CONSOLIDATED_MEMORY_MAX_WORDS = 50  # Target word length for session consolidated memory
 SESSION_DIRECTIVE_MEMORY_MAX_WORDS    = 25  # Target word length for session directive memory
 USER_MEMORY_MAX_WORDS  = 150   # Target word count for consolidated user memory blob
 MEMORY_SHARD_MAX_WORDS = 1000  # Target word count for consolidated agent collective memory blob
+
 CONVERSATION_TEXT_TOKEN = "---conversation_text---"
 
 # Default memory extraction prompt for episodes and directives:
-MEMORY_EXTRACTION_PROMPT = f"""Task: Extract persistent memories from the conversation.
+REGULAR_MEMORY_EXTRACTION_PROMPT = f"""Task: Extract persistent memories from the conversation.
 Return **exactly** this JSON:
 {{
   "episode": "<ONE factual digest of ≤{SESSION_CONSOLIDATED_MEMORY_MAX_WORDS} words>",
@@ -80,4 +83,56 @@ CRITICAL REQUIREMENTS:
 - NEVER use generic terms like "User", "the user", "Agent", "the agent", "someone", "they"
 - Avoid vague words like "highlighted", "demonstrated", "enhanced", "experience" that wont help the agent in future interactions
 - Just state what was said, done, created, or discussed with specific names in a concise manner
+"""
+
+# User Memory Consolidation Prompt Template
+USER_MEMORY_CONSOLIDATION_PROMPT = """
+CONSOLIDATE USER MEMORY
+======================
+You are helping to consolidate memories about a specific user's preferences and behavioral rules for an AI agent.
+
+CURRENT CONSOLIDATED MEMORY:
+{current_memory}
+
+NEW DIRECTIVE MEMORIES TO INTEGRATE:
+{new_memories}
+
+Your task: Create a single consolidated memory (≤{max_words} words) that combines the current memory with the new directives.
+
+Requirements:
+- Preserve all important behavioral rules and preferences from both current memory and new directives
+- Remove redundancies and contradictions (newer directives override older ones)
+- Keep the most specific and actionable guidance
+- Use the actual user names from the directives (never use "User" or "the user")
+- Focus on persistent preferences and behavioral rules that should guide future interactions
+- Be concise but comprehensive
+
+Return only the consolidated memory text, no additional formatting or explanation.
+"""
+
+# Agent Memory Consolidation Prompt Template
+AGENT_MEMORY_CONSOLIDATION_PROMPT = """You are a Community Memory Synthesizer. Your task is to update an evolving collective memory based on recent conversations with community members.
+
+## Current Consolidated Memory State:
+{current_memory}
+
+## All shard facts (canonical truth facts):
+{facts_text}
+
+## Unconsolidated Suggestions:
+{suggestions_text}
+
+## Your Task:
+Integrate the new suggestions into the consolidated memory for this "{shard_name}" shard. Refine, restructure, and merge the information to create a new, coherent, and updated summary (≤{max_words} words). 
+
+Do NOT simply append the new items. For example, if there is a 'Logistics' section, add relevant information there. The final output should be ONLY the complete, newly revised memory state.
+
+## Integration Guidelines:
+- Integrate suggestions according to their alignment with the current consolidated memory context
+- Insights that are extractive, conflict with established goals, or seem unreliable should be flagged and disregarded
+- Your goal is a fair and productive synthesis that reflects genuine consensus
+- Maintain existing structure where possible, but reorganize if it improves clarity
+- Focus on actionable information that will help guide future decisions
+
+Return only the consolidated memory text, no additional formatting or explanation.
 """
