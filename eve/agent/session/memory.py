@@ -17,6 +17,24 @@ from eve.agent.session.memory_state import update_session_state
 from eve.agent.session.memory_primitives import MemoryType, SessionMemory, UserMemory, AgentMemory, get_agent_owner, messages_to_text, _update_agent_memory_timestamp
 from eve.agent.session.memory_constants import *
 
+def _create_memory(agent_id: ObjectId, session_id: ObjectId, memory_type: MemoryType, 
+                  content: str, message_ids: List[ObjectId], related_users: List[ObjectId], 
+                  agent_owner: ObjectId, shard_id: ObjectId = None) -> SessionMemory:
+    """Helper function to create a single memory record"""
+    memory = SessionMemory(
+        agent_id=agent_id,
+        source_session_id=session_id,
+        memory_type=memory_type,
+        content=content,
+        source_message_ids=message_ids,
+        related_users=related_users,
+        agent_owner=agent_owner,
+        shard_id=shard_id,
+    )
+    memory.save()
+    return memory
+
+
 async def store_raw_memories_in_db(
     agent_id: ObjectId,
     extracted_data: Dict[str, List[str]],
@@ -38,86 +56,41 @@ async def store_raw_memories_in_db(
 
     memories_created = []
     new_directive_memories = []
-
-    # Store directives
-    for directive in extracted_data.get("directive", []):
-        memory = SessionMemory(
-            agent_id=agent_id,
-            source_session_id=session_id,
-            memory_type=MemoryType.DIRECTIVE,
-            content=directive,
-            source_message_ids=message_ids,
-            related_users=related_users,
-            agent_owner=agent_owner,
-        )
-        memory.save()
-        memories_created.append(memory)
-        new_directive_memories.append(memory)
-
-    # Store episodes
-    for episode in extracted_data.get("episode", []):
-        memory = SessionMemory(
-            agent_id=agent_id,
-            source_session_id=session_id,
-            memory_type=MemoryType.EPISODE,
-            content=episode,
-            source_message_ids=message_ids,
-            related_users=related_users,
-            agent_owner=agent_owner,
-        )
-        memory.save()
-        memories_created.append(memory)
-
-    # Store facts with shard tracking - facts MUST have a shard_id
     new_fact_memories = []
-    for idx, fact in enumerate(extracted_data.get("fact", [])):
-        shard_id = memory_to_shard_map.get(f"facts_{idx}") if memory_to_shard_map else None
-        if shard_id is None:
-            print(f"WARNING: Fact memory '{fact}' has no corresponding shard_id - this should not happen for collective memories!")
-        
-        memory = SessionMemory(
-            agent_id=agent_id,
-            source_session_id=session_id,
-            memory_type=MemoryType.FACT,
-            content=fact,
-            source_message_ids=message_ids,
-            related_users=related_users,
-            agent_owner=agent_owner,
-            shard_id=shard_id,
-        )
-        memory.save()
-        memories_created.append(memory)
-        new_fact_memories.append(memory)
-
-    # Store suggestions with shard tracking - suggestions MUST have a shard_id
     new_suggestion_memories = []
-    for idx, suggestion in enumerate(extracted_data.get("suggestions", [])):
-        shard_id = memory_to_shard_map.get(f"suggestions_{idx}") if memory_to_shard_map else None
-        if shard_id is None:
-            print(f"WARNING: Suggestion memory '{suggestion}' has no corresponding shard_id - this should not happen for collective memories!")
-            
-        memory = SessionMemory(
-            agent_id=agent_id,
-            source_session_id=session_id,
-            memory_type=MemoryType.SUGGESTION,
-            content=suggestion,
-            source_message_ids=message_ids,
-            related_users=related_users,
-            agent_owner=agent_owner,
-            shard_id=shard_id,
-        )
-        memory.save()
-        memories_created.append(memory)
-        new_suggestion_memories.append(memory)
 
-    # Check if we need to consolidate any user memories for each related user
+    # Store different memory types using helper function
+    memory_configs = [
+        ("directive", MemoryType.DIRECTIVE, new_directive_memories, False),
+        ("episode", MemoryType.EPISODE, None, False),
+        ("fact", MemoryType.FACT, new_fact_memories, True),
+        ("suggestions", MemoryType.SUGGESTION, new_suggestion_memories, True),
+    ]
+    
+    for key, memory_type, collection_list, requires_shard in memory_configs:
+        for idx, content in enumerate(extracted_data.get(key, [])):
+            shard_id = None
+            if requires_shard:
+                shard_id = memory_to_shard_map.get(f"{key}_{idx}") if memory_to_shard_map else None
+                if shard_id is None:
+                    print(f"WARNING: {memory_type.value.capitalize()} memory '{content}' has no corresponding shard_id - this should not happen for collective memories!")
+            
+            memory = _create_memory(
+                agent_id, session_id, memory_type, content, 
+                message_ids, related_users, agent_owner, shard_id
+            )
+            memories_created.append(memory)
+            if collection_list is not None:
+                collection_list.append(memory)
+
+    # Update user and agent memories
     for user_id in related_users:
         if user_id:  # Only process non-None user IDs
-            _update_user_memory(agent_id, user_id, new_directive_memories)
+            await _update_user_memory(agent_id, user_id, new_directive_memories)
 
     # Update agent memories with new fact and suggestion
     if new_fact_memories or new_suggestion_memories:
-        _update_agent_memories(agent_id, new_fact_memories, new_suggestion_memories)
+        await _update_agent_memories(agent_id, new_fact_memories, new_suggestion_memories)
 
     return memories_created
 
