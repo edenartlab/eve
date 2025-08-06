@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field, create_model
 from eve.agent.session.session_llm import async_prompt, LLMContext, LLMConfig
 from eve.agent.session.models import ChatMessage, Session
 from eve.agent.session.memory_state import update_session_state
-from eve.agent.session.memory_primitives import MemoryType, SessionMemory, UserMemory, AgentMemory, get_agent_owner, messages_to_text, _update_agent_memory_timestamp, _get_recent_messages, _format_facts_with_age
+from eve.agent.session.memory_primitives import SessionMemory, UserMemory, AgentMemory, get_agent_owner, messages_to_text, _update_agent_memory_timestamp, _get_recent_messages, _format_facts_with_age
 from eve.agent.session.memory_constants import *
 
 async def _store_memories_by_type(
@@ -24,19 +24,16 @@ async def _store_memories_by_type(
     related_users: List[ObjectId],
     agent_owner: ObjectId,
     memory_to_shard_map: Dict[str, ObjectId] = None
-) -> Dict[MemoryType, List[SessionMemory]]:
+) -> Dict[str, List[SessionMemory]]:
     """Store memories organized by type."""
     memories_by_type = {}
     
-    # key, memory_type, requires_shard
-    memory_configs = [
-        ("directive", MemoryType.DIRECTIVE, False),
-        ("episode", MemoryType.EPISODE, False),
-        ("fact", MemoryType.FACT, True),
-        ("suggestion", MemoryType.SUGGESTION, True),
-    ]
+    # Generate memory configs from MEMORY_TYPES
+    # Facts and suggestions are collective memory (require shards), episodes and directives are personal
+    collective_memory_types = {"fact", "suggestion"}
     
-    for key, memory_type, requires_shard in memory_configs:
+    for key, memory_type in MEMORY_TYPES.items():
+        requires_shard = key in collective_memory_types
         memories = []
         for idx, content in enumerate(extracted_data.get(key, [])):
             shard_id = None
@@ -44,13 +41,13 @@ async def _store_memories_by_type(
                 shard_id = memory_to_shard_map.get(f"{key}_{idx}") if memory_to_shard_map else None
                 if shard_id is None:
                     logging.warning(
-                        f"{memory_type.value.capitalize()} memory '{content}' has no shard_id"
+                        f"{memory_type.name.capitalize()} memory '{content}' has no shard_id"
                     )
             
             memory = SessionMemory(
                 agent_id=agent_id,
                 source_session_id=session_id,
-                memory_type=memory_type,
+                memory_type=memory_type.name,  # Store the string value
                 content=content,
                 source_message_ids=message_ids,
                 related_users=related_users,
@@ -61,7 +58,7 @@ async def _store_memories_by_type(
             memories.append(memory)
         
         if memories:
-            memories_by_type[memory_type] = memories
+            memories_by_type[memory_type.name] = memories
     
     return memories_by_type
 
@@ -74,7 +71,7 @@ async def _save_all_memories(
     memory_to_shard_map: Dict[str, ObjectId] = None,
 ) -> List[SessionMemory]:
     """Store raw extracted session memories (all types) in MongoDB with source traceability"""
-    logging.debug(f"Extracted data: {extracted_data}")
+    print(f"Extracted data: {extracted_data}")
     
     # Prepare common data
     message_ids = [msg.id for msg in messages]
@@ -94,15 +91,15 @@ async def _save_all_memories(
         if user_id:
             await _update_user_memory(
                 agent_id, user_id, 
-                memories_by_type.get(MemoryType.DIRECTIVE, [])
+                memories_by_type.get("directive", [])
             )
 
     # Update agent memories with new facts and suggestions
-    if memories_by_type.get(MemoryType.FACT) or memories_by_type.get(MemoryType.SUGGESTION):
+    if memories_by_type.get("fact") or memories_by_type.get("suggestion"):
         await _update_agent_memory(
             agent_id,
-            memories_by_type.get(MemoryType.FACT, []),
-            memories_by_type.get(MemoryType.SUGGESTION, [])
+            memories_by_type.get("fact", []),
+            memories_by_type.get("suggestion", [])
         )
 
     # Return all memories created
@@ -192,7 +189,7 @@ async def _update_agent_memory(
                         shard.facts = shard.facts[-MAX_FACTS_PER_SHARD:]
                     
                     shard_updated = True
-                    logging.debug(f"Added {len(new_facts)} facts to shard '{shard.shard_name}' (total: {len(shard.facts)})")
+                    print(f"Added {len(new_facts)} facts to shard '{shard.shard_name}' (total: {len(shard.facts)})")
                 
                 # Add new suggestions
                 new_suggestions = shard_memories.get('suggestions', [])
@@ -269,7 +266,7 @@ async def _consolidate_with_llm(
     response = await async_prompt(context)
     consolidated_content = response.content.strip()
 
-    logging.debug(f"LLM consolidation result: {consolidated_content}")
+    print(f"LLM consolidation result: {consolidated_content}")
     return consolidated_content
 
 
@@ -285,10 +282,15 @@ async def extract_memories_with_llm(
     
     extraction_prompt = extraction_prompt.replace(CONVERSATION_TEXT_TOKEN, conversation_text)
     
-    # Dynamically create model with only requested fields
+    # Dynamically create model with only requested fields and max_length constraints
     fields = {}
     for element in extraction_elements:
-        fields[element] = (List[str], Field(default_factory=list))
+        if element in MEMORY_TYPES:
+            memory_type = MEMORY_TYPES[element]
+            fields[element] = (List[str], Field(default_factory=list, max_length=memory_type.max_items))
+        else:
+            # Fallback for unknown memory types
+            fields[element] = (List[str], Field(default_factory=list, max_length=1))
     
     MemoryModel = create_model("MemoryExtraction", **fields)
     
@@ -314,12 +316,12 @@ async def extract_memories_with_llm(
         formatted_data = extracted.model_dump()
     
     # Log the extraction process
-    logging.debug("########################")
-    logging.debug("Forming new memories...")
-    logging.debug(f"--- Messages: ---\n{context.messages}")
-    logging.debug(f"--- Prompt: ---\n{extraction_prompt}")
-    logging.debug(f"--- Memories: ---\n{formatted_data}")
-    logging.debug("########################")
+    print("########################")
+    print("Forming new memories...")
+    print(f"--- Messages: ---\n{context.messages}")
+    print(f"--- Prompt: ---\n{extraction_prompt}")
+    print(f"--- Memories: ---\n{formatted_data}")
+    print("########################")
     
     return formatted_data
 
@@ -332,7 +334,7 @@ async def _consolidate_user_directives(user_memory: UserMemory):
         # Load unabsorbed memories
         unabsorbed_memories = await _load_memories_by_ids(
             user_memory.unabsorbed_memory_ids, 
-            memory_type_filter=MemoryType.DIRECTIVE
+            memory_type_filter="directive"
         )
         
         if not unabsorbed_memories:
@@ -341,9 +343,9 @@ async def _consolidate_user_directives(user_memory: UserMemory):
         # Prepare content for LLM consolidation
         new_memories_text = "\n".join([f"- {m.content}" for m in unabsorbed_memories])
         
-        logging.debug(f"Consolidating {len(unabsorbed_memories)} directives to user_memory")
-        logging.debug(f"Current memory length: {len(user_memory.content)} chars")
-        logging.debug(f"New directives: {new_memories_text}")
+        print(f"Consolidating {len(unabsorbed_memories)} directives to user_memory")
+        print(f"Current memory length: {len(user_memory.content)} chars")
+        print(f"New directives: {new_memories_text}")
 
         # Use generic LLM consolidation
         consolidated_content = await _consolidate_with_llm(
@@ -359,7 +361,7 @@ async def _consolidate_user_directives(user_memory: UserMemory):
         user_memory.last_updated_at = datetime.now(timezone.utc)
         user_memory.save()
         
-        logging.debug(f"✓ Consolidated user memory updated (length: {len(consolidated_content)} chars)")
+        print(f"✓ Consolidated user memory updated (length: {len(consolidated_content)} chars)")
 
     except Exception as e:
         print(f"Error consolidating user directives: {e}")
@@ -374,7 +376,7 @@ async def _consolidate_agent_suggestions(shard: AgentMemory):
         # Load unabsorbed suggestions
         unabsorbed_suggestions = await _load_memories_by_ids(
             shard.unabsorbed_memory_ids,
-            memory_type_filter=MemoryType.SUGGESTION
+            memory_type_filter="suggestion"
         )
         
         if not unabsorbed_suggestions:
@@ -383,15 +385,15 @@ async def _consolidate_agent_suggestions(shard: AgentMemory):
         # Load current facts
         current_facts = await _load_memories_by_ids(
             shard.facts,
-            memory_type_filter=MemoryType.FACT
+            memory_type_filter="fact"
         )
 
         facts_text = _format_facts_with_age(current_facts)
         suggestions_text = "\n".join([f"- {s.content}" for s in unabsorbed_suggestions])
 
-        logging.debug(f"Consolidating {len(unabsorbed_suggestions)} suggestions for agent memory shard '{shard.shard_name}'")
-        logging.debug(f"Current memory length: {len(shard.content or '')} chars")
-        logging.debug(f"New suggestions: {suggestions_text}")
+        print(f"Consolidating {len(unabsorbed_suggestions)} suggestions for agent memory shard '{shard.shard_name}'")
+        print(f"Current memory length: {len(shard.content or '')} chars")
+        print(f"New suggestions: {suggestions_text}")
 
         # Use generic LLM consolidation
         consolidated_content = await _consolidate_with_llm(
@@ -416,7 +418,7 @@ async def _consolidate_agent_suggestions(shard: AgentMemory):
 
 async def _load_memories_by_ids(
     memory_ids: List[ObjectId], 
-    memory_type_filter: MemoryType = None
+    memory_type_filter: str = None
 ) -> List[SessionMemory]:
     """Helper function to load memories by IDs with optional type filtering."""
     memories = []
@@ -441,7 +443,7 @@ async def _regenerate_fully_formed_memory_shard(shard: AgentMemory):
         shard_name = shard.shard_name or "Collective Memory"
         shard_content = [f"### {shard_name} memory content:"]
         
-        facts = await _load_memories_by_ids(shard.facts, MemoryType.FACT)
+        facts = await _load_memories_by_ids(shard.facts, "fact")
         if facts:
             facts_formatted = _format_facts_with_age(facts)
             if facts_formatted:
@@ -454,7 +456,7 @@ async def _regenerate_fully_formed_memory_shard(shard: AgentMemory):
         # Add unabsorbed suggestions
         suggestions = await _load_memories_by_ids(
             shard.unabsorbed_memory_ids, 
-            MemoryType.SUGGESTION
+            "suggestion"
         )
         if suggestions:
             suggestions_text = "\n".join([f"- {s.content}" for s in suggestions])
@@ -468,7 +470,7 @@ async def _regenerate_fully_formed_memory_shard(shard: AgentMemory):
         # Update agent memory status to trigger cache invalidation
         await _update_agent_memory_timestamp(shard.agent_id)
 
-        logging.debug(f"Regenerated fully formed memory shard for '{shard.shard_name}': {len(shard.fully_formed_memory_shard)} chars")
+        print(f"Regenerated fully formed memory shard for '{shard.shard_name}': {len(shard.fully_formed_memory_shard)} chars")
 
     except Exception as e:
         print(f"Error regenerating fully formed memory shard for '{shard.shard_name}': {e}")
@@ -490,7 +492,7 @@ async def process_memory_formation(
         return False
 
     start_idx = len(session_messages) - len(recent_messages)
-    logging.debug(
+    print(
         f"Extracting memories from messages {start_idx}-{len(session_messages)} "
         f"(total: {len(recent_messages)} messages)"
     )
@@ -509,10 +511,10 @@ async def process_memory_formation(
         )
 
         if memories_created:
-            logging.debug(
+            print(
                 f"✓ Formed {len(memories_created)} memories from {len(recent_messages)} messages"
             )
-            logging.debug(
+            print(
                 f"  Memory types: {[m.memory_type.value for m in memories_created]}"
             )
             return True
@@ -547,10 +549,15 @@ async def _extract_all_memories(
             continue
             
         try:
+            # Populate the collective memory extraction prompt with shard's extraction prompt
+            populated_prompt = COLLECTIVE_MEMORY_EXTRACTION_PROMPT.format(
+                shard_extraction_prompt=shard.extraction_prompt
+            )
+            
             # Extract facts and suggestions for this shard
             shard_memories = await extract_memories_with_llm(
                 conversation_text=conversation_text,
-                extraction_prompt=shard.extraction_prompt,
+                extraction_prompt=populated_prompt,
                 extraction_elements=["fact", "suggestion"]
             )
             
@@ -565,7 +572,7 @@ async def _extract_all_memories(
                     memory_to_shard_map[f"{memory_type}_{memory_index}"] = shard.id
             
             total_memories = sum(len(v) for v in shard_memories.values())
-            logging.debug(
+            print(
                 f"Extracted {total_memories} memories from shard '{shard.shard_name}' "
                 f"(shard_id: {shard.id})"
             )
@@ -600,7 +607,7 @@ def should_form_memories(agent_id: ObjectId, session: Session) -> bool:
 
     # Calculate messages since last memory formation
     messages_since_last = len(session_messages) - last_memory_position - 1
-    logging.debug(f"Session {session.id}: {len(session_messages)} total messages, {messages_since_last} since last memory formation")
+    print(f"Session {session.id}: {len(session_messages)} total messages, {messages_since_last} since last memory formation")
     
     return messages_since_last >= MEMORY_FORMATION_INTERVAL
 

@@ -34,6 +34,6 @@ create_memory_shard(
     agent_id=ObjectId("66a916161616161616161616"),
     shard_name="test_shard",
     agent_owner=ObjectId("66a916161616161616161616"),
-    extraction_prompt="Extract the most important facts about the user",
-    content="This is a test shard"
+    extraction_prompt="Your task is to extract any word spoken by the user and turn that into a very basic joke of less than 10 words. Those jokes are then stored as suggestions for further integration into a large database of jokes.",
+    content=""
 )

@@ -1,3 +1,4 @@
+from enum import Enum
 from eve.agent.session.config import DEFAULT_SESSION_SELECTION_LIMIT
 
 # Flag to easily switch between local and production memory settings (keep this in but always set to False in production):
@@ -32,19 +33,46 @@ else:
 NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES = 2
 
 # LLMs cannot count tokens at all (weirdly), so instruct with word count:
-SESSION_CONSOLIDATED_MEMORY_MAX_WORDS = 50  # Target word length for session consolidated memory
+# Raw memory blobs:
+SESSION_EPISODE_MEMORY_MAX_WORDS      = 50  # Target word length for session episode memory
 SESSION_DIRECTIVE_MEMORY_MAX_WORDS    = 25  # Target word length for session directive memory
-USER_MEMORY_MAX_WORDS  = 150   # Target word count for consolidated user memory blob
-MEMORY_SHARD_MAX_WORDS = 1000  # Target word count for consolidated agent collective memory blob
+SESSION_SUGGESTION_MEMORY_MAX_WORDS   = 25  # Target word length for session suggestion memory
+SESSION_FACT_MEMORY_MAX_WORDS         = 15  # Target word length for session fact memory
+# Consolidated memory blobs:
+USER_MEMORY_BLOB_MAX_WORDS  = 150  # Target word count for consolidated user memory blob
+AGENT_MEMORY_BLOB_MAX_WORDS = 500  # Target word count for consolidated agent memory blob (shard)
 
 CONVERSATION_TEXT_TOKEN = "---conversation_text---"
+
+class MemoryType:
+    def __init__(self, name: str, min_items: int, max_items: int, custom_prompt: str):
+        self.name = name
+        self.min_items = min_items
+        self.max_items = max_items
+        self.custom_prompt = custom_prompt
+    
+    @property
+    def value(self) -> str:
+        return self.name
+
+# Define memory types with their limits
+MEMORY_TYPES = {
+    "episode": MemoryType("episode",  0, 1, "Summary of a section of the conversation in a session"),
+    "directive": MemoryType("directive", 0, 1, "User instructions, preferences, behavioral rules"), 
+    "suggestion": MemoryType("suggestion", 0, 1, "Suggestions/ideas for the agent to consider integrating into collective memory"),
+    "fact": MemoryType("fact", 0, 3, "Atomic facts about the user or the world")
+}
+
+#############################
+# Memory Extraction Prompts #
+#############################
 
 # Default memory extraction prompt for episodes and directives:
 REGULAR_MEMORY_EXTRACTION_PROMPT = f"""Task: Extract persistent memories from the conversation.
 Return **exactly** this JSON:
 {{
-  "episode": "<ONE factual digest of ≤{SESSION_CONSOLIDATED_MEMORY_MAX_WORDS} words>",
-  "directive": "<(at most) one persistent rule of ≤{SESSION_DIRECTIVE_MEMORY_MAX_WORDS} words OR an empty string>"
+  "episode": ["list of {MEMORY_TYPES['episode'].min_items}-{MEMORY_TYPES['episode'].max_items} factual digest (≤{SESSION_EPISODE_MEMORY_MAX_WORDS} words each)"],
+  "directive": ["list of {MEMORY_TYPES['directive'].min_items}-{MEMORY_TYPES['directive'].max_items} persistent rules (≤{SESSION_DIRECTIVE_MEMORY_MAX_WORDS} words each)"]
 }}
 
 Conversation text:
@@ -52,12 +80,14 @@ Conversation text:
 
 Create new memories following these rules:
 
-1. EPISODE: Create EXACTLY ONE factual memory (maximum {SESSION_CONSOLIDATED_MEMORY_MAX_WORDS} words) that consolidates what actually happened in the conversation. This memory will be used to improve the agent's contextual recall in long conversations.
+1. EPISODE: {MEMORY_TYPES['episode'].custom_prompt}
+   - Create {MEMORY_TYPES['episode'].min_items}-{MEMORY_TYPES['episode'].max_items} factual memory (maximum {SESSION_EPISODE_MEMORY_MAX_WORDS} words each) that consolidates what actually happened in the conversation. This memory will be used to improve the agent's contextual recall in long conversations.
    - Record concrete facts and events: who did/said what, what was created, what tools were used, what topics were discussed
    - Specifically focus on the instructions, preferences, goals and feedback expressed by the user(s)
    - Avoid commentary or analysis, create memories that stand on their own without context
 
-2. DIRECTIVE: Create AT MOST ONE permanent directive (maximum {SESSION_DIRECTIVE_MEMORY_MAX_WORDS} words) ONLY if there are clear, long-lasting rules, preferences, or behavioral guidelines that should be applied consistently in all future interactions with the user. If none exist (highly likely), just leave empty.
+2. DIRECTIVE: {MEMORY_TYPES['directive'].custom_prompt})
+   Create {MEMORY_TYPES['directive'].min_items}-{MEMORY_TYPES['directive'].max_items} permanent directive (maximum {SESSION_DIRECTIVE_MEMORY_MAX_WORDS} words each) ONLY if there are clear, long-lasting rules, preferences, or behavioral guidelines that should be applied consistently in all future interactions with the user. If none exist (highly likely), return empty array.
    
    ONLY include long-lasting rules:
    - Explicit behavioral rules or guidelines ("always ask permission before...", "never do X", "remember to always Y")
@@ -75,7 +105,7 @@ Create new memories following these rules:
    - Counter-example (DO NOT make directive): "Gene requested a story about clockmaker" (this is a one-time request)
 
 CRITICAL REQUIREMENTS: 
-- BE VERY STRICT about the directive - most conversations will have NO directive, only an episode
+- BE VERY STRICT about directives - most conversations will have NO directives (empty array), only episodes
 - A directive is a rule that should persist across many future conversations, not one-time requests
 - Focus on facts, not interpretations or commentary
 - Record what actually happened, not what it means or demonstrates
@@ -83,7 +113,34 @@ CRITICAL REQUIREMENTS:
 - NEVER use generic terms like "User", "the user", "Agent", "the agent", "someone", "they"
 - Avoid vague words like "highlighted", "demonstrated", "enhanced", "experience" that wont help the agent in future interactions
 - Just state what was said, done, created, or discussed with specific names in a concise manner
+- Return arrays for both episode and directive (empty arrays if no relevant memories)
 """
+
+
+COLLECTIVE_MEMORY_EXTRACTION_PROMPT = f"""Task: Extract persistent memories from the conversation.
+Return **exactly** this JSON:
+{{
+  "fact": ["list of {MEMORY_TYPES['fact'].min_items}-{MEMORY_TYPES['fact'].max_items} atomic, factual statements (≤{SESSION_FACT_MEMORY_MAX_WORDS} words each)"],
+  "suggestion": ["list of {MEMORY_TYPES['suggestion'].min_items}-{MEMORY_TYPES['suggestion'].max_items} suggestions (≤{SESSION_SUGGESTION_MEMORY_MAX_WORDS} words each)"]
+}}
+
+Conversation text:
+{CONVERSATION_TEXT_TOKEN}
+
+You create new memories that are relevant to the following instruction / context:
+{{shard_extraction_prompt}}
+
+Guidelines:
+- FACT: {MEMORY_TYPES['fact'].custom_prompt}. Record only concrete, verifiable information that relates to the shard context (max {MEMORY_TYPES['fact'].max_items} facts)
+- SUGGESTION: {MEMORY_TYPES['suggestion'].custom_prompt}. Extract actionable recommendations or insights that would help improve the shard's area of focus (max {MEMORY_TYPES['suggestion'].max_items} suggestions)
+- Return empty arrays [] if no relevant facts or suggestions can be extracted
+- Be concise and specific
+- Focus only on information that aligns with the shard's extraction prompt context
+- Each fact should be atomic and stand-alone
+- Each suggestion should be actionable and specific
+"""
+
+
 
 # User Memory Consolidation Prompt Template
 USER_MEMORY_CONSOLIDATION_PROMPT = """

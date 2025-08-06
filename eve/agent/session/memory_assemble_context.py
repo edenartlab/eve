@@ -24,8 +24,8 @@ async def assemble_memory_context(agent_id: ObjectId, session_id: Optional[Objec
 
     start_time = time.time()
     
-    # print(f"🧠 MEMORY ASSEMBLY PROFILING - Agent: {agent_id}")
-    # print(f"   Session: {session_id}, Last Speaker: {last_speaker_id}")
+    print(f"🧠 MEMORY ASSEMBLY PROFILING - Agent: {agent_id}")
+    print(f"   Session: {session_id}, Last Speaker: {last_speaker_id}")
     
     # Check if we can use cached memory context from modal dict
     if session_id and agent_id:
@@ -33,7 +33,7 @@ async def assemble_memory_context(agent_id: ObjectId, session_id: Optional[Objec
             get_session_state_start = time.time()
             session_state = await get_session_state(agent_id, session_id)
             get_session_state_time = time.time() - get_session_state_start
-            # print(f"   ⏱️  get_session_state took: {get_session_state_time:.3f}s")
+            print(f"   ⏱️  get_session_state took: {get_session_state_time:.3f}s")
 
             cached_context = session_state.get("cached_memory_context")
             should_refresh = session_state.get("should_refresh_memory", True)
@@ -53,9 +53,7 @@ async def assemble_memory_context(agent_id: ObjectId, session_id: Optional[Objec
                         agent_updated_dt = datetime.fromisoformat(agent_last_updated.replace('Z', '+00:00'))
                         session_fetched_dt = datetime.fromisoformat(session_last_fetched.replace('Z', '+00:00'))
                         agent_memory_updated = agent_updated_dt > session_fetched_dt
-                        logging.debug(f"Agent memory timestamp check: agent_updated={agent_last_updated}, session_fetched={session_last_fetched}, needs_refresh={agent_memory_updated}")
                     except Exception as e:
-                        logging.warning(f"Error parsing timestamps for agent memory check: {e}")
                         agent_memory_updated = True
                 else:
                     # If either timestamp is missing, refresh to be safe
@@ -76,9 +74,7 @@ async def assemble_memory_context(agent_id: ObjectId, session_id: Optional[Objec
                                     user_updated_dt = user_updated_dt.replace(tzinfo=timezone.utc)
                                 session_user_fetched_dt = datetime.fromisoformat(session_user_memory_timestamp.replace('Z', '+00:00'))
                                 user_memory_updated = user_updated_dt > session_user_fetched_dt
-                                logging.debug(f"User memory timestamp check: user_updated={user_updated_dt.isoformat()}, session_fetched={session_user_memory_timestamp}, needs_refresh={user_memory_updated}")
                             except Exception as e:
-                                logging.warning(f"Error parsing timestamps for user memory check: {e}")
                                 user_memory_updated = True
                         else:
                             # If session timestamp is missing, refresh to be safe
@@ -92,12 +88,11 @@ async def assemble_memory_context(agent_id: ObjectId, session_id: Optional[Objec
             
             if cached_context and not should_refresh and not agent_memory_updated and not user_memory_updated:
                 total_time = time.time() - start_time
-                # print(f"   ⚡ USING CACHED MEMORY: {total_time:.3f}s")
-                logging.debug("Not refreshing memory context:")
-                logging.debug(f"Cached context: {cached_context}")
+                print(f"   ⚡ USING CACHED MEMORY: {total_time:.3f}s")
+                print(f"Cached context: {cached_context}")
                 return cached_context
             else:
-                # print(f"   🔄 Cache missing or refresh needed")
+                print(f"   🔄 Cache missing or refresh needed")
                 refresh_reasons = []
                 if not cached_context:
                     refresh_reasons.append("no_cache")
@@ -107,7 +102,7 @@ async def assemble_memory_context(agent_id: ObjectId, session_id: Optional[Objec
                     refresh_reasons.append("agent_memory_updated")
                 if user_memory_updated:
                     refresh_reasons.append("user_memory_updated")
-                logging.debug(f"Memory context refresh needed: {', '.join(refresh_reasons)}")
+                print(f"Memory context refresh needed: {', '.join(refresh_reasons)}")
                 
         except Exception as e:
             print(f"   ❌ Error checking cached memory: {e}")
@@ -234,17 +229,17 @@ async def assemble_memory_context(agent_id: ObjectId, session_id: Optional[Objec
                 "agent_collective_memory_timestamp": current_time,
                 "user_memory_timestamp": current_time
             })
-            # print(f"   💾 Memory context cached for session {session_id} in {time.time() - cache_start:.3f}s")
+            print(f"   💾 Memory context cached for session {session_id} in {time.time() - cache_start:.3f}s")
         except Exception as e:
             print(f"   ❌ Error caching memory context: {e}")
     
     # Step 5: Final stats
     total_time = time.time() - start_time
     final_tokens = estimate_tokens(memory_context)
-    # print(f"   ⏱️  TOTAL TIME: {total_time:.3f}s")
-    # print(f"   📏 Context Length: {len(memory_context)} chars (~{final_tokens} tokens)")
+    print(f"   ⏱️  TOTAL TIME: {total_time:.3f}s")
+    print(f"   📏 Context Length: {len(memory_context)} chars (~{final_tokens} tokens)")
 
-    logging.debug(f"Fully Assembled Memory context:\n{memory_context}")
+    print(f"Fully Assembled Memory context:\n{memory_context}")
     if LOCAL_DEV:
         print(f"Fully Assembled Memory context:\n{memory_context}")
 

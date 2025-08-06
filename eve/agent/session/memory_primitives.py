@@ -4,7 +4,6 @@ from bson import ObjectId
 from eve.mongo import Collection, Document
 from pydantic import field_serializer
 from datetime import datetime, timezone
-import logging
 import traceback
 
 from eve.agent.session.models import ChatMessage, SessionMemory
@@ -84,18 +83,11 @@ async def _update_agent_memory_timestamp(agent_id: ObjectId):
         else:
             agent_memory_status[agent_key] = {"last_updated_at": current_time}
         
-        logging.debug(f"Updated agent memory status timestamp for agent {agent_id}: {current_time}")
-        
     except Exception as e:
         print(f"Error updating agent memory status for agent {agent_id}: {e}")
         traceback.print_exc()
 
 
-class MemoryType(Enum):
-    EPISODE    = "episode"    # Summary of a section of the conversation in a session
-    DIRECTIVE  = "directive"  # User instructions, preferences, behavioral rules
-    SUGGESTION = "suggestion" # Suggestions / ideas for the agent to consider integrating into collective memory eg "The event should probably be in the evening"
-    FACT       = "fact"       # Atomic facts about the user or the world eg "John loves to play the guitar"
 
 @Collection("memory_sessions")
 class SessionMemory(Document):
@@ -103,7 +95,7 @@ class SessionMemory(Document):
 
     agent_id: ObjectId
     source_session_id: ObjectId
-    memory_type: MemoryType
+    memory_type: str
     content: str
 
     # Context tracking for traceability
@@ -114,28 +106,19 @@ class SessionMemory(Document):
     shard_id: Optional[ObjectId] = None
     agent_owner: Optional[ObjectId] = None
 
-    @field_serializer("memory_type")
-    def serialize_memory_type(self, value: MemoryType) -> str:
-        return value.value
-
     @classmethod
     def convert_to_mongo(cls, schema: dict, **kwargs) -> dict:
-        """Convert enum to string for MongoDB storage"""
+        """Convert data for MongoDB storage"""
         # Ensure kwargs is a dict to prevent "argument after ** must be a mapping" error
         if kwargs is None:
             kwargs = {}
-        if "memory_type" in schema and hasattr(schema["memory_type"], "value"):
-            schema["memory_type"] = schema["memory_type"].value
         return schema
 
     @classmethod
     def convert_from_mongo(cls, schema: dict, **kwargs) -> dict:
-        """Convert string back to enum from MongoDB"""
-        # Ensure kwargs is a dict to prevent "argument after ** must be a mapping" error
+        """Convert data from MongoDB"""
         if kwargs is None:
             kwargs = {}
-        if "memory_type" in schema and isinstance(schema["memory_type"], str):
-            schema["memory_type"] = MemoryType(schema["memory_type"])
         return schema
 
     @classmethod
