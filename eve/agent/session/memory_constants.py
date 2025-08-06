@@ -1,6 +1,16 @@
-from enum import Enum
 from eve.agent.session.config import DEFAULT_SESSION_SELECTION_LIMIT
 
+class MemoryType:
+    def __init__(self, name: str, min_items: int, max_items: int, custom_prompt: str):
+        self.name = name
+        self.min_items = min_items
+        self.max_items = max_items
+        self.custom_prompt = custom_prompt
+    
+    @property
+    def value(self) -> str:
+        return self.name
+    
 # Flag to easily switch between local and production memory settings (keep this in but always set to False in production):
 # Remember to also deploy bg apps with LODAL_DEV = False!
 LOCAL_DEV = True
@@ -43,17 +53,6 @@ USER_MEMORY_BLOB_MAX_WORDS  = 150  # Target word count for consolidated user mem
 AGENT_MEMORY_BLOB_MAX_WORDS = 500  # Target word count for consolidated agent memory blob (shard)
 
 CONVERSATION_TEXT_TOKEN = "---conversation_text---"
-
-class MemoryType:
-    def __init__(self, name: str, min_items: int, max_items: int, custom_prompt: str):
-        self.name = name
-        self.min_items = min_items
-        self.max_items = max_items
-        self.custom_prompt = custom_prompt
-    
-    @property
-    def value(self) -> str:
-        return self.name
 
 # Define memory types with their limits
 MEMORY_TYPES = {
@@ -139,8 +138,6 @@ Guidelines:
 - Each fact should be atomic and stand-alone
 - Each suggestion should be actionable and specific
 """
-
-
 
 # User Memory Consolidation Prompt Template
 USER_MEMORY_CONSOLIDATION_PROMPT = """

@@ -352,7 +352,7 @@ async def _consolidate_user_directives(user_memory: UserMemory):
             USER_MEMORY_CONSOLIDATION_PROMPT,
             current_memory=user_memory.content,
             new_memories=new_memories_text,
-            max_words=USER_MEMORY_MAX_WORDS
+            max_words=USER_MEMORY_BLOB_MAX_WORDS
         )
 
         # Update memory document inline
@@ -402,7 +402,7 @@ async def _consolidate_agent_suggestions(shard: AgentMemory):
             facts_text=facts_text if facts_text else "(no facts available)",
             suggestions_text=suggestions_text,
             shard_name=shard.shard_name or "Unknown Shard",
-            max_words=MEMORY_SHARD_MAX_WORDS
+            max_words=AGENT_MEMORY_BLOB_MAX_WORDS
         )
 
         # Update agent memory
