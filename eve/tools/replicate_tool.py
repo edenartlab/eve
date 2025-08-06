@@ -53,7 +53,6 @@ class ReplicateTool(Tool):
                 output = temp_file.name
             result = {"output": output}
 
-        result = utils.upload_result(result)
         return result
 
     @Tool.handle_start_task
@@ -164,7 +163,6 @@ class ReplicateTool(Tool):
         replicate_model = self.replicate_model
         print(f"DEBUG: Model selection - args keys: {list(args.keys())}")
         print(f"DEBUG: lora value: {args.get('lora')} (type: {type(args.get('lora'))})")
-
 
         if self.replicate_model_substitutions:
             for cond, model in self.replicate_model_substitutions.items():

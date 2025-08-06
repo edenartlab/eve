@@ -30,7 +30,7 @@ def prepare_result(result, summarize=False):
 
 def upload_result(result, save_thumbnails=False, save_blurhash=False):
     from .media_utils import upload_media
-    
+
     if isinstance(result, dict):
         exlude_result_processing_keys = ["subtool_calls"]
         return {

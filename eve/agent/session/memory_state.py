@@ -67,10 +67,10 @@ async def update_session_state(agent_id: ObjectId, session_id: ObjectId, updates
     # Save back to modal.Dict
     pending_session_memories[agent_key] = agent_dict
 
-    print("-----------------------------------")
-    print("Updated session_state state:")
-    print(json.dumps(session_state, indent=4))
-    print("-----------------------------------")
+    # print("-----------------------------------")
+    # print("Updated session_state state:")
+    # print(json.dumps(session_state, indent=4))
+    # print("-----------------------------------")
 
 ######## Background task to process cold sessions #########
 

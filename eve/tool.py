@@ -456,7 +456,7 @@ class Tool(Document, ABC):
     def handle_run(run_function):
         """Wrapper for calling a tool directly and waiting for the result"""
 
-        async def async_wrapper(self, args: Dict, mock: bool = False):
+        async def async_wrapper(self, args: Dict, mock: bool = False, save_thumbnails: bool = False):
             try:
                 user_id = args.pop("user_id", None) or str(get_my_eden_user().id)
                 agent_id = args.pop("agent_id", None) 
@@ -471,7 +471,10 @@ class Tool(Document, ABC):
                     if isinstance(result["output"], list)
                     else [result["output"]]
                 )
-                result = utils.upload_result(result)
+                result = utils.upload_result(
+                    result, 
+                    save_thumbnails=save_thumbnails
+                )
                 result["status"] = "completed"
                 sentry_sdk.add_breadcrumb(category="handle_run", data=result)
 
@@ -549,7 +552,7 @@ class Tool(Document, ABC):
                     handler_id = "".join(random.choices("abcdefghijklmnopqrstuvwxyz0123456789", k=28))
 
                     output = [{"output": [utils.mock_image(args)]}]
-                    result = utils.upload_result(output)
+                    result = utils.upload_result(output, save_thumbnails=True)
                     task.update(
                         handler_id=handler_id,
                         status="completed",
