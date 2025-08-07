@@ -440,18 +440,17 @@ async def _regenerate_fully_formed_memory_shard(shard: AgentMemory):
     - Unabsorbed memories (suggestions)
     """
     try:
-        shard_name = shard.shard_name or "Collective Memory"
-        shard_content = [f"### {shard_name} memory content:"]
+        shard_content = []
         
         facts = await _load_memories_by_ids(shard.facts, "fact")
         if facts:
             facts_formatted = _format_facts_with_age(facts)
             if facts_formatted:
-                shard_content.append(f"### Facts:\n\n{facts_formatted}")
+                shard_content.append(f"## Facts:\n\n{facts_formatted}")
         
         # Add consolidated content
         if shard.content:
-            shard_content.append(f"### Current Consolidated Memory:\n\n{shard.content}")
+            shard_content.append(f"## Current consolidated memory:\n\n{shard.content}")
         
         # Add unabsorbed suggestions
         suggestions = await _load_memories_by_ids(
@@ -460,7 +459,7 @@ async def _regenerate_fully_formed_memory_shard(shard: AgentMemory):
         )
         if suggestions:
             suggestions_text = "\n".join([f"- {s.content}" for s in suggestions])
-            shard_content.append(f"### Recent Suggestions to consider:\n\n{suggestions_text}")
+            shard_content.append(f"## Recent suggestions:\n\n{suggestions_text}")
         
         # Combine all parts
         shard.fully_formed_memory_shard = "\n\n".join(shard_content) if shard_content else ""

@@ -158,10 +158,11 @@ class UserMemory(Document):
 class AgentMemory(Document):
     """An agent collective memory blob"""
     agent_id: ObjectId
+    shard_name: str # eg "project_name", "event_name", "topic_name", etc
+    extraction_prompt: str # A custom prompt indicating what kind of memories to extract for this shard
+    
+    is_active: Optional[bool] = True # Can be set to False to disable the shard without deleting it
     agent_owner: Optional[ObjectId] = None
-    shard_name: Optional[str] = None # eg "project_name", "event_name", "topic_name", etc
-    is_active: bool = True
-    extraction_prompt: Optional[str] = None
 
     # The consolidated memory blob
     content: Optional[str] = ""
