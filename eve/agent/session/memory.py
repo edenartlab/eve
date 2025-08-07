@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field, create_model
 from eve.agent.session.session_llm import async_prompt, LLMContext, LLMConfig
 from eve.agent.session.models import ChatMessage, Session
 from eve.agent.session.memory_state import update_session_state
-from eve.agent.session.memory_primitives import SessionMemory, UserMemory, AgentMemory, get_agent_owner, messages_to_text, _update_agent_memory_timestamp, _get_recent_messages, _format_facts_with_age
+from eve.agent.session.memory_primitives import SessionMemory, UserMemory, AgentMemory, get_agent_owner, messages_to_text, _update_agent_memory_timestamp, _get_recent_messages, _format_memories_with_age
 from eve.agent.session.memory_constants import *
 
 async def _store_memories_by_type(
@@ -388,7 +388,7 @@ async def _consolidate_agent_suggestions(shard: AgentMemory):
             memory_type_filter="fact"
         )
 
-        facts_text = _format_facts_with_age(current_facts)
+        facts_text = _format_memories_with_age(current_facts)
         suggestions_text = "\n".join([f"- {s.content}" for s in unabsorbed_suggestions])
 
         print(f"Consolidating {len(unabsorbed_suggestions)} suggestions for agent memory shard '{shard.shard_name}'")
@@ -444,7 +444,7 @@ async def _regenerate_fully_formed_memory_shard(shard: AgentMemory):
         
         facts = await _load_memories_by_ids(shard.facts, "fact")
         if facts:
-            facts_formatted = _format_facts_with_age(facts)
+            facts_formatted = _format_memories_with_age(facts)
             if facts_formatted:
                 shard_content.append(f"## Facts:\n\n{facts_formatted}")
         

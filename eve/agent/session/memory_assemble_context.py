@@ -1,4 +1,4 @@
-from eve.agent.session.memory_primitives import SessionMemory, UserMemory, AgentMemory, estimate_tokens
+from eve.agent.session.memory_primitives import SessionMemory, UserMemory, AgentMemory, estimate_tokens, _format_memories_with_age
 from eve.agent.session.memory_state import get_session_state, update_session_state, agent_memory_status
 from eve.agent.session.memory_constants import MAX_N_EPISODES_TO_REMEMBER, LOCAL_DEV
 
@@ -148,8 +148,8 @@ async def regenerate_memory_context(agent_id: ObjectId, session_id: Optional[Obj
 
     if len(unabsorbed_directives) > 0:
         user_memory_section += "<recent_user_directives description=\"Recent instructions from this user (most recent at bottom)\">\n"
-        for directive in unabsorbed_directives:
-            user_memory_section += f"- {directive.content}\n"
+        directives_formatted = _format_memories_with_age(unabsorbed_directives)
+        user_memory_section += f"{directives_formatted}\n"
         user_memory_section += "</recent_user_directives>\n\n"
 
     if len(episode_memories) > 0:

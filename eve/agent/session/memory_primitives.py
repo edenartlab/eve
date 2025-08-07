@@ -217,24 +217,24 @@ class AgentMemory(Document):
 
 
 # Minor utility functions:
-def _format_facts_with_age(facts: List[SessionMemory]) -> str:
+def _format_memories_with_age(memories: List[SessionMemory]) -> str:
     """
-    Format facts with age information.
+    Format memories (facts, directives, etc.) with age information.
     """
-    if not facts:
+    if not memories:
         return ""
     
-    fact_lines = []
-    for fact in facts:
-        if fact.createdAt:
+    memory_lines = []
+    for memory in memories:
+        if memory.createdAt:
             # Ensure both datetimes are timezone-aware
             now_utc = datetime.now(timezone.utc)
-            created_at = fact.createdAt.replace(tzinfo=timezone.utc) if fact.createdAt.tzinfo is None else fact.createdAt
+            created_at = memory.createdAt.replace(tzinfo=timezone.utc) if memory.createdAt.tzinfo is None else memory.createdAt
             age_days = (now_utc - created_at).days
         else:
             age_days = 0
-        fact_lines.append(f"- {fact.content} (age: {age_days} days ago)")
-    return "\n".join(fact_lines)
+        memory_lines.append(f"- {memory.content} (age: {age_days} days ago)")
+    return "\n".join(memory_lines)
 
 def _get_recent_messages(
     session_messages: List[ChatMessage], 
