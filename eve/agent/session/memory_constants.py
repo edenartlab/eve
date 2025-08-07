@@ -84,12 +84,10 @@ Create new memories following these rules:
 
 1. EPISODE: {MEMORY_TYPES['episode'].custom_prompt}
    - Create exactly one factual memory (maximum {SESSION_EPISODE_MEMORY_MAX_WORDS} words each) that captures:
-    PRIORITIZE (in order):
-    a) KEY DECISIONS made or problems solved
-    b) IMPORTANT CONTEXT: emotional states, relationship dynamics, conflicts if present
-    c) CONCRETE OUTCOMES: what was created, achieved, or failed
-    d) USER FEEDBACK: reactions, satisfaction levels, concerns expressed
-    e) UNRESOLVED ITEMS: open questions, incomplete tasks, pending issues
+    Focus on capturing (in order of importance):
+    a) WHAT HAPPENED: Key decisions, problems solved, or actions taken
+    b) WHY IT MATTERS: User goals, feedback, and emotional context if significant
+    c) WHAT'S NEXT: Unresolved items or explicit next steps mentioned
    - Specifically focus on the instructions, preferences, goals and feedback expressed by the user(s)
    - Include specific names, tools used, and quantifiable results when available.
    - Avoid commentary or analysis, create memories that stand on their own without context
@@ -109,8 +107,13 @@ Create new memories following these rules:
    - Facts about completed work or past events
    - Random facts about the user that are not actionable
 
-   Example: "I should always ask Jack for permission before generating videos"
-   Counter-example (DO NOT make directive): "Gene requested a story about clockmaker" (this is a one-time request)
+   Good examples: 
+   - "Always ask Jack for permission before generating videos"
+   - "Before generating images always check what aspect ratio the user prefers"
+   Bad examples (DO NOT make these directives):
+   - "Gene requested a story about clockmaker" (one-time request)
+   - "The deadline is next Friday" (temporal fact, not behavioral rule)
+   - "User works at Google" (fact about user, not actionable rule)
    
 CRITICAL REQUIREMENTS: 
 - BE VERY STRICT about directives - most conversations will have NO directives (empty array), only episodes
@@ -143,10 +146,10 @@ Only create new memories that are highly relevant in the context of this shard:
 </shard_context>
 
 1. FACTS: {MEMORY_TYPES['fact'].custom_prompt}
-  - Extract MAXIMUM {MEMORY_TYPES['fact'].max_items} facts of maximum {SESSION_FACT_MEMORY_MAX_WORDS} words each. Typically, you will extract much less than MAXIMUM #facts.
-  - Only VERIFIED, CONCRETE information (not opinions) that stand on their own without context
-  - Group closely related facts together into a single fact if possible
-  - Include SOURCE when mentioned ("per Alice: deadline is May 1st")
+  - Extract 0 to {MEMORY_TYPES['fact'].max_items} facts (maximum {SESSION_FACT_MEMORY_MAX_WORDS} words each)
+  - Each fact must be ATOMIC and VERIFIED - one specific piece of information
+  - Include SOURCE when critical ("per Alice: deadline is May 1st")
+  - Facts must be self-contained and understandable without conversation context
   - Only include facts that are directly relevant to the shard's context and were actually spoken by the user(s) themselves.
   - Prioritize facts that:
     a) Update or contradict existing knowledge
@@ -223,7 +226,7 @@ Only create new memories that are highly relevant in the context of this shard:
 ## NEW SUGGESTIONS and ideas to integrate (The information to integrate):
 {{suggestions_text}}
 
-Your goal is to update the current consolidated memory for this "{{shard_name}}" memory shard by integrating the new suggestions while leveraging the know facts.
+Your goal is to update the current consolidated MEMORY STATE for this "{{shard_name}}" memory shard by integrating the new suggestions while leveraging the know facts.
 Refine, restructure, and merge the information to create a new, coherent, and updated consolidated memory (≤{{max_words}} words).
 If the current, consolidated MEMORY STATE is empty:
  - this means you are about to create the first consolidated memory for this shard.
@@ -236,13 +239,18 @@ overview, decisions & consensus, active proposals, concerns & blockers, action i
 Integration Guidelines:
 - Do NOT simply append the new items. For example, if there is a 'Logistics' section, add relevant information there. The final output should be ONLY the complete, newly revised memory state.
 - Integrate suggestions according to their alignment with the current consolidated memory context. Changes in direction of the shard memory should be considered carefully and backed by consensus.
-- Insights that are confusing, extractive, conflict with established goals, or seem unreliable should be disregarded
+- Discard suggestions only if they are: spam, completely off-topic, or factually impossible
+- Integrate conflicting viewpoints by noting them as "disputed" or "minority view" rather than discarding
+- When consensus is unclear, preserve both perspectives (e.g., "Some members propose X while others prefer Y")
 - Your goal is a fair and productive synthesis that reflects the genuine consensus of the collective input
-- Maintain existing structure where possible, but reorganize if it improves clarity
-- Do not generate / halluciinate any new information that was not explicitly in the suggestions or facts. All of the updates must be driven by the collective input, not the agent's interpretation.
+- Maintain existing structure where possible, but reorganize if it improves clarity / conciseness
+- Do not generate / hallucinate any new information that was not explicitly in the suggestions or facts. All of the updates must be driven by the collective input, not the agent's interpretation.
 - Focus on actionable information that will help guide future decisions and planning
-- Be careful not to lose any existing information in the current MEMORY STATE. Once something is lost from the current MEMORY STATE, it is lost forever.
+- Be careful not to lose any existing information in the current MEMORY STATE. Once something is lost from the current MEMORY STATE, it is lost forever. 
+- Priority for preservation: Recent decisions > Active items > Historical context
 - After this integration step, all NEW SUGGESTIONS will be deleted forever so make sure to integrate all their information.
+- Format contested items clearly: "Proposed by Alice, supported by Bob, opposed by Carol: [suggestion]"
+- Separate "agreed actions" from "open proposals" in the MEMORY STATE
 
 Return only the consolidated memory ≤{{max_words}} words, no additional formatting or explanation.
 """

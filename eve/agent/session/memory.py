@@ -256,13 +256,16 @@ async def _consolidate_with_llm(
     
     consolidation_prompt = consolidation_prompt_template.format(**format_args)
 
+    if LOCAL_DEV:
+        print(f"--- Final LLM Consolidation Prompt: ---\n{consolidation_prompt}")
+        print("----------------------------------------\n\n")
+
     context = LLMContext(
         messages=[ChatMessage(role="user", content=consolidation_prompt)],
         config=LLMConfig(model=MEMORY_LLM_MODEL),
     )
 
-    response = await async_prompt(context)
-    consolidated_content = response.content.strip()
+    consolidated_content = await async_prompt(context)
 
     print(f"LLM consolidation result: {consolidated_content}")
     return consolidated_content
