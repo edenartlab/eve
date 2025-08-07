@@ -146,9 +146,9 @@ Only create new memories that are highly relevant in the context of this shard:
 </shard_context>
 
 1. FACTS: {MEMORY_TYPES['fact'].custom_prompt}
-  - Extract 0 to {MEMORY_TYPES['fact'].max_items} facts (maximum {SESSION_FACT_MEMORY_MAX_WORDS} words each)
-  - Each fact must be ATOMIC and VERIFIED - one specific piece of information
-  - Include SOURCE when critical ("per Alice: deadline is May 1st")
+  - Extract 0 to {MEMORY_TYPES['fact'].max_items} facts (maximum {SESSION_FACT_MEMORY_MAX_WORDS} words each). Typically, you will extract much less than {MEMORY_TYPES['fact'].max_items} #facts.
+  - Each fact must be ATOMIC and VERIFIED - one specific piece of information coming from the user(s).
+  - Include SOURCE when provided ("per Alice: deadline is May 1st")
   - Facts must be self-contained and understandable without conversation context
   - Only include facts that are directly relevant to the shard's context and were actually spoken by the user(s) themselves.
   - Prioritize facts that:
