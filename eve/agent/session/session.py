@@ -222,15 +222,12 @@ async def build_system_message(
     # Get agent memory context (up to 5000 tokens)
     memory_context = ""
     try:
-        start_time = time.time()
         memory_context = await assemble_memory_context(
             actor.id,
             session_id=session.id,
             last_speaker_id=last_speaker_id,
             session=session,
         )
-        time_taken = time.time() - start_time
-        print(f"-----> Time taken to assemble memory context: {time_taken:.2f} seconds")
 
         if memory_context:
             memory_context = f"\n\n{memory_context}"
@@ -985,7 +982,6 @@ async def _run_prompt_session_internal(
 ):
     """Internal function that handles both streaming and non-streaming"""
     session = context.session
-    print(f"🤖 ***debug*** context: {context}")
 
     try:
         validate_prompt_session(session, context)
@@ -996,7 +992,6 @@ async def _run_prompt_session_internal(
             user_message = add_user_message(session, context)
 
         actors = await determine_actors(session, context)
-        print(f"🤖 ***debug*** Actors: {actors}")
         is_client_platform = context.update_config is not None
 
         if not actors:

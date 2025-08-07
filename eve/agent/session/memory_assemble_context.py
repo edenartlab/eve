@@ -187,12 +187,7 @@ async def regenerate_memory_context(agent_id: ObjectId, session_id: Optional[Obj
     
     # Step 6: Final stats
     total_time = time.time() - start_time
-    final_tokens = estimate_tokens(memory_context)
-    print(f"   ⏱️  REGENERATE TIME: {total_time:.3f}s")
-    print(f"   📏 Context Length: {len(memory_context)} chars (~{final_tokens} tokens)")
-    
-    if LOCAL_DEV:
-        print(f"Fully Assembled Memory context:\n{memory_context}")
+    print(f"   ⏱️  Memory context full regeneration time: {total_time:.3f}s")
 
     return memory_context
 
@@ -214,7 +209,7 @@ async def assemble_memory_context(agent_id: ObjectId, session_id: Optional[Objec
 
     start_time = time.time()
     
-    print(f"🧠 MEMORY ASSEMBLY PROFILING - Agent: {agent_id}")
+    print(f"\n🧠 MEMORY ASSEMBLY PROFILING - Agent: {agent_id}")
     print(f"   Session: {session_id}, Last Speaker: {last_speaker_id}")
     
     # Check if we can use cached memory context from modal dict
@@ -279,10 +274,13 @@ async def assemble_memory_context(agent_id: ObjectId, session_id: Optional[Objec
             if cached_context and not should_refresh and not agent_memory_updated and not user_memory_updated:
                 total_time = time.time() - start_time
                 print(f"   ⚡ USING CACHED MEMORY: {total_time:.3f}s")
-                print(f"Cached context: {cached_context}")
+                time_taken = time.time() - start_time
+                print(f"-----> Time taken to assemble memory context: {time_taken:.2f} seconds")
+                if LOCAL_DEV:
+                    print(f"\n\n--- Fully Assembled Memory context: ---\n{cached_context}")
+                    print("----------------------------------------\n\n")
                 return cached_context
             else:
-                print(f"   🔄 Cache missing or refresh needed")
                 refresh_reasons = []
                 if not cached_context:
                     refresh_reasons.append("no_cache")
@@ -292,10 +290,18 @@ async def assemble_memory_context(agent_id: ObjectId, session_id: Optional[Objec
                     refresh_reasons.append("agent_memory_updated")
                 if user_memory_updated:
                     refresh_reasons.append("user_memory_updated")
-                print(f"Memory context refresh needed: {', '.join(refresh_reasons)}")
+                print(f"   🔄 Memory context refresh needed: {', '.join(refresh_reasons)}")
                 
         except Exception as e:
             print(f"   ❌ Error checking cached memory: {e}")
-    
-    # If cache is not available or needs refresh, regenerate the memory context
-    return await regenerate_memory_context(agent_id, session_id, last_speaker_id, session)
+
+    memory_context = await regenerate_memory_context(agent_id, session_id, last_speaker_id, session)
+
+    time_taken = time.time() - start_time
+    print(f"-----> Time taken to assemble memory context: {time_taken:.2f} seconds")
+
+    if LOCAL_DEV:
+        print(f"\n\n--- Fully Assembled Memory context: ---\n{memory_context}")
+        print("----------------------------------------\n\n")
+
+    return memory_context

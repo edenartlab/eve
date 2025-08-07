@@ -7,9 +7,9 @@ class MemoryType:
         self.max_items = max_items
         self.custom_prompt = custom_prompt
     
-    @property
-    def value(self) -> str:
-        return self.name
+    #@property
+    #def value(self) -> str:
+    #    return self.name
     
 # Flag to easily switch between local and production memory settings (keep this in but always set to False in production):
 # Remember to also deploy bg apps with LODAL_DEV = False!
@@ -18,6 +18,7 @@ LOCAL_DEV = True
 # Memory formation settings:
 if LOCAL_DEV:
     MEMORY_LLM_MODEL = "gpt-4o-mini"
+    MEMORY_LLM_MODEL = "claude-sonnet-4-20250514"
     MEMORY_FORMATION_INTERVAL = 4  # Number of messages to wait before forming memories
     SESSION_MESSAGES_LOOKBACK_LIMIT = MEMORY_FORMATION_INTERVAL  # Max messages to look back in a session when forming raw memories
     
@@ -55,12 +56,12 @@ AGENT_MEMORY_BLOB_MAX_WORDS = 200  # Target word count for consolidated agent me
 CONVERSATION_TEXT_TOKEN       = "---conversation_text---"
 SHARD_EXTRACTION_PROMPT_TOKEN = "---shard_extraction_prompt---"
 
-# Define memory types with their limits
+# Define different memory types and their extraction limits:
 MEMORY_TYPES = {
-    "episode": MemoryType("episode",  1, 1, "Summary of given conversation segment for contextual recall. Will always be provided in the context of previous episodes and most recent messages."),
-    "directive": MemoryType("directive", 0, 1, "Persistent instructions, preferences and behavioral rules to remember for future interactions with this user."), 
+    "episode":    MemoryType("episode",    1, 1, "Summary of given conversation segment for contextual recall. Will always be provided in the context of previous episodes and most recent messages."),
+    "directive":  MemoryType("directive",  0, 1, "Persistent instructions, preferences and behavioral rules to remember for future interactions with this user."), 
     "suggestion": MemoryType("suggestion", 0, 1, "New ideas, suggestions, insights, or context relevant to the shard that could help improve / evolve / form this shard's area of focus"),
-    "fact": MemoryType("fact", 0, 4, "Atomic, verifiable information about the user or the world that is highly relevant to the shard context.")
+    "fact":       MemoryType("fact",       0, 4, "Atomic, verifiable information about the user or the world that is highly relevant to the shard context.")
 }
 
 #############################
@@ -75,8 +76,9 @@ Return **exactly** this JSON:
   "directive": ["list of {MEMORY_TYPES['directive'].min_items}-{MEMORY_TYPES['directive'].max_items} persistent rules (≤{SESSION_DIRECTIVE_MEMORY_MAX_WORDS} words each)"]
 }}}}
 
-Conversation text:
+<conversation_text>
 {CONVERSATION_TEXT_TOKEN}
+</conversation_text>
 
 Create new memories following these rules:
 
@@ -130,8 +132,9 @@ Return **exactly** this JSON:
   "suggestion": ["list of {MEMORY_TYPES['suggestion'].min_items}-{MEMORY_TYPES['suggestion'].max_items} suggestions (≤{SESSION_SUGGESTION_MEMORY_MAX_WORDS} words each)"]
 }}}}
 
-Conversation text:
+<conversation_text>
 {CONVERSATION_TEXT_TOKEN}
+</conversation_text>
 
 IMPORTANT: Below is the context / project / event / topic (shard) you are working on.
 Only create new memories that are highly relevant in the context of this shard:
@@ -140,9 +143,11 @@ Only create new memories that are highly relevant in the context of this shard:
 </shard_context>
 
 1. FACTS: {MEMORY_TYPES['fact'].custom_prompt}
-  - Extract maximum {MEMORY_TYPES['fact'].max_items} facts of maximum {SESSION_FACT_MEMORY_MAX_WORDS} words each
+  - Extract MAXIMUM {MEMORY_TYPES['fact'].max_items} facts of maximum {SESSION_FACT_MEMORY_MAX_WORDS} words each. Typically, you will extract much less than MAXIMUM #facts.
   - Only VERIFIED, CONCRETE information (not opinions) that stand on their own without context
+  - Group closely related facts together into a single fact if possible
   - Include SOURCE when mentioned ("per Alice: deadline is May 1st")
+  - Only include facts that are directly relevant to the shard's context and were actually spoken by the user(s) themselves.
   - Prioritize facts that:
     a) Update or contradict existing knowledge
     b) Provide critical constraints or dependencies
@@ -166,9 +171,10 @@ Guidelines:
   Only add suggestions that are relevant and can guide / affect the shard memory.
 - If no relevant facts and/or suggestions can be extracted, return empty arrays [] (If the conversation is not in the context of the shard, this is highly likely)
 - Be concise and specific, every memory must be able to stand on its own without context
+- ALWAYS use specific user names from the conversation (NEVER use "User", "the user", or "they")
 - Focus only on information that aligns with the shard's extraction prompt context, not random ideas or facts that are not relevant to the given shard context.
 - Each suggestion should be actionable and specific, not vague or general.
-- Focus on facts and suggestions proposed (or agreed upon) by the user itself. NEVER include suggestions that come solely from the agent/assistant's messages unless the user explicitly confirms them as good.
+- Focus on facts and suggestions proposed (or agreed upon) by the user itself. NEVER include facts or suggestions that come solely from the agent/assistant's messages / interpretation unless the user explicitly confirms them as good.
 """
 
 
@@ -221,6 +227,7 @@ Your goal is to update the current consolidated memory for this "{{shard_name}}"
 Refine, restructure, and merge the information to create a new, coherent, and updated consolidated memory (≤{{max_words}} words).
 If the current, consolidated memory state is empty, it means you are about to create the first consolidated memory for this shard.
 In that case, think carefully about the core purpose, goals, and current status of the shard and generate a structured and extendable memory template that is suited for future updates in the context of the shard.
+If there is very little information available, don't start filling up the memory with random generated content. EVERYTHING you store must be based on collective user input, not the your free-form interpretation / generation!
 
 Here are some example sections that could be included in the consolidated memory (but not fixed or limited to these):
 overview, decisions & consensus, active proposals, concerns & blockers, action items, integration principles, responsibilities, budget, planning, ...
@@ -229,9 +236,9 @@ Integration Guidelines:
 - Do NOT simply append the new items. For example, if there is a 'Logistics' section, add relevant information there. The final output should be ONLY the complete, newly revised memory state.
 - Integrate suggestions according to their alignment with the current consolidated memory context. Changes in direction of the shard memory should be considered carefully and backed by consensus.
 - Insights that are confusing, extractive, conflict with established goals, or seem unreliable should be disregarded
-- Your goal is a fair and productive synthesis that reflects the genuine consensus of the community
+- Your goal is a fair and productive synthesis that reflects the genuine consensus of the collective input
 - Maintain existing structure where possible, but reorganize if it improves clarity
-- Avoid creating new information that was not explicitly in the suggestions or facts
+- Do not generate / halluciinate any new information that was not explicitly in the suggestions or facts. All of the updates must be driven by the collective input, not the agent's interpretation.
 - Focus on actionable information that will help guide future decisions and planning
 - Be careful not to lose any existing information in the current memory state. Once something is lost from the current memory state, it is lost forever.
 

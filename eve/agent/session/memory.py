@@ -71,7 +71,6 @@ async def _save_all_memories(
     memory_to_shard_map: Dict[str, ObjectId] = None,
 ) -> List[SessionMemory]:
     """Store raw extracted session memories (all types) in MongoDB with source traceability"""
-    print(f"Extracted data: {extracted_data}")
     
     # Prepare common data
     message_ids = [msg.id for msg in messages]
@@ -189,7 +188,6 @@ async def _update_agent_memory(
                         shard.facts = shard.facts[-MAX_FACTS_PER_SHARD:]
                     
                     shard_updated = True
-                    print(f"Added {len(new_facts)} facts to shard '{shard.shard_name}' (total: {len(shard.facts)})")
                 
                 # Add new suggestions
                 new_suggestions = shard_memories.get('suggestions', [])
@@ -316,12 +314,13 @@ async def extract_memories_with_llm(
         formatted_data = extracted.model_dump()
     
     # Log the extraction process
-    print("########################")
-    print("Forming new memories...")
-    print(f"--- Messages: ---\n{context.messages}")
-    print(f"--- Prompt: ---\n{extraction_prompt}")
-    print(f"--- Memories: ---\n{formatted_data}")
-    print("########################")
+    if LOCAL_DEV and 0:
+        print("########################")
+        print("Forming new memories...")
+        #print(f"--- Messages: ---\n{context.messages}")
+        #print(f"--- Prompt: ---\n{extraction_prompt}")
+        print(f"--- New Memories: ---\n{formatted_data}")
+        print("########################")
     
     return formatted_data
 
@@ -490,20 +489,10 @@ async def process_memory_formation(
     
     if not recent_messages:
         return False
-
-    start_idx = len(session_messages) - len(recent_messages)
-    print(
-        f"Extracting memories from messages {start_idx}-{len(session_messages)} "
-        f"(total: {len(recent_messages)} messages)"
-    )
-
+    
     try:
         conversation_text = messages_to_text(recent_messages)
 
-        print("########################")
-        print(f"--- Conversation text: ---\n{conversation_text}")
-        print("########################")
-        
         # Extract all memories (regular and collective)
         extracted_data, memory_to_shard_map = await _extract_all_memories(
             agent_id, conversation_text
@@ -514,13 +503,14 @@ async def process_memory_formation(
             agent_id, extracted_data, recent_messages, session.id, memory_to_shard_map
         )
 
-        if memories_created:
-            print(
-                f"✓ Formed {len(memories_created)} memories from {len(recent_messages)} messages"
-            )
-            print(
-                f"  Memory types: {[m.memory_type for m in memories_created]}"
-            )
+        if memories_created and LOCAL_DEV:
+            print(f"\n✓ Formed {len(memories_created)} memories from {len(recent_messages)} messages")
+            # Pretty print all formed memories, grouped by memory type
+            for memory_type, memories in extracted_data.items():
+                if len(memories) > 0:
+                    print(f"  {len(memories)} x {memory_type}:")
+                    for memory in memories:
+                        print(f"    - {memory}")
             return True
 
     except Exception as e:
@@ -579,12 +569,6 @@ async def _extract_all_memories(
                     memory_index = len(extracted_data[memory_type])
                     extracted_data[memory_type].append(memory_content)
                     memory_to_shard_map[f"{memory_type}_{memory_index}"] = shard.id
-            
-            total_memories = sum(len(v) for v in shard_memories.values())
-            print(
-                f"Extracted {total_memories} memories from shard '{shard.shard_name}' "
-                f"(shard_id: {shard.id})"
-            )
             
         except Exception as e:
             print(f"Error extracting memories from shard '{shard.shard_name}': {e}")
