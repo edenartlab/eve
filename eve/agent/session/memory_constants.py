@@ -52,14 +52,15 @@ SESSION_FACT_MEMORY_MAX_WORDS         = 15  # Target word length for session fac
 USER_MEMORY_BLOB_MAX_WORDS  = 150  # Target word count for consolidated user memory blob
 AGENT_MEMORY_BLOB_MAX_WORDS = 500  # Target word count for consolidated agent memory blob (shard)
 
-CONVERSATION_TEXT_TOKEN = "---conversation_text---"
+CONVERSATION_TEXT_TOKEN       = "---conversation_text---"
+SHARD_EXTRACTION_PROMPT_TOKEN = "---shard_extraction_prompt---"
 
 # Define memory types with their limits
 MEMORY_TYPES = {
     "episode": MemoryType("episode",  1, 1, "Summary of a section of the conversation in a session"),
     "directive": MemoryType("directive", 0, 1, "User instructions, preferences, behavioral rules"), 
     "suggestion": MemoryType("suggestion", 0, 1, "Suggestions/ideas for the agent to consider integrating into collective memory"),
-    "fact": MemoryType("fact", 0, 3, "Atomic facts about the user or the world")
+    "fact": MemoryType("fact", 0, 4, "Atomic facts about the user or the world")
 }
 
 #############################
@@ -69,10 +70,10 @@ MEMORY_TYPES = {
 # Default memory extraction prompt for episodes and directives:
 REGULAR_MEMORY_EXTRACTION_PROMPT = f"""Task: Extract persistent memories from the conversation.
 Return **exactly** this JSON:
-{{
+{{{{
   "episode": ["list of exactly one factual digest (≤{SESSION_EPISODE_MEMORY_MAX_WORDS} words each)"],
   "directive": ["list of {MEMORY_TYPES['directive'].min_items}-{MEMORY_TYPES['directive'].max_items} persistent rules (≤{SESSION_DIRECTIVE_MEMORY_MAX_WORDS} words each)"]
-}}
+}}}}
 
 Conversation text:
 {CONVERSATION_TEXT_TOKEN}
@@ -85,7 +86,7 @@ Create new memories following these rules:
    - Specifically focus on the instructions, preferences, goals and feedback expressed by the user(s)
    - Avoid commentary or analysis, create memories that stand on their own without context
 
-2. DIRECTIVE: {MEMORY_TYPES['directive'].custom_prompt})
+2. DIRECTIVE: {MEMORY_TYPES['directive'].custom_prompt}
    Create {MEMORY_TYPES['directive'].min_items}-{MEMORY_TYPES['directive'].max_items} permanent directive (maximum {SESSION_DIRECTIVE_MEMORY_MAX_WORDS} words each) ONLY if there are clear, long-lasting rules, preferences, or behavioral guidelines that should be applied consistently in all future interactions with the user. If none exist (highly likely), return empty array.
    
    ONLY include long-lasting rules:
@@ -116,18 +117,19 @@ CRITICAL REQUIREMENTS:
 """
 
 
+# Create the collective memory extraction prompt with local f-string injection and external tokens
 COLLECTIVE_MEMORY_EXTRACTION_PROMPT = f"""Task: Extract persistent memories from the conversation.
 Return **exactly** this JSON:
-{{
+{{{{
   "fact": ["list of {MEMORY_TYPES['fact'].min_items}-{MEMORY_TYPES['fact'].max_items} atomic, factual statements (≤{SESSION_FACT_MEMORY_MAX_WORDS} words each)"],
   "suggestion": ["list of {MEMORY_TYPES['suggestion'].min_items}-{MEMORY_TYPES['suggestion'].max_items} suggestions (≤{SESSION_SUGGESTION_MEMORY_MAX_WORDS} words each)"]
-}}
+}}}}
 
 Conversation text:
 {CONVERSATION_TEXT_TOKEN}
 
 You create new memories that are relevant to the following instruction / context:
-{{shard_extraction_prompt}}
+{SHARD_EXTRACTION_PROMPT_TOKEN}
 
 Guidelines:
 - FACT: {MEMORY_TYPES['fact'].custom_prompt}. Record only concrete, verifiable information that relates to the shard context (max {MEMORY_TYPES['fact'].max_items} facts)
@@ -140,18 +142,18 @@ Guidelines:
 """
 
 # User Memory Consolidation Prompt Template
-USER_MEMORY_CONSOLIDATION_PROMPT = """
+USER_MEMORY_CONSOLIDATION_PROMPT = f"""
 CONSOLIDATE USER MEMORY
 ======================
 You are helping to consolidate memories about a specific user's preferences and behavioral rules for an AI agent.
 
 CURRENT CONSOLIDATED MEMORY:
-{current_memory}
+{{current_memory}}
 
 NEW DIRECTIVE MEMORIES TO INTEGRATE:
-{new_memories}
+{{new_memories}}
 
-Your task: Create a single consolidated memory (≤{max_words} words) that combines the current memory with the new directives.
+Your task: Create a single consolidated memory (≤{{max_words}} words) that combines the current memory with the new directives.
 
 Requirements:
 - Preserve all important behavioral rules and preferences from both current memory and new directives
@@ -164,20 +166,20 @@ Requirements:
 Return only the consolidated memory text, no additional formatting or explanation.
 """
 
-# Agent Memory Consolidation Prompt Template
-AGENT_MEMORY_CONSOLIDATION_PROMPT = """You are a Community Memory Synthesizer. Your task is to update an evolving collective memory based on recent conversations with community members.
+# Agent Memory Consolidation Prompt Template  
+AGENT_MEMORY_CONSOLIDATION_PROMPT = f"""You are a Community Memory Synthesizer. Your task is to update an evolving collective memory based on recent conversations with community members.
 
 ## Current Consolidated Memory State:
-{current_memory}
+{{current_memory}}
 
 ## All shard facts (canonical truth facts):
-{facts_text}
+{{facts_text}}
 
 ## Unconsolidated Suggestions:
-{suggestions_text}
+{{suggestions_text}}
 
 ## Your Task:
-Integrate the new suggestions into the consolidated memory for this "{shard_name}" shard. Refine, restructure, and merge the information to create a new, coherent, and updated summary (≤{max_words} words). 
+Integrate the new suggestions into the consolidated memory for this "{{shard_name}}" shard. Refine, restructure, and merge the information to create a new, coherent, and updated summary (≤{{max_words}} words). 
 
 Do NOT simply append the new items. For example, if there is a 'Logistics' section, add relevant information there. The final output should be ONLY the complete, newly revised memory state.
 

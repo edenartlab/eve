@@ -6,37 +6,8 @@ from pydantic import field_serializer
 from datetime import datetime, timezone
 import traceback
 
-from eve.agent.session.models import ChatMessage, SessionMemory
+from eve.agent.session.models import ChatMessage
 
-
-def _get_recent_messages(
-    session_messages: List[ChatMessage], 
-    last_memory_message_id: ObjectId
-) -> List[ChatMessage]:
-    """Get messages since the last memory formation."""
-    if not last_memory_message_id:
-        return session_messages
-    
-    # Create message ID to index mapping for O(1) lookup
-    message_id_to_index = {msg.id: i for i, msg in enumerate(session_messages)}
-    last_memory_position = message_id_to_index.get(last_memory_message_id, -1)
-    return session_messages[last_memory_position + 1:]
-
-def estimate_tokens(text: str) -> int:
-    """Rough token estimation (4.5 characters per token)"""
-    return int(len(text) / 4.5)
-
-def get_agent_owner(agent_id: ObjectId) -> Optional[ObjectId]:
-    """Get the owner of the agent"""
-    try:
-        from eve.agent.agent import Agent
-
-        agent = Agent.from_mongo(agent_id)
-        return agent.owner
-    except Exception as e:
-        print(f"Warning: Could not load agent owner for {agent_id}: {e}")
-        return None
-    
 def messages_to_text(messages: List[ChatMessage]) -> str:
     """Convert messages to readable text for LLM processing"""
     text_parts = []
@@ -53,19 +24,6 @@ def messages_to_text(messages: List[ChatMessage]) -> str:
 
         text_parts.append(f"{speaker}: {content}")
     return "\n".join(text_parts)
-
-def _format_facts_with_age(facts: List[SessionMemory]) -> str:
-    """
-    Format facts with age information.
-    """
-    if not facts:
-        return ""
-    
-    fact_lines = []
-    for fact in facts:
-        age_days = (datetime.now(timezone.utc) - fact.createdAt).days if fact.createdAt else 0
-        fact_lines.append(f"- {fact.content} (age: {age_days} days ago)")
-    return "\n".join(fact_lines)
 
 async def _update_agent_memory_timestamp(agent_id: ObjectId):
     """
@@ -86,7 +44,6 @@ async def _update_agent_memory_timestamp(agent_id: ObjectId):
     except Exception as e:
         print(f"Error updating agent memory status for agent {agent_id}: {e}")
         traceback.print_exc()
-
 
 
 @Collection("memory_sessions")
@@ -255,3 +212,54 @@ class AgentMemory(Document):
         instance = cls(**new_doc)
         instance.save()
         return instance
+    
+
+
+# Minor utility functions:
+def _format_facts_with_age(facts: List[SessionMemory]) -> str:
+    """
+    Format facts with age information.
+    """
+    if not facts:
+        return ""
+    
+    fact_lines = []
+    for fact in facts:
+        if fact.createdAt:
+            # Ensure both datetimes are timezone-aware
+            now_utc = datetime.now(timezone.utc)
+            created_at = fact.createdAt.replace(tzinfo=timezone.utc) if fact.createdAt.tzinfo is None else fact.createdAt
+            age_days = (now_utc - created_at).days
+        else:
+            age_days = 0
+        fact_lines.append(f"- {fact.content} (age: {age_days} days ago)")
+    return "\n".join(fact_lines)
+
+def _get_recent_messages(
+    session_messages: List[ChatMessage], 
+    last_memory_message_id: ObjectId
+) -> List[ChatMessage]:
+    """Get messages since the last memory formation."""
+    if not last_memory_message_id:
+        return session_messages
+    
+    # Create message ID to index mapping for O(1) lookup
+    message_id_to_index = {msg.id: i for i, msg in enumerate(session_messages)}
+    last_memory_position = message_id_to_index.get(last_memory_message_id, -1)
+    return session_messages[last_memory_position + 1:]
+
+def estimate_tokens(text: str) -> int:
+    """Rough token estimation (4.5 characters per token)"""
+    return int(len(text) / 4.5)
+
+def get_agent_owner(agent_id: ObjectId) -> Optional[ObjectId]:
+    """Get the owner of the agent"""
+    try:
+        from eve.agent.agent import Agent
+
+        agent = Agent.from_mongo(agent_id)
+        return agent.owner
+    except Exception as e:
+        print(f"Warning: Could not load agent owner for {agent_id}: {e}")
+        return None
+    

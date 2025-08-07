@@ -102,8 +102,8 @@ async def _save_all_memories(
             memories_by_type.get("suggestion", [])
         )
 
-    # Return all memories created
-    return [individual_memory for memory_list in memories_by_type.values() for individual_memory in memory_list]
+    # Return all memories created (filter out empty memories)
+    return [individual_memory for memory_list in memories_by_type.values() for individual_memory in memory_list if individual_memory.content.strip()]
 
 
 async def _update_user_memory(
@@ -515,7 +515,7 @@ async def process_memory_formation(
                 f"✓ Formed {len(memories_created)} memories from {len(recent_messages)} messages"
             )
             print(
-                f"  Memory types: {[m.memory_type.value for m in memories_created]}"
+                f"  Memory types: {[m.memory_type for m in memories_created]}"
             )
             return True
 
@@ -544,14 +544,19 @@ async def _extract_all_memories(
     
     # Extract collective memories from active shards
     active_shards = AgentMemory.find({"agent_id": agent_id, "is_active": True})
+
+    if not active_shards:
+        print(f"No active shards found for agent {agent_id}")
+        return extracted_data, memory_to_shard_map
+    
     for shard in active_shards:
         if not shard.extraction_prompt:
             continue
             
         try:
             # Populate the collective memory extraction prompt with shard's extraction prompt
-            populated_prompt = COLLECTIVE_MEMORY_EXTRACTION_PROMPT.format(
-                shard_extraction_prompt=shard.extraction_prompt
+            populated_prompt = COLLECTIVE_MEMORY_EXTRACTION_PROMPT.replace(
+                SHARD_EXTRACTION_PROMPT_TOKEN, shard.extraction_prompt
             )
             
             # Extract facts and suggestions for this shard

@@ -1,4 +1,4 @@
-from eve.agent.session.memory_primitives import MemoryType, SessionMemory, UserMemory, AgentMemory, estimate_tokens
+from eve.agent.session.memory_primitives import SessionMemory, UserMemory, AgentMemory, estimate_tokens
 from eve.agent.session.memory_state import get_session_state, update_session_state, agent_memory_status
 from eve.agent.session.memory_constants import MAX_N_EPISODES_TO_REMEMBER, LOCAL_DEV
 
@@ -154,7 +154,7 @@ async def assemble_memory_context(agent_id: ObjectId, session_id: Optional[Objec
     try:
         if session_id and agent_id is not None:
             query_start = time.time()
-            episode_query = {"source_session_id": session_id, "memory_type": MemoryType.EPISODE.value}
+            episode_query = {"source_session_id": session_id, "memory_type": "episode"}
             episode_memories = SessionMemory.find(episode_query, sort="createdAt", desc=True)
 
             # Get list of MAX_N_EPISODES_TO_REMEMBER most recent, raw episode memories:
@@ -238,8 +238,7 @@ async def assemble_memory_context(agent_id: ObjectId, session_id: Optional[Objec
     final_tokens = estimate_tokens(memory_context)
     print(f"   ⏱️  TOTAL TIME: {total_time:.3f}s")
     print(f"   📏 Context Length: {len(memory_context)} chars (~{final_tokens} tokens)")
-
-    print(f"Fully Assembled Memory context:\n{memory_context}")
+    
     if LOCAL_DEV:
         print(f"Fully Assembled Memory context:\n{memory_context}")
 
