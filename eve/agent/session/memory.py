@@ -446,11 +446,11 @@ async def _regenerate_fully_formed_memory_shard(shard: AgentMemory):
         if facts:
             facts_formatted = _format_memories_with_age(facts)
             if facts_formatted:
-                shard_content.append(f"## Facts:\n\n{facts_formatted}")
+                shard_content.append(f"## Shard facts:\n\n{facts_formatted}")
         
         # Add consolidated content
         if shard.content:
-            shard_content.append(f"## Current consolidated memory:\n\n{shard.content}")
+            shard_content.append(f"## Current consolidated shard memory:\n\n{shard.content}")
         
         # Add unabsorbed suggestions
         suggestions = await _load_memories_by_ids(
@@ -459,7 +459,7 @@ async def _regenerate_fully_formed_memory_shard(shard: AgentMemory):
         )
         if suggestions:
             suggestions_text = "\n".join([f"- {s.content}" for s in suggestions])
-            shard_content.append(f"## Recent suggestions:\n\n{suggestions_text}")
+            shard_content.append(f"## Recent shard suggestions:\n\n{suggestions_text}")
         
         # Combine all parts
         shard.fully_formed_memory_shard = "\n\n".join(shard_content) if shard_content else ""
@@ -468,9 +468,7 @@ async def _regenerate_fully_formed_memory_shard(shard: AgentMemory):
         
         # Update agent memory status to trigger cache invalidation
         await _update_agent_memory_timestamp(shard.agent_id)
-
-        print(f"Regenerated fully formed memory shard for '{shard.shard_name}': {len(shard.fully_formed_memory_shard)} chars")
-
+        
     except Exception as e:
         print(f"Error regenerating fully formed memory shard for '{shard.shard_name}': {e}")
         traceback.print_exc()
