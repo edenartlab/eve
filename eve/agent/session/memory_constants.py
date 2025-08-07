@@ -35,7 +35,7 @@ else:
 
     # Normal memory settings:
     MAX_DIRECTIVES_COUNT_BEFORE_CONSOLIDATION = 5  # Number of individual memories to store before consolidating them into the agent's user_memory blob
-    MAX_N_EPISODES_TO_REMEMBER = 10  # Number of episodes to keep in context from a session
+    MAX_N_EPISODES_TO_REMEMBER = 5  # Number of episodes to keep in context from a session
     # Collective memory settings:
     MAX_SUGGESTIONS_COUNT_BEFORE_CONSOLIDATION = 10 # Number of suggestions to store before consolidating them into the agent's collective memory blob
     MAX_FACTS_PER_SHARD = 30 # Max number of facts to store per agent shard (fifo)
@@ -44,13 +44,13 @@ NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES = 2
 
 # LLMs cannot count tokens at all (weirdly), so instruct with word count:
 # Raw memory blobs:
-SESSION_EPISODE_MEMORY_MAX_WORDS    = 50  # Target word length for session episode memory
-SESSION_DIRECTIVE_MEMORY_MAX_WORDS  = 25  # Target word length for session directive memory
-SESSION_SUGGESTION_MEMORY_MAX_WORDS = 25  # Target word length for session suggestion memory
-SESSION_FACT_MEMORY_MAX_WORDS       = 15  # Target word length for session fact memory
+SESSION_EPISODE_MEMORY_MAX_WORDS    = 30  # Target word length for session episode memory
+SESSION_DIRECTIVE_MEMORY_MAX_WORDS  = 20  # Target word length for session directive memory
+SESSION_SUGGESTION_MEMORY_MAX_WORDS = 20  # Target word length for session suggestion memory
+SESSION_FACT_MEMORY_MAX_WORDS       = 10  # Target word length for session fact memory
 # Consolidated memory blobs:
-USER_MEMORY_BLOB_MAX_WORDS  = 150  # Target word count for consolidated user memory blob
-AGENT_MEMORY_BLOB_MAX_WORDS = 500  # Target word count for consolidated agent memory blob (shard)
+USER_MEMORY_BLOB_MAX_WORDS  = 100  # Target word count for consolidated user memory blob
+AGENT_MEMORY_BLOB_MAX_WORDS = 200  # Target word count for consolidated agent memory blob (shard)
 
 CONVERSATION_TEXT_TOKEN       = "---conversation_text---"
 SHARD_EXTRACTION_PROMPT_TOKEN = "---shard_extraction_prompt---"
@@ -119,6 +119,9 @@ CRITICAL REQUIREMENTS:
 """
 
 
+########################################################
+
+
 # Create the collective memory extraction prompt with local f-string injection and external tokens
 COLLECTIVE_MEMORY_EXTRACTION_PROMPT = f"""Task: Extract persistent memories from the conversation relevant to a specific shard/context.
 Return **exactly** this JSON:
@@ -132,7 +135,9 @@ Conversation text:
 
 IMPORTANT: Below is the context / project / event / topic (shard) you are working on.
 Only create new memories that are highly relevant in the context of this shard:
+<shard_context>
 {SHARD_EXTRACTION_PROMPT_TOKEN}
+</shard_context>
 
 1. FACTS: {MEMORY_TYPES['fact'].custom_prompt}
   - Extract maximum {MEMORY_TYPES['fact'].max_items} facts of maximum {SESSION_FACT_MEMORY_MAX_WORDS} words each
@@ -163,8 +168,11 @@ Guidelines:
 - Be concise and specific, every memory must be able to stand on its own without context
 - Focus only on information that aligns with the shard's extraction prompt context, not random ideas or facts that are not relevant to the given shard context.
 - Each suggestion should be actionable and specific, not vague or general.
-- Focus on facts and suggestions proposed (or agreed upon) by the user. Never include suggestions that come solely from the agent/assistant
+- Focus on facts and suggestions proposed (or agreed upon) by the user itself. NEVER include suggestions that come solely from the agent/assistant's messages unless the user explicitly confirms them as good.
 """
+
+
+########################################################
 
 # User Memory Consolidation Prompt Template
 USER_MEMORY_CONSOLIDATION_PROMPT = f"""Task: You are helping to consolidate memories about a specific user's preferences and behavioral rules for a AI agent interaction.
@@ -179,7 +187,7 @@ Your task: Create a single consolidated memory (≤{{max_words}} words) that com
 
 Requirements:
 - Preserve all important behavioral rules and preferences from both current memory and new directives
-- Remove redundancies and contradictions (newer directives override older ones)
+- Remove redundancies and contradictions (newer directives override older ones, although directive age should not be integrated)
 - Keep the most specific and actionable guidance
 - Use the actual user names from the directives (never use "User" or "the user")
 - Focus on persistent preferences and behavioral rules that should guide future interactions
@@ -188,13 +196,17 @@ Requirements:
 Return only the consolidated memory text, no additional formatting or explanation.
 """
 
+########################################################
+
 # Agent Memory Consolidation Prompt Template  
 AGENT_MEMORY_CONSOLIDATION_PROMPT = f"""You are synthesizing the collective memory of a community working on "{{shard_name}}" 
 Your task is to update an evolving collective memory based on recent memories extracted from conversations with various community members.
 
 Below is the context / project / event / topic ({{shard_name}} shard) you are working on.
 Only create new memories that are highly relevant in the context of this shard:
+<shard_context>
 {SHARD_EXTRACTION_PROMPT_TOKEN}
+</shard_context>
 
 ## Current known facts (these are always present in memory and do not need to be integrated):
 {{facts_text}}

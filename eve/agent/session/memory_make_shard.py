@@ -40,6 +40,6 @@ def create_memory_shard(
 create_memory_shard(
     agent_id=ObjectId("675fd3af79e00297cdac1324"),
     shard_name="joke_shard",
-    extraction_prompt="Your task is to extract any word spoken by the user and turn that into a very basic joke of less than 10 words. Those jokes are then stored as suggestions for further integration into a large database of jokes.",
+    extraction_prompt="We are creating the script for a play that integrates random passages of conversation with all the users you interact with into a single, coherent narrative. Focus on specific, unusual events and facts about the users you're talking to and try to create a beautiful, unique and powerful narrative for a play that integrates all of the users into a single, coherent story.",
     content=""
 )

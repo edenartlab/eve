@@ -1,27 +1,59 @@
-from enum import Enum
-from typing import List, Optional
+from typing import List, Optional, Dict
 from bson import ObjectId
 from eve.mongo import Collection, Document
-from pydantic import field_serializer
 from datetime import datetime, timezone
 import traceback
 
 from eve.agent.session.models import ChatMessage
+from eve.user import User
+
+def lookup_sender_name(sender_id: ObjectId) -> str:
+    """Lookup the name of a sender by their id by querying the "users3" collection"""
+    try:
+        user = User.from_mongo(sender_id)
+        user_type = user.type
+        user_name = user.username
+        return f"{user_type} ({user_name})"
+    except Exception as e:
+        print(f"Error looking up sender name for {sender_id}: {e}")
+        return None
+
+def get_sender_id_to_sender_name_map(messages: List[ChatMessage]) -> Dict[ObjectId, str]:
+    """Find all unique senders in the messages and return a map of sender id to sender name"""
+    unique_sender_ids = set()
+    for msg in messages:
+        if msg.sender:
+            unique_sender_ids.add(msg.sender)
+    
+    if not unique_sender_ids:
+        return {}
+    
+    # Perform single MongoDB query to fetch all users
+    try:
+        users = User.find({"_id": {"$in": list(unique_sender_ids)}})
+        sender_id_to_sender_name_map = {}
+        for user in users:
+            sender_id_to_sender_name_map[user.id] = f"{user.username} ({user.type})"
+                
+        return sender_id_to_sender_name_map
+        
+    except Exception as e:
+        print(f"Error in get_sender_id_to_sender_name_map(): {e}")
+        return {}
 
 def messages_to_text(messages: List[ChatMessage]) -> str:
     """Convert messages to readable text for LLM processing"""
+    sender_id_to_sender_name_map = get_sender_id_to_sender_name_map(messages)
     text_parts = []
     for msg in messages:
-        speaker = msg.name or msg.role
+        speaker = sender_id_to_sender_name_map.get(msg.sender) or msg.name or msg.role
         content = msg.content
-
-        # Add tool calls summary if present
-        if msg.tool_calls:
+        
+        if msg.tool_calls: # Add tool calls summary if present
             tools_summary = (
                 f" [Used tools: {', '.join([tc.tool for tc in msg.tool_calls])}]"
             )
             content += tools_summary
-
         text_parts.append(f"{speaker}: {content}")
     return "\n".join(text_parts)
 
@@ -214,9 +246,8 @@ class AgentMemory(Document):
         instance.save()
         return instance
     
-
-
 # Minor utility functions:
+
 def _format_memories_with_age(memories: List[SessionMemory]) -> str:
     """
     Format memories (facts, directives, etc.) with age information.

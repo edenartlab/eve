@@ -100,29 +100,19 @@ async def regenerate_memory_context(agent_id: ObjectId, session_id: Optional[Obj
                         'content': shard.fully_formed_memory_shard
                     })
                 else:
-                    # Check if any component has content that would warrant regeneration
-                    has_content = (
-                        (shard.content and shard.content.strip()) or
-                        (shard.unabsorbed_memory_ids and len(shard.unabsorbed_memory_ids) > 0) or
-                        (shard.facts and len(shard.facts) > 0)
-                    )
+                    # Import here to avoid circular imports
+                    from eve.agent.session.memory import _regenerate_fully_formed_memory_shard
+                    await _regenerate_fully_formed_memory_shard(shard)
                     
-                    if has_content:
-                        # Import here to avoid circular imports
-                        from eve.agent.session.memory import _regenerate_fully_formed_memory_shard
-                        
-                        # Regenerate the shard
-                        await _regenerate_fully_formed_memory_shard(shard)
-                        
-                        # Use the regenerated content if it's non-empty
-                        if shard.fully_formed_memory_shard and shard.fully_formed_memory_shard.strip():
-                            agent_collective_memories.append({
-                                'name': shard.shard_name or 'unnamed_shard',
-                                'content': shard.fully_formed_memory_shard
-                            })
+                    # Use the regenerated content if it's non-empty
+                    if shard.fully_formed_memory_shard and shard.fully_formed_memory_shard.strip():
+                        agent_collective_memories.append({
+                            'name': shard.shard_name or 'unnamed_shard',
+                            'content': shard.fully_formed_memory_shard
+                        })
             
             query_time = time.time() - query_start
-            # print(f"   ⏱️  Agent Memory Assembly: {query_time:.3f}s ({len(agent_collective_memories)} active shards)")
+            print(f"   ⏱️  Agent Memory Assembly: {query_time:.3f}s ({len(agent_collective_memories)} active shards)")
             
     except Exception as e:
         print(f"   ❌ Error assembling agent collective memories: {e}")
@@ -152,14 +142,16 @@ async def regenerate_memory_context(agent_id: ObjectId, session_id: Optional[Obj
         user_memory_section += f"{directives_formatted}\n"
         user_memory_section += "</recent_user_directives>\n\n"
 
+    # Build episode memories section (outside user_specific_memory)
+    episode_memory_section = ""
     if len(episode_memories) > 0:
-        user_memory_section += "<current_conversation_context description=\"Recent exchanges from this conversation (most recent at bottom)\">\n"
+        episode_memory_section += "<current_conversation_context description=\"Recent exchanges from this conversation (most recent at bottom)\">\n"
         for episode in episode_memories:
-            user_memory_section += f"- {episode.content}\n"
-        user_memory_section += "</current_conversation_context>\n\n"
+            episode_memory_section += f"- {episode.content}\n"
+        episode_memory_section += "</current_conversation_context>\n\n"
 
     # Assemble final memory context with XML hierarchy
-    if collective_memory_section or user_memory_section:
+    if collective_memory_section or user_memory_section or episode_memory_section:
         memory_context = "<memory_contents description=\"Your complete memory context for this conversation\">\n\n"
         
         if collective_memory_section:
@@ -169,6 +161,10 @@ async def regenerate_memory_context(agent_id: ObjectId, session_id: Optional[Obj
             memory_context += "<user_specific_memory description=\"Memory and context specific to the current user\">\n"
             memory_context += user_memory_section
             memory_context += "</user_specific_memory>\n\n"
+        
+        # Add episode memories outside user_specific_memory but inside memory_contents
+        if episode_memory_section:
+            memory_context += episode_memory_section
             
         memory_context += "</memory_contents>"
     else:

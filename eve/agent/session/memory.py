@@ -341,7 +341,7 @@ async def _consolidate_user_directives(user_memory: UserMemory):
             return
 
         # Prepare content for LLM consolidation
-        new_memories_text = "\n".join([f"- {m.content}" for m in unabsorbed_memories])
+        new_memories_text = _format_memories_with_age(unabsorbed_memories)
         
         print(f"Consolidating {len(unabsorbed_memories)} directives to user_memory")
         print(f"Current memory length: {len(user_memory.content)} chars")
@@ -441,6 +441,9 @@ async def _regenerate_fully_formed_memory_shard(shard: AgentMemory):
     """
     try:
         shard_content = []
+
+        shard_context = f"You have an active collective memory shard called {shard.shard_name}. Context for this memory collection: {shard.extraction_prompt}"
+        shard_content.append(f"## Memory shard context:\n\n{shard_context}")
         
         facts = await _load_memories_by_ids(shard.facts, "fact")
         if facts:
@@ -468,7 +471,7 @@ async def _regenerate_fully_formed_memory_shard(shard: AgentMemory):
         
         # Update agent memory status to trigger cache invalidation
         await _update_agent_memory_timestamp(shard.agent_id)
-        
+
     except Exception as e:
         print(f"Error regenerating fully formed memory shard for '{shard.shard_name}': {e}")
         traceback.print_exc()
@@ -496,6 +499,10 @@ async def process_memory_formation(
 
     try:
         conversation_text = messages_to_text(recent_messages)
+
+        print("########################")
+        print(f"--- Conversation text: ---\n{conversation_text}")
+        print("########################")
         
         # Extract all memories (regular and collective)
         extracted_data, memory_to_shard_map = await _extract_all_memories(
