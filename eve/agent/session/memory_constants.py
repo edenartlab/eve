@@ -18,7 +18,7 @@ LOCAL_DEV = True
 # Memory formation settings:
 if LOCAL_DEV:
     MEMORY_LLM_MODEL = "gpt-4o-mini"
-    MEMORY_LLM_MODEL = "claude-sonnet-4-20250514"
+    # MEMORY_LLM_MODEL = "claude-sonnet-4-20250514"
     MEMORY_FORMATION_INTERVAL = 4  # Number of messages to wait before forming memories
     SESSION_MESSAGES_LOOKBACK_LIMIT = MEMORY_FORMATION_INTERVAL  # Max messages to look back in a session when forming raw memories
     
@@ -125,7 +125,7 @@ CRITICAL REQUIREMENTS:
 
 
 # Create the collective memory extraction prompt with local f-string injection and external tokens
-COLLECTIVE_MEMORY_EXTRACTION_PROMPT = f"""Task: Extract persistent memories from the conversation relevant to a specific shard/context.
+AGENT_MEMORY_EXTRACTION_PROMPT = f"""Task: Extract persistent memories from the conversation relevant to a specific shard/context.
 Return **exactly** this JSON:
 {{{{
   "fact": ["list of {MEMORY_TYPES['fact'].min_items}-{MEMORY_TYPES['fact'].max_items} atomic facts (≤{SESSION_FACT_MEMORY_MAX_WORDS} words each)"],
@@ -206,7 +206,7 @@ Return only the consolidated memory text, no additional formatting or explanatio
 
 # Agent Memory Consolidation Prompt Template  
 AGENT_MEMORY_CONSOLIDATION_PROMPT = f"""You are synthesizing the collective memory of a community working on "{{shard_name}}" 
-Your task is to update an evolving collective memory based on recent memories extracted from conversations with various community members.
+Your task is to update an evolving collective memory based on new memories extracted from recent conversations with various community members.
 
 Below is the context / project / event / topic ({{shard_name}} shard) you are working on.
 Only create new memories that are highly relevant in the context of this shard:
@@ -214,22 +214,23 @@ Only create new memories that are highly relevant in the context of this shard:
 {SHARD_EXTRACTION_PROMPT_TOKEN}
 </shard_context>
 
-## Current known facts (these are always present in memory and do not need to be integrated):
+## Current known facts (Provided for context: these facts are always present in memory and do not need to be integrated):
 {{facts_text}}
 
-## Current, consolidated Memory State:
+## Current, consolidated MEMORY STATE (The thing to update):
 {{current_memory}}
 
-## New suggestions and ideas to integrate:
+## NEW SUGGESTIONS and ideas to integrate (The information to integrate):
 {{suggestions_text}}
 
 Your goal is to update the current consolidated memory for this "{{shard_name}}" memory shard by integrating the new suggestions while leveraging the know facts.
 Refine, restructure, and merge the information to create a new, coherent, and updated consolidated memory (≤{{max_words}} words).
-If the current, consolidated memory state is empty, it means you are about to create the first consolidated memory for this shard.
-In that case, think carefully about the core purpose, goals, and current status of the shard and generate a structured and extendable memory template that is suited for future updates in the context of the shard.
-If there is very little information available, don't start filling up the memory with random generated content. EVERYTHING you store must be based on collective user input, not the your free-form interpretation / generation!
+If the current, consolidated MEMORY STATE is empty:
+ - this means you are about to create the first consolidated memory for this shard.
+ - In that case, think carefully about the core purpose, goals, and context of the shard and generate a structured and extendable memory template that is suited for future updates in the context of the shard.
+ - If there is little information available, don't start filling up the MEMORY STATE with random generated content. EVERYTHING you store must be based on collective user input, not the your free-form interpretation / generation! Don't rush to fill it up, more NEW SUGGESTIONS will come in the future.
 
-Here are some example sections that could be included in the consolidated memory (but not fixed or limited to these):
+ Here are just a few example sections that could be included in the MEMORY STATE. These are just examples, you can include any other sections that are relevant to the shard's context or leave the MEMORY STATE super basic if there is not a lot of information available yet.
 overview, decisions & consensus, active proposals, concerns & blockers, action items, integration principles, responsibilities, budget, planning, ...
 
 Integration Guidelines:
@@ -240,7 +241,8 @@ Integration Guidelines:
 - Maintain existing structure where possible, but reorganize if it improves clarity
 - Do not generate / halluciinate any new information that was not explicitly in the suggestions or facts. All of the updates must be driven by the collective input, not the agent's interpretation.
 - Focus on actionable information that will help guide future decisions and planning
-- Be careful not to lose any existing information in the current memory state. Once something is lost from the current memory state, it is lost forever.
+- Be careful not to lose any existing information in the current MEMORY STATE. Once something is lost from the current MEMORY STATE, it is lost forever.
+- After this integration step, all NEW SUGGESTIONS will be deleted forever so make sure to integrate all their information.
 
 Return only the consolidated memory ≤{{max_words}} words, no additional formatting or explanation.
 """

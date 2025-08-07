@@ -489,7 +489,7 @@ async def process_memory_formation(
     
     if not recent_messages:
         return False
-    
+
     try:
         conversation_text = messages_to_text(recent_messages)
 
@@ -549,7 +549,7 @@ async def _extract_all_memories(
             
         try:
             # Populate the collective memory extraction prompt with shard's extraction prompt
-            populated_prompt = COLLECTIVE_MEMORY_EXTRACTION_PROMPT.replace(
+            populated_prompt = AGENT_MEMORY_EXTRACTION_PROMPT.replace(
                 SHARD_EXTRACTION_PROMPT_TOKEN, shard.extraction_prompt
             )
             
