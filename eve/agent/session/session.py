@@ -208,7 +208,6 @@ def print_context_state(session: Session, message: str = ""):
     print(f"Cached context: {cached_context}")
     print(f"Should refresh: {should_refresh}")
 
-
 async def build_system_message(
     session: Session,
     actor: Agent,
@@ -219,7 +218,7 @@ async def build_system_message(
     if context.initiating_user_id:
         last_speaker_id = ObjectId(context.initiating_user_id)
 
-    # Get agent memory context (up to 5000 tokens)
+    # Get agent memory context
     memory_context = ""
     try:
         memory_context = await assemble_memory_context(
@@ -228,11 +227,10 @@ async def build_system_message(
             last_speaker_id=last_speaker_id,
             session=session,
         )
-
         if memory_context:
             memory_context = f"\n\n{memory_context}"
     except Exception as e:
-        print(f"Warning: Could not load memory context for agent {actor.id}: {e}")
+        print(f"Warning: Failed to load memory context for agent {actor.id} in session {session.id}: {e}")
 
     # Get text describing models
     lora_name = None
