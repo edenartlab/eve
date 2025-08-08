@@ -92,7 +92,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
             if loras:
                 image_tool = openai_image_edit  # preceded by flux_dev_lora call
             else:
-                image_tool = openai_image_generate
+                image_tool = openai_image_edit
         else:
             if loras:
                 if loras[0].base_model == "sdxl":
