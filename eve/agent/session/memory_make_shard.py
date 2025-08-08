@@ -37,9 +37,18 @@ def create_memory_shard(
     print("Done!")
     return
 
-create_memory_shard(
-    agent_id=ObjectId("675fd3af79e00297cdac1324"),
-    shard_name="Collective Play",
-    extraction_prompt="We are creating the script for a play that integrates random passages of conversation with all the users you interact with into a single, coherent narrative. Focus on specific, unusual events and facts about the users you're talking to and try to create a beautiful, unique and powerful narrative for a play that integrates all of the users into a single, coherent story.",
-    content=""
-)
+if 0: # create Eve collective shard:
+    create_memory_shard(
+        agent_id=ObjectId("675fd3af79e00297cdac1324"),
+        shard_name="Collective Play",
+        extraction_prompt="We are creating the script for a play that integrates random passages of conversation with all the users you interact with into a single, coherent narrative. Focus on specific, unusual events and facts about the users you're talking to and try to create a beautiful, unique and powerful narrative for a play that integrates all of the users into a single, coherent story.",
+        content=""
+    )
+
+if 1: # VJ expert shard:
+    create_memory_shard(
+        agent_id=ObjectId("67bcabed8954656486946377"),
+        shard_name="Collective Play",
+        extraction_prompt="We are creating the script for a play that integrates random passages of conversation with all the users you interact with into a single, coherent narrative. Focus on specific, unusual events and facts about the users you're talking to and try to create a beautiful, unique and powerful narrative for a play that integrates all of the users into a single, coherent story.",
+        content="bla bla bla!"
+    )

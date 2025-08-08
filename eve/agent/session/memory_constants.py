@@ -13,7 +13,7 @@ class MemoryType:
     
 # Flag to easily switch between local and production memory settings (keep this in but always set to False in production):
 # Remember to also deploy bg apps with LODAL_DEV = False!
-LOCAL_DEV = True
+LOCAL_DEV = False
 
 # Memory formation settings:
 if LOCAL_DEV:
@@ -23,7 +23,7 @@ if LOCAL_DEV:
     SESSION_MESSAGES_LOOKBACK_LIMIT = MEMORY_FORMATION_INTERVAL  # Max messages to look back in a session when forming raw memories
     
     # Normal memory settings:
-    MAX_DIRECTIVES_COUNT_BEFORE_CONSOLIDATION = 2  # Number of individual memories to store before consolidating them into the agent's user_memory blob
+    MAX_DIRECTIVES_COUNT_BEFORE_CONSOLIDATION = 3  # Number of individual memories to store before consolidating them into the agent's user_memory blob
     MAX_N_EPISODES_TO_REMEMBER = 2  # Number of episodes to keep in context from a session
     # Collective memory settings:
     MAX_SUGGESTIONS_COUNT_BEFORE_CONSOLIDATION = 2 # Number of suggestions to store before consolidating them into the agent's collective memory blob
@@ -32,14 +32,15 @@ if LOCAL_DEV:
 else:
     MEMORY_LLM_MODEL = "gpt-4o"
     MEMORY_FORMATION_INTERVAL = DEFAULT_SESSION_SELECTION_LIMIT  # Number of messages to wait before forming memories
+    MEMORY_FORMATION_INTERVAL = 10  # Number of messages to wait before forming memories
     SESSION_MESSAGES_LOOKBACK_LIMIT = MEMORY_FORMATION_INTERVAL  # Max messages to look back in a session when forming raw memories
 
     # Normal memory settings:
-    MAX_DIRECTIVES_COUNT_BEFORE_CONSOLIDATION = 5  # Number of individual memories to store before consolidating them into the agent's user_memory blob
-    MAX_N_EPISODES_TO_REMEMBER = 5  # Number of episodes to keep in context from a session
+    MAX_DIRECTIVES_COUNT_BEFORE_CONSOLIDATION = 3  # Number of individual memories to store before consolidating them into the agent's user_memory blob
+    MAX_N_EPISODES_TO_REMEMBER = 4  # Number of episodes to keep in context from a session
     # Collective memory settings:
-    MAX_SUGGESTIONS_COUNT_BEFORE_CONSOLIDATION = 10 # Number of suggestions to store before consolidating them into the agent's collective memory blob
-    MAX_FACTS_PER_SHARD = 30 # Max number of facts to store per agent shard (fifo)
+    MAX_SUGGESTIONS_COUNT_BEFORE_CONSOLIDATION = 4 # Number of suggestions to store before consolidating them into the agent's collective memory blob
+    MAX_FACTS_PER_SHARD = 35 # Max number of facts to store per agent shard (fifo)
     
 NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES = 2
 
