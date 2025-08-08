@@ -48,4 +48,5 @@ parameters:
     label: Auto Publish
     description: Whether to automatically publish the product to the storefront.
     tip: If this is false, tell the user they need to manually publish the product to the storefront from the Shopify admin panel.
-    default: false
+    default: true
+    hide_from_agent: true
