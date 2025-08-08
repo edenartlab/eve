@@ -82,9 +82,15 @@ class Suggestion(BaseModel):
 class AgentPermissions(BaseModel):
     """Permissions configuration for an agent."""
 
+    # Permissions are now stored in separate agent_permissions collection
+    # This class kept for backwards compatibility with existing documents
     editors: Optional[List[ObjectId]] = Field(
         None,
-        description="List of user IDs who can edit this agent (in addition to the owner)",
+        description="DEPRECATED: Use agent_permissions collection instead",
+    )
+    owners: Optional[List[ObjectId]] = Field(
+        None,
+        description="DEPRECATED: Use agent_permissions collection instead",
     )
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -94,7 +100,7 @@ class AgentExtras(BaseModel):
 
     permissions: Optional[AgentPermissions] = Field(
         None,
-        description="Permissions configuration for the agent",
+        description="DEPRECATED: Permissions moved to agent_permissions collection",
     )
     model_config = ConfigDict(arbitrary_types_allowed=True)
 

@@ -744,6 +744,8 @@ class NotificationType(Enum):
     SESSION_FAILED = "session_failed"
     AGENT_MENTIONED = "agent_mentioned"
     SYSTEM_ALERT = "system_alert"
+    AGENT_PERMISSION_ADDED = "agent_permission_added"
+    AGENT_PERMISSION_REMOVED = "agent_permission_removed"
 
 
 class NotificationPriority(Enum):
