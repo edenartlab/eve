@@ -1,4 +1,3 @@
-import os
 import time
 import json
 import traceback
@@ -7,10 +6,12 @@ import openai
 import instructor
 import sentry_sdk
 from datetime import timezone
+
 # from pathlib import Path
 from bson import ObjectId
 from typing import Optional, Literal, Any, Dict, List
 from datetime import datetime
+
 # from dotenv import dotenv_values
 from pydantic import Field, BaseModel, ConfigDict
 from functools import wraps
@@ -22,6 +23,8 @@ from ..tool_constants import (
     FARCASTER_TOOLS,
     TELEGRAM_TOOLS,
     SHOPIFY_TOOLS,
+    PRINTIFY_TOOLS,
+    CAPTIONS_TOOLS,
     SOCIAL_MEDIA_TOOLS,
     TOOL_SETS,
 )
@@ -243,7 +246,7 @@ class Agent(User):
                 continue
             tools_to_load.extend(set_tools)
 
-        self.tools_ = get_tools_from_mongo(tools_to_load)        
+        self.tools_ = get_tools_from_mongo(tools_to_load)
 
     # @profile_method("get_tools")
     def get_tools(self, cache=True, auth_user: str = None):
@@ -312,6 +315,12 @@ class Agent(User):
                 tools.pop(tool, None)
         if "shopify" not in self.deployments:
             for tool in SHOPIFY_TOOLS:
+                tools.pop(tool, None)
+        if "printify" not in self.deployments:
+            for tool in PRINTIFY_TOOLS:
+                tools.pop(tool, None)
+        if "captions" not in self.deployments:
+            for tool in CAPTIONS_TOOLS:
                 tools.pop(tool, None)
 
         # remove tools that only the owner can use

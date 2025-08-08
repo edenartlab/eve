@@ -213,4 +213,14 @@ def load_handler(name):
 
             handlers[name] = handler
 
+        elif name == "captions":
+            from .captions.handler import handler
+
+            handlers[name] = handler
+
+        elif name == "printify":
+            from .printify.handler import handler
+
+            handlers[name] = handler
+
     return handlers[name]
