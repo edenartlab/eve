@@ -219,6 +219,7 @@ async def assemble_memory_context(agent_id: ObjectId, session_id: Optional[Objec
             session_state = await get_session_state(agent_id, session_id)
             get_session_state_time = time.time() - get_session_state_start
             print(f"   ⏱️  get_session_state took: {get_session_state_time:.3f}s")
+            print(f"   --> Session state: {session_state}")
 
             cached_context = session_state.get("cached_memory_context")
             should_refresh = session_state.get("should_refresh_memory", True)

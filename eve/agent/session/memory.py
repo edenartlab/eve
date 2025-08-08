@@ -265,10 +265,10 @@ async def _consolidate_with_llm(
         config=LLMConfig(model=MEMORY_LLM_MODEL),
     )
 
-    consolidated_content = await async_prompt(context)
+    llm_response = await async_prompt(context)
 
-    print(f"LLM consolidation result: {consolidated_content}")
-    return consolidated_content
+    print(f"LLM consolidation result: {llm_response}")
+    return llm_response.content
 
 
 async def extract_memories_with_llm(

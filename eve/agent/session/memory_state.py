@@ -46,11 +46,13 @@ async def get_session_state(agent_id: ObjectId, session_id: ObjectId) -> Dict[st
     try:
         agent_dict = pending_session_memories[agent_key]
     except:
+        print(f"No agent dict found for agent {agent_key}, creating empty dict")
         pending_session_memories[agent_key] = {}
         agent_dict = pending_session_memories[agent_key]
     
     # Initialize session state if not present
-    if session_key not in agent_dict:
+    if not agent_dict.get(session_key):
+        print(f"No session state found for session {session_key}, creating default session state")
         agent_dict[session_key] = DEFAULT_SESSION_STATE.copy()
         pending_session_memories[agent_key] = agent_dict
     
