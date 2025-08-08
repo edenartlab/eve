@@ -732,6 +732,8 @@ class ClientType(Enum):
     FARCASTER = "farcaster"
     TWITTER = "twitter"
     SHOPIFY = "shopify"
+    PRINTIFY = "printify"
+    CAPTIONS = "captions"
 
 
 class NotificationType(Enum):
@@ -831,6 +833,25 @@ class DeploymentSecretsShopify(BaseModel):
     location_id: str
 
 
+# Printify Models
+class DeploymentSettingsPrintify(BaseModel):
+    pass
+
+
+class DeploymentSecretsPrintify(BaseModel):
+    api_token: str
+    shop_id: str
+
+
+# Captions Models
+class DeploymentSettingsCaptions(BaseModel):
+    pass
+
+
+class DeploymentSecretsCaptions(BaseModel):
+    api_key: str
+
+
 # Combined Models
 class DeploymentSecrets(BaseModel):
     discord: DeploymentSecretsDiscord | None = None
@@ -838,6 +859,8 @@ class DeploymentSecrets(BaseModel):
     farcaster: DeploymentSecretsFarcaster | None = None
     twitter: DeploymentSecretsTwitter | None = None
     shopify: DeploymentSecretsShopify | None = None
+    printify: DeploymentSecretsPrintify | None = None
+    captions: DeploymentSecretsCaptions | None = None
 
 
 class DeploymentConfig(BaseModel):
@@ -846,6 +869,8 @@ class DeploymentConfig(BaseModel):
     farcaster: DeploymentSettingsFarcaster | None = None
     twitter: DeploymentSettingsTwitter | None = None
     shopify: DeploymentSettingsShopify | None = None
+    printify: DeploymentSettingsPrintify | None = None
+    captions: DeploymentSettingsCaptions | None = None
 
 
 @Collection("deployments2")
