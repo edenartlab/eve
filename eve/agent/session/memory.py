@@ -585,27 +585,32 @@ def should_form_memories(agent_id: ObjectId, session: Session) -> bool:
     Check if memory formation should run based on messages elapsed since last formation.
     Returns True if memory formation should occur.
     """
-    from eve.agent.session.session import select_messages
-    session_messages = select_messages(
-        session, selection_limit=SESSION_MESSAGES_LOOKBACK_LIMIT
-    )
+    try:
+        from eve.agent.session.session import select_messages
+        session_messages = select_messages(
+            session, selection_limit=SESSION_MESSAGES_LOOKBACK_LIMIT
+        )
 
-    if not agent_id or not session_messages or len(session_messages) == 0:
+        if not agent_id or not session_messages or len(session_messages) == 0:
+            return False
+
+        # Create message ID to index mapping for O(1) lookup
+        message_id_to_index = {msg.id: i for i, msg in enumerate(session_messages)}
+        
+        # Find the position of the last memory formation message
+        last_memory_position = -1
+        if session.last_memory_message_id:
+            last_memory_position = message_id_to_index.get(session.last_memory_message_id, -1)
+
+        # Calculate messages since last memory formation
+        messages_since_last = len(session_messages) - last_memory_position - 1
+        print(f"Session {session.id}: {len(session_messages)} total messages, {messages_since_last} since last memory formation")
+        
+        return messages_since_last >= MEMORY_FORMATION_INTERVAL
+    except Exception as e:
+        print(f"Error checking if memory formation should run for agent {agent_id} in session {session.id}: {e}")
+        traceback.print_exc()
         return False
-
-    # Create message ID to index mapping for O(1) lookup
-    message_id_to_index = {msg.id: i for i, msg in enumerate(session_messages)}
-    
-    # Find the position of the last memory formation message
-    last_memory_position = -1
-    if session.last_memory_message_id:
-        last_memory_position = message_id_to_index.get(session.last_memory_message_id, -1)
-
-    # Calculate messages since last memory formation
-    messages_since_last = len(session_messages) - last_memory_position - 1
-    print(f"Session {session.id}: {len(session_messages)} total messages, {messages_since_last} since last memory formation")
-    
-    return messages_since_last >= MEMORY_FORMATION_INTERVAL
 
 
 async def form_memories(agent_id: ObjectId, session: Session) -> bool:

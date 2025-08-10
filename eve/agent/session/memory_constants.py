@@ -18,6 +18,7 @@ LOCAL_DEV = False
 # Memory formation settings:
 if LOCAL_DEV:
     MEMORY_LLM_MODEL = "gpt-4o-mini"
+    #MEMORY_LLM_MODEL = "gpt-5-2025-08-07"
     # MEMORY_LLM_MODEL = "claude-sonnet-4-20250514"
     MEMORY_FORMATION_INTERVAL = 4  # Number of messages to wait before forming memories
     SESSION_MESSAGES_LOOKBACK_LIMIT = MEMORY_FORMATION_INTERVAL  # Max messages to look back in a session when forming raw memories
@@ -30,29 +31,30 @@ if LOCAL_DEV:
     MAX_FACTS_PER_SHARD = 3 # Max number of facts to store per agent shard (fifo)
     
 else:
-    MEMORY_LLM_MODEL = "gpt-4o"
+    MEMORY_LLM_MODEL = "gpt-5-2025-08-07"
+    MEMORY_LLM_MODEL = "claude-sonnet-4-20250514"
     MEMORY_FORMATION_INTERVAL = DEFAULT_SESSION_SELECTION_LIMIT  # Number of messages to wait before forming memories
     MEMORY_FORMATION_INTERVAL = 10  # Number of messages to wait before forming memories
-    SESSION_MESSAGES_LOOKBACK_LIMIT = MEMORY_FORMATION_INTERVAL  # Max messages to look back in a session when forming raw memories
+    SESSION_MESSAGES_LOOKBACK_LIMIT = 15  # Max messages to look back in a session when forming raw memories
 
     # Normal memory settings:
     MAX_DIRECTIVES_COUNT_BEFORE_CONSOLIDATION = 3  # Number of individual memories to store before consolidating them into the agent's user_memory blob
-    MAX_N_EPISODES_TO_REMEMBER = 4  # Number of episodes to keep in context from a session
+    MAX_N_EPISODES_TO_REMEMBER = 5  # Number of episodes to keep in context from a session
     # Collective memory settings:
     MAX_SUGGESTIONS_COUNT_BEFORE_CONSOLIDATION = 4 # Number of suggestions to store before consolidating them into the agent's collective memory blob
-    MAX_FACTS_PER_SHARD = 35 # Max number of facts to store per agent shard (fifo)
+    MAX_FACTS_PER_SHARD = 75 # Max number of facts to store per agent shard (fifo)
     
 NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES = 2
 
 # LLMs cannot count tokens at all (weirdly), so instruct with word count:
 # Raw memory blobs:
-SESSION_EPISODE_MEMORY_MAX_WORDS    = 30  # Target word length for session episode memory
+SESSION_EPISODE_MEMORY_MAX_WORDS    = 50  # Target word length for session episode memory
 SESSION_DIRECTIVE_MEMORY_MAX_WORDS  = 20  # Target word length for session directive memory
-SESSION_SUGGESTION_MEMORY_MAX_WORDS = 20  # Target word length for session suggestion memory
-SESSION_FACT_MEMORY_MAX_WORDS       = 10  # Target word length for session fact memory
+SESSION_SUGGESTION_MEMORY_MAX_WORDS = 30  # Target word length for session suggestion memory
+SESSION_FACT_MEMORY_MAX_WORDS       = 25  # Target word length for session fact memory
 # Consolidated memory blobs:
-USER_MEMORY_BLOB_MAX_WORDS  = 100  # Target word count for consolidated user memory blob
-AGENT_MEMORY_BLOB_MAX_WORDS = 200  # Target word count for consolidated agent memory blob (shard)
+USER_MEMORY_BLOB_MAX_WORDS  = 200  # Target word count for consolidated user memory blob
+AGENT_MEMORY_BLOB_MAX_WORDS = 600  # Target word count for consolidated agent memory blob (shard)
 
 CONVERSATION_TEXT_TOKEN       = "---conversation_text---"
 SHARD_EXTRACTION_PROMPT_TOKEN = "---shard_extraction_prompt---"
@@ -61,8 +63,8 @@ SHARD_EXTRACTION_PROMPT_TOKEN = "---shard_extraction_prompt---"
 MEMORY_TYPES = {
     "episode":    MemoryType("episode",    1, 1, "Summary of given conversation segment for contextual recall. Will always be provided in the context of previous episodes and most recent messages."),
     "directive":  MemoryType("directive",  0, 1, "Persistent instructions, preferences and behavioral rules to remember for future interactions with this user."), 
-    "suggestion": MemoryType("suggestion", 0, 1, "New ideas, suggestions, insights, or context relevant to the shard that could help improve / evolve / form this shard's area of focus"),
-    "fact":       MemoryType("fact",       0, 4, "Atomic, verifiable information about the user or the world that is highly relevant to the shard context.")
+    "suggestion": MemoryType("suggestion", 0, 4, "New ideas, suggestions, insights, or context relevant to the shard that could help improve / evolve / form this shard's area of focus"),
+    "fact":       MemoryType("fact",       0, 6, "Atomic, verifiable information about the user or the world that is highly relevant to the shard context.")
 }
 
 #############################
@@ -153,7 +155,7 @@ Only create new memories that are highly relevant in the context of this shard:
   - Facts must be self-contained and understandable without conversation context
   - Only include facts that are directly relevant to the shard's context and were actually spoken by the user(s) themselves.
   - Prioritize facts that:
-    a) Update or contradict existing knowledge
+    a) Create, update or contradict existing knowledge
     b) Provide critical constraints or dependencies
     c) Establish relationships between entities
     
@@ -162,13 +164,13 @@ Only create new memories that are highly relevant in the context of this shard:
   - Suggestions are not immediately integrated into the shard memory, they are only suggestions to consider for future consolidation (happens in cycles)
   - Include RATIONALE when provided ("X because Y")
   - Note CONSENSUS or DISSENT ("That's a great idea!", "I don't think we should..")
-  - Distinguish between:
-    a) Proposals requiring decision
-    b) Ideas for consideration
+  - Distinguish for example between:
+    a) New proposals or ideas requiring further discussion
+    b) Ideas for collective consideration
     c) Concerns to address
 
 Guidelines:
-- Think about how relevant proposed memories are to the shard's area of focus:
+- Think about how relevant the proposed memories are to the shard's area of focus:
   - high: Directly impacts shard's core context / purpose / goals
   - medium: Related but not critical
   - low: Tangentially connected
@@ -177,7 +179,7 @@ Guidelines:
 - Be concise and specific, every memory must be able to stand on its own without context
 - ALWAYS use specific user names from the conversation (NEVER use "User", "the user", or "they")
 - Focus only on information that aligns with the shard's extraction prompt context, not random ideas or facts that are not relevant to the given shard context.
-- Each suggestion should be actionable and specific, not vague or general.
+- Each suggestion should be actionable, specific or generally contribute to the shard's context. Avoid vague or general commentary.
 - Focus on facts and suggestions proposed (or agreed upon) by the user itself. NEVER include facts or suggestions that come solely from the agent/assistant's messages / interpretation unless the user explicitly confirms them as good.
 """
 
