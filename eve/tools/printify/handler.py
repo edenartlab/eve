@@ -1,5 +1,6 @@
 import requests
 import uuid
+import random
 from typing import Dict, Any
 
 from eve.agent.agent import Agent
@@ -65,12 +66,18 @@ async def handler(args: dict, user: str = None, agent: str = None):
         f"/catalog/blueprints/{blueprint_id}/print_providers/{print_provider_id}/variants.json",
     )
 
-    # Select default variants (we'll enable the first few common sizes)
-    # For t-shirts, typically these are S, M, L, XL, 2XL
+    # Randomly select 3 variants
     enabled_variants = []
     variant_ids = []
 
-    for i, variant in enumerate(variants_response[:5]):  # Enable first 5 variants
+    # Get the variants array from the response
+    variants = variants_response.get("variants", [])
+
+    # Pick 3 random variants from the available ones
+    num_variants_to_select = min(3, len(variants))
+    selected_variants = random.sample(variants, num_variants_to_select)
+
+    for i, variant in enumerate(selected_variants):
         variant_ids.append(variant["id"])
         enabled_variants.append(
             {
@@ -81,7 +88,16 @@ async def handler(args: dict, user: str = None, agent: str = None):
             }
         )
 
-    # Create print areas configuration
+    # Upload image to Printify first
+    image_url = args.get("image")
+    upload_data = {"file_name": f"design_{uuid.uuid4().hex}.png", "url": image_url}
+
+    uploaded_image = _api_request("POST", "/uploads/images.json", upload_data)
+
+    # Get the uploaded image ID
+    image_id = uploaded_image["id"]
+
+    # Create print areas configuration using the uploaded image ID
     print_areas = [
         {
             "variant_ids": variant_ids,
@@ -90,12 +106,11 @@ async def handler(args: dict, user: str = None, agent: str = None):
                     "position": "front",
                     "images": [
                         {
-                            "id": str(uuid.uuid4()),
+                            "id": image_id,  # Use the Printify image ID
                             "x": 0.5,
                             "y": 0.5,
                             "scale": 1,
                             "angle": 0,
-                            "src": args.get("image"),
                         }
                     ],
                 }
@@ -120,39 +135,66 @@ async def handler(args: dict, user: str = None, agent: str = None):
 
     # Auto-publish if requested
     if args.get("auto_publish"):
-        # Note: Publishing requires a connected sales channel (e.g., Shopify, Etsy)
-        # This would need to be configured in Printify account
         try:
-            # Get available sales channels
-            shops_response = _api_request("GET", "/shops.json")
-
-            # Find the shop and its sales channels
-            current_shop = next(
-                (shop for shop in shops_response if shop["id"] == int(shop_id)), None
+            publish_response = _api_request(
+                "POST",
+                f"/shops/{shop_id}/products/{product_id}/publish.json",
+                {
+                    "title": True,
+                    "description": True,
+                    "images": True,
+                    "variants": True,
+                    "tags": True,
+                },
             )
-
-            if current_shop and current_shop.get("sales_channels"):
-                # Publish to first available sales channel
-                sales_channel = current_shop["sales_channels"][0]
-                publish_data = {"sales_channel_id": sales_channel["id"]}
-                _api_request(
-                    "POST",
-                    f"/shops/{shop_id}/products/{product_id}/publish.json",
-                    publish_data,
-                )
-        except Exception as e:
+        except Exception as e2:
             print(
-                f"Auto-publish failed: {e}. Product created but remains in draft state."
+                f"Auto-publish failed: {e2}. Product created but remains in draft state."
             )
 
-    # Generate product URL
-    product_url = f"https://app.printify.com/app/products/{product_id}"
+    # Fetch the product details to get the generated product images
+    product_details = _api_request(
+        "GET", f"/shops/{shop_id}/products/{product_id}.json"
+    )
+
+    # Extract product images from the response
+    product_images = []
+    if product_details and "images" in product_details:
+        # Get the main product images (mockups)
+        for image in product_details["images"]:
+            if image.get("src"):
+                product_images.append(
+                    {
+                        "url": image["src"],
+                        "position": image.get("position", ""),
+                        "is_default": image.get("is_default", False),
+                    }
+                )
+
+    # If no images in main response, check variants for images
+    if not product_images and "variants" in product_details:
+        for variant in product_details["variants"][
+            :3
+        ]:  # Get images from first 3 variants
+            if variant.get("preview_url"):
+                product_images.append(
+                    {
+                        "url": variant["preview_url"],
+                        "variant_id": variant["id"],
+                        "variant_title": variant.get("title", ""),
+                    }
+                )
+
+    # Generate product URL - use the public product details URL format
+    product_url = f"https://printify.com/app/product-details/{product_id}"
 
     return {
         "output": [
             {
                 "url": product_url,
                 "product_id": product_id,
+                "images": product_images,
+                "title": product_details.get("title", args.get("title")),
                 "status": "published" if args.get("auto_publish") else "draft",
             }
         ]

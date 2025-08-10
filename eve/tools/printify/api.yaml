@@ -48,4 +48,4 @@ parameters:
     label: Auto Publish
     description: Whether to automatically publish the product to the storefront
     tip: If false, product will remain in draft state and require manual publishing
-    default: false
+    default: true
