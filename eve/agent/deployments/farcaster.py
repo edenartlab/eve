@@ -25,7 +25,7 @@ from eve.user import User
 import eve.mongo
 
 if TYPE_CHECKING:
-    from eve.api.api_requests import DeploymentEmissionRequest, PromptSessionRequest
+    from eve.api.api_requests import DeploymentEmissionRequest
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +96,12 @@ class FarcasterClient(PlatformClient):
             webhook_data = {
                 "name": f"eden-{self.deployment.id}",
                 "url": webhook_url,
-                "subscription": {"cast.created": {"mentioned_fids": [user_info.fid]}},
+                "subscription": {
+                    "cast.created": {
+                        "mentioned_fids": [user_info.fid],
+                        "parent_author_fids": [user_info.fid]
+                    }
+                },
             }
 
             async with session.post(
@@ -334,7 +339,7 @@ class FarcasterClient(PlatformClient):
                     try:
                         client.post_cast(
                             text=content,
-                            parent={"hash": cast_hash, "fid": author_fid},
+                            parent={"hash": cast_hash, "fid": int(author_fid)},
                         )
                         logger.info(
                             f"Posted assistant message cast in reply to {cast_hash}"
@@ -371,7 +376,7 @@ class FarcasterClient(PlatformClient):
                             client.post_cast(
                                 text="",  # Empty text, just media
                                 embeds=urls,
-                                parent={"hash": cast_hash, "fid": author_fid},
+                                parent={"hash": cast_hash, "fid": int(author_fid)},
                             )
                             logger.info(
                                 f"Posted tool result cast with {len(urls)} embeds in reply to {cast_hash}"
