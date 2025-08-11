@@ -2,7 +2,7 @@ from eve.agent.session.memory_primitives import SessionMemory, UserMemory, Agent
 from eve.agent.session.memory_state import get_session_state, update_session_state, agent_memory_status
 from eve.agent.session.memory_constants import MAX_N_EPISODES_TO_REMEMBER, LOCAL_DEV
 
-import time, logging
+import time, logging, asyncio
 from bson import ObjectId
 from typing import Optional
 from datetime import datetime, timezone
@@ -169,20 +169,24 @@ async def regenerate_memory_context(agent_id: ObjectId, session_id: Optional[Obj
     else:
         memory_context = ""
     
-    # Step 5: Cache the full memory context in modal dict
+    # Step 5: Cache the full memory context in modal dict (non-blocking)
     if session_id and agent_id:
-        try:
-            cache_start = time.time()
-            current_time = datetime.now(timezone.utc).isoformat()
-            await update_session_state(agent_id, session_id, {
-                "cached_memory_context": memory_context,
-                "should_refresh_memory": False,
-                "agent_collective_memory_timestamp": current_time,
-                "user_memory_timestamp": current_time
-            })
-            print(f"   💾 Memory context cached for session {session_id} in {time.time() - cache_start:.3f}s")
-        except Exception as e:
-            print(f"   ❌ Error caching memory context: {e}")
+        async def cache_memory_context():
+            try:
+                cache_start = time.time()
+                current_time = datetime.now(timezone.utc).isoformat()
+                await update_session_state(agent_id, session_id, {
+                    "cached_memory_context": memory_context,
+                    "should_refresh_memory": False,
+                    "agent_collective_memory_timestamp": current_time,
+                    "user_memory_timestamp": current_time
+                })
+                print(f"   💾 Memory context cached for session {session_id} in {time.time() - cache_start:.3f}s")
+            except Exception as e:
+                print(f"   ❌ Error caching memory context: {e}")
+        
+        # Start the caching task in the background (non-blocking)
+        asyncio.create_task(cache_memory_context())
     
     # Step 6: Final stats
     total_time = time.time() - start_time

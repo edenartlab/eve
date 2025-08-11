@@ -18,7 +18,7 @@ LOCAL_DEV = False
 # Memory formation settings:
 if LOCAL_DEV:
     MEMORY_LLM_MODEL = "gpt-4o-mini"
-    #MEMORY_LLM_MODEL = "gpt-5-2025-08-07"
+    MEMORY_LLM_MODEL = "gpt-5-2025-08-07"
     # MEMORY_LLM_MODEL = "claude-sonnet-4-20250514"
     MEMORY_FORMATION_MSG_INTERVAL = 4  # Number of messages to wait before forming memories (None = use token-based)
     MEMORY_FORMATION_TOKEN_INTERVAL = 2000  # Number of tokens to wait before forming memories

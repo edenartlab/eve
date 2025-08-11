@@ -29,6 +29,7 @@ supported_models = [
     "claude-sonnet-4-20250514",
     "claude-opus-4-20250514",
     "gemini/gemini-2.5-flash-preview-05-20",
+    "gpt-5-2025-08-07"
 ]
 
 
