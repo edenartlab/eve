@@ -35,8 +35,8 @@ def get_media_attributes(file):
     else:
         is_url = file.startswith("http://") or file.startswith("https://")
         if is_url:
-            temp_file = tempfile.NamedTemporaryFile(delete=False)
-            file = download_file(file, temp_file.name, overwrite=False)
+            temp_file_path = "/tmp/eden_file_cache/" + file.split("/")[-1]
+            file = download_file(file, temp_file_path, overwrite=False)
         mime_type = magic.from_file(file, mime=True)
 
     thumbnail = None

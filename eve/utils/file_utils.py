@@ -3,6 +3,7 @@ import os
 import re
 import pathlib
 import tempfile
+import requests
 import httpx
 import boto3
 from io import BytesIO
@@ -95,6 +96,15 @@ def _save_to_volume_cache(url, local_filepath):
     except Exception as e:
         # If volume access fails, silently continue
         print(f"Volume cache save failed: {e}")
+
+
+def url_exists(url: str, timeout: int = 5) -> bool:
+    """Check if a URL exists by making a HEAD request."""
+    try:
+        response = requests.head(url, timeout=timeout, allow_redirects=True)
+        return response.status_code == 200
+    except (requests.RequestException, requests.Timeout):
+        return False
 
 
 def download_file(url, local_filepath, overwrite=False):

@@ -137,15 +137,15 @@ class ReplicateTool(Tool):
                         else:
                             print(f"ERROR: LoRA doc found but no checkpoint field")
 
-                        if "prompt" in new_args:
+                        if lora_trigger_text and "prompt" in new_args:
                             name_pattern = f"(\\b{re.escape(lora_name)}\\b|<{re.escape(lora_name)}>|\\<concept\\>)"
                             pattern = re.compile(name_pattern, re.IGNORECASE)
                             new_args["prompt"] = pattern.sub(
                                 lora_trigger_text, new_args["prompt"]
                             )
-                            if lora_trigger_text:
-                                if lora_trigger_text not in new_args["prompt"]:
-                                    new_args["prompt"] = f"{lora_trigger_text}, {new_args['prompt']}"
+                            # if no lora trigger text, add it to the prompt
+                            if lora_trigger_text not in new_args["prompt"]:
+                                new_args["prompt"] = f"{lora_trigger_text}, {new_args['prompt']}"
                     else:
                         print(f"ERROR: No LoRA found with ID: {args[field]}")
 

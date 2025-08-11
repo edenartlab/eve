@@ -8,7 +8,6 @@ handler: modal
 thumbnail: app/openai_edit.jpg
 visible: true
 active: true
-
 parameters:
   image:
     label: Input Image(s)
