@@ -230,9 +230,10 @@ async def _add_memories_and_maybe_consolidate(
     if not new_memory_ids:
         return
     
-    # Add new memories to the unabsorbed list
-    unabsorbed_list = getattr(memory_doc, unabsorbed_field)
+    # Add new memories to the unabsorbed list - handle legacy records that might not have the field
+    unabsorbed_list = getattr(memory_doc, unabsorbed_field, [])
     unabsorbed_list.extend(new_memory_ids)
+    setattr(memory_doc, unabsorbed_field, unabsorbed_list)
     memory_doc.save()
     
     # Check if consolidation is needed
@@ -333,9 +334,10 @@ async def _consolidate_user_directives(user_memory: UserMemory):
     Consolidate unabsorbed directive memories into the user memory blob using LLM.
     """
     try:
-        # Load unabsorbed memories
+        # Load unabsorbed memories - handle legacy records that might not have unabsorbed_memory_ids field
+        unabsorbed_memory_ids = getattr(user_memory, 'unabsorbed_memory_ids', [])
         unabsorbed_memories = await _load_memories_by_ids(
-            user_memory.unabsorbed_memory_ids, 
+            unabsorbed_memory_ids, 
             memory_type_filter="directive"
         )
         
@@ -357,7 +359,7 @@ async def _consolidate_user_directives(user_memory: UserMemory):
             max_words=USER_MEMORY_BLOB_MAX_WORDS
         )
 
-        # Update memory document inline
+        # Update memory document inline - ensure unabsorbed_memory_ids field exists
         user_memory.content = consolidated_content
         user_memory.unabsorbed_memory_ids = []
         user_memory.last_updated_at = datetime.now(timezone.utc)
@@ -375,9 +377,10 @@ async def _consolidate_agent_suggestions(shard: AgentMemory):
     Consolidate unabsorbed suggestion memories into the agent memory shard using LLM.
     """
     try:
-        # Load unabsorbed suggestions
+        # Load unabsorbed suggestions - handle legacy shards that might not have unabsorbed_memory_ids field
+        unabsorbed_memory_ids = getattr(shard, 'unabsorbed_memory_ids', [])
         unabsorbed_suggestions = await _load_memories_by_ids(
-            shard.unabsorbed_memory_ids,
+            unabsorbed_memory_ids,
             memory_type_filter="suggestion"
         )
         
@@ -407,7 +410,7 @@ async def _consolidate_agent_suggestions(shard: AgentMemory):
             max_words=AGENT_MEMORY_BLOB_MAX_WORDS
         )
 
-        # Update agent memory
+        # Update agent memory - ensure unabsorbed_memory_ids field exists
         shard.content = consolidated_content
         shard.unabsorbed_memory_ids = []  # Reset unabsorbed list
         shard.last_updated_at = datetime.now(timezone.utc)
@@ -457,9 +460,10 @@ async def _regenerate_fully_formed_memory_shard(shard: AgentMemory):
         if shard.content:
             shard_content.append(f"## Current consolidated shard memory:\n\n{shard.content}")
         
-        # Add unabsorbed suggestions
+        # Add unabsorbed suggestions - handle legacy shards that might not have unabsorbed_memory_ids field
+        unabsorbed_memory_ids = getattr(shard, 'unabsorbed_memory_ids', [])
         suggestions = await _load_memories_by_ids(
-            shard.unabsorbed_memory_ids, 
+            unabsorbed_memory_ids, 
             "suggestion"
         )
         if suggestions:

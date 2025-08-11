@@ -43,9 +43,8 @@ async def regenerate_memory_context(agent_id: ObjectId, session_id: Optional[Obj
             )
             if user_memory:
                 user_memory_content = user_memory.content or ""  # Handle None content
-                unabsorbed_memory_ids = (
-                    user_memory.unabsorbed_memory_ids or []
-                )  # Handle None list
+                # Handle legacy records that might not have unabsorbed_memory_ids field
+                unabsorbed_memory_ids = getattr(user_memory, 'unabsorbed_memory_ids', [])
                 # Get unabsorbed directives:
                 if unabsorbed_memory_ids and user_id:  # Only query if there are IDs to look up and user_id is valid
                     unabsorbed_directives = SessionMemory.find(
