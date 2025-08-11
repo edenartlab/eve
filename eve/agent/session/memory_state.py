@@ -84,8 +84,9 @@ async def update_session_state(agent_id: ObjectId, session_id: ObjectId, updates
 
 ######## Background task to process cold sessions #########
 
-CONSIDER_COLD_AFTER_MINUTES = 5
-CLEANUP_COLD_SESSIONS_EVERY_MINUTES = 10
+# Configuration for cold session processing
+CONSIDER_COLD_AFTER_MINUTES = 5  # Consider a session cold if no activity for this many minutes
+CLEANUP_COLD_SESSIONS_EVERY_MINUTES = 10  # Run the background task every N minutes
 
 async def process_cold_sessions():
     """
@@ -96,13 +97,14 @@ async def process_cold_sessions():
     
     try:
         # Import here to avoid circular imports
-        from eve.agent.session.memory import form_memories
+        from eve.agent.session.memory import form_memories, should_form_memories
         from eve.agent.session.models import Session
         
         current_time = datetime.now(timezone.utc)
         cutoff_time = current_time - timedelta(minutes=CONSIDER_COLD_AFTER_MINUTES)
         
         processed_sessions = 0
+        skipped_sessions = 0
         total_sessions = 0
 
         agent_ids_to_check = list(pending_session_memories.keys())
@@ -134,21 +136,56 @@ async def process_cold_sessions():
                             # Load the session from MongoDB
                             session = Session.from_mongo(session_id)
                             if session:
+                                # Check if memory formation should actually be triggered
+                                if should_form_memories(agent_id, session):
+                                    success = await form_memories(agent_id, session)
+                                    if success:
+                                        print(f"✓ Memory formation completed for session {session_id}")
+                                        processed_sessions += 1
+                                    else:
+                                        print(f"⚠️ Memory formation failed for session {session_id}")
+                                else:
+                                    print(f"⏭️ Memory formation not needed for session {session_id} (insufficient messages/tokens)")
+                                    skipped_sessions += 1
+                                
+                                # Mark session for removal from pending_session_memories regardless of outcome
+                                sessions_to_remove.append(session_key)
+                            else:
+                                print(f"⚠️ Could not load session {session_id} from MongoDB")
+                                # Still remove invalid sessions to avoid reprocessing
+                                sessions_to_remove.append(session_key)
+                        
+                    except Exception as e:
+                        print(f"❌ Error processing session {session_id}: {e}")
+                        traceback.print_exc()
+                        # Remove problematic sessions to avoid infinite retry
+                        sessions_to_remove.append(session_key)
+                        continue
+                else:
+                    # No last_activity timestamp - treat as old session that should be processed
+                    print(f"Processing session {session_id} without last_activity timestamp")
+                    try:
+                        session = Session.from_mongo(session_id)
+                        if session:
+                            if should_form_memories(agent_id, session):
                                 success = await form_memories(agent_id, session)
                                 if success:
                                     print(f"✓ Memory formation completed for session {session_id}")
                                     processed_sessions += 1
                                 else:
                                     print(f"⚠️ Memory formation failed for session {session_id}")
-                                
-                                # Mark session for removal from pending_session_memories
-                                sessions_to_remove.append(session_key)
                             else:
-                                print(f"⚠️ Could not load session {session_id} from MongoDB")
-                        
+                                print(f"⏭️ Memory formation not needed for session {session_id} (insufficient messages/tokens)")
+                                skipped_sessions += 1
+                            
+                            sessions_to_remove.append(session_key)
+                        else:
+                            print(f"⚠️ Could not load session {session_id} from MongoDB")
+                            sessions_to_remove.append(session_key)
                     except Exception as e:
-                        print(f"❌ Error processing session {session_id}: {e}")
-                        continue
+                        print(f"❌ Error processing session {session_id} without last_activity: {e}")
+                        traceback.print_exc()
+                        sessions_to_remove.append(session_key)
             
             # Remove processed sessions from pending_session_memories
             if sessions_to_remove:
@@ -158,7 +195,7 @@ async def process_cold_sessions():
                 pending_session_memories[agent_key] = agent_dict
                 print(f"Removed {len(sessions_to_remove)} processed sessions from pending_session_memories for agent {agent_id}")
         
-        print(f"✓ Cold session processing complete: {processed_sessions}/{total_sessions} sessions had their memories processed")
+        print(f"✓ Cold session processing complete: {processed_sessions} processed, {skipped_sessions} skipped, {total_sessions} total sessions")
         
     except Exception as e:
         print(f"❌ Error in process_cold_sessions: {e}")
