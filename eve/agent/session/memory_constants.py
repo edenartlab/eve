@@ -20,8 +20,9 @@ if LOCAL_DEV:
     MEMORY_LLM_MODEL = "gpt-4o-mini"
     #MEMORY_LLM_MODEL = "gpt-5-2025-08-07"
     # MEMORY_LLM_MODEL = "claude-sonnet-4-20250514"
-    MEMORY_FORMATION_INTERVAL = 4  # Number of messages to wait before forming memories
-    SESSION_MESSAGES_LOOKBACK_LIMIT = MEMORY_FORMATION_INTERVAL  # Max messages to look back in a session when forming raw memories
+    MEMORY_FORMATION_MSG_INTERVAL = 4  # Number of messages to wait before forming memories (None = use token-based)
+    MEMORY_FORMATION_TOKEN_INTERVAL = 2000  # Number of tokens to wait before forming memories
+    SESSION_MESSAGES_LOOKBACK_LIMIT = 4  # Max messages to look back in a session when forming raw memories
     
     # Normal memory settings:
     MAX_DIRECTIVES_COUNT_BEFORE_CONSOLIDATION = 3  # Number of individual memories to store before consolidating them into the agent's user_memory blob
@@ -33,8 +34,8 @@ if LOCAL_DEV:
 else:
     MEMORY_LLM_MODEL = "gpt-5-2025-08-07"
     MEMORY_LLM_MODEL = "claude-sonnet-4-20250514"
-    MEMORY_FORMATION_INTERVAL = DEFAULT_SESSION_SELECTION_LIMIT  # Number of messages to wait before forming memories
-    MEMORY_FORMATION_INTERVAL = 10  # Number of messages to wait before forming memories
+    MEMORY_FORMATION_MSG_INTERVAL   = None  # Number of messages to wait before forming memories (None = use token-based)
+    MEMORY_FORMATION_TOKEN_INTERVAL = 4000  # Number of tokens to wait before forming memories
     SESSION_MESSAGES_LOOKBACK_LIMIT = 15  # Max messages to look back in a session when forming raw memories
 
     # Normal memory settings:
@@ -45,7 +46,8 @@ else:
     MAX_FACTS_PER_SHARD = 75 # Max number of facts to store per agent shard (fifo)
     
 NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES = 2
-
+AGENT_TOKEN_MULTIPLIER = 0.25  # Multiplier to downscale agent/assistant message importance for token interval trigger
+    
 # LLMs cannot count tokens at all (weirdly), so instruct with word count:
 # Raw memory blobs:
 SESSION_EPISODE_MEMORY_MAX_WORDS    = 50  # Target word length for session episode memory

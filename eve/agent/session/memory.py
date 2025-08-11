@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field, create_model
 from eve.agent.session.session_llm import async_prompt, LLMContext, LLMConfig
 from eve.agent.session.models import ChatMessage, Session
 from eve.agent.session.memory_state import update_session_state
-from eve.agent.session.memory_primitives import SessionMemory, UserMemory, AgentMemory, get_agent_owner, messages_to_text, _update_agent_memory_timestamp, _get_recent_messages, _format_memories_with_age
+from eve.agent.session.memory_primitives import SessionMemory, UserMemory, AgentMemory, get_agent_owner, messages_to_text, _update_agent_memory_timestamp, _get_recent_messages, _format_memories_with_age, estimate_tokens
 from eve.agent.session.memory_constants import *
 
 async def _store_memories_by_type(
@@ -586,7 +586,7 @@ async def _extract_all_memories(
 
 def should_form_memories(agent_id: ObjectId, session: Session) -> bool:
     """
-    Check if memory formation should run based on messages elapsed since last formation.
+    Check if memory formation should run based on either messages elapsed or tokens accumulated since last formation.
     Returns True if memory formation should occur.
     """
     try:
@@ -606,11 +606,23 @@ def should_form_memories(agent_id: ObjectId, session: Session) -> bool:
         if session.last_memory_message_id:
             last_memory_position = message_id_to_index.get(session.last_memory_message_id, -1)
 
-        # Calculate messages since last memory formation
-        messages_since_last = len(session_messages) - last_memory_position - 1
-        print(f"Session {session.id}: {len(session_messages)} total messages, {messages_since_last} since last memory formation")
+        # Get recent messages since last memory formation
+        recent_messages = session_messages[last_memory_position + 1:]
         
-        return messages_since_last >= MEMORY_FORMATION_INTERVAL
+        # If using message-based trigger
+        if MEMORY_FORMATION_MSG_INTERVAL is not None:
+            messages_since_last = len(recent_messages)
+            print(f"Session {session.id}: {len(session_messages)} total messages, {messages_since_last} since last memory formation")
+            return messages_since_last >= MEMORY_FORMATION_MSG_INTERVAL
+        
+        # Otherwise use token-based trigger
+        else:
+            # Convert recent messages to text and count tokens
+            recent_text = messages_to_text(recent_messages, fast_dry_run=True)
+            tokens_since_last = estimate_tokens(recent_text)
+            print(f"Session {session.id}: {len(session_messages)} total messages, ~{tokens_since_last} tokens since last memory formation")
+            return tokens_since_last >= MEMORY_FORMATION_TOKEN_INTERVAL
+            
     except Exception as e:
         print(f"Error checking if memory formation should run for agent {agent_id} in session {session.id}: {e}")
         traceback.print_exc()

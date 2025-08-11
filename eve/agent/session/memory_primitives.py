@@ -41,15 +41,24 @@ def get_sender_id_to_sender_name_map(messages: List[ChatMessage]) -> Dict[Object
         print(f"Error in get_sender_id_to_sender_name_map(): {e}")
         return {}
 
-def messages_to_text(messages: List[ChatMessage]) -> str:
+def messages_to_text(messages: List[ChatMessage], fast_dry_run: bool = False) -> str:
     """Convert messages to readable text for LLM processing"""
-    sender_id_to_sender_name_map = get_sender_id_to_sender_name_map(messages)
+    if not fast_dry_run:
+        sender_id_to_sender_name_map = get_sender_id_to_sender_name_map(messages)
     text_parts = []
     for msg in messages:
-        speaker = sender_id_to_sender_name_map.get(msg.sender) or msg.name or msg.role
+        if fast_dry_run:
+            speaker = msg.name or msg.role
+        else:
+            speaker = sender_id_to_sender_name_map.get(msg.sender) or msg.name or msg.role
         content = msg.content
         
-        if msg.tool_calls: # Add tool calls summary if present
+        # During fast_dry_run, downscale agent/assistant messages for token counting
+        if fast_dry_run and speaker in ["agent", "assistant"]:
+            from eve.agent.session.memory_constants import AGENT_TOKEN_MULTIPLIER
+            content = content[:int(len(content) * AGENT_TOKEN_MULTIPLIER)]
+        
+        if (not fast_dry_run) and msg.tool_calls: # Add tool calls summary if present
             tools_summary = (
                 f" [Used tools: {', '.join([tc.tool for tc in msg.tool_calls])}]"
             )
