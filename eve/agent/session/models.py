@@ -597,6 +597,7 @@ class LLMContextMetadata(BaseModel):
 @dataclass
 class LLMConfig:
     model: Optional[str] = "gpt-4o-mini"
+    max_tokens: Optional[int] = None
     response_format: Optional[BaseModel] = None
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
