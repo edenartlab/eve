@@ -38,10 +38,10 @@ else:
     SESSION_MESSAGES_LOOKBACK_LIMIT = 15  # Max messages to look back in a session when forming raw memories
 
     # Normal memory settings:
-    MAX_DIRECTIVES_COUNT_BEFORE_CONSOLIDATION = 3  # Number of individual memories to store before consolidating them into the agent's user_memory blob
+    MAX_DIRECTIVES_COUNT_BEFORE_CONSOLIDATION = 4  # Number of individual memories to store before consolidating them into the agent's user_memory blob
     MAX_N_EPISODES_TO_REMEMBER = 5  # Number of episodes to keep in context from a session
     # Collective memory settings:
-    MAX_SUGGESTIONS_COUNT_BEFORE_CONSOLIDATION = 4 # Number of suggestions to store before consolidating them into the agent's collective memory blob
+    MAX_SUGGESTIONS_COUNT_BEFORE_CONSOLIDATION = 8 # Number of suggestions to store before consolidating them into the agent's collective memory blob
     MAX_FACTS_PER_SHARD = 75 # Max number of facts to store per agent shard (fifo)
     
 NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES = 2
