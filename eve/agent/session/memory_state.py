@@ -37,20 +37,22 @@ DEFAULT_SESSION_STATE = {
     "user_memory_timestamp": None # Timestamp of the last time the user memory was fetched in this session
 }
 
+def _get_or_create_agent_dict(agent_key: str) -> Dict[str, Any]:
+    """Get agent dictionary from modal.Dict, creating if missing."""
+    try:
+        return pending_session_memories[agent_key]
+    except:
+        print(f"No agent dict found for agent {agent_key}, creating empty dict")
+        pending_session_memories[agent_key] = {}
+        return pending_session_memories[agent_key]
+
 async def get_session_state(agent_id: ObjectId, session_id: ObjectId) -> Dict[str, Any]:
     """Get session state from modal.Dict, initializing if needed"""
     agent_key = str(agent_id)
     session_key = str(session_id)
     
-    # Get agent dict or create if missing
-    try:
-        agent_dict = pending_session_memories[agent_key]
-    except:
-        print(f"No agent dict found for agent {agent_key}, creating empty dict")
-        pending_session_memories[agent_key] = {}
-        agent_dict = pending_session_memories[agent_key]
+    agent_dict = _get_or_create_agent_dict(agent_key)
     
-    # Initialize session state if not present
     if not agent_dict.get(session_key):
         print(f"No session state found for session {session_key}, creating default session state")
         agent_dict[session_key] = DEFAULT_SESSION_STATE.copy()
@@ -58,23 +60,16 @@ async def get_session_state(agent_id: ObjectId, session_id: ObjectId) -> Dict[st
     
     return agent_dict[session_key]
 
-
 async def update_session_state(agent_id: ObjectId, session_id: ObjectId, updates: Dict[str, Any]) -> None:
     """Update session state in modal.Dict"""
     agent_key = str(agent_id)
     session_key = str(session_id)
     
-    # Get current agent dict
     agent_dict = pending_session_memories.get(agent_key, {})
-    
-    # Get current session state
     session_state = agent_dict.get(session_key, DEFAULT_SESSION_STATE.copy())
     
-    # Update session state
     session_state.update(updates)
     agent_dict[session_key] = session_state
-    
-    # Save back to modal.Dict
     pending_session_memories[agent_key] = agent_dict
 
     # print("-----------------------------------")
@@ -85,8 +80,50 @@ async def update_session_state(agent_id: ObjectId, session_id: ObjectId, updates
 ######## Background task to process cold sessions #########
 
 # Configuration for cold session processing
-CONSIDER_COLD_AFTER_MINUTES = 5  # Consider a session cold if no activity for this many minutes
+CONSIDER_COLD_AFTER_MINUTES         = 5  # Consider a session cold if no activity for this many minutes
 CLEANUP_COLD_SESSIONS_EVERY_MINUTES = 10  # Run the background task every N minutes
+
+async def _process_session_for_memory(agent_id: ObjectId, session_id: ObjectId, reason: str = "cold session"):
+    """Process a single session for memory formation and return processing results."""
+    from eve.agent.session.memory import form_memories, should_form_memories
+    from eve.agent.session.models import Session
+    
+    print(f"Processing {reason} {session_id} for agent {agent_id}")
+    
+    try:
+        session = Session.from_mongo(session_id)
+        if not session:
+            print(f"⚠️ Could not load session {session_id} from MongoDB")
+            return {"processed": False, "skipped": False, "should_remove": True}
+        
+        if should_form_memories(agent_id, session):
+            success = await form_memories(agent_id, session)
+            if success:
+                print(f"✓ Memory formation completed for session {session_id}")
+                return {"processed": True, "skipped": False, "should_remove": True}
+            else:
+                print(f"⚠️ Memory formation failed for session {session_id}")
+                return {"processed": False, "skipped": False, "should_remove": True}
+        else:
+            print(f"⏭️ Memory formation not needed for session {session_id} (insufficient messages/tokens)")
+            return {"processed": False, "skipped": True, "should_remove": True}
+            
+    except Exception as e:
+        print(f"❌ Error processing session {session_id}: {e}")
+        traceback.print_exc()
+        return {"processed": False, "skipped": False, "should_remove": True}
+
+def _is_session_cold(session_state: Dict[str, Any], cutoff_time: datetime) -> bool:
+    """Check if a session is cold based on last activity timestamp."""
+    last_activity_str = session_state.get("last_activity")
+    if not last_activity_str:
+        return True  # No timestamp means old session
+    
+    try:
+        last_activity = datetime.fromisoformat(last_activity_str.replace('Z', '+00:00'))
+        return last_activity < cutoff_time
+    except Exception:
+        return True  # Invalid timestamp means old session
 
 async def process_cold_sessions():
     """
@@ -96,10 +133,6 @@ async def process_cold_sessions():
     print("🧠 Processing cold sessions for memory formation...")
     
     try:
-        # Import here to avoid circular imports
-        from eve.agent.session.memory import form_memories, should_form_memories
-        from eve.agent.session.models import Session
-        
         current_time = datetime.now(timezone.utc)
         cutoff_time = current_time - timedelta(minutes=CONSIDER_COLD_AFTER_MINUTES)
         
@@ -110,88 +143,33 @@ async def process_cold_sessions():
         agent_ids_to_check = list(pending_session_memories.keys())
         print(f"Iterating over {len(agent_ids_to_check)} agents for potential memory formation...")
         
-        # Iterate through all agents in pending_session_memories
         for agent_key in agent_ids_to_check:
             agent_id = ObjectId(agent_key)
             agent_dict = pending_session_memories[agent_key]
             
-            # Iterate through all sessions for this agent
             sessions_to_remove = []
             for session_key in list(agent_dict.keys()):
                 session_id = ObjectId(session_key)
                 session_state = agent_dict[session_key]
-                
                 total_sessions += 1
                 
-                # Check if session has last_activity
-                last_activity_str = session_state.get("last_activity")
-                if last_activity_str:
-                    try:
-                        last_activity = datetime.fromisoformat(last_activity_str.replace('Z', '+00:00'))
-                        
-                        # Check if session is cold
-                        if last_activity < cutoff_time:
-                            print(f"Processing cold session {session_id} for agent {agent_id} (last activity: {last_activity})")
-                            
-                            # Load the session from MongoDB
-                            session = Session.from_mongo(session_id)
-                            if session:
-                                # Check if memory formation should actually be triggered
-                                if should_form_memories(agent_id, session):
-                                    success = await form_memories(agent_id, session)
-                                    if success:
-                                        print(f"✓ Memory formation completed for session {session_id}")
-                                        processed_sessions += 1
-                                    else:
-                                        print(f"⚠️ Memory formation failed for session {session_id}")
-                                else:
-                                    print(f"⏭️ Memory formation not needed for session {session_id} (insufficient messages/tokens)")
-                                    skipped_sessions += 1
-                                
-                                # Mark session for removal from pending_session_memories regardless of outcome
-                                sessions_to_remove.append(session_key)
-                            else:
-                                print(f"⚠️ Could not load session {session_id} from MongoDB")
-                                # Still remove invalid sessions to avoid reprocessing
-                                sessions_to_remove.append(session_key)
-                        
-                    except Exception as e:
-                        print(f"❌ Error processing session {session_id}: {e}")
-                        traceback.print_exc()
-                        # Remove problematic sessions to avoid infinite retry
-                        sessions_to_remove.append(session_key)
-                        continue
-                else:
-                    # No last_activity timestamp - treat as old session that should be processed
-                    print(f"Processing session {session_id} without last_activity timestamp")
-                    try:
-                        session = Session.from_mongo(session_id)
-                        if session:
-                            if should_form_memories(agent_id, session):
-                                success = await form_memories(agent_id, session)
-                                if success:
-                                    print(f"✓ Memory formation completed for session {session_id}")
-                                    processed_sessions += 1
-                                else:
-                                    print(f"⚠️ Memory formation failed for session {session_id}")
-                            else:
-                                print(f"⏭️ Memory formation not needed for session {session_id} (insufficient messages/tokens)")
-                                skipped_sessions += 1
-                            
-                            sessions_to_remove.append(session_key)
-                        else:
-                            print(f"⚠️ Could not load session {session_id} from MongoDB")
-                            sessions_to_remove.append(session_key)
-                    except Exception as e:
-                        print(f"❌ Error processing session {session_id} without last_activity: {e}")
-                        traceback.print_exc()
+                if _is_session_cold(session_state, cutoff_time):
+                    last_activity_str = session_state.get("last_activity")
+                    reason = f"cold session (last activity: {last_activity_str})" if last_activity_str else "session without last_activity timestamp"
+                    
+                    result = await _process_session_for_memory(agent_id, session_id, reason)
+                    
+                    if result["processed"]:
+                        processed_sessions += 1
+                    elif result["skipped"]:
+                        skipped_sessions += 1
+                    
+                    if result["should_remove"]:
                         sessions_to_remove.append(session_key)
             
-            # Remove processed sessions from pending_session_memories
             if sessions_to_remove:
                 for session_key in sessions_to_remove:
                     del agent_dict[session_key]
-                # Update the agent dict in pending_session_memories
                 pending_session_memories[agent_key] = agent_dict
                 print(f"Removed {len(sessions_to_remove)} processed sessions from pending_session_memories for agent {agent_id}")
         
