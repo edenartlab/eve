@@ -13,12 +13,12 @@ class MemoryType:
     
 # Flag to easily switch between local and production memory settings (keep this in but always set to False in production):
 # Remember to also deploy bg apps with LODAL_DEV = False!
-LOCAL_DEV = False
+LOCAL_DEV = True
 
 # Memory formation settings:
 if LOCAL_DEV:
     MEMORY_LLM_MODEL = "gpt-4o-mini"
-    MEMORY_LLM_MODEL = "gpt-5-2025-08-07"
+    MEMORY_LLM_MODEL = "gpt-5-mini-2025-08-07"
     # MEMORY_LLM_MODEL = "claude-sonnet-4-20250514"
     MEMORY_FORMATION_MSG_INTERVAL = 4  # Number of messages to wait before forming memories (None = use token-based)
     MEMORY_FORMATION_TOKEN_INTERVAL = 2000  # Number of tokens to wait before forming memories
@@ -33,7 +33,7 @@ if LOCAL_DEV:
     
 else:
     MEMORY_LLM_MODEL = "gpt-5-2025-08-07"
-    MEMORY_LLM_MODEL = "claude-sonnet-4-20250514"
+    #MEMORY_LLM_MODEL = "claude-sonnet-4-20250514"
     MEMORY_FORMATION_MSG_INTERVAL   = None  # Number of messages to wait before forming memories (None = use token-based)
     MEMORY_FORMATION_TOKEN_INTERVAL = 4000  # Number of tokens to wait before forming memories
     SESSION_MESSAGES_LOOKBACK_LIMIT = 15  # Max messages to look back in a session when forming raw memories
@@ -90,7 +90,7 @@ Create new memories following these rules:
 1. EPISODE: {MEMORY_TYPES['episode'].custom_prompt}
    - Create exactly one factual memory (maximum {SESSION_EPISODE_MEMORY_MAX_WORDS} words each) that captures:
     Focus on capturing (in order of importance):
-    a) WHAT HAPPENED: Key decisions, problems solved, or actions taken
+    a) WHAT HAPPENED: Key plans, decisions, problems solved, or actions taken
     b) WHY IT MATTERS: User goals, feedback, and emotional context if significant
     c) WHAT'S NEXT: Unresolved items or explicit next steps mentioned
    - Specifically focus on the instructions, preferences, goals and feedback expressed by the user(s)
