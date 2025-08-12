@@ -82,24 +82,31 @@ def construct_observability_metadata(context: LLMContext):
 
 
 def construct_tools(context: LLMContext) -> Optional[List[dict]]:
-    if not context.tools:
-        return None
-    tools = [tool.openai_schema(exclude_hidden=True) for tool in context.tools.values()]
+    tools = context.tools or {}
 
-    # Fix for Gemini/Vertex AI: enum values must be strings and parameter type must be "string"
-    if context.config.model and (
-        "gemini" in context.config.model or "vertex" in context.config.model
-    ):
+    tools = [
+        tool.openai_schema(exclude_hidden=True) 
+        for tool in tools.values()
+    ]
+
+    # Gemini/Vertex: enum values must be strings and parameter type must be "string"
+    if "gemini" in context.config.model or "vertex" in context.config.model:
         for tool in tools:
             params = (
                 tool.get("function", {}).get("parameters", {}).get("properties", {})
             )
-            for param_name, param_def in params.items():
+            for param_def in params.values():
                 if "enum" in param_def:
-                    # Convert all enum values to strings
                     param_def["enum"] = [str(val) for val in param_def["enum"]]
-                    # Ensure parameter type is "string" when using enum
                     param_def["type"] = "string"
+
+    # Anthropic: add web search tool
+    elif "claude" in context.config.model:
+        tools = [*tools, {
+            "type": "web_search_20250305",
+            "name": "web_search",
+            "max_uses": 3,
+        }]
 
     return tools
 
