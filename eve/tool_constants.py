@@ -102,10 +102,11 @@ SOCIAL_MEDIA_TOOLS = [
 
 TOOL_SETS = {
     "create_image": ["create", "reel", "media_editor"],
-    "create_video": ["create", "reel", "media_editor"],  # deprecated
+    "create_video": [],  # deprecated
     "create_audio": ["elevenlabs", "musicgen"],
     "vj_tools": ["texture_flow", "video_FX"],
-    "news": ["news"],
+    "news": [],  # deprecated
+    "manage_collections": ["search_collections", "add_to_collection"],
     "social_media_tools": SOCIAL_MEDIA_TOOLS,
     "legacy_tools": [
         "legacy_create",
