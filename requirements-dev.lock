@@ -280,7 +280,7 @@ langfuse==2.59.7
     # via eve
 lazy-model==0.2.0
     # via beanie
-litellm==1.70.0
+litellm==1.75.0
     # via eve
 markdown-it-py==3.0.0
     # via rich
@@ -318,7 +318,7 @@ numpy==2.3.1
 oauthlib==3.3.1
     # via requests-oauthlib
     # via tweepy
-openai==1.75.0
+openai==1.99.6
     # via eve
     # via instructor
     # via litellm

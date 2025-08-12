@@ -1,4 +1,4 @@
-USE_MEDIA_CACHE = True
+USE_MEDIA_CACHE = False
 
 CLICK_COLORS = [
     "black",

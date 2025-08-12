@@ -597,6 +597,7 @@ class LLMContextMetadata(BaseModel):
 @dataclass
 class LLMConfig:
     model: Optional[str] = "gpt-4o-mini"
+    max_tokens: Optional[int] = None
     response_format: Optional[BaseModel] = None
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -732,6 +733,8 @@ class ClientType(Enum):
     FARCASTER = "farcaster"
     TWITTER = "twitter"
     SHOPIFY = "shopify"
+    PRINTIFY = "printify"
+    CAPTIONS = "captions"
 
 
 class NotificationType(Enum):
@@ -742,6 +745,8 @@ class NotificationType(Enum):
     SESSION_FAILED = "session_failed"
     AGENT_MENTIONED = "agent_mentioned"
     SYSTEM_ALERT = "system_alert"
+    AGENT_PERMISSION_ADDED = "agent_permission_added"
+    AGENT_PERMISSION_REMOVED = "agent_permission_removed"
 
 
 class NotificationPriority(Enum):
@@ -831,6 +836,25 @@ class DeploymentSecretsShopify(BaseModel):
     location_id: str
 
 
+# Printify Models
+class DeploymentSettingsPrintify(BaseModel):
+    pass
+
+
+class DeploymentSecretsPrintify(BaseModel):
+    api_token: str
+    shop_id: str
+
+
+# Captions Models
+class DeploymentSettingsCaptions(BaseModel):
+    pass
+
+
+class DeploymentSecretsCaptions(BaseModel):
+    api_key: str
+
+
 # Combined Models
 class DeploymentSecrets(BaseModel):
     discord: DeploymentSecretsDiscord | None = None
@@ -838,6 +862,8 @@ class DeploymentSecrets(BaseModel):
     farcaster: DeploymentSecretsFarcaster | None = None
     twitter: DeploymentSecretsTwitter | None = None
     shopify: DeploymentSecretsShopify | None = None
+    printify: DeploymentSecretsPrintify | None = None
+    captions: DeploymentSecretsCaptions | None = None
 
 
 class DeploymentConfig(BaseModel):
@@ -846,6 +872,8 @@ class DeploymentConfig(BaseModel):
     farcaster: DeploymentSettingsFarcaster | None = None
     twitter: DeploymentSettingsTwitter | None = None
     shopify: DeploymentSettingsShopify | None = None
+    printify: DeploymentSettingsPrintify | None = None
+    captions: DeploymentSettingsCaptions | None = None
 
 
 @Collection("deployments2")

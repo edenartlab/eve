@@ -92,7 +92,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
             if loras:
                 image_tool = openai_image_edit  # preceded by flux_dev_lora call
             else:
-                image_tool = openai_image_generate
+                image_tool = openai_image_edit
         else:
             if loras:
                 if loras[0].base_model == "sdxl":
@@ -347,7 +347,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
         args = {
             "prompt": prompt,
             "n_samples": n_samples,
-            # "quality": "high",
+            "quality": "high",
         }
         if aspect_ratio in ["21:9", "16:9", "3:2", "4:3"]:
             args["size"] = "1536x1024"
@@ -440,7 +440,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
         args = {
             "prompt": prompt,
             "n_samples": n_samples,
-            # "quality": "high",
+            "input_fidelity": "high",
             "size": "auto",
         }
 
@@ -481,6 +481,9 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
     #########################################################
     # Final result
     print("result", result)
+    if result.get("status") == "failed":
+        raise Exception(f"Error in /create: {result.get('error')}")
+    
     final_result = get_full_url(result["output"][0]["filename"])
     print("final result", final_result)
 

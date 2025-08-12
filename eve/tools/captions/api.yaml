@@ -1,0 +1,47 @@
+name: Captions Generate AI Ad
+description: Generate an AI-powered advertisement video using Captions AI
+cost_estimate: 1
+output_type: video
+active: true
+handler: local
+visible: false
+parameters:
+  script:
+    type: string
+    label: Script
+    description: The script for the advertisement
+    tip: Minimum 10 characters. Maximum 800 characters. Should be engaging and promotional.
+    required: true
+    minimum: 10
+    maximum: 800
+  creator_name:
+    type: string
+    label: AI Creator
+    description: Name of the AI creator/voice to use
+    tip: Available creators include Jason, Grace-1, Isabella-1, James, Ava-1, Michael, Olivia, and many more. Leave empty for random selection.
+    required: false
+  media_urls:
+    type: array
+    label: Media URLs
+    description: Array of image URLs to include in the video
+    tip: At least one image URL is required. Use high-quality images.
+    required: true
+    minimum: 1
+    items:
+      type: string
+  resolution:
+    type: string
+    label: Resolution
+    description: Video resolution
+    tip: Options - fhd (Full HD), hd (HD), 4k (4K)
+    required: false
+    default: fhd
+    enum:
+      - fhd
+      - 4k
+  wait_for_completion:
+    type: boolean
+    label: Wait for Completion
+    description: Whether to wait for video generation to complete
+    tip: If true, will wait and return video URL. If false, returns operation ID.
+    default: true

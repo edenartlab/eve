@@ -6,7 +6,6 @@ handler: modal
 thumbnail: app/openai_generate.jpg
 visible: true
 active: true
-
 parameters:
   prompt:
     label: Prompt
@@ -36,6 +35,8 @@ parameters:
       - low
       - auto
     description: The quality of the image (high, medium, low, auto). 'auto' selects the best quality. Defaults to auto.
+    tip: |-
+      Set this to high if you want to get the highest level of details, fidelity, and coherence, especially for complex scenes, infographics, or text-heavy images.
   size:
     label: size
     type: string

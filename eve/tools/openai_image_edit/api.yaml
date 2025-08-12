@@ -8,7 +8,6 @@ handler: modal
 thumbnail: app/openai_edit.jpg
 visible: true
 active: true
-
 parameters:
   image:
     label: Input Image(s)
@@ -41,8 +40,8 @@ parameters:
     default: 1
     minimum: 1
     maximum: 4
-  quality:
-    label: Quality
+  input_fidelity:
+    label: Input Fidelity
     type: string
     required: false
     default: auto
@@ -51,9 +50,9 @@ parameters:
       - medium
       - low
       - auto
-    description: The quality of the edited image (high, medium, low, auto). Defaults to auto.
+    description: How strongly to preserve the input image's content (high, medium, low, auto). Defaults to auto.
     tip: |-
-      If the user desires a lot of text, detail, or is making an infographic or something else complicated, use high.
+      This is useful for preserving the original details like text, faces, logos, etc.
   size:
     label: Size
     type: string

@@ -57,10 +57,6 @@ async def handler(args: dict, user: str = None, agent: str = None):
         user = get_my_eden_user()
     else:
         user = User.from_mongo(user)
-
-
-    # raise Exception("Not implemented")
-
     
     agent = Agent.load("media-editor")
     

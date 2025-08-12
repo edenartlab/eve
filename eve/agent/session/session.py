@@ -42,7 +42,9 @@ from eve.agent.session.session_prompts import (
     model_template,
 )
 
-from eve.agent.session.memory import maybe_form_memories, assemble_memory_context
+from eve.agent.session.memory import should_form_memories, form_memories
+from eve.agent.session.memory_assemble_context import assemble_memory_context
+
 from eve.agent.session.config import (
     DEFAULT_SESSION_SELECTION_LIMIT,
     get_default_session_llm_config,
@@ -218,23 +220,21 @@ async def build_system_message(
     if context.initiating_user_id:
         last_speaker_id = ObjectId(context.initiating_user_id)
 
-    # Get agent memory context (up to 5000 tokens)
+    # Get agent memory context
     memory_context = ""
     try:
-        start_time = time.time()
         memory_context = await assemble_memory_context(
             actor.id,
             session_id=session.id,
             last_speaker_id=last_speaker_id,
             session=session,
         )
-        time_taken = time.time() - start_time
-        print(f"-----> Time taken to assemble memory context: {time_taken:.2f} seconds")
-
         if memory_context:
             memory_context = f"\n\n{memory_context}"
     except Exception as e:
-        print(f"Warning: Could not load memory context for agent {actor.id}: {e}")
+        print(
+            f"Warning: Failed to load memory context for agent {actor.id} in session {session.id}: {e}"
+        )
 
     # Get text describing models
     lora_name = None
@@ -274,6 +274,23 @@ async def build_system_message(
     )
 
 
+async def build_system_extras(
+    session: Session, context: PromptSessionContext, config: LLMConfig
+):
+    extras = []
+    if context.update_config and context.update_config.farcaster_hash:
+        extras.append(
+            ChatMessage(
+                session=session.id,
+                sender=ObjectId("000000000000000000000000"),
+                role="system",
+                content="You are currently replying to a Farcaster cast. The maximum length before the fold is 320 characters, and the maximum length is 1024 characters, so attempt to be concise in your response.",
+            )
+        )
+        config.max_tokens = 1024
+    return context, config, extras
+
+
 def add_user_message(session: Session, context: PromptSessionContext):
     new_message = ChatMessage(
         session=session.id,
@@ -293,26 +310,26 @@ async def build_llm_context(
     actor: Agent,
     context: PromptSessionContext,
     trace_id: Optional[str] = None,
-    user_message: Optional[ChatMessage] = None,
 ):
+    user = User.from_mongo(context.initiating_user_id)
+    tier = "premium" if user.subscriptionTier and user.subscriptionTier > 0 else "free"
+    config = context.llm_config or get_default_session_llm_config(tier)
     tools = actor.get_tools(cache=False, auth_user=context.initiating_user_id)
     if context.custom_tools:
         tools.update(context.custom_tools)
     # build messages
     system_message = await build_system_message(session, actor, context, tools)
     messages = [system_message]
+    context, config, system_extras = await build_system_extras(session, context, config)
+    if len(system_extras) > 0:
+        messages.extend(system_extras)
     messages.extend(select_messages(session))
     messages = convert_message_roles(messages, actor.id)
-    # Add user message if provided (should be created once per prompt session)
-    if user_message:
-        messages.append(user_message)
 
-    user = User.from_mongo(context.initiating_user_id)
-    tier = "premium" if user.subscriptionTier and user.subscriptionTier > 0 else "free"
     return LLMContext(
         messages=messages,
         tools=tools,
-        config=context.llm_config or get_default_session_llm_config(tier),
+        config=config,
         metadata=LLMContextMetadata(
             # for observability purposes. not same as session.id
             session_id=f"{os.getenv('DB')}-{str(context.session.id)}",
@@ -984,18 +1001,15 @@ async def _run_prompt_session_internal(
 ):
     """Internal function that handles both streaming and non-streaming"""
     session = context.session
-    print(f"🤖 ***debug*** context: {context}")
 
     try:
         validate_prompt_session(session, context)
 
         # Create user message first, regardless of whether actors are determined
-        user_message = None
         if context.initiating_user_id:
-            user_message = add_user_message(session, context)
+            add_user_message(session, context)
 
         actors = await determine_actors(session, context)
-        print(f"🤖 ***debug*** Actors: {actors}")
         is_client_platform = context.update_config is not None
 
         if not actors:
@@ -1012,7 +1026,6 @@ async def _run_prompt_session_internal(
                 actor,
                 context,
                 trace_id=session_run_id,
-                user_message=user_message,
             )
             async for update in async_prompt_session(
                 session,
@@ -1034,7 +1047,6 @@ async def _run_prompt_session_internal(
                     actor,
                     context,
                     trace_id=actor_session_run_id,
-                    user_message=user_message,
                 )
                 async for update in async_prompt_session(
                     session,
@@ -1078,11 +1090,11 @@ async def _run_prompt_session_internal(
 
             # Process memory formation for all actors that participated
             for actor in actors:
-                # TODO move the messages_since_last < interval check to here instead of inside the background task
-                print(
-                    f"🧠 Triggering maybe_form_memories() as background task for session {session.id}, agent {actor.id}"
-                )
-                background_tasks.add_task(maybe_form_memories, actor.id, session)
+                if should_form_memories(actor.id, session):
+                    print(
+                        f"🧠 Triggering form_memories() as background task for session {session.id}, agent {actor.id}"
+                    )
+                    background_tasks.add_task(form_memories, actor.id, session)
 
             # Send success notification if configured
             if (

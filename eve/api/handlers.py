@@ -1240,7 +1240,6 @@ async def handle_v2_deployment_emission(request: DeploymentEmissionRequest):
     client = get_platform_client(
         agent=agent, platform=deployment.platform, deployment=deployment
     )
-    print("***debug*** EMISSION REQUEST:", request)
     await client.handle_emission(request)
 
 

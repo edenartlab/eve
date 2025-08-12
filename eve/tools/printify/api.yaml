@@ -1,0 +1,51 @@
+name: Printify Create Product
+description: Create a product on Printify print-on-demand platform
+cost_estimate: 1
+output_type: string
+active: true
+handler: local
+visible: false
+parameters:
+  title:
+    type: string
+    label: Title
+    description: Title of the product
+    required: true
+  description:
+    type: string
+    label: Description
+    description: Description of the product
+    required: true
+  image:
+    type: string
+    label: Image
+    description: Image URL for the product design
+    tip: Provide a full URL to the image file
+    required: true
+  blueprint_id:
+    type: integer
+    label: Blueprint ID
+    description: ID of the product blueprint (e.g., 5 for t-shirts, 6 for hoodies)
+    tip: Common IDs - T-shirt 5, Hoodie 6, Mug 604
+    required: true
+    default: 5
+  print_provider_id:
+    type: integer
+    label: Print Provider ID
+    description: ID of the print provider
+    tip: Each blueprint has specific providers. Common provider IDs - SwiftPOD 99, Printful 1
+    required: true
+    default: 99
+  price:
+    type: float
+    label: Price
+    description: Retail price of the product in USD
+    required: true
+    minimum: 0.00
+    maximum: 1000.00
+  auto_publish:
+    type: boolean
+    label: Auto Publish
+    description: Whether to automatically publish the product to the storefront
+    tip: If false, product will remain in draft state and require manual publishing
+    default: true

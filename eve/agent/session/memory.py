@@ -1,369 +1,331 @@
 """
-Agent Memory System for Eve Platform
-
-Provides automatic memory formation and context assembly for multi-agent conversations.
-Memories are categorized as directives (behavioral rules) and episodes (conversation summaries
-including contextual information) with full source message traceability.
+Agent Memory System for Eden - Refactored Version
 """
 
-import json
 import logging
 import time
 import traceback
-from enum import Enum
-from typing import List, Optional, Dict, Any
+from typing import List, Dict, Any, Tuple
 from datetime import datetime, timezone
 from bson import ObjectId
-from pydantic import field_serializer
+from pydantic import BaseModel, Field, create_model
 
-from eve.mongo import Collection, Document, get_collection
 from eve.agent.session.session_llm import async_prompt, LLMContext, LLMConfig
 from eve.agent.session.models import ChatMessage, Session
-from eve.agent.session.memory_state import update_session_state, get_session_state
+from eve.agent.session.memory_state import update_session_state
+from eve.agent.session.memory_primitives import SessionMemory, UserMemory, AgentMemory, get_agent_owner, messages_to_text, _update_agent_memory_timestamp, _get_recent_messages, _format_memories_with_age
+from eve.agent.session.memory_constants import *
 
-# Flag to easily switch between local and production memory settings (keep this in but always set to False in production):
-# Remember to also deploy bg apps with LODAL_DEV = False!
-LOCAL_DEV = False
-DEFAULT_MESSAGE_LIMIT = 25
-
-# Memory formation settings:
-if LOCAL_DEV:
-    MEMORY_FORMATION_INTERVAL = 4  # Number of messages to wait before forming memories
-    SESSION_MESSAGES_LOOKBACK_LIMIT = MEMORY_FORMATION_INTERVAL  # Max messages to look back in a session when forming raw memories
-    MAX_RAW_MEMORY_COUNT = 2  # Number of individual memories to store before consolidating them into the agent's user_memory blob
-    MAX_N_EPISODES_TO_REMEMBER = 2  # Number of episodes to remember from a session
-    MEMORY_LLM_MODEL = "gpt-4o-mini"
-else:
-    MEMORY_FORMATION_INTERVAL = DEFAULT_MESSAGE_LIMIT  # Number of messages to wait before forming memories
-    SESSION_MESSAGES_LOOKBACK_LIMIT = MEMORY_FORMATION_INTERVAL  # Max messages to look back in a session when forming raw memories
-    MAX_RAW_MEMORY_COUNT = 5  # Number of individual memories to store before consolidating them into the agent's user_memory blob
-    MAX_N_EPISODES_TO_REMEMBER = 10  # Number of episodes to remember from a session
-    MEMORY_LLM_MODEL = "gpt-4o"
-
-# LLMs cannot count tokens at all (weirdly), so instruct with word count:
-SESSION_CONSOLIDATED_MEMORY_MAX_WORDS = (
-    50  # Target word length for session consolidated memory
-)
-SESSION_DIRECTIVE_MEMORY_MAX_WORDS = (
-    25  # Target word length for session directive memory
-)
-USER_MEMORY_MAX_WORDS = 150  # Target word count for consolidated user memory blob
-
-class MemoryType(Enum):
-    EPISODE = "episode"  # Summary of a section of the conversation in a session
-    DIRECTIVE = "directive"  # User instructions, preferences, behavioral rules
-
-
-@Collection("memory_sessions")
-class SessionMemory(Document):
-    """Individual memory record stored in MongoDB"""
-
-    agent_id: ObjectId
-    source_session_id: ObjectId
-    memory_type: MemoryType
-    content: str
-
-    # Context tracking for traceability
-    source_message_ids: List[ObjectId] = []
-    related_users: List[ObjectId] = []
-
-    agent_owner: Optional[ObjectId] = None
-
-    @field_serializer("memory_type")
-    def serialize_memory_type(self, value: MemoryType) -> str:
-        return value.value
-
-    @classmethod
-    def convert_to_mongo(cls, schema: dict, **kwargs) -> dict:
-        """Convert enum to string for MongoDB storage"""
-        # Ensure kwargs is a dict to prevent "argument after ** must be a mapping" error
-        if kwargs is None:
-            kwargs = {}
-        if "memory_type" in schema and hasattr(schema["memory_type"], "value"):
-            schema["memory_type"] = schema["memory_type"].value
-        return schema
-
-    @classmethod
-    def convert_from_mongo(cls, schema: dict, **kwargs) -> dict:
-        """Convert string back to enum from MongoDB"""
-        # Ensure kwargs is a dict to prevent "argument after ** must be a mapping" error
-        if kwargs is None:
-            kwargs = {}
-        if "memory_type" in schema and isinstance(schema["memory_type"], str):
-            schema["memory_type"] = MemoryType(schema["memory_type"])
-        return schema
-
-    @classmethod
-    def ensure_indexes(cls):
-        """Ensure indexes exist for optimal query performance"""
-        collection = cls.get_collection()
-        
-        # Compound index for unabsorbed directives query (lines 663-670)
-        # Query: {"agent_id": agent_id, "memory_type": "directive", "related_users": user_id, "_id": {"$in": ids}}
-        collection.create_index([
-            ("agent_id", 1),
-            ("memory_type", 1), 
-            ("related_users", 1)
-        ])
-        
-        # Compound index for episode memories query (line 684)
-        # Query: {"source_session_id": session_id, "memory_type": MemoryType.EPISODE.value}
-        # With sort: sort="createdAt", desc=True
-        collection.create_index([
-            ("source_session_id", 1),
-            ("memory_type", 1),
-            ("createdAt", -1)
-        ])
-
-@Collection("memory_user")
-class UserMemory(Document):
-    """Consolidated user memory blob for agent/user pairs"""
-
-    agent_id: ObjectId
-    user_id: ObjectId
-    content: Optional[str] = ""
-    agent_owner: Optional[ObjectId] = None
-    # Track which directive memories haven't been consolidated yet:
-    unabsorbed_directive_ids: List[ObjectId] = []  
-
-    @classmethod
-    def convert_to_mongo(cls, schema: dict, **kwargs) -> dict:
-        """Convert data for MongoDB storage"""
-        # Ensure kwargs is a dict to prevent "argument after ** must be a mapping" error
-        if kwargs is None:
-            kwargs = {}
-        return schema
-
-    @classmethod
-    def convert_from_mongo(cls, schema: dict, **kwargs) -> dict:
-        """Convert data from MongoDB"""
-        if kwargs is None:
-            kwargs = {}
-        return schema
-
-    @classmethod
-    def find_one_or_create(cls, query, defaults=None):
-        """Find a document or create and save a new one if it doesn't exist."""
-        if defaults is None:
-            defaults = {}
-
-        try:
-            doc = cls.find_one(query)
-            if doc:
-                return doc
-        except (TypeError, AttributeError) as e:
-            print(f"Error in find_one: {e}")
-        
-        # If we get here, either find_one returned None or crashed
-        # Create new instance and save it
-        new_doc = {**query, **defaults}
-        instance = cls(**new_doc)
-        instance.save()
-        return instance
-        
-    @classmethod
-    def ensure_indexes(cls):
-        """Ensure indexes exist"""
-        collection = cls.get_collection()
-        collection.create_index([("agent_id", 1), ("user_id", 1)], unique=True)
-
-
-
-def get_agent_owner(agent_id: ObjectId) -> Optional[ObjectId]:
-    """Get the owner of the agent"""
-    try:
-        from eve.agent.agent import Agent
-
-        agent = Agent.from_mongo(agent_id)
-        return agent.owner
-    except Exception as e:
-        print(f"Warning: Could not load agent owner for {agent_id}: {e}")
-        return None
-
-
-def messages_to_text(messages: List[ChatMessage]) -> str:
-    """Convert messages to readable text for LLM processing"""
-    text_parts = []
-    for msg in messages:
-        speaker = msg.name or msg.role
-        content = msg.content
-
-        # Add tool calls summary if present
-        if msg.tool_calls:
-            tools_summary = (
-                f" [Used tools: {', '.join([tc.tool for tc in msg.tool_calls])}]"
+async def _store_memories_by_type(
+    agent_id: ObjectId,
+    session_id: ObjectId,
+    extracted_data: Dict[str, List[str]],
+    message_ids: List[ObjectId],
+    related_users: List[ObjectId],
+    agent_owner: ObjectId,
+    memory_to_shard_map: Dict[str, ObjectId] = None
+) -> Dict[str, List[SessionMemory]]:
+    """Store memories organized by type."""
+    memories_by_type = {}
+    
+    # Generate memory configs from MEMORY_TYPES
+    # Facts and suggestions are collective memory (require shards), episodes and directives are personal
+    collective_memory_types = {"fact", "suggestion"}
+    
+    for key, memory_type in MEMORY_TYPES.items():
+        requires_shard = key in collective_memory_types
+        memories = []
+        for idx, content in enumerate(extracted_data.get(key, [])):
+            shard_id = None
+            if requires_shard:
+                shard_id = memory_to_shard_map.get(f"{key}_{idx}") if memory_to_shard_map else None
+                if shard_id is None:
+                    logging.warning(
+                        f"{memory_type.name.capitalize()} memory '{content}' has no shard_id"
+                    )
+            
+            memory = SessionMemory(
+                agent_id=agent_id,
+                source_session_id=session_id,
+                memory_type=memory_type.name,  # Store the string value
+                content=content,
+                source_message_ids=message_ids,
+                related_users=related_users,
+                agent_owner=agent_owner,
+                shard_id=shard_id,
             )
-            content += tools_summary
-
-        text_parts.append(f"{speaker}: {content}")
-
-    return "\n".join(text_parts)
-
-
-def get_memory_source_context(
-    memory: SessionMemory, session_messages: List[ChatMessage] = None
-) -> Dict[str, Any]:
-    """
-    Retrieve the full context for a memory by looking up its source messages.
-    Useful for users who want to see the original conversation that led to a memory.
-    """
-
-    if not memory.source_message_ids:
-        return {"error": "No source message IDs found for this memory"}
-
-    source_context = {
-        "memory_content": memory.content,
-        "memory_type": memory.memory_type.value,
-        "source_session_id": str(memory.source_session_id),
-        "source_messages": [],
-        "conversation_context": "",
-    }
-
-    # If session messages provided, look up from there
-    if session_messages:
-        MEMORY_SOURCE_CONTENT_TRUNCATION = 500
-        source_messages = []
-        for msg in session_messages:
-            if hasattr(msg, "id") and msg.id in memory.source_message_ids:
-                source_messages.append(
-                    {
-                        "id": str(msg.id),
-                        "role": msg.role,
-                        "name": msg.name,
-                        "content": msg.content[:MEMORY_SOURCE_CONTENT_TRUNCATION]
-                        + "..."
-                        if len(msg.content) > MEMORY_SOURCE_CONTENT_TRUNCATION
-                        else msg.content,
-                        "has_tool_calls": bool(msg.tool_calls),
-                        "tool_count": len(msg.tool_calls) if msg.tool_calls else 0,
-                    }
-                )
-
-        source_context["source_messages"] = source_messages
-        source_context["conversation_context"] = messages_to_text(
-            [
-                msg
-                for msg in session_messages
-                if hasattr(msg, "id") and msg.id in memory.source_message_ids
-            ]
-        )
-    else:
-        # In production, would query ChatMessage collection by IDs
-        source_context["source_messages"] = [
-            {"id": str(mid), "note": "Would query ChatMessage collection"}
-            for mid in memory.source_message_ids
-        ]
-
-    return source_context
+            memory.save()
+            memories.append(memory)
+        
+        if memories:
+            memories_by_type[memory_type.name] = memories
+    
+    return memories_by_type
 
 
-def estimate_tokens(text: str) -> int:
-    """Rough token estimation (4.5 characters per token)"""
-    return int(len(text) / 4.5)
-
-
-def store_session_memory(
+async def _save_all_memories(
     agent_id: ObjectId,
     extracted_data: Dict[str, List[str]],
     messages: List[ChatMessage],
     session_id: ObjectId,
+    memory_to_shard_map: Dict[str, ObjectId] = None,
 ) -> List[SessionMemory]:
-    """Store extracted session to MongoDB with source traceability"""
-    logging.debug(f"Extracted data: {extracted_data}")
+    """Store raw extracted session memories (all types) in MongoDB with source traceability"""
+    
+    # Prepare common data
     message_ids = [msg.id for msg in messages]
-    # Extract all non-agent user_ids:
     related_users = list(
         set([msg.sender for msg in messages if msg.sender and msg.sender != agent_id])
     )
-
-    # Get agent owner
     agent_owner = get_agent_owner(agent_id)
 
-    memories_created = []
-    new_directive_memories = []
-
-    # Store directives
-    for directive in extracted_data.get("directives", []):
-        memory = SessionMemory(
-            agent_id=agent_id,
-            source_session_id=session_id,
-            memory_type=MemoryType.DIRECTIVE,
-            content=directive,
-            source_message_ids=message_ids,
-            related_users=related_users,
-            agent_owner=agent_owner,
-        )
-        memory.save()
-        memories_created.append(memory)
-        new_directive_memories.append(memory)
-
-    # Store episodes
-    for episode in extracted_data.get("episodes", []):
-        memory = SessionMemory(
-            agent_id=agent_id,
-            source_session_id=session_id,
-            memory_type=MemoryType.EPISODE,
-            content=episode,
-            source_message_ids=message_ids,
-            related_users=related_users,
-            agent_owner=agent_owner,
-        )
-        memory.save()
-        memories_created.append(memory)
-
-    # Check if we need to consolidate any user memories for each related user
+    # Store memories by type
+    memories_by_type = await _store_memories_by_type(
+        agent_id, session_id, extracted_data, message_ids,
+        related_users, agent_owner, memory_to_shard_map
+    )
+    
+    # Update user memories with new directives
     for user_id in related_users:
-        if user_id:  # Only process non-None user IDs
-            _update_user_memory(agent_id, user_id, new_directive_memories)
+        if user_id:
+            await _update_user_memory(
+                agent_id, user_id, 
+                memories_by_type.get("directive", [])
+            )
 
-    return memories_created
+    # Update agent memories with new facts and suggestions
+    if memories_by_type.get("fact") or memories_by_type.get("suggestion"):
+        await _update_agent_memory(
+            agent_id,
+            memories_by_type.get("fact", []),
+            memories_by_type.get("suggestion", [])
+        )
+
+    # Return all memories created (filter out empty memories)
+    return [individual_memory for memory_list in memories_by_type.values() for individual_memory in memory_list if individual_memory.content.strip()]
 
 
-def _update_user_memory(
+async def _update_user_memory(
     agent_id: ObjectId, user_id: ObjectId, new_directive_memories: List[SessionMemory]
 ):
     """
     Add new directives to user_memory and maybe consolidate.
     Called after new directive memories are created.
     """
-
     try:
-        # Get or create user memory record
-        if agent_id is None or user_id is None:
+        if not agent_id or not user_id or not new_directive_memories:
             return
 
         user_memory = UserMemory.find_one_or_create(
             {"agent_id": agent_id, "user_id": user_id}
         )
         
-        logging.debug(
-            f"Found existing user memory with {len(user_memory.unabsorbed_directive_ids)} unabsorbed directives"
+        await _add_memories_and_maybe_consolidate(
+            memory_doc=user_memory,
+            new_memory_ids=[m.id for m in new_directive_memories],
+            unabsorbed_field='unabsorbed_memory_ids',
+            max_before_consolidation=MAX_DIRECTIVES_COUNT_BEFORE_CONSOLIDATION,
+            consolidation_func=_consolidate_user_directives,
+            memory_type="directive"
         )
-
-        # Add new directives to unabsorbed list
-        for directive_id in [m.id for m in new_directive_memories]:
-            user_memory.unabsorbed_directive_ids.append(directive_id)
-        user_memory.save()
-        logging.debug(f"Added {len(new_directive_memories)} new directives to user memory")
-        logging.debug(
-            f"Total Unabsorbed directives in user memory: {len(user_memory.unabsorbed_directive_ids)}"
-        )
-
-        # Check if we need to consolidate
-        if len(user_memory.unabsorbed_directive_ids) >= MAX_RAW_MEMORY_COUNT:
-            logging.debug(
-                f"Triggering user memory consolidation for agent {agent_id}, user {user_id}: integrating {len(user_memory.unabsorbed_directive_ids)} unabsorbed directives"
-            )
-            # Store the user_memory for async consolidation
-            import asyncio
-
-            # Create a task to run the consolidation asynchronously
-            loop = asyncio.get_event_loop()
-            loop.create_task(_consolidate_user_directives(user_memory))
 
     except Exception as e:
-        print(f"Error checking user directive consolidation: {e}")
+        print(f"Error updating user memory: {e}")
         traceback.print_exc()
+
+
+async def _update_agent_memory(
+    agent_id: ObjectId, 
+    new_fact_memories: List[SessionMemory], 
+    new_suggestion_memories: List[SessionMemory]
+) -> bool:
+    """
+    Add new facts and suggestions to their originating agent memory shards only.
+    Facts are added to shard.facts (FIFO up to MAX_FACTS_PER_SHARD).
+    Suggestions are added to unabsorbed_memory_ids for consolidation.
+    Returns True if any agent memories were updated.
+    """
+    try:
+        memories_by_shard = {}
+        
+        # Group facts
+        for fact_memory in new_fact_memories:
+            if fact_memory.shard_id is None:
+                logging.warning(f"Skipping fact memory without shard_id: '{fact_memory.content}'")
+                continue
+            if fact_memory.shard_id not in memories_by_shard:
+                memories_by_shard[fact_memory.shard_id] = {'facts': [], 'suggestions': []}
+            memories_by_shard[fact_memory.shard_id]['facts'].append(fact_memory)
+        
+        # Group suggestions
+        for suggestion_memory in new_suggestion_memories:
+            if suggestion_memory.shard_id is None:
+                logging.warning(f"Skipping suggestion memory without shard_id: '{suggestion_memory.content}'")
+                continue
+            if suggestion_memory.shard_id not in memories_by_shard:
+                memories_by_shard[suggestion_memory.shard_id] = {'facts': [], 'suggestions': []}
+            memories_by_shard[suggestion_memory.shard_id]['suggestions'].append(suggestion_memory)
+        
+        # Update each shard
+        for shard_id, shard_memories in memories_by_shard.items():
+            try:
+                shard = AgentMemory.from_mongo(shard_id)
+                if not shard:
+                    logging.warning(f"No agent memory shard found for shard_id '{shard_id}'")
+                    continue
+                
+                # Update shard inline instead of calling _update_single_shard
+                shard_updated = False
+                
+                # Add new facts (FIFO)
+                new_facts = shard_memories.get('facts', [])
+                if new_facts:
+                    for fact in new_facts:
+                        shard.facts.append(fact.id)
+                    
+                    # Maintain FIFO - keep only the most recent facts
+                    if len(shard.facts) > MAX_FACTS_PER_SHARD:
+                        shard.facts = shard.facts[-MAX_FACTS_PER_SHARD:]
+                    
+                    shard_updated = True
+                
+                # Add new suggestions
+                new_suggestions = shard_memories.get('suggestions', [])
+                if new_suggestions:
+                    await _add_memories_and_maybe_consolidate(
+                        memory_doc=shard,
+                        new_memory_ids=[s.id for s in new_suggestions],
+                        unabsorbed_field='unabsorbed_memory_ids',
+                        max_before_consolidation=MAX_SUGGESTIONS_COUNT_BEFORE_CONSOLIDATION,
+                        consolidation_func=_consolidate_agent_suggestions,
+                        memory_type="suggestion"
+                    )
+                    shard_updated = True
+                
+                if shard_updated:
+                    # Always regenerate fully formed memory shard after any update
+                    await _regenerate_fully_formed_memory_shard(shard)
+                    
+            except Exception as e:
+                logging.error(f"Could not update shard with shard_id '{shard_id}': {e}")
+                continue
+
+        return
+        
+    except Exception as e:
+        print(f"Error updating agent memories: {e}")
+        traceback.print_exc()
+        return
+
+
+async def _add_memories_and_maybe_consolidate(
+    memory_doc,
+    new_memory_ids: List[ObjectId],
+    unabsorbed_field: str,
+    max_before_consolidation: int,
+    consolidation_func,
+    memory_type: str
+):
+    """Generic function to add memories to a document and trigger consolidation if needed."""
+    if not new_memory_ids:
+        return
+    
+    # Add new memories to the unabsorbed list
+    unabsorbed_list = getattr(memory_doc, unabsorbed_field)
+    unabsorbed_list.extend(new_memory_ids)
+    memory_doc.save()
+    
+    # Check if consolidation is needed
+    if len(unabsorbed_list) >= max_before_consolidation:
+        await consolidation_func(memory_doc)
+
+
+async def _consolidate_with_llm(
+    consolidation_prompt_template: str,
+    **format_args
+) -> str:
+    """Generic LLM consolidation function that works with any memory type.
+    
+    Args:
+        consolidation_prompt_template: The prompt template to use (e.g., USER_MEMORY_CONSOLIDATION_PROMPT)
+        **format_args: Arguments to format the prompt template with
+    """
+    # Handle empty current memory
+    if 'current_memory' in format_args and not format_args['current_memory']:
+        format_args['current_memory'] = "(empty - this is the first consolidation)"
+    
+    consolidation_prompt = consolidation_prompt_template.format(**format_args)
+
+    if LOCAL_DEV:
+        print(f"--- Final LLM Consolidation Prompt: ---\n{consolidation_prompt}")
+        print("----------------------------------------\n\n")
+
+    context = LLMContext(
+        messages=[ChatMessage(role="user", content=consolidation_prompt)],
+        config=LLMConfig(model=MEMORY_LLM_MODEL),
+    )
+
+    llm_response = await async_prompt(context)
+
+    print(f"LLM consolidation result: {llm_response}")
+    return llm_response.content
+
+
+async def extract_memories_with_llm(
+    conversation_text: str, 
+    extraction_prompt: str,
+    extraction_elements: List[str]
+) -> Dict[str, List[str]]:
+    """Use LLM to extract categorized memories from conversation text"""
+    
+    if CONVERSATION_TEXT_TOKEN not in extraction_prompt:
+        extraction_prompt = "Conversation text:\n" + CONVERSATION_TEXT_TOKEN + "\n" + extraction_prompt
+    
+    extraction_prompt = extraction_prompt.replace(CONVERSATION_TEXT_TOKEN, conversation_text)
+    
+    # Dynamically create model with only requested fields and max_length constraints
+    fields = {}
+    for element in extraction_elements:
+        if element in MEMORY_TYPES:
+            memory_type = MEMORY_TYPES[element]
+            fields[element] = (List[str], Field(default_factory=list, max_length=memory_type.max_items))
+        else:
+            # Fallback for unknown memory types
+            fields[element] = (List[str], Field(default_factory=list, max_length=1))
+    
+    MemoryModel = create_model("MemoryExtraction", **fields)
+    
+    # Use LLM with structured output
+    context = LLMContext(
+        messages=[ChatMessage(role="user", content=extraction_prompt)],
+        config=LLMConfig(
+            model=MEMORY_LLM_MODEL,
+            response_format=MemoryModel  # This forces JSON output with only requested fields
+        ),
+    )
+    
+    response = await async_prompt(context)
+    
+    # Parse the structured response
+    if hasattr(response, 'parsed'):
+        # Some APIs return pre-parsed structured output
+        extracted = response.parsed
+        formatted_data = extracted.model_dump()
+    else:
+        # Otherwise parse from JSON
+        extracted = MemoryModel.model_validate_json(response.content)
+        formatted_data = extracted.model_dump()
+    
+    # Log the extraction process
+    if LOCAL_DEV and 0:
+        print("########################")
+        print("Forming new memories...")
+        #print(f"--- Messages: ---\n{context.messages}")
+        #print(f"--- Prompt: ---\n{extraction_prompt}")
+        print(f"--- New Memories: ---\n{formatted_data}")
+        print("########################")
+    
+    return formatted_data
 
 
 async def _consolidate_user_directives(user_memory: UserMemory):
@@ -371,84 +333,151 @@ async def _consolidate_user_directives(user_memory: UserMemory):
     Consolidate unabsorbed directive memories into the user memory blob using LLM.
     """
     try:
-        # Get all unabsorbed directive memories
-        unabsorbed_directives = []
-        for directive_id in user_memory.unabsorbed_directive_ids:
-            try:
-                unabsorbed_directives.append(SessionMemory.from_mongo(directive_id))
-            except Exception as e:
-                print(f"Warning: Could not load directive {directive_id}: {e}")
-
-        if not unabsorbed_directives:
+        # Load unabsorbed memories
+        unabsorbed_memories = await _load_memories_by_ids(
+            user_memory.unabsorbed_memory_ids, 
+            memory_type_filter="directive"
+        )
+        
+        if not unabsorbed_memories:
             return
 
         # Prepare content for LLM consolidation
-        current_memory = user_memory.content
-        new_directives_text = "\n".join(
-            [f"- {d.content}" for d in unabsorbed_directives]
-        )
-
-        n_mems = len(unabsorbed_directives)
-        logging.debug(f"Consolidating {n_mems} directives to user_memory")
-        logging.debug(f"Current memory length: {len(current_memory)} chars")
-        logging.debug(f"New directives: {new_directives_text}")
-
-        # Use LLM to consolidate memories
-        consolidated_content = await _consolidate_memories_with_llm(
-            current_memory, new_directives_text
-        )
-
-        # Update user memory
-        user_memory.content = consolidated_content
-        user_memory.unabsorbed_directive_ids = []  # Reset unabsorbed list
-        user_memory.save()
-        logging.debug(f"✓ Consolidated user memory updated (length: {len(consolidated_content)} chars)")
+        new_memories_text = _format_memories_with_age(unabsorbed_memories)
         
+        print(f"Consolidating {len(unabsorbed_memories)} directives to user_memory")
+        print(f"Current memory length: {len(user_memory.content)} chars")
+        print(f"New directives: {new_memories_text}")
+
+        # Use generic LLM consolidation
+        consolidated_content = await _consolidate_with_llm(
+            USER_MEMORY_CONSOLIDATION_PROMPT,
+            current_memory=user_memory.content,
+            new_memories=new_memories_text,
+            max_words=USER_MEMORY_BLOB_MAX_WORDS
+        )
+
+        # Update memory document inline
+        user_memory.content = consolidated_content
+        user_memory.unabsorbed_memory_ids = []
+        user_memory.last_updated_at = datetime.now(timezone.utc)
+        user_memory.save()
+        
+        print(f"✓ Consolidated user memory updated (length: {len(consolidated_content)} chars)")
 
     except Exception as e:
         print(f"Error consolidating user directives: {e}")
         traceback.print_exc()
 
 
-async def _consolidate_memories_with_llm(
-    current_memory: str, new_directives: str
-) -> str:
-    """Use LLM to consolidate current user memory with new directive memories"""
+async def _consolidate_agent_suggestions(shard: AgentMemory):
+    """
+    Consolidate unabsorbed suggestion memories into the agent memory shard using LLM.
+    """
+    try:
+        # Load unabsorbed suggestions
+        unabsorbed_suggestions = await _load_memories_by_ids(
+            shard.unabsorbed_memory_ids,
+            memory_type_filter="suggestion"
+        )
+        
+        if not unabsorbed_suggestions:
+            return
 
-    consolidation_prompt = f"""
-CONSOLIDATE USER MEMORY
-======================
-You are helping to consolidate memories about a specific user's preferences and behavioral rules for an AI agent.
+        # Load current facts
+        current_facts = await _load_memories_by_ids(
+            shard.facts,
+            memory_type_filter="fact"
+        )
 
-CURRENT CONSOLIDATED MEMORY:
-{current_memory if current_memory else "(empty - this is the first consolidation)"}
+        facts_text = _format_memories_with_age(current_facts)
+        suggestions_text = "\n".join([f"- {s.content}" for s in unabsorbed_suggestions])
 
-NEW DIRECTIVE MEMORIES TO INTEGRATE:
-{new_directives}
+        print(f"Consolidating {len(unabsorbed_suggestions)} suggestions for agent memory shard '{shard.shard_name}'")
+        print(f"Current memory length: {len(shard.content or '')} chars")
+        print(f"New suggestions: {suggestions_text}")
 
-Your task: Create a single consolidated memory (≤{USER_MEMORY_MAX_WORDS} words) that combines the current memory with the new directives.
+        # Use generic LLM consolidation
+        consolidated_content = await _consolidate_with_llm(
+            AGENT_MEMORY_CONSOLIDATION_PROMPT,
+            current_memory=shard.content or "",
+            facts_text=facts_text if facts_text else "(no facts available)",
+            suggestions_text=suggestions_text,
+            shard_name=shard.shard_name or "Unknown Shard",
+            max_words=AGENT_MEMORY_BLOB_MAX_WORDS
+        )
 
-Requirements:
-- Preserve all important behavioral rules and preferences from both current memory and new directives
-- Remove redundancies and contradictions (newer directives override older ones)
-- Keep the most specific and actionable guidance
-- Use the actual user names from the directives (never use "User" or "the user")
-- Focus on persistent preferences and behavioral rules that should guide future interactions
-- Be concise but comprehensive
+        # Update agent memory
+        shard.content = consolidated_content
+        shard.unabsorbed_memory_ids = []  # Reset unabsorbed list
+        shard.last_updated_at = datetime.now(timezone.utc)
+        shard.save()
+        
+    except Exception as e:
+        print(f"Error consolidating agent suggestions for shard '{shard.shard_name}': {e}")
+        traceback.print_exc()
 
-Return only the consolidated memory text, no additional formatting or explanation.
-"""
 
-    context = LLMContext(
-        messages=[ChatMessage(role="user", content=consolidation_prompt)],
-        config=LLMConfig(model=MEMORY_LLM_MODEL),
-    )
+async def _load_memories_by_ids(
+    memory_ids: List[ObjectId], 
+    memory_type_filter: str = None
+) -> List[SessionMemory]:
+    """Helper function to load memories by IDs with optional type filtering."""
+    memories = []
+    for memory_id in memory_ids:
+        try:
+            memory = SessionMemory.from_mongo(memory_id)
+            if memory and (not memory_type_filter or memory.memory_type == memory_type_filter):
+                memories.append(memory)
+        except Exception as e:
+            logging.warning(f"Could not load memory {memory_id}: {e}")
+    return memories
 
-    response = await async_prompt(context)
-    consolidated_content = response.content.strip()
 
-    logging.debug(f"LLM consolidation result: {consolidated_content}")
-    return consolidated_content
+async def _regenerate_fully_formed_memory_shard(shard: AgentMemory):
+    """
+    Regenerate the fully formed memory shard by combining:
+    - Recent facts with age information
+    - Consolidated memory blob
+    - Unabsorbed memories (suggestions)
+    """
+    try:
+        shard_content = []
+
+        shard_context = f"You have an active collective memory shard called {shard.shard_name}. Context for this memory collection: {shard.extraction_prompt}"
+        shard_content.append(f"## Memory shard context:\n\n{shard_context}")
+        
+        facts = await _load_memories_by_ids(shard.facts, "fact")
+        if facts:
+            facts_formatted = _format_memories_with_age(facts)
+            if facts_formatted:
+                shard_content.append(f"## Shard facts:\n\n{facts_formatted}")
+        
+        # Add consolidated content
+        if shard.content:
+            shard_content.append(f"## Current consolidated shard memory:\n\n{shard.content}")
+        
+        # Add unabsorbed suggestions
+        suggestions = await _load_memories_by_ids(
+            shard.unabsorbed_memory_ids, 
+            "suggestion"
+        )
+        if suggestions:
+            suggestions_text = "\n".join([f"- {s.content}" for s in suggestions])
+            shard_content.append(f"## Recent shard suggestions:\n\n{suggestions_text}")
+        
+        # Combine all parts
+        shard.fully_formed_memory_shard = "\n\n".join(shard_content) if shard_content else ""
+        shard.last_updated_at = datetime.now(timezone.utc)
+        shard.save()
+        
+        # Update agent memory status to trigger cache invalidation
+        await _update_agent_memory_timestamp(shard.agent_id)
+
+    except Exception as e:
+        print(f"Error regenerating fully formed memory shard for '{shard.shard_name}': {e}")
+        traceback.print_exc()
+        shard.fully_formed_memory_shard = ""
 
 
 async def process_memory_formation(
@@ -456,59 +485,35 @@ async def process_memory_formation(
 ) -> bool:
     """
     Extract memories from recent conversation using LLM.
-    Called every N messages to form new memories.
-    Only processes messages since session.last_memory_message_id to avoid duplicates.
-
     Returns True if memories were formed, False otherwise.
     """
-    logging.debug(
-        f"Processing memory formation for Session {session.id} with {len(session_messages)} messages"
-    )
-
-    # Find messages since last memory formation
-    if session.last_memory_message_id:
-        # Create message ID to index mapping for O(1) lookup
-        message_id_to_index = {msg.id: i for i, msg in enumerate(session_messages)}
-        
-        # Find the position of the last memory formation message
-        last_memory_position = message_id_to_index.get(session.last_memory_message_id, -1)
-        
-        # Get messages since last memory formation (excluding the last memory message itself)
-        start_idx = last_memory_position + 1
-        recent_messages = session_messages[start_idx:]
-    else:
-        # No previous memory formation, use all messages
-        start_idx = 0
-        recent_messages = session_messages
-
-    logging.debug(
-        f"Extracting memories from messages {start_idx+1}-{len(session_messages)} (total: {len(recent_messages)} messages)"
-    )
-
+    # Get messages since last memory formation
+    recent_messages = _get_recent_messages(session_messages, session.last_memory_message_id)
+    
     if not recent_messages:
-        print("No recent messages to process")
         return False
 
     try:
-        # Convert messages to text for LLM processing
         conversation_text = messages_to_text(recent_messages)
-        logging.debug(f"Conversation text length: {len(conversation_text)} characters")
 
-        # Extract memories using LLM
-        extracted_data = await extract_memories_with_llm(conversation_text)
-
+        # Extract all memories (regular and collective)
+        extracted_data, memory_to_shard_map = await _extract_all_memories(
+            agent_id, conversation_text
+        )
+        
         # Store extracted memories in database
-        memories_created = store_session_memory(
-            agent_id, extracted_data, recent_messages, session.id
+        memories_created = await _save_all_memories(
+            agent_id, extracted_data, recent_messages, session.id, memory_to_shard_map
         )
 
-        if memories_created:
-            logging.debug(
-                f"✓ Formed {len(memories_created)} memories from {len(recent_messages)} messages"
-            )
-            logging.debug(
-                f"  Memory types: {[m.memory_type.value for m in memories_created]}"
-            )
+        if memories_created and LOCAL_DEV:
+            print(f"\n✓ Formed {len(memories_created)} memories from {len(recent_messages)} messages")
+            # Pretty print all formed memories, grouped by memory type
+            for memory_type, memories in extracted_data.items():
+                if len(memories) > 0:
+                    print(f"  {len(memories)} x {memory_type}:")
+                    for memory in memories:
+                        print(f"    - {memory}")
             return True
 
     except Exception as e:
@@ -518,259 +523,99 @@ async def process_memory_formation(
     return False
 
 
-async def extract_memories_with_llm(conversation_text: str) -> Dict[str, List[str]]:
-    """Use LLM to extract categorized memories from conversation text"""
-
-    memory_extraction_prompt = f"""
-EXTRACT DURABLE MEMORIES
-========================
-CONVERSATION:
-{conversation_text}
-
-Return **exactly** this JSON:
-{{
-  "consolidated_memory": "<ONE factual digest, ≤{SESSION_CONSOLIDATED_MEMORY_MAX_WORDS} words>",
-  "directive": "<persistent rule(s), ≤{SESSION_DIRECTIVE_MEMORY_MAX_WORDS} words or empty string>"
-}}
-
-Create new memories following these rules:
-
-1. CONSOLIDATED_MEMORY: Create EXACTLY ONE factual memory (maximum {SESSION_CONSOLIDATED_MEMORY_MAX_WORDS} words) that consolidates what actually happened in the conversation. This memory will be used to improve the agent's contextual recall in long conversations.
-   - Record concrete facts and events: who did/said what, what was created, what tools were used, what topics were discussed
-   - Specifically focus on the instructions, preferences, goals and feedback expressed by the user(s)
-   - Avoid commentary or analysis, create memories that stand on their own without context
-
-2. DIRECTIVE: Create AT MOST ONE permanent directive (maximum {SESSION_DIRECTIVE_MEMORY_MAX_WORDS} words) ONLY if there are clear, long-lasting rules, preferences, or behavioral guidelines that should be applied consistently in all future interactions with the user. If none exist (highly likely), just leave empty.
-   
-   ONLY include as long-lasting directives:
-   - Explicit behavioral rules or guidelines ("always ask permission before...", "never do X", "remember to always Y")
-   - Stable, long-term preferences that should guide future behavior consistently
-   - Clear exceptions or special handling rules for interaction patterns with the current user that should persist across many future conversations ("Whenever I ask you to do X, you should do it like so..")
-   
-   DO NOT include as directives:
-   - One-time requests or specific tasks ("create a story about...", "make an image of...")
-   - Ad hoc instructions relevant for the current conversation context only
-   - Temporary or situational commands
-   - Context-specific requests that don't apply broadly
-   
-   - ALWAYS use specific user names from the conversation (NEVER use "User", "the user", or "Agent")
-   - Example: "Gene prefers permission before generating images, wants surreal art themes consistently"
-   - Counter-example (DO NOT make directive): "Gene requested a story about clockmaker" (this is a one-time request)
-
-CRITICAL REQUIREMENTS: 
-- BE VERY STRICT about directives - most conversations will have NO directives, only consolidated memories
-- Directives are for rules that should persist across many future conversations, not one-time requests
-- Focus on facts, not interpretations or commentary
-- Record what actually happened, not what it means or demonstrates
-- ALWAYS use actual names from the conversation - scan the conversation for "name:" patterns
-- NEVER use generic terms like "User", "the user", "Agent", "the agent", "someone", "they"
-- Avoid vague words like "highlighted", "demonstrated", "enhanced", "experience" that wont help the agent in future interactions
-- Just state what was said, done, created, or discussed with specific names in a concise manner
-"""
-
-    # Use LLM to extract memories
-    context = LLMContext(
-        messages=[ChatMessage(role="user", content=memory_extraction_prompt)],
-        config=LLMConfig(model=MEMORY_LLM_MODEL),
+async def _extract_all_memories(
+    agent_id: ObjectId, 
+    conversation_text: str
+) -> Tuple[Dict[str, List[str]], Dict[str, ObjectId]]:
+    """Extract both regular and collective memories from conversation."""
+    extracted_data = {}
+    memory_to_shard_map = {}
+    
+    # Extract regular memories (episode and directive)
+    regular_memories = await extract_memories_with_llm(
+        conversation_text, 
+        extraction_prompt=REGULAR_MEMORY_EXTRACTION_PROMPT,
+        extraction_elements=["episode", "directive"]
     )
-
-    response = await async_prompt(context)
-
-    # Clean up response to extract JSON
-    response_text = response.content.strip()
-    if response_text.startswith("```json"):
-        response_text = response_text[7:]
-    if response_text.endswith("```"):
-        response_text = response_text[:-3]
-    response_text = response_text.strip()
-
-    # Parse JSON response
-    try:
-        extracted_data = json.loads(response_text)
-        # Convert to the expected format for storage
-        formatted_data = {
-            "directives": [extracted_data.get("directive", "")]
-            if extracted_data.get("directive", "").strip()
-            else [],
-            "episodes": [extracted_data.get("consolidated_memory", "")]
-            if extracted_data.get("consolidated_memory", "").strip()
-            else [],
-        }
-        return formatted_data
-    except json.JSONDecodeError:
-        print(f"Failed to parse JSON from LLM response: {response_text[:200]}...")
-        extracted_data = {"directives": [], "episodes": []}
-
-    # Print the messages and the prompt:
-    logging.debug("########################")
-    logging.debug("Forming new memories...")
-    logging.debug(f"--- Messages: ---\n{context.messages}")
-    logging.debug(f"--- Prompt: ---\n{memory_extraction_prompt}")
-    logging.debug(f"--- Memories: ---\n{extracted_data}")
-    logging.debug("########################")
-
-    return extracted_data
-
-async def assemble_memory_context(agent_id: ObjectId, session_id: Optional[ObjectId] = None, last_speaker_id: Optional[ObjectId] = None, session: Optional['Session'] = None) -> str:
-    """
-    Assemble relevant memories for context injection into prompts.
-    Uses session-level caching to minimize database queries.
+    extracted_data.update(regular_memories)
     
-    Args:
-        agent_id: ID of the agent to get memories for
-        session_id: Current session ID to prioritize session-specific memories.
-        last_speaker_id: ID of the user who spoke the last message for prioritization.
-        session: Optional session object to update in place (avoids extra MongoDB query).
-    
-    Returns:
-        Formatted memory context string for prompt injection.
-    """
+    # Extract collective memories from active shards
+    active_shards = AgentMemory.find({"agent_id": agent_id, "is_active": True})
 
-    start_time = time.time()
+    if not active_shards:
+        print(f"No active shards found for agent {agent_id}")
+        return extracted_data, memory_to_shard_map
     
-    # print(f"🧠 MEMORY ASSEMBLY PROFILING - Agent: {agent_id}")
-    # print(f"   Session: {session_id}, Last Speaker: {last_speaker_id}")
-    
-    # Check if we can use cached memory context from modal dict
-    if session_id and agent_id:
-        try:
-            get_session_state_start = time.time()
-            session_state = await get_session_state(agent_id, session_id)
-            get_session_state_time = time.time() - get_session_state_start
-            # print(f"   ⏱️  get_session_state took: {get_session_state_time:.3f}s")
-
-            cached_context = session_state.get("cached_memory_context")
-            should_refresh = session_state.get("should_refresh_memory", True)
+    for shard in active_shards:
+        if not shard.extraction_prompt:
+            continue
             
-            if cached_context and not should_refresh:
-                total_time = time.time() - start_time
-                # print(f"   ⚡ USING CACHED MEMORY: {total_time:.3f}s")
-                logging.debug("Not refreshing memory context:")
-                logging.debug(f"Cached context: {cached_context}")
-                return cached_context
-            else:
-                # print(f"   🔄 Cache missing or refresh needed")
-                logging.debug(f"Memory context, Should refresh: {should_refresh}")
-                
-        except Exception as e:
-            print(f"   ❌ Error checking cached memory: {e}")
-    
-    # TODO: instead of last speaker, iterate over all human users in the session
-    user_id = last_speaker_id
-
-    # Initialize all variables at the start to avoid scoping issues
-    user_memory_content = ""
-    unabsorbed_directives = []
-    episode_memories = []
-    user_memory = None
-
-    # Step 1: User Memory
-    try:
-        query_start = time.time()
-        # Get user memory blob for this user:
-        if (
-            user_id is not None and agent_id is not None
-        ):  # Only query if both IDs are not None
-            user_memory = UserMemory.find_one_or_create(
-                {"agent_id": agent_id, "user_id": user_id}
-            )
-            if user_memory:
-                user_memory_content = user_memory.content or ""  # Handle None content
-                unabsorbed_directive_ids = (
-                    user_memory.unabsorbed_directive_ids or []
-                )  # Handle None list
-                # Get unabsorbed directives:
-                if (
-                    unabsorbed_directive_ids and user_id is not None
-                ):  # Only query if there are IDs to look up and user_id is valid
-                    unabsorbed_directives = SessionMemory.find(
-                        {
-                            "agent_id": agent_id,
-                            "memory_type": "directive",
-                            "related_users": user_id,
-                            "_id": {"$in": unabsorbed_directive_ids},
-                        }
-                    )
-        query_time = time.time() - query_start
-        # print(
-        #     f"   ⏱️  User Memory Assembly: {query_time:.3f}s (user_memory: {'yes' if user_memory else 'no'}, {len(unabsorbed_directives)} unabsorbed directives)"
-        # )
-
-    except Exception as e:
-        print(f"   ❌ Error retrieving user memory: {e}")
-
-    # Step 2: Episodes from SessionMemory:
-    try:
-        if session_id and agent_id is not None:
-            query_start = time.time()
-            episode_query = {"source_session_id": session_id, "memory_type": MemoryType.EPISODE.value}
-            episode_memories = SessionMemory.find(episode_query, sort="createdAt", desc=True)
-
-            # Get list of MAX_N_EPISODES_TO_REMEMBER most recent, raw episode memories:
-            episode_memories = episode_memories[:MAX_N_EPISODES_TO_REMEMBER]
-            # Reverse the list to put the most recent episodes at the bottom:
-            episode_memories.reverse()
-
-            query_time = time.time() - query_start
-            # print(
-            #     f"   ⏱️  Session memory assembly: {query_time:.3f}s (user_memory: {'yes' if user_memory else 'no'}, {len(episode_memories)} episodes)"
-            # )
-    except Exception as e:
-        print(f"   ❌ Error assembling session memories: {e}")
-
-    # Step 3: Full memory context assembly:
-    memory_context = ""
-
-    if len(user_memory_content) > 0:  # user_memory blob:
-        memory_context += f"### Consolidated User Memory:\n\n{user_memory_content}\n\n"
-
-    if len(unabsorbed_directives) > 0:
-        memory_context += f"### Recent Directives (most recent at bottom):\n\n"
-        for directive in unabsorbed_directives:
-            memory_context += f"- {directive.content}\n"
-        memory_context += "\n"
-
-    if len(episode_memories) > 0:
-        memory_context += (
-            f"### Current conversation context (most recent episodes at bottom):\n\n"
-        )
-        for episode in episode_memories:
-            memory_context += f"- {episode.content}\n"
-        memory_context += "\n"
-
-    if len(memory_context) > 0:
-        memory_context = "## Your Memory:\n\n" + memory_context
-    else:
-        memory_context = ""
-    
-    # Step 4: Cache the memory context in modal dict
-    if session_id and agent_id:
         try:
-            cache_start = time.time()
-            await update_session_state(agent_id, session_id, {
-                "cached_memory_context": memory_context,
-                "should_refresh_memory": False
-            })
-            # print(f"   💾 Memory context cached for session {session_id} in {time.time() - cache_start:.3f}s")
+            # Populate the collective memory extraction prompt with shard's extraction prompt
+            populated_prompt = AGENT_MEMORY_EXTRACTION_PROMPT.replace(
+                SHARD_EXTRACTION_PROMPT_TOKEN, shard.extraction_prompt
+            )
+            
+            # Extract facts and suggestions for this shard
+            shard_memories = await extract_memories_with_llm(
+                conversation_text=conversation_text,
+                extraction_prompt=populated_prompt,
+                extraction_elements=["fact", "suggestion"]
+            )
+            
+            for memory_type, memories in shard_memories.items():
+                if memory_type not in extracted_data.keys():
+                    extracted_data[memory_type] = []
+                
+                # Track each individual memory's shard origin
+                for memory_content in memories:
+                    memory_index = len(extracted_data[memory_type])
+                    extracted_data[memory_type].append(memory_content)
+                    memory_to_shard_map[f"{memory_type}_{memory_index}"] = shard.id
+            
         except Exception as e:
-            print(f"   ❌ Error caching memory context: {e}")
+            print(f"Error extracting memories from shard '{shard.shard_name}': {e}")
+            traceback.print_exc()
     
-    # Step 5: Final stats
-    total_time = time.time() - start_time
-    final_tokens = estimate_tokens(memory_context)
-    # print(f"   ⏱️  TOTAL TIME: {total_time:.3f}s")
-    # print(f"   📏 Context Length: {len(memory_context)} chars (~{final_tokens} tokens)")
+    return extracted_data, memory_to_shard_map
 
-    logging.debug(f"Fully Assembled Memory context:\n{memory_context}")
-    if LOCAL_DEV:
-        print(f"Fully Assembled Memory context:\n{memory_context}")
 
-    return memory_context
-
-async def maybe_form_memories(agent_id: ObjectId, session: Session, force_memory_formation: bool = False) -> bool:
+def should_form_memories(agent_id: ObjectId, session: Session) -> bool:
     """
     Check if memory formation should run based on messages elapsed since last formation.
-    If force_memory_formation is True, skip the interval check and always form memories.
+    Returns True if memory formation should occur.
+    """
+    try:
+        from eve.agent.session.session import select_messages
+        session_messages = select_messages(
+            session, selection_limit=SESSION_MESSAGES_LOOKBACK_LIMIT
+        )
+
+        if not agent_id or not session_messages or len(session_messages) == 0:
+            return False
+
+        # Create message ID to index mapping for O(1) lookup
+        message_id_to_index = {msg.id: i for i, msg in enumerate(session_messages)}
+        
+        # Find the position of the last memory formation message
+        last_memory_position = -1
+        if session.last_memory_message_id:
+            last_memory_position = message_id_to_index.get(session.last_memory_message_id, -1)
+
+        # Calculate messages since last memory formation
+        messages_since_last = len(session_messages) - last_memory_position - 1
+        print(f"Session {session.id}: {len(session_messages)} total messages, {messages_since_last} since last memory formation")
+        
+        return messages_since_last >= MEMORY_FORMATION_INTERVAL
+    except Exception as e:
+        print(f"Error checking if memory formation should run for agent {agent_id} in session {session.id}: {e}")
+        traceback.print_exc()
+        return False
+
+
+async def form_memories(agent_id: ObjectId, session: Session) -> bool:
+    """
+    Form memories from recent conversation messages.
     Returns True if memories were formed.
     """
     start_time = time.time()
@@ -788,36 +633,16 @@ async def maybe_form_memories(agent_id: ObjectId, session: Session, force_memory
     message_id_to_index = {msg.id: i for i, msg in enumerate(session_messages)}
     
     # Find the position of the last memory formation message
-    last_memory_position = -1
+    last_memory_position = 0
     if session.last_memory_message_id:
         last_memory_position = message_id_to_index.get(session.last_memory_message_id, -1)
 
     # Calculate messages since last memory formation
-    messages_since_last = len(session_messages) - last_memory_position - 1
-
-    # Update memory state on new message
-    await update_session_state(agent_id, session.id, {
-        "last_activity": datetime.now(timezone.utc).isoformat(),
-        "message_count_since_memory": messages_since_last
-    })
-
-    logging.debug(f"Session {session.id}: {len(session_messages)} total messages, {messages_since_last} since last memory formation")
-    
-    # Check if we should form memories (early return to avoid slow queries)
-    if not force_memory_formation and messages_since_last < MEMORY_FORMATION_INTERVAL:
-        logging.debug(f"No memory formation needed: {messages_since_last} < {MEMORY_FORMATION_INTERVAL} interval")
-        logging.debug(f"Maybe form memories took {time.time() - start_time:.2f} seconds to complete")
-        return False
-    
-    if force_memory_formation:
-        print(f"Triggering FORCED memory formation: {messages_since_last} messages to process")
-    else:
-        print(f"Triggering memory formation: {messages_since_last} >= {MEMORY_FORMATION_INTERVAL} interval")
+    messages_since_last = len(session_messages) - last_memory_position
 
     try:
-        if session_messages:
-            # Process memory formation
-            result = await process_memory_formation(
+        if session_messages and messages_since_last > NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES:
+            memory_was_updated = await process_memory_formation(
                 agent_id, 
                 session_messages, 
                 session
@@ -827,24 +652,24 @@ async def maybe_form_memories(agent_id: ObjectId, session: Session, force_memory
             latest_message = session_messages[-1]
             session.last_memory_message_id = latest_message.id
             session.save()
-            logging.debug(f"Updated last_memory_message_id to {latest_message.id}")
             
-            # Also update the modal.Dict state to reset message count and update last memory message
-            try:
-                await update_session_state(agent_id, session.id, {
-                    "last_memory_message_id": str(latest_message.id),
-                    "message_count_since_memory": 0, 
-                    "should_refresh_memory": True
-                })
-                logging.debug(f"Updated modal.Dict state for agent {agent_id}, session {session.id}")
-            except Exception as e:
-                logging.error(f"Error updating modal.Dict state after memory formation: {e}")
-                traceback.print_exc()
-        
-        print(f"Maybe form memories took {time.time() - start_time:.2f} seconds to complete")
-        return result
+            # Update the modal.Dict state to reset message count and update last memory message
+            await update_session_state(agent_id, session.id, {
+                "last_activity": datetime.now(timezone.utc).isoformat(),
+                "last_memory_message_id": str(latest_message.id),
+                "message_count_since_memory": 0, 
+                "should_refresh_memory": True
+            })
+        else:
+            await update_session_state(agent_id, session.id, {
+                "last_activity": datetime.now(timezone.utc).isoformat(),
+                "message_count_since_memory": messages_since_last
+            })
+
+        print(f"Form memories took {time.time() - start_time:.2f} seconds to complete")
+        return
 
     except Exception as e:
         print(f"Error processing memory formation: {e}")
         traceback.print_exc()
-        return False
+        return

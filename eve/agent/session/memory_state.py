@@ -1,6 +1,6 @@
 import modal
 from bson import ObjectId
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 import logging
 import os
 from pathlib import Path
@@ -19,7 +19,12 @@ except ImportError:
 
 # Global state dict to track session/memory state per agent_id using modal.Dict
 # This acts like redis to store session state and avoid frequent MongoDB queries
-pending_session_memories = modal.Dict.from_name("pending-session-memories", create_if_missing=True)
+db = os.getenv("DB", "STAGE").upper()
+pending_session_memories = modal.Dict.from_name(f"pending-session-memories-{db.lower()}", create_if_missing=True)
+
+# Global state dict to track agent memory update timestamps
+# Key: agent_id (str), Value: {"last_updated_at": timestamp_string}
+agent_memory_status = modal.Dict.from_name(f"agent-memory-status-{db.lower()}", create_if_missing=True)
 
 # Default session state structure - defined once to avoid duplication
 DEFAULT_SESSION_STATE = {
@@ -27,7 +32,9 @@ DEFAULT_SESSION_STATE = {
     "last_memory_message_id": None,
     "message_count_since_memory": 0,
     "cached_memory_context": None,
-    "should_refresh_memory": True
+    "should_refresh_memory": True,
+    "agent_collective_memory_timestamp": None, # Timestamp of the last time the agent's collective memory was fetched in this session
+    "user_memory_timestamp": None # Timestamp of the last time the user memory was fetched in this session
 }
 
 async def get_session_state(agent_id: ObjectId, session_id: ObjectId) -> Dict[str, Any]:
@@ -39,10 +46,13 @@ async def get_session_state(agent_id: ObjectId, session_id: ObjectId) -> Dict[st
     try:
         agent_dict = pending_session_memories[agent_key]
     except:
+        print(f"No agent dict found for agent {agent_key}, creating empty dict")
         pending_session_memories[agent_key] = {}
         agent_dict = pending_session_memories[agent_key]
     
-    if session_key not in agent_dict:
+    # Initialize session state if not present
+    if not agent_dict.get(session_key):
+        print(f"No session state found for session {session_key}, creating default session state")
         agent_dict[session_key] = DEFAULT_SESSION_STATE.copy()
         pending_session_memories[agent_key] = agent_dict
     
@@ -86,7 +96,7 @@ async def process_cold_sessions():
     
     try:
         # Import here to avoid circular imports
-        from eve.agent.session.memory import maybe_form_memories
+        from eve.agent.session.memory import form_memories
         from eve.agent.session.models import Session
         
         current_time = datetime.now(timezone.utc)
@@ -124,7 +134,7 @@ async def process_cold_sessions():
                             # Load the session from MongoDB
                             session = Session.from_mongo(session_id)
                             if session:
-                                success = await maybe_form_memories(agent_id, session, force_memory_formation=True)
+                                success = await form_memories(agent_id, session)
                                 if success:
                                     print(f"✓ Memory formation completed for session {session_id}")
                                     processed_sessions += 1
