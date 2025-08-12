@@ -32,14 +32,14 @@ else:
     #MEMORY_LLM_MODEL = "claude-sonnet-4-20250514"
     MEMORY_FORMATION_MSG_INTERVAL   = None  # Number of messages to wait before forming memories (None = use token-based)
     MEMORY_FORMATION_TOKEN_INTERVAL = 4000  # Number of tokens to wait before forming memories
-    SESSION_MESSAGES_LOOKBACK_LIMIT = 15  # Max messages to look back in a session when forming raw memories
+    SESSION_MESSAGES_LOOKBACK_LIMIT = DEFAULT_SESSION_SELECTION_LIMIT  # Max messages to look back in a session when forming raw memories
 
     # Normal memory settings:
     MAX_DIRECTIVES_COUNT_BEFORE_CONSOLIDATION = 4  # Number of individual memories to store before consolidating them into the agent's user_memory blob
-    MAX_N_EPISODES_TO_REMEMBER = 5  # Number of episodes to keep in context from a session
+    MAX_N_EPISODES_TO_REMEMBER = 8  # Number of episodes to keep in context from a session
     # Collective memory settings:
     MAX_SUGGESTIONS_COUNT_BEFORE_CONSOLIDATION = 8 # Number of suggestions to store before consolidating them into the agent's collective memory blob
-    MAX_FACTS_PER_SHARD = 75 # Max number of facts to store per agent shard (fifo)
+    MAX_FACTS_PER_SHARD = 50 # Max number of facts to store per agent shard (fifo)
     
 NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES = 2
 AGENT_TOKEN_MULTIPLIER = 0.25  # Multiplier to downscale agent/assistant message importance for token interval trigger
@@ -49,10 +49,10 @@ AGENT_TOKEN_MULTIPLIER = 0.25  # Multiplier to downscale agent/assistant message
 SESSION_EPISODE_MEMORY_MAX_WORDS    = 50  # Target word length for session episode memory
 SESSION_DIRECTIVE_MEMORY_MAX_WORDS  = 20  # Target word length for session directive memory
 SESSION_SUGGESTION_MEMORY_MAX_WORDS = 30  # Target word length for session suggestion memory
-SESSION_FACT_MEMORY_MAX_WORDS       = 25  # Target word length for session fact memory
+SESSION_FACT_MEMORY_MAX_WORDS       = 20  # Target word length for session fact memory
 # Consolidated memory blobs:
 USER_MEMORY_BLOB_MAX_WORDS  = 200  # Target word count for consolidated user memory blob
-AGENT_MEMORY_BLOB_MAX_WORDS = 600  # Target word count for consolidated agent memory blob (shard)
+AGENT_MEMORY_BLOB_MAX_WORDS = 500  # Target word count for consolidated agent memory blob (shard)
 
 CONVERSATION_TEXT_TOKEN       = "---conversation_text---"
 SHARD_EXTRACTION_PROMPT_TOKEN = "---shard_extraction_prompt---"
@@ -232,7 +232,7 @@ Your goal is to update the current consolidated MEMORY STATE for this "{{shard_n
 Refine, restructure, and merge the information to create a new, coherent, and updated consolidated memory (≤{{max_words}} words).
 
 If the current, consolidated MEMORY STATE is empty:
- - this means you are about to create the first consolidated memory for this shard, set the VERSION to 1 (integer)
+ - this means you are about to create the first consolidated memory for this shard, add "VERSION: 1" (integer) at the top of the MEMORY STATE
  - In that case, think carefully about the core purpose, goals, and context of the shard and generate a structured and extendable memory template that is suited for future updates.
  - Typically, there is little initial information available, so don't start filling up the MEMORY STATE with newly generated content. EVERYTHING you store must be based on collective user input, not the your free-form interpretation / generation! Don't rush to fill it up, more NEW SUGGESTIONS will come in the future.
 

@@ -365,6 +365,10 @@ async def _consolidate_user_directives(user_memory: UserMemory):
         user_memory.last_updated_at = datetime.now(timezone.utc)
         user_memory.save()
         
+        # Update user memory timestamp in modal dict for cache invalidation
+        from eve.agent.session.memory_primitives import _update_user_memory_timestamp
+        await _update_user_memory_timestamp(user_memory.agent_id, user_memory.user_id)
+        
         print(f"✓ Consolidated user memory updated (length: {len(consolidated_content)} chars)")
 
     except Exception as e:

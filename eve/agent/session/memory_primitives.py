@@ -72,18 +72,28 @@ async def _update_agent_memory_timestamp(agent_id: ObjectId):
     This allows sessions to detect when they need to refresh their cached agent memory.
     """
     try:
-        from eve.agent.session.memory_state import agent_memory_status
+        from eve.agent.session.memory_state import agent_memory_state_manager
         
-        agent_key = str(agent_id)
         current_time = datetime.now(timezone.utc).isoformat()
-
-        if agent_key in agent_memory_status:
-            agent_memory_status[agent_key]["last_updated_at"] = current_time
-        else:
-            agent_memory_status[agent_key] = {"last_updated_at": current_time}
+        await agent_memory_state_manager.update_agent_value(agent_id, "last_updated_at", current_time)
         
     except Exception as e:
         print(f"Error updating agent memory status for agent {agent_id}: {e}")
+        traceback.print_exc()
+
+async def _update_user_memory_timestamp(agent_id: ObjectId, user_id: ObjectId):
+    """
+    Update the user memory status timestamp to indicate user memory has changed.
+    This allows sessions to detect when they need to refresh their cached user memory.
+    """
+    try:
+        from eve.agent.session.memory_state import user_memory_state_manager
+        
+        current_time = datetime.now(timezone.utc).isoformat()
+        await user_memory_state_manager.update_user_value(agent_id, user_id, "last_updated_at", current_time)
+        
+    except Exception as e:
+        print(f"Error updating user memory status for agent {agent_id}, user {user_id}: {e}")
         traceback.print_exc()
 
 
