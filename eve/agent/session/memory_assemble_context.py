@@ -56,9 +56,7 @@ async def regenerate_memory_context(agent_id: ObjectId, session_id: Optional[Obj
                         }
                     )
         query_time = time.time() - query_start
-        # print(
-        #     f"   ⏱️  User Memory Assembly: {query_time:.3f}s (user_memory: {'yes' if user_memory else 'no'}, {len(unabsorbed_directives)} unabsorbed directives)"
-        # )
+        print(f"   ⏱️  User Memory Assembly: {query_time:.3f}s (user_memory: {'yes' if user_memory else 'no'}, {len(unabsorbed_directives)} unabsorbed directives)")
 
     except Exception as e:
         print(f"   ❌ Error retrieving user memory: {e}")
@@ -76,9 +74,7 @@ async def regenerate_memory_context(agent_id: ObjectId, session_id: Optional[Obj
             episode_memories.reverse()
 
             query_time = time.time() - query_start
-            # print(
-            #     f"   ⏱️  Session memory assembly: {query_time:.3f}s (user_memory: {'yes' if user_memory else 'no'}, {len(episode_memories)} episodes)"
-            # )
+            print(f"   ⏱️  Session memory assembly: {query_time:.3f}s (user_memory: {'yes' if user_memory else 'no'}, {len(episode_memories)} episodes)")
     except Exception as e:
         print(f"   ❌ Error assembling session memories: {e}")
 
@@ -212,14 +208,13 @@ async def try_use_cached_memory_context(agent_id: ObjectId, session_id: ObjectId
     try:
         get_session_state_start = time.time()
         
-        # OPTIMIZATION: Use new ModalDictState manager for cleaner batch operations
         from eve.agent.session.memory_state import memory_state_manager, DEFAULT_SESSION_STATE
         
         # Batch fetch all required state data
         batch_requests = [
-            ("sessions", agent_id, None, {}),
-            ("agent_memory", agent_id, None, {}),
-            ("user_memory", agent_id, None, {})
+            ("sessions", agent_id, [], {}),
+            ("agent_memory", agent_id, [], {}),
+            ("user_memory", agent_id, [], {})
         ]
         
         batch_results = await memory_state_manager.batch_get_from_multiple_dicts(batch_requests)
@@ -312,7 +307,6 @@ async def try_use_cached_memory_context(agent_id: ObjectId, session_id: ObjectId
             print(f"   ⏱️  probing user memory took: 0.000s (skipped - cache invalid)")
             
         if cached_context and not should_refresh and not agent_memory_updated and not user_memory_updated:
-            print(f"   ⚡ USING CACHED MEMORY")
             return cached_context
         else:
             refresh_reasons = []

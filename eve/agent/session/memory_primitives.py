@@ -6,6 +6,7 @@ import traceback
 
 from eve.agent.session.models import ChatMessage
 from eve.user import User
+from eve.agent.session.modal_dict_state import agent_key_path, user_key_path
 
 def lookup_sender_name(sender_id: ObjectId) -> str:
     """Lookup the name of a sender by their id by querying the "users3" collection"""
@@ -75,7 +76,7 @@ async def _update_agent_memory_timestamp(agent_id: ObjectId):
         from eve.agent.session.memory_state import agent_memory_state_manager
         
         current_time = datetime.now(timezone.utc).isoformat()
-        await agent_memory_state_manager.update_agent_value(agent_id, "last_updated_at", current_time)
+        await agent_memory_state_manager.update_value(agent_id, agent_key_path("last_updated_at"), current_time)
         
     except Exception as e:
         print(f"Error updating agent memory status for agent {agent_id}: {e}")
@@ -90,7 +91,7 @@ async def _update_user_memory_timestamp(agent_id: ObjectId, user_id: ObjectId):
         from eve.agent.session.memory_state import user_memory_state_manager
         
         current_time = datetime.now(timezone.utc).isoformat()
-        await user_memory_state_manager.update_user_value(agent_id, user_id, "last_updated_at", current_time)
+        await user_memory_state_manager.update_value(agent_id, user_key_path(user_id, "last_updated_at"), current_time)
         
     except Exception as e:
         print(f"Error updating user memory status for agent {agent_id}, user {user_id}: {e}")

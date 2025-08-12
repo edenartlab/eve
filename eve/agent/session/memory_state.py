@@ -1,22 +1,17 @@
 import modal
 from bson import ObjectId
-from typing import Dict, Any, Optional
-import logging
+from typing import Dict, Any
 import os
 from pathlib import Path
 import traceback
-import json
 from datetime import datetime, timezone, timedelta
 import sentry_sdk
-import asyncio
 
-# Only import ChatMessage when needed (not in standalone mode)
-try:
-    from eve.agent.session.models import ChatMessage, Session
-except ImportError:
-    # Running in standalone mode for clearing - ChatMessage not needed
-    ChatMessage = None
-    Session = None
+# Import safe functions and wrapper classes
+from eve.agent.session.modal_dict_state import (
+    ModalDictState, MultiModalDictState, 
+    safe_modal_get, safe_modal_set
+)
 
 # Global state dict to track session/memory state per agent_id using modal.Dict
 # This acts like redis to store session state and avoid frequent MongoDB queries
@@ -30,12 +25,6 @@ agent_memory_status = modal.Dict.from_name(f"agent-memory-status-{db.lower()}", 
 # Global state dict to track user memory update timestamps per agent
 # Key: agent_id (str), Value: {user_id (str): {"last_updated_at": timestamp_string}}
 user_memory_status = modal.Dict.from_name(f"user-memory-status-{db.lower()}", create_if_missing=True)
-
-# Import safe functions and wrapper classes (moved to avoid circular imports)
-from eve.agent.session.modal_dict_state import (
-    ModalDictState, MultiModalDictState, 
-    safe_modal_get, safe_modal_set, safe_modal_batch_get
-)
 
 # Create ModalDictState wrapper instances for better state management
 session_state_manager = ModalDictState(pending_session_memories, "pending_session_memories")
@@ -138,15 +127,15 @@ async def _process_session_for_memory(agent_id: ObjectId, session_id: ObjectId, 
 
 def _is_session_cold(session_state: Dict[str, Any], cutoff_time: datetime) -> bool:
     """Check if a session is cold based on last activity timestamp."""
-    last_activity_str = session_state.get("last_activity")
+    last_activity_str = session_state.get("last_activity", None)
     if not last_activity_str:
-        return True  # No timestamp means old session
+        return True  # No timestamp means cold session
     
     try:
         last_activity = datetime.fromisoformat(last_activity_str.replace('Z', '+00:00'))
         return last_activity < cutoff_time
     except Exception:
-        return True  # Invalid timestamp means old session
+        return True  # Invalid timestamp means cold session
 
 async def process_cold_sessions():
     """

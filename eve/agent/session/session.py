@@ -1070,9 +1070,6 @@ async def _run_prompt_session_internal(
         if background_tasks:
             # Process auto-reply after all actors have completed
             if session.autonomy_settings and session.autonomy_settings.auto_reply:
-                print(
-                    f"🤖 Scheduling auto-reply as background task for session {session.id}"
-                )
                 background_tasks.add_task(
                     _queue_session_action_fastify_background_task, session
                 )
@@ -1080,9 +1077,6 @@ async def _run_prompt_session_internal(
             # Process memory formation for all actors that participated
             for actor in actors:
                 if should_form_memories(actor.id, session):
-                    print(
-                        f"🧠 Triggering form_memories() as background task for session {session.id}, agent {actor.id}"
-                    )
                     background_tasks.add_task(form_memories, actor.id, session)
 
             # Send success notification if configured

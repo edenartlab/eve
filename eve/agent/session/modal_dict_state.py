@@ -3,10 +3,8 @@ from bson import ObjectId
 from typing import Dict, Any, Optional, List, Tuple
 import logging
 import asyncio
-from datetime import datetime, timezone
 
-
-# Safe modal.Dict operations with retry logic (moved here to avoid circular imports)
+# Safe modal.Dict operations with retry logic
 async def safe_modal_get(modal_dict, key: str, default=None, retries: int = 3):
     """Safely get value from modal.Dict with exponential backoff retry."""
     for attempt in range(retries):
@@ -34,7 +32,7 @@ async def safe_modal_set(modal_dict, key: str, value, retries: int = 3):
             await asyncio.sleep(0.1 * (2 ** attempt))
     return False
 
-async def safe_modal_batch_get(modal_dicts_and_keys: list, default=None) -> list:
+async def safe_modal_batch_get(modal_dicts_and_keys: list) -> list:
     """Batch get from multiple modal.Dict objects with retry logic.
     
     Args:
@@ -54,11 +52,11 @@ async def safe_modal_batch_get(modal_dicts_and_keys: list, default=None) -> list
 
 class ModalDictState:
     """
-    A wrapper class for managing modal.Dict state with consistent patterns for:
+    A wrapper class for managing modal.Dict state with generic patterns for:
     - Fetching the latest version of modal dicts
     - Creating local copies for function context
-    - Indexing with keys (session_id, agent_id, user_id)
-    - Updating values
+    - Indexing with arbitrary key paths
+    - Updating values at any depth
     - Batch operations for performance
     """
     
@@ -86,52 +84,49 @@ class ModalDictState:
         agent_key = str(agent_id)
         return await safe_modal_set(self.modal_dict, agent_key, updated_dict)
     
-    async def get_session_value(self, agent_id: ObjectId, session_id: ObjectId, key: str, default: Any = None) -> Any:
-        """Get a specific value from a session within an agent's dict."""
-        agent_dict = await self.get_agent_dict(agent_id)
-        session_key = str(session_id)
-        session_dict = agent_dict.get(session_key, {})
-        return session_dict.get(key, default)
+    def _navigate_to_nested_value(self, data: Dict, key_path: List[str], default: Any = None) -> Any:
+        """Navigate to a nested value using a list of keys."""
+        current = data
+        for key in key_path:
+            if not isinstance(current, dict) or key not in current:
+                return default
+            current = current[key]
+        return current
     
-    async def update_session_value(self, agent_id: ObjectId, session_id: ObjectId, key: str, value: Any) -> bool:
-        """Update a specific value in a session within an agent's dict."""
+    def _set_nested_value(self, data: Dict, key_path: List[str], value: Any) -> None:
+        """Set a nested value using a list of keys, creating intermediate dicts as needed."""
+        current = data
+        for key in key_path[:-1]:
+            if key not in current:
+                current[key] = {}
+            current = current[key]
+        current[key_path[-1]] = value
+    
+    async def get_value(self, agent_id: ObjectId, key_path: List[str], default: Any = None) -> Any:
+        """
+        Get a value at any depth using a key path.
+        
+        Examples:
+        - get_value(agent_id, ["session_123", "temperature"]) -> session value
+        - get_value(agent_id, ["user_456", "preferences"]) -> user value  
+        - get_value(agent_id, ["global_setting"]) -> agent-level value
+        """
         agent_dict = await self.get_agent_dict(agent_id)
-        session_key = str(session_id)
+        return self._navigate_to_nested_value(agent_dict, key_path, default)
+    
+    async def update_value(self, agent_id: ObjectId, key_path: List[str], value: Any) -> bool:
+        """
+        Update a value at any depth using a key path.
         
-        if session_key not in agent_dict:
-            agent_dict[session_key] = {}
-        
-        agent_dict[session_key][key] = value
+        Examples:
+        - update_value(agent_id, ["session_123", "temperature"], 0.8)
+        - update_value(agent_id, ["user_456", "preferences"], {...})
+        - update_value(agent_id, ["global_setting"], value)
+        """
+        agent_dict = await self.get_agent_dict(agent_id)
+        self._set_nested_value(agent_dict, key_path, value)
         return await self.update_agent_dict(agent_id, agent_dict)
     
-    async def get_user_value(self, agent_id: ObjectId, user_id: ObjectId, key: str, default: Any = None) -> Any:
-        """Get a specific value for a user within an agent's dict."""
-        agent_dict = await self.get_agent_dict(agent_id)
-        user_key = str(user_id)
-        user_dict = agent_dict.get(user_key, {})
-        return user_dict.get(key, default)
-    
-    async def update_user_value(self, agent_id: ObjectId, user_id: ObjectId, key: str, value: Any) -> bool:
-        """Update a specific value for a user within an agent's dict."""
-        agent_dict = await self.get_agent_dict(agent_id)
-        user_key = str(user_id)
-        
-        if user_key not in agent_dict:
-            agent_dict[user_key] = {}
-        
-        agent_dict[user_key][key] = value
-        return await self.update_agent_dict(agent_id, agent_dict)
-    
-    async def get_agent_value(self, agent_id: ObjectId, key: str, default: Any = None) -> Any:
-        """Get a specific value from an agent's dict."""
-        agent_dict = await self.get_agent_dict(agent_id)
-        return agent_dict.get(key, default)
-    
-    async def update_agent_value(self, agent_id: ObjectId, key: str, value: Any) -> bool:
-        """Update a specific value in an agent's dict."""
-        agent_dict = await self.get_agent_dict(agent_id)
-        agent_dict[key] = value
-        return await self.update_agent_dict(agent_id, agent_dict)
     
     async def batch_get_agent_dicts(self, agent_ids: List[ObjectId]) -> List[Dict[str, Any]]:
         """Batch get multiple agent dictionaries."""
@@ -145,6 +140,46 @@ class ModalDictState:
         for agent_id, agent_dict in updates:
             tasks.append(self.update_agent_dict(agent_id, agent_dict))
         return await asyncio.gather(*tasks)
+    
+    async def batch_get_values(self, requests: List[Tuple[ObjectId, List[str], Any]]) -> List[Any]:
+        """
+        Batch get multiple values using key paths.
+        
+        Args:
+            requests: List of tuples (agent_id, key_path, default_value)
+        
+        Returns:
+            List of values in same order as requests
+        """
+        agent_ids = [agent_id for agent_id, _, _ in requests]
+        agent_dicts = await self.batch_get_agent_dicts(agent_ids)
+        
+        results = []
+        for i, (_, key_path, default_value) in enumerate(requests):
+            results.append(self._navigate_to_nested_value(agent_dicts[i], key_path, default_value))
+        
+        return results
+    
+    async def batch_update_values(self, updates: List[Tuple[ObjectId, List[str], Any]]) -> List[bool]:
+        """
+        Batch update multiple values using key paths.
+        
+        Args:
+            updates: List of tuples (agent_id, key_path, value)
+        
+        Returns:
+            List of success booleans in same order as updates
+        """
+        agent_ids = [agent_id for agent_id, _, _ in updates]
+        agent_dicts = await self.batch_get_agent_dicts(agent_ids)
+        
+        # Apply updates to local copies
+        for i, (_, key_path, value) in enumerate(updates):
+            self._set_nested_value(agent_dicts[i], key_path, value)
+        
+        # Batch update all modified dicts
+        dict_updates = [(agent_ids[i], agent_dicts[i]) for i in range(len(agent_ids))]
+        return await self.batch_update_agent_dicts(dict_updates)
 
 
 class MultiModalDictState:
@@ -159,34 +194,91 @@ class MultiModalDictState:
         """Get a specific modal dict by name."""
         return self.modal_dicts[name]
     
-    async def batch_get_from_multiple_dicts(self, requests: List[Tuple[str, ObjectId, Optional[str], Any]]) -> List[Any]:
+    async def batch_get_from_multiple_dicts(self, requests: List[Tuple[str, ObjectId, List[str], Any]]) -> List[Any]:
         """
-        Batch get from multiple modal dicts.
+        Batch get from multiple modal dicts using key paths.
         
         Args:
-            requests: List of tuples (dict_name, agent_id, optional_key, default_value)
-                     If optional_key is None, gets entire agent dict
-                     If optional_key is provided, gets specific value from agent dict
+            requests: List of tuples (dict_name, agent_id, key_path, default_value)
+                     key_path is a list of keys for nested access (empty list for entire agent dict)
         
         Returns:
             List of values in same order as requests
         """
-        batch_requests = []
+        # Group requests by dict_name for efficiency
+        dict_requests = {}
+        for i, (dict_name, agent_id, key_path, default_value) in enumerate(requests):
+            if dict_name not in dict_requests:
+                dict_requests[dict_name] = []
+            dict_requests[dict_name].append((i, agent_id, key_path, default_value))
         
-        for dict_name, agent_id, optional_key, default_value in requests:
-            modal_dict = self.modal_dicts[dict_name].modal_dict
-            agent_key = str(agent_id)
-            batch_requests.append((modal_dict, agent_key, default_value if optional_key is None else {}))
+        # Execute batch gets for each dict
+        results = [None] * len(requests)
         
-        results = await safe_modal_batch_get(batch_requests)
-        
-        # If optional_key was specified, extract that specific value
-        final_results = []
-        for i, (dict_name, agent_id, optional_key, default_value) in enumerate(requests):
-            if optional_key is None:
-                final_results.append(results[i])
+        for dict_name, dict_specific_requests in dict_requests.items():
+            modal_dict_state = self.modal_dicts[dict_name]
+            
+            if all(len(key_path) == 0 for _, _, key_path, _ in dict_specific_requests):
+                # All requests want entire agent dicts
+                agent_ids = [agent_id for _, agent_id, _, _ in dict_specific_requests]
+                agent_dicts = await modal_dict_state.batch_get_agent_dicts(agent_ids)
+                for j, (original_index, _, _, _) in enumerate(dict_specific_requests):
+                    results[original_index] = agent_dicts[j]
             else:
-                agent_dict = results[i]
-                final_results.append(agent_dict.get(optional_key, default_value))
+                # Mixed requests - use batch_get_values
+                batch_requests = [(agent_id, key_path, default_value) 
+                                for _, agent_id, key_path, default_value in dict_specific_requests]
+                values = await modal_dict_state.batch_get_values(batch_requests)
+                for j, (original_index, _, _, _) in enumerate(dict_specific_requests):
+                    results[original_index] = values[j]
         
-        return final_results
+        return results
+    
+    async def batch_update_multiple_dicts(self, updates: List[Tuple[str, ObjectId, List[str], Any]]) -> List[bool]:
+        """
+        Batch update across multiple modal dicts using key paths.
+        
+        Args:
+            updates: List of tuples (dict_name, agent_id, key_path, value)
+        
+        Returns:
+            List of success booleans in same order as updates
+        """
+        # Group updates by dict_name for efficiency
+        dict_updates = {}
+        for i, (dict_name, agent_id, key_path, value) in enumerate(updates):
+            if dict_name not in dict_updates:
+                dict_updates[dict_name] = []
+            dict_updates[dict_name].append((i, agent_id, key_path, value))
+        
+        # Execute batch updates for each dict
+        results = [False] * len(updates)
+        
+        for dict_name, dict_specific_updates in dict_updates.items():
+            modal_dict_state = self.modal_dicts[dict_name]
+            batch_updates = [(agent_id, key_path, value) 
+                           for _, agent_id, key_path, value in dict_specific_updates]
+            update_results = await modal_dict_state.batch_update_values(batch_updates)
+            
+            for j, (original_index, _, _, _) in enumerate(dict_specific_updates):
+                results[original_index] = update_results[j]
+        
+        return results
+
+
+# Utility functions for creating key paths
+def session_key_path(session_id: ObjectId, key: str) -> List[str]:
+    """Create key path for session-scoped value."""
+    return [str(session_id), key]
+
+def user_key_path(user_id: ObjectId, key: str) -> List[str]:
+    """Create key path for user-scoped value."""
+    return [str(user_id), key]
+
+def agent_key_path(key: str) -> List[str]:
+    """Create key path for agent-scoped value."""
+    return [key]
+
+def nested_key_path(*keys) -> List[str]:
+    """Create key path for arbitrary nested access."""
+    return [str(key) for key in keys]
