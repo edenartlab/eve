@@ -1,6 +1,5 @@
 import requests
 import uuid
-import random
 from typing import Dict, Any
 
 from eve.agent.agent import Agent
@@ -56,37 +55,38 @@ async def handler(args: dict, user: str = None, agent: str = None):
                 raise RuntimeError(f"Printify API error: {error_data}")
             raise
 
-    # Get blueprint details to find available variants
-    blueprint_id = args.get("blueprint_id")
-    print_provider_id = args.get("print_provider_id")
+    # Hardcoded blueprint and print provider
+    blueprint_id = 77
+    print_provider_id = 99
 
-    # Get variants for the blueprint and provider
-    variants_response = _api_request(
-        "GET",
-        f"/catalog/blueprints/{blueprint_id}/print_providers/{print_provider_id}/variants.json",
-    )
-
-    # Randomly select 3 variants
-    enabled_variants = []
-    variant_ids = []
-
-    # Get the variants array from the response
-    variants = variants_response.get("variants", [])
-
-    # Pick 3 random variants from the available ones
-    num_variants_to_select = min(3, len(variants))
-    selected_variants = random.sample(variants, num_variants_to_select)
-
-    for i, variant in enumerate(selected_variants):
-        variant_ids.append(variant["id"])
-        enabled_variants.append(
-            {
-                "id": variant["id"],
-                "price": int(args.get("price") * 100),  # Convert to cents
-                "is_enabled": True,
-                "is_default": i == 0,  # Make first variant default
-            }
-        )
+    # Hardcoded variants for t-shirt sizes
+    variant_ids = [32918, 32919, 32920, 32921]  # S, M, L, XL
+    enabled_variants = [
+        {
+            "id": 32918,  # Small (S)
+            "price": int(args.get("price") * 100),  # Convert to cents
+            "is_enabled": True,
+            "is_default": True,  # Make S the default
+        },
+        {
+            "id": 32919,  # Medium (M)
+            "price": int(args.get("price") * 100),  # Convert to cents
+            "is_enabled": True,
+            "is_default": False,
+        },
+        {
+            "id": 32920,  # Large (L)
+            "price": int(args.get("price") * 100),  # Convert to cents
+            "is_enabled": True,
+            "is_default": False,
+        },
+        {
+            "id": 32921,  # Extra Large (XL)
+            "price": int(args.get("price") * 100),  # Convert to cents
+            "is_enabled": True,
+            "is_default": False,
+        },
+    ]
 
     # Upload image to Printify first
     image_url = args.get("image")
@@ -173,9 +173,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
 
     # If no images in main response, check variants for images
     if not product_images and "variants" in product_details:
-        for variant in product_details["variants"][
-            :3
-        ]:  # Get images from first 3 variants
+        for variant in product_details["variants"]:
             if variant.get("preview_url"):
                 product_images.append(
                     {
