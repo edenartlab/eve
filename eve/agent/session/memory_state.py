@@ -1,6 +1,6 @@
 import modal
 from bson import ObjectId
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import logging
 import os
 from pathlib import Path
@@ -8,6 +8,7 @@ import traceback
 import json
 from datetime import datetime, timezone, timedelta
 import sentry_sdk
+import asyncio
 
 # Only import ChatMessage when needed (not in standalone mode)
 try:
@@ -37,40 +38,86 @@ DEFAULT_SESSION_STATE = {
     "user_memory_timestamp": None # Timestamp of the last time the user memory was fetched in this session
 }
 
-def _get_or_create_agent_dict(agent_key: str) -> Dict[str, Any]:
+# Safe modal.Dict operations with retry logic
+async def safe_modal_get(modal_dict, key: str, default=None, retries: int = 3):
+    """Safely get value from modal.Dict with exponential backoff retry."""
+    for attempt in range(retries):
+        try:
+            return modal_dict[key]
+        except KeyError:
+            return default
+        except Exception as e:
+            if attempt == retries - 1:
+                logging.warning(f"Modal.Dict get failed after {retries} attempts for key {key}: {e}")
+                return default
+            await asyncio.sleep(0.1 * (2 ** attempt))
+    return default
+
+async def safe_modal_set(modal_dict, key: str, value, retries: int = 3):
+    """Safely set value in modal.Dict with exponential backoff retry."""
+    for attempt in range(retries):
+        try:
+            modal_dict[key] = value
+            return True
+        except Exception as e:
+            if attempt == retries - 1:
+                logging.warning(f"Modal.Dict set failed after {retries} attempts for key {key}: {e}")
+                return False
+            await asyncio.sleep(0.1 * (2 ** attempt))
+    return False
+
+async def safe_modal_batch_get(modal_dicts_and_keys: list, default=None) -> list:
+    """Batch get from multiple modal.Dict objects with retry logic.
+    
+    Args:
+        modal_dicts_and_keys: List of tuples (modal_dict, key, default_value)
+        
+    Returns:
+        List of values in same order as input
+    """
+    async def get_single(modal_dict, key, default_val):
+        return await safe_modal_get(modal_dict, key, default_val)
+    
+    tasks = [get_single(modal_dict, key, default_val) 
+             for modal_dict, key, default_val in modal_dicts_and_keys]
+    
+    return await asyncio.gather(*tasks)
+
+async def _get_or_create_agent_sessions_dict(agent_key: str) -> Dict[str, Any]:
     """Get agent dictionary from modal.Dict, creating if missing."""
-    try:
-        return pending_session_memories[agent_key]
-    except:
+    agent_dict = await safe_modal_get(pending_session_memories, agent_key, {})
+    if not agent_dict:
         print(f"No agent dict found for agent {agent_key}, creating empty dict")
-        pending_session_memories[agent_key] = {}
-        return pending_session_memories[agent_key]
+        await safe_modal_set(pending_session_memories, agent_key, {})
+        return {}
+    return agent_dict
 
 async def get_session_state(agent_id: ObjectId, session_id: ObjectId) -> Dict[str, Any]:
     """Get session state from modal.Dict, initializing if needed"""
     agent_key = str(agent_id)
     session_key = str(session_id)
     
-    agent_dict = _get_or_create_agent_dict(agent_key)
+    agent_dict = await _get_or_create_agent_sessions_dict(agent_key)
     
     if not agent_dict.get(session_key):
         print(f"No session state found for session {session_key}, creating default session state")
         agent_dict[session_key] = DEFAULT_SESSION_STATE.copy()
-        pending_session_memories[agent_key] = agent_dict
+        await safe_modal_set(pending_session_memories, agent_key, agent_dict)
     
     return agent_dict[session_key]
 
 async def update_session_state(agent_id: ObjectId, session_id: ObjectId, updates: Dict[str, Any]) -> None:
-    """Update session state in modal.Dict"""
+    """Update session state in modal.Dict with minimal network calls"""
     agent_key = str(agent_id)
     session_key = str(session_id)
     
-    agent_dict = pending_session_memories.get(agent_key, {})
+    # OPTIMIZATION: Use safe modal operations to minimize network calls
+    agent_dict = await _get_or_create_agent_sessions_dict(agent_key)  # Single network call to fetch
     session_state = agent_dict.get(session_key, DEFAULT_SESSION_STATE.copy())
     
     session_state.update(updates)
     agent_dict[session_key] = session_state
-    pending_session_memories[agent_key] = agent_dict
+    await safe_modal_set(pending_session_memories, agent_key, agent_dict)  # Single network call to update
 
     # print("-----------------------------------")
     # print("Updated session_state state:")

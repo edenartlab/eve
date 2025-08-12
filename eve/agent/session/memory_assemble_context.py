@@ -175,6 +175,7 @@ async def regenerate_memory_context(agent_id: ObjectId, session_id: Optional[Obj
             try:
                 cache_start = time.time()
                 current_time = datetime.now(timezone.utc).isoformat()
+                
                 await update_session_state(agent_id, session_id, {
                     "cached_memory_context": memory_context,
                     "should_refresh_memory": False,
@@ -219,22 +220,48 @@ async def assemble_memory_context(agent_id: ObjectId, session_id: Optional[Objec
     if session_id and agent_id:
         try:
             get_session_state_start = time.time()
-            session_state = await get_session_state(agent_id, session_id)
-            get_session_state_time = time.time() - get_session_state_start
-            print(f"   ⏱️  get_session_state took: {get_session_state_time:.3f}s")
-            print(f"   --> Session state: {session_state}")
-
-            cached_context = session_state.get("cached_memory_context")
-            should_refresh = session_state.get("should_refresh_memory", True)
-            
-            # Check if agent collective memory has been updated since last fetch
             agent_key = str(agent_id)
+            session_key = str(session_id)
+            
+            # OPTIMIZATION: Batch fetch modal.Dict data to minimize network calls
+            from eve.agent.session.memory_state import DEFAULT_SESSION_STATE, pending_session_memories, agent_memory_status, safe_modal_batch_get, safe_modal_set
+            
+            # Batch get both modal.Dict values in parallel
+            batch_results = await safe_modal_batch_get([
+                (pending_session_memories, agent_key, {}),
+                (agent_memory_status, agent_key, {})
+            ])
+            
+            agent_dict = batch_results[0]
+            local_agent_memory_status = dict(batch_results[1])
+            
+            local_session_state = agent_dict.get(session_key, DEFAULT_SESSION_STATE.copy())
+            
+            # Handle session state creation if needed
+            if session_key not in agent_dict:
+                print(f"No session state found for session {session_key}, creating default session state")
+                agent_dict[session_key] = local_session_state
+                # Single update call for agent dict
+                await safe_modal_set(pending_session_memories, agent_key, agent_dict)
+            
+            get_session_state_time = time.time() - get_session_state_start
+            print(f"   ⏱️  batch modal.Dict fetch took: {get_session_state_time:.3f}s")
+
+            # Work with local copies from here - no more network calls to modal.Dict
+            start_probing_session_state = time.time()
+            cached_context = local_session_state.get("cached_memory_context")
+            should_refresh = local_session_state.get("should_refresh_memory", True)
+            probing_session_state_time = time.time() - start_probing_session_state
+            print(f"   ⏱️  probing session state took: {probing_session_state_time:.3f}s")
+            
+            # Check if agent collective memory has been updated since last fetch (using local copy)
             agent_memory_updated = False
             user_memory_updated = False
             
-            if agent_key in agent_memory_status:
-                agent_last_updated = agent_memory_status[agent_key].get("last_updated_at")
-                session_last_fetched = session_state.get("agent_collective_memory_timestamp")
+            start_probing_agent_memory_status = time.time()
+            if local_agent_memory_status:
+                agent_last_updated = local_agent_memory_status.get("last_updated_at")
+                session_last_fetched = local_session_state.get("agent_collective_memory_timestamp")
                 
                 if agent_last_updated and session_last_fetched:
                     # Convert to datetime for comparison
@@ -247,34 +274,49 @@ async def assemble_memory_context(agent_id: ObjectId, session_id: Optional[Objec
                 else:
                     # If either timestamp is missing, refresh to be safe
                     agent_memory_updated = True
+
+            probing_agent_memory_status_time = time.time() - start_probing_agent_memory_status
+            print(f"   ⏱️  probing agent memory status took: {probing_agent_memory_status_time:.3f}s")
             
-            # Check if user memory has been updated since last fetch (only check if we have necessary IDs)
-            if session_id and agent_id and last_speaker_id:
-                try:
-                    user_memory_obj = UserMemory.find_one({"agent_id": agent_id, "user_id": last_speaker_id})
-                    
-                    if user_memory_obj and user_memory_obj.last_updated_at:
-                        session_user_memory_timestamp = session_state.get("user_memory_timestamp")
+            # Only check user memory if we have a cache to potentially use
+            if cached_context and not should_refresh and not agent_memory_updated:
+                # Check if user memory has been updated since last fetch (only check if we have necessary IDs)
+                if session_id and agent_id and last_speaker_id:
+                    start_probing_user_memory = time.time()
+                    try:
+                        user_memory_obj = UserMemory.find_one({"agent_id": agent_id, "user_id": last_speaker_id})
                         
-                        if session_user_memory_timestamp:
-                            try:
-                                user_updated_dt = user_memory_obj.last_updated_at
-                                if not user_updated_dt.tzinfo:
-                                    user_updated_dt = user_updated_dt.replace(tzinfo=timezone.utc)
-                                session_user_fetched_dt = datetime.fromisoformat(session_user_memory_timestamp.replace('Z', '+00:00'))
-                                user_memory_updated = user_updated_dt > session_user_fetched_dt
-                            except Exception as e:
+                        if user_memory_obj and user_memory_obj.last_updated_at:
+                            session_user_memory_timestamp = local_session_state.get("user_memory_timestamp")
+                            
+                            if session_user_memory_timestamp:
+                                try:
+                                    user_updated_dt = user_memory_obj.last_updated_at
+                                    if not user_updated_dt.tzinfo:
+                                        user_updated_dt = user_updated_dt.replace(tzinfo=timezone.utc)
+                                    session_user_fetched_dt = datetime.fromisoformat(session_user_memory_timestamp.replace('Z', '+00:00'))
+                                    user_memory_updated = user_updated_dt > session_user_fetched_dt
+                                except Exception as e:
+                                    user_memory_updated = True
+                            else:
+                                # If session timestamp is missing, refresh to be safe
                                 user_memory_updated = True
                         else:
-                            # If session timestamp is missing, refresh to be safe
-                            user_memory_updated = True
-                    else:
-                        # If no user memory exists or no timestamp, don't force refresh
-                        user_memory_updated = False
-                except Exception as e:
-                    logging.warning(f"Error checking user memory timestamp: {e}")
-                    user_memory_updated = True
-            
+                            # If no user memory exists or no timestamp, don't force refresh
+                            user_memory_updated = False
+                    except Exception as e:
+                        logging.warning(f"Error checking user memory timestamp: {e}")
+                        user_memory_updated = True
+
+                    probing_user_memory_time = time.time() - start_probing_user_memory
+                    print(f"   ⏱️  probing user memory took: {probing_user_memory_time:.3f}s")
+                else:
+                    user_memory_updated = False
+                    print(f"   ⏱️  probing user memory took: 0.000s (skipped - no cache to validate)")
+            else:
+                user_memory_updated = True  # Force refresh if no cache or other refresh reasons
+                print(f"   ⏱️  probing user memory took: 0.000s (skipped - cache invalid)")
+                
             if cached_context and not should_refresh and not agent_memory_updated and not user_memory_updated:
                 total_time = time.time() - start_time
                 print(f"   ⚡ USING CACHED MEMORY: {total_time:.3f}s")

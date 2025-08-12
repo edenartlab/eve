@@ -199,17 +199,6 @@ def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
 
     return messages
 
-
-def print_context_state(session: Session, message: str = ""):
-    print(message)
-    print(f"Session ID: {session.id}")
-    cached_context = getattr(session.context, "cached_memory_context", None)
-    should_refresh = getattr(session.context, "should_refresh_memory", None)
-    print("Context state:")
-    print(f"Cached context: {cached_context}")
-    print(f"Should refresh: {should_refresh}")
-
-
 async def build_system_message(
     session: Session,
     actor: Agent,

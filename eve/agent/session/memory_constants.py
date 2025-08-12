@@ -7,10 +7,6 @@ class MemoryType:
         self.max_items = max_items
         self.custom_prompt = custom_prompt
     
-    #@property
-    #def value(self) -> str:
-    #    return self.name
-    
 # Flag to easily switch between local and production memory settings (keep this in but always set to False in production):
 # Remember to also deploy bg apps with LODAL_DEV = False!
 LOCAL_DEV = True
@@ -66,7 +62,7 @@ MEMORY_TYPES = {
     "episode":    MemoryType("episode",    1, 1, "Summary of given conversation segment for contextual recall. Will always be provided in the context of previous episodes and most recent messages."),
     "directive":  MemoryType("directive",  0, 1, "Persistent instructions, preferences and behavioral rules to remember for future interactions with this user."), 
     "suggestion": MemoryType("suggestion", 0, 4, "New ideas, suggestions, insights, or context relevant to the shard that could help improve / evolve / form this shard's area of focus"),
-    "fact":       MemoryType("fact",       0, 6, "Atomic, verifiable information about the user or the world that is highly relevant to the shard context.")
+    "fact":       MemoryType("fact",       0, 6, "Atomic, verifiable information about the user or the world that is highly relevant to the shard context and is ALWAYS true.")
 }
 
 #############################
@@ -156,6 +152,7 @@ Only create new memories that are highly relevant in the context of this shard:
   - Include SOURCE when provided ("per Alice: deadline is May 1st")
   - Facts must be self-contained and understandable without conversation context
   - Only include facts that are directly relevant to the shard's context and were actually spoken by the user(s) themselves.
+  - Facts are permanently stored in the shard memory and so they must be true in future phases of the project / context, not just true right this moment. A current fact that could evolve over time should be stored as a suggestion.
   - Prioritize facts that:
     a) Create, update or contradict existing knowledge
     b) Provide critical constraints or dependencies
@@ -189,7 +186,7 @@ Guidelines:
 ########################################################
 
 # User Memory Consolidation Prompt Template
-USER_MEMORY_CONSOLIDATION_PROMPT = f"""Task: You are helping to consolidate memories about a specific user's preferences and behavioral rules for a AI agent interaction.
+USER_MEMORY_CONSOLIDATION_PROMPT = f"""Task: You are helping to consolidate all memories regarding one specific user's preferences and behavioral rules for all your future interactions with this user.
 
 CURRENT CONSOLIDATED MEMORY:
 {{current_memory}}
@@ -203,7 +200,7 @@ Requirements:
 - Preserve all important behavioral rules and preferences from both current memory and new directives
 - Remove redundancies and contradictions (newer directives override older ones, although directive age should not be integrated)
 - Keep the most specific and actionable guidance
-- Use the actual user names from the directives (never use "User" or "the user")
+- Use the actual user name from the directives (never use "User" or "the user"). There is only one single user in this context.
 - Focus on persistent preferences and behavioral rules that should guide future interactions
 - Be concise but comprehensive
 
@@ -222,7 +219,7 @@ Only create new memories that are highly relevant in the context of this shard:
 {SHARD_EXTRACTION_PROMPT_TOKEN}
 </shard_context>
 
-## Current known facts (Provided for context: these facts are always present in memory and do not need to be integrated):
+## Current known facts (Provided for context: these facts will always be automaticallypresent in memory and do NOT need to be integrated!):
 {{facts_text}}
 
 ## Current, consolidated MEMORY STATE (The thing to update):
@@ -233,16 +230,18 @@ Only create new memories that are highly relevant in the context of this shard:
 
 Your goal is to update the current consolidated MEMORY STATE for this "{{shard_name}}" memory shard by integrating the new suggestions while leveraging the know facts.
 Refine, restructure, and merge the information to create a new, coherent, and updated consolidated memory (≤{{max_words}} words).
+
 If the current, consolidated MEMORY STATE is empty:
- - this means you are about to create the first consolidated memory for this shard.
- - In that case, think carefully about the core purpose, goals, and context of the shard and generate a structured and extendable memory template that is suited for future updates in the context of the shard.
- - If there is little information available, don't start filling up the MEMORY STATE with random generated content. EVERYTHING you store must be based on collective user input, not the your free-form interpretation / generation! Don't rush to fill it up, more NEW SUGGESTIONS will come in the future.
+ - this means you are about to create the first consolidated memory for this shard, set the VERSION to 1 (integer)
+ - In that case, think carefully about the core purpose, goals, and context of the shard and generate a structured and extendable memory template that is suited for future updates.
+ - Typically, there is little initial information available, so don't start filling up the MEMORY STATE with newly generated content. EVERYTHING you store must be based on collective user input, not the your free-form interpretation / generation! Don't rush to fill it up, more NEW SUGGESTIONS will come in the future.
 
  Here are just a few example sections that could be included in the MEMORY STATE. These are just examples, you can include any other sections that are relevant to the shard's context or leave the MEMORY STATE super basic if there is not a lot of information available yet.
 overview, decisions & consensus, active proposals, concerns & blockers, action items, integration principles, responsibilities, budget, planning, ...
 
 Integration Guidelines:
-- Do NOT simply append the new items. For example, if there is a 'Logistics' section, add relevant information there. The final output should be ONLY the complete, newly revised memory state.
+- always increment the VERSION by 1 (integer) when you update the MEMORY STATE
+- Do NOT simply append the new items but integrate. The final output should be ONLY the complete, newly revised MEMORY STATE.
 - Integrate suggestions according to their alignment with the current consolidated memory context. Changes in direction of the shard memory should be considered carefully and backed by consensus.
 - Discard suggestions only if they are: spam, completely off-topic, or factually impossible
 - Integrate conflicting viewpoints by noting them as "disputed" or "minority view" rather than discarding
@@ -252,7 +251,6 @@ Integration Guidelines:
 - Do not generate / hallucinate any new information that was not explicitly in the suggestions or facts. All of the updates must be driven by the collective input, not the agent's interpretation.
 - Focus on actionable information that will help guide future decisions and planning
 - Be careful not to lose any existing information in the current MEMORY STATE. Once something is lost from the current MEMORY STATE, it is lost forever. 
-- Priority for preservation: Recent decisions > Active items > Historical context
 - After this integration step, all NEW SUGGESTIONS will be deleted forever so make sure to integrate all their information.
 - Format contested items clearly: "Proposed by Alice, supported by Bob, opposed by Carol: [suggestion]"
 - Separate "agreed actions" from "open proposals" in the MEMORY STATE
