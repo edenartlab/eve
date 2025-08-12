@@ -359,6 +359,10 @@ async def async_run_tool_call_with_cancellation(
     """
     Cancellation-aware version of async_run_tool_call that can be interrupted
     """
+    
+    if tool_call.tool == "web_search":
+        return tool_call.result
+    
     tool = llm_context.tools[tool_call.tool]
 
     # Start the task
@@ -639,6 +643,9 @@ async def process_tool_calls(
             tool_call_id = tool_call.id
             if tool_call_id not in tool_cancellation_events:
                 tool_cancellation_events[tool_call_id] = asyncio.Event()
+
+            if tool_call.status == "completed":
+                continue
 
             tasks.append(
                 process_tool_call(
