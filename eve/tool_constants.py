@@ -89,6 +89,7 @@ FARCASTER_TOOLS = ["farcaster_cast", "farcaster_mentions", "farcaster_search"]
 SHOPIFY_TOOLS = ["shopify"]
 PRINTIFY_TOOLS = ["printify"]
 CAPTIONS_TOOLS = ["captions"]
+TIKTOK_TOOLS = ["tiktok_post"]
 
 SOCIAL_MEDIA_TOOLS = [
     *TWITTER_TOOLS,
@@ -98,6 +99,7 @@ SOCIAL_MEDIA_TOOLS = [
     *SHOPIFY_TOOLS,
     *PRINTIFY_TOOLS,
     *CAPTIONS_TOOLS,
+    *TIKTOK_TOOLS,
 ]
 
 TOOL_SETS = {

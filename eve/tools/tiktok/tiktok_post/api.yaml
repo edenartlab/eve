@@ -1,0 +1,29 @@
+name: tiktok_post
+description: Post a video to TikTok
+tip: |-
+  This tool allows an agent to post videos to TikTok.
+  The video should be provided as a URL to an mp4 file.
+  Examples:
+  - "Post this video to TikTok with caption 'Check out this cool animation!'"
+  - "Upload this video to TikTok as a public post"
+  Only use this tool when the user explicitly requests to post a video to TikTok.
+cost_estimate: 0
+output_type: string
+active: true
+handler: local
+visible: false
+parameters:
+  video_url:
+    type: string
+    description: URL of the video to post to TikTok
+    required: true
+  caption:
+    type: string
+    description: Caption/description for the TikTok post
+    required: true
+  privacy_level:
+    type: string
+    description: Privacy level for the post
+    enum: ["SELF_ONLY"]
+    default: "SELF_ONLY"
+    required: false

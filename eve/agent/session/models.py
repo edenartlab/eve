@@ -735,6 +735,7 @@ class ClientType(Enum):
     SHOPIFY = "shopify"
     PRINTIFY = "printify"
     CAPTIONS = "captions"
+    TIKTOK = "tiktok"
 
 
 class NotificationType(Enum):
@@ -855,6 +856,19 @@ class DeploymentSecretsCaptions(BaseModel):
     api_key: str
 
 
+# TikTok Models
+class DeploymentSettingsTiktok(BaseModel):
+    pass
+
+
+class DeploymentSecretsTiktok(BaseModel):
+    access_token: str
+    refresh_token: str
+    open_id: str
+    expires_at: datetime
+    username: Optional[str] = None
+
+
 # Combined Models
 class DeploymentSecrets(BaseModel):
     discord: DeploymentSecretsDiscord | None = None
@@ -864,6 +878,7 @@ class DeploymentSecrets(BaseModel):
     shopify: DeploymentSecretsShopify | None = None
     printify: DeploymentSecretsPrintify | None = None
     captions: DeploymentSecretsCaptions | None = None
+    tiktok: DeploymentSecretsTiktok | None = None
 
 
 class DeploymentConfig(BaseModel):
@@ -874,6 +889,7 @@ class DeploymentConfig(BaseModel):
     shopify: DeploymentSettingsShopify | None = None
     printify: DeploymentSettingsPrintify | None = None
     captions: DeploymentSettingsCaptions | None = None
+    tiktok: DeploymentSettingsTiktok | None = None
 
 
 @Collection("deployments2")

@@ -223,4 +223,9 @@ def load_handler(name):
 
             handlers[name] = handler
 
+        elif name == "tiktok_post":
+            from .tiktok.tiktok_post.handler import handler
+
+            handlers[name] = handler
+
     return handlers[name]
