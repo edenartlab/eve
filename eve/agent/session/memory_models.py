@@ -2,22 +2,9 @@ from typing import List, Optional, Dict
 from bson import ObjectId
 from eve.mongo import Collection, Document
 from datetime import datetime, timezone
-import traceback
 
 from eve.agent.session.models import ChatMessage
 from eve.user import User
-from eve.agent.session.modal_dict_state import agent_key_path, user_key_path
-
-def lookup_sender_name(sender_id: ObjectId) -> str:
-    """Lookup the name of a sender by their id by querying the "users3" collection"""
-    try:
-        user = User.from_mongo(sender_id)
-        user_type = user.type
-        user_name = user.username
-        return f"{user_type} ({user_name})"
-    except Exception as e:
-        print(f"Error looking up sender name for {sender_id}: {e}")
-        return None
 
 def get_sender_id_to_sender_name_map(messages: List[ChatMessage]) -> Dict[ObjectId, str]:
     """Find all unique senders in the messages and return a map of sender id to sender name"""
@@ -67,37 +54,6 @@ def messages_to_text(messages: List[ChatMessage], fast_dry_run: bool = False) ->
         text_parts.append(f"{speaker}: {content}")
     return "\n".join(text_parts)
 
-async def _update_agent_memory_timestamp(agent_id: ObjectId):
-    """
-    Update the agent memory status timestamp to indicate collective memory has changed.
-    This allows sessions to detect when they need to refresh their cached agent memory.
-    """
-    try:
-        from eve.agent.session.memory_state import agent_memory_state_manager
-        
-        current_time = datetime.now(timezone.utc).isoformat()
-        await agent_memory_state_manager.update_value(agent_id, agent_key_path("last_updated_at"), current_time)
-        
-    except Exception as e:
-        print(f"Error updating agent memory status for agent {agent_id}: {e}")
-        traceback.print_exc()
-
-async def _update_user_memory_timestamp(agent_id: ObjectId, user_id: ObjectId):
-    """
-    Update the user memory status timestamp to indicate user memory has changed.
-    This allows sessions to detect when they need to refresh their cached user memory.
-    """
-    try:
-        from eve.agent.session.memory_state import user_memory_state_manager
-        
-        current_time = datetime.now(timezone.utc).isoformat()
-        await user_memory_state_manager.update_value(agent_id, user_key_path(user_id, "last_updated_at"), current_time)
-        
-    except Exception as e:
-        print(f"Error updating user memory status for agent {agent_id}, user {user_id}: {e}")
-        traceback.print_exc()
-
-
 @Collection("memory_sessions")
 class SessionMemory(Document):
     """Individual memory record stored in MongoDB"""
@@ -141,7 +97,7 @@ class SessionMemory(Document):
             ("agent_id", 1),
             ("memory_type", 1), 
             ("related_users", 1)
-        ])
+        ], name="directive_lookup_idx", background=True)
         
         # Compound index for episode memories query
         # Query: {"source_session_id": session_id, "memory_type": MemoryType.EPISODE.value}
@@ -150,22 +106,22 @@ class SessionMemory(Document):
             ("source_session_id", 1),
             ("memory_type", 1),
             ("createdAt", -1)
-        ])
+        ], name="episode_memories_idx", background=True)
 
 @Collection("memory_user")
 class UserMemory(Document):
     """Consolidated user memory blob for agent/user pairs"""
-
+    
     agent_id: ObjectId
     user_id: ObjectId
     content: Optional[str] = ""
     agent_owner: Optional[ObjectId] = None
     # Track which directive memories haven't been consolidated yet:
     unabsorbed_memory_ids: List[ObjectId] = []
+    # Fully formed user memory containing consolidated content + unabsorbed directives as a single string
+    fully_formed_memory: Optional[str] = ""
     # Track when the memory blob was last updated:
     last_updated_at: Optional[datetime] = None
-    # Fully formed user memory containing consolidated content + unabsorbed directives as a single string
-    fully_formed_memory: Optional[str] = ""  
 
     @classmethod
     def convert_to_mongo(cls, schema: dict, **kwargs) -> dict:
@@ -206,7 +162,7 @@ class UserMemory(Document):
     def ensure_indexes(cls):
         """Ensure indexes exist"""
         collection = cls.get_collection()
-        collection.create_index([("agent_id", 1), ("user_id", 1)], unique=True)
+        collection.create_index([("agent_id", 1), ("user_id", 1)], unique=True, name="user_memory_lookup_idx", background=True)
 
 @Collection("memory_agent")
 class AgentMemory(Document):
@@ -228,7 +184,7 @@ class AgentMemory(Document):
     facts: List[ObjectId] = []
 
     # Fully formed memory shard containing consolidated content + recent facts + unabsorbed suggestions as a single string
-    fully_formed_memory_shard: Optional[str] = ""
+    fully_formed_memory: Optional[str] = ""
 
     # Track when the memory blob was last updated:
     last_updated_at: Optional[datetime] = None

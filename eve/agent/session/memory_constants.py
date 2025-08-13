@@ -41,9 +41,10 @@ else:
     MAX_SUGGESTIONS_COUNT_BEFORE_CONSOLIDATION = 8 # Number of suggestions to store before consolidating them into the agent's collective memory blob
     MAX_FACTS_PER_SHARD = 50 # Max number of facts to store per agent shard (fifo)
     
+SYNC_MEMORIES_ACROSS_SESSIONS_EVERY_N_MINUTES = 3
 NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES = 2
 AGENT_TOKEN_MULTIPLIER = 0.25  # Multiplier to downscale agent/assistant message importance for token interval trigger
-    
+
 # LLMs cannot count tokens at all (weirdly), so instruct with word count:
 # Raw memory blobs:
 SESSION_EPISODE_MEMORY_MAX_WORDS    = 50  # Target word length for session episode memory
@@ -54,9 +55,9 @@ SESSION_FACT_MEMORY_MAX_WORDS       = 20  # Target word length for session fact 
 USER_MEMORY_BLOB_MAX_WORDS  = 200  # Target word count for consolidated user memory blob
 AGENT_MEMORY_BLOB_MAX_WORDS = 500  # Target word count for consolidated agent memory blob (shard)
 
-CONVERSATION_TEXT_TOKEN       = "---conversation_text---"
-SHARD_EXTRACTION_PROMPT_TOKEN = "---shard_extraction_prompt---"
-FULLY_FORMED_MEMORY_SHARD_TOKEN = "---fully_formed_memory_shard---"
+CONVERSATION_TEXT_TOKEN       = "-&&-conversation_text-&&-"
+SHARD_EXTRACTION_PROMPT_TOKEN = "-&&-shard_extraction_prompt-&&-"
+FULLY_FORMED_AGENT_MEMORY_TOKEN = "-&&-fully_formed_agent_memory-&&-"
 
 # Define different memory types and their extraction limits:
 MEMORY_TYPES = {
@@ -133,7 +134,7 @@ AGENT_MEMORY_EXTRACTION_PROMPT = f"""Task: Extract persistent memories from the 
 
 IMPORTANT: Below is the context / project / event / topic (shard) you are working on.
 <shard_context>
-{FULLY_FORMED_MEMORY_SHARD_TOKEN}
+{FULLY_FORMED_AGENT_MEMORY_TOKEN}
 </shard_context>
 IMPORTANT: do not extract any new facts or suggestions that are already part of the shard_context.
 
@@ -233,13 +234,13 @@ Only create new memories that are highly relevant in the context of this shard:
 Your goal is to update the current consolidated MEMORY STATE for this "{{shard_name}}" memory shard by integrating the new suggestions while leveraging the know facts.
 Refine, restructure, and merge the information to create a new, coherent, and updated consolidated memory (≤{{max_words}} words).
 
-If the current, consolidated MEMORY STATE is empty:
+If the current, consolidated MEMORY STATE is EMPTY:
  - this means you are about to create the first consolidated memory for this shard, add "VERSION: 1" (integer) at the top of the MEMORY STATE
  - In that case, think carefully about the core purpose, goals, and context of the shard and generate a structured and extendable memory template that is suited for future updates.
- - Typically, there is little initial information available, so don't start filling up the MEMORY STATE with newly generated content. EVERYTHING you store must be based on collective user input, not the your free-form interpretation / generation! Don't rush to fill it up, more NEW SUGGESTIONS will come in the future.
+ - Typically, there is little initial information available, so don't start filling up the MEMORY STATE with invented information. EVERYTHING you store must be based on collective user input, not the your free-form interpretation / generation! Don't rush to fill this up, more NEW SUGGESTIONS will come in the future.
 
- Here are just a few example sections that could be included in the MEMORY STATE. These are just examples, you can include any other sections that are relevant to the shard's context or leave the MEMORY STATE super basic if there is not a lot of information available yet.
-overview, decisions & consensus, active proposals, concerns & blockers, action items, integration principles, responsibilities, budget, planning, ...
+Here are just a few example sections that could be included in the MEMORY STATE. These are just examples, you can include any other sections that are relevant to the shard's context or leave the MEMORY STATE super basic if there is not a lot of information available yet.
+overview, tasks, decisions & consensus, active proposals, concerns & blockers, action items, integration principles, responsibilities, budget, planning, ...
 
 Integration Guidelines:
 - always increment the VERSION by 1 (integer) when you update the MEMORY STATE
@@ -257,5 +258,5 @@ Integration Guidelines:
 - Format contested items clearly: "Proposed by Alice, supported by Bob, opposed by Carol: [suggestion]"
 - Separate "agreed actions" from "open proposals" in the MEMORY STATE
 
-Return only the consolidated memory strictly ≤{{max_words}} words, no additional formatting or explanation.
+Return only the consolidated memory (strictly ≤{{max_words}} words!), no additional formatting or explanation.
 """

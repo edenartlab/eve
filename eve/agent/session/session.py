@@ -9,7 +9,7 @@ from fastapi import BackgroundTasks
 import pytz
 from typing import List, Optional, Dict
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from bson import ObjectId
 from sentry_sdk import capture_exception
 from eve.utils import dumps_json
@@ -213,10 +213,10 @@ async def build_system_message(
     memory_context = ""
     try:
         memory_context = await assemble_memory_context(
+            session,
             actor.id,
-            session_id=session.id,
             last_speaker_id=last_speaker_id,
-            session=session,
+            reason="build_system_message"
         )
         if memory_context:
             memory_context = f"\n\n{memory_context}"
@@ -290,7 +290,14 @@ def add_user_message(session: Session, context: PromptSessionContext):
     )
     new_message.save()
     session.messages.append(new_message.id)
+    session.memory_context.last_activity = datetime.now(timezone.utc)
+    session.memory_context.messages_since_memory_formation += 1
     session.save()
+
+    # Print the most recent message:
+    print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+    print(f"--- {new_message.content[:30]} ---")
+    print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
     return new_message
 
 
@@ -835,6 +842,13 @@ async def async_prompt_session(
 
             assistant_message.save()
             session.messages.append(assistant_message.id)
+            session.memory_context.last_activity = datetime.now(timezone.utc)
+            session.memory_context.messages_since_memory_formation += 1
+
+            print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+            print(f"--- {assistant_message.content[:30]} ---")
+            print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+            
             update_session_budget(session, tokens_spent=tokens_spent, turns_spent=1)
             session.save()
             llm_context.messages.append(assistant_message)
