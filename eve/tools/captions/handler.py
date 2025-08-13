@@ -1,4 +1,4 @@
-import time
+import asyncio
 import random
 import requests
 from typing import Dict, Any
@@ -159,7 +159,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
             raise RuntimeError(f"Video generation failed: {error}")
 
         elif state in ["PENDING", "PROCESSING", "QUEUED"]:
-            time.sleep(poll_interval)
+            await asyncio.sleep(poll_interval)
             continue
 
         else:

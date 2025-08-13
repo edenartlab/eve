@@ -1,5 +1,6 @@
 import requests
 import uuid
+import traceback
 from typing import Dict, Any
 
 from eve.agent.agent import Agent
@@ -134,9 +135,10 @@ async def handler(args: dict, user: str = None, agent: str = None):
     product_id = created_product["id"]
 
     # Auto-publish if requested
+    published = False
     if args.get("auto_publish"):
         try:
-            publish_response = _api_request(
+            _api_request(
                 "POST",
                 f"/shops/{shop_id}/products/{product_id}/publish.json",
                 {
@@ -147,6 +149,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
                     "tags": True,
                 },
             )
+            published = True
         except Exception as e2:
             print(
                 f"Auto-publish failed: {e2}. Product created but remains in draft state."
@@ -183,8 +186,62 @@ async def handler(args: dict, user: str = None, agent: str = None):
                     }
                 )
 
-    # Generate product URL - use the public product details URL format
+    # Generate product URL
     product_url = f"https://printify.com/app/product-details/{product_id}"
+
+    print("***debug published: ", published)
+    print("***debug product_details: ", product_details)
+    print("***debug product_details.external: ", product_details.get("external"))
+    print("***debug product_images: ", product_images)
+    print("***debug product_url: ", product_url)
+
+    # If published, generate the Shopify URL from the title slug
+    if published:
+        try:
+            # Get shop details to find the Shopify domain
+            shop_details = _api_request("GET", "/shops.json")
+
+            # Find the specific shop from the list
+            shop_info = None
+            for shop in shop_details:
+                if str(shop.get("id")) == str(shop_id):
+                    shop_info = shop
+                    break
+
+            if not shop_info:
+                raise RuntimeError(f"Shop with ID {shop_id} not found")
+            
+            print("***debug shop_info: ", shop_info)
+            print("***debug sales_channel_properties: ", shop_info.get("sales_channel_properties", {}))
+
+            if shop_info.get("sales_channel") == "shopify":
+                # Try to get the Shopify store name from an existing Shopify deployment
+                try:
+                    shopify_deployment = Deployment.load(agent=agent_obj.id, platform="shopify")
+                    if shopify_deployment and shopify_deployment.secrets.shopify:
+                        shopify_store_name = shopify_deployment.secrets.shopify.store_name
+                        
+                        # Generate slug from product title
+                        title = product_details.get("title", args.get("title", ""))
+                        # Convert title to slug: lowercase, replace spaces with hyphens, remove special chars
+                        slug = "".join(
+                            c if c.isalnum() or c == " " else "" for c in title.lower()
+                        )
+                        slug = "-".join(slug.split())
+                        
+                        print("***debug shopify_store_name: ", shopify_store_name)
+                        print("***debug slug: ", slug)
+                        
+                        # Construct the Shopify URL
+                        product_url = f"https://{shopify_store_name}.myshopify.com/products/{slug}"
+                    else:
+                        print("No Shopify deployment found for this agent, using Printify URL")
+                except Exception as e:
+                    print(f"Could not get Shopify deployment: {e}")
+        except Exception as e:
+            # If we can't get the Shopify URL, fall back to Printify URL
+            print(f"Could not construct Shopify URL: {e}")
+            print(f"Full traceback:\n{traceback.format_exc()}")
 
     return {
         "output": [
@@ -193,7 +250,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
                 "product_id": product_id,
                 "images": product_images,
                 "title": product_details.get("title", args.get("title")),
-                "status": "published" if args.get("auto_publish") else "draft",
+                "status": "published" if published else "draft",
             }
         ]
     }
