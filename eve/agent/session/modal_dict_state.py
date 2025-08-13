@@ -1,17 +1,15 @@
 import modal
 from bson import ObjectId
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional
 import logging
 import asyncio
 
-# Safe modal.Dict operations with retry logic
+# Safe modal.Dict operations with retry logic using async API
 async def safe_modal_get(modal_dict, key: str, default=None, retries: int = 3):
-    """Safely get value from modal.Dict with exponential backoff retry."""
+    """Safely get value from modal.Dict with exponential backoff retry using async API."""
     for attempt in range(retries):
         try:
-            return modal_dict[key]
-        except KeyError:
-            return default
+            return await modal_dict.get.aio(key, default)
         except Exception as e:
             if attempt == retries - 1:
                 logging.warning(f"Modal.Dict get failed after {retries} attempts for key {key}: {e}")
@@ -19,11 +17,11 @@ async def safe_modal_get(modal_dict, key: str, default=None, retries: int = 3):
             await asyncio.sleep(0.1 * (2 ** attempt))
     return default
 
-async def safe_modal_set(modal_dict, key: str, value, retries: int = 3):
-    """Safely set value in modal.Dict with exponential backoff retry."""
+async def safe_modal_set(modal_dict, key: str, value, retries: int = 3, skip_if_exists: bool = False):
+    """Safely set value in modal.Dict with exponential backoff retry using async API."""
     for attempt in range(retries):
         try:
-            modal_dict[key] = value
+            await modal_dict.put.aio(key, value, skip_if_exists=skip_if_exists)
             return True
         except Exception as e:
             if attempt == retries - 1:
@@ -32,8 +30,20 @@ async def safe_modal_set(modal_dict, key: str, value, retries: int = 3):
             await asyncio.sleep(0.1 * (2 ** attempt))
     return False
 
+async def safe_modal_contains(modal_dict, key: str, retries: int = 3):
+    """Safely check if key exists in modal.Dict using async API."""
+    for attempt in range(retries):
+        try:
+            return await modal_dict.contains.aio(key)
+        except Exception as e:
+            if attempt == retries - 1:
+                logging.warning(f"Modal.Dict contains failed after {retries} attempts for key {key}: {e}")
+                return False
+            await asyncio.sleep(0.1 * (2 ** attempt))
+    return False
+
 async def safe_modal_batch_get(modal_dicts_and_keys: list) -> list:
-    """Batch get from multiple modal.Dict objects with retry logic.
+    """Batch get from multiple modal.Dict objects with retry logic using async API.
     
     Args:
         modal_dicts_and_keys: List of tuples (modal_dict, key, default_value)
@@ -41,11 +51,22 @@ async def safe_modal_batch_get(modal_dicts_and_keys: list) -> list:
     Returns:
         List of values in same order as input
     """
-    async def get_single(modal_dict, key, default_val):
-        return await safe_modal_get(modal_dict, key, default_val)
-    
-    tasks = [get_single(modal_dict, key, default_val) 
+    tasks = [safe_modal_get(modal_dict, key, default_val) 
              for modal_dict, key, default_val in modal_dicts_and_keys]
+    
+    return await asyncio.gather(*tasks)
+
+async def safe_modal_batch_contains(modal_dicts_and_keys: list) -> list:
+    """Batch check key existence from multiple modal.Dict objects.
+    
+    Args:
+        modal_dicts_and_keys: List of tuples (modal_dict, key)
+        
+    Returns:
+        List of boolean values in same order as input
+    """
+    tasks = [safe_modal_contains(modal_dict, key) 
+             for modal_dict, key in modal_dicts_and_keys]
     
     return await asyncio.gather(*tasks)
 
@@ -70,14 +91,15 @@ class ModalDictState:
             default = {}
         
         agent_key = str(agent_id)
-        agent_dict = await safe_modal_get(self.modal_dict, agent_key, default)
         
-        if not agent_dict:
+        # First check if key exists to avoid unnecessary dict retrieval
+        if not await safe_modal_contains(self.modal_dict, agent_key):
             print(f"No {self.name} dict found for agent {agent_key}, creating empty dict")
-            await safe_modal_set(self.modal_dict, agent_key, default)
+            await safe_modal_set(self.modal_dict, agent_key, default, skip_if_exists=True)
             return default
         
-        return agent_dict
+        agent_dict = await safe_modal_get(self.modal_dict, agent_key, default)
+        return agent_dict if agent_dict else default
     
     async def update_agent_dict(self, agent_id: ObjectId, updated_dict: Dict[str, Any]) -> bool:
         """Update entire agent dictionary."""
@@ -129,16 +151,42 @@ class ModalDictState:
     
     
     async def batch_get_agent_dicts(self, agent_ids: List[ObjectId]) -> List[Dict[str, Any]]:
-        """Batch get multiple agent dictionaries."""
+        """Batch get multiple agent dictionaries with optimized existence checks."""
         agent_keys = [str(agent_id) for agent_id in agent_ids]
-        batch_requests = [(self.modal_dict, key, {}) for key in agent_keys]
-        return await safe_modal_batch_get(batch_requests)
+        
+        # First batch check which keys exist
+        existence_requests = [(self.modal_dict, key) for key in agent_keys]
+        key_exists = await safe_modal_batch_contains(existence_requests)
+        
+        # Only fetch existing keys and create default for missing ones
+        results = []
+        fetch_requests = []
+        fetch_indices = []
+        
+        for i, (key, exists) in enumerate(zip(agent_keys, key_exists)):
+            if exists:
+                fetch_requests.append((self.modal_dict, key, {}))
+                fetch_indices.append(i)
+                results.append(None)  # placeholder
+            else:
+                results.append({})  # default empty dict
+                # Create the missing key with default value
+                await safe_modal_set(self.modal_dict, key, {}, skip_if_exists=True)
+        
+        # Fetch only existing keys
+        if fetch_requests:
+            fetched_values = await safe_modal_batch_get(fetch_requests)
+            for fetch_idx, result_idx in enumerate(fetch_indices):
+                results[result_idx] = fetched_values[fetch_idx] or {}
+        
+        return results
     
     async def batch_update_agent_dicts(self, updates: List[Tuple[ObjectId, Dict[str, Any]]]) -> List[bool]:
-        """Batch update multiple agent dictionaries."""
+        """Batch update multiple agent dictionaries using async API."""
         tasks = []
         for agent_id, agent_dict in updates:
-            tasks.append(self.update_agent_dict(agent_id, agent_dict))
+            agent_key = str(agent_id)
+            tasks.append(safe_modal_set(self.modal_dict, agent_key, agent_dict))
         return await asyncio.gather(*tasks)
     
     async def batch_get_values(self, requests: List[Tuple[ObjectId, List[str], Any]]) -> List[Any]:
@@ -264,6 +312,60 @@ class MultiModalDictState:
                 results[original_index] = update_results[j]
         
         return results
+    
+    async def get_memory_context_data(self, agent_id: ObjectId, session_id: ObjectId, user_id: Optional[ObjectId] = None) -> Dict[str, Any]:
+        """
+        Specialized method for fetching memory context data with optimized queries.
+        
+        Args:
+            agent_id: Agent ID
+            session_id: Session ID  
+            user_id: Optional user ID for user memory checks
+            
+        Returns:
+            Dictionary containing:
+            - session_state: The specific session state or default
+            - agent_memory_timestamp: Last updated timestamp for agent memory or None
+            - user_memory_timestamp: Last updated timestamp for user memory or None
+            - session_created: Boolean indicating if session state was created
+        """
+        from eve.agent.session.memory_state import DEFAULT_SESSION_STATE
+        
+        session_key = str(session_id)
+        
+        # Build optimized batch requests
+        batch_requests = [
+            ("sessions", agent_id, [session_key], None),  # Get specific session or None
+            ("agent_memory", agent_id, ["last_updated_at"], None),  # Get timestamp or None
+        ]
+        
+        # Only add user memory request if user_id provided
+        if user_id:
+            user_key = str(user_id)
+            batch_requests.append(("user_memory", agent_id, [user_key, "last_updated_at"], None))
+        
+        # Execute batch fetch
+        batch_results = await self.batch_get_from_multiple_dicts(batch_requests)
+        
+        # Process results
+        session_state = batch_results[0]
+        agent_memory_timestamp = batch_results[1]
+        user_memory_timestamp = batch_results[2] if user_id else None
+        
+        # Handle missing session state
+        session_created = False
+        if session_state is None:
+            session_state = DEFAULT_SESSION_STATE.copy()
+            session_created = True
+            # Create the session state in background
+            await self.get_dict("sessions").update_value(agent_id, [session_key], session_state)
+        
+        return {
+            "session_state": session_state,
+            "agent_memory_timestamp": agent_memory_timestamp,
+            "user_memory_timestamp": user_memory_timestamp,
+            "session_created": session_created
+        }
 
 
 # Utility functions for creating key paths

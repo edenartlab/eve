@@ -163,7 +163,9 @@ class UserMemory(Document):
     # Track which directive memories haven't been consolidated yet:
     unabsorbed_memory_ids: List[ObjectId] = []
     # Track when the memory blob was last updated:
-    last_updated_at: Optional[datetime] = None  
+    last_updated_at: Optional[datetime] = None
+    # Fully formed user memory containing consolidated content + unabsorbed directives as a single string
+    fully_formed_memory: Optional[str] = ""  
 
     @classmethod
     def convert_to_mongo(cls, schema: dict, **kwargs) -> dict:
@@ -266,8 +268,23 @@ class AgentMemory(Document):
         instance.save()
         return instance
     
-# Minor utility functions:
+    @classmethod
+    def ensure_indexes(cls):
+        """Create indexes to optimize common queries"""
+        collection = cls._get_collection()
+        
+        # This optimizes: AgentMemory.find({"agent_id": agent_id, "is_active": True})
+        collection.create_index([
+            ("agent_id", 1),
+            ("is_active", 1)
+        ], name="agent_id_is_active_idx", background=True)
+        
+        # Single field index on _id is automatically created by MongoDB
+        # This optimizes: AgentMemory.from_mongo(shard_id) which uses _id lookups
+        return
+    
 
+# Minor utility functions:
 def _format_memories_with_age(memories: List[SessionMemory]) -> str:
     """
     Format memories (facts, directives, etc.) with age information.

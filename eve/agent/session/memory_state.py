@@ -6,6 +6,7 @@ from pathlib import Path
 import traceback
 from datetime import datetime, timezone, timedelta
 import sentry_sdk
+import json
 
 # Import safe functions and wrapper classes
 from eve.agent.session.modal_dict_state import (
@@ -84,10 +85,13 @@ async def update_session_state(agent_id: ObjectId, session_id: ObjectId, updates
     agent_dict[session_key] = session_state
     await session_state_manager.update_agent_dict(agent_id, agent_dict)
 
-    # print("-----------------------------------")
-    # print("Updated session_state state:")
-    # print(json.dumps(session_state, indent=4))
-    # print("-----------------------------------")
+    if 0:
+        print("-----------------------------------")
+        print("Updated session_state state:")
+        print(json.dumps(session_state, indent=4))
+        print("-----------------------------------")
+    else:
+        print("----- Updated session_state ------")
 
 ######## Background task to process cold sessions #########
 
@@ -108,7 +112,7 @@ async def _process_session_for_memory(agent_id: ObjectId, session_id: ObjectId, 
             print(f"⚠️ Could not load session {session_id} from MongoDB")
             return {"processed": False, "skipped": False, "should_remove": True}
         
-        if should_form_memories(agent_id, session):
+        if should_form_memories(agent_id, session, force_memory_formation=True):
             success = await form_memories(agent_id, session)
             if success:
                 print(f"✓ Memory formation completed for session {session_id}")
@@ -186,6 +190,7 @@ async def process_cold_sessions():
                 print(f"Removed {len(sessions_to_remove)} processed sessions from pending_session_memories for agent {agent_id}")
         
         print(f"✓ Cold session processing complete: {processed_sessions} processed, {skipped_sessions} skipped, {total_sessions} total sessions")
+        print(f"New state of pending_session_memories: {pending_session_memories}")
         
     except Exception as e:
         print(f"❌ Error in process_cold_sessions: {e}")
