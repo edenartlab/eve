@@ -189,12 +189,6 @@ async def handler(args: dict, user: str = None, agent: str = None):
     # Generate product URL
     product_url = f"https://printify.com/app/product-details/{product_id}"
 
-    print("***debug published: ", published)
-    print("***debug product_details: ", product_details)
-    print("***debug product_details.external: ", product_details.get("external"))
-    print("***debug product_images: ", product_images)
-    print("***debug product_url: ", product_url)
-
     # If published, generate the Shopify URL from the title slug
     if published:
         try:
@@ -210,17 +204,18 @@ async def handler(args: dict, user: str = None, agent: str = None):
 
             if not shop_info:
                 raise RuntimeError(f"Shop with ID {shop_id} not found")
-            
-            print("***debug shop_info: ", shop_info)
-            print("***debug sales_channel_properties: ", shop_info.get("sales_channel_properties", {}))
 
             if shop_info.get("sales_channel") == "shopify":
                 # Try to get the Shopify store name from an existing Shopify deployment
                 try:
-                    shopify_deployment = Deployment.load(agent=agent_obj.id, platform="shopify")
+                    shopify_deployment = Deployment.load(
+                        agent=agent_obj.id, platform="shopify"
+                    )
                     if shopify_deployment and shopify_deployment.secrets.shopify:
-                        shopify_store_name = shopify_deployment.secrets.shopify.store_name
-                        
+                        shopify_store_name = (
+                            shopify_deployment.secrets.shopify.store_name
+                        )
+
                         # Generate slug from product title
                         title = product_details.get("title", args.get("title", ""))
                         # Convert title to slug: lowercase, replace spaces with hyphens, remove special chars
@@ -228,14 +223,13 @@ async def handler(args: dict, user: str = None, agent: str = None):
                             c if c.isalnum() or c == " " else "" for c in title.lower()
                         )
                         slug = "-".join(slug.split())
-                        
-                        print("***debug shopify_store_name: ", shopify_store_name)
-                        print("***debug slug: ", slug)
-                        
+
                         # Construct the Shopify URL
                         product_url = f"https://{shopify_store_name}.myshopify.com/products/{slug}"
                     else:
-                        print("No Shopify deployment found for this agent, using Printify URL")
+                        print(
+                            "No Shopify deployment found for this agent, using Printify URL"
+                        )
                 except Exception as e:
                     print(f"Could not get Shopify deployment: {e}")
         except Exception as e:
