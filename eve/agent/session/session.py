@@ -43,6 +43,7 @@ from eve.agent.session.session_prompts import (
 )
 
 from eve.agent.session.memory import maybe_form_memories
+from eve.agent.session.memory_models import get_sender_id_to_sender_name_map
 from eve.agent.session.memory_assemble_context import assemble_memory_context
 
 from eve.agent.session.config import (
@@ -190,14 +191,24 @@ def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
     """
     Re-assembles messages from perspective of actor (assistant) and everyone else (user)
     """
-    messages = [
-        message.as_assistant_message()
-        if message.sender == actor_id
-        else message.as_user_message()
-        for message in messages
-    ]
-
-    return messages
+    
+    # Get sender name mapping for all messages
+    sender_name_map = get_sender_id_to_sender_name_map(messages)
+    
+    converted_messages = []
+    for message in messages:
+        if message.sender == actor_id:
+            converted_messages.append(message.as_assistant_message())
+        else:
+            user_message = message.as_user_message()
+            # Include sender name in the message content if available
+            if message.sender and message.sender in sender_name_map:
+                sender_name = sender_name_map[message.sender]
+                # Prepend the sender name to the content
+                user_message.content = f"[{sender_name}]: {user_message.content}"
+            converted_messages.append(user_message)
+    
+    return converted_messages
 
 async def build_system_message(
     session: Session,

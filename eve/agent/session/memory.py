@@ -50,22 +50,18 @@ def safe_ensure_shard_config(shard: 'AgentMemory') -> None:
     try:
         config_updated = False
         
-        # Check and set max_facts_per_shard
         if not hasattr(shard, 'max_facts_per_shard') or shard.max_facts_per_shard is None:
             shard.max_facts_per_shard = MAX_FACTS_PER_SHARD
             config_updated = True
             
-        # Check and set max_agent_memories_before_consolidation
         if not hasattr(shard, 'max_agent_memories_before_consolidation') or shard.max_agent_memories_before_consolidation is None:
             shard.max_agent_memories_before_consolidation = MAX_AGENT_MEMORIES_BEFORE_CONSOLIDATION
             config_updated = True
         
-        # Save if we made any updates
         if config_updated:
             shard.save()
             
     except Exception as e:
-        # Fallback: if anything fails, just use the constants directly
         print(f"Warning: Could not ensure shard config for {shard.shard_name}: {e}")
 
 async def _store_memories_by_type(

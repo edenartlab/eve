@@ -9,20 +9,25 @@ from eve.user import User
 
 def get_sender_id_to_sender_name_map(messages: List[ChatMessage]) -> Dict[ObjectId, str]:
     """Find all unique senders in the messages and return a map of sender id to sender name"""
-    unique_sender_ids = set()
-    for msg in messages:
-        if msg.sender:
-            unique_sender_ids.add(msg.sender)
+    unique_sender_ids = {msg.sender for msg in messages if msg.sender}
     
     if not unique_sender_ids:
         return {}
     
-    # Perform single MongoDB query to fetch all users
+    # Perform single MongoDB query with projection to fetch only needed fields
     try:
-        users = User.find({"_id": {"$in": list(unique_sender_ids)}})
+        from eve.mongo import get_collection
+        users_collection = get_collection(User.collection_name)
+        
+        # Query with projection to only get _id, username, and type fields
+        users_cursor = users_collection.find(
+            {"_id": {"$in": list(unique_sender_ids)}},
+            {"_id": 1, "username": 1, "type": 1}
+        )
+        
         sender_id_to_sender_name_map = {}
-        for user in users:
-            sender_id_to_sender_name_map[user.id] = f"{user.username} ({user.type})"
+        for user in users_cursor:
+            sender_id_to_sender_name_map[user["_id"]] = f"{user['username']} ({user['type']})"
                 
         return sender_id_to_sender_name_map
         
