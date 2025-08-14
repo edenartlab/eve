@@ -13,9 +13,8 @@ LOCAL_DEV = True
 
 # Memory formation settings:
 if LOCAL_DEV:
-    MEMORY_LLM_MODEL = "gpt-4o-mini"
-    MEMORY_LLM_MODEL = "gpt-5-mini-2025-08-07"
-    #MEMORY_LLM_MODEL = "claude-sonnet-4-20250514"
+    MEMORY_LLM_MODEL_FAST = "gpt-5-mini-2025-08-07"
+    MEMORY_LLM_MODEL_SLOW = "gpt-5-2025-08-07"
     MEMORY_FORMATION_MSG_INTERVAL = 4  # Number of messages to wait before forming memories (None = use token-based)
     MEMORY_FORMATION_TOKEN_INTERVAL = 2000  # Number of tokens to wait before forming memories
     SESSION_MESSAGES_LOOKBACK_LIMIT = 4  # Max messages to look back in a session when forming raw memories
@@ -28,8 +27,8 @@ if LOCAL_DEV:
     MAX_FACTS_PER_SHARD = 3 # Max number of facts to store per agent shard (fifo)
     
 else:
-    MEMORY_LLM_MODEL = "gpt-5-2025-08-07"
-    #MEMORY_LLM_MODEL = "claude-sonnet-4-20250514"
+    MEMORY_LLM_MODEL_FAST = "gpt-5-mini-2025-08-07"
+    MEMORY_LLM_MODEL_SLOW = "gpt-5-2025-08-07"
     MEMORY_FORMATION_MSG_INTERVAL   = None  # Number of messages to wait before forming memories (None = use token-based)
     MEMORY_FORMATION_TOKEN_INTERVAL = 4000  # Number of tokens to wait before forming memories
     SESSION_MESSAGES_LOOKBACK_LIMIT = DEFAULT_SESSION_SELECTION_LIMIT  # Max messages to look back in a session when forming raw memories

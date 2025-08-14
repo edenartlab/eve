@@ -26,8 +26,20 @@ def get_sender_id_to_sender_name_map(messages: List[ChatMessage]) -> Dict[Object
         )
         
         sender_id_to_sender_name_map = {}
+        
+        # Process each user from cursor safely
         for user in users_cursor:
-            sender_id_to_sender_name_map[user["_id"]] = f"{user['username']} ({user['type']})"
+            try:
+                sender_id_to_sender_name_map[user["_id"]] = f"{user['username']} ({user['type']})"
+            except (KeyError, TypeError) as e:
+                print(f"Error processing user {user.get('_id', 'unknown')}: {e}")
+                if "_id" in user:
+                    sender_id_to_sender_name_map[user["_id"]] = "unknown"
+        
+        # Ensure all unique_sender_ids are covered, defaulting to "unknown" for missing ones
+        for sender_id in unique_sender_ids:
+            if sender_id not in sender_id_to_sender_name_map:
+                sender_id_to_sender_name_map[sender_id] = "unknown"
                 
         return sender_id_to_sender_name_map
         
@@ -244,6 +256,13 @@ class AgentMemory(Document):
             ("agent_id", 1),
             ("is_active", 1)
         ], name="agent_id_is_active_idx", background=True)
+        
+        # This optimizes: AgentMemory.find_one({"agent_id": agent_id, "is_active": True}, sort=[("last_updated_at", -1)])
+        collection.create_index([
+            ("agent_id", 1),
+            ("is_active", 1),
+            ("last_updated_at", -1)
+        ], name="agent_memory_freshness_idx", background=True)
         
         # Single field index on _id is automatically created by MongoDB
         # This optimizes: AgentMemory.from_mongo(shard_id) which uses _id lookups

@@ -16,6 +16,7 @@ from eve.agent.session.session_llm import async_prompt, LLMContext, LLMConfig
 from eve.agent.session.models import ChatMessage, Session, LLMContextMetadata, LLMTraceMetadata, SessionMemoryContext
 from eve.agent.session.memory_models import SessionMemory, UserMemory, AgentMemory, get_agent_owner, messages_to_text, _get_recent_messages, _format_memories_with_age, estimate_tokens
 from eve.agent.session.memory_constants import *
+from eve.agent.session.memory_constants import MEMORY_LLM_MODEL_FAST, MEMORY_LLM_MODEL_SLOW
 
 def safe_update_memory_context(session: Session, updates: Dict[str, Any]) -> None:
     """
@@ -300,11 +301,29 @@ async def _add_memories_and_maybe_consolidate(
     if not new_memory_ids:
         return
     
-    # Add new memories to the unabsorbed list - handle legacy records that might not have the field
-    unabsorbed_list = getattr(memory_doc, unabsorbed_field, [])
-    unabsorbed_list.extend(new_memory_ids)
-    setattr(memory_doc, unabsorbed_field, unabsorbed_list)
-    memory_doc.save()
+    # Use MongoDB atomic operation to add memories and avoid race conditions
+    try:
+        collection = memory_doc._get_collection()
+        result = collection.update_one(
+            {"_id": memory_doc.id},
+            {"$push": {unabsorbed_field: {"$each": new_memory_ids}}}
+        )
+        
+        if result.modified_count == 0:
+            print(f"Warning: Failed to atomically update {unabsorbed_field} for {memory_doc.__class__.__name__}")
+            return
+        
+        # Reload document to get updated state
+        memory_doc.reload()
+        unabsorbed_list = getattr(memory_doc, unabsorbed_field, [])
+        
+    except Exception as e:
+        print(f"Error in atomic update for {unabsorbed_field}: {e}")
+        # Fallback to non-atomic operation
+        unabsorbed_list = getattr(memory_doc, unabsorbed_field, [])
+        unabsorbed_list.extend(new_memory_ids)
+        setattr(memory_doc, unabsorbed_field, unabsorbed_list)
+        memory_doc.save()
     
     # Check if consolidation is needed
     if len(unabsorbed_list) >= max_before_consolidation:
@@ -315,6 +334,7 @@ async def _consolidate_with_llm(
     consolidation_prompt_template: str,
     generation_name: str,
     agent_id: ObjectId,
+    model: str,
     session_id: ObjectId = None,
     user_id: ObjectId = None,
     **format_args
@@ -341,7 +361,7 @@ async def _consolidate_with_llm(
 
     context = LLMContext(
         messages=[ChatMessage(role="user", content=consolidation_prompt)],
-        config=LLMConfig(model=MEMORY_LLM_MODEL),
+        config=LLMConfig(model=model),
         metadata=LLMContextMetadata(
             session_id=f"{os.getenv('DB')}-{str(session_id)}" if session_id else f"{os.getenv('DB')}-memory-consolidation",
             trace_name="FN_form_memories",
@@ -366,6 +386,7 @@ async def extract_memories_with_llm(
     extraction_elements: List[str],
     generation_name: str,
     agent_id: ObjectId,
+    model: str,
     session_id: ObjectId = None,
     user_id: ObjectId = None,
     shard_name: str = None
@@ -400,7 +421,7 @@ async def extract_memories_with_llm(
     context = LLMContext(
         messages=[ChatMessage(role="user", content=extraction_prompt)],
         config=LLMConfig(
-            model=MEMORY_LLM_MODEL,
+            model=model,
             response_format=MemoryModel  # This forces JSON output with only requested fields
         ),
         metadata=LLMContextMetadata(
@@ -474,6 +495,7 @@ async def _consolidate_user_directives(user_memory: UserMemory):
             USER_MEMORY_CONSOLIDATION_PROMPT,
             generation_name="FN_form_memories_consolidate_user_memory",
             agent_id=user_memory.agent_id,
+            model=MEMORY_LLM_MODEL_FAST,  # Use FAST model for user memory consolidation
             user_id=user_memory.user_id,
             current_memory=user_memory.content,
             new_memories=new_memories_text,
@@ -498,23 +520,18 @@ async def _consolidate_agent_suggestions(shard: AgentMemory):
     Consolidate unabsorbed suggestion memories into the agent memory shard using LLM.
     """
     try:
-        # Ensure shard has required config parameters
-        safe_ensure_shard_config(shard)
         # Load unabsorbed suggestions - handle legacy shards that might not have unabsorbed_memory_ids field
         unabsorbed_memory_ids = getattr(shard, 'unabsorbed_memory_ids', [])
-        unabsorbed_suggestions = await _load_memories_by_ids(
-            unabsorbed_memory_ids,
-            memory_type_filter="suggestion"
-        )
-        
-        if not unabsorbed_suggestions:
+        if not unabsorbed_memory_ids:
             return
 
-        # Load current facts
-        current_facts = await _load_memories_by_ids(
-            shard.facts,
-            memory_type_filter="fact"
-        )
+        # Batch load both suggestions and facts in a single optimized call
+        all_memory_ids = unabsorbed_memory_ids + shard.facts
+        all_memories = await _load_memories_by_ids(all_memory_ids)
+        
+        # Separate by type
+        unabsorbed_suggestions = [m for m in all_memories if m.memory_type == "suggestion" and m.id in unabsorbed_memory_ids]
+        current_facts = [m for m in all_memories if m.memory_type == "fact" and m.id in shard.facts]
 
         facts_text = _format_memories_with_age(current_facts)
         suggestions_text = "\n".join([f"- {s.content}" for s in unabsorbed_suggestions])
@@ -537,6 +554,7 @@ async def _consolidate_agent_suggestions(shard: AgentMemory):
             populated_prompt,
             generation_name="FN_form_memories_consolidate_agent_memory",
             agent_id=shard.agent_id,
+            model=MEMORY_LLM_MODEL_SLOW,  # Use SLOW model for agent memory consolidation
             current_memory=shard.content or "",
             facts_text=facts_text if facts_text else "(no facts available)",
             suggestions_text=suggestions_text,
@@ -562,6 +580,12 @@ async def _load_memories_by_ids(
     """Helper function to load memories by IDs with optional type filtering."""
     if not memory_ids:
         return []
+    
+    # Add reasonable limit to prevent resource exhaustion
+    MAX_BATCH_SIZE = 1000
+    if len(memory_ids) > MAX_BATCH_SIZE:
+        print(f"Warning: Truncating memory_ids from {len(memory_ids)} to {MAX_BATCH_SIZE} to prevent resource exhaustion")
+        memory_ids = memory_ids[:MAX_BATCH_SIZE]
     
     # Build query with batch ID lookup for optimal performance
     query = {"_id": {"$in": memory_ids}}
@@ -601,7 +625,15 @@ async def _regenerate_fully_formed_agent_memory(shard: AgentMemory):
         shard_context = f"You have an active collective memory shard called {shard.shard_name}. Context for this memory collection: {shard.extraction_prompt}"
         shard_content.append(f"## Memory shard context:\n\n{shard_context}")
         
-        facts = await _load_memories_by_ids(shard.facts, "fact")
+        # Batch load both facts and suggestions in a single call
+        unabsorbed_memory_ids = getattr(shard, 'unabsorbed_memory_ids', [])
+        all_memory_ids = shard.facts + unabsorbed_memory_ids
+        all_memories = await _load_memories_by_ids(all_memory_ids)
+        
+        # Separate by type
+        facts = [m for m in all_memories if m.memory_type == "fact" and m.id in shard.facts]
+        suggestions = [m for m in all_memories if m.memory_type == "suggestion" and m.id in unabsorbed_memory_ids]
+        
         if facts:
             facts_formatted = _format_memories_with_age(facts)
             if facts_formatted:
@@ -610,13 +642,6 @@ async def _regenerate_fully_formed_agent_memory(shard: AgentMemory):
         # Add consolidated content
         if shard.content:
             shard_content.append(f"## Current consolidated shard memory:\n\n{shard.content}")
-        
-        # Add unabsorbed suggestions - handle legacy shards that might not have unabsorbed_memory_ids field
-        unabsorbed_memory_ids = getattr(shard, 'unabsorbed_memory_ids', [])
-        suggestions = await _load_memories_by_ids(
-            unabsorbed_memory_ids, 
-            "suggestion"
-        )
         if suggestions:
             suggestions_text = "\n".join([f"- {s.content}" for s in suggestions])
             shard_content.append(f"## Recent shard suggestions:\n\n{suggestions_text}")
@@ -690,6 +715,7 @@ async def _extract_all_memories(
         extraction_elements=["episode", "directive"],
         generation_name="FN_form_memories_extract_regular_memories",
         agent_id=agent_id,
+        model=MEMORY_LLM_MODEL_FAST,  # Use FAST model for regular memory extraction
         session_id=session_id,
         user_id=user_id
     )
@@ -719,6 +745,7 @@ async def _extract_all_memories(
                 extraction_elements=["fact", "suggestion"],
                 generation_name=f"FN_form_memories_extract_shard_memories",
                 agent_id=agent_id,
+                model=MEMORY_LLM_MODEL_SLOW,  # Use SLOW model for agent memory extraction
                 session_id=session_id,
                 user_id=user_id,
                 shard_name=shard.shard_name
@@ -848,8 +875,9 @@ async def form_memories(agent_id: ObjectId, session: Session) -> bool:
                 agent_id, extracted_data, recent_messages, session, memory_to_shard_map
             )
         
+        # Future TODO: this may break in multi-agent sessions:
         related_users = list(
-            set([msg.sender for msg in session_messages if msg.sender and msg.sender != agent_id])
+            set([msg.sender for msg in session_messages if msg.sender and (msg.sender != agent_id and msg.role == "user")])
         )
         last_speaker_id = related_users[-1]
 

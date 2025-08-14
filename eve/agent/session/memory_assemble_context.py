@@ -8,7 +8,7 @@ from datetime import datetime, timezone, timedelta
 from eve.agent.session.models import Session
 from eve.agent.session.memory import safe_update_memory_context
 
-async def _assemble_user_memory(agent_id: ObjectId, user_id: Optional[ObjectId] = None) -> str:
+async def _assemble_user_memory(agent_id: ObjectId, user_id: ObjectId) -> str:
     """
     Step 1: Assemble user memory content.
     Returns user_memory_content
@@ -18,20 +18,19 @@ async def _assemble_user_memory(agent_id: ObjectId, user_id: Optional[ObjectId] 
 
     try:
         query_start = time.time()
-        if user_id is not None and agent_id is not None:
-            user_memory = UserMemory.find_one_or_create(
-                {"agent_id": agent_id, "user_id": user_id}
-            )
-            if user_memory:
-                # Check if fully_formed_memory exists and is up-to-date
-                if user_memory.fully_formed_memory is not None:
-                    user_memory_content = user_memory.fully_formed_memory
-                else:
-                    # Regenerate fully formed memory if missing or empty
-                    from eve.agent.session.memory import _regenerate_fully_formed_user_memory
-                    await _regenerate_fully_formed_user_memory(user_memory)
-                    user_memory_content = user_memory.fully_formed_memory or ""
-                
+        user_memory = UserMemory.find_one_or_create(
+            {"agent_id": agent_id, "user_id": user_id}
+        )
+        if user_memory:
+            # Check if fully_formed_memory exists and is up-to-date
+            if user_memory.fully_formed_memory is not None:
+                user_memory_content = user_memory.fully_formed_memory
+            else:
+                # Regenerate fully formed memory if missing or empty
+                from eve.agent.session.memory import _regenerate_fully_formed_user_memory
+                await _regenerate_fully_formed_user_memory(user_memory)
+                user_memory_content = user_memory.fully_formed_memory or ""
+            
         query_time = time.time() - query_start
         print(f"   ⏱️  User Memory Assembly: {query_time:.3f}s (user_memory: {'yes' if user_memory else 'no'})")
 
@@ -219,7 +218,7 @@ def _build_memory_xml(
 async def assemble_memory_context(
     session: Session,
     agent_id: ObjectId,
-    last_speaker_id: Optional[ObjectId] = None, 
+    last_speaker_id: ObjectId, 
     force_refresh: bool = False,
     reason: str = "unknown",
     skip_save: bool = False
