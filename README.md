@@ -13,7 +13,7 @@
 
 Welcome to Eve, the core repository powering [Eden.art](https://www.eden.art/)'s creative AI assistants. This codebase enables the development of autonomous digital artists capable of understanding, creating, and iterating on visual content through natural conversation.
 
-Eve provides the foundation for building AI agents like our flagship creative assistant [Eve](https://beta.eden.art/chat/eve), which leverages a suite of open-source AI tools to transform ideas into visual art.
+Eve provides the foundation for building AI agents like our flagship creative assistant [Eve](https://app.eden.art/chat/eve), which leverages a suite of open-source AI tools to transform ideas into visual art.
 
 ## 🎯 Goal
 

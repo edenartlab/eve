@@ -149,7 +149,9 @@ async def handler(args: dict, user: str = None, agent: str = None):
         if state == "COMPLETE":
             video_url = status_response.get("url")
             if video_url:
-                print(f"Video generation completed: {video_url}")
+                # Clean URL - remove query parameters for display
+                clean_url = video_url.split("?")[0] if "?" in video_url else video_url
+                print(f"Video generation completed: {clean_url}")
                 return {"output": video_url}
             else:
                 raise RuntimeError("Job completed but no video URL found")
