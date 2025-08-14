@@ -43,12 +43,12 @@ FEATURE_FLAG_MANNA_LIMITS = {
     "free_tools": [
         MannaSpendRateLimit(spend=10**5, period=60),
         MannaSpendRateLimit(spend=10**5, period=3 * 60 * 60),
-        MannaSpendRateLimit(spend=10**6, period=30 * 24 * 60 * 60),
+        MannaSpendRateLimit(spend=10**6, period=24 * 60 * 60),
     ],
     "limits_Admin": [
         MannaSpendRateLimit(spend=10**5, period=60),
         MannaSpendRateLimit(spend=10**5, period=3 * 60 * 60),
-        MannaSpendRateLimit(spend=10**6, period=30 * 24 * 60 * 60),
+        MannaSpendRateLimit(spend=10**6, period=24 * 60 * 60),
     ],
     "test_rate_limit": [
         MannaSpendRateLimit(spend=2, period=60),
@@ -138,26 +138,29 @@ class RateLimiter:
             # Collect all applicable limits for the user
             all_applicable_limits = []
 
-            # Check subscription tier limits
-            if (
-                user.subscriptionTier is not None
-                and user.subscriptionTier in SUBSCRIPTION_TIER_MANNA_LIMITS
-            ):
-                print("***debug applying subscription tier", user.subscriptionTier)
-                all_applicable_limits.extend(
-                    SUBSCRIPTION_TIER_MANNA_LIMITS[user.subscriptionTier]
-                )
-
-            # Check feature flag limits
+            # Check feature flag limits first - they override subscription tier limits
             print("***debug user.featureFlags", user.featureFlags)
             print(
                 "***debug FEATURE_FLAG_MANNA_LIMITS.keys()",
                 FEATURE_FLAG_MANNA_LIMITS.keys(),
             )
+            feature_flag_applied = False
             for flag in user.featureFlags or []:
                 if flag in FEATURE_FLAG_MANNA_LIMITS.keys():
                     print("***debug applying flag", flag)
                     all_applicable_limits.extend(FEATURE_FLAG_MANNA_LIMITS[flag])
+                    feature_flag_applied = True
+
+            # Only check subscription tier limits if no feature flags were applied
+            if not feature_flag_applied:
+                if (
+                    user.subscriptionTier is not None
+                    and user.subscriptionTier in SUBSCRIPTION_TIER_MANNA_LIMITS
+                ):
+                    print("***debug applying subscription tier", user.subscriptionTier)
+                    all_applicable_limits.extend(
+                        SUBSCRIPTION_TIER_MANNA_LIMITS[user.subscriptionTier]
+                    )
 
             # If no limits apply, allow access
             if not all_applicable_limits:
