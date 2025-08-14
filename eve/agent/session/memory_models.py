@@ -119,7 +119,7 @@ class UserMemory(Document):
     # Track which directive memories haven't been consolidated yet:
     unabsorbed_memory_ids: List[ObjectId] = []
     # Fully formed user memory containing consolidated content + unabsorbed directives as a single string
-    fully_formed_memory: Optional[str] = ""
+    fully_formed_memory: Optional[str] = None
     # Track when the memory blob was last updated:
     last_updated_at: Optional[datetime] = None
 
@@ -184,7 +184,7 @@ class AgentMemory(Document):
     facts: List[ObjectId] = []
 
     # Fully formed memory shard containing consolidated content + recent facts + unabsorbed suggestions as a single string
-    fully_formed_memory: Optional[str] = ""
+    fully_formed_memory: Optional[str] = None
 
     # Track when the memory blob was last updated:
     last_updated_at: Optional[datetime] = None

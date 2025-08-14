@@ -6,14 +6,13 @@ This module handles background processing of sessions that need memory formation
 import os
 import traceback
 from datetime import datetime, timezone, timedelta
-from bson import ObjectId
 from pathlib import Path
 import modal
 import sentry_sdk
 
 # Configuration for cold session processing
 CONSIDER_COLD_AFTER_MINUTES = 5  # Consider a session cold if no activity for this many minutes
-CLEANUP_COLD_SESSIONS_EVERY_MINUTES = 10  # Run the background task every N minutes
+CLEANUP_COLD_SESSIONS_EVERY_MINUTES = 15  # Run the background task every N minutes
 
 async def process_cold_sessions():
     """
@@ -29,11 +28,30 @@ async def process_cold_sessions():
         current_time = datetime.now(timezone.utc)
         cutoff_time = current_time - timedelta(minutes=CONSIDER_COLD_AFTER_MINUTES)
         
+        # Hard filter date - ignore any session older than Aug 10th 2025
+        hard_filter_date = datetime(2025, 8, 10, 0, 0, 0, tzinfo=timezone.utc)
+        
         # Query for cold sessions that need memory processing
+        # Handle cases where memory_context may not exist (newly added field)
         cold_sessions = Session.find({
-            "memory_context.last_activity": {"$lt": cutoff_time},
-            "memory_context.messages_since_memory_formation": {"$gt": 0},
-            "status": "active"
+            "$and": [
+                {"updatedAt": {"$gte": hard_filter_date}},  # Hard filter for Aug 10th 2025
+                {"status": "active"},
+                {
+                    "$or": [
+                        # Sessions with memory_context that need processing
+                        {
+                            "memory_context.last_activity": {"$lt": cutoff_time},
+                            "memory_context.messages_since_memory_formation": {"$gt": 0}
+                        },
+                        # Sessions without memory_context (newly added field) that are cold
+                        {
+                            "memory_context": {"$exists": False},
+                            "updatedAt": {"$lt": cutoff_time}
+                        }
+                    ]
+                }
+            ]
         })
         
         processed_count = 0

@@ -13,9 +13,31 @@ from bson import ObjectId
 from pydantic import Field, create_model
 
 from eve.agent.session.session_llm import async_prompt, LLMContext, LLMConfig
-from eve.agent.session.models import ChatMessage, Session, LLMContextMetadata, LLMTraceMetadata
+from eve.agent.session.models import ChatMessage, Session, LLMContextMetadata, LLMTraceMetadata, SessionMemoryContext
 from eve.agent.session.memory_models import SessionMemory, UserMemory, AgentMemory, get_agent_owner, messages_to_text, _get_recent_messages, _format_memories_with_age, estimate_tokens
 from eve.agent.session.memory_constants import *
+
+def safe_update_memory_context(session: Session, updates: Dict[str, Any]) -> None:
+    """
+    Safely update memory_context fields. If memory_context doesn't exist, create it with defaults + updates.
+    
+    Args:
+        session: Session object to update
+        updates: Dictionary of field updates to apply to memory_context
+    """
+    try:
+        # Try to update existing memory_context
+        if hasattr(session, 'memory_context') and session.memory_context is not None:
+            for key, value in updates.items():
+                setattr(session.memory_context, key, value)
+        else:
+            # Create new memory_context with defaults + updates
+            session.memory_context = SessionMemoryContext(**updates)
+    except Exception as e:
+        # Fallback: create new memory_context with defaults, then apply updates
+        session.memory_context = SessionMemoryContext()
+        for key, value in updates.items():
+            setattr(session.memory_context, key, value)
 
 async def _store_memories_by_type(
     agent_id: ObjectId,
@@ -94,7 +116,9 @@ async def _save_all_memories(
                 agent_id, user_id, 
                 memories_by_type.get("directive", [])
             )
-            session.memory_context.user_memory_timestamp = datetime.now(timezone.utc)
+            safe_update_memory_context(session, {
+                "user_memory_timestamp": datetime.now(timezone.utc)
+            })
 
     # Update agent memories with new facts and suggestions
     if memories_by_type.get("fact") or memories_by_type.get("suggestion"):
@@ -103,7 +127,9 @@ async def _save_all_memories(
             memories_by_type.get("fact", []),
             memories_by_type.get("suggestion", [])
         )
-        session.memory_context.agent_memory_timestamp = datetime.now(timezone.utc)
+        safe_update_memory_context(session, {
+            "agent_memory_timestamp": datetime.now(timezone.utc)
+        })
 
     if LOCAL_DEV:
         memories_created = [individual_memory for memory_list in memories_by_type.values() for individual_memory in memory_list if individual_memory.content.strip()]
@@ -687,6 +713,7 @@ def should_form_memories(agent_id: ObjectId, session: Session, force_memory_form
         
         # Find the position of the last memory formation message
         last_memory_position = -1
+        safe_update_memory_context(session, {})  # Ensure memory_context exists
         if session.memory_context.last_memory_message_id:
             last_memory_position = message_id_to_index.get(session.memory_context.last_memory_message_id, -1)
 
@@ -759,6 +786,7 @@ async def form_memories(agent_id: ObjectId, session: Session) -> bool:
     
     try:
         # Get messages since last memory formation
+        safe_update_memory_context(session, {})  # Ensure memory_context exists
         recent_messages = _get_recent_messages(session_messages, session.memory_context.last_memory_message_id)
         
         if recent_messages:
@@ -781,9 +809,11 @@ async def form_memories(agent_id: ObjectId, session: Session) -> bool:
         await assemble_memory_context(session, agent_id, last_speaker_id, force_refresh=True, reason="form_memories", skip_save=True)
         
         # Update the session's memory formation tracking and save once
-        session.memory_context.last_activity = datetime.now(timezone.utc)
-        session.memory_context.last_memory_message_id = session_messages[-1].id
-        session.memory_context.messages_since_memory_formation = 0
+        safe_update_memory_context(session, {
+            "last_activity": datetime.now(timezone.utc),
+            "last_memory_message_id": session_messages[-1].id,
+            "messages_since_memory_formation": 0
+        })
         session.save()
 
         print(f"Form memories took {time.time() - start_time:.2f} seconds to complete")

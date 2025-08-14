@@ -14,8 +14,8 @@ LOCAL_DEV = True
 # Memory formation settings:
 if LOCAL_DEV:
     MEMORY_LLM_MODEL = "gpt-4o-mini"
-    #MEMORY_LLM_MODEL = "gpt-5-mini-2025-08-07"
-    # MEMORY_LLM_MODEL = "claude-sonnet-4-20250514"
+    MEMORY_LLM_MODEL = "gpt-5-mini-2025-08-07"
+    #MEMORY_LLM_MODEL = "claude-sonnet-4-20250514"
     MEMORY_FORMATION_MSG_INTERVAL = 4  # Number of messages to wait before forming memories (None = use token-based)
     MEMORY_FORMATION_TOKEN_INTERVAL = 2000  # Number of tokens to wait before forming memories
     SESSION_MESSAGES_LOOKBACK_LIMIT = 4  # Max messages to look back in a session when forming raw memories
@@ -41,7 +41,7 @@ else:
     MAX_SUGGESTIONS_COUNT_BEFORE_CONSOLIDATION = 8 # Number of suggestions to store before consolidating them into the agent's collective memory blob
     MAX_FACTS_PER_SHARD = 50 # Max number of facts to store per agent shard (fifo)
     
-SYNC_MEMORIES_ACROSS_SESSIONS_EVERY_N_MINUTES = 3
+SYNC_MEMORIES_ACROSS_SESSIONS_EVERY_N_MINUTES = 2
 NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES = 2
 AGENT_TOKEN_MULTIPLIER = 0.25  # Multiplier to downscale agent/assistant message importance for token interval trigger
 

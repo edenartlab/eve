@@ -6,6 +6,7 @@ from bson import ObjectId
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone, timedelta
 from eve.agent.session.models import Session
+from eve.agent.session.memory import safe_update_memory_context
 
 async def _assemble_user_memory(agent_id: ObjectId, user_id: Optional[ObjectId] = None) -> str:
     """
@@ -23,7 +24,7 @@ async def _assemble_user_memory(agent_id: ObjectId, user_id: Optional[ObjectId] 
             )
             if user_memory:
                 # Check if fully_formed_memory exists and is up-to-date
-                if user_memory.fully_formed_memory:
+                if user_memory.fully_formed_memory is not None:
                     user_memory_content = user_memory.fully_formed_memory
                 else:
                     # Regenerate fully formed memory if missing or empty
@@ -46,6 +47,7 @@ async def _get_episode_memories(session: Session, force_refresh: bool = False) -
     Returns list of episode memory dicts.
     """
     # Check if we have cached episodes:
+    safe_update_memory_context(session, {})  # Ensure memory_context exists
     if (not force_refresh and 
         session.memory_context.cached_episode_memories):
         print(f"   ⚡ Using cached episode memories ({len(session.memory_context.cached_episode_memories)} episodes)")
@@ -63,7 +65,7 @@ async def _get_episode_memories(session: Session, force_refresh: bool = False) -
         episode_memories.reverse()
         
         # Cache in session
-        session.memory_context.cached_episode_memories = [
+        cached_episodes = [
             {
                 "id": str(e.id), 
                 "content": e.content, 
@@ -71,7 +73,10 @@ async def _get_episode_memories(session: Session, force_refresh: bool = False) -
             }
             for e in episode_memories
         ]
-        session.memory_context.episode_memories_timestamp = datetime.now(timezone.utc)
+        safe_update_memory_context(session, {
+            "cached_episode_memories": cached_episodes,
+            "episode_memories_timestamp": datetime.now(timezone.utc)
+        })
         # Save will be done by caller to batch updates
         query_time = time.time() - query_start
         print(f"   ⏱️  Episode memory query & cache: {query_time:.3f}s ({len(episode_memories)} episodes)")
@@ -97,7 +102,7 @@ async def _assemble_agent_memories(agent_id: ObjectId) -> List[Dict[str, str]]:
         
         for shard in active_shards:
             # Check if fully_formed_memory exists and is non-empty
-            if shard.fully_formed_memory and shard.fully_formed_memory.strip():
+            if shard.fully_formed_memory is not None:
                 agent_collective_memories.append({
                     'name': shard.shard_name or 'unnamed_shard',
                     'content': shard.fully_formed_memory
@@ -128,6 +133,7 @@ async def check_memory_freshness(session: Session, agent_id: ObjectId, user_id: 
     Check if cached memory context is still fresh by comparing timestamps.
     Returns True if cache is fresh, False if needs refresh.
     """
+    safe_update_memory_context(session, {})  # Ensure memory_context exists
     # Check agent memory freshness
     if session.memory_context.agent_memory_timestamp:
         try:
@@ -236,6 +242,7 @@ async def assemble_memory_context(
     print(f"\n🧠 MEMORY ASSEMBLY - Agent: {agent_id}, Session: {session.id}")
     
     # Check if we can use cached memory context
+    safe_update_memory_context(session, {})  # Ensure memory_context exists
     if (session.memory_context.cached_memory_context is not None)and not force_refresh:
         memory_timestamp = session.memory_context.memory_context_timestamp
         if memory_timestamp and memory_timestamp.tzinfo is None:
@@ -271,10 +278,12 @@ async def assemble_memory_context(
     
     # 5. Update session with cached context
     current_time = datetime.now(timezone.utc)
-    session.memory_context.cached_memory_context = memory_context
-    session.memory_context.memory_context_timestamp = current_time
-    session.memory_context.agent_memory_timestamp = current_time
-    session.memory_context.user_memory_timestamp = current_time
+    safe_update_memory_context(session, {
+        "cached_memory_context": memory_context,
+        "memory_context_timestamp": current_time,
+        "agent_memory_timestamp": current_time,
+        "user_memory_timestamp": current_time
+    })
     
     if not skip_save:
         session.save()
