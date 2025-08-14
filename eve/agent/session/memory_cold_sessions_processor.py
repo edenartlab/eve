@@ -28,13 +28,18 @@ from pathlib import Path
 import modal
 import sentry_sdk
 
-from eve.agent.session.memory_constants import NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES, CONSIDER_COLD_AFTER_MINUTES, CLEANUP_COLD_SESSIONS_EVERY_MINUTES
+from eve.agent.session.memory_constants import NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES, CONSIDER_COLD_AFTER_MINUTES, CLEANUP_COLD_SESSIONS_EVERY_MINUTES, LOCAL_DEV
 
 async def process_cold_sessions():
     """
     Process cold sessions (last activity > CONSIDER_COLD_AFTER_MINUTES minutes ago) and trigger memory formation.
     Uses MongoDB queries to find sessions needing processing.
     """
+
+    if LOCAL_DEV:
+        print("Cold session processing is disabled in local development mode.")
+        return
+    
     print("🧠 Processing cold sessions for memory formation...")
     
     try:
@@ -52,7 +57,8 @@ async def process_cold_sessions():
         # Simplified query with compound index optimization
         base_query = {
             "updatedAt": {"$gte": hard_filter_date, "$lt": cutoff_time},
-            "status": "active"
+            "status": "active",
+            f"messages.{NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES - 1}": {"$exists": True}
         }
         
         # First batch: Sessions with memory_context that need processing
@@ -133,7 +139,7 @@ image = (
 )
 
 app = modal.App(
-    name="memory_process_cold_sessions",
+    name=f"memory_process_cold_sessions-{db.upper()}",
     secrets=[
         modal.Secret.from_name("eve-secrets"),
         modal.Secret.from_name(f"eve-secrets-{db}"),
