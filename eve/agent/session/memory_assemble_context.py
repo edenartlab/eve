@@ -282,7 +282,7 @@ async def assemble_memory_context(
         "memory_context_timestamp": current_time,
         "agent_memory_timestamp": current_time,
         "user_memory_timestamp": current_time
-    })
+    }, skip_save=skip_save)
     
     if not skip_save:
         session.save()

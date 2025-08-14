@@ -18,27 +18,26 @@ from eve.agent.session.memory_models import SessionMemory, UserMemory, AgentMemo
 from eve.agent.session.memory_constants import *
 from eve.agent.session.memory_constants import MEMORY_LLM_MODEL_FAST, MEMORY_LLM_MODEL_SLOW
 
-def safe_update_memory_context(session: Session, updates: Dict[str, Any]) -> None:
+def safe_update_memory_context(session: Session, updates: Dict[str, Any], skip_save: bool = False) -> None:
     """
-    Safely update memory_context fields. If memory_context doesn't exist, create it with defaults + updates.
+    Safely update memory_context fields. If memory_context doesn't exist, create it with updates.
     
     Args:
         session: Session object to update
         updates: Dictionary of field updates to apply to memory_context
     """
-    try:
-        # Try to update existing memory_context
-        if hasattr(session, 'memory_context') and session.memory_context is not None:
-            for key, value in updates.items():
-                setattr(session.memory_context, key, value)
-        else:
-            # Create new memory_context with defaults + updates
-            session.memory_context = SessionMemoryContext(**updates)
-    except Exception as e:
-        # Fallback: create new memory_context with defaults, then apply updates
+    session_updated = False
+
+    if not hasattr(session, 'memory_context') or session.memory_context is None:
         session.memory_context = SessionMemoryContext()
-        for key, value in updates.items():
-            setattr(session.memory_context, key, value)
+        session_updated = True
+    
+    for key, value in updates.items():
+        setattr(session.memory_context, key, value)
+        session_updated = True
+
+    if session_updated and not skip_save:
+        session.save()
 
 def safe_ensure_shard_config(shard: 'AgentMemory') -> None:
     """
@@ -890,7 +889,6 @@ async def form_memories(agent_id: ObjectId, session: Session) -> bool:
             "last_memory_message_id": session_messages[-1].id,
             "messages_since_memory_formation": 0
         })
-        session.save()
 
         print(f"Form memories took {time.time() - start_time:.2f} seconds to complete")
         return True
