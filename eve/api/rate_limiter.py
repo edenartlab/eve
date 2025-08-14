@@ -111,8 +111,6 @@ class RateLimiter:
         for limit in highest_limits:
             result = list(Task.get_collection().aggregate(pipeline(limit)))
             total_spend = result[0]["total_spend"] if result else 0
-            print("***debug total_spend", total_spend)
-            print("***debug limit", limit)
             if total_spend >= limit.spend:
                 period_minutes = limit.period // 60
                 period_display = (
@@ -134,20 +132,13 @@ class RateLimiter:
         Uses the highest applicable limit for the user.
         """
         async with self._lock:
-            print("***debug check_manna_spend_rate_limit")
             # Collect all applicable limits for the user
             all_applicable_limits = []
 
             # Check feature flag limits first - they override subscription tier limits
-            print("***debug user.featureFlags", user.featureFlags)
-            print(
-                "***debug FEATURE_FLAG_MANNA_LIMITS.keys()",
-                FEATURE_FLAG_MANNA_LIMITS.keys(),
-            )
             feature_flag_applied = False
             for flag in user.featureFlags or []:
                 if flag in FEATURE_FLAG_MANNA_LIMITS.keys():
-                    print("***debug applying flag", flag)
                     all_applicable_limits.extend(FEATURE_FLAG_MANNA_LIMITS[flag])
                     feature_flag_applied = True
 
@@ -157,7 +148,6 @@ class RateLimiter:
                     user.subscriptionTier is not None
                     and user.subscriptionTier in SUBSCRIPTION_TIER_MANNA_LIMITS
                 ):
-                    print("***debug applying subscription tier", user.subscriptionTier)
                     all_applicable_limits.extend(
                         SUBSCRIPTION_TIER_MANNA_LIMITS[user.subscriptionTier]
                     )
@@ -167,9 +157,7 @@ class RateLimiter:
                 return True
 
             # Find the highest limit for each time period
-            print("***debug all_applicable_limits", all_applicable_limits)
             highest_limits = self._find_highest_limits(all_applicable_limits)
-            print("***debug highest_limits", highest_limits)
 
             # Define pipeline generator for manna spend limits
             def generate_pipeline(limit):
@@ -187,7 +175,6 @@ class RateLimiter:
 
             # Check against each highest limit
             limits = await self._check_against_limits(highest_limits, generate_pipeline)
-            print("***debug limits", limits)
             return limits
 
     async def check_agent_rate_limit(self, user: User, agent_id: str) -> bool:
@@ -196,7 +183,6 @@ class RateLimiter:
         Uses the highest applicable limit for the user.
         """
         async with self._lock:
-            print("***debug check_agent_rate_limit")
             # Determine which rate limit applies based on user tier or feature flags
             applicable_limits = []
 
@@ -205,30 +191,22 @@ class RateLimiter:
                 flag in user.featureFlags
                 for flag in ["free_agents", "free_tools", "limits_Admin"]
             ):
-                print("***debug free_agents applied based on feature flags")
                 applicable_limits.extend(AGENT_RATE_LIMITS["unlimited"])
 
             if user.featureFlags and "test_agent_rate_limit" in user.featureFlags:
-                print("***debug test_agent_rate_limit applied based on feature flags")
                 applicable_limits.extend(AGENT_RATE_LIMITS["test_agent_rate_limit"])
 
             if not user.subscriptionTier:
-                print("***debug basic_limits applied based on no subscription tier")
                 applicable_limits.extend(AGENT_RATE_LIMITS["basic_limits"])
 
             # Otherwise use tier-based limits
             if user.subscriptionTier == 3:
-                print("***debug premium_limits applied based on subscription tier")
                 applicable_limits.extend(AGENT_RATE_LIMITS["premium_limits"])
             elif user.subscriptionTier <= 2:
-                print("***debug basic_limits applied based on subscription tier")
                 applicable_limits.extend(AGENT_RATE_LIMITS["basic_limits"])
-
-            print("***debug applicable_limits", applicable_limits)
 
             # Find the highest limit for each time period (if there are multiple with same period)
             highest_limits = self._find_highest_limits(applicable_limits)
-            print("***debug highest_limits", highest_limits)
 
             # Define pipeline generator for agent rate limits
             def generate_pipeline(limit):
@@ -246,6 +224,5 @@ class RateLimiter:
 
             # Check against each limit
             limits = await self._check_against_limits(highest_limits, generate_pipeline)
-            print("***debug limits", limits)
 
             return limits
