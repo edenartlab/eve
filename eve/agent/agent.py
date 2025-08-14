@@ -25,6 +25,7 @@ from ..tool_constants import (
     SHOPIFY_TOOLS,
     PRINTIFY_TOOLS,
     CAPTIONS_TOOLS,
+    TIKTOK_TOOLS,
     SOCIAL_MEDIA_TOOLS,
     TOOL_SETS,
 )
@@ -144,6 +145,9 @@ class Agent(User):
 
     owner_pays: Optional[bool] = False
     agent_extras: Optional[AgentExtras] = None
+    
+    user_memory_enabled: Optional[bool] = True
+    agent_memory_enabled: Optional[bool] = True
 
     # def __init__(self, **data):
     #     if isinstance(data.get("owner"), str):
@@ -327,6 +331,9 @@ class Agent(User):
                 tools.pop(tool, None)
         if "captions" not in self.deployments:
             for tool in CAPTIONS_TOOLS:
+                tools.pop(tool, None)
+        if "tiktok" not in self.deployments:
+            for tool in TIKTOK_TOOLS:
                 tools.pop(tool, None)
 
         # remove tools that only the owner can use

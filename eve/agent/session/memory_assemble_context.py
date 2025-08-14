@@ -1,125 +1,211 @@
-from eve.agent.session.memory_primitives import SessionMemory, UserMemory, AgentMemory, estimate_tokens, _format_memories_with_age
-from eve.agent.session.memory_state import get_session_state, update_session_state, agent_memory_status
-from eve.agent.session.memory_constants import MAX_N_EPISODES_TO_REMEMBER, LOCAL_DEV
+from eve.agent.session.memory_models import SessionMemory, UserMemory, AgentMemory
+from eve.agent.session.memory_constants import MAX_N_EPISODES_TO_REMEMBER, LOCAL_DEV, SYNC_MEMORIES_ACROSS_SESSIONS_EVERY_N_MINUTES
 
-import time, logging
+import time, logging, traceback, asyncio
 from bson import ObjectId
-from typing import Optional
-from datetime import datetime, timezone
+from typing import Optional, List, Dict, Any
+from datetime import datetime, timezone, timedelta
+from eve.agent.session.models import Session
+from eve.agent.session.memory import safe_update_memory_context
 
-async def regenerate_memory_context(agent_id: ObjectId, session_id: Optional[ObjectId] = None, last_speaker_id: Optional[ObjectId] = None, session: Optional['Session'] = None) -> str:
+async def _assemble_user_memory(agent_id: ObjectId, user_id: ObjectId, agent=None) -> str:
     """
-    Regenerate memory context by querying the database and assembling all memory components.
-    
-    Args:
-        agent_id: ID of the agent to get memories for
-        session_id: Current session ID to prioritize session-specific memories.
-        last_speaker_id: ID of the user who spoke the last message for prioritization.
-        session: Optional session object to update in place (avoids extra MongoDB query).
-    
-    Returns:
-        Formatted memory context string for prompt injection.
+    Step 1: Assemble user memory content.
+    Returns user_memory_content
     """
-    start_time = time.time()
-    
-    # TODO: instead of last speaker, iterate over all human users in the session
-    user_id = last_speaker_id
-
-    # Initialize all variables at the start to avoid scoping issues
     user_memory_content = ""
-    unabsorbed_directives = []
-    episode_memories = []
     user_memory = None
 
-    # Step 1: User Memory
     try:
+        # Check if user memory is enabled for this agent
+        if agent is None:
+            from eve.agent.agent import Agent
+            agent = Agent.from_mongo(agent_id)
+        
+        if not agent or not getattr(agent, 'user_memory_enabled', True):
+            print(f"   ⚠️  UserMemory disabled for agent {agent_id}, returning empty content")
+            return ""
         query_start = time.time()
-        # Get user memory blob for this user:
-        if (
-            user_id is not None and agent_id is not None
-        ):  # Only query if both IDs are not None
-            user_memory = UserMemory.find_one_or_create(
-                {"agent_id": agent_id, "user_id": user_id}
-            )
-            if user_memory:
-                user_memory_content = user_memory.content or ""  # Handle None content
-                unabsorbed_memory_ids = (
-                    user_memory.unabsorbed_memory_ids or []
-                )  # Handle None list
-                # Get unabsorbed directives:
-                if unabsorbed_memory_ids and user_id:  # Only query if there are IDs to look up and user_id is valid
-                    unabsorbed_directives = SessionMemory.find(
-                        {
-                            "agent_id": agent_id,
-                            "memory_type": "directive",
-                            "related_users": user_id,
-                            "_id": {"$in": unabsorbed_memory_ids},
-                        }
-                    )
+        user_memory = UserMemory.find_one_or_create(
+            {"agent_id": agent_id, "user_id": user_id}
+        )
+        if user_memory:
+            # Check if fully_formed_memory exists and is up-to-date
+            if user_memory.fully_formed_memory is not None:
+                user_memory_content = user_memory.fully_formed_memory
+            else:
+                # Regenerate fully formed memory if missing or empty
+                from eve.agent.session.memory import _regenerate_fully_formed_user_memory
+                await _regenerate_fully_formed_user_memory(user_memory)
+                user_memory_content = user_memory.fully_formed_memory or ""
+            
         query_time = time.time() - query_start
-        # print(
-        #     f"   ⏱️  User Memory Assembly: {query_time:.3f}s (user_memory: {'yes' if user_memory else 'no'}, {len(unabsorbed_directives)} unabsorbed directives)"
-        # )
+        print(f"   ⏱️  User Memory Assembly: {query_time:.3f}s (user_memory: {'yes' if user_memory else 'no'})")
 
     except Exception as e:
         print(f"   ❌ Error retrieving user memory: {e}")
+        traceback.print_exc()
 
-    # Step 2: Episodes from SessionMemory:
+    return user_memory_content
+
+
+async def _get_episode_memories(session: Session, force_refresh: bool = False) -> List[Dict[str, Any]]:
+    """
+    Get episode memories with smart caching in session.
+    Returns list of episode memory dicts.
+    """
+    # Check if we have cached episodes:
+    safe_update_memory_context(session, {})  # Ensure memory_context exists
+    if (not force_refresh and 
+        session.memory_context.cached_episode_memories is not None):
+        print(f"   ⚡ Using cached episode memories ({len(session.memory_context.cached_episode_memories)} episodes)")
+        return session.memory_context.cached_episode_memories
+    
+    # Query and cache episode memories
     try:
-        if session_id and agent_id is not None:
-            query_start = time.time()
-            episode_query = {"source_session_id": session_id, "memory_type": "episode"}
-            episode_memories = SessionMemory.find(episode_query, sort="createdAt", desc=True)
-
-            # Get list of MAX_N_EPISODES_TO_REMEMBER most recent, raw episode memories:
-            episode_memories = episode_memories[:MAX_N_EPISODES_TO_REMEMBER]
-            # Reverse the list to put the most recent episodes at the bottom:
-            episode_memories.reverse()
-
-            query_time = time.time() - query_start
-            # print(
-            #     f"   ⏱️  Session memory assembly: {query_time:.3f}s (user_memory: {'yes' if user_memory else 'no'}, {len(episode_memories)} episodes)"
-            # )
+        query_start = time.time()
+        episode_query = {"source_session_id": session.id, "memory_type": "episode"}
+        
+        # Optimized query: Use proper sort format and limit directly in MongoDB
+        episode_memories = SessionMemory.find(
+            episode_query, 
+            sort="createdAt",
+            desc=True,
+            limit=MAX_N_EPISODES_TO_REMEMBER
+        )
+        
+        # Reverse to put most recent at bottom (after getting limited results)
+        episode_memories = list(episode_memories)
+        episode_memories.reverse()
+        
+        # Cache in session
+        cached_episodes = [
+            {
+                "id": str(e.id), 
+                "content": e.content, 
+                "created_at": e.createdAt.isoformat() if e.createdAt else None
+            }
+            for e in episode_memories
+        ]
+        
+        # Run cache update as background task to avoid blocking
+        asyncio.create_task(asyncio.to_thread(
+            safe_update_memory_context, 
+            session, 
+            {
+                "cached_episode_memories": cached_episodes,
+                "episode_memories_timestamp": datetime.now(timezone.utc)
+            }
+        ))
+        
+        query_time = time.time() - query_start
+        print(f"   ⏱️  Episode memory query & cache: {query_time:.3f}s ({len(episode_memories)} episodes)")
+        
+        return cached_episodes
+        
     except Exception as e:
-        print(f"   ❌ Error assembling session memories: {e}")
+        print(f"   ❌ Error assembling episode memories: {e}")
+        traceback.print_exc()
+        return []
 
-    # Step 3: Agent Collective Memories:
+
+async def _assemble_agent_memories(agent_id: ObjectId, agent=None) -> List[Dict[str, str]]:
+    """
+    Step 3: Assemble agent collective memories from active shards.
+    Returns list of memory shards with name and content.
+    """
     agent_collective_memories = []
     
     try:
-        if agent_id is not None:
-            query_start = time.time()
-            # Get active agent memory shards
-            active_shards = AgentMemory.find({"agent_id": agent_id, "is_active": True})
+        # Check if agent memory is enabled for this agent
+        if agent is None:
+            from eve.agent.agent import Agent
+            agent = Agent.from_mongo(agent_id)
+        
+        if not agent or not getattr(agent, 'agent_memory_enabled', True):
+            return []
             
-            for shard in active_shards:
-                # Check if fully_formed_memory_shard exists and is non-empty
-                if shard.fully_formed_memory_shard and shard.fully_formed_memory_shard.strip():
+        query_start = time.time()
+        active_shards = AgentMemory.find({"agent_id": agent_id, "is_active": True})
+        
+        for shard in active_shards:
+            # Check if fully_formed_memory exists and is non-empty
+            if shard.fully_formed_memory is not None:
+                agent_collective_memories.append({
+                    'name': shard.shard_name or 'unnamed_shard',
+                    'content': shard.fully_formed_memory
+                })
+            else:
+                # Import here to avoid circular imports
+                from eve.agent.session.memory import _regenerate_fully_formed_agent_memory
+                await _regenerate_fully_formed_agent_memory(shard)
+                
+                # Use the regenerated content if it's non-empty
+                if shard.fully_formed_memory and shard.fully_formed_memory.strip():
                     agent_collective_memories.append({
                         'name': shard.shard_name or 'unnamed_shard',
-                        'content': shard.fully_formed_memory_shard
+                        'content': shard.fully_formed_memory
                     })
-                else:
-                    # Import here to avoid circular imports
-                    from eve.agent.session.memory import _regenerate_fully_formed_memory_shard
-                    await _regenerate_fully_formed_memory_shard(shard)
-                    
-                    # Use the regenerated content if it's non-empty
-                    if shard.fully_formed_memory_shard and shard.fully_formed_memory_shard.strip():
-                        agent_collective_memories.append({
-                            'name': shard.shard_name or 'unnamed_shard',
-                            'content': shard.fully_formed_memory_shard
-                        })
-            
-            query_time = time.time() - query_start
-            print(f"   ⏱️  Agent Memory Assembly: {query_time:.3f}s ({len(agent_collective_memories)} active shards)")
-            
+        
+        query_time = time.time() - query_start
+        print(f"   ⏱️  Agent Memory Assembly: {query_time:.3f}s ({len(agent_collective_memories)} active shards)")
+        
     except Exception as e:
         print(f"   ❌ Error assembling agent collective memories: {e}")
+        traceback.print_exc()
 
-    # Step 4: Full memory context assembly:
+    return agent_collective_memories
+
+
+async def check_memory_freshness(session: Session, agent_id: ObjectId, user_id: Optional[ObjectId]) -> bool:
+    """
+    Check if cached memory context is still fresh by comparing timestamps.
+    Returns True if cache is fresh, False if needs refresh.
+    """
+    safe_update_memory_context(session, {})  # Ensure memory_context exists
+    # Check agent memory freshness
+    if session.memory_context.agent_memory_timestamp:
+        try:
+            # Query only the most recently updated active agent memory
+            agent_memories = AgentMemory.find(
+                {"agent_id": agent_id, "is_active": True},
+                sort="last_updated_at",
+                desc=True,
+                limit=1
+            )
+            agent_memory = agent_memories[0] if agent_memories else None
+            if agent_memory and agent_memory.last_updated_at:
+                if agent_memory.last_updated_at > session.memory_context.agent_memory_timestamp:
+                    print(f"   🔄 Agent memory updated since cache")
+                    return False
+        except Exception as e:
+            return False  # Refresh on error to be safe
+    
+    # Check user memory freshness
+    if user_id and session.memory_context.user_memory_timestamp:
+        try:
+            user_memory = UserMemory.find_one(
+                {"agent_id": agent_id, "user_id": user_id}
+            )
+            if user_memory and user_memory.last_updated_at:
+                if user_memory.last_updated_at > session.memory_context.user_memory_timestamp:
+                    print(f"   🔄 User memory updated since cache")
+                    return False
+        except Exception as e:
+            print(f"   ⚠️ Error checking user memory freshness: {e}")
+            return False  # Refresh on error to be safe
+    
+    return True  # Cache is fresh
+
+
+def _build_memory_xml(
+    user_memory_content: str,
+    agent_collective_memories: List[Dict[str, str]],
+    episode_memories: List[Dict[str, Any]]
+) -> str:
+    """Build the formatted XML memory context."""
     memory_context = ""
-
+    
     # Build collective memory section first
     collective_memory_section = ""
     if len(agent_collective_memories) > 0:
@@ -129,27 +215,20 @@ async def regenerate_memory_context(agent_id: ObjectId, session_id: Optional[Obj
             shard_content = shard['content']
             collective_memory_section += f"<memory_shard name=\"{shard_name}\">\n{shard_content}\n</memory_shard>\n\n"
         collective_memory_section += "</collective_memory>\n\n"
-
+    
     # Build user-specific memory section
     user_memory_section = ""
+    if user_memory_content and user_memory_content.strip():
+        user_memory_section += f"<user_memory description=\"Memory and context specific to this user\">\n{user_memory_content}\n</user_memory>\n\n"
     
-    if len(user_memory_content) > 0:
-        user_memory_section += f"<consolidated_user_memory description=\"Long-term memory specific to this user\">\n{user_memory_content}\n</consolidated_user_memory>\n\n"
-
-    if len(unabsorbed_directives) > 0:
-        user_memory_section += "<recent_user_directives description=\"Recent instructions from this user (most recent at bottom)\">\n"
-        directives_formatted = _format_memories_with_age(unabsorbed_directives)
-        user_memory_section += f"{directives_formatted}\n"
-        user_memory_section += "</recent_user_directives>\n\n"
-
-    # Build episode memories section (outside user_specific_memory)
+    # Build episode memories section
     episode_memory_section = ""
     if len(episode_memories) > 0:
         episode_memory_section += "<current_conversation_context description=\"Recent exchanges from this conversation (most recent at bottom)\">\n"
         for episode in episode_memories:
-            episode_memory_section += f"- {episode.content}\n"
+            episode_memory_section += f"- {episode['content']}\n"
         episode_memory_section += "</current_conversation_context>\n\n"
-
+    
     # Assemble final memory context with XML hierarchy
     if collective_memory_section or user_memory_section or episode_memory_section:
         memory_context = "<memory_contents description=\"Your complete memory context for this conversation\">\n\n"
@@ -158,151 +237,94 @@ async def regenerate_memory_context(agent_id: ObjectId, session_id: Optional[Obj
             memory_context += collective_memory_section
             
         if user_memory_section:
-            memory_context += "<user_specific_memory description=\"Memory and context specific to the current user\">\n"
             memory_context += user_memory_section
-            memory_context += "</user_specific_memory>\n\n"
         
-        # Add episode memories outside user_specific_memory but inside memory_contents
         if episode_memory_section:
             memory_context += episode_memory_section
             
         memory_context += "</memory_contents>"
-    else:
-        memory_context = ""
     
-    # Step 5: Cache the full memory context in modal dict
-    if session_id and agent_id:
-        try:
-            cache_start = time.time()
-            current_time = datetime.now(timezone.utc).isoformat()
-            await update_session_state(agent_id, session_id, {
-                "cached_memory_context": memory_context,
-                "should_refresh_memory": False,
-                "agent_collective_memory_timestamp": current_time,
-                "user_memory_timestamp": current_time
-            })
-            print(f"   💾 Memory context cached for session {session_id} in {time.time() - cache_start:.3f}s")
-        except Exception as e:
-            print(f"   ❌ Error caching memory context: {e}")
-    
-    # Step 6: Final stats
-    total_time = time.time() - start_time
-    print(f"   ⏱️  Memory context full regeneration time: {total_time:.3f}s")
-
     return memory_context
 
 
-async def assemble_memory_context(agent_id: ObjectId, session_id: Optional[ObjectId] = None, last_speaker_id: Optional[ObjectId] = None, session: Optional['Session'] = None) -> str:
+async def assemble_memory_context(
+    session: Session,
+    agent_id: ObjectId,
+    last_speaker_id: ObjectId, 
+    force_refresh: bool = False,
+    reason: str = "unknown",
+    skip_save: bool = False,
+    agent = None
+) -> str:
     """
     Assemble relevant memories for context injection into prompts.
     Uses session-level caching to minimize database queries.
     
     Args:
         agent_id: ID of the agent to get memories for
-        session_id: Current session ID to prioritize session-specific memories.
-        last_speaker_id: ID of the user who spoke the last message for prioritization.
-        session: Optional session object to update in place (avoids extra MongoDB query).
+        session_id: Current session ID (for compatibility, prefer passing session object)
+        last_speaker_id: ID of the user who spoke the last message
+        session: Session object containing memory context
     
     Returns:
         Formatted memory context string for prompt injection.
     """
-
     start_time = time.time()
     
-    print(f"\n🧠 MEMORY ASSEMBLY PROFILING - Agent: {agent_id}")
-    print(f"   Session: {session_id}, Last Speaker: {last_speaker_id}")
+    print(f"\n🧠 MEMORY ASSEMBLY - Agent: {agent_id}, Session: {session.id}")
     
-    # Check if we can use cached memory context from modal dict
-    if session_id and agent_id:
-        try:
-            get_session_state_start = time.time()
-            session_state = await get_session_state(agent_id, session_id)
-            get_session_state_time = time.time() - get_session_state_start
-            print(f"   ⏱️  get_session_state took: {get_session_state_time:.3f}s")
-            print(f"   --> Session state: {session_state}")
-
-            cached_context = session_state.get("cached_memory_context")
-            should_refresh = session_state.get("should_refresh_memory", True)
-            
-            # Check if agent collective memory has been updated since last fetch
-            agent_key = str(agent_id)
-            agent_memory_updated = False
-            user_memory_updated = False
-            
-            if agent_key in agent_memory_status:
-                agent_last_updated = agent_memory_status[agent_key].get("last_updated_at")
-                session_last_fetched = session_state.get("agent_collective_memory_timestamp")
-                
-                if agent_last_updated and session_last_fetched:
-                    # Convert to datetime for comparison
-                    try:
-                        agent_updated_dt = datetime.fromisoformat(agent_last_updated.replace('Z', '+00:00'))
-                        session_fetched_dt = datetime.fromisoformat(session_last_fetched.replace('Z', '+00:00'))
-                        agent_memory_updated = agent_updated_dt > session_fetched_dt
-                    except Exception as e:
-                        agent_memory_updated = True
-                else:
-                    # If either timestamp is missing, refresh to be safe
-                    agent_memory_updated = True
-            
-            # Check if user memory has been updated since last fetch (only check if we have necessary IDs)
-            if session_id and agent_id and last_speaker_id:
-                try:
-                    user_memory_obj = UserMemory.find_one({"agent_id": agent_id, "user_id": last_speaker_id})
-                    
-                    if user_memory_obj and user_memory_obj.last_updated_at:
-                        session_user_memory_timestamp = session_state.get("user_memory_timestamp")
-                        
-                        if session_user_memory_timestamp:
-                            try:
-                                user_updated_dt = user_memory_obj.last_updated_at
-                                if not user_updated_dt.tzinfo:
-                                    user_updated_dt = user_updated_dt.replace(tzinfo=timezone.utc)
-                                session_user_fetched_dt = datetime.fromisoformat(session_user_memory_timestamp.replace('Z', '+00:00'))
-                                user_memory_updated = user_updated_dt > session_user_fetched_dt
-                            except Exception as e:
-                                user_memory_updated = True
-                        else:
-                            # If session timestamp is missing, refresh to be safe
-                            user_memory_updated = True
-                    else:
-                        # If no user memory exists or no timestamp, don't force refresh
-                        user_memory_updated = False
-                except Exception as e:
-                    logging.warning(f"Error checking user memory timestamp: {e}")
-                    user_memory_updated = True
-            
-            if cached_context and not should_refresh and not agent_memory_updated and not user_memory_updated:
-                total_time = time.time() - start_time
-                print(f"   ⚡ USING CACHED MEMORY: {total_time:.3f}s")
-                time_taken = time.time() - start_time
-                print(f"-----> Time taken to assemble memory context: {time_taken:.2f} seconds")
+    # Check if we can use cached memory context
+    safe_update_memory_context(session, {})  # Ensure memory_context exists
+    if (session.memory_context.cached_memory_context is not None)and not force_refresh:
+        memory_timestamp = session.memory_context.memory_context_timestamp
+        if memory_timestamp and memory_timestamp.tzinfo is None:
+            memory_timestamp = memory_timestamp.replace(tzinfo=timezone.utc)
+        
+        time_since_context_refresh = datetime.now(timezone.utc) - (memory_timestamp or datetime.min.replace(tzinfo=timezone.utc))
+        
+        if time_since_context_refresh < timedelta(minutes=SYNC_MEMORIES_ACROSS_SESSIONS_EVERY_N_MINUTES):
+            # Optional: Check if memories were updated by other sessions
+            if 1: #or await check_memory_freshness(session, agent_id, last_speaker_id):
+                print(f"   ⚡ Using cached memory context ({time.time() - start_time:.3f}s)")
                 if LOCAL_DEV:
-                    print(f"\n\n--- Fully Assembled Memory context: ---\n{cached_context}")
-                    print("----------------------------------------\n\n")
-                return cached_context
-            else:
-                refresh_reasons = []
-                if not cached_context:
-                    refresh_reasons.append("no_cache")
-                if should_refresh:
-                    refresh_reasons.append("should_refresh_flag")
-                if agent_memory_updated:
-                    refresh_reasons.append("agent_memory_updated")
-                if user_memory_updated:
-                    refresh_reasons.append("user_memory_updated")
-                print(f"   🔄 Memory context refresh needed: {', '.join(refresh_reasons)}")
-                
-        except Exception as e:
-            print(f"   ❌ Error checking cached memory: {e}")
-
-    memory_context = await regenerate_memory_context(agent_id, session_id, last_speaker_id, session)
-
-    time_taken = time.time() - start_time
-    print(f"-----> Time taken to assemble memory context: {time_taken:.2f} seconds")
-
+                    print(f"\n\n------------- Cached Memory Context --------------\n{session.memory_context.cached_memory_context}")
+                    print("-----------------------------------------------------------\n\n")
+                return session.memory_context.cached_memory_context
+        else:
+            reason = "syncing_session_memories"
+    
+    print(f"   🔄 Rebuilding memory context... Reason: {reason}")
+    
+    # Rebuild memory context
+    # 1. Get user memory (1 query)
+    user_memory_content = await _assemble_user_memory(agent_id, last_speaker_id, agent)
+    
+    # 2. Get agent memories (1 query)
+    agent_collective_memories = await _assemble_agent_memories(agent_id, agent)
+    
+    # 3. Get episode memories (0-1 queries with caching)
+    episode_memories = await _get_episode_memories(session, force_refresh=force_refresh)
+    
+    # 4. Build XML context
+    memory_context = _build_memory_xml(user_memory_content, agent_collective_memories, episode_memories)
+    
+    # 5. Update session with cached context
+    current_time = datetime.now(timezone.utc)
+    safe_update_memory_context(session, {
+        "cached_memory_context": memory_context,
+        "memory_context_timestamp": current_time,
+        "agent_memory_timestamp": current_time,
+        "user_memory_timestamp": current_time
+    }, skip_save=skip_save)
+    
+    if not skip_save:
+        session.save()
+    
+    total_time = time.time() - start_time
+    print(f"   ✓ Memory context rebuilt and cached ({total_time:.3f}s)")
+    
     if LOCAL_DEV:
-        print(f"\n\n--- Fully Assembled Memory context: ---\n{memory_context}")
-        print("----------------------------------------\n\n")
-
+        print(f"\n\n------------- Rebuilt Memory Context --------------\n{memory_context}")
+        print("-----------------------------------------------------------\n\n")
+    
     return memory_context

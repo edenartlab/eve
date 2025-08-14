@@ -651,15 +651,25 @@ class Trigger(Document):
     next_scheduled_run: Optional[datetime] = None
 
 
-class SessionContext(BaseModel):
-    memories: Optional[List[ObjectId]] = []
-    memory_updated: Optional[ObjectId] = None
-    # Memory caching fields (optional for backward compatibility)
+class SessionMemoryContext(BaseModel):
+    """Session-level memory context and caching"""
+    # Core memory caching
     cached_memory_context: Optional[str] = None
     memory_context_timestamp: Optional[datetime] = None
-    should_refresh_memory: Optional[bool] = (
-        None  # None means not set, will default to True in logic
-    )
+    
+    # Session activity tracking
+    last_activity: Optional[datetime] = None
+    last_memory_message_id: Optional[ObjectId] = None
+    messages_since_memory_formation: int = 0
+    
+    # Memory freshness timestamps
+    agent_memory_timestamp: Optional[datetime] = None
+    user_memory_timestamp: Optional[datetime] = None
+    
+    # Episode memory caching
+    cached_episode_memories: Optional[List[Dict[str, Any]]] = None
+    episode_memories_timestamp: Optional[datetime] = None
+    
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
@@ -673,18 +683,30 @@ class Session(Document):
     agents: List[ObjectId] = Field(default_factory=list)
     status: Literal["active", "archived"] = "active"
     messages: List[ObjectId] = Field(default_factory=list)
-    context: Optional[SessionContext] = SessionContext()
+    memory_context: Optional[SessionMemoryContext] = Field(default_factory=SessionMemoryContext)
     title: Optional[str] = None
     scenario: Optional[str] = None
     autonomy_settings: Optional[SessionAutonomySettings] = None
     last_actor_id: Optional[ObjectId] = None
-    last_memory_message_id: Optional[ObjectId] = (
-        None  # Track last message ID when memory formation was run
-    )
     budget: SessionBudget = SessionBudget()
     platform: Optional[Literal["discord", "telegram", "twitter", "farcaster"]] = None
     trigger: Optional[ObjectId] = None
     active_requests: Optional[List[str]] = []
+
+    @classmethod
+    def ensure_indexes(cls):
+        """Ensure indexes exist for optimal query performance"""
+        collection = cls.get_collection()
+        
+        # Compound index for cold session detection query
+        # Optimizes: Session.find({"memory_context.last_activity": {"$lt": cutoff_time}, 
+        #                         "memory_context.messages_since_memory_formation": {"$gt": 0}, 
+        #                         "status": "active"})
+        collection.create_index([
+            ("memory_context.last_activity", 1),
+            ("memory_context.messages_since_memory_formation", 1), 
+            ("status", 1)
+        ], name="cold_sessions_idx", background=True)
 
 
 @dataclass
@@ -735,6 +757,7 @@ class ClientType(Enum):
     SHOPIFY = "shopify"
     PRINTIFY = "printify"
     CAPTIONS = "captions"
+    TIKTOK = "tiktok"
 
 
 class NotificationType(Enum):
@@ -855,6 +878,19 @@ class DeploymentSecretsCaptions(BaseModel):
     api_key: str
 
 
+# TikTok Models
+class DeploymentSettingsTiktok(BaseModel):
+    pass
+
+
+class DeploymentSecretsTiktok(BaseModel):
+    access_token: str
+    refresh_token: str
+    open_id: str
+    expires_at: datetime
+    username: Optional[str] = None
+
+
 # Combined Models
 class DeploymentSecrets(BaseModel):
     discord: DeploymentSecretsDiscord | None = None
@@ -864,6 +900,7 @@ class DeploymentSecrets(BaseModel):
     shopify: DeploymentSecretsShopify | None = None
     printify: DeploymentSecretsPrintify | None = None
     captions: DeploymentSecretsCaptions | None = None
+    tiktok: DeploymentSecretsTiktok | None = None
 
 
 class DeploymentConfig(BaseModel):
@@ -874,6 +911,7 @@ class DeploymentConfig(BaseModel):
     shopify: DeploymentSettingsShopify | None = None
     printify: DeploymentSettingsPrintify | None = None
     captions: DeploymentSettingsCaptions | None = None
+    tiktok: DeploymentSettingsTiktok | None = None
 
 
 @Collection("deployments2")

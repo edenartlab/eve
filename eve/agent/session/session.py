@@ -9,7 +9,7 @@ from fastapi import BackgroundTasks
 import pytz
 from typing import List, Optional, Dict
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from bson import ObjectId
 from sentry_sdk import capture_exception
 from eve.utils import dumps_json
@@ -42,7 +42,8 @@ from eve.agent.session.session_prompts import (
     model_template,
 )
 
-from eve.agent.session.memory import should_form_memories, form_memories
+from eve.agent.session.memory import maybe_form_memories
+from eve.agent.session.memory_models import get_sender_id_to_sender_name_map, select_messages
 from eve.agent.session.memory_assemble_context import assemble_memory_context
 
 from eve.agent.session.config import (
@@ -169,46 +170,30 @@ async def determine_actors(
     return actors
 
 
-def select_messages(
-    session: Session, selection_limit: Optional[int] = DEFAULT_SESSION_SELECTION_LIMIT
-):
-    messages = ChatMessage.get_collection()
-    query = messages.find({"session": session.id, "role": {"$ne": "eden"}}).sort(
-        "createdAt", -1
-    )
-    if selection_limit is not None:
-        query = query.limit(selection_limit)
-    selected_messages = list(query)
-    selected_messages.reverse()
-    selected_messages = [ChatMessage(**msg) for msg in selected_messages]
-    # Filter out cancelled tool calls from the messages
-    selected_messages = [msg.filter_cancelled_tool_calls() for msg in selected_messages]
-    return selected_messages
 
 
 def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
     """
     Re-assembles messages from perspective of actor (assistant) and everyone else (user)
     """
-    messages = [
-        message.as_assistant_message()
-        if message.sender == actor_id
-        else message.as_user_message()
-        for message in messages
-    ]
-
-    return messages
-
-
-def print_context_state(session: Session, message: str = ""):
-    print(message)
-    print(f"Session ID: {session.id}")
-    cached_context = getattr(session.context, "cached_memory_context", None)
-    should_refresh = getattr(session.context, "should_refresh_memory", None)
-    print("Context state:")
-    print(f"Cached context: {cached_context}")
-    print(f"Should refresh: {should_refresh}")
-
+    
+    # Get sender name mapping for all messages
+    sender_name_map = get_sender_id_to_sender_name_map(messages)
+    
+    converted_messages = []
+    for message in messages:
+        if message.sender == actor_id:
+            converted_messages.append(message.as_assistant_message())
+        else:
+            user_message = message.as_user_message()
+            # Include sender name in the message content if available
+            if message.sender and message.sender in sender_name_map:
+                sender_name = sender_name_map[message.sender]
+                # Prepend the sender name to the content
+                user_message.content = f"[{sender_name}]: {user_message.content}"
+            converted_messages.append(user_message)
+    
+    return converted_messages
 
 async def build_system_message(
     session: Session,
@@ -224,10 +209,11 @@ async def build_system_message(
     memory_context = ""
     try:
         memory_context = await assemble_memory_context(
+            session,
             actor.id,
-            session_id=session.id,
             last_speaker_id=last_speaker_id,
-            session=session,
+            reason="build_system_message",
+            agent=actor
         )
         if memory_context:
             memory_context = f"\n\n{memory_context}"
@@ -301,7 +287,14 @@ def add_user_message(session: Session, context: PromptSessionContext):
     )
     new_message.save()
     session.messages.append(new_message.id)
+    session.memory_context.last_activity = datetime.now(timezone.utc)
+    session.memory_context.messages_since_memory_formation += 1
     session.save()
+
+    # Print the most recent message:
+    print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+    print(f"--- {new_message.content[:30]} ---")
+    print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
     return new_message
 
 
@@ -359,6 +352,10 @@ async def async_run_tool_call_with_cancellation(
     """
     Cancellation-aware version of async_run_tool_call that can be interrupted
     """
+    
+    if tool_call.tool == "web_search":
+        return tool_call.result
+    
     tool = llm_context.tools[tool_call.tool]
 
     # Start the task
@@ -640,6 +637,9 @@ async def process_tool_calls(
             if tool_call_id not in tool_cancellation_events:
                 tool_cancellation_events[tool_call_id] = asyncio.Event()
 
+            if tool_call.status == "completed":
+                continue
+
             tasks.append(
                 process_tool_call(
                     session,
@@ -846,6 +846,13 @@ async def async_prompt_session(
 
             assistant_message.save()
             session.messages.append(assistant_message.id)
+            session.memory_context.last_activity = datetime.now(timezone.utc)
+            session.memory_context.messages_since_memory_formation += 1
+
+            print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+            print(f"--- {assistant_message.content[:30]} ---")
+            print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+            
             update_session_budget(session, tokens_spent=tokens_spent, turns_spent=1)
             session.save()
             llm_context.messages.append(assistant_message)
@@ -1081,20 +1088,13 @@ async def _run_prompt_session_internal(
         if background_tasks:
             # Process auto-reply after all actors have completed
             if session.autonomy_settings and session.autonomy_settings.auto_reply:
-                print(
-                    f"🤖 Scheduling auto-reply as background task for session {session.id}"
-                )
                 background_tasks.add_task(
                     _queue_session_action_fastify_background_task, session
                 )
 
             # Process memory formation for all actors that participated
             for actor in actors:
-                if should_form_memories(actor.id, session):
-                    print(
-                        f"🧠 Triggering form_memories() as background task for session {session.id}, agent {actor.id}"
-                    )
-                    background_tasks.add_task(form_memories, actor.id, session)
+                background_tasks.add_task(maybe_form_memories, actor.id, session, actor)
 
             # Send success notification if configured
             if (

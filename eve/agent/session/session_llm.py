@@ -1,5 +1,6 @@
 import logging
 import os
+import uuid
 import json
 import litellm
 from litellm import completion
@@ -29,6 +30,8 @@ supported_models = [
     "claude-sonnet-4-20250514",
     "claude-opus-4-20250514",
     "gemini/gemini-2.5-flash-preview-05-20",
+    "gpt-5-2025-08-07",
+    "gpt-5-mini-2025-08-07"
 ]
 
 
@@ -99,14 +102,6 @@ def construct_tools(context: LLMContext) -> Optional[List[dict]]:
                 if "enum" in param_def:
                     param_def["enum"] = [str(val) for val in param_def["enum"]]
                     param_def["type"] = "string"
-
-    # Anthropic: add web search tool
-    elif "claude" in context.config.model:
-        tools = [*tools, {
-            "type": "web_search_20250305",
-            "name": "web_search",
-            "max_uses": 3,
-        }]
 
     return tools
 
@@ -189,17 +184,50 @@ async def async_prompt_litellm(
     messages = prepare_messages(context.messages, context.config.model)
     tools = construct_tools(context)
 
-    response = completion(
-        model=context.config.model,
-        messages=messages,
-        metadata=construct_observability_metadata(context),
-        tools=tools,
-        response_format=context.config.response_format,
-    )
+    completion_kwargs = {
+        "model": context.config.model,
+        "messages": messages,
+        "metadata": construct_observability_metadata(context),
+        "tools": tools,
+        "response_format": context.config.response_format,
+    }
 
-    tool_calls = None
+    # add web search options for Anthropic models
+    if "claude" in context.config.model:
+        completion_kwargs["web_search_options"] = {
+            "search_context_size": "medium"
+        }
+
+    response = completion(**completion_kwargs)
+
+    tool_calls = []
+    
+    # add web search as a tool call
+    if response.choices[0].message.provider_specific_fields:
+        citations = response.choices[0].message.provider_specific_fields.get("citations", [])
+        sources = []
+        for citation_block in (citations or []):
+            for citation in citation_block:
+                source = {
+                    "title": citation.get('title'),
+                    "url": citation.get('url'),
+                }
+                if not source in sources:  # avoid duplicates
+                    sources.append(source)
+        if sources:
+            tool_calls.append(
+                ToolCall(
+                    id=f"toolu_{uuid.uuid4()}",
+                    tool="web_search",
+                    args={},
+                    result=sources,
+                    status="completed",
+                )
+            )
+
+    # add regular tool calls
     if response.choices[0].message.tool_calls:
-        tool_calls = [
+        tool_calls.extend([
             ToolCall(
                 id=tool_call.id,
                 tool=tool_call.function.name,
@@ -207,11 +235,11 @@ async def async_prompt_litellm(
                 status="pending",
             )
             for tool_call in response.choices[0].message.tool_calls
-        ]
+        ])
 
     return LLMResponse(
         content=response.choices[0].message.content or "",  # content can't be None
-        tool_calls=tool_calls,
+        tool_calls=tool_calls or None,
         stop=response.choices[0].finish_reason,
         tokens_spent=response.usage.total_tokens,
     )
@@ -220,6 +248,7 @@ async def async_prompt_litellm(
 async def async_prompt_stream_litellm(
     context: LLMContext,
 ) -> AsyncGenerator[str, None]:
+    # Todo: if we use stream again, add web search here like we do in async_prompt_litellm
     response = await litellm.acompletion(
         model=context.config.model,
         messages=prepare_messages(context.messages, context.config.model),
