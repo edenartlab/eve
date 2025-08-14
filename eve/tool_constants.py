@@ -89,6 +89,7 @@ FARCASTER_TOOLS = ["farcaster_cast", "farcaster_mentions", "farcaster_search"]
 SHOPIFY_TOOLS = ["shopify"]
 PRINTIFY_TOOLS = ["printify"]
 CAPTIONS_TOOLS = ["captions"]
+TIKTOK_TOOLS = ["tiktok_post"]
 
 SOCIAL_MEDIA_TOOLS = [
     *TWITTER_TOOLS,
@@ -98,14 +99,16 @@ SOCIAL_MEDIA_TOOLS = [
     *SHOPIFY_TOOLS,
     *PRINTIFY_TOOLS,
     *CAPTIONS_TOOLS,
+    *TIKTOK_TOOLS,
 ]
 
 TOOL_SETS = {
     "create_image": ["create", "reel", "media_editor"],
-    "create_video": ["create", "reel", "media_editor"],  # deprecated
+    "create_video": [],  # deprecated
     "create_audio": ["elevenlabs", "musicgen"],
     "vj_tools": ["texture_flow", "video_FX"],
-    "news": ["news"],
+    "news": [],  # deprecated
+    "manage_collections": ["search_collections", "add_to_collection"],
     "social_media_tools": SOCIAL_MEDIA_TOOLS,
     "legacy_tools": [
         "legacy_create",

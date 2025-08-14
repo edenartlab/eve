@@ -22,20 +22,6 @@ parameters:
     description: Image URL for the product design
     tip: Provide a full URL to the image file
     required: true
-  blueprint_id:
-    type: integer
-    label: Blueprint ID
-    description: ID of the product blueprint (e.g., 5 for t-shirts, 6 for hoodies)
-    tip: Common IDs - T-shirt 5, Hoodie 6, Mug 604
-    required: true
-    default: 5
-  print_provider_id:
-    type: integer
-    label: Print Provider ID
-    description: ID of the print provider
-    tip: Each blueprint has specific providers. Common provider IDs - SwiftPOD 99, Printful 1
-    required: true
-    default: 99
   price:
     type: float
     label: Price

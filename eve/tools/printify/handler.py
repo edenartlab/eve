@@ -1,6 +1,6 @@
 import requests
 import uuid
-import random
+import traceback
 from typing import Dict, Any
 
 from eve.agent.agent import Agent
@@ -56,37 +56,38 @@ async def handler(args: dict, user: str = None, agent: str = None):
                 raise RuntimeError(f"Printify API error: {error_data}")
             raise
 
-    # Get blueprint details to find available variants
-    blueprint_id = args.get("blueprint_id")
-    print_provider_id = args.get("print_provider_id")
+    # Hardcoded blueprint and print provider
+    blueprint_id = 77
+    print_provider_id = 99
 
-    # Get variants for the blueprint and provider
-    variants_response = _api_request(
-        "GET",
-        f"/catalog/blueprints/{blueprint_id}/print_providers/{print_provider_id}/variants.json",
-    )
-
-    # Randomly select 3 variants
-    enabled_variants = []
-    variant_ids = []
-
-    # Get the variants array from the response
-    variants = variants_response.get("variants", [])
-
-    # Pick 3 random variants from the available ones
-    num_variants_to_select = min(3, len(variants))
-    selected_variants = random.sample(variants, num_variants_to_select)
-
-    for i, variant in enumerate(selected_variants):
-        variant_ids.append(variant["id"])
-        enabled_variants.append(
-            {
-                "id": variant["id"],
-                "price": int(args.get("price") * 100),  # Convert to cents
-                "is_enabled": True,
-                "is_default": i == 0,  # Make first variant default
-            }
-        )
+    # Hardcoded variants for t-shirt sizes
+    variant_ids = [32918, 32919, 32920, 32921]  # S, M, L, XL
+    enabled_variants = [
+        {
+            "id": 32918,  # Small (S)
+            "price": int(args.get("price") * 100),  # Convert to cents
+            "is_enabled": True,
+            "is_default": True,  # Make S the default
+        },
+        {
+            "id": 32919,  # Medium (M)
+            "price": int(args.get("price") * 100),  # Convert to cents
+            "is_enabled": True,
+            "is_default": False,
+        },
+        {
+            "id": 32920,  # Large (L)
+            "price": int(args.get("price") * 100),  # Convert to cents
+            "is_enabled": True,
+            "is_default": False,
+        },
+        {
+            "id": 32921,  # Extra Large (XL)
+            "price": int(args.get("price") * 100),  # Convert to cents
+            "is_enabled": True,
+            "is_default": False,
+        },
+    ]
 
     # Upload image to Printify first
     image_url = args.get("image")
@@ -134,9 +135,10 @@ async def handler(args: dict, user: str = None, agent: str = None):
     product_id = created_product["id"]
 
     # Auto-publish if requested
+    published = False
     if args.get("auto_publish"):
         try:
-            publish_response = _api_request(
+            _api_request(
                 "POST",
                 f"/shops/{shop_id}/products/{product_id}/publish.json",
                 {
@@ -147,6 +149,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
                     "tags": True,
                 },
             )
+            published = True
         except Exception as e2:
             print(
                 f"Auto-publish failed: {e2}. Product created but remains in draft state."
@@ -173,9 +176,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
 
     # If no images in main response, check variants for images
     if not product_images and "variants" in product_details:
-        for variant in product_details["variants"][
-            :3
-        ]:  # Get images from first 3 variants
+        for variant in product_details["variants"]:
             if variant.get("preview_url"):
                 product_images.append(
                     {
@@ -185,8 +186,56 @@ async def handler(args: dict, user: str = None, agent: str = None):
                     }
                 )
 
-    # Generate product URL - use the public product details URL format
+    # Generate product URL
     product_url = f"https://printify.com/app/product-details/{product_id}"
+
+    # If published, generate the Shopify URL from the title slug
+    if published:
+        try:
+            # Get shop details to find the Shopify domain
+            shop_details = _api_request("GET", "/shops.json")
+
+            # Find the specific shop from the list
+            shop_info = None
+            for shop in shop_details:
+                if str(shop.get("id")) == str(shop_id):
+                    shop_info = shop
+                    break
+
+            if not shop_info:
+                raise RuntimeError(f"Shop with ID {shop_id} not found")
+
+            if shop_info.get("sales_channel") == "shopify":
+                # Try to get the Shopify store name from an existing Shopify deployment
+                try:
+                    shopify_deployment = Deployment.load(
+                        agent=agent_obj.id, platform="shopify"
+                    )
+                    if shopify_deployment and shopify_deployment.secrets.shopify:
+                        shopify_store_name = (
+                            shopify_deployment.secrets.shopify.store_name
+                        )
+
+                        # Generate slug from product title
+                        title = product_details.get("title", args.get("title", ""))
+                        # Convert title to slug: lowercase, replace spaces with hyphens, remove special chars
+                        slug = "".join(
+                            c if c.isalnum() or c == " " else "" for c in title.lower()
+                        )
+                        slug = "-".join(slug.split())
+
+                        # Construct the Shopify URL
+                        product_url = f"https://{shopify_store_name}.myshopify.com/products/{slug}"
+                    else:
+                        print(
+                            "No Shopify deployment found for this agent, using Printify URL"
+                        )
+                except Exception as e:
+                    print(f"Could not get Shopify deployment: {e}")
+        except Exception as e:
+            # If we can't get the Shopify URL, fall back to Printify URL
+            print(f"Could not construct Shopify URL: {e}")
+            print(f"Full traceback:\n{traceback.format_exc()}")
 
     return {
         "output": [
@@ -195,7 +244,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
                 "product_id": product_id,
                 "images": product_images,
                 "title": product_details.get("title", args.get("title")),
-                "status": "published" if args.get("auto_publish") else "draft",
+                "status": "published" if published else "draft",
             }
         ]
     }

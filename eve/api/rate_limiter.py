@@ -45,6 +45,11 @@ FEATURE_FLAG_MANNA_LIMITS = {
         MannaSpendRateLimit(spend=10**5, period=3 * 60 * 60),
         MannaSpendRateLimit(spend=10**6, period=30 * 24 * 60 * 60),
     ],
+    "limits_Admin": [
+        MannaSpendRateLimit(spend=10**5, period=60),
+        MannaSpendRateLimit(spend=10**5, period=3 * 60 * 60),
+        MannaSpendRateLimit(spend=10**6, period=30 * 24 * 60 * 60),
+    ],
     "test_rate_limit": [
         MannaSpendRateLimit(spend=2, period=60),
         MannaSpendRateLimit(spend=4, period=3 * 60 * 60),
