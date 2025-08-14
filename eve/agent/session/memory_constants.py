@@ -21,10 +21,10 @@ if LOCAL_DEV:
     SESSION_MESSAGES_LOOKBACK_LIMIT = 4  # Max messages to look back in a session when forming raw memories
     
     # Normal memory settings:
-    MAX_DIRECTIVES_COUNT_BEFORE_CONSOLIDATION = 3  # Number of individual memories to store before consolidating them into the agent's user_memory blob
+    MAX_USER_MEMORIES_BEFORE_CONSOLIDATION = 3  # Number of individual memories to store before consolidating them into the agent's user_memory blob
     MAX_N_EPISODES_TO_REMEMBER = 2  # Number of episodes to keep in context from a session
     # Collective memory settings:
-    MAX_SUGGESTIONS_COUNT_BEFORE_CONSOLIDATION = 2 # Number of suggestions to store before consolidating them into the agent's collective memory blob
+    MAX_AGENT_MEMORIES_BEFORE_CONSOLIDATION = 2 # Number of suggestions to store before consolidating them into the agent's collective memory blob
     MAX_FACTS_PER_SHARD = 3 # Max number of facts to store per agent shard (fifo)
     
 else:
@@ -35,10 +35,10 @@ else:
     SESSION_MESSAGES_LOOKBACK_LIMIT = DEFAULT_SESSION_SELECTION_LIMIT  # Max messages to look back in a session when forming raw memories
 
     # Normal memory settings:
-    MAX_DIRECTIVES_COUNT_BEFORE_CONSOLIDATION = 4  # Number of individual memories to store before consolidating them into the agent's user_memory blob
+    MAX_USER_MEMORIES_BEFORE_CONSOLIDATION = 4  # Number of individual memories to store before consolidating them into the agent's user_memory blob
     MAX_N_EPISODES_TO_REMEMBER = 8  # Number of episodes to keep in context from a session
     # Collective memory settings:
-    MAX_SUGGESTIONS_COUNT_BEFORE_CONSOLIDATION = 8 # Number of suggestions to store before consolidating them into the agent's collective memory blob
+    MAX_AGENT_MEMORIES_BEFORE_CONSOLIDATION = 8 # Number of suggestions to store before consolidating them into the agent's collective memory blob
     MAX_FACTS_PER_SHARD = 50 # Max number of facts to store per agent shard (fifo)
     
   # Configuration for cold session processing

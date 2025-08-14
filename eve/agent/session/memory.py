@@ -39,6 +39,35 @@ def safe_update_memory_context(session: Session, updates: Dict[str, Any]) -> Non
         for key, value in updates.items():
             setattr(session.memory_context, key, value)
 
+def safe_ensure_shard_config(shard: 'AgentMemory') -> None:
+    """
+    Ensure AgentMemory shard has the required configuration parameters.
+    If they don't exist, set them to defaults from memory_constants.
+    
+    Args:
+        shard: AgentMemory object to ensure has config parameters
+    """
+    try:
+        config_updated = False
+        
+        # Check and set max_facts_per_shard
+        if not hasattr(shard, 'max_facts_per_shard') or shard.max_facts_per_shard is None:
+            shard.max_facts_per_shard = MAX_FACTS_PER_SHARD
+            config_updated = True
+            
+        # Check and set max_agent_memories_before_consolidation
+        if not hasattr(shard, 'max_agent_memories_before_consolidation') or shard.max_agent_memories_before_consolidation is None:
+            shard.max_agent_memories_before_consolidation = MAX_AGENT_MEMORIES_BEFORE_CONSOLIDATION
+            config_updated = True
+        
+        # Save if we made any updates
+        if config_updated:
+            shard.save()
+            
+    except Exception as e:
+        # Fallback: if anything fails, just use the constants directly
+        print(f"Warning: Could not ensure shard config for {shard.shard_name}: {e}")
+
 async def _store_memories_by_type(
     agent_id: ObjectId,
     session_id: ObjectId,
@@ -162,7 +191,7 @@ async def _update_user_memory(
             memory_doc=user_memory,
             new_memory_ids=[m.id for m in new_directive_memories],
             unabsorbed_field='unabsorbed_memory_ids',
-            max_before_consolidation=MAX_DIRECTIVES_COUNT_BEFORE_CONSOLIDATION,
+            max_before_consolidation=MAX_USER_MEMORIES_BEFORE_CONSOLIDATION,
             consolidation_func=_consolidate_user_directives,
             memory_type="directive"
         )
@@ -184,7 +213,7 @@ async def _update_agent_memory(
 ) -> bool:
     """
     Add new facts and suggestions to their originating agent memory shards only.
-    Facts are added to shard.facts (FIFO up to MAX_FACTS_PER_SHARD).
+    Facts are added to shard.facts (FIFO up to shard-specific max_facts_per_shard limit).
     Suggestions are added to unabsorbed_memory_ids for consolidation.
     Returns True if any agent memories were updated.
     """
@@ -217,6 +246,9 @@ async def _update_agent_memory(
                     logging.warning(f"No agent memory shard found for shard_id '{shard_id}'")
                     continue
                 
+                # Ensure shard has required config parameters
+                safe_ensure_shard_config(shard)
+                
                 # Update shard inline instead of calling _update_single_shard
                 shard_updated = False
                 
@@ -226,9 +258,9 @@ async def _update_agent_memory(
                     for fact in new_facts:
                         shard.facts.append(fact.id)
                     
-                    # Maintain FIFO - keep only the most recent facts
-                    if len(shard.facts) > MAX_FACTS_PER_SHARD:
-                        shard.facts = shard.facts[-MAX_FACTS_PER_SHARD:]
+                    # Maintain FIFO - keep only the most recent facts using shard-specific limit
+                    if len(shard.facts) > shard.max_facts_per_shard:
+                        shard.facts = shard.facts[-shard.max_facts_per_shard:]
                     
                     shard_updated = True
                 
@@ -239,7 +271,7 @@ async def _update_agent_memory(
                         memory_doc=shard,
                         new_memory_ids=[s.id for s in new_suggestions],
                         unabsorbed_field='unabsorbed_memory_ids',
-                        max_before_consolidation=MAX_SUGGESTIONS_COUNT_BEFORE_CONSOLIDATION,
+                        max_before_consolidation=shard.max_agent_memories_before_consolidation,
                         consolidation_func=_consolidate_agent_suggestions,
                         memory_type="suggestion"
                     )
@@ -470,6 +502,8 @@ async def _consolidate_agent_suggestions(shard: AgentMemory):
     Consolidate unabsorbed suggestion memories into the agent memory shard using LLM.
     """
     try:
+        # Ensure shard has required config parameters
+        safe_ensure_shard_config(shard)
         # Load unabsorbed suggestions - handle legacy shards that might not have unabsorbed_memory_ids field
         unabsorbed_memory_ids = getattr(shard, 'unabsorbed_memory_ids', [])
         unabsorbed_suggestions = await _load_memories_by_ids(

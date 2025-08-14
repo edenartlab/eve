@@ -3,6 +3,7 @@ from bson import ObjectId
 from eve.mongo import Collection, Document
 from datetime import datetime, timezone
 
+from eve.agent.session.memory_constants import MAX_FACTS_PER_SHARD, MAX_AGENT_MEMORIES_BEFORE_CONSOLIDATION
 from eve.agent.session.models import ChatMessage
 from eve.user import User
 
@@ -188,6 +189,10 @@ class AgentMemory(Document):
 
     # Track when the memory blob was last updated:
     last_updated_at: Optional[datetime] = None
+
+    # Configurable parameters (with defaults from memory_constants.py)
+    max_facts_per_shard: Optional[int] = MAX_FACTS_PER_SHARD
+    max_agent_memories_before_consolidation: Optional[int] = MAX_AGENT_MEMORIES_BEFORE_CONSOLIDATION
 
     @classmethod
     def convert_to_mongo(cls, schema: dict, **kwargs) -> dict:
