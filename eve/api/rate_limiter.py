@@ -111,6 +111,8 @@ class RateLimiter:
         for limit in highest_limits:
             result = list(Task.get_collection().aggregate(pipeline(limit)))
             total_spend = result[0]["total_spend"] if result else 0
+            print("***debug total_spend", total_spend)
+            print("***debug limit", limit)
             if total_spend >= limit.spend:
                 period_minutes = limit.period // 60
                 period_display = (
@@ -154,7 +156,9 @@ class RateLimiter:
                 return True
 
             # Find the highest limit for each time period
+            print("***debug all_applicable_limits", all_applicable_limits)
             highest_limits = self._find_highest_limits(all_applicable_limits)
+            print("***debug highest_limits", highest_limits)
 
             # Define pipeline generator for manna spend limits
             def generate_pipeline(limit):
@@ -171,7 +175,9 @@ class RateLimiter:
                 ]
 
             # Check against each highest limit
-            return await self._check_against_limits(highest_limits, generate_pipeline)
+            limits = await self._check_against_limits(highest_limits, generate_pipeline)
+            print("***debug limits", limits)
+            return limits
 
     async def check_agent_rate_limit(self, user: User, agent_id: str) -> bool:
         """
@@ -201,8 +207,11 @@ class RateLimiter:
             elif user.subscriptionTier <= 2:
                 applicable_limits.extend(AGENT_RATE_LIMITS["basic_limits"])
 
+            print("***debug applicable_limits", applicable_limits)
+
             # Find the highest limit for each time period (if there are multiple with same period)
             highest_limits = self._find_highest_limits(applicable_limits)
+            print("***debug highest_limits", highest_limits)
 
             # Define pipeline generator for agent rate limits
             def generate_pipeline(limit):
@@ -219,4 +228,7 @@ class RateLimiter:
                 ]
 
             # Check against each limit
-            return await self._check_against_limits(highest_limits, generate_pipeline)
+            limits = await self._check_against_limits(highest_limits, generate_pipeline)
+            print("***debug limits", limits)
+
+            return limits
