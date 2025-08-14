@@ -9,7 +9,7 @@ class MemoryType:
     
 # Flag to easily switch between local and production memory settings (keep this in but always set to False in production):
 # Remember to also deploy bg apps with LODAL_DEV = False!
-LOCAL_DEV = True
+LOCAL_DEV = False
 
 # Memory formation settings:
 if LOCAL_DEV:
@@ -28,7 +28,7 @@ if LOCAL_DEV:
 else:
     MEMORY_LLM_MODEL_FAST = "gpt-5-mini-2025-08-07"
     MEMORY_LLM_MODEL_SLOW = "gpt-5-2025-08-07"
-    MEMORY_FORMATION_MSG_INTERVAL   = 25    # Number of messages to wait before forming memories
+    MEMORY_FORMATION_MSG_INTERVAL   = 10    # Number of messages to wait before forming memories
     MEMORY_FORMATION_TOKEN_INTERVAL = 2000  # Number of tokens to wait before forming memories
 
     # Normal memory settings:
@@ -40,7 +40,7 @@ else:
     
 # Configuration for cold session processing
 CONSIDER_COLD_AFTER_MINUTES = 10  # Consider a session cold if no activity for this many minutes
-CLEANUP_COLD_SESSIONS_EVERY_MINUTES = 30  # Run the background task every N minutes
+CLEANUP_COLD_SESSIONS_EVERY_MINUTES = 10  # Run the background task every N minutes
 
 SYNC_MEMORIES_ACROSS_SESSIONS_EVERY_N_MINUTES = 5
 NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES = 2
