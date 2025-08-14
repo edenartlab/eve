@@ -1,6 +1,24 @@
 """
 Memory state management for cold session processing.
 This module handles background processing of sessions that need memory formation.
+
+Run locally:
+cd /Users/xandersteenbrugge/Documents/GitHub/Eden/eve
+DB=STAGE PYTHONPATH=/Users/xandersteenbrugge/Documents/GitHub/Eden python -m eve.agent.session.memory_cold_sessions_processor
+
+DEPLOYMENT COMMANDS:
+# Deploy to staging
+DB=STAGE modal deploy eve/agent/session/memory_cold_sessions_processor.py
+
+# Deploy to production  
+DB=PROD modal deploy eve/agent/session/memory_cold_sessions_processor.py
+
+# Monitor deployments
+modal app list
+modal app logs memory_process_cold_sessions
+
+# Stop deployment
+modal app stop memory_process_cold_sessions
 """
 
 import os
@@ -25,11 +43,11 @@ async def process_cold_sessions():
         
         current_time = datetime.now(timezone.utc)
         cutoff_time = current_time - timedelta(minutes=CONSIDER_COLD_AFTER_MINUTES)
-        hard_filter_date = current_time - timedelta(days=3)
+        hard_filter_date = current_time - timedelta(days=2)
         
         # Query for cold sessions that need memory processing with pagination
         # Handle cases where memory_context may not exist
-        BATCH_SIZE = 50  # Process in batches to avoid memory issues
+        MAX_SESSIONS_TO_PROCESS = 500  # Process in batches to avoid memory issues
         
         # Simplified query with compound index optimization
         base_query = {
@@ -51,11 +69,15 @@ async def process_cold_sessions():
         }
         
         # Process both query results with limits
-        cold_sessions_with_context = Session.find(query_with_context, limit=BATCH_SIZE)
-        cold_sessions_without_context = Session.find(query_without_context, limit=BATCH_SIZE)
+        print(f"Running queries...")
+        cold_sessions_with_context = Session.find(query_with_context, limit=MAX_SESSIONS_TO_PROCESS // 2)
+        cold_sessions_without_context = Session.find(query_without_context, limit=MAX_SESSIONS_TO_PROCESS // 2)
         
         # Combine results
         cold_sessions = list(cold_sessions_with_context) + list(cold_sessions_without_context)
+        print(f"Found {len(cold_sessions_with_context)} cold sessions with context")
+        print(f"Found {len(cold_sessions_without_context)} cold sessions without context")
+        print(f"Found {len(cold_sessions)} total cold sessions to process")
         
         processed_count = 0
         skipped_count = 0
@@ -111,7 +133,7 @@ image = (
 )
 
 app = modal.App(
-    name="update_agent_memories",
+    name="memory_process_cold_sessions",
     secrets=[
         modal.Secret.from_name("eve-secrets"),
         modal.Secret.from_name(f"eve-secrets-{db}"),
