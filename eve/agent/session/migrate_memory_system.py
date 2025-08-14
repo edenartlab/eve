@@ -37,11 +37,11 @@ async def migrate_sessions():
             
             # Build the new memory_context structure
             memory_context = {
-                "cached_memory_context": session_data.get("context", {}).get("cached_memory_context"),
-                "memory_context_timestamp": session_data.get("context", {}).get("memory_context_timestamp"),
-                "last_activity": session_data.get("updatedAt", datetime.now(timezone.utc)),
-                "last_memory_message_id": session_data.get("last_memory_message_id"),
-                "messages_since_memory_formation": 0,  # Start fresh
+                "cached_memory_context": None,
+                "memory_context_timestamp": None,
+                "last_activity": None,
+                "last_memory_message_id": None,
+                "messages_since_memory_formation": 0,
                 "agent_memory_timestamp": None,
                 "user_memory_timestamp": None,
                 "cached_episode_memories": None,

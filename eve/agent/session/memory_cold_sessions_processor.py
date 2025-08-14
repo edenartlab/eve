@@ -113,7 +113,9 @@ app = modal.App(
 
 @app.function(
     image=image, 
-    max_containers=1, 
+    min_containers=0,
+    max_containers=1,
+    scaledown_window=10,
     schedule=modal.Period(minutes=CLEANUP_COLD_SESSIONS_EVERY_MINUTES), 
     timeout=3600
 )
