@@ -309,7 +309,7 @@ async def _add_memories_and_maybe_consolidate(
     
     # Use MongoDB atomic operation to add memories and avoid race conditions
     try:
-        collection = memory_doc._get_collection()
+        collection = memory_doc.get_collection()
         result = collection.update_one(
             {"_id": memory_doc.id},
             {"$push": {unabsorbed_field: {"$each": new_memory_ids}}}
