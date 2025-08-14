@@ -33,7 +33,7 @@ def get_sender_id_to_sender_name_map(messages: List[ChatMessage]) -> Dict[Object
             try:
                 sender_id_to_sender_name_map[user["_id"]] = f"{user['username']} ({user['type']})"
             except (KeyError, TypeError) as e:
-                print(f"Error processing user {user.get('_id', 'unknown')}: {e}")
+                print(f"Error processing user {user.get('_id', "unknown")}: {e}")
                 traceback.print_exc()
                 if "_id" in user:
                     sender_id_to_sender_name_map[user["_id"]] = "unknown"
