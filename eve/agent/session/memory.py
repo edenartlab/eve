@@ -14,7 +14,7 @@ from pydantic import Field, create_model
 
 from eve.agent.session.session_llm import async_prompt, LLMContext, LLMConfig
 from eve.agent.session.models import ChatMessage, Session, LLMContextMetadata, LLMTraceMetadata, SessionMemoryContext
-from eve.agent.session.memory_models import SessionMemory, UserMemory, AgentMemory, get_agent_owner, messages_to_text, _get_recent_messages, _format_memories_with_age, estimate_tokens
+from eve.agent.session.memory_models import SessionMemory, UserMemory, AgentMemory, get_agent_owner, messages_to_text, _get_recent_messages, _format_memories_with_age, estimate_tokens, select_messages
 from eve.agent.session.memory_constants import *
 from eve.agent.session.memory_constants import MEMORY_LLM_MODEL_FAST, MEMORY_LLM_MODEL_SLOW
 
@@ -63,6 +63,7 @@ def safe_ensure_shard_config(shard: 'AgentMemory') -> None:
             
     except Exception as e:
         print(f"Warning: Could not ensure shard config for {shard.shard_name}: {e}")
+        traceback.print_exc()
 
 async def _store_memories_by_type(
     agent_id: ObjectId,
@@ -177,6 +178,12 @@ async def _update_user_memory(
     """
     try:
         if not agent_id or not user_id or not new_directive_memories:
+            return
+
+        # Check if user memory is enabled for this agent
+        from eve.agent.agent import Agent
+        agent = Agent.from_mongo(agent_id)
+        if not agent or not getattr(agent, 'user_memory_enabled', True):
             return
 
         user_memory = UserMemory.find_one_or_create(
@@ -309,7 +316,6 @@ async def _add_memories_and_maybe_consolidate(
         )
         
         if result.modified_count == 0:
-            print(f"Warning: Failed to atomically update {unabsorbed_field} for {memory_doc.__class__.__name__}")
             return
         
         # Reload document to get updated state
@@ -354,10 +360,6 @@ async def _consolidate_with_llm(
     
     consolidation_prompt = consolidation_prompt_template.format(**format_args)
 
-    if LOCAL_DEV and 0:
-        print(f"--- Final LLM Consolidation Prompt: ---\n{consolidation_prompt}")
-        print("----------------------------------------\n\n")
-
     context = LLMContext(
         messages=[ChatMessage(role="user", content=consolidation_prompt)],
         config=LLMConfig(model=model),
@@ -396,14 +398,6 @@ async def extract_memories_with_llm(
         extraction_prompt = "Conversation text:\n" + CONVERSATION_TEXT_TOKEN + "\n" + extraction_prompt
     
     extraction_prompt = extraction_prompt.replace(CONVERSATION_TEXT_TOKEN, conversation_text)
-
-    if "-&&-" in extraction_prompt:
-        print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
-        print("@@@@@@@@ WARNING in extract_memories_with_llm @@@@@@@@@@@@@@@@@@@@")
-        print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
-
-        print(extraction_prompt)
-    
     # Dynamically create model with only requested fields and max_length constraints
     fields = {}
     for element in extraction_elements:
@@ -452,15 +446,6 @@ async def extract_memories_with_llm(
         extracted = MemoryModel.model_validate_json(response.content)
         formatted_data = extracted.model_dump()
     
-    # Log the extraction process
-    if LOCAL_DEV and 0:
-        print("########################")
-        print("Forming new memories...")
-        #print(f"--- Messages: ---\n{context.messages}")
-        #print(f"--- Prompt: ---\n{extraction_prompt}")
-        print(f"--- New Memories: ---\n{formatted_data}")
-        print("########################")
-    
     return formatted_data
 
 
@@ -481,14 +466,6 @@ async def _consolidate_user_directives(user_memory: UserMemory):
 
         # Prepare content for LLM consolidation
         new_memories_text = _format_memories_with_age(unabsorbed_memories)
-        
-        print(f"Consolidating {len(unabsorbed_memories)} directives to user_memory")
-
-        if "-&&-" in USER_MEMORY_CONSOLIDATION_PROMPT:
-            print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
-            print("@@@@@ WARNING in AGENT_MEMORY_CONSOLIDATION_PROMPT @@@@@@@@@@@@@@@@@@@@@@")
-            print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
-
         # Use generic LLM consolidation
         consolidated_content = await _consolidate_with_llm(
             USER_MEMORY_CONSOLIDATION_PROMPT,
@@ -506,8 +483,6 @@ async def _consolidate_user_directives(user_memory: UserMemory):
         user_memory.unabsorbed_memory_ids = []
         user_memory.last_updated_at = datetime.now(timezone.utc)
         user_memory.save()
-        
-        print(f"✓ Consolidated user memory updated (length: {len(consolidated_content)} chars)")
 
     except Exception as e:
         print(f"Error consolidating user directives: {e}")
@@ -535,19 +510,9 @@ async def _consolidate_agent_suggestions(shard: AgentMemory):
         facts_text = _format_memories_with_age(current_facts)
         suggestions_text = "\n".join([f"- {s.content}" for s in unabsorbed_suggestions])
 
-        print(f"Consolidating {len(unabsorbed_suggestions)} suggestions for agent memory shard '{shard.shard_name}'")
-        print(f"Current memory length: {len(shard.content or '')} chars")
-        print(f"New suggestions:\n{suggestions_text}")
-
         populated_prompt = AGENT_MEMORY_CONSOLIDATION_PROMPT.replace(
                 SHARD_EXTRACTION_PROMPT_TOKEN, shard.extraction_prompt
             )
-        
-        if "-&&-" in populated_prompt:
-            print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
-            print("@@@@@ WARNING in AGENT_MEMORY_CONSOLIDATION_PROMPT @@@@@@@@@@@@@@@@@@@@@@")
-            print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
-
         # Use generic LLM consolidation
         consolidated_content = await _consolidate_with_llm(
             populated_prompt,
@@ -581,7 +546,7 @@ async def _load_memories_by_ids(
         return []
     
     # Add reasonable limit to prevent resource exhaustion
-    MAX_BATCH_SIZE = 1000
+    MAX_BATCH_SIZE = 200
     if len(memory_ids) > MAX_BATCH_SIZE:
         print(f"Warning: Truncating memory_ids from {len(memory_ids)} to {MAX_BATCH_SIZE} to prevent resource exhaustion")
         memory_ids = memory_ids[:MAX_BATCH_SIZE]
@@ -617,7 +582,6 @@ async def _regenerate_fully_formed_agent_memory(shard: AgentMemory):
     - Consolidated memory blob
     - Unabsorbed memories (suggestions)
     """
-    print(f" ---> regenerating fully formed agent memory for shard {shard.shard_name}")
     try:
         shard_content = []
 
@@ -663,8 +627,6 @@ async def _regenerate_fully_formed_user_memory(user_memory: UserMemory):
     - Unabsorbed directive memories with age information
     """
 
-    print(f" ---> regenerating fully formed user memory for user {user_memory.user_id}")
-
     try:
         user_content = []
         
@@ -699,7 +661,8 @@ async def _extract_all_memories(
     agent_id: ObjectId, 
     conversation_text: str,
     session: Session,
-    user_id: ObjectId = None
+    user_id: ObjectId = None,
+    agent = None
 ) -> Tuple[Dict[str, List[str]], Dict[str, ObjectId]]:
     """Extract both regular and collective memories from conversation."""
     extracted_data = {}
@@ -720,11 +683,18 @@ async def _extract_all_memories(
     )
     extracted_data.update(regular_memories)
     
-    # Extract collective memories from active shards
+    # Extract collective memories from active shards if agent memory is enabled
+    if agent is None:
+        from eve.agent.agent import Agent
+        agent = Agent.from_mongo(agent_id)
+    
+    if not agent or not getattr(agent, 'agent_memory_enabled', True):
+        print(f"AgentMemory disabled for agent {agent_id}, skipping collective memory extraction")
+        return extracted_data, memory_to_shard_map
+    
     active_shards = AgentMemory.find({"agent_id": agent_id, "is_active": True})
 
     if not active_shards:
-        print(f"No active shards found for agent {agent_id}")
         return extracted_data, memory_to_shard_map
     
     for shard in active_shards:
@@ -766,16 +736,13 @@ async def _extract_all_memories(
     
     return extracted_data, memory_to_shard_map
 
-def should_form_memories(agent_id: ObjectId, session: Session, force_memory_formation: bool = False) -> bool:
+def should_form_memories(agent_id: ObjectId, session: Session) -> bool:
     """
     Check if memory formation should run based on either messages elapsed or tokens accumulated since last formation.
     Returns True if memory formation should occur.
     """
     try:
-        from eve.agent.session.session import select_messages
-        session_messages = select_messages(
-            session, selection_limit=SESSION_MESSAGES_LOOKBACK_LIMIT
-        )
+        session_messages = select_messages(session)
 
         if not agent_id or not session_messages or len(session_messages) == 0:
             return False
@@ -789,6 +756,8 @@ def should_form_memories(agent_id: ObjectId, session: Session, force_memory_form
             if session.memory_context.last_memory_message_id:
                 last_memory_position = message_id_to_index.get(session.memory_context.last_memory_message_id, -1)
         except Exception as e:
+            print(f"Error getting last memory position for session {session.id}: {e}")
+            traceback.print_exc()
             safe_update_memory_context(session, {})
 
         # Get recent messages since last memory formation
@@ -799,21 +768,22 @@ def should_form_memories(agent_id: ObjectId, session: Session, force_memory_form
         if messages_since_last < NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES:
             return False
         
-        if force_memory_formation:
-            return True
-        
-        # If using message-based trigger
+        # Check message-based trigger if configured
         if MEMORY_FORMATION_MSG_INTERVAL is not None:
-            print(f"Session {session.id}: {len(session_messages)} total messages, {messages_since_last} since last memory formation")
-            return messages_since_last >= MEMORY_FORMATION_MSG_INTERVAL
+            msg_trigger_met = messages_since_last >= MEMORY_FORMATION_MSG_INTERVAL
+            if msg_trigger_met:
+                return True
         
-        # Otherwise use token-based trigger
-        else:
+        # Check token-based trigger if configured
+        if MEMORY_FORMATION_TOKEN_INTERVAL is not None:
             # Convert recent messages to text and count tokens
             recent_text = messages_to_text(recent_messages, fast_dry_run=True)
             tokens_since_last = estimate_tokens(recent_text)
-            print(f"Session {session.id}: {len(session_messages)} total messages, ~{tokens_since_last} tokens since last memory formation")
-            return tokens_since_last >= MEMORY_FORMATION_TOKEN_INTERVAL
+            token_trigger_met = tokens_since_last >= MEMORY_FORMATION_TOKEN_INTERVAL
+            if token_trigger_met:
+                return True
+        
+        return False
             
     except Exception as e:
         print(f"Error checking if memory formation should run for agent {agent_id} in session {session.id}: {e}")
@@ -821,44 +791,32 @@ def should_form_memories(agent_id: ObjectId, session: Session, force_memory_form
         return False
 
 
-async def maybe_form_memories(agent_id: ObjectId, session: Session) -> bool:
-    """
-    Check if memories should be formed, and if so, form them.
-    Also ensures the session is tracked in session_state for cold session processing.
-    """
+async def maybe_form_memories(agent_id: ObjectId, session: Session, agent = None) -> bool:
     start_time = time.time()
 
     if not should_form_memories(agent_id, session):
         stop_time = time.time()
-        print(f" #### maybe_form_memories() returned without forming after {stop_time - start_time:.2f} seconds")
         return
     
-    await form_memories(agent_id, session)
+    await form_memories(agent_id, session, agent)
     stop_time = time.time()
-    print(f" #### maybe_form_memories() took {stop_time - start_time:.2f} seconds to complete")
     return
 
 
-async def form_memories(agent_id: ObjectId, session: Session) -> bool:
+async def form_memories(agent_id: ObjectId, session: Session, agent = None) -> bool:
     """
     Form memories from recent conversation messages.
     Returns True if memories were formed.
     """
     start_time = time.time()
-    print('@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@')
-    print(f"--- STARTED FORMING MEMORIES ---")
-    print('@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@')
-    
-    from eve.agent.session.session import select_messages
-    session_messages = select_messages(
-        session, selection_limit=SESSION_MESSAGES_LOOKBACK_LIMIT
-    )
-
-    if not agent_id or not session_messages or len(session_messages) == 0:
-        print(f"No agent or messages found for session {session.id}")
-        return False
     
     try:
+        
+        session_messages = select_messages(session)
+
+        if not agent_id or not session_messages or len(session_messages) == 0:
+            return False
+
         # Get messages since last memory formation
         safe_update_memory_context(session, {})  # Ensure memory_context exists
         recent_messages = _get_recent_messages(session_messages, session.memory_context.last_memory_message_id)
@@ -867,7 +825,7 @@ async def form_memories(agent_id: ObjectId, session: Session) -> bool:
             conversation_text = messages_to_text(recent_messages)
 
             extracted_data, memory_to_shard_map = await _extract_all_memories(
-                agent_id, conversation_text, session
+                agent_id, conversation_text, session, agent=agent
             )
             
             await _save_all_memories(
@@ -881,7 +839,7 @@ async def form_memories(agent_id: ObjectId, session: Session) -> bool:
         last_speaker_id = related_users[-1]
 
         from eve.agent.session.memory_assemble_context import assemble_memory_context
-        await assemble_memory_context(session, agent_id, last_speaker_id, force_refresh=True, reason="form_memories", skip_save=True)
+        await assemble_memory_context(session, agent_id, last_speaker_id, force_refresh=True, reason="form_memories", skip_save=True, agent=agent)
         
         # Update the session's memory formation tracking and save once
         safe_update_memory_context(session, {

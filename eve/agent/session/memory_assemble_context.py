@@ -1,14 +1,14 @@
 from eve.agent.session.memory_models import SessionMemory, UserMemory, AgentMemory
 from eve.agent.session.memory_constants import MAX_N_EPISODES_TO_REMEMBER, LOCAL_DEV, SYNC_MEMORIES_ACROSS_SESSIONS_EVERY_N_MINUTES
 
-import time, logging
+import time, logging, traceback, asyncio
 from bson import ObjectId
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone, timedelta
 from eve.agent.session.models import Session
 from eve.agent.session.memory import safe_update_memory_context
 
-async def _assemble_user_memory(agent_id: ObjectId, user_id: ObjectId) -> str:
+async def _assemble_user_memory(agent_id: ObjectId, user_id: ObjectId, agent=None) -> str:
     """
     Step 1: Assemble user memory content.
     Returns user_memory_content
@@ -17,6 +17,14 @@ async def _assemble_user_memory(agent_id: ObjectId, user_id: ObjectId) -> str:
     user_memory = None
 
     try:
+        # Check if user memory is enabled for this agent
+        if agent is None:
+            from eve.agent.agent import Agent
+            agent = Agent.from_mongo(agent_id)
+        
+        if not agent or not getattr(agent, 'user_memory_enabled', True):
+            print(f"   ⚠️  UserMemory disabled for agent {agent_id}, returning empty content")
+            return ""
         query_start = time.time()
         user_memory = UserMemory.find_one_or_create(
             {"agent_id": agent_id, "user_id": user_id}
@@ -36,6 +44,7 @@ async def _assemble_user_memory(agent_id: ObjectId, user_id: ObjectId) -> str:
 
     except Exception as e:
         print(f"   ❌ Error retrieving user memory: {e}")
+        traceback.print_exc()
 
     return user_memory_content
 
@@ -48,7 +57,7 @@ async def _get_episode_memories(session: Session, force_refresh: bool = False) -
     # Check if we have cached episodes:
     safe_update_memory_context(session, {})  # Ensure memory_context exists
     if (not force_refresh and 
-        session.memory_context.cached_episode_memories):
+        session.memory_context.cached_episode_memories is not None):
         print(f"   ⚡ Using cached episode memories ({len(session.memory_context.cached_episode_memories)} episodes)")
         return session.memory_context.cached_episode_memories
     
@@ -56,11 +65,17 @@ async def _get_episode_memories(session: Session, force_refresh: bool = False) -
     try:
         query_start = time.time()
         episode_query = {"source_session_id": session.id, "memory_type": "episode"}
-        episode_memories = SessionMemory.find(episode_query, sort="createdAt", desc=True)
         
-        # Get list of MAX_N_EPISODES_TO_REMEMBER most recent episodes
-        episode_memories = episode_memories[:MAX_N_EPISODES_TO_REMEMBER]
-        # Reverse to put most recent at bottom
+        # Optimized query: Use proper sort format and limit directly in MongoDB
+        episode_memories = SessionMemory.find(
+            episode_query, 
+            sort="createdAt",
+            desc=True,
+            limit=MAX_N_EPISODES_TO_REMEMBER
+        )
+        
+        # Reverse to put most recent at bottom (after getting limited results)
+        episode_memories = list(episode_memories)
         episode_memories.reverse()
         
         # Cache in session
@@ -72,22 +87,29 @@ async def _get_episode_memories(session: Session, force_refresh: bool = False) -
             }
             for e in episode_memories
         ]
-        safe_update_memory_context(session, {
-            "cached_episode_memories": cached_episodes,
-            "episode_memories_timestamp": datetime.now(timezone.utc)
-        })
-        # Save will be done by caller to batch updates
+        
+        # Run cache update as background task to avoid blocking
+        asyncio.create_task(asyncio.to_thread(
+            safe_update_memory_context, 
+            session, 
+            {
+                "cached_episode_memories": cached_episodes,
+                "episode_memories_timestamp": datetime.now(timezone.utc)
+            }
+        ))
+        
         query_time = time.time() - query_start
         print(f"   ⏱️  Episode memory query & cache: {query_time:.3f}s ({len(episode_memories)} episodes)")
         
-        return session.memory_context.cached_episode_memories
+        return cached_episodes
         
     except Exception as e:
         print(f"   ❌ Error assembling episode memories: {e}")
+        traceback.print_exc()
         return []
 
 
-async def _assemble_agent_memories(agent_id: ObjectId) -> List[Dict[str, str]]:
+async def _assemble_agent_memories(agent_id: ObjectId, agent=None) -> List[Dict[str, str]]:
     """
     Step 3: Assemble agent collective memories from active shards.
     Returns list of memory shards with name and content.
@@ -95,9 +117,16 @@ async def _assemble_agent_memories(agent_id: ObjectId) -> List[Dict[str, str]]:
     agent_collective_memories = []
     
     try:
+        # Check if agent memory is enabled for this agent
+        if agent is None:
+            from eve.agent.agent import Agent
+            agent = Agent.from_mongo(agent_id)
+        
+        if not agent or not getattr(agent, 'agent_memory_enabled', True):
+            return []
+            
         query_start = time.time()
         active_shards = AgentMemory.find({"agent_id": agent_id, "is_active": True})
-        print(f"   --> found {len(active_shards)} active agent memory shards")
         
         for shard in active_shards:
             # Check if fully_formed_memory exists and is non-empty
@@ -123,6 +152,7 @@ async def _assemble_agent_memories(agent_id: ObjectId) -> List[Dict[str, str]]:
         
     except Exception as e:
         print(f"   ❌ Error assembling agent collective memories: {e}")
+        traceback.print_exc()
 
     return agent_collective_memories
 
@@ -137,16 +167,18 @@ async def check_memory_freshness(session: Session, agent_id: ObjectId, user_id: 
     if session.memory_context.agent_memory_timestamp:
         try:
             # Query only the most recently updated active agent memory
-            agent_memory = AgentMemory.find_one(
+            agent_memories = AgentMemory.find(
                 {"agent_id": agent_id, "is_active": True},
-                sort=[("last_updated_at", -1)]
+                sort="last_updated_at",
+                desc=True,
+                limit=1
             )
+            agent_memory = agent_memories[0] if agent_memories else None
             if agent_memory and agent_memory.last_updated_at:
                 if agent_memory.last_updated_at > session.memory_context.agent_memory_timestamp:
                     print(f"   🔄 Agent memory updated since cache")
                     return False
         except Exception as e:
-            print(f"   ⚠️ Error checking agent memory freshness: {e}")
             return False  # Refresh on error to be safe
     
     # Check user memory freshness
@@ -221,7 +253,8 @@ async def assemble_memory_context(
     last_speaker_id: ObjectId, 
     force_refresh: bool = False,
     reason: str = "unknown",
-    skip_save: bool = False
+    skip_save: bool = False,
+    agent = None
 ) -> str:
     """
     Assemble relevant memories for context injection into prompts.
@@ -264,10 +297,10 @@ async def assemble_memory_context(
     
     # Rebuild memory context
     # 1. Get user memory (1 query)
-    user_memory_content = await _assemble_user_memory(agent_id, last_speaker_id)
+    user_memory_content = await _assemble_user_memory(agent_id, last_speaker_id, agent)
     
     # 2. Get agent memories (1 query)
-    agent_collective_memories = await _assemble_agent_memories(agent_id)
+    agent_collective_memories = await _assemble_agent_memories(agent_id, agent)
     
     # 3. Get episode memories (0-1 queries with caching)
     episode_memories = await _get_episode_memories(session, force_refresh=force_refresh)

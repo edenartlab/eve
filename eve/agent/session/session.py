@@ -43,7 +43,7 @@ from eve.agent.session.session_prompts import (
 )
 
 from eve.agent.session.memory import maybe_form_memories
-from eve.agent.session.memory_models import get_sender_id_to_sender_name_map
+from eve.agent.session.memory_models import get_sender_id_to_sender_name_map, select_messages
 from eve.agent.session.memory_assemble_context import assemble_memory_context
 
 from eve.agent.session.config import (
@@ -170,21 +170,6 @@ async def determine_actors(
     return actors
 
 
-def select_messages(
-    session: Session, selection_limit: Optional[int] = DEFAULT_SESSION_SELECTION_LIMIT
-):
-    messages = ChatMessage.get_collection()
-    query = messages.find({"session": session.id, "role": {"$ne": "eden"}}).sort(
-        "createdAt", -1
-    )
-    if selection_limit is not None:
-        query = query.limit(selection_limit)
-    selected_messages = list(query)
-    selected_messages.reverse()
-    selected_messages = [ChatMessage(**msg) for msg in selected_messages]
-    # Filter out cancelled tool calls from the messages
-    selected_messages = [msg.filter_cancelled_tool_calls() for msg in selected_messages]
-    return selected_messages
 
 
 def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
@@ -227,7 +212,8 @@ async def build_system_message(
             session,
             actor.id,
             last_speaker_id=last_speaker_id,
-            reason="build_system_message"
+            reason="build_system_message",
+            agent=actor
         )
         if memory_context:
             memory_context = f"\n\n{memory_context}"
@@ -1108,7 +1094,7 @@ async def _run_prompt_session_internal(
 
             # Process memory formation for all actors that participated
             for actor in actors:
-                background_tasks.add_task(maybe_form_memories, actor.id, session)
+                background_tasks.add_task(maybe_form_memories, actor.id, session, actor)
 
             # Send success notification if configured
             if (

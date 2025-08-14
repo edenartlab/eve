@@ -15,23 +15,21 @@ LOCAL_DEV = True
 if LOCAL_DEV:
     MEMORY_LLM_MODEL_FAST = "gpt-5-mini-2025-08-07"
     MEMORY_LLM_MODEL_SLOW = "gpt-5-2025-08-07"
-    MEMORY_FORMATION_MSG_INTERVAL = 4  # Number of messages to wait before forming memories (None = use token-based)
-    MEMORY_FORMATION_TOKEN_INTERVAL = 2000  # Number of tokens to wait before forming memories
-    SESSION_MESSAGES_LOOKBACK_LIMIT = 4  # Max messages to look back in a session when forming raw memories
-    
+    MEMORY_FORMATION_MSG_INTERVAL   = 6   # Number of messages to wait before forming memories
+    MEMORY_FORMATION_TOKEN_INTERVAL = 200 # Number of tokens to wait before forming memories
+
     # Normal memory settings:
     MAX_USER_MEMORIES_BEFORE_CONSOLIDATION = 3  # Number of individual memories to store before consolidating them into the agent's user_memory blob
     MAX_N_EPISODES_TO_REMEMBER = 2  # Number of episodes to keep in context from a session
     # Collective memory settings:
-    MAX_AGENT_MEMORIES_BEFORE_CONSOLIDATION = 2 # Number of suggestions to store before consolidating them into the agent's collective memory blob
+    MAX_AGENT_MEMORIES_BEFORE_CONSOLIDATION = 3 # Number of suggestions to store before consolidating them into the agent's collective memory blob
     MAX_FACTS_PER_SHARD = 3 # Max number of facts to store per agent shard (fifo)
     
 else:
     MEMORY_LLM_MODEL_FAST = "gpt-5-mini-2025-08-07"
     MEMORY_LLM_MODEL_SLOW = "gpt-5-2025-08-07"
-    MEMORY_FORMATION_MSG_INTERVAL   = None  # Number of messages to wait before forming memories (None = use token-based)
-    MEMORY_FORMATION_TOKEN_INTERVAL = 4000  # Number of tokens to wait before forming memories
-    SESSION_MESSAGES_LOOKBACK_LIMIT = DEFAULT_SESSION_SELECTION_LIMIT  # Max messages to look back in a session when forming raw memories
+    MEMORY_FORMATION_MSG_INTERVAL   = 25    # Number of messages to wait before forming memories
+    MEMORY_FORMATION_TOKEN_INTERVAL = 2000  # Number of tokens to wait before forming memories
 
     # Normal memory settings:
     MAX_USER_MEMORIES_BEFORE_CONSOLIDATION = 4  # Number of individual memories to store before consolidating them into the agent's user_memory blob
@@ -57,22 +55,24 @@ SESSION_FACT_MEMORY_MAX_WORDS       = 20  # Target word length for session fact 
 # Consolidated memory blobs:
 USER_MEMORY_BLOB_MAX_WORDS  = 200  # Target word count for consolidated user memory blob
 AGENT_MEMORY_BLOB_MAX_WORDS = 500  # Target word count for consolidated agent memory blob (shard)
-
-CONVERSATION_TEXT_TOKEN       = "-&&-conversation_text-&&-"
-SHARD_EXTRACTION_PROMPT_TOKEN = "-&&-shard_extraction_prompt-&&-"
-FULLY_FORMED_AGENT_MEMORY_TOKEN = "-&&-fully_formed_agent_memory-&&-"
+AGENT_MEMORY_BLOB_MAX_WORDS = 250  # Target word count for consolidated agent memory blob (shard)
 
 # Define different memory types and their extraction limits:
 MEMORY_TYPES = {
     "episode":    MemoryType("episode",    1, 1, "Summary of given conversation segment for contextual recall. Will always be provided in the context of previous episodes and most recent messages."),
     "directive":  MemoryType("directive",  0, 1, "Persistent instructions, preferences and behavioral rules to remember for future interactions with this user."), 
     "suggestion": MemoryType("suggestion", 0, 4, "New ideas, suggestions, insights, or context relevant to the shard that could help improve / evolve / form this shard's area of focus"),
-    "fact":       MemoryType("fact",       0, 6, "Atomic, verifiable information about the user or the world that is highly relevant to the shard context and is ALWAYS true.")
+    "fact":       MemoryType("fact",       0, 6, "Atomic, verifiable information about the user or the world that is highly relevant to the shard context and should be kept in memory FOREVER.")
 }
 
 #############################
 # Memory Extraction Prompts #
 #############################
+
+CONVERSATION_TEXT_TOKEN       = "-&&-conversation_text-&&-"
+SHARD_EXTRACTION_PROMPT_TOKEN = "-&&-shard_extraction_prompt-&&-"
+FULLY_FORMED_AGENT_MEMORY_TOKEN = "-&&-fully_formed_agent_memory-&&-"
+
 
 # Default memory extraction prompt for episodes and directives:
 REGULAR_MEMORY_EXTRACTION_PROMPT = f"""Task: Extract persistent memories from the provided conversation following these rules:

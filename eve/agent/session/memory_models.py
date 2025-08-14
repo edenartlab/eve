@@ -4,7 +4,8 @@ from eve.mongo import Collection, Document
 from datetime import datetime, timezone
 
 from eve.agent.session.memory_constants import MAX_FACTS_PER_SHARD, MAX_AGENT_MEMORIES_BEFORE_CONSOLIDATION
-from eve.agent.session.models import ChatMessage
+from eve.agent.session.models import ChatMessage, Session
+from eve.agent.session.config import DEFAULT_SESSION_SELECTION_LIMIT
 from eve.user import User
 
 def get_sender_id_to_sender_name_map(messages: List[ChatMessage]) -> Dict[ObjectId, str]:
@@ -33,6 +34,7 @@ def get_sender_id_to_sender_name_map(messages: List[ChatMessage]) -> Dict[Object
                 sender_id_to_sender_name_map[user["_id"]] = f"{user['username']} ({user['type']})"
             except (KeyError, TypeError) as e:
                 print(f"Error processing user {user.get('_id', 'unknown')}: {e}")
+                traceback.print_exc()
                 if "_id" in user:
                     sender_id_to_sender_name_map[user["_id"]] = "unknown"
         
@@ -45,6 +47,7 @@ def get_sender_id_to_sender_name_map(messages: List[ChatMessage]) -> Dict[Object
         
     except Exception as e:
         print(f"Error in get_sender_id_to_sender_name_map(): {e}")
+        traceback.print_exc()
         return {}
 
 def messages_to_text(messages: List[ChatMessage], fast_dry_run: bool = False) -> str:
@@ -168,6 +171,7 @@ class UserMemory(Document):
                 return doc
         except (TypeError, AttributeError) as e:
             print(f"Error in find_one: {e}")
+            traceback.print_exc()
         
         # If we get here, either find_one returned None or crashed
         # Create new instance and save it
@@ -238,6 +242,7 @@ class AgentMemory(Document):
                 return doc
         except (TypeError, AttributeError) as e:
             print(f"Error in find_one: {e}")
+            traceback.print_exc()
         
         # If we get here, either find_one returned None or crashed
         # Create new instance and save it
@@ -315,5 +320,23 @@ def get_agent_owner(agent_id: ObjectId) -> Optional[ObjectId]:
         return agent.owner
     except Exception as e:
         print(f"Warning: Could not load agent owner for {agent_id}: {e}")
+        traceback.print_exc()
         return None
+
+
+def select_messages(
+    session: Session, selection_limit: Optional[int] = DEFAULT_SESSION_SELECTION_LIMIT
+):
+    messages = ChatMessage.get_collection()
+    query = messages.find({"session": session.id, "role": {"$ne": "eden"}}).sort(
+        "createdAt", -1
+    )
+    if selection_limit is not None:
+        query = query.limit(selection_limit)
+    selected_messages = list(query)
+    selected_messages.reverse()
+    selected_messages = [ChatMessage(**msg) for msg in selected_messages]
+    # Filter out cancelled tool calls from the messages
+    selected_messages = [msg.filter_cancelled_tool_calls() for msg in selected_messages]
+    return selected_messages
     
