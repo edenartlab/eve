@@ -43,7 +43,7 @@ CONSIDER_COLD_AFTER_MINUTES = 8  # Consider a session cold if no activity for th
 CLEANUP_COLD_SESSIONS_EVERY_MINUTES = 8  # Run the background task every N minutes
 
 SYNC_MEMORIES_ACROSS_SESSIONS_EVERY_N_MINUTES = 4
-NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES = 3
+NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES = 4
 AGENT_TOKEN_MULTIPLIER = 0.25  # Multiplier to downscale agent/assistant message importance for token interval trigger
 
 # LLMs cannot count tokens at all (weirdly), so instruct with word count:
@@ -55,12 +55,11 @@ SESSION_FACT_MEMORY_MAX_WORDS       = 20  # Target word length for session fact 
 # Consolidated memory blobs:
 USER_MEMORY_BLOB_MAX_WORDS  = 200  # Target word count for consolidated user memory blob
 AGENT_MEMORY_BLOB_MAX_WORDS = 500  # Target word count for consolidated agent memory blob (shard)
-AGENT_MEMORY_BLOB_MAX_WORDS = 250  # Target word count for consolidated agent memory blob (shard)
 
 # Define different memory types and their extraction limits:
 MEMORY_TYPES = {
     "episode":    MemoryType("episode",    1, 1, "Summary of given conversation segment for contextual recall. Will always be provided in the context of previous episodes and most recent messages."),
-    "directive":  MemoryType("directive",  0, 1, "Persistent instructions, preferences and behavioral rules to remember for future interactions with this user."), 
+    "directive":  MemoryType("directive",  0, 3, "Persistent instructions, preferences and behavioral rules to remember for future interactions with this user."), 
     "suggestion": MemoryType("suggestion", 0, 4, "New ideas, suggestions, insights, or context relevant to the shard that could help improve / evolve / form this shard's area of focus"),
     "fact":       MemoryType("fact",       0, 6, "Atomic, verifiable information about the user or the world that is highly relevant to the shard context and should be kept in memory FOREVER.")
 }
@@ -139,12 +138,11 @@ IMPORTANT: Below is the context / project / event / topic (shard) you are workin
 <shard_context>
 {FULLY_FORMED_AGENT_MEMORY_TOKEN}
 </shard_context>
-IMPORTANT: do not extract any new facts or suggestions that are already part of the shard_context.
 
 1. FACTS: {MEMORY_TYPES['fact'].custom_prompt}
   - Extract 0 to {MEMORY_TYPES['fact'].max_items} facts (maximum {SESSION_FACT_MEMORY_MAX_WORDS} words each). Typically, you will extract much less than {MEMORY_TYPES['fact'].max_items} #facts.
-  - Each fact must be UNIQUE, ATOMIC and VERIFIED - one specific piece of information coming from the user(s).
-  - Include SOURCE when provided ("per Alice: deadline is May 1st")
+  - Each fact must be UNIQUE, ATOMIC and VERIFIED - one specific piece of information coming from the user(s) that will never change.
+  - Include SOURCE when provided ("Alice: deadline is May 1st" or "Bob: the max budget is $1000")
   - Facts must be self-contained and understandable without conversation context
   - Only include facts that are directly relevant to the shard's context and were actually spoken by the user(s) themselves.
   - Facts are permanently stored in the shard memory and so they must be true in future phases of the project / context, not just true right this moment. A current fact that could evolve over time should be stored as a suggestion.
@@ -175,6 +173,7 @@ Guidelines:
 - Focus only on information that aligns with the shard's extraction prompt context, not random ideas or facts that are not relevant to the given shard context.
 - Each suggestion should be actionable, specific or generally contribute to the shard's context. Avoid vague or general commentary.
 - Focus on facts and suggestions proposed (or agreed upon) by the user itself. NEVER include facts or suggestions that come solely from the agent/assistant's messages / interpretation unless the user explicitly confirms them as good.
+- IMPORTANT: do not extract any new facts or suggestions that are already part of the shard_context.
 
 Now carefully read the conversation text and extract the facts and suggestions:
 <conversation_text>
