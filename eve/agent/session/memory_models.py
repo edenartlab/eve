@@ -2,81 +2,78 @@ from typing import List, Optional, Dict
 from bson import ObjectId
 from eve.mongo import Collection, Document
 from datetime import datetime, timezone
-import traceback
 
-from eve.agent.session.models import ChatMessage
+from eve.agent.session.memory_constants import MAX_FACTS_PER_SHARD, MAX_AGENT_MEMORIES_BEFORE_CONSOLIDATION
+from eve.agent.session.models import ChatMessage, Session
+from eve.agent.session.config import DEFAULT_SESSION_SELECTION_LIMIT
 from eve.user import User
-
-def lookup_sender_name(sender_id: ObjectId) -> str:
-    """Lookup the name of a sender by their id by querying the "users3" collection"""
-    try:
-        user = User.from_mongo(sender_id)
-        user_type = user.type
-        user_name = user.username
-        return f"{user_type} ({user_name})"
-    except Exception as e:
-        print(f"Error looking up sender name for {sender_id}: {e}")
-        return None
 
 def get_sender_id_to_sender_name_map(messages: List[ChatMessage]) -> Dict[ObjectId, str]:
     """Find all unique senders in the messages and return a map of sender id to sender name"""
-    unique_sender_ids = set()
-    for msg in messages:
-        if msg.sender:
-            unique_sender_ids.add(msg.sender)
+    unique_sender_ids = {msg.sender for msg in messages if msg.sender}
     
     if not unique_sender_ids:
         return {}
     
-    # Perform single MongoDB query to fetch all users
+    # Perform single MongoDB query with projection to fetch only needed fields
     try:
-        users = User.find({"_id": {"$in": list(unique_sender_ids)}})
+        from eve.mongo import get_collection
+        users_collection = get_collection(User.collection_name)
+        
+        # Query with projection to only get _id, username, and type fields
+        users_cursor = users_collection.find(
+            {"_id": {"$in": list(unique_sender_ids)}},
+            {"_id": 1, "username": 1, "type": 1}
+        )
+        
         sender_id_to_sender_name_map = {}
-        for user in users:
-            sender_id_to_sender_name_map[user.id] = f"{user.username} ({user.type})"
+        
+        # Process each user from cursor safely
+        for user in users_cursor:
+            try:
+                sender_id_to_sender_name_map[user["_id"]] = f"{user['username']} ({user['type']})"
+            except (KeyError, TypeError) as e:
+                print(f"Error processing user {user.get('_id', 'unknown')}: {e}")
+                traceback.print_exc()
+                if "_id" in user:
+                    sender_id_to_sender_name_map[user["_id"]] = "unknown"
+        
+        # Ensure all unique_sender_ids are covered, defaulting to "unknown" for missing ones
+        for sender_id in unique_sender_ids:
+            if sender_id not in sender_id_to_sender_name_map:
+                sender_id_to_sender_name_map[sender_id] = "unknown"
                 
         return sender_id_to_sender_name_map
         
     except Exception as e:
         print(f"Error in get_sender_id_to_sender_name_map(): {e}")
+        traceback.print_exc()
         return {}
 
-def messages_to_text(messages: List[ChatMessage]) -> str:
+def messages_to_text(messages: List[ChatMessage], fast_dry_run: bool = False) -> str:
     """Convert messages to readable text for LLM processing"""
-    sender_id_to_sender_name_map = get_sender_id_to_sender_name_map(messages)
+    if not fast_dry_run:
+        sender_id_to_sender_name_map = get_sender_id_to_sender_name_map(messages)
     text_parts = []
     for msg in messages:
-        speaker = sender_id_to_sender_name_map.get(msg.sender) or msg.name or msg.role
+        if fast_dry_run:
+            speaker = msg.name or msg.role
+        else:
+            speaker = sender_id_to_sender_name_map.get(msg.sender) or msg.name or msg.role
         content = msg.content
         
-        if msg.tool_calls: # Add tool calls summary if present
+        # During fast_dry_run, downscale agent/assistant messages for token counting
+        if fast_dry_run and speaker in ["agent", "assistant"]:
+            from eve.agent.session.memory_constants import AGENT_TOKEN_MULTIPLIER
+            content = content[:int(len(content) * AGENT_TOKEN_MULTIPLIER)]
+        
+        if (not fast_dry_run) and msg.tool_calls: # Add tool calls summary if present
             tools_summary = (
                 f" [Used tools: {', '.join([tc.tool for tc in msg.tool_calls])}]"
             )
             content += tools_summary
         text_parts.append(f"{speaker}: {content}")
     return "\n".join(text_parts)
-
-async def _update_agent_memory_timestamp(agent_id: ObjectId):
-    """
-    Update the agent memory status timestamp to indicate collective memory has changed.
-    This allows sessions to detect when they need to refresh their cached agent memory.
-    """
-    try:
-        from eve.agent.session.memory_state import agent_memory_status
-        
-        agent_key = str(agent_id)
-        current_time = datetime.now(timezone.utc).isoformat()
-
-        if agent_key in agent_memory_status:
-            agent_memory_status[agent_key]["last_updated_at"] = current_time
-        else:
-            agent_memory_status[agent_key] = {"last_updated_at": current_time}
-        
-    except Exception as e:
-        print(f"Error updating agent memory status for agent {agent_id}: {e}")
-        traceback.print_exc()
-
 
 @Collection("memory_sessions")
 class SessionMemory(Document):
@@ -121,7 +118,7 @@ class SessionMemory(Document):
             ("agent_id", 1),
             ("memory_type", 1), 
             ("related_users", 1)
-        ])
+        ], name="directive_lookup_idx", background=True)
         
         # Compound index for episode memories query
         # Query: {"source_session_id": session_id, "memory_type": MemoryType.EPISODE.value}
@@ -130,20 +127,22 @@ class SessionMemory(Document):
             ("source_session_id", 1),
             ("memory_type", 1),
             ("createdAt", -1)
-        ])
+        ], name="episode_memories_idx", background=True)
 
 @Collection("memory_user")
 class UserMemory(Document):
     """Consolidated user memory blob for agent/user pairs"""
-
+    
     agent_id: ObjectId
     user_id: ObjectId
     content: Optional[str] = ""
     agent_owner: Optional[ObjectId] = None
     # Track which directive memories haven't been consolidated yet:
     unabsorbed_memory_ids: List[ObjectId] = []
+    # Fully formed user memory containing consolidated content + unabsorbed directives as a single string
+    fully_formed_memory: Optional[str] = None
     # Track when the memory blob was last updated:
-    last_updated_at: Optional[datetime] = None  
+    last_updated_at: Optional[datetime] = None
 
     @classmethod
     def convert_to_mongo(cls, schema: dict, **kwargs) -> dict:
@@ -172,6 +171,7 @@ class UserMemory(Document):
                 return doc
         except (TypeError, AttributeError) as e:
             print(f"Error in find_one: {e}")
+            traceback.print_exc()
         
         # If we get here, either find_one returned None or crashed
         # Create new instance and save it
@@ -184,7 +184,7 @@ class UserMemory(Document):
     def ensure_indexes(cls):
         """Ensure indexes exist"""
         collection = cls.get_collection()
-        collection.create_index([("agent_id", 1), ("user_id", 1)], unique=True)
+        collection.create_index([("agent_id", 1), ("user_id", 1)], unique=True, name="user_memory_lookup_idx", background=True)
 
 @Collection("memory_agent")
 class AgentMemory(Document):
@@ -206,10 +206,14 @@ class AgentMemory(Document):
     facts: List[ObjectId] = []
 
     # Fully formed memory shard containing consolidated content + recent facts + unabsorbed suggestions as a single string
-    fully_formed_memory_shard: Optional[str] = ""
+    fully_formed_memory: Optional[str] = None
 
     # Track when the memory blob was last updated:
     last_updated_at: Optional[datetime] = None
+
+    # Configurable parameters (with defaults from memory_constants.py)
+    max_facts_per_shard: Optional[int] = MAX_FACTS_PER_SHARD
+    max_agent_memories_before_consolidation: Optional[int] = MAX_AGENT_MEMORIES_BEFORE_CONSOLIDATION
 
     @classmethod
     def convert_to_mongo(cls, schema: dict, **kwargs) -> dict:
@@ -238,6 +242,7 @@ class AgentMemory(Document):
                 return doc
         except (TypeError, AttributeError) as e:
             print(f"Error in find_one: {e}")
+            traceback.print_exc()
         
         # If we get here, either find_one returned None or crashed
         # Create new instance and save it
@@ -246,8 +251,30 @@ class AgentMemory(Document):
         instance.save()
         return instance
     
-# Minor utility functions:
+    @classmethod
+    def ensure_indexes(cls):
+        """Create indexes to optimize common queries"""
+        collection = cls._get_collection()
+        
+        # This optimizes: AgentMemory.find({"agent_id": agent_id, "is_active": True})
+        collection.create_index([
+            ("agent_id", 1),
+            ("is_active", 1)
+        ], name="agent_id_is_active_idx", background=True)
+        
+        # This optimizes: AgentMemory.find_one({"agent_id": agent_id, "is_active": True}, sort=[("last_updated_at", -1)])
+        collection.create_index([
+            ("agent_id", 1),
+            ("is_active", 1),
+            ("last_updated_at", -1)
+        ], name="agent_memory_freshness_idx", background=True)
+        
+        # Single field index on _id is automatically created by MongoDB
+        # This optimizes: AgentMemory.from_mongo(shard_id) which uses _id lookups
+        return
+    
 
+# Minor utility functions:
 def _format_memories_with_age(memories: List[SessionMemory]) -> str:
     """
     Format memories (facts, directives, etc.) with age information.
@@ -293,5 +320,23 @@ def get_agent_owner(agent_id: ObjectId) -> Optional[ObjectId]:
         return agent.owner
     except Exception as e:
         print(f"Warning: Could not load agent owner for {agent_id}: {e}")
+        traceback.print_exc()
         return None
+
+
+def select_messages(
+    session: Session, selection_limit: Optional[int] = DEFAULT_SESSION_SELECTION_LIMIT
+):
+    messages = ChatMessage.get_collection()
+    query = messages.find({"session": session.id, "role": {"$ne": "eden"}}).sort(
+        "createdAt", -1
+    )
+    if selection_limit is not None:
+        query = query.limit(selection_limit)
+    selected_messages = list(query)
+    selected_messages.reverse()
+    selected_messages = [ChatMessage(**msg) for msg in selected_messages]
+    # Filter out cancelled tool calls from the messages
+    selected_messages = [msg.filter_cancelled_tool_calls() for msg in selected_messages]
+    return selected_messages
     
