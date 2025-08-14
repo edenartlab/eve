@@ -52,7 +52,8 @@ async def process_cold_sessions():
         # Simplified query with compound index optimization
         base_query = {
             "updatedAt": {"$gte": hard_filter_date, "$lt": cutoff_time},
-            "status": "active"
+            "status": "active",
+            f"messages.{NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES - 1}": {"$exists": True}
         }
         
         # First batch: Sessions with memory_context that need processing
