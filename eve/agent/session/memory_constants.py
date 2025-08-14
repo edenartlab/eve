@@ -41,6 +41,10 @@ else:
     MAX_SUGGESTIONS_COUNT_BEFORE_CONSOLIDATION = 8 # Number of suggestions to store before consolidating them into the agent's collective memory blob
     MAX_FACTS_PER_SHARD = 50 # Max number of facts to store per agent shard (fifo)
     
+  # Configuration for cold session processing
+CONSIDER_COLD_AFTER_MINUTES = 5  # Consider a session cold if no activity for this many minutes
+CLEANUP_COLD_SESSIONS_EVERY_MINUTES = 15  # Run the background task every N minutes
+
 SYNC_MEMORIES_ACROSS_SESSIONS_EVERY_N_MINUTES = 2
 NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES = 2
 AGENT_TOKEN_MULTIPLIER = 0.25  # Multiplier to downscale agent/assistant message importance for token interval trigger

@@ -10,9 +10,7 @@ from pathlib import Path
 import modal
 import sentry_sdk
 
-# Configuration for cold session processing
-CONSIDER_COLD_AFTER_MINUTES = 5  # Consider a session cold if no activity for this many minutes
-CLEANUP_COLD_SESSIONS_EVERY_MINUTES = 15  # Run the background task every N minutes
+from eve.agent.session.memory_constants import NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES, CONSIDER_COLD_AFTER_MINUTES, CLEANUP_COLD_SESSIONS_EVERY_MINUTES
 
 async def process_cold_sessions():
     """
@@ -27,12 +25,10 @@ async def process_cold_sessions():
         
         current_time = datetime.now(timezone.utc)
         cutoff_time = current_time - timedelta(minutes=CONSIDER_COLD_AFTER_MINUTES)
-        
-        # Hard filter date - ignore any session older than Aug 10th 2025
-        hard_filter_date = datetime(2025, 8, 10, 0, 0, 0, tzinfo=timezone.utc)
+        hard_filter_date = current_time - timedelta(days=3)
         
         # Query for cold sessions that need memory processing
-        # Handle cases where memory_context may not exist (newly added field)
+        # Handle cases where memory_context may not exist
         cold_sessions = Session.find({
             "$and": [
                 {"updatedAt": {"$gte": hard_filter_date}},  # Hard filter for Aug 10th 2025
@@ -42,7 +38,7 @@ async def process_cold_sessions():
                         # Sessions with memory_context that need processing
                         {
                             "memory_context.last_activity": {"$lt": cutoff_time},
-                            "memory_context.messages_since_memory_formation": {"$gt": 0}
+                            "memory_context.messages_since_memory_formation": {"$gt": NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES}
                         },
                         # Sessions without memory_context (newly added field) that are cold
                         {

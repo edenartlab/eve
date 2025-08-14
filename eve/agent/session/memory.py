@@ -530,15 +530,31 @@ async def _load_memories_by_ids(
     memory_type_filter: str = None
 ) -> List[SessionMemory]:
     """Helper function to load memories by IDs with optional type filtering."""
-    memories = []
-    for memory_id in memory_ids:
-        try:
-            memory = SessionMemory.from_mongo(memory_id)
-            if memory and (not memory_type_filter or memory.memory_type == memory_type_filter):
-                memories.append(memory)
-        except Exception as e:
-            logging.warning(f"Could not load memory {memory_id}: {e}")
-    return memories
+    if not memory_ids:
+        return []
+    
+    # Build query with batch ID lookup for optimal performance
+    query = {"_id": {"$in": memory_ids}}
+    if memory_type_filter:
+        query["memory_type"] = memory_type_filter
+    
+    try:
+        # Use single batch query instead of N individual queries
+        memories = SessionMemory.find(query)
+        
+        # Preserve original order of memory_ids
+        if len(memories) > 1:
+            id_to_memory = {memory.id: memory for memory in memories}
+            ordered_memories = []
+            for memory_id in memory_ids:
+                if memory_id in id_to_memory:
+                    ordered_memories.append(id_to_memory[memory_id])
+            return ordered_memories
+        
+        return memories
+    except Exception as e:
+        logging.warning(f"Could not load memories {memory_ids}: {e}")
+        return []
 
 
 async def _regenerate_fully_formed_agent_memory(shard: AgentMemory):
@@ -713,9 +729,11 @@ def should_form_memories(agent_id: ObjectId, session: Session, force_memory_form
         
         # Find the position of the last memory formation message
         last_memory_position = -1
-        safe_update_memory_context(session, {})  # Ensure memory_context exists
-        if session.memory_context.last_memory_message_id:
-            last_memory_position = message_id_to_index.get(session.memory_context.last_memory_message_id, -1)
+        try:
+            if session.memory_context.last_memory_message_id:
+                last_memory_position = message_id_to_index.get(session.memory_context.last_memory_message_id, -1)
+        except Exception as e:
+            safe_update_memory_context(session, {})
 
         # Get recent messages since last memory formation
         recent_messages = session_messages[last_memory_position + 1:]
@@ -789,7 +807,7 @@ async def form_memories(agent_id: ObjectId, session: Session) -> bool:
         safe_update_memory_context(session, {})  # Ensure memory_context exists
         recent_messages = _get_recent_messages(session_messages, session.memory_context.last_memory_message_id)
         
-        if recent_messages:
+        if recent_messages and len(recent_messages) >= NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES:
             conversation_text = messages_to_text(recent_messages)
 
             extracted_data, memory_to_shard_map = await _extract_all_memories(
