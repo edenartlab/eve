@@ -183,16 +183,22 @@ class RateLimiter:
             applicable_limits = []
 
             # Check if user has free_agents feature flag
-            if user.featureFlags and "free_agents" in user.featureFlags:
+            if user.featureFlags and any(
+                flag in user.featureFlags
+                for flag in ["free_agents", "free_tools", "limits_Admin"]
+            ):
                 applicable_limits.extend(AGENT_RATE_LIMITS["unlimited"])
 
             if user.featureFlags and "test_agent_rate_limit" in user.featureFlags:
                 applicable_limits.extend(AGENT_RATE_LIMITS["test_agent_rate_limit"])
 
+            if not user.subscriptionTier:
+                applicable_limits.extend(AGENT_RATE_LIMITS["basic_limits"])
+
             # Otherwise use tier-based limits
             if user.subscriptionTier == 3:
                 applicable_limits.extend(AGENT_RATE_LIMITS["premium_limits"])
-            elif user.subscriptionTier == 2:
+            elif user.subscriptionTier <= 2:
                 applicable_limits.extend(AGENT_RATE_LIMITS["basic_limits"])
 
             # Find the highest limit for each time period (if there are multiple with same period)
