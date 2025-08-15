@@ -323,7 +323,7 @@ async def assemble_memory_context(
     total_time = time.time() - start_time
     print(f"   ✓ Memory context rebuilt and cached ({total_time:.3f}s)")
     
-    if LOCAL_DEV:
+    if LOCAL_DEV or 1:
         print(f"\n\n------------- Rebuilt Memory Context --------------\n{memory_context}")
         print("-----------------------------------------------------------\n\n")
     
