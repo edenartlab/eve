@@ -29,7 +29,8 @@ if LOCAL_DEV:
     
 else:
     MEMORY_LLM_MODEL_FAST = "gpt-5-mini-2025-08-07"
-    MEMORY_LLM_MODEL_SLOW = "gpt-5-2025-08-07"
+    #MEMORY_LLM_MODEL_SLOW = "gpt-5-2025-08-07"
+    MEMORY_LLM_MODEL_SLOW = "gpt-5-mini-2025-08-07"
     MEMORY_FORMATION_MSG_INTERVAL   = 10    # Number of messages to wait before forming memories
     MEMORY_FORMATION_MSG_INTERVAL   = 4    # Number of messages to wait before forming memories
     MEMORY_FORMATION_TOKEN_INTERVAL = 1000  # Number of tokens to wait before forming memories
@@ -63,16 +64,16 @@ AGENT_MEMORY_BLOB_MAX_WORDS = 500  # Target word count for consolidated agent me
 MEMORY_TYPES = {
     "episode":    MemoryType("episode",    1, 1, "Summary of given conversation segment for contextual recall. Will always be provided in the context of previous episodes and most recent messages."),
     "directive":  MemoryType("directive",  0, 3, "Persistent instructions, preferences and behavioral rules to remember for future interactions with this user."), 
-    "suggestion": MemoryType("suggestion", 0, 4, "New ideas, suggestions, insights, or context relevant to the shard that could help improve / evolve / form this shard's area of focus"),
-    "fact":       MemoryType("fact",       0, 6, "Atomic, verifiable information about the user or the world that is relevant to the shard context and should be kept in memory FOREVER.")
+    "suggestion": MemoryType("suggestion", 0, 5, "New ideas, suggestions, insights, or context relevant to the shard that could help improve / evolve / form this shard's area of focus"),
+    "fact":       MemoryType("fact",       0, 3, "Atomic, verifiable information about the user or the world that is relevant to the shard context and should be kept in memory FOREVER.")
 }
 
 #############################
 # Memory Extraction Prompts #
 #############################
 
-CONVERSATION_TEXT_TOKEN       = "-&&-conversation_text-&&-"
-SHARD_EXTRACTION_PROMPT_TOKEN = "-&&-shard_extraction_prompt-&&-"
+CONVERSATION_TEXT_TOKEN         = "-&&-conversation_text-&&-"
+SHARD_EXTRACTION_PROMPT_TOKEN   = "-&&-shard_extraction_prompt-&&-"
 FULLY_FORMED_AGENT_MEMORY_TOKEN = "-&&-fully_formed_agent_memory-&&-"
 
 
