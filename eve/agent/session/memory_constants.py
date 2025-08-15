@@ -31,7 +31,7 @@ else:
     MEMORY_LLM_MODEL_FAST = "gpt-5-mini-2025-08-07"
     #MEMORY_LLM_MODEL_SLOW = "gpt-5-2025-08-07"
     MEMORY_LLM_MODEL_SLOW = "gpt-5-mini-2025-08-07"
-    MEMORY_FORMATION_MSG_INTERVAL   = 10    # Number of messages to wait before forming memories
+    MEMORY_FORMATION_MSG_INTERVAL   = 15    # Number of messages to wait before forming memories
     MEMORY_FORMATION_TOKEN_INTERVAL = 1000  # Number of tokens to wait before forming memories
 
     # Normal memory settings:
@@ -42,8 +42,8 @@ else:
     MAX_FACTS_PER_SHARD = 50 # Max number of facts to store per agent shard (fifo)
     
 # Configuration for cold session processing
-CONSIDER_COLD_AFTER_MINUTES = 8  # Consider a session cold if no activity for this many minutes
-CLEANUP_COLD_SESSIONS_EVERY_MINUTES = 8  # Run the background task every N minutes
+CONSIDER_COLD_AFTER_MINUTES = 10  # Consider a session cold if no activity for this many minutes
+CLEANUP_COLD_SESSIONS_EVERY_MINUTES = 10  # Run the background task every N minutes
 
 SYNC_MEMORIES_ACROSS_SESSIONS_EVERY_N_MINUTES = 4
 NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES = 4
