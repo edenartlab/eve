@@ -53,8 +53,8 @@ AGENT_TOKEN_MULTIPLIER = 0.25  # Multiplier to downscale agent/assistant message
 # Raw memory blobs:
 SESSION_EPISODE_MEMORY_MAX_WORDS    = 50  # Target word length for session episode memory
 SESSION_DIRECTIVE_MEMORY_MAX_WORDS  = 20  # Target word length for session directive memory
-SESSION_SUGGESTION_MEMORY_MAX_WORDS = 30  # Target word length for session suggestion memory
-SESSION_FACT_MEMORY_MAX_WORDS       = 20  # Target word length for session fact memory
+SESSION_SUGGESTION_MEMORY_MAX_WORDS = 35  # Target word length for session suggestion memory
+SESSION_FACT_MEMORY_MAX_WORDS       = 25  # Target word length for session fact memory
 # Consolidated memory blobs:
 USER_MEMORY_BLOB_MAX_WORDS  = 200  # Target word count for consolidated user memory blob
 AGENT_MEMORY_BLOB_MAX_WORDS = 500  # Target word count for consolidated agent memory blob (shard)
@@ -64,7 +64,7 @@ MEMORY_TYPES = {
     "episode":    MemoryType("episode",    1, 1, "Summary of given conversation segment for contextual recall. Will always be provided in the context of previous episodes and most recent messages."),
     "directive":  MemoryType("directive",  0, 3, "Persistent instructions, preferences and behavioral rules to remember for future interactions with this user."), 
     "suggestion": MemoryType("suggestion", 0, 5, "New ideas, suggestions, insights, or context relevant to the shard that could help improve / evolve / form this shard's area of focus"),
-    "fact":       MemoryType("fact",       0, 2, "Atomic, verifiable information about the user or the world that is relevant to the shard context and should be kept in memory FOREVER.")
+    "fact":       MemoryType("fact",       0, 3, "Atomic, verifiable information about the user or the world that is relevant to the shard context and should be kept in memory FOREVER.")
 }
 
 #############################
@@ -141,7 +141,7 @@ IMPORTANT: Below is the context / project / event / topic (shard) you are workin
 {FULLY_FORMED_AGENT_MEMORY_TOKEN}
 </shard_context>
 
-Your goal is to extract facts and suggestions that are relevant to the shard's context according to the following guidelines:
+Your goal is to extract facts and suggestions relevant to the shard's context according to the following guidelines:
 
 1. FACTS: {MEMORY_TYPES['fact'].custom_prompt}
   - Extract 0 to {MEMORY_TYPES['fact'].max_items} facts (maximum {SESSION_FACT_MEMORY_MAX_WORDS} words each). Typically, you will extract much less than {MEMORY_TYPES['fact'].max_items} #facts.
@@ -161,17 +161,12 @@ Your goal is to extract facts and suggestions that are relevant to the shard's c
   - Include rationale when provided ("X because Y") and note down when further consensus is needed, also remember when people disagree with existing ideas / suggestions and try to find a compromise.
   - Distinguish for example between:
     a) New proposals or ideas requiring further discussion
-    b) Ideas for collective consideration
+    b) General information that is relevant to remember for the context
     c) Concerns to address
 
 Guidelines:
-- Think about how relevant the proposed memories are to the shard's area of focus:
-  - high: Directly impacts shard's core context / purpose / goals
-  - medium: Related but not critical
-  - low: Tangentially connected
-  Only add suggestions that are relevant and can guide / affect the shard memory.
 - If no relevant facts and/or suggestions can be extracted, return empty arrays [] (If the conversation is not in the context of the shard, this is highly likely)
-- Be concise and specific, every memory must be able to stand on its own without context
+- Be concise and specific, every memory must be able to stand on its own
 - ALWAYS use specific user names from the conversation (NEVER use "User", "the user", or "they")
 - Focus only on information that aligns with the shard's extraction prompt context, not random ideas or facts that are not relevant to the given shard context.
 - Each suggestion should be actionable, specific or generally contribute to the shard's context. Avoid vague or general commentary.
