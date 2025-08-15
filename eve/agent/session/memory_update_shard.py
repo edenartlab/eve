@@ -64,7 +64,7 @@ def update_shard_facts(shard_id: ObjectId) -> None:
 
 
 def main():
-    shard_id = "689e57eebf23f478f81fefc0"
+    shard_id = "689e57eebf23f478f81fefc0" # Koru_Berlin PROD
     shard_id = ObjectId(shard_id)
     
     print(f"Starting shard update process for shard: {shard_id}")

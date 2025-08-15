@@ -39,32 +39,6 @@ def safe_update_memory_context(session: Session, updates: Dict[str, Any], skip_s
     if session_updated and not skip_save:
         session.save()
 
-def safe_ensure_shard_config(shard: 'AgentMemory') -> None:
-    """
-    Ensure AgentMemory shard has the required configuration parameters.
-    If they don't exist, set them to defaults from memory_constants.
-    
-    Args:
-        shard: AgentMemory object to ensure has config parameters
-    """
-    try:
-        config_updated = False
-        
-        if not hasattr(shard, 'max_facts_per_shard') or shard.max_facts_per_shard is None:
-            shard.max_facts_per_shard = MAX_FACTS_PER_SHARD
-            config_updated = True
-            
-        if not hasattr(shard, 'max_agent_memories_before_consolidation') or shard.max_agent_memories_before_consolidation is None:
-            shard.max_agent_memories_before_consolidation = MAX_AGENT_MEMORIES_BEFORE_CONSOLIDATION
-            config_updated = True
-        
-        if config_updated:
-            shard.save()
-            
-    except Exception as e:
-        print(f"Warning: Could not ensure shard config for {shard.shard_name}: {e}")
-        traceback.print_exc()
-
 async def _store_memories_by_type(
     agent_id: ObjectId,
     session_id: ObjectId,
@@ -76,6 +50,7 @@ async def _store_memories_by_type(
 ) -> Dict[str, List[SessionMemory]]:
     """Store memories organized by type."""
     memories_by_type = {}
+    memories_to_batch_insert = []
     
     # Generate memory configs from MEMORY_TYPES
     # Facts and suggestions are collective memory (require shards), episodes and directives are personal
@@ -103,11 +78,21 @@ async def _store_memories_by_type(
                 agent_owner=agent_owner,
                 shard_id=shard_id,
             )
-            memory.save()
             memories.append(memory)
+            memories_to_batch_insert.append(memory)
         
         if memories:
             memories_by_type[memory_type.name] = memories
+    
+    # Batch insert all memories at once instead of individual saves
+    if memories_to_batch_insert:
+        try:
+            SessionMemory.save_many(memories_to_batch_insert)
+        except Exception as e:
+            print(f"Batch insert failed, falling back to individual saves: {e}")
+            # Fallback to individual saves if batch fails
+            for memory in memories_to_batch_insert:
+                memory.save()
     
     return memories_by_type
 
@@ -245,36 +230,74 @@ async def _update_agent_memory(
                 memories_by_shard[suggestion_memory.shard_id] = {'facts': [], 'suggestions': []}
             memories_by_shard[suggestion_memory.shard_id]['suggestions'].append(suggestion_memory)
         
-        # Update each shard
+        # Update each shard - use MongoDB operations for efficiency
         for shard_id, shard_memories in memories_by_shard.items():
             try:
                 shard = AgentMemory.from_mongo(shard_id)
+
                 if not shard:
                     print(f"No agent memory shard found for shard_id '{shard_id}'")
                     continue
-                
-                # Ensure shard has required config parameters
-                safe_ensure_shard_config(shard)
-                
-                # Update shard inline instead of calling _update_single_shard
+
                 shard_updated = False
                 
-                # Add new facts (FIFO)
+                # Ensure shard has required config parameters        
+                if not hasattr(shard, 'max_facts_per_shard') or shard.max_facts_per_shard is None:
+                    shard.max_facts_per_shard = MAX_FACTS_PER_SHARD
+                    shard_updated = True
+                    
+                if not hasattr(shard, 'max_agent_memories_before_consolidation') or shard.max_agent_memories_before_consolidation is None:
+                    shard.max_agent_memories_before_consolidation = MAX_AGENT_MEMORIES_BEFORE_CONSOLIDATION
+                    shard_updated = True
+                
+                # Add new facts using MongoDB push operation for efficiency
                 new_facts = shard_memories.get('facts', [])
 
                 print(f"@@@@@@@ New facts: {new_facts}")
-                print("@@@@@@@ Current shard facts: ", shard.facts)
+                print("@@@@@@@ Current shard facts: ", len(shard.facts))
 
                 if new_facts:
-                    for fact in new_facts:
-                        print(f"Adding fact: {fact.id} (type: {type(fact.id)}) to shard: {shard.shard_name}")
-                        shard.facts.append(fact.id)
-                    
-                    # Maintain FIFO - keep only the most recent facts using shard-specific limit
-                    if len(shard.facts) > shard.max_facts_per_shard:
-                        shard.facts = shard.facts[-shard.max_facts_per_shard:]
-                        print(f"@@@@@@@ Shard facts after FIFO cutoff: {shard.facts}")
+                    new_fact_ids = [fact.id for fact in new_facts]
                     shard_updated = True
+                    
+                    try:
+                        # Use atomic MongoDB operations - push with slice to maintain FIFO
+                        collection = shard.get_collection()
+                        
+                        # First push all new facts, then slice to maintain limit
+                        update_ops = {
+                            "$push": {
+                                "facts": {
+                                    "$each": new_fact_ids,
+                                    "$slice": -shard.max_facts_per_shard  # Keep only the last N items
+                                }
+                            },
+                            "$currentDate": {"updatedAt": True}
+                        }
+                        
+                        result = collection.update_one(
+                            {"_id": shard_id}, 
+                            update_ops
+                        )
+                        
+                        if result.modified_count > 0:
+                            # Update local state to match database
+                            shard.facts.extend(new_fact_ids)
+                            if len(shard.facts) > shard.max_facts_per_shard:
+                                shard.facts = shard.facts[-shard.max_facts_per_shard:]
+                            print(f"@@@@@@@ Successfully pushed {len(new_fact_ids)} facts using atomic operation")
+                        
+                    except Exception as e:
+                        print(f"Atomic fact push failed, using fallback: {e}")
+                        # Fallback to manual approach
+                        for fact in new_facts:
+                            print(f"Adding fact: {fact.id} (type: {type(fact.id)}) to shard: {shard.shard_name}")
+                            shard.facts.append(fact.id)
+                        
+                        # Maintain FIFO - keep only the most recent facts using shard-specific limit
+                        if len(shard.facts) > shard.max_facts_per_shard:
+                            shard.facts = shard.facts[-shard.max_facts_per_shard:]
+                            print(f"@@@@@@@ Shard facts after FIFO cutoff: {len(shard.facts)}")
                 
                 # Add new suggestions
                 new_suggestions = shard_memories.get('suggestions', [])
@@ -292,6 +315,7 @@ async def _update_agent_memory(
                 if shard_updated:
                     shard.save()
                     print(f"@@@@@@@ Regenerating fully formed agent memory for shard: {shard.shard_name}")
+                    print(f"@@@@@@@ New shard.facts length: {len(shard.facts)}")
                     await _regenerate_fully_formed_agent_memory(shard)
                     
             except Exception as e:
@@ -329,9 +353,11 @@ async def _add_memories_and_maybe_consolidate(
         if result.modified_count == 0:
             return
         
-        # Reload document to get updated state
-        memory_doc.reload()
-        unabsorbed_list = getattr(memory_doc, unabsorbed_field, [])
+        # Update local state without reload - more efficient
+        current_list = getattr(memory_doc, unabsorbed_field, [])
+        current_list.extend(new_memory_ids)
+        setattr(memory_doc, unabsorbed_field, current_list)
+        unabsorbed_list = current_list
         
     except Exception as e:
         print(f"Error in atomic update for {unabsorbed_field}: {e}")
@@ -598,8 +624,7 @@ async def _regenerate_fully_formed_agent_memory(shard: AgentMemory):
     try:
         shard_content = []
 
-        shard_context = f"You have an active collective memory shard called {shard.shard_name}. Context for this memory collection: {shard.extraction_prompt}"
-        shard_content.append(f"## Memory shard context:\n\n{shard_context}")
+        shard_context = f"## You have an active collective memory shard called {shard.shard_name}.\nContext for this memory collection:\n{shard.extraction_prompt}\n"
         
         # Batch load both facts and suggestions in a single call
         unabsorbed_memory_ids = getattr(shard, 'unabsorbed_memory_ids', [])
