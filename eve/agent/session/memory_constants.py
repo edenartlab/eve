@@ -14,8 +14,10 @@ LOCAL_DEV = False
 # Memory formation settings:
 if LOCAL_DEV:
     MEMORY_LLM_MODEL_FAST = "gpt-5-mini-2025-08-07"
+    #MEMORY_LLM_MODEL_FAST = "gpt-5-2025-08-07"
     MEMORY_LLM_MODEL_SLOW = "gpt-5-2025-08-07"
-    MEMORY_FORMATION_MSG_INTERVAL   = 6   # Number of messages to wait before forming memories
+
+    MEMORY_FORMATION_MSG_INTERVAL   = 4   # Number of messages to wait before forming memories
     MEMORY_FORMATION_TOKEN_INTERVAL = 200 # Number of tokens to wait before forming memories
 
     # Normal memory settings:
@@ -29,7 +31,8 @@ else:
     MEMORY_LLM_MODEL_FAST = "gpt-5-mini-2025-08-07"
     MEMORY_LLM_MODEL_SLOW = "gpt-5-2025-08-07"
     MEMORY_FORMATION_MSG_INTERVAL   = 10    # Number of messages to wait before forming memories
-    MEMORY_FORMATION_TOKEN_INTERVAL = 2000  # Number of tokens to wait before forming memories
+    MEMORY_FORMATION_MSG_INTERVAL   = 4    # Number of messages to wait before forming memories
+    MEMORY_FORMATION_TOKEN_INTERVAL = 1000  # Number of tokens to wait before forming memories
 
     # Normal memory settings:
     MAX_USER_MEMORIES_BEFORE_CONSOLIDATION = 4  # Number of individual memories to store before consolidating them into the agent's user_memory blob
@@ -61,7 +64,7 @@ MEMORY_TYPES = {
     "episode":    MemoryType("episode",    1, 1, "Summary of given conversation segment for contextual recall. Will always be provided in the context of previous episodes and most recent messages."),
     "directive":  MemoryType("directive",  0, 3, "Persistent instructions, preferences and behavioral rules to remember for future interactions with this user."), 
     "suggestion": MemoryType("suggestion", 0, 4, "New ideas, suggestions, insights, or context relevant to the shard that could help improve / evolve / form this shard's area of focus"),
-    "fact":       MemoryType("fact",       0, 6, "Atomic, verifiable information about the user or the world that is highly relevant to the shard context and should be kept in memory FOREVER.")
+    "fact":       MemoryType("fact",       0, 6, "Atomic, verifiable information about the user or the world that is relevant to the shard context and should be kept in memory FOREVER.")
 }
 
 #############################
@@ -139,23 +142,24 @@ IMPORTANT: Below is the context / project / event / topic (shard) you are workin
 {FULLY_FORMED_AGENT_MEMORY_TOKEN}
 </shard_context>
 
+Your goal is to extract facts and suggestions that are relevant to the shard's context according to the following guidelines:
+
 1. FACTS: {MEMORY_TYPES['fact'].custom_prompt}
   - Extract 0 to {MEMORY_TYPES['fact'].max_items} facts (maximum {SESSION_FACT_MEMORY_MAX_WORDS} words each). Typically, you will extract much less than {MEMORY_TYPES['fact'].max_items} #facts.
   - Each fact must be UNIQUE, ATOMIC and VERIFIED - one specific piece of information coming from the user(s) that will never change.
   - Include SOURCE when provided ("Alice: deadline is May 1st" or "Bob: the max budget is $1000")
   - Facts must be self-contained and understandable without conversation context
-  - Only include facts that are directly relevant to the shard's context and were actually spoken by the user(s) themselves.
-  - Facts are permanently stored in the shard memory and so they must be true in future phases of the project / context, not just true right this moment. A current fact that could evolve over time should be stored as a suggestion.
+  - Only include facts that are relevant to the shard's context and were actually spoken by the user(s) themselves.
+  - Facts are permanently stored in the shard memory and so they must be true in future phases of the project / context, not just true right this moment. A current rule / preference that could evolve over time should be stored as a suggestion.
   - Prioritize facts that:
-    a) Create, update or contradict existing knowledge
+    a) Create or complement existing knowledge
     b) Provide critical constraints or dependencies
     c) Establish relationships between entities
     
 2. SUGGESTIONS: {MEMORY_TYPES['suggestion'].custom_prompt}
   - Extract maximum {MEMORY_TYPES['suggestion'].max_items} suggestions of maximum {SESSION_SUGGESTION_MEMORY_MAX_WORDS} words each
   - Suggestions are not immediately integrated into the shard memory, they are only suggestions to consider for future consolidation (happens in cycles)
-  - Include RATIONALE when provided ("X because Y")
-  - Note CONSENSUS or DISSENT ("That's a great idea!", "I don't think we should..")
+  - Include rationale when provided ("X because Y") and note down when further consensus is needed, also remember when people disagree with existing ideas / suggestions and try to find a compromise.
   - Distinguish for example between:
     a) New proposals or ideas requiring further discussion
     b) Ideas for collective consideration
