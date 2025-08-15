@@ -29,17 +29,15 @@ if LOCAL_DEV:
     
 else:
     MEMORY_LLM_MODEL_FAST = "gpt-5-mini-2025-08-07"
-    #MEMORY_LLM_MODEL_SLOW = "gpt-5-2025-08-07"
-    MEMORY_LLM_MODEL_SLOW = "gpt-5-mini-2025-08-07"
+    MEMORY_LLM_MODEL_SLOW = "gpt-5-2025-08-07"
     MEMORY_FORMATION_MSG_INTERVAL   = 10    # Number of messages to wait before forming memories
-    MEMORY_FORMATION_MSG_INTERVAL   = 4    # Number of messages to wait before forming memories
     MEMORY_FORMATION_TOKEN_INTERVAL = 1000  # Number of tokens to wait before forming memories
 
     # Normal memory settings:
     MAX_USER_MEMORIES_BEFORE_CONSOLIDATION = 4  # Number of individual memories to store before consolidating them into the agent's user_memory blob
     MAX_N_EPISODES_TO_REMEMBER = 8  # Number of episodes to keep in context from a session
     # Collective memory settings:
-    MAX_AGENT_MEMORIES_BEFORE_CONSOLIDATION = 8 # Number of suggestions to store before consolidating them into the agent's collective memory blob
+    MAX_AGENT_MEMORIES_BEFORE_CONSOLIDATION = 10 # Number of suggestions to store before consolidating them into the agent's collective memory blob
     MAX_FACTS_PER_SHARD = 50 # Max number of facts to store per agent shard (fifo)
     
 # Configuration for cold session processing
@@ -65,7 +63,7 @@ MEMORY_TYPES = {
     "episode":    MemoryType("episode",    1, 1, "Summary of given conversation segment for contextual recall. Will always be provided in the context of previous episodes and most recent messages."),
     "directive":  MemoryType("directive",  0, 3, "Persistent instructions, preferences and behavioral rules to remember for future interactions with this user."), 
     "suggestion": MemoryType("suggestion", 0, 5, "New ideas, suggestions, insights, or context relevant to the shard that could help improve / evolve / form this shard's area of focus"),
-    "fact":       MemoryType("fact",       0, 3, "Atomic, verifiable information about the user or the world that is relevant to the shard context and should be kept in memory FOREVER.")
+    "fact":       MemoryType("fact",       0, 2, "Atomic, verifiable information about the user or the world that is relevant to the shard context and should be kept in memory FOREVER.")
 }
 
 #############################
@@ -75,7 +73,6 @@ MEMORY_TYPES = {
 CONVERSATION_TEXT_TOKEN         = "-&&-conversation_text-&&-"
 SHARD_EXTRACTION_PROMPT_TOKEN   = "-&&-shard_extraction_prompt-&&-"
 FULLY_FORMED_AGENT_MEMORY_TOKEN = "-&&-fully_formed_agent_memory-&&-"
-
 
 # Default memory extraction prompt for episodes and directives:
 REGULAR_MEMORY_EXTRACTION_PROMPT = f"""Task: Extract persistent memories from the provided conversation following these rules:
