@@ -157,7 +157,7 @@ async def _save_all_memories(
             "agent_memory_timestamp": datetime.now(timezone.utc)
         })
 
-    if LOCAL_DEV or 1:
+    if LOCAL_DEV:
         memories_created = [individual_memory for memory_list in memories_by_type.values() for individual_memory in memory_list if individual_memory.content.strip()]
         print(f"\n✓ Formed {len(memories_created)} new memories:")
         for memory_type, memories in extracted_data.items():
@@ -220,6 +220,9 @@ async def _update_agent_memory(
     Suggestions are added to unabsorbed_memory_ids for consolidation.
     Returns True if any agent memories were updated.
     """
+    print(f"Inside _update_agent_memory")
+    print(f"New facts: {new_fact_memories}")
+    print(f"New suggestions: {new_suggestion_memories}")
 
     try:
         memories_by_shard = {}
@@ -271,7 +274,6 @@ async def _update_agent_memory(
                     if len(shard.facts) > shard.max_facts_per_shard:
                         shard.facts = shard.facts[-shard.max_facts_per_shard:]
                         print(f"@@@@@@@ Shard facts after FIFO cutoff: {shard.facts}")
-                    
                     shard_updated = True
                 
                 # Add new suggestions
@@ -288,6 +290,7 @@ async def _update_agent_memory(
                     shard_updated = True
                 
                 if shard_updated:
+                    shard.save()
                     print(f"@@@@@@@ Regenerating fully formed agent memory for shard: {shard.shard_name}")
                     await _regenerate_fully_formed_agent_memory(shard)
                     
@@ -718,6 +721,9 @@ async def _extract_all_memories(
             populated_prompt = AGENT_MEMORY_EXTRACTION_PROMPT.replace(
                 FULLY_FORMED_AGENT_MEMORY_TOKEN, shard.fully_formed_memory or shard.extraction_prompt
             )
+            
+            print("@@@@@@@ Extracting collective memories for shard: ", shard.shard_name)
+            print("@@@@@@@ Extraction prompt: ", populated_prompt)
 
             # Extract facts and suggestions for this shard
             shard_memories = await extract_memories_with_llm(
