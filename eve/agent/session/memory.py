@@ -157,7 +157,7 @@ async def _save_all_memories(
             "agent_memory_timestamp": datetime.now(timezone.utc)
         })
 
-    if LOCAL_DEV:
+    if LOCAL_DEV or 1:
         memories_created = [individual_memory for memory_list in memories_by_type.values() for individual_memory in memory_list if individual_memory.content.strip()]
         print(f"\n✓ Formed {len(memories_created)} new memories:")
         for memory_type, memories in extracted_data.items():
@@ -220,13 +220,14 @@ async def _update_agent_memory(
     Suggestions are added to unabsorbed_memory_ids for consolidation.
     Returns True if any agent memories were updated.
     """
+
     try:
         memories_by_shard = {}
         
         # Group facts
         for fact_memory in new_fact_memories:
             if fact_memory.shard_id is None:
-                logging.warning(f"Skipping fact memory without shard_id: '{fact_memory.content}'")
+                print(f"Skipping fact memory without shard_id: '{fact_memory.content}'")
                 continue
             if fact_memory.shard_id not in memories_by_shard:
                 memories_by_shard[fact_memory.shard_id] = {'facts': [], 'suggestions': []}
@@ -235,7 +236,7 @@ async def _update_agent_memory(
         # Group suggestions
         for suggestion_memory in new_suggestion_memories:
             if suggestion_memory.shard_id is None:
-                logging.warning(f"Skipping suggestion memory without shard_id: '{suggestion_memory.content}'")
+                print(f"Skipping suggestion memory without shard_id: '{suggestion_memory.content}'")
                 continue
             if suggestion_memory.shard_id not in memories_by_shard:
                 memories_by_shard[suggestion_memory.shard_id] = {'facts': [], 'suggestions': []}
@@ -246,7 +247,7 @@ async def _update_agent_memory(
             try:
                 shard = AgentMemory.from_mongo(shard_id)
                 if not shard:
-                    logging.warning(f"No agent memory shard found for shard_id '{shard_id}'")
+                    print(f"No agent memory shard found for shard_id '{shard_id}'")
                     continue
                 
                 # Ensure shard has required config parameters
@@ -257,13 +258,19 @@ async def _update_agent_memory(
                 
                 # Add new facts (FIFO)
                 new_facts = shard_memories.get('facts', [])
+
+                print(f"@@@@@@@ New facts: {new_facts}")
+                print("@@@@@@@ Current shard facts: ", shard.facts)
+
                 if new_facts:
                     for fact in new_facts:
+                        print(f"Adding fact: {fact.id} (type: {type(fact.id)}) to shard: {shard.shard_name}")
                         shard.facts.append(fact.id)
                     
                     # Maintain FIFO - keep only the most recent facts using shard-specific limit
                     if len(shard.facts) > shard.max_facts_per_shard:
                         shard.facts = shard.facts[-shard.max_facts_per_shard:]
+                        print(f"@@@@@@@ Shard facts after FIFO cutoff: {shard.facts}")
                     
                     shard_updated = True
                 
@@ -281,6 +288,7 @@ async def _update_agent_memory(
                     shard_updated = True
                 
                 if shard_updated:
+                    print(f"@@@@@@@ Regenerating fully formed agent memory for shard: {shard.shard_name}")
                     await _regenerate_fully_formed_agent_memory(shard)
                     
             except Exception as e:
@@ -435,6 +443,8 @@ async def extract_memories_with_llm(
     )
     
     response = await async_prompt(context)
+
+    print("@@@@@@@ LLM response: ", response)
     
     # Parse the structured response
     if hasattr(response, 'parsed'):
@@ -599,6 +609,7 @@ async def _regenerate_fully_formed_agent_memory(shard: AgentMemory):
         
         if facts:
             facts_formatted = _format_memories_with_age(facts)
+            print(f"@@@@@@@ Facts formatted: {facts_formatted}")
             if facts_formatted:
                 shard_content.append(f"## Shard facts:\n\n{facts_formatted}")
         
@@ -613,6 +624,7 @@ async def _regenerate_fully_formed_agent_memory(shard: AgentMemory):
         shard.fully_formed_memory = "\n\n".join(shard_content) if shard_content else ""
         shard.last_updated_at = datetime.now(timezone.utc)
         shard.save()
+        print(f"Saved shard {shard.shard_name} updates to mongo")
 
     except Exception as e:
         print(f"Error regenerating fully formed memory shard for '{shard.shard_name}': {e}")
@@ -706,7 +718,7 @@ async def _extract_all_memories(
             populated_prompt = AGENT_MEMORY_EXTRACTION_PROMPT.replace(
                 FULLY_FORMED_AGENT_MEMORY_TOKEN, shard.fully_formed_memory or shard.extraction_prompt
             )
-            
+
             # Extract facts and suggestions for this shard
             shard_memories = await extract_memories_with_llm(
                 conversation_text=conversation_text,
@@ -714,11 +726,13 @@ async def _extract_all_memories(
                 extraction_elements=["fact", "suggestion"],
                 generation_name=f"FN_form_memories_extract_shard_memories",
                 agent_id=agent_id,
-                model=MEMORY_LLM_MODEL_SLOW,  # Use SLOW model for agent memory extraction
+                model=MEMORY_LLM_MODEL_SLOW,
                 session_id=session_id,
                 user_id=user_id,
                 shard_name=shard.shard_name
             )
+
+            print("@@@@@@@ Extracted memories: ", shard_memories)
             
             for memory_type, memories in shard_memories.items():
                 if memory_type not in extracted_data.keys():
@@ -809,6 +823,7 @@ async def form_memories(agent_id: ObjectId, session: Session, agent = None) -> b
     Returns True if memories were formed.
     """
     start_time = time.time()
+    print(" @@@@@ Forming memories... @@@@@ ")
     
     try:
         

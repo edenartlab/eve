@@ -52,7 +52,7 @@ async def process_cold_sessions():
         
         # Query for cold sessions that need memory processing with pagination
         # Handle cases where memory_context may not exist
-        MAX_SESSIONS_TO_PROCESS = 500  # Process in batches to avoid memory issues
+        MAX_SESSIONS_TO_PROCESS = 100  # Process in batches to avoid memory issues
         
         # Simplified query with compound index optimization
         base_query = {
