@@ -313,7 +313,6 @@ async def _update_agent_memory(
                     shard_updated = True
                 
                 if shard_updated:
-                    shard.save()
                     print(f"@@@@@@@ Regenerating fully formed agent memory for shard: {shard.shard_name}")
                     print(f"@@@@@@@ New shard.facts length: {len(shard.facts)}")
                     await _regenerate_fully_formed_agent_memory(shard)
@@ -816,6 +815,7 @@ def should_form_memories(agent_id: ObjectId, session: Session) -> bool:
         # Check message-based trigger if configured
         if MEMORY_FORMATION_MSG_INTERVAL is not None:
             msg_trigger_met = messages_since_last >= MEMORY_FORMATION_MSG_INTERVAL
+            print(f"Session is at {messages_since_last} out of {MEMORY_FORMATION_MSG_INTERVAL} messages since last memory formation")
             if msg_trigger_met:
                 return True
         
@@ -825,6 +825,7 @@ def should_form_memories(agent_id: ObjectId, session: Session) -> bool:
             recent_text = messages_to_text(recent_messages, fast_dry_run=True)
             tokens_since_last = estimate_tokens(recent_text)
             token_trigger_met = tokens_since_last >= MEMORY_FORMATION_TOKEN_INTERVAL
+            print(f"Session is at {tokens_since_last} out of {MEMORY_FORMATION_TOKEN_INTERVAL} tokens since last memory formation")
             if token_trigger_met:
                 return True
         
