@@ -43,12 +43,12 @@ FEATURE_FLAG_MANNA_LIMITS = {
     "free_tools": [
         MannaSpendRateLimit(spend=10**5, period=60),
         MannaSpendRateLimit(spend=10**5, period=3 * 60 * 60),
-        MannaSpendRateLimit(spend=10**6, period=30 * 24 * 60 * 60),
+        MannaSpendRateLimit(spend=10**6, period=24 * 60 * 60),
     ],
     "limits_Admin": [
         MannaSpendRateLimit(spend=10**5, period=60),
         MannaSpendRateLimit(spend=10**5, period=3 * 60 * 60),
-        MannaSpendRateLimit(spend=10**6, period=30 * 24 * 60 * 60),
+        MannaSpendRateLimit(spend=10**6, period=24 * 60 * 60),
     ],
     "test_rate_limit": [
         MannaSpendRateLimit(spend=2, period=60),
@@ -135,19 +135,22 @@ class RateLimiter:
             # Collect all applicable limits for the user
             all_applicable_limits = []
 
-            # Check subscription tier limits
-            if (
-                user.subscriptionTier is not None
-                and user.subscriptionTier in SUBSCRIPTION_TIER_MANNA_LIMITS
-            ):
-                all_applicable_limits.extend(
-                    SUBSCRIPTION_TIER_MANNA_LIMITS[user.subscriptionTier]
-                )
-
-            # Check feature flag limits
+            # Check feature flag limits first - they override subscription tier limits
+            feature_flag_applied = False
             for flag in user.featureFlags or []:
-                if flag in FEATURE_FLAG_MANNA_LIMITS:
+                if flag in FEATURE_FLAG_MANNA_LIMITS.keys():
                     all_applicable_limits.extend(FEATURE_FLAG_MANNA_LIMITS[flag])
+                    feature_flag_applied = True
+
+            # Only check subscription tier limits if no feature flags were applied
+            if not feature_flag_applied:
+                if (
+                    user.subscriptionTier is not None
+                    and user.subscriptionTier in SUBSCRIPTION_TIER_MANNA_LIMITS
+                ):
+                    all_applicable_limits.extend(
+                        SUBSCRIPTION_TIER_MANNA_LIMITS[user.subscriptionTier]
+                    )
 
             # If no limits apply, allow access
             if not all_applicable_limits:
@@ -171,7 +174,8 @@ class RateLimiter:
                 ]
 
             # Check against each highest limit
-            return await self._check_against_limits(highest_limits, generate_pipeline)
+            limits = await self._check_against_limits(highest_limits, generate_pipeline)
+            return limits
 
     async def check_agent_rate_limit(self, user: User, agent_id: str) -> bool:
         """
@@ -183,16 +187,22 @@ class RateLimiter:
             applicable_limits = []
 
             # Check if user has free_agents feature flag
-            if user.featureFlags and "free_agents" in user.featureFlags:
+            if user.featureFlags and any(
+                flag in user.featureFlags
+                for flag in ["free_agents", "free_tools", "limits_Admin"]
+            ):
                 applicable_limits.extend(AGENT_RATE_LIMITS["unlimited"])
 
             if user.featureFlags and "test_agent_rate_limit" in user.featureFlags:
                 applicable_limits.extend(AGENT_RATE_LIMITS["test_agent_rate_limit"])
 
+            if not user.subscriptionTier:
+                applicable_limits.extend(AGENT_RATE_LIMITS["basic_limits"])
+
             # Otherwise use tier-based limits
             if user.subscriptionTier == 3:
                 applicable_limits.extend(AGENT_RATE_LIMITS["premium_limits"])
-            elif user.subscriptionTier == 2:
+            elif user.subscriptionTier <= 2:
                 applicable_limits.extend(AGENT_RATE_LIMITS["basic_limits"])
 
             # Find the highest limit for each time period (if there are multiple with same period)
@@ -213,4 +223,6 @@ class RateLimiter:
                 ]
 
             # Check against each limit
-            return await self._check_against_limits(highest_limits, generate_pipeline)
+            limits = await self._check_against_limits(highest_limits, generate_pipeline)
+
+            return limits
