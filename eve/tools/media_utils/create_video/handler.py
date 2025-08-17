@@ -25,6 +25,7 @@ MEDIA_EDITOR
 """
 
 import os
+from bson import ObjectId
 from eve.api.api import create
 from eve.tool import Tool
 from eve.models import Model
@@ -346,6 +347,10 @@ def get_loras(lora1, lora2):
     loras = []
     for lora_id in [lora1, lora2]:
         if lora_id:
+            if lora_id.lower() in ["null", "None"]:
+                continue
+            if not ObjectId.is_valid(str(lora_id)):
+                continue
             lora = Model.from_mongo(lora_id)
             if not lora:
                 raise Exception(f"Lora {lora_id} not found on {os.getenv('ENV')}")        

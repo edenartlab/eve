@@ -75,15 +75,19 @@ async def handler(args: dict, user: str = None, agent: str = None):
     }
 
 
-def clone_voice(name, description, voice_urls):
-    voice_files = []
-    for url in voice_urls:
-        with NamedTemporaryFile(delete=False) as file:
-            file = utils.download_file(url, file.name)
-            voice_files.append(file)
-    voice = eleven.clone(name, voice_files, description)    
+def clone_voice(name, description, voice_files):
+    cloning_files = []
     for file in voice_files:
-        os.remove(file)
+        if isinstance(file, str) and file.startswith("http"):
+            with NamedTemporaryFile(delete=False) as file:
+                file = utils.download_file(file, file.name)
+                cloning_files.append(file)
+        else:
+            cloning_files.append(file)
+    voice = eleven.clone(name, cloning_files, description)    
+    for file in cloning_files:
+        if file.endswith(".tmp"):
+            os.remove(file)
     return voice
 
 
