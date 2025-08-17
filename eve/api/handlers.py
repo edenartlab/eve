@@ -1157,6 +1157,8 @@ async def handle_v2_deployment_update(request: UpdateDeploymentRequestV2):
             f"Deployment not found: {request.deployment_id}", status_code=404
         )
 
+    update_dict = {}
+
     # Handle partial config updates by merging with existing config
     if request.config:
         existing_config = deployment.config or DeploymentConfig()
@@ -1174,8 +1176,32 @@ async def handle_v2_deployment_update(request: UpdateDeploymentRequestV2):
                     # Add new platform config
                     updated_config_dict[platform] = platform_config
 
-        # Convert to dict for MongoDB storage
-        deployment.update(config=updated_config_dict)
+        update_dict["config"] = updated_config_dict
+
+    # Handle secrets updates by merging with existing secrets
+    if request.secrets:
+        from eve.agent.session.models import DeploymentSecrets
+        
+        existing_secrets = deployment.secrets or DeploymentSecrets()
+        new_secrets = request.secrets.model_dump(exclude_unset=True)
+
+        # Merge the secrets at the platform level
+        updated_secrets_dict = existing_secrets.model_dump() if existing_secrets else {}
+
+        for platform, platform_secrets in new_secrets.items():
+            if platform_secrets is not None:
+                if platform in updated_secrets_dict:
+                    # Merge platform-specific secrets
+                    updated_secrets_dict[platform].update(platform_secrets)
+                else:
+                    # Add new platform secrets
+                    updated_secrets_dict[platform] = platform_secrets
+
+        update_dict["secrets"] = updated_secrets_dict
+
+    # Update deployment with both config and secrets if provided
+    if update_dict:
+        deployment.update(**update_dict)
 
     return {"deployment_id": str(deployment.id)}
 
