@@ -1,31 +1,18 @@
 """
-Combined handler for both image and video creation.
-
 TODO:
- x incorporate lora2
- x a bit too overeager on text precision?
- x when two loras and they are faces, use flux_double_character
  - face_swap, flux_inpainting, outpaint, remix_flux_schnell
  - deal with moderation errors for flux_kontext and openai tools, and errors in general
  - negative prompting
  - make init image strength a parameter
- - guidance, n_steps (low, medium, high) (low -> schnell)
  - txt2img has "style image" / ip adapter
- - check on n_samples
- - fix cost formula
  - video start_image_strength
  - enforce n_samples
  - vid2vid_sdxl, video_FX, texture_flow
  - no start image and aspect ratio == auto, predict good aspect ratio
-
-MEDIA_EDITOR
-- combine audio
-- extract/remove/split tracks
-- speed up/slow down?
-
 """
 
 import os
+from bson import ObjectId
 from eve.s3 import get_full_url
 from eve.tool import Tool
 from eve.models import Model
@@ -869,6 +856,10 @@ def get_loras(lora1, lora2):
     loras = []
     for lora_id in [lora1, lora2]:
         if lora_id:
+            if lora_id.lower() in ["null", "None"]:
+                continue
+            if not ObjectId.is_valid(str(lora_id)):
+                continue
             lora = Model.from_mongo(lora_id)
             if not lora:
                 raise Exception(f"Lora {lora_id} not found on {os.getenv('ENV')}")
@@ -878,17 +869,6 @@ def get_loras(lora1, lora2):
         print("Second Lora is not supported for SDXL")
 
     return loras
-
-# def get_loras(lora1, lora2):
-#     lora_ids = [lora for lora in [lora1, lora2] if lora]
-#     loras = Model.find({"_id": {"$in": lora_ids}})
-#     if len(loras) != len(lora_ids):
-#         raise Exception(f"Lora {lora_ids} not found on {os.getenv('ENV')}")
-
-#     if len(loras) == 2 and "sdxl" in [lora.base_model for lora in loras]:
-#         print("Second Lora is not supported for SDXL")
-
-#     return loras
 
 
 def get_closest_aspect_ratio_preset(aspect_ratio: float, presets: dict) -> str:
