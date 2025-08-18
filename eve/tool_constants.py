@@ -63,6 +63,8 @@ ALL_TOOLS = [
     "stable_audio",
     "zonos",
     "transcription",
+    "elevenlabs_music", 
+    "elevenlabs_fx",
     # editing
     "media_editor",
     # search
