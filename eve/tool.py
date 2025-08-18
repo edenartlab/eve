@@ -140,6 +140,10 @@ class Tool(Document, ABC):
                 from .tools.fal_tool import FalTool
 
                 _tool_classes[handler] = FalTool
+            elif handler == "mcp":
+                from .tools.mcp_tool import MCPTool
+
+                _tool_classes[handler] = MCPTool
             else:
                 if local_debug:
                     from .tools.local_tool import LocalTool

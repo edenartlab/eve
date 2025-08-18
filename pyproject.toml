@@ -58,6 +58,7 @@ dependencies = [
     "tweepy>=4.15.0",
     "py-expression-eval>=0.3.14",
     "pyparsing>=3.2.3",
+    "mcp>=1.13.0",
 ]
 
 [build-system]
