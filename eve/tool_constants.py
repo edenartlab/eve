@@ -71,7 +71,7 @@ ALL_TOOLS = [
     # "search_collections",
     # "add_to_collection",
     # misc
-    "news",
+    # "news",
     "weather",
     # inactive
     # "ominicontrol",
@@ -105,7 +105,7 @@ SOCIAL_MEDIA_TOOLS = [
 TOOL_SETS = {
     "create_image": ["create", "reel", "media_editor"],
     "create_video": [],  # deprecated
-    "create_audio": ["elevenlabs", "musicgen"],
+    "create_audio": ["elevenlabs", "elevenlabs_music", "elevenlabs_fx"],
     "vj_tools": ["texture_flow", "video_FX"],
     "news": [],  # deprecated
     "manage_collections": ["search_collections", "add_to_collection"],

@@ -100,7 +100,7 @@ dnspython==2.7.0
 docstring-parser==0.17.0
     # via google-cloud-aiplatform
     # via instructor
-elevenlabs==1.13.4
+elevenlabs==2.10.0
     # via eve
 eth-abi==5.2.0
     # via eth-account

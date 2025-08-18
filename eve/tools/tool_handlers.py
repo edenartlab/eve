@@ -173,10 +173,15 @@ def load_handler(name):
 
             handlers[name] = handler
 
-        # elif name == "websearch":
-        #     from .websearch.handler import handler
+        elif name == "elevenlabs_music":
+            from .elevenlabs_music.handler import handler
 
-        #     handlers[name] = handler
+            handlers[name] = handler
+
+        elif name == "elevenlabs_fx":
+            from .elevenlabs_fx.handler import handler
+
+            handlers[name] = handler
 
         elif name == "transcription":
             from .transcription.handler import handler
