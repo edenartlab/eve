@@ -434,12 +434,11 @@ class DiscordGatewayClient:
     GATEWAY_VERSION = 10
     GATEWAY_URL = f"wss://gateway.discord.gg/?v={GATEWAY_VERSION}&encoding=json"
 
-    def __init__(self, deployment: Deployment, manager=None):
+    def __init__(self, deployment: Deployment):
         if deployment.platform != ClientType.DISCORD:
             raise ValueError("Deployment must be for Discord HTTP platform")
 
         self.deployment = deployment
-        self.manager = manager  # Reference to GatewayManager for in-memory cache access
         self.token = deployment.secrets.discord.token
         self.ws: Optional[websockets.WebSocketClientProtocol] = None
         self.heartbeat_interval: Optional[int] = None
@@ -536,35 +535,54 @@ class DiscordGatewayClient:
     def _parse_mentioned_agents(self, message_data: dict) -> list:
         """
         Parse mentioned users/roles and return agent IDs for any that are Discord bots (deployments).
-        Uses in-memory cache instead of database queries for better performance.
+        Uses database lookup to find matching deployments.
         :param message_data: Discord message data containing mentions and mention_roles
         :return: List of agent IDs that were mentioned
         """
         mentioned_agent_ids = []
 
-        # If no manager reference, fall back to empty list (shouldn't happen)
-        if not self.manager:
-            logger.warning("No manager reference available for mention parsing")
-            return mentioned_agent_ids
+        # Collect all Discord IDs from mentions and roles
+        discord_ids = []
 
         # Check regular user mentions
         mentions = message_data.get("mentions", [])
         for mention in mentions:
             discord_id = mention.get("id")
-            if discord_id and discord_id in self.manager.discord_app_id_to_agent_id:
-                agent_id = self.manager.discord_app_id_to_agent_id[discord_id]
-                if agent_id not in mentioned_agent_ids:
-                    mentioned_agent_ids.append(agent_id)
-                    logger.info(f"Found mentioned agent via user mention: {agent_id}")
+            if discord_id:
+                discord_ids.append(discord_id)
 
-        # Check role mentions (this is where your @&1367139358905471029 would be)
+        # Check role mentions
         mention_roles = message_data.get("mention_roles", [])
         for role_id in mention_roles:
-            if role_id and role_id in self.manager.discord_app_id_to_agent_id:
-                agent_id = self.manager.discord_app_id_to_agent_id[role_id]
+            if role_id:
+                discord_ids.append(role_id)
+
+        # If no Discord IDs to look up, return empty list
+        if not discord_ids:
+            return mentioned_agent_ids
+
+        # Look up deployments that match these Discord application IDs
+        try:
+            deployments = list(
+                Deployment.find(
+                    {
+                        "platform": ClientType.DISCORD.value,
+                        "secrets.discord.application_id": {"$in": discord_ids},
+                        "valid": {"$ne": False},
+                    }
+                )
+            )
+
+            for deployment in deployments:
+                agent_id = str(deployment.agent)
                 if agent_id not in mentioned_agent_ids:
                     mentioned_agent_ids.append(agent_id)
-                    logger.info(f"Found mentioned agent via role mention: {agent_id}")
+                    logger.info(
+                        f"Found mentioned agent: {agent_id} (Discord app ID: {deployment.secrets.discord.application_id})"
+                    )
+
+        except Exception as e:
+            logger.error(f"Error looking up mentioned agents: {e}")
 
         return mentioned_agent_ids
 
@@ -1281,9 +1299,6 @@ class GatewayManager:
         # Add Telegram typing manager
         self.telegram_typing_manager = TelegramTypingManager()
 
-        # In-memory cache mapping Discord application IDs to agent IDs
-        self.discord_app_id_to_agent_id: Dict[str, str] = {}
-
         # Set up Ably for Telegram busy state updates
         self.telegram_busy_channel = None
 
@@ -1317,21 +1332,8 @@ class GatewayManager:
                 )
                 return
 
-            # Update the in-memory cache
-            if (
-                deployment.secrets
-                and deployment.secrets.discord
-                and deployment.secrets.discord.application_id
-            ):
-                app_id = deployment.secrets.discord.application_id
-                agent_id = str(deployment.agent)
-                self.discord_app_id_to_agent_id[app_id] = agent_id
-                logger.info(
-                    f"[trace:{reload_trace_id}] Updated cache: Discord app ID {app_id} -> agent ID {agent_id}"
-                )
-
             # Create a completely new client with the fresh data
-            client = DiscordGatewayClient(deployment, manager=self)
+            client = DiscordGatewayClient(deployment)
             self.clients[deployment_id] = client
 
             # Start the new client
@@ -1517,18 +1519,7 @@ class GatewayManager:
             logger.info(f"Skipping invalid deployment {deployment_id}")
             return
 
-        # Add to the in-memory cache
-        if (
-            deployment.secrets
-            and deployment.secrets.discord
-            and deployment.secrets.discord.application_id
-        ):
-            app_id = deployment.secrets.discord.application_id
-            agent_id = str(deployment.agent)
-            self.discord_app_id_to_agent_id[app_id] = agent_id
-            logger.info(f"Cached Discord app ID {app_id} -> agent ID {agent_id}")
-
-        client = DiscordGatewayClient(deployment, manager=self)
+        client = DiscordGatewayClient(deployment)
         self.clients[deployment_id] = client
         asyncio.create_task(client.connect())
         logger.info(f"Started gateway client for deployment {deployment_id}")
@@ -1537,18 +1528,6 @@ class GatewayManager:
         """Stop a gateway client"""
         if deployment_id in self.clients:
             client = self.clients.pop(deployment_id)  # Remove from dict first
-
-            # Clean up the cache entry
-            if (
-                client.deployment.secrets
-                and client.deployment.secrets.discord
-                and client.deployment.secrets.discord.application_id
-            ):
-                app_id = client.deployment.secrets.discord.application_id
-                if app_id in self.discord_app_id_to_agent_id:
-                    del self.discord_app_id_to_agent_id[app_id]
-                    logger.info(f"Removed Discord app ID {app_id} from cache")
-
             client.stop()
             logger.info(f"Stopped gateway client for deployment {deployment_id}")
         else:
