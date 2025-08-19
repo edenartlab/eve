@@ -80,6 +80,18 @@ class Suggestion(BaseModel):
     )
 
 
+@Collection("agent_permissions")
+class AgentPermission(BaseModel):
+    """Permissions for agents stored in agent_permissions collection."""
+    
+    agent: ObjectId
+    user: ObjectId
+    level: Literal["editor", "owner"]
+    grantedBy: ObjectId
+    grantedAt: Optional[datetime] = None
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
 class AgentPermissions(BaseModel):
     """Permissions configuration for an agent."""
 
@@ -337,7 +349,23 @@ class Agent(User):
                 tools.pop(tool, None)
 
         # remove tools that only the owner can use
-        if str(auth_user) != str(self.owner):
+        # Check if user is the owner or has owner-level permissions
+        has_owner_permission = False
+        if auth_user:
+            if str(auth_user) == str(self.owner):
+                has_owner_permission = True
+            else:
+                # Check agent_permissions collection for owner-level access
+                permissions_collection = get_collection("agent_permissions")
+                permission = permissions_collection.find_one({
+                    "agent": self.id,
+                    "user": ObjectId(str(auth_user)),
+                    "level": "owner"
+                })
+                if permission:
+                    has_owner_permission = True
+        
+        if not has_owner_permission:
             for tool in SOCIAL_MEDIA_TOOLS:
                 tools.pop(tool, None)
 
