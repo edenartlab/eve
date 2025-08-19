@@ -1,0 +1,24 @@
+name: Context7 Library ID Resolver
+description: Resolves a package/product name to a Context7-compatible library ID for accessing up-to-date documentation
+tip: |-
+  Use this tool to find the correct library ID before fetching documentation. It searches for libraries by name and returns the most relevant Context7-compatible ID.
+cost_estimate: 0
+output_type: string
+thumbnail: app/context7.png
+handler: mcp
+mcp_server_url: https://server.smithery.ai/@upstash/context7-mcp/mcp
+mcp_server_name: context7
+mcp_tool_name: resolve-library-id
+mcp_env_params:
+  api_key: SMITHERY_API_KEY
+  profile: SMITHERY_PROFILE
+mcp_timeout: 30
+mcp_max_retries: 3
+parameters:
+  libraryName:
+    type: string
+    label: Library Name
+    description: Library name to search for and retrieve a Context7-compatible library ID
+    tip: |-
+      Enter the name of the library, package, or framework you want to find documentation for (e.g., "react", "express", "tensorflow")
+    required: true
