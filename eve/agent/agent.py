@@ -145,7 +145,7 @@ class Agent(User):
 
     owner_pays: Optional[bool] = False
     agent_extras: Optional[AgentExtras] = None
-    
+
     user_memory_enabled: Optional[bool] = True
     agent_memory_enabled: Optional[bool] = True
 
