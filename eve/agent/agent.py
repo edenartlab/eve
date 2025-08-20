@@ -429,7 +429,8 @@ class Agent(User):
 
 
 def get_agents_from_mongo(
-    agents: List[str] = None, include_inactive: bool = False
+    agents: List[str] = None, 
+    include_inactive: bool = False
 ) -> Dict[str, Agent]:
     """Get all agents from mongo"""
 
@@ -440,7 +441,7 @@ def get_agents_from_mongo(
         try:
             agent = Agent.convert_from_mongo(agent)
             agent = Agent.from_schema(agent)
-            if agent.status != "inactive" and not include_inactive:
+            if agent.active or include_inactive:
                 if agent.key in agents:
                     raise ValueError(f"Duplicate agent {agent.key} found.")
                 agents[agent.key] = agent
