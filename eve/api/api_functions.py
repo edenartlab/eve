@@ -178,78 +178,18 @@ async def run_scheduled_triggers_fn():
         # Now execute all triggers concurrently
         import asyncio
 
-        async def execute_trigger(trigger):
+        async def execute_trigger_wrapper(trigger):
             try:
-                logger.info(f"Executing trigger {trigger.trigger_id}")
+                from eve.agent.session.triggers import execute_trigger
+                
+                # Use the shared execution function
+                result = await execute_trigger(trigger, is_immediate=False)
+                session_id = result.get("session_id")
 
-                # Prepare the prompt session request
-                request_data = {
-                    "session_id": str(trigger.session) if trigger.session else None,
-                    "user_id": str(trigger.user),
-                    "actor_agent_ids": [str(trigger.agent)],
-                    "message": {
-                        "role": "system",
-                        "content": f"""## Task
-
-You have been given the following instructions. Do not ask for clarification, or stop until you have completed the task.
-
-{trigger.instruction}
-
-""",
-                    },
-                    "update_config": trigger.update_config,
-                }
-
-                # If no session, add creation args
-                if not trigger.session:
-                    request_data["creation_args"] = {
-                        "owner_id": str(trigger.user),
-                        "agents": [str(trigger.agent)],
-                        "trigger": str(trigger.id),
-                    }
-
-                # Add notification configuration for trigger completion
-                request_data["notification_config"] = {
-                    "user_id": str(trigger.user),
-                    "notification_type": "trigger_complete",
-                    "title": "Task Completed Successfully",
-                    "message": f"Your scheduled task has completed successfully: {trigger.instruction[:100]}...",
-                    "trigger_id": str(trigger.id),
-                    "agent_id": str(trigger.agent),
-                    "priority": "normal",
-                    "metadata": {
-                        "trigger_id": trigger.trigger_id,
-                    },
-                    "success_notification": True,
-                    "failure_notification": True,
-                    "failure_title": "Task Failed",
-                    "failure_message": f"Your scheduled task failed: {trigger.instruction[:100]}...",
-                }
-
-                # Make async HTTP POST to prompt session endpoint
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(
-                        f"{os.getenv('EDEN_API_URL')}/sessions/prompt",
-                        json=request_data,
-                        headers={
-                            "Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}",
-                            "Content-Type": "application/json",
-                        },
-                    ) as response:
-                        if response.status != 200:
-                            error_text = await response.text()
-                            logger.error(
-                                f"Failed to run trigger {trigger.trigger_id}: {error_text}"
-                            )
-                            return
-
-                        result = await response.json()
-                        session_id = result.get("session_id")
-
-                        # Update trigger with session if it was created
-                        if not trigger.session and session_id:
-                            trigger.session = ObjectId(session_id)
-                            trigger.save()
+                # Update trigger with session if it was created
+                if not trigger.session and session_id:
+                    trigger.session = ObjectId(session_id)
+                    trigger.save()
 
                 # Handle posting instructions if present
                 if trigger.posting_instructions:
@@ -261,7 +201,7 @@ You have been given the following instructions. Do not ask for clarification, or
 
         # Execute all triggers concurrently
         if triggers:
-            tasks = [execute_trigger(trigger) for trigger in triggers]
+            tasks = [execute_trigger_wrapper(trigger) for trigger in triggers]
             await asyncio.gather(*tasks, return_exceptions=True)
 
     except Exception as e:

@@ -3,6 +3,7 @@ import logging
 import os
 import time
 import uuid
+import aiohttp
 from bson import ObjectId
 from typing import Dict, List, Optional
 from fastapi import BackgroundTasks, Request
@@ -406,111 +407,42 @@ async def handle_trigger_get(trigger_id: str):
 
 @handle_errors
 async def handle_trigger_run(request: RunTriggerRequest):
-    """Execute a trigger immediately without affecting its schedule"""
-    import aiohttp
-    
     trigger_id = request.trigger_id
     
-    print(f"🔥 IMMEDIATE TRIGGER RUN REQUESTED: trigger_id={trigger_id}")
-    
-    # Find the trigger
     trigger = Trigger.from_mongo(trigger_id)
     if not trigger or trigger.deleted:
         print(f"❌ Trigger not found or deleted: {trigger_id}")
         raise APIError(f"Trigger not found: {trigger_id}", status_code=404)
-    
-    print(f"✅ Trigger found: {trigger_id}, owner={trigger.user}, status={trigger.status}")
     
     # Check if trigger is active
     if trigger.status != "active":
         print(f"⚠️ Trigger not active: status={trigger.status}")
         raise APIError(f"Trigger is not active (status: {trigger.status})", status_code=400)
     
-    # Execute using the ACTUAL current scheduled trigger mechanism
-    api_url = os.getenv("EDEN_API_URL")
+    # Use the shared trigger execution function
+    from eve.agent.session.triggers import execute_trigger
     
-    print(f"🚀 Starting immediate execution using modern trigger system: '{trigger.instruction[:100]}...'")
-    
-    # Use the exact same request structure as current scheduled triggers
-    request_data = {
-        "session_id": str(trigger.session) if trigger.session else None,
-        "user_id": str(trigger.user),
-        "actor_agent_ids": [str(trigger.agent)],
-        "message": {
-            "role": "system",
-            "content": f"""## Task
-
-You have been given the following instructions. Do not ask for clarification, or stop until you have completed the task.
-
-{trigger.instruction}
-
-""",
-        },
-        "update_config": trigger.update_config,
-    }
-    
-    # If no session, add creation args (same as scheduled triggers)
-    if not trigger.session:
-        request_data["creation_args"] = {
-            "owner_id": str(trigger.user),
-            "agents": [str(trigger.agent)],
-            "trigger": str(trigger.id),
+    try:
+        # Execute the trigger using the shared function
+        response_data = await execute_trigger(trigger, is_immediate=True)
+        session_id = response_data.get("session_id")
+        
+        # Update trigger with session if it was created
+        if not trigger.session and session_id:
+            from bson import ObjectId
+            trigger.session = ObjectId(session_id)
+            trigger.save()
+        
+        return {
+            "trigger_id": trigger_id,
+            "executed": True,
+            "session_id": session_id,
+            "response": response_data
         }
-    
-    # Add notification config for immediate runs too
-    request_data["notification_config"] = {
-        "user_id": str(trigger.user),
-        "notification_type": "trigger_complete",
-        "title": "Immediate Task Completed",
-        "message": f"Your immediate task has completed: {trigger.instruction[:100]}...",
-        "trigger_id": str(trigger.id),
-        "agent_id": str(trigger.agent),
-        "priority": "normal",
-        "metadata": {
-            "trigger_id": trigger.trigger_id,
-            "immediate_run": True,
-        },
-        "success_notification": True,
-        "failure_notification": True,
-        "failure_title": "Immediate Task Failed", 
-        "failure_message": f"Your immediate task failed: {trigger.instruction[:100]}...",
-    }
-    
-    print(f"📤 Making prompt session request for immediate trigger execution")
-    print(f"   Agent: {trigger.agent}")
-    print(f"   Session: {trigger.session}")
-    print(f"   Update config: {trigger.update_config is not None}")
-    
-    # Use the current /sessions/prompt endpoint like scheduled triggers
-    async with aiohttp.ClientSession() as session:
-        async with session.post(
-            f"{api_url}/sessions/prompt",
-            json=request_data,
-            headers={
-                "Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}",
-                "Content-Type": "application/json",
-            },
-        ) as response:
-            if not response.ok:
-                error_text = await response.text()
-                print(f"❌ Prompt session request failed: {response.status} - {error_text}")
-                raise APIError(
-                    f"Failed to execute trigger: {response.status} - {error_text}",
-                    status_code=500
-                )
-            
-            response_data = await response.json()
-            session_id = response_data.get("session_id")
-            
-            print(f"✅ Immediate trigger execution initiated successfully")
-            print(f"   Session ID: {session_id}")
-    
-    return {
-        "trigger_id": trigger_id,
-        "executed": True,
-        "session_id": session_id,
-        "response": response_data
-    }
+        
+    except Exception as e:
+        print(f"❌ Immediate trigger execution failed: {str(e)}")
+        raise APIError(f"Failed to execute trigger: {str(e)}", status_code=500)
 
 
 @handle_errors
