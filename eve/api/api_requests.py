@@ -146,6 +146,10 @@ class AgentToolsDeleteRequest(BaseModel):
     tools: List[str]
 
 
+class RunTriggerRequest(BaseModel):
+    trigger_id: str
+
+
 class SessionCreationArgs(BaseModel):
     owner_id: Optional[str] = None
     agents: List[str]
