@@ -129,7 +129,7 @@ async def get_clerk_session(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e))
 
 
-def authenticate(
+async def authenticate(
     api_key: str = Depends(api_key_header),
     bearer_token: HTTPAuthorizationCredentials = Depends(bearer_scheme),
 ):
@@ -138,7 +138,7 @@ def authenticate(
         return verify_api_key(api_key)
 
     if bearer_token:
-        return get_clerk_session(bearer_token)
+        return await get_clerk_session(bearer_token)
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -154,7 +154,7 @@ async def authenticate_ws(websocket: WebSocket):
             scheme="Bearer", credentials=token.replace("Bearer ", "")
         )
     try:
-        user = authenticate(api_key=api_key, token=token)
+        user = await authenticate(api_key=api_key, bearer_token=token)
         return user
     except HTTPException as e:
         await websocket.accept()

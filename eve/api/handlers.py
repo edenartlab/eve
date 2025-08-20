@@ -3,6 +3,7 @@ import logging
 import os
 import time
 import uuid
+import aiohttp
 from bson import ObjectId
 from typing import Dict, List, Optional
 from fastapi import BackgroundTasks, Request
@@ -48,6 +49,7 @@ from eve.api.api_requests import (
     AgentToolsDeleteRequest,
     UpdateDeploymentRequestV2,
     CreateNotificationRequest,
+    RunTriggerRequest
 )
 from eve.api.helpers import (
     emit_update,
@@ -401,6 +403,46 @@ async def handle_trigger_get(trigger_id: str):
         "update_config": trigger.update_config,
         "schedule": trigger.schedule,
     }
+
+
+@handle_errors
+async def handle_trigger_run(request: RunTriggerRequest):
+    trigger_id = request.trigger_id
+    
+    trigger = Trigger.from_mongo(trigger_id)
+    if not trigger or trigger.deleted:
+        print(f"❌ Trigger not found or deleted: {trigger_id}")
+        raise APIError(f"Trigger not found: {trigger_id}", status_code=404)
+    
+    # Check if trigger is active
+    if trigger.status != "active":
+        print(f"⚠️ Trigger not active: status={trigger.status}")
+        raise APIError(f"Trigger is not active (status: {trigger.status})", status_code=400)
+    
+    # Use the shared trigger execution function
+    from eve.agent.session.triggers import execute_trigger
+    
+    try:
+        # Execute the trigger using the shared function
+        response_data = await execute_trigger(trigger, is_immediate=True)
+        session_id = response_data.get("session_id")
+        
+        # Update trigger with session if it was created
+        if not trigger.session and session_id:
+            from bson import ObjectId
+            trigger.session = ObjectId(session_id)
+            trigger.save()
+        
+        return {
+            "trigger_id": trigger_id,
+            "executed": True,
+            "session_id": session_id,
+            "response": response_data
+        }
+        
+    except Exception as e:
+        print(f"❌ Immediate trigger execution failed: {str(e)}")
+        raise APIError(f"Failed to execute trigger: {str(e)}", status_code=500)
 
 
 @handle_errors
