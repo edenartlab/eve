@@ -4,8 +4,8 @@ from pydantic import BaseModel, Field
 from typing import Literal, Dict, Any
 from eve.api.api_requests import PromptSessionRequest, SessionCreationArgs
 from eve.api.handlers import setup_session
-from eve.agent.session.models import PromptSessionContext, ChatMessageRequestInput
-from eve.agent.session.session import run_prompt_session
+from eve.agent.session.models import PromptSessionContext, ChatMessageRequestInput, LLMConfig
+from eve.agent.session.session import add_user_message, build_llm_context, async_prompt_session
 from eve.auth import get_my_eden_user
 from eve.agent import Agent
 from eve.tool import Tool
@@ -21,8 +21,9 @@ class EdenDescription(BaseModel):
 async def custom_handler(
     args: Dict[str, Any], user: str = None, agent: str = None
 ) -> Dict[str, Any]:
-    result = f"Eden is {args["description"]} and its sentiment {args["sentiment"]}"
+    result = f"Eden is {args['description']} and its sentiment {args['sentiment']}"
     return {"output": result}
+
 
 # Create and register the tool
 custom_tool = Tool.from_pydantic(EdenDescription)
@@ -58,16 +59,25 @@ async def example_session():
         session=session,
         initiating_user_id=request.user_id,
         message=message,
+        llm_config=LLMConfig(model="gpt-4o-mini"),
 
         # insert custom tool here
-        custom_tools={custom_tool.key: custom_tool}
+        custom_tools={custom_tool.key: custom_tool},
     )
 
-    # Run session
-    await run_prompt_session(context, background_tasks)
+    add_user_message(session, context)
 
-    # it should now be available under your sessions with Eve
+    # Run session
+    context = await build_llm_context(
+        session, 
+        agent, 
+        context, 
+    )
     
+    # Execute the prompt session
+    async for _ in async_prompt_session(session, context, agent):
+        pass
+        
 
 if __name__ == "__main__":
     asyncio.run(example_session())
