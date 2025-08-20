@@ -268,7 +268,10 @@ class Agent(User):
                 continue
             tools_to_load.extend(set_tools)
 
-        self.tools_ = get_tools_from_mongo(tools_to_load)
+        if tools_to_load:
+            self.tools_ = get_tools_from_mongo(tools_to_load)
+        else:
+            self.tools_ = {}
 
     # @profile_method("get_tools")
     def get_tools(self, cache=True, auth_user: str = None):
