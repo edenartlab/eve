@@ -522,6 +522,9 @@ async def _consolidate_agent_suggestions(shard: AgentMemory):
         unabsorbed_memory_ids = getattr(shard, 'unabsorbed_memory_ids', [])
         if not unabsorbed_memory_ids:
             return
+        
+        # this utility adds the option to override the max words for the agent memory blob in the shard document:
+        agent_memory_blob_max_words = getattr(shard, 'AGENT_MEMORY_BLOB_MAX_WORDS', AGENT_MEMORY_BLOB_MAX_WORDS)
 
         # Batch load both suggestions and facts in a single optimized call
         all_memory_ids = unabsorbed_memory_ids + shard.facts
@@ -547,7 +550,7 @@ async def _consolidate_agent_suggestions(shard: AgentMemory):
             facts_text=facts_text if facts_text else "(no facts available)",
             suggestions_text=suggestions_text,
             shard_name=shard.shard_name or "Unknown Shard",
-            max_words=AGENT_MEMORY_BLOB_MAX_WORDS
+            max_words=agent_memory_blob_max_words
         )
 
         # Update agent memory - ensure unabsorbed_memory_ids field exists
@@ -856,7 +859,7 @@ async def form_memories(agent_id: ObjectId, session: Session, agent = None) -> b
         related_users = list(
             set([msg.sender for msg in session_messages if msg.sender and (msg.sender != agent_id and msg.role == "user")])
         )
-        last_speaker_id = related_users[-1]
+        last_speaker_id = related_users[-1] if related_users else None
 
         from eve.agent.session.memory_assemble_context import assemble_memory_context
         await assemble_memory_context(session, agent_id, last_speaker_id, force_refresh=True, reason="form_memories", skip_save=True, agent=agent)
