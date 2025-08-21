@@ -23,7 +23,7 @@ async def _assemble_user_memory(agent_id: ObjectId, user_id: ObjectId, agent=Non
             agent = Agent.from_mongo(agent_id)
         
         if not agent or not getattr(agent, 'user_memory_enabled', True):
-            print(f"   ⚠️  UserMemory disabled for agent {agent_id}, returning empty content")
+            #print(f"   ⚠️  UserMemory disabled for agent {agent_id}, returning empty content")
             return ""
         query_start = time.time()
         user_memory = UserMemory.find_one_or_create(
@@ -58,7 +58,8 @@ async def _get_episode_memories(session: Session, force_refresh: bool = False) -
     safe_update_memory_context(session, {})  # Ensure memory_context exists
     if (not force_refresh and 
         session.memory_context.cached_episode_memories is not None):
-        print(f"   ⚡ Using cached episode memories ({len(session.memory_context.cached_episode_memories)} episodes)")
+        if LOCAL_DEV:
+            print(f"   ⚡ Using cached episode memories ({len(session.memory_context.cached_episode_memories)} episodes)")
         return session.memory_context.cached_episode_memories
     
     # Query and cache episode memories
@@ -176,7 +177,6 @@ async def check_memory_freshness(session: Session, agent_id: ObjectId, user_id: 
             agent_memory = agent_memories[0] if agent_memories else None
             if agent_memory and agent_memory.last_updated_at:
                 if agent_memory.last_updated_at > session.memory_context.agent_memory_timestamp:
-                    print(f"   🔄 Agent memory updated since cache")
                     return False
         except Exception as e:
             return False  # Refresh on error to be safe
@@ -189,7 +189,6 @@ async def check_memory_freshness(session: Session, agent_id: ObjectId, user_id: 
             )
             if user_memory and user_memory.last_updated_at:
                 if user_memory.last_updated_at > session.memory_context.user_memory_timestamp:
-                    print(f"   🔄 User memory updated since cache")
                     return False
         except Exception as e:
             print(f"   ⚠️ Error checking user memory freshness: {e}")
