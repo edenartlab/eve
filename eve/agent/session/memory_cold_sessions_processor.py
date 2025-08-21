@@ -65,7 +65,7 @@ async def process_cold_sessions():
         query_with_context = {
             **base_query,
             "memory_context.last_activity": {"$lt": cutoff_time},
-            "memory_context.messages_since_memory_formation": {"$gt": NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES}
+            "memory_context.messages_since_memory_formation": {"$gte": NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES}
         }
         
         # Second batch: Sessions without memory_context

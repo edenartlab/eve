@@ -250,7 +250,7 @@ def _build_memory_xml(
 async def assemble_memory_context(
     session: Session,
     agent_id: ObjectId,
-    last_speaker_id: ObjectId, 
+    last_speaker_id: ObjectId = None, 
     force_refresh: bool = False,
     reason: str = "unknown",
     skip_save: bool = False,
@@ -297,7 +297,10 @@ async def assemble_memory_context(
     
     # Rebuild memory context
     # 1. Get user memory (1 query)
-    user_memory_content = await _assemble_user_memory(agent_id, last_speaker_id, agent)
+    if last_speaker_id:
+        user_memory_content = await _assemble_user_memory(agent_id, last_speaker_id, agent)
+    else:
+        user_memory_content = ""
     
     # 2. Get agent memories (1 query)
     agent_collective_memories = await _assemble_agent_memories(agent_id, agent)

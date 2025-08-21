@@ -57,7 +57,7 @@ SESSION_SUGGESTION_MEMORY_MAX_WORDS = 35  # Target word length for session sugge
 SESSION_FACT_MEMORY_MAX_WORDS       = 25  # Target word length for session fact memory
 # Consolidated memory blobs:
 USER_MEMORY_BLOB_MAX_WORDS  = 200  # Target word count for consolidated user memory blob
-AGENT_MEMORY_BLOB_MAX_WORDS = 500  # Target word count for consolidated agent memory blob (shard)
+AGENT_MEMORY_BLOB_MAX_WORDS = 750  # Target word count for consolidated agent memory blob (shard)
 
 # Define different memory types and their extraction limits:
 MEMORY_TYPES = {
@@ -222,7 +222,7 @@ Only create new memories that are highly relevant in the context of this shard:
 {SHARD_EXTRACTION_PROMPT_TOKEN}
 </shard_context>
 
-## Current known facts (Provided for context: these facts will always be automaticallypresent in memory and do NOT need to be integrated!):
+## Current known facts (Provided for context: these facts will always be automatically present in memory and do NOT need to be integrated into MEMORY STATE!):
 {{facts_text}}
 
 ## Current, consolidated MEMORY STATE (The thing to update):
@@ -231,7 +231,7 @@ Only create new memories that are highly relevant in the context of this shard:
 ## NEW SUGGESTIONS and ideas to integrate (The information to integrate):
 {{suggestions_text}}
 
-Your goal is to update the current consolidated MEMORY STATE for this "{{shard_name}}" memory shard by integrating the new suggestions while leveraging the know facts.
+Your goal is to update the current consolidated MEMORY STATE for this "{{shard_name}}" memory shard by integrating the new suggestions while leveraging the know facts as context.
 Refine, restructure, and merge the information to create a new, coherent, and updated consolidated memory (≤{{max_words}} words).
 
 If the current, consolidated MEMORY STATE is EMPTY:
@@ -246,6 +246,7 @@ Integration Guidelines:
 - always increment the VERSION by 1 (integer) when you update the MEMORY STATE
 - Do NOT simply append the new items but integrate. The final output should be ONLY the complete, newly revised MEMORY STATE.
 - Integrate suggestions according to their alignment with the current consolidated memory context. Changes in direction of the shard memory should be considered carefully and backed by consensus.
+- Feel very free to simply copy/paste existing sections of the MEMORY STATE if they do not need to be updated. In fact, this is encouraged to avoid losing information and maintain consistency.
 - Discard suggestions only if they are: spam, completely off-topic, or factually impossible
 - Integrate conflicting viewpoints by noting them as "disputed" or "minority view" rather than discarding
 - When consensus is unclear, preserve both perspectives (e.g., "Some members propose X while others prefer Y")
@@ -258,5 +259,5 @@ Integration Guidelines:
 - Format contested items clearly: "Proposed by Alice, supported by Bob, opposed by Carol: [suggestion]"
 - Separate "agreed actions" from "open proposals" in the MEMORY STATE
 
-Return only the consolidated memory (strictly ≤{{max_words}} words!), no additional formatting or explanation.
+Return only the newly consolidated MEMORY STATE (strictly ≤{{max_words}} words!), no additional formatting or explanation.
 """
