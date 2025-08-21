@@ -602,6 +602,7 @@ class LLMConfig:
     response_format: Optional[BaseModel] = None
     thinking: Optional[bool] = False
     thinking_budget_tokens: Optional[int] = 1024
+    fallback_models: Optional[List[str]] = None
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 

@@ -292,9 +292,9 @@ def add_user_message(session: Session, context: PromptSessionContext):
     session.save()
 
     # Print the most recent message:
-    print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
-    print(f"--- {new_message.content[:30]} ---")
-    print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+    #print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+    #print(f"--- {new_message.content[:30]} ---")
+    #print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
     return new_message
 
 
@@ -850,9 +850,9 @@ async def async_prompt_session(
             session.memory_context.last_activity = datetime.now(timezone.utc)
             session.memory_context.messages_since_memory_formation += 1
 
-            print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
-            print(f"--- {assistant_message.content[:30]} ---")
-            print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+            #print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+            #print(f"--- {assistant_message.content[:30]} ---")
+            #print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
             
             update_session_budget(session, tokens_spent=tokens_spent, turns_spent=1)
             session.save()
