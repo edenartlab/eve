@@ -834,6 +834,7 @@ async def async_prompt_session(
                     content=response.content,
                     tool_calls=response.tool_calls,
                     finish_reason=response.stop,
+                    thinking_blocks=response.thinking_blocks,
                     observability=ChatMessageObservability(
                         session_id=llm_context.metadata.session_id,
                         trace_id=llm_context.metadata.trace_id,

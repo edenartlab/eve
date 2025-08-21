@@ -29,6 +29,7 @@ supported_models = [
     "claude-3-haiku-20240307",
     "claude-sonnet-4-20250514",
     "claude-opus-4-20250514",
+    "claude-3-7-sonnet-20250219",
     "gemini/gemini-2.5-flash-preview-05-20",
     "gpt-5-2025-08-07",
     "gpt-5-mini-2025-08-07"
@@ -181,6 +182,7 @@ def prepare_messages(
 async def async_prompt_litellm(
     context: LLMContext,
 ) -> LLMResponse:
+    print("LLM 1")
     messages = prepare_messages(context.messages, context.config.model)
     tools = construct_tools(context)
 
@@ -197,11 +199,42 @@ async def async_prompt_litellm(
         completion_kwargs["web_search_options"] = {
             "search_context_size": "medium"
         }
+    
+    print("LLM 2")
+    # Enable thinking for Claude models when requested via config
+    if ("claude-3-7-sonnet" in context.config.model or "claude-opus-4" in context.config.model or "claude-sonnet-4" in context.config.model) and getattr(context.config, 'thinking', False):
+        completion_kwargs["thinking"] = {
+            "type": "enabled", 
+            "budget_tokens": getattr(context.config, 'thinking_budget_tokens', 1024)
+        }
 
+
+    print("LLM 4")
     response = completion(**completion_kwargs)
+
+    print("LLM 5")
+
+    # Handle thinking/reasoning outputs for thinking models
+    if hasattr(response.choices[0].message, 'reasoning_content') and response.choices[0].message.reasoning_content:
+        print(f"\n=== REASONING CONTENT ===")
+        print(response.choices[0].message.reasoning_content)
+        print("========================\n")
+    
+    if hasattr(response.choices[0].message, 'thinking_blocks') and response.choices[0].message.thinking_blocks:
+        print(f"\n=== THINKING BLOCKS ===")
+        for i, block in enumerate(response.choices[0].message.thinking_blocks):
+            print(f"Block {i+1}:")
+            print(f"  Type: {block.get('type', 'unknown')}")
+            if 'thinking' in block:
+                print(f"  Thinking: {block['thinking']}")
+            if 'signature' in block:
+                print(f"  Signature: {block['signature']}")
+        print("=======================\n")
 
     tool_calls = []
     
+    print("LLM 6")
+
     # add web search as a tool call
     if response.choices[0].message.provider_specific_fields:
         citations = response.choices[0].message.provider_specific_fields.get("citations", [])
@@ -225,6 +258,8 @@ async def async_prompt_litellm(
                 )
             )
 
+    print("LLM 7")
+
     # add regular tool calls
     if response.choices[0].message.tool_calls:
         tool_calls.extend([
@@ -237,11 +272,21 @@ async def async_prompt_litellm(
             for tool_call in response.choices[0].message.tool_calls
         ])
 
+    print("LLM 8")
+
+    # Extract thinking blocks if present
+    thinking_blocks = None
+    if hasattr(response.choices[0].message, 'thinking_blocks') and response.choices[0].message.thinking_blocks:
+        thinking_blocks = response.choices[0].message.thinking_blocks
+
+    print("LLM 9")
+    
     return LLMResponse(
         content=response.choices[0].message.content or "",  # content can't be None
         tool_calls=tool_calls or None,
         stop=response.choices[0].finish_reason,
         tokens_spent=response.usage.total_tokens,
+        thinking_blocks=thinking_blocks,
     )
 
 

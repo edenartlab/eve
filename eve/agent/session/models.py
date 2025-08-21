@@ -207,6 +207,7 @@ class ChatMessage(Document):
 
     observability: Optional[ChatMessageObservability] = None
     finish_reason: Optional[str] = None
+    thinking_blocks: Optional[List[Dict[str, Any]]] = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -599,6 +600,8 @@ class LLMConfig:
     model: Optional[str] = "gpt-4o-mini"
     max_tokens: Optional[int] = None
     response_format: Optional[BaseModel] = None
+    thinking: Optional[bool] = False
+    thinking_budget_tokens: Optional[int] = 1024
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
@@ -747,6 +750,7 @@ class LLMResponse:
     tool_calls: Optional[List[ToolCall]] = None
     stop: Optional[str] = None
     tokens_spent: Optional[int] = None
+    thinking_blocks: Optional[List[Dict[str, Any]]] = None
 
 
 class ClientType(Enum):
