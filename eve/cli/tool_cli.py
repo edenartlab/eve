@@ -49,10 +49,12 @@ api_tools_order = [
     "mochi_preview",
     "lora_trainer",
     "flux_trainer",
-    "news",
+    # "news",
     "moodmix",
     "stable_audio",
     "musicgen",
+    "elevenlabs_music",
+    "elevenlabs_fx",
     "legacy/create",
 ]
 

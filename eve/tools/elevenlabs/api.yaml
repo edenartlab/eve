@@ -75,38 +75,45 @@ parameters:
   stability:
     type: float
     label: Stability
-    description: The stability of the speech
+    description: The stability of the speech. Higher is more stable/monotonous, lower is more dynamic/varied.
     default: 0.5
-    minimum: 0
-    maximum: 1
-  similarity_boost:
-    type: float
-    label: Similarity Boost
-    description: The similarity boost of the speech
-    default: 0.75
     minimum: 0
     maximum: 1
   style:
     type: float
     label: Style
-    description: The style of the speech
+    description: The style exaggeration of the speech. 0.0 is normal, 1.0 is exaggerated.
     default: 0.0
     minimum: 0
     maximum: 1
-  use_speaker_boost:
-    type: boolean
-    label: Use Speaker Boost
-    description: Whether to use speaker boost
-    default: true
-  max_attempts:
-    type: integer
-    label: Max Attempts
-    description: The maximum number of attempts to generate the speech
-    default: 3
-  initial_delay:
-    type: integer
-    label: Initial Delay
-    description: The initial delay before starting to generate the speech
-    default: 1
-    minimum: 0
-    maximum: 10
+  speed:
+    type: float
+    label: Speed
+    description: The speed of the speech. 1.0 is normal, 0.5 is half speed, 2.0 is double speed.
+    default: 1.0
+    minimum: 0.7
+    maximum: 1.2
+  # max_attempts:
+  #   type: integer
+  #   label: Max Attempts
+  #   description: The maximum number of attempts to generate the speech
+  #   default: 3
+  # initial_delay:
+  #   type: integer
+  #   label: Initial Delay
+  #   description: The initial delay before starting to generate the speech
+  #   default: 1
+  #   minimum: 0
+  #   maximum: 10
+  # similarity_boost:
+  #   type: float
+  #   label: Similarity Boost
+  #   description: The similarity boost of the speech
+  #   default: 0.75
+  #   minimum: 0
+  #   maximum: 1
+  # use_speaker_boost:
+  #   type: boolean
+  #   label: Use Speaker Boost
+  #   description: Whether to use speaker boost
+  #   default: true

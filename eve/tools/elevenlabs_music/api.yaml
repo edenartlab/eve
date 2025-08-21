@@ -1,0 +1,29 @@
+name: Text-to-music
+description: Text-to-music with ElevenLabs
+tip: |-
+  Generates context‑aware music track from a single text prompt plus target length. Put all creative guidance in `prompt`: genre/mood, instrumentation, vocal handling (e.gh. use “a cappella” for just vocals, “instrumental only” for no vocals, “a capella” to have only solo vocals), tempo as BPM (e.g., “128 BPM”), key if relevant (e.g., “in A minor”), singer count/roles (e.g., “two singers harmonizing in C”), vocal tone (e.g., “breathy,” “aggressive”), structural timing cues (e.g., “lyrics begin at 15 seconds,” “instrumental only after 1:45”), language, and any ad/voiceover script or inline lyrics (preface with “Lyrics:” if provided). Aim for 1–3 tight sentences plus any timing/lyrics lines. You may include full lyrics in the prompt. If making backing or soundtrack music, make sure to include `instrumental only` to prevent vocals.
+cost_estimate: 0.5 * duration
+thumbnail: app/elevenlabs58.webp 
+output_type: audio
+active: true
+visible: true
+parameters:
+  prompt:
+    type: string
+    label: Prompt
+    description: A compact but specific instruction for the whole composition. Include genre/tone, BPM, key, instrumentation with “solo”, vocal directives with “a cappella” or “instrumental only”, singer count/roles, vocal delivery adjectives, timing cues for when vocals start/stop, language, and (optionally) a ‘Lyrics:’ block. Preserve user intent as much as possible.
+    required: true
+  enhance_prompt:
+    type: boolean
+    label: Enhance Prompt
+    description: Whether to automatically enhance the prompt to match best practices.
+    required: false
+    default: true
+  duration:
+    type: float
+    label: Duration in seconds
+    description: The length of the music in seconds
+    required: true
+    default: 30
+    minimum: 10
+    maximum: 300

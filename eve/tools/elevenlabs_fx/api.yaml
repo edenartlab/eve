@@ -1,0 +1,23 @@
+name: Sound effects
+description: Sound effects with ElevenLabs
+tip: |-
+  This tool can be used to generate sound effects from text prompts
+cost_estimate: 0.5 * duration
+thumbnail: app/elevenlabs58.webp 
+output_type: audio
+active: true
+visible: true
+parameters:
+  prompt:
+    type: string
+    label: Prompt
+    description: The prompt of sound effects
+    required: true
+  duration:
+    type: float
+    label: Duration in seconds
+    description: The length of the sound effects in seconds
+    required: true
+    default: 5
+    minimum: 0.5
+    maximum: 22

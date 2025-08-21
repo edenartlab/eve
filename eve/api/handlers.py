@@ -3,6 +3,7 @@ import logging
 import os
 import time
 import uuid
+import aiohttp
 from bson import ObjectId
 from typing import Dict, List, Optional
 from fastapi import BackgroundTasks, Request
@@ -48,6 +49,7 @@ from eve.api.api_requests import (
     AgentToolsDeleteRequest,
     UpdateDeploymentRequestV2,
     CreateNotificationRequest,
+    RunTriggerRequest
 )
 from eve.api.helpers import (
     emit_update,
@@ -401,6 +403,46 @@ async def handle_trigger_get(trigger_id: str):
         "update_config": trigger.update_config,
         "schedule": trigger.schedule,
     }
+
+
+@handle_errors
+async def handle_trigger_run(request: RunTriggerRequest):
+    trigger_id = request.trigger_id
+    
+    trigger = Trigger.from_mongo(trigger_id)
+    if not trigger or trigger.deleted:
+        print(f"❌ Trigger not found or deleted: {trigger_id}")
+        raise APIError(f"Trigger not found: {trigger_id}", status_code=404)
+    
+    # Check if trigger is active
+    if trigger.status != "active":
+        print(f"⚠️ Trigger not active: status={trigger.status}")
+        raise APIError(f"Trigger is not active (status: {trigger.status})", status_code=400)
+    
+    # Use the shared trigger execution function
+    from eve.agent.session.triggers import execute_trigger
+    
+    try:
+        # Execute the trigger using the shared function
+        response_data = await execute_trigger(trigger, is_immediate=True)
+        session_id = response_data.get("session_id")
+        
+        # Update trigger with session if it was created
+        if not trigger.session and session_id:
+            from bson import ObjectId
+            trigger.session = ObjectId(session_id)
+            trigger.save()
+        
+        return {
+            "trigger_id": trigger_id,
+            "executed": True,
+            "session_id": session_id,
+            "response": response_data
+        }
+        
+    except Exception as e:
+        print(f"❌ Immediate trigger execution failed: {str(e)}")
+        raise APIError(f"Failed to execute trigger: {str(e)}", status_code=500)
 
 
 @handle_errors
@@ -1157,6 +1199,8 @@ async def handle_v2_deployment_update(request: UpdateDeploymentRequestV2):
             f"Deployment not found: {request.deployment_id}", status_code=404
         )
 
+    update_dict = {}
+
     # Handle partial config updates by merging with existing config
     if request.config:
         existing_config = deployment.config or DeploymentConfig()
@@ -1174,8 +1218,32 @@ async def handle_v2_deployment_update(request: UpdateDeploymentRequestV2):
                     # Add new platform config
                     updated_config_dict[platform] = platform_config
 
-        # Convert to dict for MongoDB storage
-        deployment.update(config=updated_config_dict)
+        update_dict["config"] = updated_config_dict
+
+    # Handle secrets updates by merging with existing secrets
+    if request.secrets:
+        from eve.agent.session.models import DeploymentSecrets
+        
+        existing_secrets = deployment.secrets or DeploymentSecrets()
+        new_secrets = request.secrets.model_dump(exclude_unset=True)
+
+        # Merge the secrets at the platform level
+        updated_secrets_dict = existing_secrets.model_dump() if existing_secrets else {}
+
+        for platform, platform_secrets in new_secrets.items():
+            if platform_secrets is not None:
+                if platform in updated_secrets_dict:
+                    # Merge platform-specific secrets
+                    updated_secrets_dict[platform].update(platform_secrets)
+                else:
+                    # Add new platform secrets
+                    updated_secrets_dict[platform] = platform_secrets
+
+        update_dict["secrets"] = updated_secrets_dict
+
+    # Update deployment with both config and secrets if provided
+    if update_dict:
+        deployment.update(**update_dict)
 
     return {"deployment_id": str(deployment.id)}
 

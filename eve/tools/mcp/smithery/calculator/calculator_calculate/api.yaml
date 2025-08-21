@@ -1,0 +1,24 @@
+name: Calculator
+description: Performs precise mathematical calculations and evaluates mathematical expressions
+tip: |-
+  Use this tool to perform accurate mathematical calculations. Enter any mathematical expression and get the precise result.
+cost_estimate: 0
+output_type: string
+thumbnail: app/calculator.png
+handler: mcp
+mcp_server_url: https://server.smithery.ai/@githejie/mcp-server-calculator/mcp
+mcp_server_name: calculator
+mcp_tool_name: calculate
+mcp_env_params:
+  api_key: SMITHERY_API_KEY
+  profile: SMITHERY_PROFILE
+mcp_timeout: 10
+mcp_max_retries: 3
+parameters:
+  math_expression:
+    type: string
+    label: Mathematical Expression
+    description: The mathematical expression to be calculated
+    tip: |-
+      Enter any mathematical expression (e.g., "2 + 2", "sqrt(16)", "sin(pi/2)", "factorial(5)")
+    required: true

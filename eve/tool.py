@@ -140,6 +140,10 @@ class Tool(Document, ABC):
                 from .tools.fal_tool import FalTool
 
                 _tool_classes[handler] = FalTool
+            elif handler == "mcp":
+                from .tools.mcp_tool import MCPTool
+
+                _tool_classes[handler] = MCPTool
             else:
                 if local_debug:
                     from .tools.local_tool import LocalTool
@@ -693,8 +697,11 @@ def get_tools_from_mongo(
             if tool.get("key") in _tool_cache:
                 tool = _tool_cache[tool.get("key")]
             else:
+                print("TOOL1:", tool)
                 tool = Tool.convert_from_mongo(tool)
+                print("TOOL2:", tool)
                 tool = Tool.from_schema(tool, from_yaml=False)
+                print("TOOL3", tool)
                 if cache:
                     _tool_cache[tool.key] = tool
             if tool.active and not include_inactive:

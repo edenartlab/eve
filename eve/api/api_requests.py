@@ -146,6 +146,10 @@ class AgentToolsDeleteRequest(BaseModel):
     tools: List[str]
 
 
+class RunTriggerRequest(BaseModel):
+    trigger_id: str
+
+
 class SessionCreationArgs(BaseModel):
     owner_id: Optional[str] = None
     agents: List[str]
@@ -182,6 +186,7 @@ class CreateDeploymentRequestV2(BaseModel):
 class UpdateDeploymentRequestV2(BaseModel):
     deployment_id: str
     config: Optional[DeploymentConfig] = None
+    secrets: Optional[DeploymentSecrets] = None
 
 
 class DeleteDeploymentRequestV2(BaseModel):

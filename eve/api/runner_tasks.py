@@ -467,11 +467,8 @@ async def rotate_agent_metadata(since_hours=6):
         ]
 
     for agent in agents.find(filter):
-        print(agent)
         agent = Agent(**agent)
         print("rotate", agent.username)
-        print(type(agent))
-        print(agent)
         updated_at = (agent.updatedAt or agent.createdAt).replace(tzinfo=timezone.utc)
         refreshed_at = agent.refreshed_at
         if refreshed_at:

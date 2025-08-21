@@ -3,10 +3,15 @@ import random
 import instructor
 from tempfile import NamedTemporaryFile
 from typing import List, Literal
-from elevenlabs.client import ElevenLabs, Voice
+from elevenlabs.client import ElevenLabs#, Voice
 from elevenlabs.types.voice_settings import VoiceSettings
 from openai import OpenAI
 from typing import Iterator
+
+
+import elevenlabs
+print("versio", elevenlabs.__version__)
+
 
 from eve import utils
 
@@ -20,11 +25,12 @@ DEFAULT_VOICE = "XB0fDUnXU5powFXDhCwa"
 async def handler(args: dict, user: str = None, agent: str = None):
     # print("args", args)
     args["stability"] = args.get("stability", 0.5)
-    args["similarity_boost"] = args.get("similarity_boost", 0.75)
     args["style"] = args.get("style", 0.0)
-    args["use_speaker_boost"] = args.get("use_speaker_boost", True)
-    args["max_attempts"] = args.get("max_attempts", 3)
-    args["initial_delay"] = args.get("initial_delay", 1)
+    args["speed"] = args.get("speed", 1.0)
+    # args["similarity_boost"] = args.get("similarity_boost", 0.75)
+    # args["use_speaker_boost"] = args.get("use_speaker_boost", True)
+    # args["max_attempts"] = args.get("max_attempts", 3)
+    # args["initial_delay"] = args.get("initial_delay", 1)
 
     # get voice
     response = eleven.voices.get_all()
@@ -40,24 +46,25 @@ async def handler(args: dict, user: str = None, agent: str = None):
             raise ValueError(f"Voice ID {voice_id} not found, try another one (DEFAULT_VOICE: {DEFAULT_VOICE})")
     
     async def generate_with_params():
-        return eleven.generate(
+        audio_generator = eleven.text_to_speech.convert(
             text=args["text"],
-            voice=Voice(
-                voice_id=voice_id,
-                settings=VoiceSettings(
-                    stability=args["stability"],
-                    similarity_boost=args["similarity_boost"],
-                    style=args["style"],
-                    use_speaker_boost=args["use_speaker_boost"],
-                )
-            ),
-            model="eleven_multilingual_v2"
+            voice_id=voice_id,
+            voice_settings={
+                "stability": args["stability"],
+                "style": args["style"],
+                "speed": args["speed"],
+                "use_speaker_boost": True, #args["use_speaker_boost"],
+                # similarity_boost=args["similarity_boost"],
+            },
+            model_id="eleven_multilingual_v2",
+            output_format="mp3_44100_128",
         )
+        return audio_generator
 
     audio_generator = await utils.async_exponential_backoff(
         generate_with_params,
-        max_attempts=args["max_attempts"],
-        initial_delay=args["initial_delay"],
+        max_attempts=3, #args["max_attempts"],
+        initial_delay=1 #args["initial_delay"],
     )
 
     if isinstance(audio_generator, Iterator):
@@ -75,15 +82,19 @@ async def handler(args: dict, user: str = None, agent: str = None):
     }
 
 
-def clone_voice(name, description, voice_urls):
-    voice_files = []
-    for url in voice_urls:
-        with NamedTemporaryFile(delete=False) as file:
-            file = utils.download_file(url, file.name)
-            voice_files.append(file)
-    voice = eleven.clone(name, voice_files, description)    
+def clone_voice(name, description, voice_files):
+    cloning_files = []
     for file in voice_files:
-        os.remove(file)
+        if isinstance(file, str) and file.startswith("http"):
+            with NamedTemporaryFile(delete=False) as file:
+                file = utils.download_file(file, file.name)
+                cloning_files.append(file)
+        else:
+            cloning_files.append(file)
+    voice = eleven.clone(name, cloning_files, description)    
+    for file in cloning_files:
+        if file.endswith(".tmp"):
+            os.remove(file)
     return voice
 
 
@@ -201,3 +212,30 @@ def save_to_mongo():
         for voice in response.voices
     ]    
     collection.insert_many(data)
+
+
+# # if __name__ == "__main__":
+#     # example.py
+# from elevenlabs.client import ElevenLabs
+# from elevenlabs import play
+# import os
+# from dotenv import load_dotenv
+# load_dotenv()
+
+
+# music_generator = eleven.music.compose(
+#     prompt="Create an retro 80s video game style track with low-bit sound effects and a retro synth groove like a Zelda or Mario game",
+#     music_length_ms=40000,
+# )
+
+# # play(track)
+# if isinstance(music_generator, Iterator):
+#     audio = b"".join(music_generator)
+# else:
+#     audio = music_generator
+
+# # save to file
+# audio_file = NamedTemporaryFile(delete=False)
+# audio_file.write(audio)
+# audio_file.close()
+

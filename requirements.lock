@@ -33,8 +33,10 @@ anyio==4.9.0
     # via google-genai
     # via httpx
     # via langfuse
+    # via mcp
     # via openai
     # via runwayml
+    # via sse-starlette
     # via starlette
     # via watchfiles
 apscheduler==3.11.0
@@ -81,6 +83,7 @@ click==8.1.8
     # via litellm
     # via modal
     # via typer
+    # via uvicorn
 colorama==0.4.6
     # via eve
 cryptography==44.0.3
@@ -100,7 +103,7 @@ dnspython==2.7.0
 docstring-parser==0.17.0
     # via google-cloud-aiplatform
     # via instructor
-elevenlabs==1.13.4
+elevenlabs==2.10.0
     # via eve
 eth-abi==5.2.0
     # via eth-account
@@ -201,6 +204,7 @@ grpclib==0.4.8
     # via modal
 h11==0.16.0
     # via httpcore
+    # via uvicorn
 h2==4.2.0
     # via ably
     # via grpclib
@@ -224,12 +228,14 @@ httpx==0.28.1
     # via google-genai
     # via langfuse
     # via litellm
+    # via mcp
     # via openai
     # via python-telegram-bot
     # via replicate
     # via runwayml
 httpx-sse==0.4.1
     # via fal-client
+    # via mcp
 huggingface-hub==0.33.4
     # via tokenizers
 hyperframe==6.1.0
@@ -263,6 +269,7 @@ jsonref==1.1.0
     # via eve
 jsonschema==4.25.0
     # via litellm
+    # via mcp
 jsonschema-specifications==2025.4.1
     # via jsonschema
 langfuse==2.59.7
@@ -275,6 +282,8 @@ markdown-it-py==3.0.0
     # via rich
 markupsafe==3.0.2
     # via jinja2
+mcp==1.13.0
+    # via eve
 mdurl==0.1.2
     # via markdown-it-py
 methoddispatch==3.0.2
@@ -304,7 +313,7 @@ numpy==2.3.1
 oauthlib==3.3.1
     # via requests-oauthlib
     # via tweepy
-openai==1.99.6
+openai==1.99.9
     # via eve
     # via instructor
     # via litellm
@@ -371,7 +380,9 @@ pydantic==2.11.7
     # via langfuse
     # via lazy-model
     # via litellm
+    # via mcp
     # via openai
+    # via pydantic-settings
     # via replicate
     # via runwayml
     # via web3
@@ -379,6 +390,8 @@ pydantic-core==2.33.2
     # via elevenlabs
     # via instructor
     # via pydantic
+pydantic-settings==2.10.1
+    # via mcp
 pydub==0.25.1
     # via eve
 pyee==12.1.1
@@ -403,8 +416,11 @@ python-dotenv==1.0.1
     # via farcaster
     # via litellm
     # via moviepy
+    # via pydantic-settings
 python-magic==0.4.27
     # via eve
+python-multipart==0.0.20
+    # via mcp
 python-telegram-bot==22.3
     # via eve
 pytz==2025.2
@@ -477,9 +493,12 @@ sniffio==1.3.1
     # via anyio
     # via openai
     # via runwayml
+sse-starlette==3.0.2
+    # via mcp
 starlette==0.47.2
     # via eve
     # via fastapi
+    # via mcp
 sympy==1.14.0
     # via torch
 synchronicity==0.10.1
@@ -540,6 +559,7 @@ typing-extensions==4.14.1
     # via web3
 typing-inspection==0.4.1
     # via pydantic
+    # via pydantic-settings
 tzlocal==5.3.1
     # via apscheduler
 urllib3==2.5.0
@@ -547,6 +567,8 @@ urllib3==2.5.0
     # via requests
     # via sentry-sdk
     # via types-requests
+uvicorn==0.35.0
+    # via mcp
 watchfiles==1.1.0
     # via modal
 web3==7.6.0

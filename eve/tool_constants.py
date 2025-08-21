@@ -8,7 +8,7 @@ OUTPUT_TYPES = Literal[
     "boolean", "string", "integer", "float", "array", "image", "video", "audio", "lora"
 ]
 
-HANDLERS = Literal["local", "modal", "comfyui", "replicate", "gcp", "fal"]
+HANDLERS = Literal["local", "modal", "comfyui", "replicate", "gcp", "fal", "mcp"]
 
 BASE_MODELS = Literal[
     "sd15",
@@ -63,6 +63,8 @@ ALL_TOOLS = [
     "stable_audio",
     "zonos",
     "transcription",
+    "elevenlabs_music", 
+    "elevenlabs_fx",
     # editing
     "media_editor",
     # search
@@ -71,7 +73,7 @@ ALL_TOOLS = [
     # "search_collections",
     # "add_to_collection",
     # misc
-    "news",
+    # "news",
     "weather",
     # inactive
     # "ominicontrol",
@@ -102,14 +104,22 @@ SOCIAL_MEDIA_TOOLS = [
     *TIKTOK_TOOLS,
 ]
 
+CONTEXT7_MCP_TOOLS = ["context7_resolve_library_id"]
+CALCULATOR_MCP_TOOLS = ["calculator_calculate"]
+# Future MCP server tools can be added here
+# GITHUB_MCP_TOOLS = ["github_search", "github_issues", "github_prs"]
+# SLACK_MCP_TOOLS = ["slack_post", "slack_search", "slack_channels"]
+
 TOOL_SETS = {
     "create_image": ["create", "reel", "media_editor"],
     "create_video": [],  # deprecated
-    "create_audio": ["elevenlabs", "musicgen"],
+    "create_audio": ["elevenlabs", "elevenlabs_music", "elevenlabs_fx"],
     "vj_tools": ["texture_flow", "video_FX"],
     "news": [],  # deprecated
     "manage_collections": ["search_collections", "add_to_collection"],
     "social_media_tools": SOCIAL_MEDIA_TOOLS,
+    "context7_mcp_tools": CONTEXT7_MCP_TOOLS,
+    "calculator_mcp_tools": CALCULATOR_MCP_TOOLS,
     "legacy_tools": [
         "legacy_create",
         "legacy_interpolate",
