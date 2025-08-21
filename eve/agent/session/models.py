@@ -599,6 +599,7 @@ class LLMConfig:
     model: Optional[str] = "gpt-4o-mini"
     max_tokens: Optional[int] = None
     response_format: Optional[BaseModel] = None
+    fallback_models: Optional[List[str]] = None
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 

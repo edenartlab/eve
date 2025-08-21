@@ -3,7 +3,7 @@ import os
 import uuid
 import json
 import litellm
-from litellm import completion
+from litellm import acompletion
 from typing import Callable, List, AsyncGenerator, Optional
 
 from eve.agent.thread import ChatMessage
@@ -190,23 +190,54 @@ async def async_prompt_litellm(
         "metadata": construct_observability_metadata(context),
         "tools": tools,
         "response_format": context.config.response_format,
+        "fallbacks": context.config.fallback_models,
+        "drop_params": True,
+        "num_retries": 2,
+        "timeout": 20,
+        "context_window_fallback_dict": {
+            # promote to larger context sibling if overflow detected
+            "gpt-4o-mini": "gpt-4o",
+            "claude-3-5-haiku-20241022": "claude-3-5-sonnet-20241022",
+        },
     }
 
+    print("LLM 1")
+    z = completion_kwargs.copy()
+    z.pop("messages")
+    z.pop("tools")
+    z.pop("metadata")
+    print(z)
+    print("LLM 2")
+
     # add web search options for Anthropic models
+    # todo: does this fail in fallback models?
     if "claude" in context.config.model:
         completion_kwargs["web_search_options"] = {
             "search_context_size": "medium"
         }
-
-    response = completion(**completion_kwargs)
+    
+    # log the configuration
+    logging.info(f"Attempting completion with model: {context.config.model}, fallbacks: {context.config.fallback_models}")
+    
+    try:
+        response = await acompletion(**completion_kwargs)
+        
+        actual_model = getattr(response, "model", context.config.model)
+        if actual_model != context.config.model and context.config.fallback_models:
+            logging.info("Response received from fallback model: %s", actual_model)
+            
+    except Exception as e:
+        logging.error(f"All models failed. Error: {str(e)}")
+        raise
 
     tool_calls = []
     
     # add web search as a tool call
-    if response.choices[0].message.provider_specific_fields:
-        citations = response.choices[0].message.provider_specific_fields.get("citations", [])
+    psf = getattr(response.choices[0].message, "provider_specific_fields", None)
+    if psf:
+        citations = psf.get("citations") or []
         sources = []
-        for citation_block in (citations or []):
+        for citation_block in citations:
             for citation in citation_block:
                 source = {
                     "title": citation.get('title'),

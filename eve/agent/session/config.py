@@ -5,17 +5,37 @@ from eve.agent.session.models import LLMConfig
 DEFAULT_SESSION_LLM_CONFIG_DEV = {
     "premium": LLMConfig(
         model="claude-sonnet-4-20250514",
+        fallback_models=[
+            "claude-3-7-sonnet-20250219",
+            "claude-3-5-haiku-20241022",
+            "gpt-4o",
+        ]
     ),
     "free": LLMConfig(
         model="claude-sonnet-4-20250514",
+        fallback_models=[
+            "claude-3-7-sonnet-20250219",
+            "claude-3-5-haiku-20241022",
+            "gpt-4o",
+        ]
     ),
 }
 DEFAULT_SESSION_LLM_CONFIG_STAGE = {
     "premium": LLMConfig(
         model="claude-sonnet-4-20250514",
+        fallback_models=[
+            "claude-3-7-sonnet-20250219",
+            "claude-3-5-haiku-20241022",
+            "gpt-4o",
+        ]
     ),
     "free": LLMConfig(
         model="claude-sonnet-4-20250514",
+        fallback_models=[
+            "claude-3-7-sonnet-20250219",
+            "claude-3-5-haiku-20241022",
+            "gpt-4o",
+        ]
     ),
 }
 
