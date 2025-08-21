@@ -14,7 +14,6 @@ LOCAL_DEV = False
 # Memory formation settings:
 if LOCAL_DEV:
     MEMORY_LLM_MODEL_FAST = "gpt-5-mini-2025-08-07"
-    #MEMORY_LLM_MODEL_FAST = "gpt-5-2025-08-07"
     MEMORY_LLM_MODEL_SLOW = "gpt-5-2025-08-07"
 
     MEMORY_FORMATION_MSG_INTERVAL   = 4   # Number of messages to wait before forming memories
@@ -29,7 +28,6 @@ if LOCAL_DEV:
     
 else:
     MEMORY_LLM_MODEL_FAST = "gpt-5-mini-2025-08-07"
-    #MEMORY_LLM_MODEL_SLOW = "gpt-5-2025-08-07"
     MEMORY_LLM_MODEL_SLOW = "gpt-5-2025-08-07"
     MEMORY_FORMATION_MSG_INTERVAL   = 15    # Number of messages to wait before forming memories
     MEMORY_FORMATION_TOKEN_INTERVAL = 1000  # Number of tokens to wait before forming memories
@@ -38,7 +36,7 @@ else:
     MAX_USER_MEMORIES_BEFORE_CONSOLIDATION = 4  # Number of individual memories to store before consolidating them into the agent's user_memory blob
     MAX_N_EPISODES_TO_REMEMBER = 8  # Number of episodes to keep in context from a session
     # Collective memory settings:
-    MAX_AGENT_MEMORIES_BEFORE_CONSOLIDATION = 10 # Number of suggestions to store before consolidating them into the agent's collective memory blob
+    MAX_AGENT_MEMORIES_BEFORE_CONSOLIDATION = 16 # Number of suggestions to store before consolidating them into the agent's collective memory blob
     MAX_FACTS_PER_SHARD = 50 # Max number of facts to store per agent shard (fifo)
     
 # Configuration for cold session processing
@@ -57,7 +55,7 @@ SESSION_SUGGESTION_MEMORY_MAX_WORDS = 35  # Target word length for session sugge
 SESSION_FACT_MEMORY_MAX_WORDS       = 25  # Target word length for session fact memory
 # Consolidated memory blobs:
 USER_MEMORY_BLOB_MAX_WORDS  = 200  # Target word count for consolidated user memory blob
-AGENT_MEMORY_BLOB_MAX_WORDS = 750  # Target word count for consolidated agent memory blob (shard)
+AGENT_MEMORY_BLOB_MAX_WORDS = 500  # Target word count for consolidated agent memory blob (shard)
 
 # Define different memory types and their extraction limits:
 MEMORY_TYPES = {

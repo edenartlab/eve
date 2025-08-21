@@ -536,6 +536,9 @@ async def _consolidate_agent_suggestions(shard: AgentMemory):
         unabsorbed_memory_ids = getattr(shard, 'unabsorbed_memory_ids', [])
         if not unabsorbed_memory_ids:
             return
+        
+        # this utility adds the option to override the max words for the agent memory blob in the shard document:
+        agent_memory_blob_max_words = getattr(shard, 'AGENT_MEMORY_BLOB_MAX_WORDS', AGENT_MEMORY_BLOB_MAX_WORDS)
 
         # Batch load both suggestions and facts in a single optimized call
         all_memory_ids = unabsorbed_memory_ids + shard.facts
@@ -561,7 +564,7 @@ async def _consolidate_agent_suggestions(shard: AgentMemory):
             facts_text=facts_text if facts_text else "(no facts available)",
             suggestions_text=suggestions_text,
             shard_name=shard.shard_name or "Unknown Shard",
-            max_words=AGENT_MEMORY_BLOB_MAX_WORDS
+            max_words=agent_memory_blob_max_words
         )
 
         # Update agent memory - ensure unabsorbed_memory_ids field exists
