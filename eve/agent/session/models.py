@@ -207,7 +207,7 @@ class ChatMessage(Document):
 
     observability: Optional[ChatMessageObservability] = None
     finish_reason: Optional[str] = None
-    thinking_blocks: Optional[List[Dict[str, Any]]] = None
+    thought: Optional[List[Dict[str, Any]]] = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -751,7 +751,7 @@ class LLMResponse:
     tool_calls: Optional[List[ToolCall]] = None
     stop: Optional[str] = None
     tokens_spent: Optional[int] = None
-    thinking_blocks: Optional[List[Dict[str, Any]]] = None
+    thought: Optional[List[Dict[str, Any]]] = None
 
 
 class ClientType(Enum):

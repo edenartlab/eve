@@ -1,5 +1,6 @@
 import logging
 import os
+import time
 import uuid
 import json
 import litellm
@@ -182,7 +183,6 @@ def prepare_messages(
 async def async_prompt_litellm(
     context: LLMContext,
 ) -> LLMResponse:
-    print("LLM 1")
     messages = prepare_messages(context.messages, context.config.model)
     tools = construct_tools(context)
 
@@ -195,21 +195,13 @@ async def async_prompt_litellm(
         "fallbacks": context.config.fallback_models,
         "drop_params": True,
         "num_retries": 2,
-        "timeout": 20,
+        "timeout": 300,
         "context_window_fallback_dict": {
             # promote to larger context sibling if overflow detected
             "gpt-4o-mini": "gpt-4o",
             "claude-3-5-haiku-20241022": "claude-3-5-sonnet-20241022",
         },
     }
-
-    print("LLM 1")
-    z = completion_kwargs.copy()
-    z.pop("messages")
-    z.pop("tools")
-    z.pop("metadata")
-    print(z)
-    print("LLM 2")
 
     # add web search options for Anthropic models
     # todo: does this fail in fallback models?
@@ -218,29 +210,32 @@ async def async_prompt_litellm(
             "search_context_size": "medium"
         }
     
-    print("LLM 2a")
     # Enable thinking for Claude models when requested via config
-    if context.config.thinking:
+    if True: # context.config.thinking:
+        print("enable thinking!!!!")
         thinking_enabled = context.config.model in [
             "claude-3-7-sonnet-20250219",
+            "claude-sonnet-4-20250514",
             # "claude-opus-4", 
             # "claude-sonnet-4"
         ]
-        completion_kwargs["thinking"] = {
-            "type": "enabled", 
-            "budget_tokens": context.config.thinking_budget_tokens
-        }
-
-
-    print("LLM 4")
-    
-
+        if thinking_enabled:
+            tokens = context.config.thinking_budget_tokens or 1024
+            completion_kwargs["thinking"] = {
+                "type": "enabled", 
+                "budget_tokens": tokens
+            }
 
     # log the configuration
     logging.info(f"Attempting completion with model: {context.config.model}, fallbacks: {context.config.fallback_models}")
     
     try:
+        t0 = time.time()
+        print("started at", t0)
         response = await acompletion(**completion_kwargs)
+        t1 = time.time()
+        print("finished at", t1)
+        print("duration", t1 - t0)
         
         actual_model = getattr(response, "model", context.config.model)
         if actual_model != context.config.model and context.config.fallback_models:
@@ -250,29 +245,8 @@ async def async_prompt_litellm(
         logging.error(f"All models failed. Error: {str(e)}")
         raise
 
-    print("LLM 5")
-
-    # Handle thinking/reasoning outputs for thinking models
-    if hasattr(response.choices[0].message, 'reasoning_content') and response.choices[0].message.reasoning_content:
-        print(f"\n=== REASONING CONTENT ===")
-        print(response.choices[0].message.reasoning_content)
-        print("========================\n")
-    
-    if hasattr(response.choices[0].message, 'thinking_blocks') and response.choices[0].message.thinking_blocks:
-        print(f"\n=== THINKING BLOCKS ===")
-        for i, block in enumerate(response.choices[0].message.thinking_blocks):
-            print(f"Block {i+1}:")
-            print(f"  Type: {block.get('type', 'unknown')}")
-            if 'thinking' in block:
-                print(f"  Thinking: {block['thinking']}")
-            if 'signature' in block:
-                print(f"  Signature: {block['signature']}")
-        print("=======================\n")
-
     tool_calls = []
     
-    print("LLM 6")
-
     # add web search as a tool call
     psf = getattr(response.choices[0].message, "provider_specific_fields", None)
     if psf:
@@ -297,8 +271,6 @@ async def async_prompt_litellm(
                 )
             )
 
-    print("LLM 7")
-
     # add regular tool calls
     if response.choices[0].message.tool_calls:
         tool_calls.extend([
@@ -311,21 +283,23 @@ async def async_prompt_litellm(
             for tool_call in response.choices[0].message.tool_calls
         ])
 
-    print("LLM 8")
-
     # Extract thinking blocks if present
-    thinking_blocks = None
-    if hasattr(response.choices[0].message, 'thinking_blocks') and response.choices[0].message.thinking_blocks:
-        thinking_blocks = response.choices[0].message.thinking_blocks
+    # todo: look at reasoning_content
+    thought = None
+    if hasattr(response.choices[0].message, 'thinking_blocks') and response.choices[0].message.thinking_blocks and len(response.choices[0].message.thinking_blocks) > 0:
+        thought = response.choices[0].message.thinking_blocks
+        seconds = t1 - t0
+        if seconds < 60:
+            thought[0]["title"] = f"Thought for {seconds:.0f} seconds"
+        else:
+            thought[0]["title"] = f"Thought for {round(seconds/60)} minutes"
 
-    print("LLM 9")
-    
     return LLMResponse(
-        content=response.choices[0].message.content or "",  # content can't be None
+        content=response.choices[0].message.content or "",
         tool_calls=tool_calls or None,
         stop=response.choices[0].finish_reason,
         tokens_spent=response.usage.total_tokens,
-        thinking_blocks=thinking_blocks,
+        thought=thought,
     )
 
 
