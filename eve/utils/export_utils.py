@@ -1,4 +1,5 @@
 import json
+import requests
 import html as html_module
 from datetime import datetime
 from pathlib import Path
@@ -7,6 +8,7 @@ from bson import ObjectId
 from ..mongo import get_collection
 from ..agent import Agent
 from ..user import User
+from ..task import Task
 from . import data_utils
 
 
@@ -21,9 +23,9 @@ def export_user_data(
         username: The username to export data for (if None, uses current user)
         agentname: Optional agent name to filter sessions by (only export sessions containing this agent)
     """
-
+    
     # Get current user if username not provided
-    if username is None:
+    if not username:
         from ..auth import get_my_eden_user
         user = get_my_eden_user()
         username = user.username
@@ -436,4 +438,64 @@ def export_user_data(
     print(f"- JSON file: {json_path}")
     print(f"- HTML file: {html_path}")
     
-    return str(export_dir)
+    return export_dir
+
+
+def export_agent_creations(
+    username: str = None,
+    agentname: str = None,
+    export_dir: Path = Path(".")
+):
+    """Export agent creations
+
+    Args:
+        agentname: The agent name to export creations for
+        export_dir: The directory to export the creations to
+    """
+
+    if not agentname:
+        return
+
+    # Get current user if username not provided
+    if not username:
+        from ..auth import get_my_eden_user
+        user = get_my_eden_user()
+        username = user.username
+    
+    # Load user by username to get user_id
+    user = User.load(username)
+    if not user:
+        raise ValueError(f"User '{username}' not found")
+    user_id = str(user.id)
+    
+    # Load agent by name if provided
+    agent = Agent.load(agentname)
+    if not agent:
+        raise ValueError(f"Agent '{agentname}' not found")
+    
+    print(f"Exporting Agent creations for {agentname}")
+    
+    # Create export directory
+    export_dir = export_dir / f"{agentname}_creations"
+    export_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Get filtered creatiobs
+    creations_collection = get_collection("creations3")
+    query = {"agent": agent.id, "user": ObjectId(user_id)}
+    all_creations = list(creations_collection.find(query))
+
+    for creation in all_creations:
+        id = str(creation["_id"])
+        created_at = creation["createdAt"].strftime("%Y-%m-%d_%H%M")
+        url = data_utils.prepare_result(creation).get("url")
+        task = Task.from_mongo(creation["task"])
+        creation["task"] = task.model_dump()
+        if url:
+            response = requests.get(url)
+            with open(export_dir / f"{created_at}_{id}.png", "wb") as f:
+                f.write(response.content)
+            with open(export_dir / f"{created_at}_{id}.json", "w") as f:
+                json.dump(creation, f, indent=2, default=str)
+
+    print(f"Export completed successfully!")
+    print(f"Export directory: {export_dir}")
