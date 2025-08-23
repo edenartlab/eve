@@ -108,6 +108,17 @@ class AgentPermissions(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
+class AgentLLMSettings(BaseModel):
+    """LLM configuration and thinking settings for an agent."""
+    
+    model_profile: Optional[str] = "medium"  # "low", "medium", "high"
+    thinking_policy: Optional[str] = "auto"  # "auto", "off", "always"
+    thinking_effort_cap: Optional[str] = "medium"  # "low", "medium", "high"
+    thinking_effort_instructions: Optional[str] = None  # Custom instructions when thinking_policy == "auto"
+    
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
 class AgentExtras(BaseModel):
     """Additional configuration and metadata for an agent."""
 
@@ -150,6 +161,7 @@ class Agent(User):
     models: Optional[List[Dict[str, Any]]] = None
     test_args: Optional[List[Dict[str, Any]]] = None
 
+    llm_settings: Optional[AgentLLMSettings] = Field(default_factory=AgentLLMSettings)
     tools: Optional[Dict[str, bool]] = {}  # tool sets specified by user
     tools_: Optional[Dict[str, Dict]] = Field({}, exclude=True)  # actual loaded tools
     lora_docs: Optional[List[Dict[str, Any]]] = Field([], exclude=True)
@@ -160,18 +172,7 @@ class Agent(User):
 
     user_memory_enabled: Optional[bool] = True
     agent_memory_enabled: Optional[bool] = True
-
-    # def __init__(self, **data):
-    #     if isinstance(data.get("owner"), str):
-    #         data["owner"] = ObjectId(data["owner"])
-    #     if isinstance(data.get("owner"), str):
-    #         data["model"] = ObjectId(data["model"])
-    #     # Load environment variables into secrets dictionary
-    #     # db = os.getenv("DB")
-    #     # env_dir = Path(__file__).parent / "agents"
-    #     # env_vars = dotenv_values(f"{str(env_dir)}/{db.lower()}/{data['username']}/.env")
-    #     # data["secrets"] = {key: SecretStr(value) for key, value in env_vars.items()}
-    #     super().__init__(**data)
+    
 
     @classmethod
     def convert_from_yaml(cls, schema: dict, file_path: str = None) -> dict:
@@ -187,11 +188,6 @@ class Agent(User):
             if isinstance(schema.get("owner"), str)
             else schema.get("owner")
         )
-        # schema["model"] = (
-        #     ObjectId(schema.get("model"))
-        #     if isinstance(schema.get("model"), str)
-        #     else schema.get("model")
-        # )  # deprecated
         for model in schema.get("models", []):
             model["lora"] = (
                 ObjectId(model["lora"])

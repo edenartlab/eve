@@ -2,7 +2,7 @@ import asyncio
 from fastapi import BackgroundTasks
 from eve.api.api_requests import PromptSessionRequest, SessionCreationArgs
 from eve.api.handlers import setup_session
-from eve.agent.session.models import PromptSessionContext, ChatMessageRequestInput, LLMConfig
+from eve.agent.session.models import PromptSessionContext, ChatMessageRequestInput, LLMConfig, LLMThinkingSettings
 from eve.agent.session.session import add_user_message, build_llm_context, async_prompt_session
 from eve.auth import get_my_eden_user
 from eve.agent import Agent
@@ -61,8 +61,13 @@ async def example_thinking_session():
     # Create context with thinking model configuration
     llm_config = LLMConfig(
         model="claude-3-7-sonnet-20250219",
-        thinking=True,
-        thinking_budget_tokens=10000
+        llm_settings=LLMThinkingSettings(
+            policy="auto",
+            effort_instructions="Use low when I ask you to think about Hanoi Problem, but high for anything else, especially when I ask you to think about the best college to go to for an introvert."
+        )
+        # todo: fix this
+        # thinking=True,
+        # thinking_budget_tokens=10000
     )
     
     context = PromptSessionContext(

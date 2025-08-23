@@ -595,14 +595,22 @@ class LLMContextMetadata(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
+class LLMThinkingSettings(BaseModel):
+    """LLM configuration and thinking settings for an agent."""
+    
+    policy: Optional[str] = "auto"  # "auto", "off", "always"
+    effort_cap: Optional[str] = "medium"  # "low", "medium", "high"
+    effort_instructions: Optional[str] = "Use low for simple tasks, high for complex reasoning-intensive tasks."
+
+
 @dataclass
 class LLMConfig:
     model: Optional[str] = "gpt-4o-mini"
+    fallback_models: Optional[List[str]] = None
     max_tokens: Optional[int] = None
     response_format: Optional[BaseModel] = None
-    thinking: Optional[bool] = False
-    thinking_budget_tokens: Optional[int] = 1024
-    fallback_models: Optional[List[str]] = None
+    thinking: Optional[LLMThinkingSettings] = None
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
