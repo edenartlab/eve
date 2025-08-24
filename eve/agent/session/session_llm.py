@@ -180,9 +180,14 @@ def prepare_messages(
     return messages
 
 
+
+
+
+
 async def async_prompt_litellm(
     context: LLMContext,
 ) -> LLMResponse:
+    
     messages = prepare_messages(context.messages, context.config.model)
     tools = construct_tools(context)
 
@@ -202,6 +207,7 @@ async def async_prompt_litellm(
             "claude-3-5-haiku-20241022": "claude-3-5-sonnet-20241022",
         },
     }
+    
 
     # add web search options for Anthropic models
     # todo: does this fail in fallback models?
@@ -210,34 +216,19 @@ async def async_prompt_litellm(
             "search_context_size": "medium"
         }
     
-    # Enable thinking for Claude models when requested via config
-    if True: # context.config.thinking:
-        print("enable thinking!!!!")
-        thinking_enabled = context.config.model in [
-            "claude-3-7-sonnet-20250219",
-            "claude-sonnet-4-20250514",
-            # "claude-opus-4", 
-            # "claude-sonnet-4"
-        ]
-        if thinking_enabled:
-            tokens = context.config.thinking_budget_tokens or 1024
-            completion_kwargs["thinking"] = {
-                "type": "enabled", 
-                "budget_tokens": tokens
-            }
-
-    # log the configuration
+    # Use finalized reasoning_effort from config if available
+    if context.config.reasoning_effort:
+        completion_kwargs["reasoning_effort"] = context.config.reasoning_effort
+    
     logging.info(f"Attempting completion with model: {context.config.model}, fallbacks: {context.config.fallback_models}")
     
     try:
         t0 = time.time()
-        print("started at", t0)
         response = await acompletion(**completion_kwargs)
         t1 = time.time()
-        print("finished at", t1)
-        print("duration", t1 - t0)
         
         actual_model = getattr(response, "model", context.config.model)
+        
         if actual_model != context.config.model and context.config.fallback_models:
             logging.info("Response received from fallback model: %s", actual_model)
             

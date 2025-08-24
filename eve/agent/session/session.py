@@ -306,18 +306,31 @@ async def build_llm_context(
 ):
     user = User.from_mongo(context.initiating_user_id)
     tier = "premium" if user.subscriptionTier and user.subscriptionTier > 0 else "free"
-    config = context.llm_config or get_default_session_llm_config(tier)
+    
     tools = actor.get_tools(cache=False, auth_user=context.initiating_user_id)
     if context.custom_tools:
         tools.update(context.custom_tools)
-    # build messages
+    # build messages first to have context for thinking routing
     system_message = await build_system_message(session, actor, context, tools)
     messages = [system_message]
-    context, config, system_extras = await build_system_extras(session, context, config)
+    context, base_config, system_extras = await build_system_extras(session, context, context.llm_config or get_default_session_llm_config(tier))
     if len(system_extras) > 0:
         messages.extend(system_extras)
-    messages.extend(select_messages(session))
+    existing_messages = select_messages(session)
+    messages.extend(existing_messages)
     messages = convert_message_roles(messages, actor.id)
+
+    # Use agent's llm_settings if available, otherwise fallback to context or default
+    if actor.llm_settings:
+        from eve.agent.session.config import build_llm_config_from_agent_settings
+        config = await build_llm_config_from_agent_settings(
+            actor.llm_settings, 
+            tier, 
+            thinking_override=getattr(context, 'thinking_override', None),
+            context_messages=existing_messages  # Pass existing messages for routing context
+        )
+    else:
+        config = context.llm_config or get_default_session_llm_config(tier)
 
     return LLMContext(
         messages=messages,
@@ -817,6 +830,7 @@ async def async_prompt_session(
                     content=content,
                     tool_calls=tool_calls,
                     finish_reason=stop_reason,
+                    llm_config=llm_context.config.__dict__ if llm_context.config else None,
                     observability=ChatMessageObservability(
                         session_id=llm_context.metadata.session_id,
                         trace_id=llm_context.metadata.trace_id,
@@ -835,6 +849,7 @@ async def async_prompt_session(
                     tool_calls=response.tool_calls,
                     finish_reason=response.stop,
                     thought=response.thought,
+                    llm_config=llm_context.config.__dict__ if llm_context.config else None,
                     observability=ChatMessageObservability(
                         session_id=llm_context.metadata.session_id,
                         trace_id=llm_context.metadata.trace_id,

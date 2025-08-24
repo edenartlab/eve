@@ -1045,7 +1045,8 @@ def setup_session(
 
 @handle_errors
 async def handle_prompt_session(
-    request: PromptSessionRequest, background_tasks: BackgroundTasks
+    request: PromptSessionRequest, 
+    background_tasks: BackgroundTasks
 ):
     session = setup_session(
         background_tasks, request.session_id, request.user_id, request
@@ -1063,6 +1064,7 @@ async def handle_prompt_session(
         update_config=request.update_config,
         llm_config=request.llm_config,
         notification_config=notification_config,
+        thinking_override=request.thinking,  # Pass thinking override
     )
 
     if request.stream:

@@ -170,6 +170,7 @@ class PromptSessionRequest(BaseModel):
     llm_config: Optional[LLMConfig] = None
     stream: bool = False
     notification_config: Optional[Dict[str, Any]] = None
+    thinking: Optional[bool] = None  # Override agent's thinking policy per-message
 
     # Session creation fields (used when session_id is not provided)
     creation_args: Optional[SessionCreationArgs] = None

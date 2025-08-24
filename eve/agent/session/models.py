@@ -208,6 +208,7 @@ class ChatMessage(Document):
     observability: Optional[ChatMessageObservability] = None
     finish_reason: Optional[str] = None
     thought: Optional[List[Dict[str, Any]]] = None
+    llm_config: Optional[Dict[str, Any]] = None  # Final LLM config used for assistant messages
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -610,6 +611,7 @@ class LLMConfig:
     max_tokens: Optional[int] = None
     response_format: Optional[BaseModel] = None
     thinking: Optional[LLMThinkingSettings] = None
+    reasoning_effort: Optional[str] = None  # Final resolved reasoning effort (low/medium/high)
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -751,6 +753,7 @@ class PromptSessionContext:
     llm_config: Optional[LLMConfig] = None
     custom_tools: Optional[Dict[str, Any]] = None
     notification_config: Optional[NotificationConfig] = None
+    thinking_override: Optional[bool] = None  # Override agent's thinking policy per-message
 
 
 @dataclass
