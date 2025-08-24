@@ -13,8 +13,8 @@ LOCAL_DEV = False
 
 # Memory formation settings:
 if LOCAL_DEV:
-    MEMORY_LLM_MODEL_FAST = "gpt-5-mini-2025-08-07"
-    MEMORY_LLM_MODEL_SLOW = "gpt-5-2025-08-07"
+    MEMORY_LLM_MODEL_FAST = "gpt-5-mini"
+    MEMORY_LLM_MODEL_SLOW = "gpt-5"
 
     MEMORY_FORMATION_MSG_INTERVAL   = 4   # Number of messages to wait before forming memories
     MEMORY_FORMATION_TOKEN_INTERVAL = 200 # Number of tokens to wait before forming memories
@@ -27,8 +27,8 @@ if LOCAL_DEV:
     MAX_FACTS_PER_SHARD = 3 # Max number of facts to store per agent shard (fifo)
     
 else:
-    MEMORY_LLM_MODEL_FAST = "gpt-5-mini-2025-08-07"
-    MEMORY_LLM_MODEL_SLOW = "gpt-5-2025-08-07"
+    MEMORY_LLM_MODEL_FAST = "gpt-5-mini"
+    MEMORY_LLM_MODEL_SLOW = "gpt-5"
     MEMORY_FORMATION_MSG_INTERVAL   = 15    # Number of messages to wait before forming memories
     MEMORY_FORMATION_TOKEN_INTERVAL = 1000  # Number of tokens to wait before forming memories
 

@@ -320,6 +320,10 @@ async def build_llm_context(
     messages.extend(existing_messages)
     messages = convert_message_roles(messages, actor.id)
 
+    print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+    
+    print(actor.llm_settings)
+
     # Use agent's llm_settings if available, otherwise fallback to context or default
     if actor.llm_settings:
         from eve.agent.session.config import build_llm_config_from_agent_settings
@@ -329,9 +333,14 @@ async def build_llm_context(
             thinking_override=getattr(context, 'thinking_override', None),
             context_messages=existing_messages  # Pass existing messages for routing context
         )
+        print("we got the config", config)
     else:
         config = context.llm_config or get_default_session_llm_config(tier)
 
+    print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+    print(f"--- {config} ---")
+    print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+    
     return LLMContext(
         messages=messages,
         tools=tools,

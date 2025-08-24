@@ -58,39 +58,25 @@ def get_default_session_llm_config(tier: Literal["premium", "free"] = "free"):
         return DEFAULT_SESSION_LLM_CONFIG_STAGE[tier]
 
 
-def get_model_for_profile(model_profile: str, tier: str = "premium") -> str:
-    """Get the appropriate model based on model_profile setting"""
-    if model_profile == "low":
-        # Fast, non-thinking models
-        return "claude-3-5-haiku-20241022" if tier == "free" else "gpt-4o-mini"
-    elif model_profile == "high":
-        # Best thinking-capable models  
-        return "claude-3-7-sonnet-20250219"  # Thinking capable
-    else:  # medium
-        # Standard quality models
-        return "claude-sonnet-4-20250514"
+# Master model configuration: tier -> [primary, fallback1, fallback2]
+MODEL_TIERS = {
+    "high": ["openai/gpt-5", "anthropic/claude-sonnet-4", "vertex_ai/gemini-2.5-pro"],
+    "medium": ["openai/gpt-5-mini", "vertex_ai/gemini-2.5-flash", "anthropic/claude-3-5-haiku"],
+    "low": ["vertex_ai/gemini-2.5-flash", "openai/gpt-5-nano", "anthropic/claude-3-5-haiku"]
+}
 
 
-def get_fallback_models_for_profile(model_profile: str) -> list[str]:
-    """Get appropriate fallback models based on profile"""
-    if model_profile == "low":
-        return [
-            "gpt-4o-mini",
-            "claude-3-5-haiku-20241022", 
-        ]
-    elif model_profile == "high":
-        return [
-            "claude-3-7-sonnet-20250219",
-            "claude-sonnet-4-20250514",
-            "gpt-4o",
-        ]
-    else:  # medium
-        return [
-            "claude-sonnet-4-20250514",
-            "claude-3-7-sonnet-20250219", 
-            "gpt-4o",
-            "claude-3-5-haiku-20241022",
-        ]
+def get_models_for_profile(model_profile: str, tier: str = "premium") -> tuple[str, list[str]]:
+    """Get primary model and fallbacks based on model_profile setting and user tier"""
+    
+    # Free tier users are automatically capped to low profile
+    effective_profile = "low" if tier == "free" else model_profile
+
+    print(f"🔧 [CONFIG] get_models_for_profile - Effective profile: {effective_profile}, model_profile: {model_profile}, tier: {tier}")
+    
+    # Get models array
+    models = MODEL_TIERS.get(effective_profile, MODEL_TIERS["medium"])
+    return models[0], models[1:3]  # Return (primary, [fallback1, fallback2])
 
 
 async def build_llm_config_from_agent_settings(agent_settings, tier: str = "premium", thinking_override: bool = None, context_messages: list = None) -> LLMConfig:
@@ -107,9 +93,10 @@ async def build_llm_config_from_agent_settings(agent_settings, tier: str = "prem
     if thinking_override is not None:
         thinking_policy = "always" if thinking_override else "off"
     
-    # Get model and fallbacks based on profile
-    model = get_model_for_profile(model_profile, tier)
-    fallback_models = get_fallback_models_for_profile(model_profile)
+    # Get model and fallbacks based on profile and tier
+    model, fallback_models = get_models_for_profile(model_profile, tier)
+
+    print("we got the model and fallbacks", model, fallback_models)
     
     # Create thinking settings
     from eve.agent.session.models import LLMThinkingSettings
@@ -149,7 +136,8 @@ async def build_llm_config_from_agent_settings(agent_settings, tier: str = "prem
     
     # Single log showing final LLM configuration
     override_info = f" (override: {thinking_override})" if thinking_override is not None else ""
-    print(f"🔧 LLM Config: model={config.model}, thinking={config.thinking.policy if config.thinking else 'off'}, reasoning_effort={config.reasoning_effort or 'none'}{override_info}")
+    tier_info = f" (tier: {tier})" if tier == "free" and model_profile != "low" else f" (tier: {tier})"
+    print(f"🔧 LLM Config: profile={model_profile}, model={config.model}, thinking={config.thinking.policy if config.thinking else 'off'}, reasoning_effort={config.reasoning_effort or 'none'}{tier_info}{override_info}")
     
     return config
 

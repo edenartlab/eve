@@ -4,7 +4,7 @@ import time
 import uuid
 import json
 import litellm
-from litellm import acompletion
+from litellm import acompletion, aresponses
 from typing import Callable, List, AsyncGenerator, Optional
 
 from eve.agent.thread import ChatMessage
@@ -24,16 +24,32 @@ if os.getenv("LANGFUSE_TRACING_ENVIRONMENT"):
     litellm.success_callback = ["langfuse"]
 
 supported_models = [
-    "gpt-4o-mini",
-    "gpt-4o",
-    "gemini-2.5-flash",
-    "claude-3-haiku-20240307",
+    "claude-3-5-haiku-20241022",
     "claude-sonnet-4-20250514",
     "claude-opus-4-20250514",
     "claude-3-7-sonnet-20250219",
-    "gemini/gemini-2.5-flash-preview-05-20",
-    "gpt-5-2025-08-07",
-    "gpt-5-mini-2025-08-07"
+    "gpt-4o-mini",
+    "gpt-4o",
+    "gpt-5",
+    "gpt-5-mini",
+    "gpt-5-nano",
+    "gemini-2.5-pro",
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+
+
+    "anthropic/claude-3-5-haiku-20241022",
+    "anthropic/claude-sonnet-4-20250514",
+    "anthropic/claude-opus-4-20250514",
+    "anthropic/claude-3-7-sonnet-20250219",
+    "openai/gpt-4o-mini",
+    "openai/gpt-4o",
+    "openai/gpt-5",
+    "openai/gpt-5-mini",
+    "openai/gpt-5-nano",
+    "google/gemini-2.5-pro",
+    "google/gemini-2.5-flash",
+    "google/gemini-2.5-flash-lite",
 ]
 
 
@@ -181,12 +197,185 @@ def prepare_messages(
 
 
 
-
-
-
 async def async_prompt_litellm(
     context: LLMContext,
 ) -> LLMResponse:
+    if "openai/" in context.config.model and context.config.reasoning_effort:
+        return await async_prompt_litellm_responses(context)
+    else:
+        return await async_prompt_litellm_completion(context)
+
+
+
+async def async_prompt_litellm_responses(
+    context: LLMContext,
+) -> LLMResponse:
+    print(f"🧠 [DEBUG] RESPONSES !!!! Context CONFIG: {context.config}")
+    
+    messages = prepare_messages(context.messages, context.config.model)
+    tools = construct_tools(context)
+
+    response_kwargs = {
+        "model": context.config.model,
+        "input": messages,
+        # "metadata": construct_observability_metadata(context),
+        # "tools": tools,
+        # "response_format": context.config.response_format,
+        "reasoning": {"effort": context.config.reasoning_effort, "summary": "detailed"},
+        # "fallbacks": context.config.fallback_models,    
+        # "drop_params": True,
+        # "num_retries": 2,
+        # "timeout": 600,
+        # "context_window_fallback_dict": {
+        #     "gpt-5-mini": "gpt-5",
+        #     "gpt-5-nano": "gpt-5",
+        # },
+    }
+
+    print(f"🧠 [DEBUG] RESPONSE_KWARGS: {response_kwargs}")
+    
+    if context.config.reasoning_effort:
+        response_kwargs["reasoning"] = {"effort": context.config.reasoning_effort, "summary": "detailed"}
+    
+    print(f"🧠 [DEBUG] RESPONSE_KWARGS2: {response_kwargs}")
+
+    # Use finalized reasoning_effort from config if available
+    if context.config.reasoning_effort:
+        response_kwargs["reasoning"] = {
+            "effort": context.config.reasoning_effort, 
+            "summary": "detailed"
+        }
+        
+        # Check if model supports reasoning
+        supports_reasoning = litellm.supports_reasoning(model=context.config.model)
+        print(f"🧠 [REASONING] Model {context.config.model} supports reasoning: {supports_reasoning}")
+    
+    logging.info(f"Attempting responses with model: {context.config.model}, fallbacks: {context.config.fallback_models}, reasoning_effort: {context.config.reasoning_effort}")
+    
+    try:
+        t0 = time.time()
+        print("start...", response_kwargs.get("reasoning"))
+        print(".... ok 1")
+        response = await aresponses(**response_kwargs)        
+        print(".... ok 2")
+        t1 = time.time()
+        print(f"response done in {t1-t0} seconds")
+        
+        actual_model = getattr(response, "model", context.config.model)
+        
+        if actual_model != context.config.model and context.config.fallback_models:
+            logging.info("Actual model used: %s", actual_model)
+            
+    except Exception as e:
+        logging.error(f"All models failed. Error: {str(e)}")
+        raise
+
+    print(f"🧠 [DEBUG] RESPONSE!!!!: {response}")
+
+
+    # tool_calls = []
+    
+    # # add web search as a tool call
+    # psf = getattr(response.choices[0].message, "provider_specific_fields", None)
+    # if psf:
+    #     citations = psf.get("citations") or []
+    #     sources = []
+    #     for citation_block in citations:
+    #         for citation in citation_block:
+    #             source = {
+    #                 "title": citation.get('title'),
+    #                 "url": citation.get('url'),
+    #             }
+    #             if not source in sources:  # avoid duplicates
+    #                 sources.append(source)
+    #     if sources:
+    #         tool_calls.append(
+    #             ToolCall(
+    #                 id=f"toolu_{uuid.uuid4()}",
+    #                 tool="web_search",
+    #                 args={},
+    #                 result=sources,
+    #                 status="completed",
+    #             )
+    #         )
+
+    # # add regular tool calls
+    # if response.choices[0].message.tool_calls:
+    #     tool_calls.extend([
+    #         ToolCall(
+    #             id=tool_call.id,
+    #             tool=tool_call.function.name,
+    #             args=json.loads(tool_call.function.arguments),
+    #             status="pending",
+    #         )
+    #         for tool_call in response.choices[0].message.tool_calls
+    #     ])
+
+    # # Extract thinking blocks if present
+    # # Handle both thinking_blocks (Anthropic) and reasoning_content (other providers)
+    # thought = None
+    # message = response.choices[0].message
+    
+
+    # print(f"🧠 HERE IS THE MESSAGE@!!: {message}")
+    # print(f"🧠 [DEBUG] Message attributes: {dir(message)}")
+    # print(f"🧠 [DEBUG] Has reasoning_content: {hasattr(message, 'reasoning_content')}")
+    # print(f"🧠 [DEBUG] Has thinking_blocks: {hasattr(message, 'thinking_blocks')}")
+    
+    # # Check raw response for debugging
+    # if hasattr(response, '_raw') or hasattr(response, 'raw'):
+    #     print(f"🧠 [DEBUG] Raw response available for inspection")
+    
+    # # Check for any other reasoning-related attributes
+    # reasoning_attrs = [attr for attr in dir(message) if 'reason' in attr.lower() or 'think' in attr.lower()]
+    # if reasoning_attrs:
+    #     print(f"🧠 [DEBUG] Reasoning-related attributes found: {reasoning_attrs}")
+
+
+    # # Check for Anthropic thinking_blocks first
+    # if hasattr(message, 'thinking_blocks') and message.thinking_blocks and len(message.thinking_blocks) > 0:
+    #     thought = message.thinking_blocks
+    #     print(f"🧠 [THINKING] Anthropic thinking_blocks found: {len(message.thinking_blocks)} blocks")
+    #     for i, block in enumerate(message.thinking_blocks):
+    #         print(f"🧠 [THINKING] Block {i+1}: {block.get('thinking', '')[:200]}...")
+        
+    #     seconds = t1 - t0
+    #     if seconds < 60:
+    #         thought[0]["title"] = f"Thought for {seconds:.0f} seconds"
+    #     else:
+    #         thought[0]["title"] = f"Thought for {round(seconds/60)} minutes"
+    
+    # # Check for reasoning_content from other providers
+    # elif hasattr(message, 'reasoning_content') and message.reasoning_content:
+    #     print(f"🧠 [REASONING] reasoning_content found ({len(message.reasoning_content)} chars)")
+    #     print(f"🧠 [REASONING] Content preview: {message.reasoning_content[:500]}...")
+        
+    #     # Convert reasoning_content to thinking_blocks format for consistency
+    #     seconds = t1 - t0
+    #     title = f"Reasoning for {seconds:.0f} seconds" if seconds < 60 else f"Reasoning for {round(seconds/60)} minutes"
+        
+    #     thought = [{
+    #         "type": "reasoning",
+    #         "thinking": message.reasoning_content,
+    #         "title": title
+    #     }]
+
+    return LLMResponse(
+        content=response.choices[0].message.content or "",
+        tool_calls=None, #tool_calls or None,
+        stop=response.choices[0].finish_reason,
+        tokens_spent=response.usage.total_tokens,
+        thought=None #thought,
+    )
+
+
+
+
+async def async_prompt_litellm_completion(
+    context: LLMContext,
+) -> LLMResponse:
+    
+    print(f"🧠 [DEBUG] COMPLETION !!!! Context CONFIG: {context.config}")
     
     messages = prepare_messages(context.messages, context.config.model)
     tools = construct_tools(context)
@@ -200,14 +389,15 @@ async def async_prompt_litellm(
         "fallbacks": context.config.fallback_models,
         "drop_params": True,
         "num_retries": 2,
-        "timeout": 300,
+        "timeout": 600,
         "context_window_fallback_dict": {
-            # promote to larger context sibling if overflow detected
             "gpt-4o-mini": "gpt-4o",
-            "claude-3-5-haiku-20241022": "claude-3-5-sonnet-20241022",
+            "gpt-5-mini": "gpt-5",
+            "gpt-5-nano": "gpt-5",
+            "gemini-2.5-flash": "gemini-2.5-pro",
+            "gemini-2.5-flash-lite": "gemini-2.5-flash",
         },
     }
-    
 
     # add web search options for Anthropic models
     # todo: does this fail in fallback models?
@@ -219,18 +409,24 @@ async def async_prompt_litellm(
     # Use finalized reasoning_effort from config if available
     if context.config.reasoning_effort:
         completion_kwargs["reasoning_effort"] = context.config.reasoning_effort
+        
+        # Check if model supports reasoning
+        supports_reasoning = litellm.supports_reasoning(model=context.config.model)
+        print(f"🧠 [REASONING] Model {context.config.model} supports reasoning: {supports_reasoning}")
     
-    logging.info(f"Attempting completion with model: {context.config.model}, fallbacks: {context.config.fallback_models}")
+    logging.info(f"Attempting completion with model: {context.config.model}, fallbacks: {context.config.fallback_models}, reasoning_effort: {context.config.reasoning_effort}")
     
     try:
         t0 = time.time()
-        response = await acompletion(**completion_kwargs)
+        print("start...", completion_kwargs.get("reasoning_effort"))
+        response = await acompletion(**completion_kwargs)        
         t1 = time.time()
+        print(f"response done in {t1-t0} seconds")
         
         actual_model = getattr(response, "model", context.config.model)
         
         if actual_model != context.config.model and context.config.fallback_models:
-            logging.info("Response received from fallback model: %s", actual_model)
+            logging.info("Actual model used: %s", actual_model)
             
     except Exception as e:
         logging.error(f"All models failed. Error: {str(e)}")
@@ -275,15 +471,53 @@ async def async_prompt_litellm(
         ])
 
     # Extract thinking blocks if present
-    # todo: look at reasoning_content
+    # Handle both thinking_blocks (Anthropic) and reasoning_content (other providers)
     thought = None
-    if hasattr(response.choices[0].message, 'thinking_blocks') and response.choices[0].message.thinking_blocks and len(response.choices[0].message.thinking_blocks) > 0:
-        thought = response.choices[0].message.thinking_blocks
+    message = response.choices[0].message
+    
+
+    print(f"🧠 HERE IS THE MESSAGE@!!: {message}")
+    print(f"🧠 [DEBUG] Message attributes: {dir(message)}")
+    print(f"🧠 [DEBUG] Has reasoning_content: {hasattr(message, 'reasoning_content')}")
+    print(f"🧠 [DEBUG] Has thinking_blocks: {hasattr(message, 'thinking_blocks')}")
+    
+    # Check raw response for debugging
+    if hasattr(response, '_raw') or hasattr(response, 'raw'):
+        print(f"🧠 [DEBUG] Raw response available for inspection")
+    
+    # Check for any other reasoning-related attributes
+    reasoning_attrs = [attr for attr in dir(message) if 'reason' in attr.lower() or 'think' in attr.lower()]
+    if reasoning_attrs:
+        print(f"🧠 [DEBUG] Reasoning-related attributes found: {reasoning_attrs}")
+
+
+    # Check for Anthropic thinking_blocks first
+    if hasattr(message, 'thinking_blocks') and message.thinking_blocks and len(message.thinking_blocks) > 0:
+        thought = message.thinking_blocks
+        print(f"🧠 [THINKING] Anthropic thinking_blocks found: {len(message.thinking_blocks)} blocks")
+        for i, block in enumerate(message.thinking_blocks):
+            print(f"🧠 [THINKING] Block {i+1}: {block.get('thinking', '')[:200]}...")
+        
         seconds = t1 - t0
         if seconds < 60:
             thought[0]["title"] = f"Thought for {seconds:.0f} seconds"
         else:
             thought[0]["title"] = f"Thought for {round(seconds/60)} minutes"
+    
+    # Check for reasoning_content from other providers
+    elif hasattr(message, 'reasoning_content') and message.reasoning_content:
+        print(f"🧠 [REASONING] reasoning_content found ({len(message.reasoning_content)} chars)")
+        print(f"🧠 [REASONING] Content preview: {message.reasoning_content[:500]}...")
+        
+        # Convert reasoning_content to thinking_blocks format for consistency
+        seconds = t1 - t0
+        title = f"Reasoning for {seconds:.0f} seconds" if seconds < 60 else f"Reasoning for {round(seconds/60)} minutes"
+        
+        thought = [{
+            "type": "reasoning",
+            "thinking": message.reasoning_content,
+            "title": title
+        }]
 
     return LLMResponse(
         content=response.choices[0].message.content or "",

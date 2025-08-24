@@ -1,0 +1,13 @@
+{
+  "sample_dict": {
+    "narrative_structure": ["linear timeline", "fragmented memories", "circular narrative", "reverse chronology", "parallel timelines"],
+    "genre": ["noir thriller", "magical realism", "sci-fi", "historical fiction", "psychological horror"],
+    "mood": ["urgent and tense", "contemplative and slow", "whimsical and playful", "melancholic and nostalgic", "mysterious and foreboding"],
+    "setting_time": ["ancient past", "near future", "present day", "distant future", "timeless"],
+    "protagonist_trait": ["unreliable narrator", "enhanced abilities", "tragic flaw", "hidden identity", "moral ambiguity"]
+  },
+  "context": "The user wants a short story about discovering an ancient artifact that changes everything",
+  "instruction": "Write a 3-4 paragraph story that incorporates all the randomly selected elements. Make the artifact discovery central to the plot and ensure each selected element is woven naturally into the narrative.",
+  "agent": "675f880479e00297cd9b4688"
+}
+

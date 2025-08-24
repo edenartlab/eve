@@ -13,6 +13,11 @@ def load_handler(name):
 
             handlers[name] = handler
 
+        elif name == "magic_8_ball":
+            from .magic_8_ball.handler import handler
+
+            handlers[name] = handler
+
         elif name == "audio_video_combine":
             from .media_utils.audio_video_combine.handler import handler
 
