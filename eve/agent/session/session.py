@@ -899,7 +899,7 @@ async def async_prompt_session(
                         raise SessionCancelledException("Session cancelled by user")
                     yield update
 
-            if stop_reason == "stop":
+            if stop_reason in ["stop", "completed"]:
                 prompt_session_finished = True
 
         yield SessionUpdate(

@@ -36,8 +36,6 @@ supported_models = [
     "gemini-2.5-pro",
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
-
-
     "anthropic/claude-3-5-haiku-20241022",
     "anthropic/claude-sonnet-4-20250514",
     "anthropic/claude-opus-4-20250514",
@@ -47,9 +45,9 @@ supported_models = [
     "openai/gpt-5",
     "openai/gpt-5-mini",
     "openai/gpt-5-nano",
-    "google/gemini-2.5-pro",
-    "google/gemini-2.5-flash",
-    "google/gemini-2.5-flash-lite",
+    "gemini/gemini-2.5-pro",
+    "gemini/gemini-2.5-flash",
+    "gemini/gemini-2.5-flash-lite",
 ]
 
 
@@ -196,182 +194,7 @@ def prepare_messages(
     return messages
 
 
-
 async def async_prompt_litellm(
-    context: LLMContext,
-) -> LLMResponse:
-    if "openai/" in context.config.model and context.config.reasoning_effort:
-        return await async_prompt_litellm_responses(context)
-    else:
-        return await async_prompt_litellm_completion(context)
-
-
-
-async def async_prompt_litellm_responses(
-    context: LLMContext,
-) -> LLMResponse:
-    print(f"🧠 [DEBUG] RESPONSES !!!! Context CONFIG: {context.config}")
-    
-    messages = prepare_messages(context.messages, context.config.model)
-    tools = construct_tools(context)
-
-    response_kwargs = {
-        "model": context.config.model,
-        "input": messages,
-        # "metadata": construct_observability_metadata(context),
-        # "tools": tools,
-        # "response_format": context.config.response_format,
-        "reasoning": {"effort": context.config.reasoning_effort, "summary": "detailed"},
-        # "fallbacks": context.config.fallback_models,    
-        # "drop_params": True,
-        # "num_retries": 2,
-        # "timeout": 600,
-        # "context_window_fallback_dict": {
-        #     "gpt-5-mini": "gpt-5",
-        #     "gpt-5-nano": "gpt-5",
-        # },
-    }
-
-    print(f"🧠 [DEBUG] RESPONSE_KWARGS: {response_kwargs}")
-    
-    if context.config.reasoning_effort:
-        response_kwargs["reasoning"] = {"effort": context.config.reasoning_effort, "summary": "detailed"}
-    
-    print(f"🧠 [DEBUG] RESPONSE_KWARGS2: {response_kwargs}")
-
-    # Use finalized reasoning_effort from config if available
-    if context.config.reasoning_effort:
-        response_kwargs["reasoning"] = {
-            "effort": context.config.reasoning_effort, 
-            "summary": "detailed"
-        }
-        
-        # Check if model supports reasoning
-        supports_reasoning = litellm.supports_reasoning(model=context.config.model)
-        print(f"🧠 [REASONING] Model {context.config.model} supports reasoning: {supports_reasoning}")
-    
-    logging.info(f"Attempting responses with model: {context.config.model}, fallbacks: {context.config.fallback_models}, reasoning_effort: {context.config.reasoning_effort}")
-    
-    try:
-        t0 = time.time()
-        print("start...", response_kwargs.get("reasoning"))
-        print(".... ok 1")
-        response = await aresponses(**response_kwargs)        
-        print(".... ok 2")
-        t1 = time.time()
-        print(f"response done in {t1-t0} seconds")
-        
-        actual_model = getattr(response, "model", context.config.model)
-        
-        if actual_model != context.config.model and context.config.fallback_models:
-            logging.info("Actual model used: %s", actual_model)
-            
-    except Exception as e:
-        logging.error(f"All models failed. Error: {str(e)}")
-        raise
-
-    print(f"🧠 [DEBUG] RESPONSE!!!!: {response}")
-
-
-    # tool_calls = []
-    
-    # # add web search as a tool call
-    # psf = getattr(response.choices[0].message, "provider_specific_fields", None)
-    # if psf:
-    #     citations = psf.get("citations") or []
-    #     sources = []
-    #     for citation_block in citations:
-    #         for citation in citation_block:
-    #             source = {
-    #                 "title": citation.get('title'),
-    #                 "url": citation.get('url'),
-    #             }
-    #             if not source in sources:  # avoid duplicates
-    #                 sources.append(source)
-    #     if sources:
-    #         tool_calls.append(
-    #             ToolCall(
-    #                 id=f"toolu_{uuid.uuid4()}",
-    #                 tool="web_search",
-    #                 args={},
-    #                 result=sources,
-    #                 status="completed",
-    #             )
-    #         )
-
-    # # add regular tool calls
-    # if response.choices[0].message.tool_calls:
-    #     tool_calls.extend([
-    #         ToolCall(
-    #             id=tool_call.id,
-    #             tool=tool_call.function.name,
-    #             args=json.loads(tool_call.function.arguments),
-    #             status="pending",
-    #         )
-    #         for tool_call in response.choices[0].message.tool_calls
-    #     ])
-
-    # # Extract thinking blocks if present
-    # # Handle both thinking_blocks (Anthropic) and reasoning_content (other providers)
-    # thought = None
-    # message = response.choices[0].message
-    
-
-    # print(f"🧠 HERE IS THE MESSAGE@!!: {message}")
-    # print(f"🧠 [DEBUG] Message attributes: {dir(message)}")
-    # print(f"🧠 [DEBUG] Has reasoning_content: {hasattr(message, 'reasoning_content')}")
-    # print(f"🧠 [DEBUG] Has thinking_blocks: {hasattr(message, 'thinking_blocks')}")
-    
-    # # Check raw response for debugging
-    # if hasattr(response, '_raw') or hasattr(response, 'raw'):
-    #     print(f"🧠 [DEBUG] Raw response available for inspection")
-    
-    # # Check for any other reasoning-related attributes
-    # reasoning_attrs = [attr for attr in dir(message) if 'reason' in attr.lower() or 'think' in attr.lower()]
-    # if reasoning_attrs:
-    #     print(f"🧠 [DEBUG] Reasoning-related attributes found: {reasoning_attrs}")
-
-
-    # # Check for Anthropic thinking_blocks first
-    # if hasattr(message, 'thinking_blocks') and message.thinking_blocks and len(message.thinking_blocks) > 0:
-    #     thought = message.thinking_blocks
-    #     print(f"🧠 [THINKING] Anthropic thinking_blocks found: {len(message.thinking_blocks)} blocks")
-    #     for i, block in enumerate(message.thinking_blocks):
-    #         print(f"🧠 [THINKING] Block {i+1}: {block.get('thinking', '')[:200]}...")
-        
-    #     seconds = t1 - t0
-    #     if seconds < 60:
-    #         thought[0]["title"] = f"Thought for {seconds:.0f} seconds"
-    #     else:
-    #         thought[0]["title"] = f"Thought for {round(seconds/60)} minutes"
-    
-    # # Check for reasoning_content from other providers
-    # elif hasattr(message, 'reasoning_content') and message.reasoning_content:
-    #     print(f"🧠 [REASONING] reasoning_content found ({len(message.reasoning_content)} chars)")
-    #     print(f"🧠 [REASONING] Content preview: {message.reasoning_content[:500]}...")
-        
-    #     # Convert reasoning_content to thinking_blocks format for consistency
-    #     seconds = t1 - t0
-    #     title = f"Reasoning for {seconds:.0f} seconds" if seconds < 60 else f"Reasoning for {round(seconds/60)} minutes"
-        
-    #     thought = [{
-    #         "type": "reasoning",
-    #         "thinking": message.reasoning_content,
-    #         "title": title
-    #     }]
-
-    return LLMResponse(
-        content=response.choices[0].message.content or "",
-        tool_calls=None, #tool_calls or None,
-        stop=response.choices[0].finish_reason,
-        tokens_spent=response.usage.total_tokens,
-        thought=None #thought,
-    )
-
-
-
-
-async def async_prompt_litellm_completion(
     context: LLMContext,
 ) -> LLMResponse:
     
@@ -566,3 +389,183 @@ async def async_prompt_stream(
     validate_input(context)
     async for chunk in handler(context):
         yield chunk
+
+
+
+
+
+
+
+"""
+OpenAI Responses API shape. 
+Note: this is experimental and not in production yet. best not to use it right now.
+"""
+async def async_prompt_litellm_responses(
+    context: LLMContext,
+) -> LLMResponse:
+    print(f"🧠 [DEBUG] RESPONSES !!!! Context CONFIG: {context.config}")
+    
+    # Prepare messages but clean them for responses API
+    messages = prepare_messages(context.messages, context.config.model)
+    
+    # Clean messages for responses API - remove function_call and other incompatible fields
+    cleaned_messages = []
+    fields_to_remove = ['function_call', 'tool_calls', 'tool_call_id']
+    
+    for msg in messages:
+        if isinstance(msg, dict):
+            # Log what we're removing for debugging
+            removed_fields = [k for k in msg.keys() if k in fields_to_remove]
+            if removed_fields:
+                print(f"🧠 [DEBUG] Removing fields from message: {removed_fields}")
+            
+            cleaned_msg = {k: v for k, v in msg.items() if k not in fields_to_remove}
+            cleaned_messages.append(cleaned_msg)
+        else:
+            cleaned_messages.append(msg)
+    
+    print(f"🧠 [DEBUG] Cleaned {len(messages)} messages for responses API")
+    print(f"🧠 [DEBUG] Sample cleaned message: {cleaned_messages[0] if cleaned_messages else 'No messages'}")
+    
+    tools = construct_tools(context)
+    
+    # Debug tool format
+    if tools and len(tools) > 0:
+        print(f"🧠 [DEBUG] Tool format from construct_tools:")
+        print(f"🧠 [DEBUG] First tool: {tools[0]}")
+        print(f"🧠 [DEBUG] Tool keys: {tools[0].keys() if isinstance(tools[0], dict) else 'Not a dict'}")
+
+    response_kwargs = {
+        "model": context.config.model,
+        "input": cleaned_messages,  # Use cleaned messages
+        "metadata": construct_observability_metadata(context),
+        "drop_params": True,
+        "num_retries": 2,
+        "timeout": 600,
+    }
+    
+    # Add tools for responses API
+    if tools and len(tools) > 0:
+        # For responses API, convert tools from OpenAI completions format to responses format
+        # The responses API expects tools to be flattened (without the nested "function" wrapper)
+        responses_tools = [] 
+        for tool in tools:
+            if tool.get('type') == 'function' and 'function' in tool:
+                func = tool['function']
+                responses_tool = {
+                    'type': 'function',
+                    'name': func.get('name'),
+                    'description': func.get('description'),
+                    'parameters': func.get('parameters', {})
+                }
+                responses_tools.append(responses_tool)
+            else:
+                # Keep as-is if not a function type
+                responses_tools.append(tool)
+        
+        if responses_tools:
+            response_kwargs["tools"] = responses_tools
+            print(f"🧠 [DEBUG] Added {len(responses_tools)} tools to responses API")
+            print(f"🧠 [DEBUG] Converted tool format: {json.dumps(responses_tools[0] if responses_tools else {}, indent=2)[:500]}")
+        else:
+            print(f"🧠 [DEBUG] No valid tools to add to responses API")
+    else:
+        print(f"🧠 [DEBUG] No tools provided for responses API")
+    
+    # Add response format if present
+    if context.config.response_format:
+        response_kwargs["response_format"] = context.config.response_format
+        print(f"🧠 [DEBUG] Added response format: {context.config.response_format}")
+    
+    # Add fallbacks
+    if context.config.fallback_models:
+        response_kwargs["fallbacks"] = context.config.fallback_models
+        print(f"🧠 [DEBUG] Added fallbacks: {context.config.fallback_models}")
+    
+    # Add reasoning configuration
+    if context.config.reasoning_effort:
+        response_kwargs["reasoning"] = {
+            "effort": context.config.reasoning_effort, 
+            "summary": "detailed"  # Request detailed reasoning traces
+        }
+        
+        # Check if model supports reasoning
+        supports_reasoning = litellm.supports_reasoning(model=context.config.model)
+        print(f"🧠 [REASONING] Model {context.config.model} supports reasoning: {supports_reasoning}")
+
+    print(f"🧠 [DEBUG] Final RESPONSE_KWARGS: {response_kwargs}")
+    
+    logging.info(f"Attempting responses with model: {context.config.model}, reasoning_effort: {context.config.reasoning_effort}")
+    
+    try:
+        t0 = time.time()
+        print("start responses...", response_kwargs.get("reasoning"))
+        response = await aresponses(**response_kwargs)        
+        t1 = time.time()
+        print(f"responses done in {t1-t0} seconds")
+        
+        actual_model = getattr(response, "model", context.config.model)
+        
+        if actual_model != context.config.model and context.config.fallback_models:
+            logging.info("Actual model used: %s", actual_model)
+            
+    except Exception as e:
+        logging.error(f"Responses API failed. Error: {str(e)}")
+        raise
+
+    print(f"🧠 [DEBUG] RAW RESPONSE: {response}")
+    print(f"🧠 [DEBUG] Response type: {type(response)}")
+    print(f"🧠 [DEBUG] Response dir: {dir(response)}")
+    
+    # Check for reasoning traces in the response
+    if hasattr(response, 'reasoning'):
+        print(f"🧠 [REASONING] Found reasoning attribute: {response.reasoning}")
+    if hasattr(response, 'summary'):
+        print(f"🧠 [REASONING] Found summary attribute: {response.summary}")
+
+    # Parse responses API output
+    tool_calls = []
+    thought = None
+    content = ""
+    
+    for item in response.output:
+        # Extract reasoning
+        if item.type == "reasoning" and item.summary:
+            reasoning_texts = [s.text for s in item.summary if s.type == "summary_text"]
+            if reasoning_texts:
+                seconds = t1 - t0
+                title = f"Reasoning for {seconds:.0f} seconds" if seconds < 60 else f"Reasoning for {round(seconds/60)} minutes"
+                thought = [{
+                    "type": "reasoning", 
+                    "thinking": "\n\n".join(reasoning_texts),
+                    "title": title
+                }]
+        
+        # Extract tool calls  
+        elif item.type == "function_call":
+            tool_calls.append(ToolCall(
+                id=item.call_id,
+                tool=item.name,
+                args=json.loads(item.arguments),
+                status="pending"  # Always start as pending so process_tool_calls will execute them
+            ))
+
+    # Extract content from any item that has it
+    for item in response.output:
+        if hasattr(item, 'content') and item.content:
+            for content_item in item.content:
+                if hasattr(content_item, 'text') and content_item.text:
+                    content = content_item.text
+                    break
+            if content:
+                break
+
+    return LLMResponse(
+        content=content,
+        tool_calls=tool_calls or None,
+        stop="stop" if response.status == "completed" else (response.status or "stop"),
+        tokens_spent=response.usage.total_tokens if response.usage else 0,
+        thought=thought,
+    )
+
+

@@ -58,14 +58,6 @@ def get_default_session_llm_config(tier: Literal["premium", "free"] = "free"):
         return DEFAULT_SESSION_LLM_CONFIG_STAGE[tier]
 
 
-# Master model configuration: tier -> [primary, fallback1, fallback2]
-MODEL_TIERS = {
-    "high": ["openai/gpt-5", "anthropic/claude-sonnet-4", "vertex_ai/gemini-2.5-pro"],
-    "medium": ["openai/gpt-5-mini", "vertex_ai/gemini-2.5-flash", "anthropic/claude-3-5-haiku"],
-    "low": ["vertex_ai/gemini-2.5-flash", "openai/gpt-5-nano", "anthropic/claude-3-5-haiku"]
-}
-
-
 def get_models_for_profile(model_profile: str, tier: str = "premium") -> tuple[str, list[str]]:
     """Get primary model and fallbacks based on model_profile setting and user tier"""
     
@@ -79,7 +71,36 @@ def get_models_for_profile(model_profile: str, tier: str = "premium") -> tuple[s
     return models[0], models[1:3]  # Return (primary, [fallback1, fallback2])
 
 
-async def build_llm_config_from_agent_settings(agent_settings, tier: str = "premium", thinking_override: bool = None, context_messages: list = None) -> LLMConfig:
+DEFAULT_SESSION_SELECTION_LIMIT = 25
+
+
+
+
+
+
+
+
+
+# Master model configuration: tier -> [primary, fallback1, fallback2]
+# MODEL_TIERS = {
+#     "high": ["openai/gpt-5", "anthropic/claude-sonnet-4", "vertex_ai/gemini-2.5-pro"],
+#     "medium": ["openai/gpt-5-mini", "vertex_ai/gemini-2.5-flash", "anthropic/claude-3-5-haiku"],
+#     "low": ["vertex_ai/gemini-2.5-flash", "openai/gpt-5-nano", "anthropic/claude-3-5-haiku"]
+# }
+
+MODEL_TIERS = {
+    "high": ["anthropic/claude-sonnet-4", "gemini/gemini-2.5-pro", "openai/gpt-5"],
+    "medium": ["anthropic/claude-sonnet-4", "gemini/gemini-2.5-flash", "anthropic/claude-3-5-haiku" ],
+    "low": ["anthropic/claude-3-5-haiku", "gemini/gemini-2.5-flash", "openai/gpt-5-nano"]
+}
+
+
+async def build_llm_config_from_agent_settings(
+    agent_settings, 
+    tier: str = "premium", 
+    thinking_override: bool = None, 
+    context_messages: list = None
+) -> LLMConfig:
     """Build LLMConfig from agent's llm_settings with optional thinking override and context for routing"""
     if not agent_settings:
         return get_default_session_llm_config(tier)
@@ -96,8 +117,6 @@ async def build_llm_config_from_agent_settings(agent_settings, tier: str = "prem
     # Get model and fallbacks based on profile and tier
     model, fallback_models = get_models_for_profile(model_profile, tier)
 
-    print("we got the model and fallbacks", model, fallback_models)
-    
     # Create thinking settings
     from eve.agent.session.models import LLMThinkingSettings
     thinking_settings = None
@@ -210,6 +229,3 @@ Response:"""
         print(f"🤖 [ROUTER] ❌ Routing error after {total_time:.3f}s: {e}")
         print(f"🤖 [ROUTER] Defaulting to medium effort")
         return "medium"  # Default fallback
-
-
-DEFAULT_SESSION_SELECTION_LIMIT = 25

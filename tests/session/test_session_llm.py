@@ -12,7 +12,7 @@ from eve.agent.session.session_llm import (
     async_prompt,
     async_prompt_stream,
     validate_input,
-    construct_messages,
+    prepare_messages,
     construct_tools,
     construct_observability_metadata,
 )
@@ -92,9 +92,8 @@ async def test_validate_input_invalid_model():
         validate_input(context)
 
 
-def test_construct_messages():
-    context = LLMContext(messages=MOCK_MESSAGES)
-    result = construct_messages(context)
+def test_prepare_messages():
+    result = prepare_messages(MOCK_MESSAGES)
     assert len(result) == 2
     assert isinstance(result, list)
     assert isinstance(result[0], dict)
