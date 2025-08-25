@@ -439,6 +439,8 @@ class Tool(Document, ABC):
         prepared_args = {}
         for field in self.model.model_fields.keys():
             parameter = self.parameters[field]
+            if parameter.get("type") == "object" and isinstance(args[field], str):
+                args[field] = json.loads(args[field])
             if field in args:
                 prepared_args[field] = args[field]
             elif parameter.get("default") == "random":
