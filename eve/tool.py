@@ -697,14 +697,11 @@ def get_tools_from_mongo(
             if tool.get("key") in _tool_cache:
                 tool = _tool_cache[tool.get("key")]
             else:
-                print("TOOL1:", tool)
                 tool = Tool.convert_from_mongo(tool)
-                print("TOOL2:", tool)
                 tool = Tool.from_schema(tool, from_yaml=False)
-                print("TOOL3", tool)
                 if cache:
                     _tool_cache[tool.key] = tool
-            if tool.active and not include_inactive:
+            if tool.active or include_inactive:
                 if tool.key in found_tools:
                     raise ValueError(f"Duplicate tool {tool.key} found.")
                 found_tools[tool.key] = tool
@@ -723,7 +720,6 @@ def get_tools_from_mongo(
                     },
                 )
                 sentry_sdk.capture_exception(e)
-
 
     return found_tools
 

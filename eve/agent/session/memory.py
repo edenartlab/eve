@@ -793,7 +793,7 @@ def should_form_memories(agent_id: ObjectId, session: Session) -> bool:
         # Check message-based trigger if configured
         if MEMORY_FORMATION_MSG_INTERVAL is not None:
             msg_trigger_met = messages_since_last >= MEMORY_FORMATION_MSG_INTERVAL
-            print(f"Session is at {messages_since_last} out of {MEMORY_FORMATION_MSG_INTERVAL} messages since last memory formation")
+            # print(f"Session is at {messages_since_last} out of {MEMORY_FORMATION_MSG_INTERVAL} messages since last memory formation")
             if msg_trigger_met:
                 return True
         

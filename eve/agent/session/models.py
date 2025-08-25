@@ -207,6 +207,8 @@ class ChatMessage(Document):
 
     observability: Optional[ChatMessageObservability] = None
     finish_reason: Optional[str] = None
+    thought: Optional[List[Dict[str, Any]]] = None
+    llm_config: Optional[Dict[str, Any]] = None  # Final LLM config used for assistant messages
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -594,11 +596,23 @@ class LLMContextMetadata(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
+class LLMThinkingSettings(BaseModel):
+    """LLM configuration and thinking settings for an agent."""
+    
+    policy: Optional[str] = "auto"  # "auto", "off", "always"
+    effort_cap: Optional[str] = "medium"  # "low", "medium", "high"
+    effort_instructions: Optional[str] = "Use low for simple tasks, high for complex reasoning-intensive tasks."
+
+
 @dataclass
 class LLMConfig:
     model: Optional[str] = "gpt-4o-mini"
+    fallback_models: Optional[List[str]] = None
     max_tokens: Optional[int] = None
     response_format: Optional[BaseModel] = None
+    thinking: Optional[LLMThinkingSettings] = None
+    reasoning_effort: Optional[str] = None  # Final resolved reasoning effort (low/medium/high)
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
@@ -739,6 +753,7 @@ class PromptSessionContext:
     llm_config: Optional[LLMConfig] = None
     custom_tools: Optional[Dict[str, Any]] = None
     notification_config: Optional[NotificationConfig] = None
+    thinking_override: Optional[bool] = None  # Override agent's thinking policy per-message
 
 
 @dataclass
@@ -747,6 +762,7 @@ class LLMResponse:
     tool_calls: Optional[List[ToolCall]] = None
     stop: Optional[str] = None
     tokens_spent: Optional[int] = None
+    thought: Optional[List[Dict[str, Any]]] = None
 
 
 class ClientType(Enum):
