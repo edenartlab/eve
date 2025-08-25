@@ -89,8 +89,8 @@ DEFAULT_SESSION_SELECTION_LIMIT = 25
 # }
 
 MODEL_TIERS = {
-    "high": ["anthropic/claude-sonnet-4", "gemini/gemini-2.5-pro", "openai/gpt-5"],
-    "medium": ["anthropic/claude-sonnet-4", "gemini/gemini-2.5-flash", "anthropic/claude-3-5-haiku" ],
+    "high": ["anthropic/claude-sonnet-4-20250514", "gemini/gemini-2.5-pro", "openai/gpt-5"],
+    "medium": ["anthropic/claude-sonnet-4-20250514", "gemini/gemini-2.5-flash", "anthropic/claude-3-5-haiku" ],
     "low": ["anthropic/claude-3-5-haiku", "gemini/gemini-2.5-flash", "openai/gpt-5-nano"]
 }
 
