@@ -197,9 +197,6 @@ def prepare_messages(
 async def async_prompt_litellm(
     context: LLMContext,
 ) -> LLMResponse:
-    
-    print(f"🧠 [DEBUG] COMPLETION !!!! Context CONFIG: {context.config}")
-    
     messages = prepare_messages(context.messages, context.config.model)
     tools = construct_tools(context)
 
@@ -232,19 +229,13 @@ async def async_prompt_litellm(
     # Use finalized reasoning_effort from config if available
     if context.config.reasoning_effort:
         completion_kwargs["reasoning_effort"] = context.config.reasoning_effort
-        
-        # Check if model supports reasoning
-        supports_reasoning = litellm.supports_reasoning(model=context.config.model)
-        print(f"🧠 [REASONING] Model {context.config.model} supports reasoning: {supports_reasoning}")
     
     logging.info(f"Attempting completion with model: {context.config.model}, fallbacks: {context.config.fallback_models}, reasoning_effort: {context.config.reasoning_effort}")
     
     try:
         t0 = time.time()
-        print("start...", completion_kwargs.get("reasoning_effort"))
         response = await acompletion(**completion_kwargs)        
         t1 = time.time()
-        print(f"response done in {t1-t0} seconds")
         
         actual_model = getattr(response, "model", context.config.model)
         
@@ -298,29 +289,9 @@ async def async_prompt_litellm(
     thought = None
     message = response.choices[0].message
     
-
-    print(f"🧠 HERE IS THE MESSAGE@!!: {message}")
-    print(f"🧠 [DEBUG] Message attributes: {dir(message)}")
-    print(f"🧠 [DEBUG] Has reasoning_content: {hasattr(message, 'reasoning_content')}")
-    print(f"🧠 [DEBUG] Has thinking_blocks: {hasattr(message, 'thinking_blocks')}")
-    
-    # Check raw response for debugging
-    if hasattr(response, '_raw') or hasattr(response, 'raw'):
-        print(f"🧠 [DEBUG] Raw response available for inspection")
-    
-    # Check for any other reasoning-related attributes
-    reasoning_attrs = [attr for attr in dir(message) if 'reason' in attr.lower() or 'think' in attr.lower()]
-    if reasoning_attrs:
-        print(f"🧠 [DEBUG] Reasoning-related attributes found: {reasoning_attrs}")
-
-
     # Check for Anthropic thinking_blocks first
     if hasattr(message, 'thinking_blocks') and message.thinking_blocks and len(message.thinking_blocks) > 0:
-        thought = message.thinking_blocks
-        print(f"🧠 [THINKING] Anthropic thinking_blocks found: {len(message.thinking_blocks)} blocks")
-        for i, block in enumerate(message.thinking_blocks):
-            print(f"🧠 [THINKING] Block {i+1}: {block.get('thinking', '')[:200]}...")
-        
+        thought = message.thinking_blocks        
         seconds = t1 - t0
         if seconds < 60:
             thought[0]["title"] = f"Thought for {seconds:.0f} seconds"
@@ -329,12 +300,8 @@ async def async_prompt_litellm(
     
     # Check for reasoning_content from other providers
     elif hasattr(message, 'reasoning_content') and message.reasoning_content:
-        print(f"🧠 [REASONING] reasoning_content found ({len(message.reasoning_content)} chars)")
-        print(f"🧠 [REASONING] Content preview: {message.reasoning_content[:500]}...")
-        
-        # Convert reasoning_content to thinking_blocks format for consistency
         seconds = t1 - t0
-        title = f"Reasoning for {seconds:.0f} seconds" if seconds < 60 else f"Reasoning for {round(seconds/60)} minutes"
+        title = f"Thought for {seconds:.0f} seconds" if seconds < 60 else f"Thought for {round(seconds/60)} minutes"
         
         thought = [{
             "type": "reasoning",
