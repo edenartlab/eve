@@ -26,6 +26,8 @@ tip: |-
   - Use positive modifiers rather than negatives (e.g. “empty street” rather than “no cars”)
       
   In either case, if the user gives vague or incomplete instructions to you, you may enhance their prompt to make it rich and detailed, but *always* strive to be as faithful to the user's intent as possible.
+
+  For videos: Include details about the camera motion (if any), and action or dynamics, what's happening in the scene. Any details about the audio or dialogue should be excluded from here and instead specified in the sound_effects parameter.
   
 cost_estimate: '(output == "video" ? (((quality == "pro" ? 40 : 20) + (sound_effects ? 5 : 0)) * duration) : (5 * n_samples))'
 output_type: image
@@ -45,15 +47,7 @@ parameters:
     label: Prompt
     description: Text prompt.
     tip: |-
-      If generating from scratch, the prompt should be a visually detailed description of the image or video you want to generate. 
-      
-      May contain a primary subject and its action, including context like artistic medium, background, secondary items, color schemes, style or genre, mood, lighting, perspective, textures, time period, and cultural elements. 
-
-      If the user gives vague or incomplete instructions, you may enhance their prompt to make it rich and detailed, but *always* strive to be as faithful to the user's intent as possible.
-      
-      For images: If "text_precision" is in extras or there is an init_image (unless "controlnet" or lora in extras), this should be structured as an **INSTRUCTION**. Instructions can and should be long and extremely detailed when necessary or requested. Make sure to refer to objects by what they are rather than using names or references to other things in the conversation, e.g. "Turn the woman's head into a green pumpkin" NOT "Turn Jane's head into the thing from the last image".
-      
-      For videos: Include details about the camera motion (if any), and what's happening in the scene.
+      If generating from scratch, the prompt should be a visually detailed description of the image or video you want to generate. If using init or reference images, specify an instruction for how to edit or transform the input image(s) or create a new image with elements from the reference image(s).
     required: true
   aspect_ratio:
     type: string
