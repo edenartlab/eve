@@ -83,8 +83,10 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
                 image_tool = openai_image_edit  # preceded by flux_dev_lora call
             else:
                 image_tool = openai_image_edit
-        else:
-            if loras:
+        else:            
+            # just use one of the image editing tools for now, even when there's a lora
+            # init image takes precedence over lora
+            if False: #loras:
                 if loras[0].base_model == "sdxl":
                     image_tool = txt2img
                 else:
@@ -774,10 +776,10 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
             # "aspect_ratio": aspect_ratio,
         }
 
-        # if start_image:
-        #     args.update({
-        #         "image": start_image,
-        #     })
+        if start_image:
+            args.update({
+                "image": start_image,
+            })
 
         if seed:
             args["seed"] = seed
