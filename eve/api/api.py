@@ -27,6 +27,7 @@ from eve.api.handlers import (
     handle_trigger_create,
     handle_trigger_delete,
     handle_trigger_stop,
+    handle_trigger_run,
     handle_twitter_update,
     handle_trigger_get,
     handle_agent_tools_update,
@@ -50,6 +51,7 @@ from eve.api.api_requests import (
     CreateTriggerRequest,
     DeleteDeploymentRequestV2,
     DeleteTriggerRequest,
+    RunTriggerRequest,
     DeploymentEmissionRequest,
     DeploymentInteractRequest,
     PromptSessionRequest,
@@ -197,6 +199,15 @@ async def trigger_delete(
 ):
     pre_modal_setup()
     return await handle_trigger_delete(request)
+
+
+@web_app.post("/triggers/run")
+async def trigger_run(
+    request: RunTriggerRequest, 
+    _: dict = Depends(auth.authenticate_admin)
+):
+    pre_modal_setup()
+    return await handle_trigger_run(request)
 
 
 @web_app.post("/updates/platform/telegram")

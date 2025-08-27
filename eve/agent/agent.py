@@ -108,6 +108,17 @@ class AgentPermissions(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
+class AgentLLMSettings(BaseModel):
+    """LLM configuration and thinking settings for an agent."""
+    
+    model_profile: Optional[str] = "medium"  # "low", "medium", "high"
+    thinking_policy: Optional[str] = "auto"  # "auto", "off", "always"
+    thinking_effort_cap: Optional[str] = "medium"  # "low", "medium", "high"
+    thinking_effort_instructions: Optional[str] = None  # Custom instructions when thinking_policy == "auto"
+    
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
 class AgentExtras(BaseModel):
     """Additional configuration and metadata for an agent."""
 
@@ -150,6 +161,7 @@ class Agent(User):
     models: Optional[List[Dict[str, Any]]] = None
     test_args: Optional[List[Dict[str, Any]]] = None
 
+    llm_settings: Optional[AgentLLMSettings] = Field(default_factory=AgentLLMSettings)
     tools: Optional[Dict[str, bool]] = {}  # tool sets specified by user
     tools_: Optional[Dict[str, Dict]] = Field({}, exclude=True)  # actual loaded tools
     lora_docs: Optional[List[Dict[str, Any]]] = Field([], exclude=True)
@@ -160,18 +172,7 @@ class Agent(User):
 
     user_memory_enabled: Optional[bool] = True
     agent_memory_enabled: Optional[bool] = True
-
-    # def __init__(self, **data):
-    #     if isinstance(data.get("owner"), str):
-    #         data["owner"] = ObjectId(data["owner"])
-    #     if isinstance(data.get("owner"), str):
-    #         data["model"] = ObjectId(data["model"])
-    #     # Load environment variables into secrets dictionary
-    #     # db = os.getenv("DB")
-    #     # env_dir = Path(__file__).parent / "agents"
-    #     # env_vars = dotenv_values(f"{str(env_dir)}/{db.lower()}/{data['username']}/.env")
-    #     # data["secrets"] = {key: SecretStr(value) for key, value in env_vars.items()}
-    #     super().__init__(**data)
+    
 
     @classmethod
     def convert_from_yaml(cls, schema: dict, file_path: str = None) -> dict:
@@ -187,11 +188,6 @@ class Agent(User):
             if isinstance(schema.get("owner"), str)
             else schema.get("owner")
         )
-        # schema["model"] = (
-        #     ObjectId(schema.get("model"))
-        #     if isinstance(schema.get("model"), str)
-        #     else schema.get("model")
-        # )  # deprecated
         for model in schema.get("models", []):
             model["lora"] = (
                 ObjectId(model["lora"])
@@ -268,7 +264,10 @@ class Agent(User):
                 continue
             tools_to_load.extend(set_tools)
 
-        self.tools_ = get_tools_from_mongo(tools_to_load)
+        if tools_to_load:
+            self.tools_ = get_tools_from_mongo(tools_to_load)
+        else:
+            self.tools_ = {}
 
     # @profile_method("get_tools")
     def get_tools(self, cache=True, auth_user: str = None):
@@ -426,7 +425,8 @@ class Agent(User):
 
 
 def get_agents_from_mongo(
-    agents: List[str] = None, include_inactive: bool = False
+    agents: List[str] = None, 
+    include_inactive: bool = False
 ) -> Dict[str, Agent]:
     """Get all agents from mongo"""
 
@@ -437,7 +437,7 @@ def get_agents_from_mongo(
         try:
             agent = Agent.convert_from_mongo(agent)
             agent = Agent.from_schema(agent)
-            if agent.status != "inactive" and not include_inactive:
+            if agent.active or include_inactive:
                 if agent.key in agents:
                     raise ValueError(f"Duplicate agent {agent.key} found.")
                 agents[agent.key] = agent

@@ -29,6 +29,7 @@ BASE_MODELS = Literal[
     "svd-xt",
     "wan21",
     "ltxv",
+    "nano-banana",
 ]
 
 # These tools are default agent tools except Eve
@@ -111,7 +112,7 @@ CALCULATOR_MCP_TOOLS = ["calculator_calculate"]
 # SLACK_MCP_TOOLS = ["slack_post", "slack_search", "slack_channels"]
 
 TOOL_SETS = {
-    "create_image": ["create", "reel", "media_editor"],
+    "create_image": ["create", "reel", "media_editor", "magic_8_ball"],
     "create_video": [],  # deprecated
     "create_audio": ["elevenlabs", "elevenlabs_music", "elevenlabs_fx"],
     "vj_tools": ["texture_flow", "video_FX"],

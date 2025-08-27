@@ -439,6 +439,8 @@ class Tool(Document, ABC):
         prepared_args = {}
         for field in self.model.model_fields.keys():
             parameter = self.parameters[field]
+            if parameter.get("type") == "object" and isinstance(args[field], str):
+                args[field] = json.loads(args[field])
             if field in args:
                 prepared_args[field] = args[field]
             elif parameter.get("default") == "random":
@@ -701,7 +703,7 @@ def get_tools_from_mongo(
                 tool = Tool.from_schema(tool, from_yaml=False)
                 if cache:
                     _tool_cache[tool.key] = tool
-            if tool.active and not include_inactive:
+            if tool.active or include_inactive:
                 if tool.key in found_tools:
                     raise ValueError(f"Duplicate tool {tool.key} found.")
                 found_tools[tool.key] = tool
@@ -720,7 +722,6 @@ def get_tools_from_mongo(
                     },
                 )
                 sentry_sdk.capture_exception(e)
-
 
     return found_tools
 

@@ -13,9 +13,8 @@ LOCAL_DEV = False
 
 # Memory formation settings:
 if LOCAL_DEV:
-    MEMORY_LLM_MODEL_FAST = "gpt-5-mini-2025-08-07"
-    #MEMORY_LLM_MODEL_FAST = "gpt-5-2025-08-07"
-    MEMORY_LLM_MODEL_SLOW = "gpt-5-2025-08-07"
+    MEMORY_LLM_MODEL_FAST = "gpt-5-mini"
+    MEMORY_LLM_MODEL_SLOW = "gpt-5"
 
     MEMORY_FORMATION_MSG_INTERVAL   = 4   # Number of messages to wait before forming memories
     MEMORY_FORMATION_TOKEN_INTERVAL = 200 # Number of tokens to wait before forming memories
@@ -28,9 +27,8 @@ if LOCAL_DEV:
     MAX_FACTS_PER_SHARD = 3 # Max number of facts to store per agent shard (fifo)
     
 else:
-    MEMORY_LLM_MODEL_FAST = "gpt-5-mini-2025-08-07"
-    #MEMORY_LLM_MODEL_SLOW = "gpt-5-2025-08-07"
-    MEMORY_LLM_MODEL_SLOW = "gpt-5-2025-08-07"
+    MEMORY_LLM_MODEL_FAST = "gpt-5-mini"
+    MEMORY_LLM_MODEL_SLOW = "gpt-5"
     MEMORY_FORMATION_MSG_INTERVAL   = 15    # Number of messages to wait before forming memories
     MEMORY_FORMATION_TOKEN_INTERVAL = 1000  # Number of tokens to wait before forming memories
 
@@ -38,7 +36,7 @@ else:
     MAX_USER_MEMORIES_BEFORE_CONSOLIDATION = 4  # Number of individual memories to store before consolidating them into the agent's user_memory blob
     MAX_N_EPISODES_TO_REMEMBER = 8  # Number of episodes to keep in context from a session
     # Collective memory settings:
-    MAX_AGENT_MEMORIES_BEFORE_CONSOLIDATION = 10 # Number of suggestions to store before consolidating them into the agent's collective memory blob
+    MAX_AGENT_MEMORIES_BEFORE_CONSOLIDATION = 16 # Number of suggestions to store before consolidating them into the agent's collective memory blob
     MAX_FACTS_PER_SHARD = 50 # Max number of facts to store per agent shard (fifo)
     
 # Configuration for cold session processing
@@ -222,7 +220,7 @@ Only create new memories that are highly relevant in the context of this shard:
 {SHARD_EXTRACTION_PROMPT_TOKEN}
 </shard_context>
 
-## Current known facts (Provided for context: these facts will always be automaticallypresent in memory and do NOT need to be integrated!):
+## Current known facts (Provided for context: these facts will always be automatically present in memory and do NOT need to be integrated into MEMORY STATE!):
 {{facts_text}}
 
 ## Current, consolidated MEMORY STATE (The thing to update):
@@ -231,7 +229,7 @@ Only create new memories that are highly relevant in the context of this shard:
 ## NEW SUGGESTIONS and ideas to integrate (The information to integrate):
 {{suggestions_text}}
 
-Your goal is to update the current consolidated MEMORY STATE for this "{{shard_name}}" memory shard by integrating the new suggestions while leveraging the know facts.
+Your goal is to update the current consolidated MEMORY STATE for this "{{shard_name}}" memory shard by integrating the new suggestions while leveraging the know facts as context.
 Refine, restructure, and merge the information to create a new, coherent, and updated consolidated memory (≤{{max_words}} words).
 
 If the current, consolidated MEMORY STATE is EMPTY:
@@ -246,6 +244,7 @@ Integration Guidelines:
 - always increment the VERSION by 1 (integer) when you update the MEMORY STATE
 - Do NOT simply append the new items but integrate. The final output should be ONLY the complete, newly revised MEMORY STATE.
 - Integrate suggestions according to their alignment with the current consolidated memory context. Changes in direction of the shard memory should be considered carefully and backed by consensus.
+- Feel very free to simply copy/paste existing sections of the MEMORY STATE if they do not need to be updated. In fact, this is encouraged to avoid losing information and maintain consistency.
 - Discard suggestions only if they are: spam, completely off-topic, or factually impossible
 - Integrate conflicting viewpoints by noting them as "disputed" or "minority view" rather than discarding
 - When consensus is unclear, preserve both perspectives (e.g., "Some members propose X while others prefer Y")
@@ -258,5 +257,5 @@ Integration Guidelines:
 - Format contested items clearly: "Proposed by Alice, supported by Bob, opposed by Carol: [suggestion]"
 - Separate "agreed actions" from "open proposals" in the MEMORY STATE
 
-Return only the consolidated memory (strictly ≤{{max_words}} words!), no additional formatting or explanation.
+Return only the newly consolidated MEMORY STATE (strictly ≤{{max_words}} words!), no additional formatting or explanation.
 """

@@ -1,0 +1,37 @@
+name: Magic 8-Ball
+description: A creative diversity tool that randomly samples from categories to break repetitive patterns in content generation
+tip: |
+  Note: this tool is almost never called.  This tool combats LLM diversity collapse through external randomization. You use it by: 1) Setting CONTEXT (any additional context for the inner LLM to know about), 2) Setting INSTRUCTION (what you want the inner LLM to produce, given the context and sample), 3) Setting SAMPLE_DICT (creative categories mapped to diverse options). The sample_dict should capture high-level qualities of the creative space - for a story it might be e.g. {"medium": ["film", "podcast", "novel"], "genre": ["noir", "comedy", "sci-fi", "documentary"], "mood": ["urgent", "contemplative", "whimsical", "melancholic"], "color": ["black and white", "colorful", "sepia", "grayscale"]}. Make sure to set them in such a way that no combinations of options are contradictory -- they represent mutually orthogonal dimensions. The tool inside will randomly selects ONE option from EACH category, then instructs an inner LLM to fulfill your instruction using those constraints. This forces genuinely different creative directions instead of variations on the same theme. If you provide an agent, their persona will color the result.
+output_type: string
+cost_estimate: 5
+active: true
+visible: false
+parameters:
+  sample_dict:
+    type: object
+    label: Sample Dictionary
+    description: Category random sampling dictionary
+    tip: Each category or dimension should contain 4-10 diverse options that represent different creative directions
+    required: true
+    examples:
+      - {"narrative_structure": ["linear", "fragmented", "circular"], "emotional_tone": ["urgent", "contemplative", "whimsical"], "setting": ["underground", "floating", "crystalline"]}
+  context:
+    type: string
+    label: Context
+    description: Background context to frame the creative task
+    tip: Provides contextual framing that helps guide the content generation
+    required: true
+  instruction:
+    type: string
+    label: Instructions
+    description: Clear directions for what to do with the randomly sampled elements
+    tip: Should explain how the sampled elements should be incorporated into the final output
+    required: true
+  agent:
+    type: string
+    label: Agent ID
+    description: Optional agent ID to use for persona-based content generation
+    tip: If provided, the agent's persona will influence the creative direction
+    required: false
+examples:
+  - {"sample_dict": {"tone": ["mysterious", "playful", "urgent"], "setting": ["forest", "city", "space"]}, "context": "Creating a short story", "instruction": "Write a story incorporating all selected elements"}
