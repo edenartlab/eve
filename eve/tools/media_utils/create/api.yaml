@@ -6,10 +6,22 @@ tip: |-
   Rules:
   - Use 16:9, 1:1, and 9:16 aspect ratios for landscape, square, and portrait images respectively. Only use the other ones if making images (not videos) and it is specifically requested of you. If no aspect ratio is specified, use your best judgment depending on the content requested. Cinematic content should be landscape while social media content should be square or portrait.
   - For images: If the user wants to make an infographic, logo, or any other image that requires a lot of coherent and legible text, or the user requests OpenAI image tools, you should include "text_precision" in extras.
-  - For images: If either "text_precision" is in extras or there is an init_image, *and* there is no lora, the prompt should be structured as an **INSTRUCTION**.
+  - For images: If either "text_precision" is in extras *OR* there is an init_image, the prompt should be structured as an **INSTRUCTION**, unless there is a lora.
   - For images: If the user has an init_image but also has a lora or "controlnet" in extras, ignore the last rule about being an instruction and instead make a normal text-to-image prompt.
   - For videos: If you want to put specific lines of dialogue into the video, you must use "pro" quality with sound_effects, and no init_image).
   - For videos: Audio files are *only* supported when "talking_head" is in extras, so don't use one otherwise. If you want to mix an audio file over video, use the media_editor tool instead.
+
+  Prompt guide:
+
+  If you are generating an image from scratch or have a lora selected, use a normal text-to-image prompt (no instructions). May contain a primary subject and its action, including context like artistic medium, background, secondary items, color schemes, style or genre, mood, lighting, perspective, textures, time period, and cultural elements.
+
+  If you are editing an image, structure your prompt as a long, rich, and imperative *Instruction*. Follow these guidelines:
+  - If you are editing a single image in place, i.e. start the prompt with "in this image".
+  - Refer to objects by what they are rather than using names or references to other things in the conversation, e.g. "Turn the woman's head into a green pumpkin" NOT "Turn Jane's head into the thing from the last image".
+  - Use positive modifiers (e.g. empty street) rather than negatives (e.g. no cars)
+      
+  In either case, if the user gives vague or incomplete instructions to you, you may enhance their prompt to make it rich and detailed, but *always* strive to be as faithful to the user's intent as possible.
+  
 cost_estimate: '(output == "video" ? (((quality == "pro" ? 40 : 20) + (sound_effects ? 5 : 0)) * duration) : (5 * n_samples))'
 output_type: image
 active: true
@@ -125,8 +137,8 @@ parameters:
     label: Model preference
     description: Optional preference for specific model provider
     tip: |-
-      Optionally specify which model provider to use. If not specified, will automatically choose the best model based on your requirements. For videos: kling, seedance, runway, veo. For images: seedream, openai, flux.
-    choices: ["kling", "seedream", "seedance", "sdxl", "runway", "openai", "flux", "veo"]
+      Optionally specify which model provider to use. If not specified, will automatically choose the best model based on your requirements. For videos: kling, seedance, runway, veo. For images: seedream, openai, flux, nano_banana.
+    choices: ["kling", "seedream", "seedance", "sdxl", "runway", "openai", "flux", "veo", "nano_banana"]
   audio:
     type: audio
     label: Audio track URL
