@@ -818,6 +818,7 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
 
     # If sound effects are requested, try to add them
     if sound_effects and video_tool != veo3:
+        print("----> creating sound effects")
         try:
             args = {
                 "video": final_video,
