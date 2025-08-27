@@ -15,10 +15,15 @@ tip: |-
 
   If you are generating an image from scratch or have a lora selected, use a normal text-to-image prompt (no instructions). May contain a primary subject and its action, including context like artistic medium, background, secondary items, color schemes, style or genre, mood, lighting, perspective, textures, time period, and cultural elements.
 
-  If you are editing an image, structure your prompt as a long, rich, and imperative *Instruction*. Follow these guidelines:
-  - If you are editing a single image in place, i.e. start the prompt with "in this image".
-  - Refer to objects by what they are rather than using names or references to other things in the conversation, e.g. "Turn the woman's head into a green pumpkin" NOT "Turn Jane's head into the thing from the last image".
-  - Use positive modifiers (e.g. empty street) rather than negatives (e.g. no cars)
+  If you are editing an image, structure your prompt as a single, explicit, imperative **Instruction** that references the input image(s) and fully specifies the outcome. Follow these guidelines:
+
+  - For single-image edits, begin with “In this image, …”. Don't use "in this image"
+  - If user requests to create a whole new image which only imports content or style from the reference image, don't use "in this image" and instead describe the new image in detail, only making references to what you want to keep from the input images.
+  - For multiple image inputs, refer to images by index/role (e.g., “Image 1: subject,” “Image 2: background/logo”). Refer to things with consistent names.
+  - Refer to objects by what they are rather than prior conversation names (e.g., “Turn the woman’s head into a green pumpkin,” not “Turn Jane’s head…”).
+  - State precise edits/placements in concrete terms: what to add/change/remove and exactly where (e.g., “place the logo on the chest,” “three‑quarter view at ~30°,” “shoulder‑up crop,” “apply the style of image 2 onto the image of the woman's face”).
+  - If rendering text, place quotation marks around the text.
+  - Use positive modifiers rather than negatives (e.g. “empty street” rather than “no cars”)
       
   In either case, if the user gives vague or incomplete instructions to you, you may enhance their prompt to make it rich and detailed, but *always* strive to be as faithful to the user's intent as possible.
   
