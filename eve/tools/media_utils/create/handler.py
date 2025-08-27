@@ -509,7 +509,15 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
                 else:
                     tool_call["args"][key] = value
 
-    return {"output": final_result, "subtool_calls": tool_calls}
+    final_result = {
+        "output": final_result, 
+        "subtool_calls": tool_calls, 
+        "intermediate_outputs": intermediate_outputs
+    }
+    if intermediate_outputs:
+        final_result["intermediate_outputs"] = intermediate_outputs
+    
+    return final_result
 
 
 async def handle_video_creation(args: dict, user: str = None, agent: str = None):
@@ -546,6 +554,8 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
     talking_head = "talking_head" in extras
     audio = args.get("audio", None)
     sound_effects = args.get("sound_effects", None)
+
+    intermediate_outputs = {}
 
     if end_image:
         assert start_image, "Must provide init_image if end_image is provided"
@@ -597,11 +607,13 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
                 )
             try:
                 result = await create.async_run(args, save_thumbnails=True)
-                print("create result", result)
                 start_image = get_full_url(result["output"][0]["filename"])
-                tool_calls.append(
-                    {"tool": create.key, "args": args, "output": start_image}
-                )
+                tool_calls.append({
+                    "tool": create.key, 
+                    "args": args, 
+                    "output": start_image
+                })
+                intermediate_outputs["create_start_image"] = result["output"]
             except Exception as e:
                 raise Exception(
                     "Error generating start image for img2vid. Try generating it yourself first with the 'create' tool, and then use it as start_image. Original error: {}".format(
@@ -818,6 +830,7 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
 
     # If sound effects are requested, try to add them
     if sound_effects and video_tool != veo3:
+        print("----> creating sound effects")
         try:
             args = {
                 "video": final_video,
@@ -835,13 +848,16 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
             )
 
         except Exception as e:
-            print(
-                "Error adding sound effects, just return video without it. Error: {}".format(
-                    e
-                )
-            )
+            print(f"Error adding sound effects, just return video without it. Error: {e}")
 
-    return {"output": final_video, "subtool_calls": tool_calls}
+    final_result = {
+        "output": final_video, 
+        "subtool_calls": tool_calls, 
+    }
+    if intermediate_outputs:
+        final_result["intermediate_outputs"] = intermediate_outputs
+    
+    return final_result
 
 
 def aspect_ratio_to_dimensions(aspect_ratio):
