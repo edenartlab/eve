@@ -44,6 +44,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
     flux_dev = Tool.load("flux_dev")
     flux_kontext = Tool.load("flux_kontext")
     flux_double_character = Tool.load("flux_double_character")
+    nano_banana = Tool.load("nano_banana")
     txt2img = Tool.load("txt2img")
     openai_image_edit = Tool.load("openai_image_edit")
     openai_image_generate = Tool.load("openai_image_generate")
@@ -73,6 +74,8 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
         ]
     )
 
+    intermediate_outputs = {}
+
     # Determine tool
     if init_image:
         if text_precision:
@@ -96,7 +99,8 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
                     "seedream": seedream3,
                     "openai": openai_image_edit,
                     "sdxl": txt2img,
-                }.get(model_preference, flux_kontext)
+                    "nano_banana": nano_banana,
+                }.get(model_preference, nano_banana)
 
     else:
         if text_precision:
@@ -329,6 +333,22 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
         result = await flux_kontext.async_run(args, save_thumbnails=True)
 
     #########################################################
+    # Nano Banana
+    elif image_tool == nano_banana:
+        args = {
+            "prompt": prompt,
+            "image_input": [init_image],
+            "n_samples": n_samples,
+            "output_format": "png"
+        }
+
+        if seed:
+            args["seed"] = seed
+
+        print("Running Nano Banana !!!", args)
+        result = await nano_banana.async_run(args, save_thumbnails=True)
+
+    #########################################################
     # OpenAI Image Generate
     elif image_tool == openai_image_generate:
         args = {
@@ -396,14 +416,17 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
                             )
                     result = await txt2img.async_run(args_pre)
                     print("init image result", result)
-                    init_image = get_full_url(result["output"][0]["filename"])
+                    filename = result["output"][0]["filename"]
+                    init_image = get_full_url(filename)
                     tool_calls.append(
                         {"tool": txt2img.key, "args": args_pre, "output": init_image}
                     )
+                    intermediate_outputs["lora_init_image"] = result["output"]
                 else:
                     result = await flux_dev_lora.async_run(args_pre)
                     print("init image result", result)
-                    init_image = get_full_url(result["output"][0]["filename"])
+                    filename = result["output"][0]["filename"]
+                    init_image = get_full_url(filename)
                     tool_calls.append(
                         {
                             "tool": flux_dev_lora.key,
@@ -411,11 +434,9 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
                             "output": init_image,
                         }
                     )
+                    intermediate_outputs["lora_init_image"] = result["output"]
 
                 prompt = f"This was the prompt for the image you see here: {prompt}. Regenerate this exact image in this exact style, as faithfully to the original image as possible, except completely redo any poorly rendered or illegible text rendered that doesn't match what's in the prompt."
-
-                print("oae init_image", init_image)
-                print("oae prompt", prompt)
 
             except Exception as e:
                 print(
@@ -542,7 +563,7 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
         }.get(model_preference, veo2)
     elif quality == "pro":
         if veo3_enabled:
-            if sound_effects and not start_image:
+            if sound_effects:
                 video_tool = veo3
             else:
                 video_tool = {"kling": kling, "seedance": seedance1, "veo": veo2}.get(
@@ -591,10 +612,6 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
         start_image_attributes, _ = get_media_attributes(start_image)
     else:
         start_image_attributes = None
-
-    # Veo-3 doesn't support start images, so fall back to veo-2
-    if start_image and video_tool == veo3:
-        video_tool = veo2
 
     #########################################################
     # Runway
