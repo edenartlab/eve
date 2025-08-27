@@ -27,11 +27,6 @@ async def veo_handler(args: dict, model: str):
         "client_x509_cert_url": os.environ["GCP_CLIENT_X509_CERT_URL"]
     }
 
-    print("--------------------------------")
-    print("service_account_info", service_account_info)
-    print("os.environ", os.environ["GCP_PROJECT_ID"], os.environ["GCP_LOCATION"])
-    print("--------------------------------")
-    
     credentials = service_account.Credentials.from_service_account_info(
         service_account_info,
         scopes=["https://www.googleapis.com/auth/cloud-platform"]

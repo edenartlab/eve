@@ -29,6 +29,7 @@ BASE_MODELS = Literal[
     "svd-xt",
     "wan21",
     "ltxv",
+    "nano-banana",
 ]
 
 # These tools are default agent tools except Eve

@@ -152,21 +152,20 @@ class ReplicateTool(Tool):
                 if is_number:
                     new_args[field] = float(args[field])
                 elif is_array:
-                    new_args[field] = "|".join([str(p) for p in args[field]])
+                    is_pipe = "legacy" in self.key
+                    if is_pipe:
+                        new_args[field] = "|".join([str(p) for p in args[field]])
                 if alias:
                     new_args[alias] = new_args.pop(field)
-
+                    
         return new_args
 
     def _get_replicate_model(self, args: dict):
         """Use default model or a substitute model conditional on an arg"""
         replicate_model = self.replicate_model
-        print(f"DEBUG: Model selection - args keys: {list(args.keys())}")
-        print(f"DEBUG: lora value: {args.get('lora')} (type: {type(args.get('lora'))})")
 
         if self.replicate_model_substitutions:
             for cond, model in self.replicate_model_substitutions.items():
-                print(f"DEBUG: Checking condition '{cond}' -> {model}")
                 if "==" in cond:
                     arg, value = cond.split("==")
                     if args.get(arg) == value:
@@ -176,7 +175,6 @@ class ReplicateTool(Tool):
                     if args.get(cond):
                         replicate_model = model
                         break
-        print(f"DEBUG: Final model selected: {replicate_model}")
         return replicate_model
 
     async def _create_prediction(self, args: dict, webhook=True):
@@ -303,7 +301,6 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
                 else:
                     name = task.args.get("prompt")
 
-                    print("got a creation")
                     creation = Creation(
                         user=task.user,
                         agent=task.agent,
