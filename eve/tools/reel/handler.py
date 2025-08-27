@@ -1,7 +1,7 @@
 import os
 import time
 import logging
-from elevenlabs.client import ElevenLabs, Voice
+from elevenlabs.client import ElevenLabs
 from bson.objectid import ObjectId
 import math
 import asyncio
