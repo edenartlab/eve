@@ -26,10 +26,10 @@ parameters:
     type: string
     label: Negative prompt
     description: An optional negative prompt to avoid specific details in the video.
-  # image:
-  #   type: image
-  #   label: Prompt Image
-  #   description: Optional starting image for the video.
+  image:
+    type: image
+    label: Prompt Image
+    description: Optional starting image for the video.
   duration:
     type: integer
     label: Duration
