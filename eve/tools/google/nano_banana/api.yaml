@@ -1,6 +1,6 @@
 name: Nano Banana
 description: Google's latest image editing model in Gemini 2.5 for generating and transforming images
-cost_estimate: '4 * n_samples'
+cost_estimate: 4 * n_samples
 output_type: image
 visible: true
 active: true
