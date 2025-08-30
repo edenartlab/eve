@@ -152,7 +152,10 @@ class ReplicateTool(Tool):
                 if is_number:
                     new_args[field] = float(args[field])
                 elif is_array:
-                    is_pipe = "legacy" in self.key
+                    is_pipe = any(n in self.key for n in [
+                        "legacy", "real2real", "interpolate", "controlnet", "img2vid", "txt2vid"
+                    ])
+
                     if is_pipe:
                         new_args[field] = "|".join([str(p) for p in args[field]])
                 if alias:
