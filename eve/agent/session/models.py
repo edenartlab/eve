@@ -192,18 +192,15 @@ class ChatMessage(Document):
     session: Optional[ObjectId] = None
     sender: Optional[ObjectId] = None
     eden_message_data: Optional[EdenMessageData] = None
-
     reply_to: Optional[ObjectId] = None
-    sender_name: Optional[str] = None  # ???
+    pinned: Optional[bool] = False
 
     content: str = ""
     reactions: Optional[Dict[str, List[str]]] = {}
 
     attachments: Optional[List[str]] = []
     tool_calls: Optional[List[ToolCall]] = []
-
-    task: Optional[ObjectId] = None  # ???
-    cost: Optional[float] = None  # ???
+    cost: Optional[float] = None  # todo: add cost
 
     observability: Optional[ChatMessageObservability] = None
     finish_reason: Optional[str] = None

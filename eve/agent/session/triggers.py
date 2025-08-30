@@ -42,8 +42,6 @@ def calculate_next_scheduled_run(schedule: dict) -> datetime:
     return None
 
 
-
-
 @handle_errors
 async def create_trigger_fn(
     schedule: CronSchedule,

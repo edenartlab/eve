@@ -277,7 +277,11 @@ async def build_system_extras(
     return context, config, extras
 
 
-def add_user_message(session: Session, context: PromptSessionContext):
+def add_user_message(
+    session: Session, 
+    context: PromptSessionContext,
+    pin: bool = False
+):
     new_message = ChatMessage(
         session=session.id,
         sender=ObjectId(context.initiating_user_id),
@@ -285,6 +289,8 @@ def add_user_message(session: Session, context: PromptSessionContext):
         content=context.message.content,
         attachments=context.message.attachments or [],
     )
+    if pin:
+        new_message.pinned = True
     new_message.save()
     session.messages.append(new_message.id)
     session.memory_context.last_activity = datetime.now(timezone.utc)
@@ -320,10 +326,6 @@ async def build_llm_context(
     messages.extend(existing_messages)
     messages = convert_message_roles(messages, actor.id)
 
-    print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
-    
-    print(actor.llm_settings)
-
     # Use agent's llm_settings if available, otherwise fallback to context or default
     if actor.llm_settings:
         from eve.agent.session.config import build_llm_config_from_agent_settings
@@ -333,14 +335,9 @@ async def build_llm_context(
             thinking_override=getattr(context, 'thinking_override', None),
             context_messages=existing_messages  # Pass existing messages for routing context
         )
-        print("we got the config", config)
     else:
         config = context.llm_config or get_default_session_llm_config(tier)
 
-    print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
-    print(f"--- {config} ---")
-    print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
-    
     return LLMContext(
         messages=messages,
         tools=tools,
@@ -910,6 +907,7 @@ async def async_prompt_session(
     try:
         # Run the prompt session generator, checking for cancellation
         async for update in prompt_session_generator():
+            print("----> update", update)
             yield update
 
     except SessionCancelledException:
@@ -981,6 +979,7 @@ async def async_prompt_session(
         active_requests.remove(session_run_id)
         session.active_requests = active_requests
         session.save()
+
         # Clean up Ably subscription
         if ably_client:
             try:
