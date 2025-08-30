@@ -1,3 +1,4 @@
+import traceback
 from typing import List, Optional, Dict
 from bson import ObjectId
 from eve.mongo import Collection, Document
@@ -328,15 +329,28 @@ def select_messages(
     session: Session, selection_limit: Optional[int] = DEFAULT_SESSION_SELECTION_LIMIT
 ):
     messages = ChatMessage.get_collection()
-    query = messages.find({"session": session.id, "role": {"$ne": "eden"}}).sort(
+    selected_messages = messages.find({
+        "session": session.id, 
+        "role": {"$ne": "eden"}
+    }).sort(
         "createdAt", -1
     )
     if selection_limit is not None:
-        query = query.limit(selection_limit)
-    selected_messages = list(query)
+        selected_messages = selected_messages.limit(selection_limit)
+    selected_messages = list(selected_messages)
+
+    pinned_messages = messages.find({
+        "session": session.id, 
+        "pinned": True
+    })
+    pinned_messages = list(pinned_messages)
+    pinned_messages = [m for m in pinned_messages if m["_id"] not in [msg["_id"] for msg in selected_messages]]    
+    selected_messages.extend(pinned_messages)
+
     selected_messages.reverse()
-    selected_messages = [ChatMessage(**msg) for msg in selected_messages]
+    selected_messages = [ChatMessage(**msg) for msg in selected_messages]    
     # Filter out cancelled tool calls from the messages
     selected_messages = [msg.filter_cancelled_tool_calls() for msg in selected_messages]
+
     return selected_messages
     
