@@ -32,9 +32,6 @@ class Manna(Document):
             raise e
 
     def spend(self, amount: float):
-        if "free_tools" in (self.featureFlags or []):
-            print("free manna for user", self.id)
-            return
         subscription_spend = min(self.subscriptionBalance, amount)
         self.subscriptionBalance -= subscription_spend
         self.balance -= amount - subscription_spend
