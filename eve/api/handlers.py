@@ -282,6 +282,11 @@ async def handle_stream_chat(request: ChatRequest, background_tasks: BackgroundT
 async def handle_trigger_create(
     request: CreateTriggerRequest, background_tasks: BackgroundTasks
 ):
+    # Log the incoming request to check for name field
+    logger.info(f"Creating trigger with request: {request}")
+    logger.info(f"Request model fields: {request.model_fields_set}")
+    logger.info(f"Request dict: {request.model_dump()}")
+    
     agent = Agent.from_mongo(ObjectId(request.agent))
     if not agent:
         raise APIError(f"Agent not found: {request.agent}", status_code=404)
@@ -302,9 +307,11 @@ async def handle_trigger_create(
     if not next_run:
         raise APIError("Failed to calculate next scheduled run time", status_code=400)
 
-    # Create trigger in database
+    # Create trigger in database  
+    logger.info(f"Creating trigger with name: '{request.name}'")
     trigger = Trigger(
         trigger_id=trigger_id,
+        name=request.name,  # Add the name field
         user=ObjectId(user.id),
         agent=ObjectId(agent.id),
         schedule=schedule_dict,
@@ -1012,6 +1019,9 @@ def setup_session(
         if request.creation_args.trigger
         else None,
     }
+
+    if request.creation_args.session_id:
+        session_kwargs["_id"] = ObjectId(request.creation_args.session_id)
 
     # Only include budget if it's not None, so default factory can work
     if request.creation_args.budget is not None:

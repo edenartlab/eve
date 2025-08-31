@@ -1,4 +1,5 @@
 import logging
+import aiohttp
 import os
 import pytz
 from datetime import datetime, timezone
@@ -74,7 +75,7 @@ async def execute_trigger(trigger, is_immediate: bool = False):
     Returns:
         dict: Response from the session prompt endpoint
     """
-    import aiohttp
+    
     
     logger.info(f"Executing trigger {trigger.trigger_id} (immediate={is_immediate})")
     

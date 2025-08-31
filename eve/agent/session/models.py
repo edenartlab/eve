@@ -648,10 +648,12 @@ class SessionBudget(BaseModel):
 @Collection("triggers2")
 class Trigger(Document):
     trigger_id: str
+    name: Optional[str] = "Untitled Task"
     user: ObjectId
     schedule: Dict[str, Any]
     instruction: str
     posting_instructions: Optional[Dict[str, Any]] = None
+    think: Optional[bool] = None
     agent: Optional[ObjectId] = None
     session_type: Optional[Literal["new", "another"]] = "new"
     session: Optional[ObjectId] = None

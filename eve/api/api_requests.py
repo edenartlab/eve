@@ -123,6 +123,7 @@ class PostingInstructions(BaseModel):
 class CreateTriggerRequest(BaseModel):
     agent: str
     user: str
+    name: Optional[str] = "Untitled Task"  # Add name field with default
     instruction: str
     posting_instructions: Optional[PostingInstructions] = None
     schedule: CronSchedule
@@ -151,6 +152,7 @@ class RunTriggerRequest(BaseModel):
 
 
 class SessionCreationArgs(BaseModel):
+    session_id: Optional[str] = None
     owner_id: Optional[str] = None
     agents: List[str]
     title: Optional[str] = None
