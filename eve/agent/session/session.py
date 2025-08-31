@@ -1,14 +1,14 @@
 import asyncio
 import traceback
-import time
+import uuid
 import json
 import os
 import random
 import re
-from fastapi import BackgroundTasks
 import pytz
+from fastapi import BackgroundTasks
+from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
-import uuid
 from datetime import datetime, timezone
 from bson import ObjectId
 from sentry_sdk import capture_exception
@@ -1270,13 +1270,12 @@ async def _send_session_notification(
 
 
 async def async_title_session(
-    session: Session, initial_message_content: str, metadata: Optional[Dict] = None
+    session: Session, 
+    initial_message_content: str
 ):
     """
     Generate a title for a session based on the initial message content
     """
-
-    from pydantic import BaseModel, Field
 
     class TitleResponse(BaseModel):
         """A title for a session of chat messages. It must entice a user to click on the session when they are interested in the subject."""
@@ -1365,3 +1364,10 @@ def title_session(
 ):
     """Synchronous wrapper for async_title_session"""
     return asyncio.run(async_title_session(session, initial_message_content))
+
+
+if __name__ == "__main__":
+    session = Session.from_mongo("68b3f2c5c548dd6adc6f70c1")
+    initial_message_content = "Hello, how are you?"
+    asyncio.run(async_title_session(session, initial_message_content))
+    print(f"Session title: {session.title}")
