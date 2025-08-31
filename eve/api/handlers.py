@@ -54,7 +54,7 @@ from eve.api.api_requests import (
 from eve.api.helpers import (
     emit_update,
     get_platform_client,
-    setup_chat,
+    # setup_chat,
     create_telegram_chat_request,
     update_busy_state,
 )
@@ -200,82 +200,82 @@ async def run_chat_request(
             await update_busy_state(update_config, request_id, False)
 
 
-async def handle_chat(
-    request: ChatRequest,
-    background_tasks: BackgroundTasks,
-):
-    user, agent, thread, tools = await setup_chat(
-        request, cache=True, background_tasks=background_tasks
-    )
+# async def handle_chat(
+#     request: ChatRequest,
+#     background_tasks: BackgroundTasks,
+# ):
+#     user, agent, thread, tools = await setup_chat(
+#         request, cache=True, background_tasks=background_tasks
+#     )
 
-    background_tasks.add_task(
-        run_chat_request,
-        user,
-        agent,
-        thread,
-        tools,
-        request.user_message,
-        request.update_config,
-        request.force_reply,
-        request.use_thinking,
-        request.model,
-        request.user_is_bot,
-    )
+#     background_tasks.add_task(
+#         run_chat_request,
+#         user,
+#         agent,
+#         thread,
+#         tools,
+#         request.user_message,
+#         request.update_config,
+#         request.force_reply,
+#         request.use_thinking,
+#         request.model,
+#         request.user_is_bot,
+#     )
 
-    return {"thread_id": str(thread.id)}
+#     return {"thread_id": str(thread.id)}
 
 
-@handle_errors
-async def handle_stream_chat(request: ChatRequest, background_tasks: BackgroundTasks):
-    user, agent, thread, tools = await setup_chat(
-        request, cache=True, background_tasks=background_tasks
-    )
+# @handle_errors
+# async def handle_stream_chat(request: ChatRequest, background_tasks: BackgroundTasks):
+#     user, agent, thread, tools = await setup_chat(
+#         request, cache=True, background_tasks=background_tasks
+#     )
 
-    async def event_generator():
-        try:
-            async for update in async_prompt_thread(
-                user=user,
-                agent=agent,
-                thread=thread,
-                user_messages=request.user_message,
-                tools=tools,
-                force_reply=request.force_reply,
-                use_thinking=request.use_thinking,
-                model=request.model,
-                user_is_bot=request.user_is_bot,
-                stream=True,
-            ):
-                data = {"type": update.type}
-                if update.type == UpdateType.ASSISTANT_TOKEN:
-                    data["text"] = update.text
-                elif update.type == UpdateType.ASSISTANT_MESSAGE:
-                    data["content"] = update.message.content
-                    if update.message.tool_calls:
-                        data["tool_calls"] = [
-                            dumps_json(t.model_dump())
-                            for t in update.message.tool_calls
-                        ]
-                elif update.type == UpdateType.TOOL_COMPLETE:
-                    data["tool"] = update.tool_name
-                    data["result"] = dumps_json(update.result)
-                elif update.type == UpdateType.ERROR:
-                    data["error"] = update.error or "Unknown error occurred"
+#     async def event_generator():
+#         try:
+#             async for update in async_prompt_thread(
+#                 user=user,
+#                 agent=agent,
+#                 thread=thread,
+#                 user_messages=request.user_message,
+#                 tools=tools,
+#                 force_reply=request.force_reply,
+#                 use_thinking=request.use_thinking,
+#                 model=request.model,
+#                 user_is_bot=request.user_is_bot,
+#                 stream=True,
+#             ):
+#                 data = {"type": update.type}
+#                 if update.type == UpdateType.ASSISTANT_TOKEN:
+#                     data["text"] = update.text
+#                 elif update.type == UpdateType.ASSISTANT_MESSAGE:
+#                     data["content"] = update.message.content
+#                     if update.message.tool_calls:
+#                         data["tool_calls"] = [
+#                             dumps_json(t.model_dump())
+#                             for t in update.message.tool_calls
+#                         ]
+#                 elif update.type == UpdateType.TOOL_COMPLETE:
+#                     data["tool"] = update.tool_name
+#                     data["result"] = dumps_json(update.result)
+#                 elif update.type == UpdateType.ERROR:
+#                     data["error"] = update.error or "Unknown error occurred"
 
-                yield f"data: {json.dumps({'event': 'update', 'data': data})}\n\n"
+#                 yield f"data: {json.dumps({'event': 'update', 'data': data})}\n\n"
 
-            yield f"data: {json.dumps({'event': 'done', 'data': ''})}\n\n"
-        except Exception as e:
-            logger.error("Error in event_generator", exc_info=True)
-            yield f"data: {json.dumps({'event': 'error', 'data': {'error': str(e)}})}\n\n"
+#             yield f"data: {json.dumps({'event': 'done', 'data': ''})}\n\n"
+#         except Exception as e:
+#             logger.error("Error in event_generator", exc_info=True)
+#             yield f"data: {json.dumps({'event': 'error', 'data': {'error': str(e)}})}\n\n"
 
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-        },
-    )
+#     return StreamingResponse(
+#         event_generator(),
+#         media_type="text/event-stream",
+#         headers={
+#             "Cache-Control": "no-cache",
+#             "Connection": "keep-alive",
+#         },
+#     )
 
 
 @handle_errors
@@ -319,6 +319,7 @@ async def handle_trigger_create(
         posting_instructions=request.posting_instructions.model_dump()
         if request.posting_instructions
         else None,
+        think=request.think,
         update_config=request.update_config.model_dump()
         if request.update_config
         else None,

@@ -126,6 +126,7 @@ class CreateTriggerRequest(BaseModel):
     name: Optional[str] = "Untitled Task"  # Add name field with default
     instruction: str
     posting_instructions: Optional[PostingInstructions] = None
+    think: Optional[bool] = None
     schedule: CronSchedule
     update_config: Optional[UpdateConfig] = None
     session_type: Literal["new", "another"] = "new"

@@ -18,9 +18,9 @@ from eve.tool import Tool
 from eve.user import User
 from eve.agent import Agent
 from eve.agent.thread import Thread
-from eve.agent.tasks import async_title_thread
 from eve.api.api_requests import ChatRequest, UpdateConfig
 from eve.agent.session.models import Deployment, ClientType
+from eve.agent.session.session import async_title_session
 
 logger = logging.getLogger(__name__)
 
@@ -36,46 +36,40 @@ async def get_update_channel(
     return ably_client.channels.get(str(update_config.sub_channel_name))
 
 
-async def setup_chat(
-    request: ChatRequest,
-    cache: bool = False,
-    background_tasks: BackgroundTasks = None,
-    metadata: Optional[Dict] = None,
-) -> tuple[User, Agent, Thread, list[Tool]]:
-    try:
-        user = User.from_mongo(request.user_id)
-    except Exception as e:
-        logger.error(f"Error loading user: {traceback.format_exc()}")
-        raise APIError(f"Invalid user_id: {request.user_id}", status_code=400) from e
+# async def setup_chat(
+#     request: ChatRequest,
+#     cache: bool = False,
+#     background_tasks: BackgroundTasks = None,
+#     metadata: Optional[Dict] = None,
+# ) -> tuple[User, Agent, Thread, list[Tool]]:
+#     try:
+#         user = User.from_mongo(request.user_id)
+#     except Exception as e:
+#         logger.error(f"Error loading user: {traceback.format_exc()}")
+#         raise APIError(f"Invalid user_id: {request.user_id}", status_code=400) from e
 
-    try:
-        agent = Agent.from_mongo(request.agent_id, cache=False)
-    except Exception as e:
-        logger.error(f"Error loading agent: {traceback.format_exc()}")
-        raise APIError(f"Invalid agent_id: {request.agent_id}", status_code=400) from e
+#     try:
+#         agent = Agent.from_mongo(request.agent_id, cache=False)
+#     except Exception as e:
+#         logger.error(f"Error loading agent: {traceback.format_exc()}")
+#         raise APIError(f"Invalid agent_id: {request.agent_id}", status_code=400) from e
 
-    tools = agent.get_tools(cache=cache, auth_user=request.user_id)
+#     tools = agent.get_tools(cache=cache, auth_user=request.user_id)
 
-    if request.thread_id:
-        try:
-            thread = Thread.from_mongo(request.thread_id)
-        except Exception as e:
-            logger.error(f"Error loading thread: {traceback.format_exc()}")
-            raise APIError(
-                f"Invalid thread_id: {request.thread_id}", status_code=400
-            ) from e
-    else:
-        thread = agent.request_thread(user=user.id, message_limit=25)
-        metadata = {
-            "user_id": str(user.id),
-            "agent_id": str(agent.id),
-            "thread_id": str(thread.id),
-        }
-        background_tasks.add_task(
-            async_title_thread, thread, request.user_message, metadata=metadata
-        )
+#     if request.thread_id:
+#         try:
+#             thread = Thread.from_mongo(request.thread_id)
+#         except Exception as e:
+#             logger.error(f"Error loading thread: {traceback.format_exc()}")
+#             raise APIError(
+#                 f"Invalid thread_id: {request.thread_id}", status_code=400
+#             ) from e
+#     else:
+#         background_tasks.add_task(
+#             async_title_session, session, request.user_message.content
+#         )
 
-    return user, agent, thread, tools
+#     return user, agent, thread, tools
 
 
 async def emit_update(update_config: Optional[UpdateConfig], data: dict):
