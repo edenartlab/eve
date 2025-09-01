@@ -8,11 +8,6 @@ def load_handler(name):
 
             handlers[name] = handler
 
-        elif name == "memory":
-            from .memory.handler import handler
-
-            handlers[name] = handler
-
         elif name == "magic_8_ball":
             from .magic_8_ball.handler import handler
 
