@@ -29,7 +29,7 @@ from eve.deploy import (
     Deployment as DeploymentV1,
 )
 from eve.agent.session.session import run_prompt_session, run_prompt_session_stream
-from eve.agent.session.triggers import create_trigger_fn, stop_trigger
+# from eve.agent.session.triggers import create_trigger_fn, stop_trigger
 from eve.api.errors import handle_errors, APIError
 from eve.api.api_requests import (
     CancelRequest,
@@ -278,90 +278,90 @@ async def run_chat_request(
 #     )
 
 
-@handle_errors
-async def handle_trigger_create(
-    request: CreateTriggerRequest, background_tasks: BackgroundTasks
-):
-    # Log the incoming request to check for name field
-    logger.info(f"Creating trigger with request: {request}")
-    logger.info(f"Request model fields: {request.model_fields_set}")
-    logger.info(f"Request dict: {request.model_dump()}")
+# @handle_errors
+# async def handle_trigger_create(
+#     request: CreateTriggerRequest, background_tasks: BackgroundTasks
+# ):
+#     # Log the incoming request to check for name field
+#     logger.info(f"Creating trigger with request: {request}")
+#     logger.info(f"Request model fields: {request.model_fields_set}")
+#     logger.info(f"Request dict: {request.model_dump()}")
     
-    agent = Agent.from_mongo(ObjectId(request.agent))
-    if not agent:
-        raise APIError(f"Agent not found: {request.agent}", status_code=404)
+#     agent = Agent.from_mongo(ObjectId(request.agent))
+#     if not agent:
+#         raise APIError(f"Agent not found: {request.agent}", status_code=404)
 
-    user = User.from_mongo(ObjectId(request.user))
-    if not user:
-        raise APIError(f"User not found: {request.user}", status_code=404)
+#     user = User.from_mongo(ObjectId(request.user))
+#     if not user:
+#         raise APIError(f"User not found: {request.user}", status_code=404)
 
-    trigger_id = f"{db}_{str(user.id)}_{int(time.time())}"
+#     trigger_id = f"{db}_{str(user.id)}_{int(time.time())}"
 
-    # Calculate next scheduled run
-    schedule_dict = request.schedule.to_cron_dict()
-    next_run = await create_trigger_fn(
-        schedule=schedule_dict,
-        trigger_id=trigger_id,
-    )
+#     # Calculate next scheduled run
+#     schedule_dict = request.schedule.to_cron_dict()
+#     next_run = await create_trigger_fn(
+#         schedule=schedule_dict,
+#         trigger_id=trigger_id,
+#     )
 
-    if not next_run:
-        raise APIError("Failed to calculate next scheduled run time", status_code=400)
+#     if not next_run:
+#         raise APIError("Failed to calculate next scheduled run time", status_code=400)
 
-    # Create trigger in database  
-    logger.info(f"Creating trigger with name: '{request.name}'")
-    trigger = Trigger(
-        trigger_id=trigger_id,
-        name=request.name,  # Add the name field
-        user=ObjectId(user.id),
-        agent=ObjectId(agent.id),
-        schedule=schedule_dict,
-        instruction=request.instruction,
-        posting_instructions=request.posting_instructions.model_dump()
-        if request.posting_instructions
-        else None,
-        think=request.think,
-        update_config=request.update_config.model_dump()
-        if request.update_config
-        else None,
-        session=ObjectId(request.session) if request.session else None,
-        session_type=request.session_type,
-        next_scheduled_run=next_run,
-    )
-    trigger.save()
+#     # Create trigger in database  
+#     logger.info(f"Creating trigger with name: '{request.name}'")
+#     trigger = Trigger(
+#         trigger_id=trigger_id,
+#         name=request.name,  # Add the name field
+#         user=ObjectId(user.id),
+#         agent=ObjectId(agent.id),
+#         schedule=schedule_dict,
+#         instruction=request.instruction,
+#         posting_instructions=request.posting_instructions.model_dump()
+#         if request.posting_instructions
+#         else None,
+#         think=request.think,
+#         update_config=request.update_config.model_dump()
+#         if request.update_config
+#         else None,
+#         session=ObjectId(request.session) if request.session else None,
+#         session_type=request.session_type,
+#         next_scheduled_run=next_run,
+#     )
+#     trigger.save()
 
-    return {
-        "id": str(trigger.id),
-        "trigger_id": trigger_id,
-        "next_scheduled_run": next_run.isoformat(),
-    }
-
-
-@handle_errors
-async def handle_trigger_stop(request: DeleteTriggerRequest):
-    trigger = Trigger.from_mongo(request.id)
-    if not trigger or trigger.deleted:
-        raise APIError(f"Trigger not found: {request.id}", status_code=404)
-    await stop_trigger(trigger.trigger_id)
-    trigger.status = "finished"
-    trigger.save()
-
-    return {"id": str(request.id)}
+#     return {
+#         "id": str(trigger.id),
+#         "trigger_id": trigger_id,
+#         "next_scheduled_run": next_run.isoformat(),
+#     }
 
 
-@handle_errors
-async def handle_trigger_delete(request: DeleteTriggerRequest):
-    trigger = Trigger.from_mongo(request.id)
-    if not trigger:
-        raise APIError(f"Trigger not found: {request.id}", status_code=404)
+# @handle_errors
+# async def handle_trigger_stop(request: DeleteTriggerRequest):
+#     trigger = Trigger.from_mongo(request.id)
+#     if not trigger or trigger.deleted:
+#         raise APIError(f"Trigger not found: {request.id}", status_code=404)
+#     await stop_trigger(trigger.trigger_id)
+#     trigger.status = "finished"
+#     trigger.save()
 
-    if trigger.status != "finished":
-        await stop_trigger(trigger.trigger_id)
+#     return {"id": str(request.id)}
 
-    # Soft delete by setting deleted flag
-    trigger.deleted = True
-    trigger.save()
 
-    return {"id": str(trigger.id)}
+# @handle_errors
+# async def handle_trigger_delete(request: DeleteTriggerRequest):
+#     trigger = Trigger.from_mongo(request.id)
+#     if not trigger:
+#         raise APIError(f"Trigger not found: {request.id}", status_code=404)
+
+#     if trigger.status != "finished":
+#         await stop_trigger(trigger.trigger_id)
+
+#     # Soft delete by setting deleted flag
+#     trigger.deleted = True
+#     trigger.save()
+
+#     return {"id": str(trigger.id)}
 
 
 @handle_errors
@@ -396,61 +396,61 @@ async def handle_twitter_update(request: PlatformUpdateRequest):
     return {"status": "success", "tweet_id": tweet_id}
 
 
-@handle_errors
-async def handle_trigger_get(trigger_id: str):
-    trigger = Trigger.load(trigger_id=trigger_id)
-    if not trigger or trigger.deleted:
-        raise APIError(f"Trigger not found: {trigger_id}", status_code=404)
+# @handle_errors
+# async def handle_trigger_get(trigger_id: str):
+#     trigger = Trigger.load(trigger_id=trigger_id)
+#     if not trigger or trigger.deleted:
+#         raise APIError(f"Trigger not found: {trigger_id}", status_code=404)
 
-    return {
-        "id": str(trigger.id) if trigger.id else None,
-        "user": str(trigger.user) if trigger.user else None,
-        "agent": str(trigger.agent) if trigger.agent else None,
-        "session": str(trigger.session) if trigger.session else None,
-        "instruction": trigger.instruction,
-        "update_config": trigger.update_config,
-        "schedule": trigger.schedule,
-    }
+#     return {
+#         "id": str(trigger.id) if trigger.id else None,
+#         "user": str(trigger.user) if trigger.user else None,
+#         "agent": str(trigger.agent) if trigger.agent else None,
+#         "session": str(trigger.session) if trigger.session else None,
+#         "instruction": trigger.instruction,
+#         "update_config": trigger.update_config,
+#         "schedule": trigger.schedule,
+#     }
 
 
-@handle_errors
-async def handle_trigger_run(request: RunTriggerRequest):
-    trigger_id = request.trigger_id
+# @handle_errors
+# async def handle_trigger_run(request: RunTriggerRequest):
+#     trigger_id = request.trigger_id
     
-    trigger = Trigger.from_mongo(trigger_id)
-    if not trigger or trigger.deleted:
-        print(f"❌ Trigger not found or deleted: {trigger_id}")
-        raise APIError(f"Trigger not found: {trigger_id}", status_code=404)
+#     trigger = Trigger.from_mongo(trigger_id)
+#     if not trigger or trigger.deleted:
+#         print(f"❌ Trigger not found or deleted: {trigger_id}")
+#         raise APIError(f"Trigger not found: {trigger_id}", status_code=404)
     
-    # Check if trigger is active
-    if trigger.status != "active":
-        print(f"⚠️ Trigger not active: status={trigger.status}")
-        raise APIError(f"Trigger is not active (status: {trigger.status})", status_code=400)
+#     # Check if trigger is active
+#     if trigger.status != "active":
+#         print(f"⚠️ Trigger not active: status={trigger.status}")
+#         raise APIError(f"Trigger is not active (status: {trigger.status})", status_code=400)
     
-    # Use the shared trigger execution function
-    from eve.agent.session.triggers import execute_trigger
+#     # Use the shared trigger execution function
+#     from eve.agent.session.triggers import execute_trigger
     
-    try:
-        # Execute the trigger using the shared function
-        response_data = await execute_trigger(trigger, is_immediate=True)
-        session_id = response_data.get("session_id")
+#     try:
+#         # Execute the trigger using the shared function
+#         response_data = await execute_trigger(trigger, is_immediate=True)
+#         session_id = response_data.get("session_id")
         
-        # Update trigger with session if it was created
-        if not trigger.session and session_id:
-            from bson import ObjectId
-            trigger.session = ObjectId(session_id)
-            trigger.save()
+#         # Update trigger with session if it was created
+#         if not trigger.session and session_id:
+#             from bson import ObjectId
+#             trigger.session = ObjectId(session_id)
+#             trigger.save()
         
-        return {
-            "trigger_id": trigger_id,
-            "executed": True,
-            "session_id": session_id,
-            "response": response_data
-        }
+#         return {
+#             "trigger_id": trigger_id,
+#             "executed": True,
+#             "session_id": session_id,
+#             "response": response_data
+#         }
         
-    except Exception as e:
-        print(f"❌ Immediate trigger execution failed: {str(e)}")
-        raise APIError(f"Failed to execute trigger: {str(e)}", status_code=500)
+#     except Exception as e:
+#         print(f"❌ Immediate trigger execution failed: {str(e)}")
+#         raise APIError(f"Failed to execute trigger: {str(e)}", status_code=500)
 
 
 @handle_errors
@@ -974,84 +974,84 @@ def create_eden_message(
     return eden_message
 
 
-def generate_session_title(
-    session: Session, request: PromptSessionRequest, background_tasks: BackgroundTasks
-):
-    from eve.agent.session.session import async_title_session
+# def generate_session_title(
+#     session: Session, request: PromptSessionRequest, background_tasks: BackgroundTasks
+# ):
+#     from eve.agent.session.session import async_title_session
 
-    if session.title:
-        return
+#     if session.title:
+#         return
 
-    if request.creation_args and request.creation_args.title:
-        return
+#     if request.creation_args and request.creation_args.title:
+#         return
 
-    background_tasks.add_task(async_title_session, session, request.message.content)
+#     background_tasks.add_task(async_title_session, session, request.message.content)
 
 
-def setup_session(
-    background_tasks: BackgroundTasks,
-    session_id: Optional[str] = None,
-    user_id: Optional[str] = None,
-    request: PromptSessionRequest = None,
-):
-    if session_id:
-        session = Session.from_mongo(ObjectId(session_id))
-        if not session:
-            raise APIError(f"Session not found: {session_id}", status_code=404)
-        generate_session_title(session, request, background_tasks)
-        return session
+# def setup_session(
+#     background_tasks: BackgroundTasks,
+#     session_id: Optional[str] = None,
+#     user_id: Optional[str] = None,
+#     request: PromptSessionRequest = None,
+# ):
+#     if session_id:
+#         session = Session.from_mongo(ObjectId(session_id))
+#         if not session:
+#             raise APIError(f"Session not found: {session_id}", status_code=404)
+#         generate_session_title(session, request, background_tasks)
+#         return session
 
-    if not request.creation_args:
-        raise APIError(
-            "Session creation requires additional parameters", status_code=400
-        )
+#     if not request.creation_args:
+#         raise APIError(
+#             "Session creation requires additional parameters", status_code=400
+#         )
 
-    # Create new session
-    agent_object_ids = [ObjectId(agent_id) for agent_id in request.creation_args.agents]
-    session_kwargs = {
-        "owner": ObjectId(request.creation_args.owner_id or user_id),
-        "agents": agent_object_ids,
-        "title": request.creation_args.title,
-        "scenario": request.creation_args.scenario,
-        "session_key": request.creation_args.session_key,
-        "platform": request.creation_args.platform,
-        "status": "active",
-        "trigger": ObjectId(request.creation_args.trigger)
-        if request.creation_args.trigger
-        else None,
-    }
+#     # Create new session
+#     agent_object_ids = [ObjectId(agent_id) for agent_id in request.creation_args.agents]
+#     session_kwargs = {
+#         "owner": ObjectId(request.creation_args.owner_id or user_id),
+#         "agents": agent_object_ids,
+#         "title": request.creation_args.title,
+#         "scenario": request.creation_args.scenario,
+#         "session_key": request.creation_args.session_key,
+#         "platform": request.creation_args.platform,
+#         "status": "active",
+#         "trigger": ObjectId(request.creation_args.trigger)
+#         if request.creation_args.trigger
+#         else None,
+#     }
 
-    if request.creation_args.session_id:
-        session_kwargs["_id"] = ObjectId(request.creation_args.session_id)
+#     if request.creation_args.session_id:
+#         session_kwargs["_id"] = ObjectId(request.creation_args.session_id)
 
-    # Only include budget if it's not None, so default factory can work
-    if request.creation_args.budget is not None:
-        session_kwargs["budget"] = request.creation_args.budget
+#     # Only include budget if it's not None, so default factory can work
+#     if request.creation_args.budget is not None:
+#         session_kwargs["budget"] = request.creation_args.budget
 
-    session = Session(**session_kwargs)
-    session.save()
+#     session = Session(**session_kwargs)
+#     session.save()
 
-    # Update trigger with session ID
-    if request.creation_args.trigger:
-        trigger = Trigger.from_mongo(ObjectId(request.creation_args.trigger))
-        if trigger and not trigger.deleted:
-            trigger.session = session.id
-            trigger.save()
+#     # Update trigger with session ID
+#     if request.creation_args.trigger:
+#         trigger = Trigger.from_mongo(ObjectId(request.creation_args.trigger))
+#         if trigger and not trigger.deleted:
+#             trigger.session = session.id
+#             trigger.save()
 
-    # Create eden message for initial agent additions
-    agents = [Agent.from_mongo(agent_id) for agent_id in agent_object_ids]
-    agents = [agent for agent in agents if agent]  # Filter out None values
-    if agents:
-        eden_message = create_eden_message(
-            session.id, EdenMessageType.AGENT_ADD, agents
-        )
-        session.messages.append(eden_message.id)
-        session.save()
+#     # Create eden message for initial agent additions
+#     agents = [Agent.from_mongo(agent_id) for agent_id in agent_object_ids]
+#     agents = [agent for agent in agents if agent]  # Filter out None values
+#     if agents:
+#         eden_message = create_eden_message(
+#             session.id, EdenMessageType.AGENT_ADD, agents
+#         )
+#         session.messages.append(eden_message.id)
+#         session.save()
 
-    # Generate title for new sessions if no title provided and we have background tasks
-    generate_session_title(session, request, background_tasks)
+#     # Generate title for new sessions if no title provided and we have background tasks
+#     generate_session_title(session, request, background_tasks)
 
-    return session
+#     return session
 
 
 @handle_errors
@@ -1360,3 +1360,7 @@ async def handle_create_notification(request: CreateNotificationRequest):
         notification.mark_delivered(NotificationChannel.IN_APP)
 
     return {"id": str(notification.id), "message": "Notification created successfully"}
+
+
+
+

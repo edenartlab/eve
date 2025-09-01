@@ -6,6 +6,7 @@ These are Modal functions and helper utilities that are not FastAPI routes.
 import logging
 import os
 import time
+from eve.agent.session.models import Trigger
 import replicate
 import sentry_sdk
 from bson import ObjectId
@@ -20,7 +21,7 @@ from eve.api.runner_tasks import (
     generate_lora_thumbnails,
     rotate_agent_metadata,
 )
-from eve.api.helpers import busy_state_dict
+# from eve.api.helpers import busy_state_dict
 
 logger = logging.getLogger(__name__)
 db = os.getenv("DB", "STAGE").upper()
@@ -53,8 +54,40 @@ async def rotate_agent_metadata_fn():
         sentry_sdk.capture_exception(e)
 
 
-async def run_scheduled_triggers_fn():
+
+
+
+from datetime import datetime, timezone
+# from eve.agent.session.triggers import execute_trigger
+
+# async def run_scheduled_triggers():
+#     """Check for and run scheduled triggers every minute"""
+
+#     current_time = datetime.now(timezone.utc)
+
+#     # Find active triggers which should be run now
+#     triggers = Trigger.find({
+#         "status": "active",
+#         "deleted": {"$ne": True},
+#         "next_scheduled_run": {"$lte": current_time},
+#     })
+#     # triggers = [Trigger.from_mongo(ObjectId(t)) for t in ["68b3bca333da060a73cef02a", "68b3bc8f33da060a73cef029"]]    
+
+#     logger.info(f"Running {len(triggers)} triggers")
+
+#     from eve.api.api import execute_trigger_fn
+
+#     async for result in execute_trigger_fn.map.aio(triggers):
+#         print(result)
+
+
+
+async def run_scheduled_triggers_fn_old_deprecated():
     """Check for and run scheduled triggers every minute"""
+
+    print("SKIP triggers")
+    return
+    
     from datetime import datetime, timezone
     from eve.agent.session.models import Trigger
     import aiohttp
@@ -273,6 +306,15 @@ async def handle_trigger_posting(trigger, session_id):
             f"Error handling posting instructions for trigger {trigger.trigger_id}: {str(e)}"
         )
         sentry_sdk.capture_exception(e)
+
+
+
+
+
+
+
+
+
 
 
 # Modal task functions

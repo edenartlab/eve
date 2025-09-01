@@ -20,7 +20,7 @@ from eve.agent import Agent
 from eve.agent.thread import Thread
 from eve.api.api_requests import ChatRequest, UpdateConfig
 from eve.agent.session.models import Deployment, ClientType
-from eve.agent.session.session import async_title_session
+# async_title_session import removed - imported where needed to avoid circular import
 
 logger = logging.getLogger(__name__)
 

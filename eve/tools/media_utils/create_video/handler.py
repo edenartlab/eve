@@ -26,7 +26,7 @@ MEDIA_EDITOR
 
 import os
 from bson import ObjectId
-from eve.api.api import create
+# from eve.api.api import create
 from eve.tool import Tool
 from eve.models import Model
 from eve.user import User

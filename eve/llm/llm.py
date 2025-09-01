@@ -1,111 +1,64 @@
-"""
-
-llm
-- llm.py
-- config.py
-- adapters
-  - openai_schema.py
-  - anthropic_schema.py
-  
-session
-- message.py
-- session.py
-
-triggers
-- trigger.py
-
-
-"""
-
-import logging
-import os
+from typing import List, Optional, Dict, Any, Callable, AsyncGenerator
+from pydantic import BaseModel, ConfigDict, Field
 import time
 import uuid
 import json
+import logging
 import litellm
-from litellm import acompletion, aresponses
-from typing import Callable, List, AsyncGenerator, Optional
 
-from eve.agent.thread import ChatMessage
-from eve.agent.session.models import (
-    LLMContext,
+from eve.session.message import ChatMessage
+from eve.llm.config import LLMConfig 
+from eve.tool import Tool
+
+from eve.llm.config import (
+    SUPPORTED_MODELS,
+    CONTEXT_WINDOW_FALLBACK_DICT,
     LLMConfig,
-    LLMContextMetadata,
     LLMResponse,
-    LLMTraceMetadata,
     ToolCall,
 )
 
-logging.getLogger("LiteLLM").setLevel(logging.WARNING)
 
 
-if os.getenv("LANGFUSE_TRACING_ENVIRONMENT"):
-    litellm.success_callback = ["langfuse"]
-
-supported_models = [
-    "claude-3-5-haiku-20241022",
-    "claude-sonnet-4-20250514",
-    "claude-opus-4-20250514",
-    "claude-3-7-sonnet-20250219",
-    "gpt-4o-mini",
-    "gpt-4o",
-    "gpt-5",
-    "gpt-5-mini",
-    "gpt-5-nano",
-    "gemini-2.5-pro",
-    "gemini-2.5-flash",
-    "gemini-2.5-flash-lite",
-    "anthropic/claude-3-5-haiku-20241022",
-    "anthropic/claude-sonnet-4-20250514",
-    "anthropic/claude-opus-4-20250514",
-    "anthropic/claude-3-7-sonnet-20250219",
-    "openai/gpt-4o-mini",
-    "openai/gpt-4o",
-    "openai/gpt-5",
-    "openai/gpt-5-mini",
-    "openai/gpt-5-nano",
-    "gemini/gemini-2.5-pro",
-    "gemini/gemini-2.5-flash",
-    "gemini/gemini-2.5-flash-lite",
-]
+class LLMTraceMetadata(BaseModel):
+    session_id: Optional[str] = None
+    user_id: Optional[str] = None
+    agent_id: Optional[str] = None
+    additional_metadata: Optional[Dict[str, Any]] = None
+    
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
-class ToolMetadataBuilder:
-    def __init__(
-        self,
-        tool_name: str,
-        litellm_session_id: Optional[str] = None,
-        user_id: Optional[str] = None,
-        agent_id: Optional[str] = None,
-        session_id: Optional[str] = None,
-    ):
-        self.litellm_session_id = litellm_session_id
-        self.tool_name = tool_name
-        self.user_id = user_id
-        self.agent_id = agent_id
-        self.session_id = session_id
+class LLMContextMetadata(BaseModel):
+    session_id: Optional[str] = None
+    trace_id: Optional[str] = None
+    trace_name: Optional[str] = None
+    generation_name: Optional[str] = None
+    generation_id: Optional[str] = None
+    trace_metadata: Optional[LLMTraceMetadata] = None
+    
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    def __call__(self) -> LLMContextMetadata:
-        return LLMContextMetadata(
-            session_id=self.litellm_session_id,
-            trace_name=f"TOOL_{self.tool_name}",
-            generation_name=f"TOOL_{self.tool_name}",
-            trace_metadata=LLMTraceMetadata(
-                user_id=str(self.user_id),
-                agent_id=str(self.agent_id),
-                session_id=str(self.session_id),
-            ),
-        )
+
+class LLMContext(BaseModel):
+    messages: List[ChatMessage]
+    config: LLMConfig = Field(default_factory=LLMConfig)
+    # tools: Optional[List[Tool]] = None
+    tools: Dict[str, Tool] = {}
+    metadata: LLMContextMetadata = None
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 def validate_input(context: LLMContext) -> None:
-    if context.config.model not in supported_models:
+    if context.config.model not in SUPPORTED_MODELS:
         raise ValueError(f"Model {context.config.model} is not supported")
 
 
 def construct_observability_metadata(context: LLMContext):
     if not context.metadata:
         return {}
+    
     metadata = {
         "session_id": context.metadata.session_id,
         "trace_id": context.metadata.trace_id,
@@ -113,9 +66,11 @@ def construct_observability_metadata(context: LLMContext):
         "generation_name": context.metadata.generation_name,
         "generation_id": context.metadata.generation_id,
     }
+
     if context.metadata.trace_metadata:
         metadata["trace_metadata"] = context.metadata.trace_metadata.model_dump()
         metadata["trace_user_id"] = context.metadata.trace_metadata.user_id
+    
     return metadata
 
 
@@ -141,33 +96,33 @@ def construct_tools(context: LLMContext) -> Optional[List[dict]]:
     return tools
 
 
-async def async_run_tool_call(
-    llm_context: LLMContext,
-    tool_call: ToolCall,
-    user_id: Optional[str] = None,
-    agent_id: Optional[str] = None,
-    session_id: Optional[str] = None,
-    public: bool = True,
-    is_client_platform: bool = False,
-):
-    tool = llm_context.tools[tool_call.tool]
-    task = await tool.async_start_task(
-        user_id=user_id,
-        agent_id=agent_id,
-        args=tool_call.args,
-        mock=False,
-        public=public,
-        is_client_platform=is_client_platform,
-    )
+# async def async_run_tool_call(
+#     llm_context: LLMContext,
+#     tool_call: ToolCall,
+#     user_id: Optional[str] = None,
+#     agent_id: Optional[str] = None,
+#     session_id: Optional[str] = None,
+#     public: bool = True,
+#     is_client_platform: bool = False,
+# ):
+#     tool = llm_context.tools[tool_call.tool]
+#     task = await tool.async_start_task(
+#         user_id=user_id,
+#         agent_id=agent_id,
+#         args=tool_call.args,
+#         mock=False,
+#         public=public,
+#         is_client_platform=is_client_platform,
+#     )
 
-    result = await tool.async_wait(task)
+#     result = await tool.async_wait(task)
 
-    # Add task.cost and task.id to the result object
-    if isinstance(result, dict):
-        result["cost"] = getattr(task, "cost", None)
-        result["task"] = getattr(task, "id", None)
+#     # Add task.cost and task.id to the result object
+#     if isinstance(result, dict):
+#         result["cost"] = getattr(task, "cost", None)
+#         result["task"] = getattr(task, "id", None)
 
-    return result
+#     return result
 
 
 def add_anthropic_cache_control(messages: List[dict]) -> List[dict]:
@@ -201,14 +156,17 @@ def add_anthropic_cache_control(messages: List[dict]) -> List[dict]:
     return messages
 
 
+from eve.adapters.openai import get_message_schema
+
 def prepare_messages(
     messages: List[ChatMessage], model: Optional[str] = None
 ) -> List[dict]:
-    messages = [schema for msg in messages for schema in msg.openai_schema()]
+    # messages = [schema for msg in messages for schema in msg.openai_schema()]
+    messages = [schema for msg in messages for schema in get_message_schema(msg)]
 
     # Add Anthropic cache control for models that support it
-    if model and ("claude" in model or "anthropic" in model):
-        messages = add_anthropic_cache_control(messages)
+    # if model and ("claude" in model or "anthropic" in model):
+    #     messages = add_anthropic_cache_control(messages)
 
     return messages
 
@@ -229,13 +187,7 @@ async def async_prompt_litellm(
         "drop_params": True,
         "num_retries": 2,
         "timeout": 600,
-        "context_window_fallback_dict": {
-            "gpt-4o-mini": "gpt-4o",
-            "gpt-5-mini": "gpt-5",
-            "gpt-5-nano": "gpt-5",
-            "gemini-2.5-flash": "gemini-2.5-pro",
-            "gemini-2.5-flash-lite": "gemini-2.5-flash",
-        },
+        "context_window_fallback_dict": CONTEXT_WINDOW_FALLBACK_DICT,
     }
 
     # add web search options for Anthropic models
@@ -253,7 +205,7 @@ async def async_prompt_litellm(
     
     try:
         t0 = time.time()
-        response = await acompletion(**completion_kwargs)        
+        response = await litellm.acompletion(**completion_kwargs)        
         t1 = time.time()
         
         actual_model = getattr(response, "model", context.config.model)
@@ -353,13 +305,9 @@ async def async_prompt_stream_litellm(
         yield part
 
 
-DEFAULT_LLM_HANDLER = async_prompt_litellm
-DEFAULT_LLM_STREAM_HANDLER = async_prompt_stream_litellm
-
-
 async def async_prompt(
     context: LLMContext,
-    handler: Optional[Callable[[LLMContext], str]] = DEFAULT_LLM_HANDLER,
+    handler: Optional[Callable[[LLMContext], str]] = async_prompt_litellm,
 ) -> LLMResponse:
     validate_input(context)
     response = await handler(context)
@@ -370,11 +318,17 @@ async def async_prompt_stream(
     context: LLMContext,
     handler: Optional[
         Callable[[LLMContext, LLMConfig], AsyncGenerator[str, None]]
-    ] = DEFAULT_LLM_STREAM_HANDLER,
+    ] = async_prompt_stream_litellm,
 ) -> AsyncGenerator[str, None]:
     validate_input(context)
     async for chunk in handler(context):
         yield chunk
+
+
+
+
+
+
 
 
 
@@ -486,7 +440,7 @@ async def async_prompt_litellm_responses(
     try:
         t0 = time.time()
         print("start responses...", response_kwargs.get("reasoning"))
-        response = await aresponses(**response_kwargs)        
+        response = await litellm.aresponses(**response_kwargs)        
         t1 = time.time()
         print(f"responses done in {t1-t0} seconds")
         

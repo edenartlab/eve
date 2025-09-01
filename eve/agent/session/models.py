@@ -658,7 +658,7 @@ class Trigger(Document):
     session_type: Optional[Literal["new", "another"]] = "new"
     session: Optional[ObjectId] = None
     update_config: Optional[Dict[str, Any]] = None
-    status: Optional[Literal["active", "paused", "finished"]] = "active"
+    status: Optional[Literal["active", "paused", "running", "finished"]] = "active"
     deleted: Optional[bool] = False
     last_run_time: Optional[datetime] = None
     next_scheduled_run: Optional[datetime] = None

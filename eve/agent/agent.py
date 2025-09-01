@@ -222,10 +222,10 @@ class Agent(User):
     def load(cls, username, cache=False):
         return super().load(username=username)
 
-    def request_thread(self, key=None, user=None, message_limit=25):
-        thread = Thread(key=key, agent=self.id, user=user, message_limit=message_limit)
-        thread.save()
-        return thread
+    # def request_thread(self, key=None, user=None, message_limit=25):
+    #     thread = Thread(key=key, agent=self.id, user=user, message_limit=message_limit)
+    #     thread.save()
+    #     return thread
 
     # @profile_method("_reload")
     def _reload(self):
