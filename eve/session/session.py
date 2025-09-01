@@ -4,10 +4,14 @@ from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any, Literal
 from pydantic import ConfigDict, Field, BaseModel, field_serializer
 
+from eve.agent import Agent
 from eve.mongo import Collection, Document
 from eve.session.channel import Channel
-from eve.session.message import ChatMessage
+from eve.session.message import ChatMessage, EdenMessageData, EdenMessageAgentData, EdenMessageType
 from eve.agent.session.models import PromptSessionContext
+
+from eve.api.errors import APIError
+from eve.api.api_requests import PromptSessionRequest
 
 
 class ActorSelectionMethod(Enum):
@@ -87,6 +91,9 @@ class Session(Document):
         ], name="cold_sessions_idx", background=True)
 
 
+
+
+
 def add_user_message(
     session: Session, 
     context: PromptSessionContext,
@@ -113,3 +120,134 @@ def add_user_message(
     session.save()
 
     return new_message
+
+
+
+
+
+
+
+def setup_session(
+    session_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    request: PromptSessionRequest = None,
+):
+    if session_id:
+        session = Session.from_mongo(ObjectId(session_id))
+        if not session:
+            raise APIError(f"Session not found: {session_id}", status_code=404)
+        
+        # TODO: This is broken without background tasks
+        # generate_session_title(session, request, background_tasks)
+        return session
+
+    if not request.creation_args:
+        raise APIError(
+            "Session creation requires additional parameters", status_code=400
+        )
+
+    # Create new session
+    agent_ids = [
+        ObjectId(agent_id) for agent_id in request.creation_args.agents
+    ]
+
+    session_kwargs = {
+        "owner": ObjectId(request.creation_args.owner_id or user_id),
+        "agents": agent_ids,
+        "title": request.creation_args.title,
+        "scenario": request.creation_args.scenario,
+        "session_key": request.creation_args.session_key,
+        "platform": request.creation_args.platform,
+        "status": "active",
+    }
+
+    if request.creation_args.trigger:
+        session_kwargs["trigger"] = ObjectId(request.creation_args.trigger)
+
+    # Set specific session ID if provided
+    if request.creation_args.session_id:
+        session_kwargs["_id"] = ObjectId(request.creation_args.session_id)
+
+    # Include budget if set
+    if request.creation_args.budget is not None:
+        session_kwargs["budget"] = request.creation_args.budget
+
+    session = Session(**session_kwargs)
+    session.save()
+
+    # Update trigger with session ID
+    if request.creation_args.trigger:
+        trigger = Trigger.from_mongo(ObjectId(request.creation_args.trigger))
+        if trigger and not trigger.deleted:
+            trigger.session = session.id
+            trigger.save()
+
+    # Create eden message for initial agent additions
+    agents = [Agent.from_mongo(agent_id) for agent_id in agent_ids]
+    agents = [agent for agent in agents if agent]  # Filter out None values
+    if agents:
+        eden_message = create_eden_message(
+            session.id, EdenMessageType.AGENT_ADD, agents
+        )
+        session.messages.append(eden_message.id)
+        session.save()
+
+    # Generate title for new sessions if no title provided and we have background tasks
+    # TODO: This is broken without background tasks
+    # generate_session_title(session, request, background_tasks)
+
+    return session
+
+
+
+def create_eden_message(
+    session_id: ObjectId, 
+    message_type: EdenMessageType, 
+    agents: List[Agent]
+) -> ChatMessage:
+    """Create an eden message for agent operations"""
+
+    message_data = EdenMessageData(
+        message_type=message_type,
+        agents=[
+            EdenMessageAgentData(
+                id=agent.id,
+                name=agent.name or agent.username,
+                avatar=agent.userImage,
+            )
+            for agent in agents
+        ],
+    )
+
+    eden_message = ChatMessage(
+        session=session_id,
+        role="eden",
+        eden_message_data=message_data
+    )
+    
+    eden_message.save()
+    
+    return eden_message
+
+
+
+
+
+
+
+"""
+
+def generate_session_title(
+    session: Session, request: PromptSessionRequest, background_tasks: BackgroundTasks
+):
+    from eve.agent.session.session import async_title_session
+
+    if session.title:
+        return
+
+    if request.creation_args and request.creation_args.title:
+        return
+
+    background_tasks.add_task(async_title_session, session, request.message.content)
+
+"""

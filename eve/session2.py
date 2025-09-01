@@ -61,7 +61,7 @@ from eve.api.api_requests import (
 # from eve.utils import prepare_result, dumps_json, serialize_json
 # from eve.tools.replicate_tool import replicate_update_task
 # from eve.agent.llm import UpdateType
-# from eve.agent.run_thread import async_prompt_thread
+
 # from eve.mongo import get_collection
 # from eve.task import Task
 # from eve.tool import Tool
