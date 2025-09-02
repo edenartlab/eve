@@ -183,9 +183,11 @@ def add_anthropic_cache_control(messages: List[dict]) -> List[dict]:
 
 
 def prepare_messages(
-    messages: List[ChatMessage], model: Optional[str] = None
+    messages: List[ChatMessage], 
+    model: Optional[str] = None,
+    include_thoughts: bool = False
 ) -> List[dict]:
-    messages = [schema for msg in messages for schema in msg.openai_schema()]
+    messages = [schema for msg in messages for schema in msg.openai_schema(include_thoughts=include_thoughts)]
 
     # Add Anthropic cache control for models that support it
     if model and ("claude" in model or "anthropic" in model):
@@ -197,7 +199,8 @@ def prepare_messages(
 async def async_prompt_litellm(
     context: LLMContext,
 ) -> LLMResponse:
-    messages = prepare_messages(context.messages, context.config.model)
+    thinking = True if context.config.reasoning_effort else False
+    messages = prepare_messages(context.messages, context.config.model, include_thoughts=thinking)
     tools = construct_tools(context)
 
     completion_kwargs = {
@@ -227,7 +230,7 @@ async def async_prompt_litellm(
         }
     
     # Use finalized reasoning_effort from config if available
-    if context.config.reasoning_effort:
+    if thinking:
         completion_kwargs["reasoning_effort"] = context.config.reasoning_effort
     
     logging.info(f"Attempting completion with model: {context.config.model}, fallbacks: {context.config.fallback_models}, reasoning_effort: {context.config.reasoning_effort}")
@@ -406,7 +409,7 @@ async def async_prompt_litellm_responses(
         "model": context.config.model,
         "input": cleaned_messages,  # Use cleaned messages
         "metadata": construct_observability_metadata(context),
-        "drop_params": True,
+        "drop_params": False if "claude" in context.config.model else True,  # drop param
         "num_retries": 2,
         "timeout": 600,
     }
