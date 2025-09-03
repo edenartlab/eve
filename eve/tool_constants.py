@@ -105,6 +105,13 @@ SOCIAL_MEDIA_TOOLS = [
     *TIKTOK_TOOLS,
 ]
 
+EDEN_DB_TOOLS = [
+    "search_collections", 
+    "add_to_collection",
+    "search_agents",
+    "search_models",
+]
+
 CONTEXT7_MCP_TOOLS = ["context7_resolve_library_id"]
 CALCULATOR_MCP_TOOLS = ["calculator_calculate"]
 # Future MCP server tools can be added here

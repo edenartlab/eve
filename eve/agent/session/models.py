@@ -366,7 +366,7 @@ class ChatMessage(Document):
 
         return content
 
-    def anthropic_schema(self, truncate_images=False):
+    def anthropic_schema(self, truncate_images=False, include_thoughts=False):
         # System Message
         if self.role == "system":
             return [
@@ -391,10 +391,28 @@ class ChatMessage(Document):
                 {
                     "role": "assistant",
                     "content": [{"type": "text", "text": self.content}]
-                    if self.content
-                    else [],
+                    if self.content else [],
                 }
             ]
+            
+            if self.thought and include_thoughts:
+                thinking_blocks = []
+
+                for t in self.thought:
+                    if t.get("type") == "thinking" and t.get("signature"):
+                        thinking_blocks.append({
+                            "type": "thinking",
+                            "thinking": t["thinking"],
+                            "signature": t["signature"]
+                        })                        
+                    elif t.get("type") == "redacted_thinking":
+                        thinking_blocks.append({
+                            "type": "redacted_thinking",
+                            "data": t.get("data", "")
+                        })
+                
+                schema[0]["content"] = thinking_blocks + schema[0]["content"]
+
             if self.tool_calls:
                 schema[0]["content"].extend(
                     [t.anthropic_call_schema() for t in self.tool_calls]
@@ -403,14 +421,14 @@ class ChatMessage(Document):
                     {
                         "role": "user",
                         "content": [
-                            t.anthropic_result_schema(truncate_images=truncate_images)
+                            t.anthropic_result_schema(truncate_images=truncate_images, include_thoughts=include_thoughts)
                             for t in self.tool_calls
                         ],
                     }
                 )
             return schema
 
-    def openai_schema(self, truncate_images=False):
+    def openai_schema(self, truncate_images=False, include_thoughts=False):
         # System Message
         if self.role == "system":
             return [
@@ -426,7 +444,7 @@ class ChatMessage(Document):
                 {
                     "role": "user",
                     "content": self._get_content_block(
-                        "openai", truncate_images=truncate_images
+                        "openai", truncate_images=truncate_images,
                     ),
                     **({"name": self.name} if self.name else {}),
                 }
@@ -442,6 +460,25 @@ class ChatMessage(Document):
                     "tool_calls": None,
                 }
             ]
+
+            if self.thought and include_thoughts:
+                schema[0]["thinking_blocks"] = []                
+                for t in self.thought:                    
+                    # injecting anthropic thinking blocks into openai schema because litellm uses opnenai schema
+                    # this might fail if going through openai api directly.
+                    # not sure if there is a better way ¯\_(ツ)_/¯
+                    if t.get("type") == "thinking":
+                        schema[0]["thinking_blocks"].append({
+                            "type": "thinking",
+                            "thinking": t["thinking"],
+                            **({"signature": t["signature"]} if "signature" in t else {}),
+                        })
+                    elif t.get("type") == "redacted_thinking":
+                        schema[0]["thinking_blocks"].append({
+                            "type": "redacted_thinking",
+                            "data": t.get("data", "")
+                        })
+                    
             if self.tool_calls:
                 schema[0]["tool_calls"] = [
                     t.openai_call_schema() for t in self.tool_calls

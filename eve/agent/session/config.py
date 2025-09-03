@@ -58,27 +58,8 @@ def get_default_session_llm_config(tier: Literal["premium", "free"] = "free"):
         return DEFAULT_SESSION_LLM_CONFIG_STAGE[tier]
 
 
-def get_models_for_profile(model_profile: str, tier: str = "premium") -> tuple[str, list[str]]:
-    """Get primary model and fallbacks based on model_profile setting and user tier"""
-    
-    # Free tier users are automatically capped to low profile
-    effective_profile = "low" if tier == "free" else model_profile
-
-    print(f"🔧 [CONFIG] get_models_for_profile - Effective profile: {effective_profile}, model_profile: {model_profile}, tier: {tier}")
-    
-    # Get models array
-    models = MODEL_TIERS.get(effective_profile, MODEL_TIERS["medium"])
-    return models[0], models[1:3]  # Return (primary, [fallback1, fallback2])
-
 
 DEFAULT_SESSION_SELECTION_LIMIT = 25
-
-
-
-
-
-
-
 
 
 # Master model configuration: tier -> [primary, fallback1, fallback2]
@@ -96,31 +77,40 @@ MODEL_TIERS = {
 
 
 async def build_llm_config_from_agent_settings(
-    agent_settings, 
+    agent, 
     tier: str = "premium", 
     thinking_override: bool = None, 
     context_messages: list = None
 ) -> LLMConfig:
     """Build LLMConfig from agent's llm_settings with optional thinking override and context for routing"""
-    if not agent_settings:
+    llm_settings = agent.llm_settings
+
+    if not llm_settings:
         return get_default_session_llm_config(tier)
     
-    model_profile = agent_settings.model_profile or 'medium'
-    thinking_policy = agent_settings.thinking_policy or 'auto'
-    thinking_effort_cap = agent_settings.thinking_effort_cap or 'medium'
-    thinking_effort_instructions = agent_settings.thinking_effort_instructions or None
+    model_profile = llm_settings.model_profile or 'medium'
+    thinking_policy = llm_settings.thinking_policy or 'auto'
+    thinking_effort_cap = llm_settings.thinking_effort_cap or 'medium'
+    thinking_effort_instructions = llm_settings.thinking_effort_instructions or None
     
     # Apply thinking override if provided
     if thinking_override is not None:
         thinking_policy = "always" if thinking_override else "off"
     
     # Get model and fallbacks based on profile and tier
-    model, fallback_models = get_models_for_profile(model_profile, tier)
+    effective_profile = model_profile    
+    if tier == "free" and agent.owner_pays == "off":  # tbd: distinguish between full and deployments
+        effective_profile = "low"
+    
+    # Get models array
+    models = MODEL_TIERS.get(effective_profile, MODEL_TIERS["medium"])
+    model, fallback_models = models[0], models[1:3] 
+    print(f"🔧 [CONFIG] get_models_for_profile - Effective profile: {effective_profile}, model_profile: {model_profile}, tier: {tier}")
 
     # Create thinking settings
     from eve.agent.session.models import LLMThinkingSettings
     thinking_settings = None
-    if model_profile == "high" and thinking_policy != "off":
+    if effective_profile == "high" and thinking_policy != "off":
         thinking_settings = LLMThinkingSettings(
             policy=thinking_policy,
             effort_cap=thinking_effort_cap,

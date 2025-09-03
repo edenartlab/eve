@@ -167,11 +167,12 @@ class Agent(User):
     lora_docs: Optional[List[Dict[str, Any]]] = Field([], exclude=True)
     deployments: Optional[List[str]] = Field({}, exclude=True)
 
-    owner_pays: Optional[bool] = False
+    owner_pays: Optional[Literal["off", "deployments", "full"]] = "off"
     agent_extras: Optional[AgentExtras] = None
 
     user_memory_enabled: Optional[bool] = True
     agent_memory_enabled: Optional[bool] = True
+    
     
 
     @classmethod

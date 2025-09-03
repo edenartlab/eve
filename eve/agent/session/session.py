@@ -330,7 +330,7 @@ async def build_llm_context(
     if actor.llm_settings:
         from eve.agent.session.config import build_llm_config_from_agent_settings
         config = await build_llm_config_from_agent_settings(
-            actor.llm_settings, 
+            actor, 
             tier, 
             thinking_override=getattr(context, 'thinking_override', None),
             context_messages=existing_messages  # Pass existing messages for routing context
@@ -907,7 +907,6 @@ async def async_prompt_session(
     try:
         # Run the prompt session generator, checking for cancellation
         async for update in prompt_session_generator():
-            print("----> update", update)
             yield update
 
     except SessionCancelledException:
