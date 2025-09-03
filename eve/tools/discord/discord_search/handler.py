@@ -144,6 +144,9 @@ At least one of message_limit or time_window_hours must be specified for each ch
                     }
                 )
 
+        # Sort messages by created_at timestamp to ensure chronological order (oldest first)
+        messages.sort(key=lambda x: x["created_at"])
+
         return {"output": messages}
 
     finally:

@@ -1,3 +1,4 @@
+from farcaster import Warpcast
 from eve.agent.deployments import Deployment
 from eve.agent import Agent
 
@@ -12,7 +13,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
 
     # Get parameters from args
     text = args.get("text", "")
-    embeds = args.get("embeds", [])
+    embeds = args.get("embeds") or []
     parent_hash = args.get("parent_hash")
     parent_fid = args.get("parent_fid")
 
@@ -21,26 +22,39 @@ async def handler(args: dict, user: str = None, agent: str = None):
         raise Exception("Either text content or embeds must be provided")
 
     try:
-        from farcaster import Warpcast
-
         # Initialize Farcaster client
         client = Warpcast(mnemonic=deployment.secrets.farcaster.mnemonic)
+        user_info = client.get_me()
 
         # Prepare parent parameter if replying
         parent = None
         if parent_hash and parent_fid:
             parent = {"hash": parent_hash, "fid": parent_fid}
 
-        # Post the cast
-        result = client.post_cast(
-            text=text, embeds=embeds if embeds else None, parent=parent
-        )
-        # Get cast URL
-        cast_hash = result.cast.hash
-        user_info = client.get_me()
-        cast_url = f"https://warpcast.com/{user_info.username}/{cast_hash}"
+        outputs = []
+        embeds = embeds[:4]  # limit to 4 embeds
 
-        return {"output": [{"url": cast_url, "cast_hash": cast_hash, "success": True}]}
+        # break into 2 casts if there are more than 2 embeds
+        embeds1, embeds2 = embeds[:2], embeds[2:]
+
+        # Post the main cast
+        result = client.post_cast(
+            text=text, embeds=embeds1 or None, parent=parent
+        )
+        cast_hash = result.cast.hash
+        cast_url = f"https://warpcast.com/{user_info.username}/{cast_hash}"
+        outputs.append({"url": cast_url, "cast_hash": cast_hash, "success": True})
+
+        if embeds2:
+            parent1 = {"hash": cast_hash, "fid": int(user_info.fid)}
+            result2 = client.post_cast(
+                text="", embeds=embeds2, parent=parent1
+            )
+            cast_hash2 = result2.cast.hash
+            cast_url2 = f"https://warpcast.com/{user_info.username}/{cast_hash2}"
+            outputs.append({"url": cast_url2, "cast_hash": cast_hash2, "success": True})
+
+        return {"output": outputs}
 
     except Exception as e:
         raise Exception(f"Failed to post Farcaster cast: {str(e)}")

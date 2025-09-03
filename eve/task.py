@@ -13,12 +13,17 @@ import sentry_sdk
 
 
 # A list of tools that output media but do not result in new Creations
+from .tool_constants import (
+    EDEN_DB_TOOLS,
+    SOCIAL_MEDIA_TOOLS,
+    CONTEXT7_MCP_TOOLS,
+    CALCULATOR_MCP_TOOLS
+)
 NON_CREATION_TOOLS = [
-    "search_agents",
-    "search_models",
-    "search_collections",
-    "add_to_collection",
-    "create_session",
+    *EDEN_DB_TOOLS,
+    *SOCIAL_MEDIA_TOOLS,
+    *CONTEXT7_MCP_TOOLS,
+    *CALCULATOR_MCP_TOOLS,
 ]
 
 

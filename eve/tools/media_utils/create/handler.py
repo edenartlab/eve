@@ -16,7 +16,7 @@ from bson import ObjectId
 from eve.s3 import get_full_url
 from eve.tool import Tool
 from eve.models import Model
-from eve.api.api import create
+# from eve.api.api import create
 from eve.user import User
 from eve.utils import get_media_attributes
 

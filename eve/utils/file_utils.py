@@ -124,7 +124,7 @@ def download_file(url, local_filepath, overwrite=False):
     local_filepath.parent.mkdir(parents=True, exist_ok=True)
 
     if local_filepath.exists() and not overwrite:
-        print(f"File {local_filepath} already exists. Skipping download.")
+        # print(f"File {local_filepath} already exists. Skipping download.")
         return str(local_filepath)
 
     # Check for Modal Volume cache
@@ -132,8 +132,6 @@ def download_file(url, local_filepath, overwrite=False):
         cache_path = _check_volume_cache(url, local_filepath, overwrite)
         if cache_path:
             return cache_path
-
-    print(f"Downloading file from {url} to {local_filepath}")
 
     try:
         # Parse S3 URL to extract bucket and key
@@ -146,9 +144,9 @@ def download_file(url, local_filepath, overwrite=False):
             region = s3_match.group(2) or os.getenv("AWS_REGION_NAME", "us-east-1")
             key = s3_match.group(3)
 
-            print(
-                f"Detected S3 URL - Bucket: {bucket_name}, Region: {region}, Key: {key}"
-            )
+            # print(
+            #     f"Detected S3 URL - Bucket: {bucket_name}, Region: {region}, Key: {key}"
+            # )
 
             # Use boto3 to download with credentials
             s3_client = boto3.client(
@@ -159,7 +157,7 @@ def download_file(url, local_filepath, overwrite=False):
             )
 
             try:
-                print(f"Downloading {key} from S3 bucket {bucket_name}")
+                # print(f"Downloading {key} from S3 bucket {bucket_name}")
                 s3_client.download_file(bucket_name, key, str(local_filepath))
                 if USE_MEDIA_CACHE:
                     # Save to volume cache after successful download
@@ -177,7 +175,6 @@ def download_file(url, local_filepath, overwrite=False):
                 raise Exception(
                     f"Failed to download from {url}. Status code: {response.status_code}"
                 )
-
             # Get content length if available
             total = int(response.headers.get("Content-Length", "0"))
 

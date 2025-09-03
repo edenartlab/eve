@@ -511,18 +511,15 @@ class Tool(Document, ABC):
                 args = self.prepare_args(args)
                 sentry_sdk.add_breadcrumb(category="handle_start_task", data=args)
                 cost = self.calculate_cost(args)
-
+                
+                paying_user = user
                 if agent_id:
                     agent = Agent.from_mongo(agent_id)
-                    if agent.owner_pays and is_client_platform:
+                    if agent.owner_pays == "full" or (agent.owner_pays == "deployments" and is_client_platform):
                         paying_user = User.from_mongo(agent.owner)
-                    else:
-                        paying_user = user
-                else:
-                    paying_user = user
-
-                # validate args and user manna balance
+                
                 paying_user.check_manna(cost)
+
             except Exception as e:
                 print(traceback.format_exc())
                 raise Exception(f"Task submission failed: {str(e)}. No manna deducted.")
