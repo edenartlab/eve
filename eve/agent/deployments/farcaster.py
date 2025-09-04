@@ -317,10 +317,14 @@ class FarcasterClient(PlatformClient):
                     )
 
                 webhook_data = await response.json()
+                
                 current_subscription = webhook_data.get("webhook", {}).get(
                     "subscription", {}
                 )
-                cast_created = current_subscription.get("cast.created", {})
+                
+                # Handle both possible structures - filters.cast.created or cast.created
+                filters = current_subscription.get("filters", {})
+                cast_created = filters.get("cast.created", {}) if filters else current_subscription.get("cast.created", {})
 
                 # Get current FID lists
                 mentioned_fids = set(cast_created.get("mentioned_fids", []))
