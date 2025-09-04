@@ -4,18 +4,24 @@ from eve.agent.agent import Agent
 from eve.agent.session.models import Deployment
 from pydantic import BaseModel
 import discord
+
+# Print the version of discord.py:
+print("discord.py version: ", discord.__version__)
 from datetime import datetime, timedelta
 
+# Configuration constants
+DEFAULT_MESSAGE_LIMIT = 25
+DEFAULT_TIME_WINDOW_HOURS = 48
+MAX_MESSAGE_LIMIT_FALLBACK = 100
+MAX_TIME_CUTOFF_HOURS = 24 * 7  # 7 days
 
 class ChannelSearchParams(BaseModel):
     channel_id: str  # The note/name of the channel to search
-    message_limit: int | None = 20  # None means no limit
-    time_window_hours: int | None = 48  # None means no time limit
-
+    message_limit: int | None = DEFAULT_MESSAGE_LIMIT  # None means no limit
+    time_window_hours: int | None = DEFAULT_TIME_WINDOW_HOURS  # None means no time limit
 
 class DiscordSearchQuery(BaseModel):
     channels: list[ChannelSearchParams]
-
 
 async def handler(args: dict, user: str = None, agent: str = None):
     if not agent:
@@ -47,8 +53,10 @@ async def handler(args: dict, user: str = None, agent: str = None):
     channel_map = {str(channel.note).lower(): channel.id for channel in all_channels}
 
     # Use LLM to parse the search query and determine search parameters
-    system_message = """You are a Discord search query parser. Your task is to:
-1. Analyze the query to determine which channels to search and their specific parameters
+    channel_notes = "\n".join(f"{id}: {note}" for id, note in channel_map.items())
+
+    system_message = f"""You are a Discord search query parser. Your task is to:
+1. Analyze the query to determine which channel(s) to search and the specific parameters
 2. Determine when to apply message limits, time limits, both, or neither based on user intent
 3. Return a structured query object with a list of channels and their search parameters
 
@@ -60,13 +68,13 @@ IMPORTANT PARSING RULES:
 - If user specifies "from the past X hours/days" or "all messages from timeframe", set time_window_hours=X and message_limit=null
 - If user says "all messages" without timeframe, set both message_limit=null and time_window_hours=null
 - If user gives both constraints ("last 10 messages from past 24h"), set both limits
-- If user is vague ("recent messages"), use defaults: message_limit=20, time_window_hours=48
+- If user is vague ("recent messages"), use defaults: message_limit={DEFAULT_MESSAGE_LIMIT}, time_window_hours={DEFAULT_TIME_WINDOW_HOURS}
 
 Example queries and their parsing:
 "Get the last 10 messages from research channel" -> message_limit=10, time_window_hours=null
 "Grab all messages from research channel from the past 24h" -> message_limit=null, time_window_hours=24
 "Show me all messages from announcements" -> message_limit=null, time_window_hours=null
-"Get recent support messages" -> message_limit=20, time_window_hours=48 (defaults)
+"Get recent support messages" -> message_limit={DEFAULT_MESSAGE_LIMIT}, time_window_hours={DEFAULT_TIME_WINDOW_HOURS} (defaults)
 "Last 5 messages from general in past hour" -> message_limit=5, time_window_hours=1
 
 You must return a list of ChannelSearchParams objects (one per channel to search), each containing:
@@ -74,9 +82,7 @@ You must return a list of ChannelSearchParams objects (one per channel to search
 - message_limit: Number of messages to fetch, or null for no limit
 - time_window_hours: Time window in hours, or null for no time limit
 
-Set values to null when the user's intent is to ignore that constraint.""".format(
-        channel_notes="\n".join(f"{id}: {note}" for id, note in channel_map.items())
-    )
+Set values to null when the user's intent is to ignore that constraint."""
 
     messages = [
         ChatMessage(role="system", content=system_message),
@@ -106,6 +112,12 @@ Set values to null when the user's intent is to ignore that constraint.""".forma
         # Get messages from relevant channels
         messages = []
         for channel_params in parsed_query.channels:
+
+            print("Querying channel: ", channel_params.channel_id)
+            print("Message limit: ", channel_params.message_limit)
+            print("Time window hours: ", channel_params.time_window_hours)
+            print("--------------------------------")
+
             # Get the channel ID from the note
             channel_id = channel_params.channel_id
             if not channel_id:
@@ -130,24 +142,27 @@ Set values to null when the user's intent is to ignore that constraint.""".forma
             # Get messages using HTTP client
             params = {}
             
-            # Set message limit if specified
-            if channel_params.message_limit is not None:
-                params["limit"] = channel_params.message_limit
-            else:
-                # Set a reasonable max limit when no limit specified to avoid API issues
-                params["limit"] = 1000
+            # When message limit is specified, we need to fetch more messages than requested
+            # to ensure we get the most recent ones, then filter afterwards
+            params["limit"] = MAX_MESSAGE_LIMIT_FALLBACK
             
-            # Set time window if specified
+            # Set time window if specified, or apply max cutoff of 7 days when no limit
             if channel_params.time_window_hours is not None:
                 after = datetime.utcnow() - timedelta(
                     hours=channel_params.time_window_hours
                 )
                 params["after"] = int((after.timestamp() - 1420070400) * 1000) << 22
+            else:
+                # Apply max cutoff when no time limit specified
+                after = datetime.utcnow() - timedelta(hours=MAX_TIME_CUTOFF_HOURS)
+                params["after"] = int((after.timestamp() - 1420070400) * 1000) << 22
 
             message_data = await http.logs_from(int(channel_id), **params)
 
+            # Convert messages to our format
+            channel_messages = []
             for msg in message_data:
-                messages.append(
+                channel_messages.append(
                     {
                         "id": str(msg["id"]),
                         "content": msg.get("content", ""),
@@ -158,6 +173,16 @@ Set values to null when the user's intent is to ignore that constraint.""".forma
                         "url": f"https://discord.com/channels/{channel_data.get('guild_id', 'Unknown')}/{channel_id}/{msg['id']}",
                     }
                 )
+            
+            # If message limit is specified, sort by timestamp (newest first) and take the most recent N messages
+            if channel_params.message_limit is not None:
+                # Sort by created_at timestamp in descending order (newest first)
+                channel_messages.sort(key=lambda x: x["created_at"], reverse=True)
+                # Take only the most recent N messages
+                channel_messages = channel_messages[:channel_params.message_limit]
+            
+            # Add the filtered messages to the overall messages list
+            messages.extend(channel_messages)
 
         # Sort messages by created_at timestamp to ensure chronological order (oldest first)
         messages.sort(key=lambda x: x["created_at"])
