@@ -115,13 +115,13 @@ class FarcasterClient(PlatformClient):
 
                 await self._update_webhook_fids(webhook_id, remove_fid=user_info.fid)
             except Exception as e:
-                print(f"Error removing FID from Neynar webhook: {e}")
+                logger.error(f"Error removing FID from Neynar webhook: {e}")
 
         try:
             # Remove Farcaster tools
             self.remove_tools()
         except Exception as e:
-            print(f"Failed to remove Farcaster tools: {e}")
+            logger.error(f"Failed to remove Farcaster tools: {e}")
 
     async def interact(self, request: Request) -> None:
         """Interact with the Farcaster client"""
