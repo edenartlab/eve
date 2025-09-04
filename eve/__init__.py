@@ -85,8 +85,6 @@ def load_env(db):
     if db not in ["STAGE", "PROD", "WEB3-STAGE", "WEB3-PROD"]:
         raise ValueError(f"Invalid database: {db}")
 
-    os.environ["DB"] = db
-
     # First try ~/.eve
     stage = db == "STAGE"
     env_file = ".env.STAGE" if stage else ".env"
