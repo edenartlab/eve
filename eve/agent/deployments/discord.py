@@ -28,7 +28,7 @@ class DiscordClient(PlatformClient):
     ) -> tuple[DeploymentSecrets, DeploymentConfig]:
         """Validate Discord token and add Discord tools"""
         try:
-            # Validate bot token
+            # Validate bot token and get application info
             async with aiohttp.ClientSession() as session:
                 async with session.get(
                     "https://discord.com/api/v10/users/@me",
@@ -38,6 +38,25 @@ class DiscordClient(PlatformClient):
                         raise Exception(f"Invalid token: {await response.text()}")
                     bot_info = await response.json()
                     print(f"Verified Discord bot: {bot_info['username']}")
+                    
+                    # Get application ID and construct OAuth URL
+                    application_id = bot_info.get("id")
+                    if application_id:
+                        # Initialize config if it doesn't exist
+                        if config is None:
+                            from eve.agent.session.models import DeploymentSettingsDiscord
+                            config = DeploymentConfig(discord=DeploymentSettingsDiscord())
+                        elif config.discord is None:
+                            from eve.agent.session.models import DeploymentSettingsDiscord
+                            config.discord = DeploymentSettingsDiscord()
+                        
+                        # Set the OAuth client ID and URL
+                        config.discord.oauth_client_id = application_id
+                        config.discord.oauth_url = f"https://discord.com/oauth2/authorize?client_id={application_id}&permissions=274877958144&integration_type=0&scope=bot"
+                        
+                        # Also store application_id in secrets if needed
+                        if secrets.discord and not secrets.discord.application_id:
+                            secrets.discord.application_id = application_id
 
         except Exception as e:
             raise APIError(f"Invalid Discord token: {str(e)}", status_code=400)
