@@ -153,7 +153,7 @@ class ReplicateTool(Tool):
                     new_args[field] = float(args[field])
                 elif is_array:
                     is_pipe = any(n in self.key for n in [
-                        "legacy", "real2real", "interpolate", "controlnet", "img2vid", "txt2vid"
+                        "legacy", "real2real", "interpolate", "controlnet", "img2vid", "txt2vid", "_trainer"
                     ])
 
                     if is_pipe:
