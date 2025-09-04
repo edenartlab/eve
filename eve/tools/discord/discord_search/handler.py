@@ -9,8 +9,8 @@ from datetime import datetime, timedelta
 
 class ChannelSearchParams(BaseModel):
     channel_id: str  # The note/name of the channel to search
-    message_limit: int = 10
-    time_window_hours: int = 24
+    message_limit: int | None = 20  # None means no limit
+    time_window_hours: int | None = 48  # None means no time limit
 
 
 class DiscordSearchQuery(BaseModel):
@@ -49,24 +49,32 @@ async def handler(args: dict, user: str = None, agent: str = None):
     # Use LLM to parse the search query and determine search parameters
     system_message = """You are a Discord search query parser. Your task is to:
 1. Analyze the query to determine which channels to search and their specific parameters
-2. For each channel, determine if we should fetch a specific number of messages or use a time window
+2. Determine when to apply message limits, time limits, both, or neither based on user intent
 3. Return a structured query object with a list of channels and their search parameters
 
 Available channel IDs + notes:
 {channel_notes}
 
-Example queries:
-"Show me recent tech support messages" -> Search in tech support channels, last 10 messages
-"Get all announcements from the last 24 hours" -> Search in announcement channels, last 24 hours
-"Show me the last 5 messages from general discussion" -> Search in general channels, last 5 messages
+IMPORTANT PARSING RULES:
+- If user specifies "last X messages" or "X messages", set message_limit=X and time_window_hours=null
+- If user specifies "from the past X hours/days" or "all messages from timeframe", set time_window_hours=X and message_limit=null
+- If user says "all messages" without timeframe, set both message_limit=null and time_window_hours=null
+- If user gives both constraints ("last 10 messages from past 24h"), set both limits
+- If user is vague ("recent messages"), use defaults: message_limit=20, time_window_hours=48
 
-You must return a list of ChannelSearchParams objects, each containing:
+Example queries and their parsing:
+"Get the last 10 messages from research channel" -> message_limit=10, time_window_hours=null
+"Grab all messages from research channel from the past 24h" -> message_limit=null, time_window_hours=24
+"Show me all messages from announcements" -> message_limit=null, time_window_hours=null
+"Get recent support messages" -> message_limit=20, time_window_hours=48 (defaults)
+"Last 5 messages from general in past hour" -> message_limit=5, time_window_hours=1
+
+You must return a list of ChannelSearchParams objects (one per channel to search), each containing:
 - channel_id: The ID of the channel to search (must match one of the available channel IDs)
-- message_limit: Optional number of messages to fetch, REQUIRED, default 10
-- time_window_hours: Optional time window in hours, REQUIRED, default 24
+- message_limit: Number of messages to fetch, or null for no limit
+- time_window_hours: Time window in hours, or null for no time limit
 
-
-At least one of message_limit or time_window_hours must be specified for each channel.""".format(
+Set values to null when the user's intent is to ignore that constraint.""".format(
         channel_notes="\n".join(f"{id}: {note}" for id, note in channel_map.items())
     )
 
@@ -119,15 +127,22 @@ At least one of message_limit or time_window_hours must be specified for each ch
             ]:  # Text channel types=
                 continue
 
-            # Determine time window if specified
-            after = datetime.utcnow() - timedelta(
-                hours=channel_params.time_window_hours
-            )
-
             # Get messages using HTTP client
             params = {}
-            params["limit"] = channel_params.message_limit
-            params["after"] = int((after.timestamp() - 1420070400) * 1000) << 22
+            
+            # Set message limit if specified
+            if channel_params.message_limit is not None:
+                params["limit"] = channel_params.message_limit
+            else:
+                # Set a reasonable max limit when no limit specified to avoid API issues
+                params["limit"] = 1000
+            
+            # Set time window if specified
+            if channel_params.time_window_hours is not None:
+                after = datetime.utcnow() - timedelta(
+                    hours=channel_params.time_window_hours
+                )
+                params["after"] = int((after.timestamp() - 1420070400) * 1000) << 22
 
             message_data = await http.logs_from(int(channel_id), **params)
 
