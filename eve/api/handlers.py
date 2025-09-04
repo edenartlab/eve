@@ -8,7 +8,6 @@ from bson import ObjectId
 from typing import Dict, List, Optional
 from fastapi import BackgroundTasks, Request
 from fastapi.responses import JSONResponse, StreamingResponse
-import aiohttp
 
 from eve.agent.deployments.farcaster import FarcasterClient
 from eve.agent.session.models import (
@@ -468,33 +467,64 @@ async def handle_farcaster_update(request: Request):
         if not cast_data or "hash" not in cast_data:
             return JSONResponse(status_code=400, content={"error": "Invalid cast data"})
 
-        # For now, we'll need to find the deployment differently
-        # We could use the cast author or have Neynar include a custom field
-        # Let's assume we can match by the webhook signature for now
+        # Use webhook secret from environment to verify signature
+        webhook_secret = os.getenv("NEYNAR_WEBHOOK_SECRET")
+        if not webhook_secret:
+            return JSONResponse(
+                status_code=401,
+                content={"error": "Webhook secret not configured"},
+            )
+        
+        # Verify signature
+        computed_signature = hmac.new(
+            webhook_secret.encode(),
+            body,
+            hashlib.sha512,
+        ).hexdigest()
+        
+        if not hmac.compare_digest(computed_signature, signature):
+            return JSONResponse(
+                status_code=401,
+                content={"error": "Invalid webhook signature"},
+            )
+
+        # Find deployment by mentioned FID and check for self-mentions
+        cast_author_fid = cast_data["author"]["fid"]
+        
         deployment = None
         for d in Deployment.find({"platform": "farcaster"}):
-            if (
-                d.secrets
-                and d.secrets.farcaster
-                and d.secrets.farcaster.neynar_webhook_secret
-            ):
-                # Verify signature
-                computed_signature = hmac.new(
-                    d.secrets.farcaster.neynar_webhook_secret.encode(),
-                    body,
-                    hashlib.sha512,
-                ).hexdigest()
-                if hmac.compare_digest(computed_signature, signature):
-                    deployment = d
-                    break
+            if d.config and d.config.farcaster and d.config.farcaster.auto_reply:
+                try:
+                    from farcaster import Warpcast
+                    client = Warpcast(mnemonic=d.secrets.farcaster.mnemonic)
+                    user_info = client.get_me()
+                    
+                    # Skip if this cast is from the agent itself (prevent loops)
+                    if user_info.fid == cast_author_fid:
+                        logger.info(f"Ignoring cast from agent FID {cast_author_fid} to prevent loops")
+                        return JSONResponse(status_code=200, content={"ok": True})
+                    
+                    # Check if agent was mentioned or is parent author
+                    mentioned_fids = cast_data.get("mentioned_profiles", [])
+                    mentioned_fid_list = [profile["fid"] for profile in mentioned_fids]
+                    
+                    parent_cast = cast_data.get("parent_cast")
+                    parent_author_fid = parent_cast.get("author", {}).get("fid") if parent_cast else None
+                    
+                    if user_info.fid in mentioned_fid_list or user_info.fid == parent_author_fid:
+                        deployment = d
+                        break
+                        
+                except Exception as e:
+                    logger.error(f"Error checking deployment {d.id}: {e}")
+                    continue
 
         if not deployment:
             return JSONResponse(
-                status_code=401,
-                content={"error": "Invalid signature or deployment not found"},
+                status_code=200,
+                content={"ok": True, "message": "No matching deployment found"},
             )
-        if not deployment.config.farcaster.auto_reply:
-            return JSONResponse(status_code=200, content={"ok": True})
+        # Auto-reply check already done above in deployment selection
 
         # Create chat request similar to Telegram
         cast_hash = cast_data["hash"]

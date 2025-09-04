@@ -14,7 +14,6 @@ from eve.agent.session.models import (
     Deployment,
     DeploymentSecrets,
     DeploymentConfig,
-    DeploymentSettingsFarcaster,
 )
 from eve.api.api_requests import SessionCreationArgs
 from eve.api.errors import APIError
@@ -68,114 +67,55 @@ class FarcasterClient(PlatformClient):
         return secrets, config
 
     async def postdeploy(self) -> None:
-        """Register webhook with Neynar"""
+        """Add FID to existing webhook or skip if auto_reply disabled"""
         if not self.deployment:
             raise ValueError("Deployment is required for postdeploy")
 
-        webhook_url = (
-            f"{os.getenv('EDEN_API_URL')}/v2/deployments/farcaster/neynar-webhook"
+        # Only proceed if auto_reply is enabled
+        if not (
+            self.deployment.config
+            and self.deployment.config.farcaster
+            and self.deployment.config.farcaster.auto_reply
+        ):
+            print(
+                f"Skipping webhook registration for deployment {self.deployment.id} - auto_reply disabled"
+            )
+            return
+
+        # Get webhook configuration from environment
+        webhook_id = os.getenv("NEYNAR_WEBHOOK_ID")
+        if not webhook_id:
+            raise Exception("NEYNAR_WEBHOOK_ID not found in environment")
+
+        # Get user info to add FID to webhook
+        from farcaster import Warpcast
+
+        client = Warpcast(mnemonic=self.deployment.secrets.farcaster.mnemonic)
+        user_info = client.get_me()
+
+        await self._update_webhook_fids(webhook_id, add_fid=user_info.fid)
+        print(
+            f"Added FID {user_info.fid} to webhook {webhook_id} for deployment {self.deployment.id}"
         )
 
-        async with aiohttp.ClientSession() as session:
-            # Get Neynar API key from environment
-            neynar_api_key = os.getenv("NEYNAR_API_KEY")
-            if not neynar_api_key:
-                raise Exception("NEYNAR_API_KEY not found in environment")
-
-            headers = {
-                "x-api-key": f"{neynar_api_key}",
-                "Content-Type": "application/json",
-            }
-
-            # Get user info for webhook registration
-            from farcaster import Warpcast
-
-            client = Warpcast(mnemonic=self.deployment.secrets.farcaster.mnemonic)
-            user_info = client.get_me()
-
-            webhook_data = {
-                "name": f"eden-{self.deployment.id}",
-                "url": webhook_url,
-                "subscription": {
-                    "cast.created": {
-                        "mentioned_fids": [user_info.fid],
-                        "parent_author_fids": [user_info.fid]
-                    }
-                },
-            }
-
-            async with session.post(
-                "https://api.neynar.com/v2/farcaster/webhook",
-                headers=headers,
-                json=webhook_data,
-            ) as response:
-                if response.status != 200:
-                    error_text = await response.text()
-                    raise Exception(f"Failed to register Neynar webhook: {error_text}")
-
-                webhook_response = await response.json()
-                webhook_id = webhook_response.get("webhook", {}).get("webhook_id")
-                webhook_secret = (
-                    webhook_response.get("webhook", {})
-                    .get("secrets", [{}])[0]
-                    .get("value")
-                )
-
-                if not webhook_id:
-                    raise Exception("No webhook_id in response")
-
-                # Update the webhook secret in deployment secrets
-                self.deployment.secrets.farcaster.neynar_webhook_secret = webhook_secret
-
-                # Store webhook ID in deployment for later cleanup
-                if not self.deployment.config:
-                    self.deployment.config = DeploymentConfig()
-                if not self.deployment.config.farcaster:
-                    self.deployment.config.farcaster = DeploymentSettingsFarcaster()
-
-                self.deployment.config.farcaster.webhook_id = webhook_id
-                self.deployment.save()
-
-                print(
-                    f"Registered Neynar webhook {webhook_id} for deployment {self.deployment.id}"
-                )
-
     async def stop(self) -> None:
-        """Stop Farcaster client by unregistering webhook from Neynar"""
+        """Stop Farcaster client by removing FID from webhook"""
         if not self.deployment:
             raise ValueError("Deployment is required for stop")
 
-        if self.deployment.config and self.deployment.config.farcaster:
-            webhook_id = getattr(self.deployment.config.farcaster, "webhook_id", None)
-            if webhook_id:
-                try:
-                    async with aiohttp.ClientSession() as session:
-                        neynar_api_key = os.getenv("NEYNAR_API_KEY")
-                        headers = {
-                            "x-api-key": f"{neynar_api_key}",
-                            "Content-Type": "application/json",
-                        }
+        # Get webhook configuration from environment
+        webhook_id = os.getenv("NEYNAR_WEBHOOK_ID")
+        if webhook_id:
+            try:
+                # Get user info to remove FID from webhook
+                from farcaster import Warpcast
 
-                        webhook_data = {"webhook_id": webhook_id}
+                client = Warpcast(mnemonic=self.deployment.secrets.farcaster.mnemonic)
+                user_info = client.get_me()
 
-                        async with session.delete(
-                            "https://api.neynar.com/v2/farcaster/webhook",
-                            headers=headers,
-                            json=webhook_data,
-                        ) as response:
-                            if response.status == 200:
-                                print(
-                                    f"Successfully unregistered Neynar webhook {webhook_id}"
-                                )
-                                # Clear the webhook_id from config after successful deletion
-                                self.deployment.config.farcaster.webhook_id = None
-                                self.deployment.save()
-                            else:
-                                error_text = await response.text()
-                                print(f"Failed to unregister webhook: {error_text}")
-
-                except Exception as e:
-                    print(f"Error unregistering Neynar webhook: {e}")
+                await self._update_webhook_fids(webhook_id, remove_fid=user_info.fid)
+            except Exception as e:
+                print(f"Error removing FID from Neynar webhook: {e}")
 
         try:
             # Remove Farcaster tools
@@ -212,35 +152,76 @@ class FarcasterClient(PlatformClient):
         if not cast_data or "hash" not in cast_data:
             return JSONResponse(status_code=400, content={"error": "Invalid cast data"})
 
-        # For now, we'll need to find the deployment differently
-        # We could use the cast author or have Neynar include a custom field
-        # Let's assume we can match by the webhook signature for now
-        # TODO: can neynar pass us a deployment id?
+        # Use webhook secret from environment to verify signature
+        webhook_secret = os.getenv("NEYNAR_WEBHOOK_SECRET")
+        if not webhook_secret:
+            return JSONResponse(
+                status_code=401,
+                content={"error": "Webhook secret not configured"},
+            )
+
+        # Verify signature
+        computed_signature = hmac.new(
+            webhook_secret.encode(),
+            body,
+            hashlib.sha512,
+        ).hexdigest()
+
+        if not hmac.compare_digest(computed_signature, signature):
+            return JSONResponse(
+                status_code=401,
+                content={"error": "Invalid webhook signature"},
+            )
+
+        # Find deployment by mentioned FID
+        cast_author_fid = cast_data["author"]["fid"]
+
+        # Check if this is a self-mention (agent replying to itself) - ignore if so
         deployment = None
         for d in Deployment.find({"platform": "farcaster"}):
-            if (
-                d.secrets
-                and d.secrets.farcaster
-                and d.secrets.farcaster.neynar_webhook_secret
-            ):
-                # Verify signature
-                computed_signature = hmac.new(
-                    d.secrets.farcaster.neynar_webhook_secret.encode(),
-                    body,
-                    hashlib.sha512,
-                ).hexdigest()
-                if hmac.compare_digest(computed_signature, signature):
-                    deployment = d
-                    break
+            if d.config and d.config.farcaster and d.config.farcaster.auto_reply:
+                try:
+                    from farcaster import Warpcast
+
+                    client = Warpcast(mnemonic=d.secrets.farcaster.mnemonic)
+                    user_info = client.get_me()
+
+                    # Skip if this cast is from the agent itself (prevent loops)
+                    if user_info.fid == cast_author_fid:
+                        print(
+                            f"Ignoring cast from agent FID {cast_author_fid} to prevent loops"
+                        )
+                        return JSONResponse(status_code=200, content={"ok": True})
+
+                    # Check if agent was mentioned or parent author
+                    mentioned_fids = cast_data.get("mentioned_profiles", [])
+                    mentioned_fid_list = [profile["fid"] for profile in mentioned_fids]
+
+                    parent_cast = cast_data.get("parent_cast")
+                    parent_author_fid = (
+                        parent_cast.get("author", {}).get("fid")
+                        if parent_cast
+                        else None
+                    )
+
+                    if (
+                        user_info.fid in mentioned_fid_list
+                        or user_info.fid == parent_author_fid
+                    ):
+                        deployment = d
+                        break
+
+                except Exception as e:
+                    logger.error(f"Error checking deployment {d.id}: {e}")
+                    continue
 
         if not deployment:
             return JSONResponse(
-                status_code=401,
-                content={"error": "Invalid signature or deployment not found"},
+                status_code=200,
+                content={"ok": True, "message": "No matching deployment found"},
             )
 
-        if not deployment.config.farcaster.auto_reply:
-            return JSONResponse(status_code=200, content={"ok": True})
+        # Auto-reply check already done above in deployment selection
 
         # Create chat request similar to Telegram
         cast_hash = cast_data["hash"]
@@ -309,6 +290,72 @@ class FarcasterClient(PlatformClient):
                     )
 
         return JSONResponse(status_code=200, content={"ok": True})
+
+    async def _update_webhook_fids(
+        self, webhook_id: str, add_fid: int = None, remove_fid: int = None
+    ) -> None:
+        """Update webhook FID lists by adding or removing a FID"""
+        neynar_api_key = os.getenv("NEYNAR_API_KEY")
+        if not neynar_api_key:
+            raise Exception("NEYNAR_API_KEY not found in environment")
+
+        async with aiohttp.ClientSession() as session:
+            headers = {
+                "x-api-key": f"{neynar_api_key}",
+                "Content-Type": "application/json",
+            }
+
+            # First get current webhook configuration
+            async with session.get(
+                f"https://api.neynar.com/v2/farcaster/webhook?webhook_id={webhook_id}",
+                headers=headers,
+            ) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    raise Exception(
+                        f"Failed to get webhook configuration: {error_text}"
+                    )
+
+                webhook_data = await response.json()
+                current_subscription = webhook_data.get("webhook", {}).get(
+                    "subscription", {}
+                )
+                cast_created = current_subscription.get("cast.created", {})
+
+                # Get current FID lists
+                mentioned_fids = set(cast_created.get("mentioned_fids", []))
+                parent_author_fids = set(cast_created.get("parent_author_fids", []))
+
+                # Update FID lists
+                if add_fid:
+                    mentioned_fids.add(add_fid)
+                    parent_author_fids.add(add_fid)
+
+                if remove_fid:
+                    mentioned_fids.discard(remove_fid)
+                    parent_author_fids.discard(remove_fid)
+
+                # Update webhook with new FID lists
+                update_data = {
+                    "webhook_id": webhook_id,
+                    "url": os.getenv("NEYNAR_WEBHOOK_URL"),
+                    "name": os.getenv("NEYNAR_WEBHOOK_NAME"),
+                    "subscription": {
+                        "cast.created": {
+                            "mentioned_fids": list(mentioned_fids),
+                            "parent_author_fids": list(parent_author_fids),
+                        }
+                    },
+                }
+
+                async with session.put(
+                    "https://api.neynar.com/v2/farcaster/webhook",
+                    headers=headers,
+                    json=update_data,
+                ) as update_response:
+                    if update_response.status != 200:
+                        error_text = await update_response.text()
+                        raise Exception(f"Failed to update webhook: {error_text}")
 
     async def handle_emission(self, emission: "DeploymentEmissionRequest") -> None:
         """Handle an emission from the platform client"""
