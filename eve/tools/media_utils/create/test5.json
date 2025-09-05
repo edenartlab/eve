@@ -1,0 +1,8 @@
+{   
+    "output": "video",
+    "prompt": "Transform this peaceful portrait into a dynamic cinematic scene with gentle camera movement and atmospheric lighting changes",
+    "reference_images": ["https://d14i3advvh2bvd.cloudfront.net/48f4b354bd5711b4d2234a9b8f05b193e186df8639ca72273c068e8b4f1910f1.png"],
+    "model_preference": "kling",
+    "aspect_ratio": "16:9",
+    "duration": 5
+}

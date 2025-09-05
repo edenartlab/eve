@@ -1,0 +1,8 @@
+{   
+    "output": "video",
+    "prompt": "Create a professional talking head video with natural lip sync and expressive facial movements",
+    "reference_images": ["https://d14i3advvh2bvd.cloudfront.net/48f4b354bd5711b4d2234a9b8f05b193e186df8639ca72273c068e8b4f1910f1.png"],
+    "reference_audio": "http://edenartlab-stage-data.s3.amazonaws.com/156e5faef0bac04caecaca197781a637a45afa9a34692ed63a1784c370b7323a.mp3",
+    "extras": ["hedra"],
+    "aspect_ratio": "9:16"
+}

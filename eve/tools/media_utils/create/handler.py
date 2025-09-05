@@ -21,10 +21,51 @@ from eve.user import User
 from eve.utils import get_media_attributes
 
 
+def is_image_file(url: str) -> bool:
+    """Check if URL points to an image file based on extension"""
+    image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg', '.tiff', '.tif', '.ico']
+    url_lower = url.lower()
+    # Remove query parameters if present
+    url_lower = url_lower.split('?')[0]
+    return any(url_lower.endswith(ext) for ext in image_extensions)
+
+
+def is_video_file(url: str) -> bool:
+    """Check if URL points to a video file based on extension"""
+    video_extensions = ['.mp4', '.avi', '.mov', '.mkv', '.webm', '.flv', '.wmv', '.m4v', '.mpg', '.mpeg', '.3gp']
+    url_lower = url.lower()
+    # Remove query parameters if present
+    url_lower = url_lower.split('?')[0]
+    return any(url_lower.endswith(ext) for ext in video_extensions)
+
+
+def validate_media_types(reference_images, reference_video):
+    """Validate that reference images are images and reference video is a video"""
+    # Check reference images
+    if reference_images:
+        for i, img in enumerate(reference_images):
+            if isinstance(img, str) and not is_image_file(img):
+                if is_video_file(img):
+                    raise Exception(f"Reference image {i+1} ({img}) is not an image, it's a video")
+                # Don't error on URLs without extensions, they might be valid
+    
+    # Check reference video
+    if reference_video:
+        if isinstance(reference_video, str) and not is_video_file(reference_video):
+            if is_image_file(reference_video):
+                raise Exception(f"The reference video {reference_video} is not a video, it's an image")
+            # Don't error on URLs without extensions, they might be valid
+
+
 async def handler(args: dict, user: str = None, agent: str = None):
     print("args", args)
     print("user", user)
     print("agent", agent)
+
+    # Validate media types
+    reference_images = args.get("reference_images", [])
+    reference_video = args.get("reference_video", None)
+    validate_media_types(reference_images, reference_video)
 
     output_type = args.get("output", "image")
 
@@ -52,7 +93,8 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
     # get args
     prompt = args["prompt"]
     n_samples = args.get("n_samples", 1)
-    init_image = args.get("init_image", None)
+    reference_images = args.get("reference_images", [])
+    init_image = reference_images[0] if len(reference_images) > 0 else None
     extras = args.get("extras", [])
     text_precision = "text_precision" in extras
     double_character = "double_character" in extras
@@ -339,7 +381,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
     elif image_tool == nano_banana:
         args = {
             "prompt": prompt,
-            "image_input": [init_image],
+            "image_input": reference_images,  # Use all reference images
             "n_samples": n_samples,
             "output_format": "png"
         }
@@ -524,13 +566,26 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
     """Handle video creation - copied from create_video tool handler"""
 
     # veo3 is enabled by default
-    # if a specific user is provided (e.g. from the website or api), check if they have access to veo3 and disable it if not
+    # if a specific user is provided (e.g. from the website or api), check if paying user has access to veo3 and disable it if not
     veo3_enabled = True
     if user:
         user = User.from_mongo(user)
-        veo3_enabled = "tool_access_veo3" in user.featureFlags
+        
+        # if agent's owner pays, check their feature flags, otherwise user's
+        if agent:
+            agent = Agent.from_mongo(agent)
+            if agent.owner_pays in ["full", "deployments"]:
+                paying_user = User.from_mongo(agent.owner)
+            else:
+                paying_user = user
+        
+        veo3_enabled = any([
+            t for t in paying_user.featureFlags 
+            if t in ["tool_access_veo3", "preview"]
+        ])
 
     runway = Tool.load("runway")
+    runway3 = Tool.load("runway3")  # Load Runway Aleph
     kling = Tool.load("kling")
     kling_pro = Tool.load("kling")
     seedance1 = Tool.load("seedance1")
@@ -542,8 +597,10 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
 
     prompt = args["prompt"]
     # n_samples = args.get("n_samples", 1)
-    start_image = args.get("init_image", None)  # Map init_image to start_image for video
-    end_image = args.get("end_image", None)
+    reference_images = args.get("reference_images", [])
+    reference_video = args.get("reference_video", None)  # Extract reference_video
+    start_image = reference_images[0] if len(reference_images) > 0 else None
+    end_image = reference_images[1] if len(reference_images) > 1 else None
     seed = args.get("seed", None)
     lora_strength = args.get("lora_strength", 0.75)
     aspect_ratio = args.get("aspect_ratio", "auto")
@@ -564,7 +621,10 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
     loras = get_loras(args.get("lora"), args.get("lora2"))
 
     # Rules
-    if talking_head and audio:
+    if reference_video:
+        # Always use Runway Aleph for video-to-video style transfer
+        video_tool = runway3
+    elif talking_head and audio:
         video_tool = hedra
     elif quality == "standard":
         video_tool = {
@@ -693,7 +753,7 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
                 }
             )
 
-        print(f"Running Kling {args['quality']}", args)
+        print(f"Running Kling {args.get('quality')}", args)
 
         if "start_image" in args:
             args.update(
@@ -816,6 +876,33 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
 
         print("Running Hebra", args)
         result = await hedra.async_run(args, save_thumbnails=True)
+
+    #########################################################
+    # Runway3 (Aleph)
+    elif video_tool == runway3:
+        # Snap aspect ratio to closest Runway preset
+        aspect_ratio = snap_aspect_ratio_to_model(
+            aspect_ratio, "runway4", None  # Use runway4 presets for Aleph
+        )
+
+        args = {
+            "input_video": reference_video,  # The video to stylize
+            "prompt_text": prompt,  # Style description
+            "ratio": aspect_ratio,
+        }
+
+        # Add style reference images if provided
+        if start_image:
+            args["style_image"] = start_image  # Use first reference image as style image
+        
+        # Could also use a video as style reference (from second reference image if it's a video)
+        # But for now we'll keep it simple
+        
+        if seed:
+            args["seed"] = seed
+
+        print("Running Runway3 (Aleph)", args)
+        result = await runway3.async_run(args, save_thumbnails=True)
 
     else:
         raise Exception("Invalid video tool", video_tool)
