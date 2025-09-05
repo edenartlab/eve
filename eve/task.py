@@ -121,6 +121,7 @@ class Task(Document):
     result: Optional[List[Dict[str, Any]]] = None
     performance: Optional[Dict[str, Any]] = {}
     paying_user: Optional[ObjectId] = None
+    api_key: Optional[ObjectId] = None
 
     def __init__(self, **data):
         if isinstance(data.get("user"), str):
