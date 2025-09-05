@@ -1,0 +1,50 @@
+name: Runway Aleph
+description: Transform the style of a video by applying artistic or environmental changes based on a prompt or reference image.
+tip: |-
+  This tool lets you transform a video using the Aleph model. You can describe the desired aesthetic or specify a reference image to guide the style. Perfect for adding seasonal changes, artistic filters, or environment alterations.
+thumbnail: app/runway-aleph-style.mp4
+cost_estimate: 75
+output_type: video
+base_model: runway
+handler: modal
+active: true
+visible: true
+parameters:
+  input_video:
+    type: video
+    label: Input video
+    description: The source video to transform.
+    tip: Provide a short high-quality clip to achieve the best results.
+    required: true
+  prompt_text:
+    type: string
+    label: Prompt text
+    description: A text prompt describing the desired transformation or style.
+    tip: Examples include 'make it winter' or 'apply an oil painting effect'. Leave blank if using style_image only.
+  style_image:
+    type: image
+    label: Style reference image
+    description: An image used to guide the style of the transformed video.
+    tip: Use a picture representing the color palette or aesthetic you want.
+  ratio:
+    type: string
+    label: Ratio
+    description: The aspect ratio of the output video.
+    default: '16:9'
+    choices: ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16']
+    required: true
+  seed:
+    type: integer
+    label: Seed
+    description: Set random seed for reproducibility. If blank, will be set to a random value.
+    tip: |-
+      You should only set this if you want to start from/copy the seed of a previous video. Unless one is specified, leave this blank.
+    default: random
+    minimum: 0
+    maximum: 2147483647
+  public_figure_threshold:
+    type: string
+    label: Public figure threshold
+    description: Determines how strict content moderation should be regarding recognizable public figures.
+    default: low
+    choices: ['low', 'auto']
