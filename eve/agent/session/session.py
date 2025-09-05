@@ -292,10 +292,25 @@ def add_user_message(
     if pin:
         new_message.pinned = True
     new_message.save()
+    
+    # Atomic update to prevent race conditions with parallel requests
+    from eve.mongo import get_collection
+    sessions_collection = get_collection("sessions")
+    sessions_collection.update_one(
+        {"_id": session.id},
+        {
+            "$push": {"messages": new_message.id},
+            "$set": {
+                "memory_context.last_activity": datetime.now(timezone.utc),
+                "memory_context.messages_since_memory_formation": session.memory_context.messages_since_memory_formation + 1
+            }
+        }
+    )
+    
+    # Update local object for consistency within this request
     session.messages.append(new_message.id)
     session.memory_context.last_activity = datetime.now(timezone.utc)
     session.memory_context.messages_since_memory_formation += 1
-    session.save()
 
     # Print the most recent message:
     #print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
@@ -561,14 +576,24 @@ async def process_tool_call(
                 assistant_message.tool_calls[tool_call_index].task = result.get("task")
                 assistant_message.save()
 
-            update_session_budget(session, manna_spent=result.get("cost", 0))
-            session.save()
+            # Atomic budget update for tool execution
+            manna_cost = result.get("cost", 0)
+            if session.budget and manna_cost:
+                from eve.mongo import get_collection
+                sessions_collection = get_collection("sessions")
+                sessions_collection.update_one(
+                    {"_id": session.id},
+                    {"$inc": {"budget.manna_spent": manna_cost}}
+                )
+                # Update local object
+                session.budget.manna_spent += manna_cost
 
             return SessionUpdate(
                 type=UpdateType.TOOL_COMPLETE,
                 tool_name=tool_call.tool,
                 tool_index=tool_call_index,
                 result=result,
+                message=assistant_message,  # Include the updated message
             )
         elif result["status"] == "cancelled":
             tool_call.status = "cancelled"
@@ -732,10 +757,17 @@ async def async_prompt_session(
 
     async def prompt_session_generator():
         """Generator function that yields session updates and can be cancelled."""
-        active_requests = session.active_requests or []
-        active_requests.append(session_run_id)
-        session.active_requests = active_requests
-        session.save()
+        # Atomic update for active_requests
+        from eve.mongo import get_collection
+        sessions_collection = get_collection("sessions")
+        sessions_collection.update_one(
+            {"_id": session.id},
+            {"$push": {"active_requests": session_run_id}}
+        )
+        # Update local object
+        if session.active_requests is None:
+            session.active_requests = []
+        session.active_requests.append(session_run_id)
 
         yield SessionUpdate(
             type=UpdateType.START_PROMPT,
@@ -757,6 +789,28 @@ async def async_prompt_session(
             # Check for cancellation before each iteration
             if cancellation_event.is_set():
                 raise SessionCancelledException("Session cancelled by user")
+
+            # Refetch messages before each LLM call (except the first iteration)
+            # This ensures we have the latest messages from parallel requests
+            if tokens_spent > 0:  # Not the first iteration
+                # Reload the session to get the latest messages list
+                fresh_session = Session.from_mongo(session.id)
+                
+                # Find where system messages end in the current context
+                system_message_count = 0
+                for msg in llm_context.messages:
+                    if msg.role == "system":
+                        system_message_count += 1
+                    else:
+                        break
+                
+                # Preserve system messages and rebuild with fresh conversation messages
+                system_messages = llm_context.messages[:system_message_count]
+                fresh_messages = select_messages(fresh_session)
+                fresh_messages = convert_message_roles(fresh_messages, actor.id)
+                
+                # Update the context with fresh messages
+                llm_context.messages = system_messages + fresh_messages
 
             # Generate new generation_id for this LLM call
             llm_context.metadata.generation_id = str(uuid.uuid4())
@@ -867,16 +921,37 @@ async def async_prompt_session(
                 tokens_spent = response.tokens_spent
 
             assistant_message.save()
+            
+            # Atomic update for messages and budget
+            from eve.mongo import get_collection
+            sessions_collection = get_collection("sessions")
+            update_doc = {
+                "$push": {"messages": assistant_message.id},
+                "$set": {
+                    "memory_context.last_activity": datetime.now(timezone.utc),
+                    "memory_context.messages_since_memory_formation": session.memory_context.messages_since_memory_formation + 1
+                }
+            }
+            
+            # Add budget updates if applicable
+            if session.budget and (tokens_spent or 1):  # turns_spent is always 1
+                if "$inc" not in update_doc:
+                    update_doc["$inc"] = {}
+                if tokens_spent:
+                    update_doc["$inc"]["budget.tokens_spent"] = tokens_spent
+                update_doc["$inc"]["budget.turns_spent"] = 1
+            
+            sessions_collection.update_one({"_id": session.id}, update_doc)
+            
+            # Update local object for consistency
             session.messages.append(assistant_message.id)
             session.memory_context.last_activity = datetime.now(timezone.utc)
             session.memory_context.messages_since_memory_formation += 1
+            update_session_budget(session, tokens_spent=tokens_spent, turns_spent=1)
 
             #print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
             #print(f"--- {assistant_message.content[:30]} ---")
             #print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
-            
-            update_session_budget(session, tokens_spent=tokens_spent, turns_spent=1)
-            session.save()
             llm_context.messages.append(assistant_message)
             yield SessionUpdate(
                 type=UpdateType.ASSISTANT_MESSAGE, message=assistant_message
@@ -959,6 +1034,15 @@ async def async_prompt_session(
                 content="Response cancelled by user",
             )
             cancel_message.save()
+            
+            # Atomic update for cancel message
+            from eve.mongo import get_collection
+            sessions_collection = get_collection("sessions")
+            sessions_collection.update_one(
+                {"_id": session.id},
+                {"$push": {"messages": cancel_message.id}}
+            )
+            # Update local object
             session.messages.append(cancel_message.id)
 
             # 3. Yield final updates
@@ -974,10 +1058,16 @@ async def async_prompt_session(
             )
 
     finally:
-        active_requests = session.active_requests or []
-        active_requests.remove(session_run_id)
-        session.active_requests = active_requests
-        session.save()
+        # Atomic removal from active_requests
+        from eve.mongo import get_collection
+        sessions_collection = get_collection("sessions")
+        sessions_collection.update_one(
+            {"_id": session.id},
+            {"$pull": {"active_requests": session_run_id}}
+        )
+        # Update local object
+        if session.active_requests and session_run_id in session.active_requests:
+            session.active_requests.remove(session_run_id)
 
         # Clean up Ably subscription
         if ably_client:
@@ -1011,7 +1101,11 @@ def format_session_update(update: SessionUpdate, context: PromptSessionContext) 
             ]
     elif update.type == UpdateType.TOOL_COMPLETE:
         data["tool"] = update.tool_name
+        data["tool_index"] = update.tool_index
         data["result"] = dumps_json(update.result)
+        # Include the updated message with completed tool calls
+        if update.message:
+            data["message"] = update.message.model_dump(by_alias=True)
     elif update.type == UpdateType.TOOL_CANCELLED:
         data["tool"] = update.tool_name
         data["tool_index"] = update.tool_index
