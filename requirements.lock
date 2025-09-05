@@ -43,11 +43,20 @@ apscheduler==3.11.0
     # via eve
 attrs==25.3.0
     # via aiohttp
+    # via igittigitt
     # via jsonschema
     # via referencing
     # via sigtools
+awacs==2.5.0
+    # via runway
+aws-sam-translator==1.100.0
+    # via cfn-lint
+babel==2.17.0
+    # via mkdocs-material
 backoff==2.2.1
     # via langfuse
+backrefs==5.9
+    # via mkdocs-material
 beanie==1.22.6
     # via eve
 bitarray==3.5.2
@@ -55,10 +64,14 @@ bitarray==3.5.2
 blurhash==1.1.4
     # via eve
 boto3==1.39.11
+    # via aws-sam-translator
     # via eve
+    # via runway
 botocore==1.39.11
     # via boto3
     # via s3transfer
+bracex==2.6
+    # via wcmatch
 cachetools==5.5.2
     # via google-auth
 canonicaljson==2.0.0
@@ -71,35 +84,56 @@ certifi==2025.7.14
     # via sentry-sdk
 cffi==1.17.1
     # via cryptography
+cfgv==3.4.0
+    # via pre-commit
+cfn-flip==1.3.0
+    # via runway
+    # via troposphere
+cfn-lint==1.39.1
+    # via runway
 charset-normalizer==3.4.2
     # via requests
 ckzg==2.1.1
     # via eth-account
 clerk-backend-api==2.2.0
     # via eve
+cli-exit-tools==1.2.7
+    # via igittigitt
 click==8.1.8
     # via beanie
+    # via cfn-flip
+    # via cli-exit-tools
     # via eve
+    # via igittigitt
     # via litellm
+    # via mkdocs
+    # via mkdocs-material
     # via modal
+    # via runway
     # via typer
     # via uvicorn
 colorama==0.4.6
     # via eve
+    # via mkdocs-material
+coloredlogs==15.0
+    # via runway
 cryptography==44.0.3
     # via clerk-backend-api
+    # via pyopenssl
 cytoolz==1.0.1
     # via eth-utils
 decorator==5.2.1
     # via moviepy
-diskcache==5.6.3
-    # via instructor
+distlib==0.4.0
+    # via virtualenv
 distro==1.9.0
     # via anthropic
     # via openai
     # via runwayml
 dnspython==2.7.0
     # via pymongo
+docker==7.1.0
+    # via runway
 docstring-parser==0.17.0
     # via google-cloud-aiplatform
     # via instructor
@@ -143,16 +177,22 @@ fastapi==0.116.1
 filelock==3.18.0
     # via huggingface-hub
     # via torch
+    # via virtualenv
+formic2==1.0.3
+    # via runway
 frozenlist==1.7.0
     # via aiohttp
     # via aiosignal
 fsspec==2025.7.0
     # via huggingface-hub
     # via torch
+ghp-import==2.1.0
+    # via mkdocs
 gitdb==4.0.12
     # via gitpython
 gitpython==3.1.44
     # via eve
+    # via runway
 google-api-core==2.25.1
     # via google-cloud-aiplatform
     # via google-cloud-bigquery
@@ -238,25 +278,34 @@ httpx-sse==0.4.1
     # via mcp
 huggingface-hub==0.33.4
     # via tokenizers
+humanfriendly==10.0
+    # via coloredlogs
 hyperframe==6.1.0
     # via h2
+identify==2.6.13
+    # via pre-commit
 idna==3.10
     # via anyio
     # via httpx
     # via langfuse
     # via requests
     # via yarl
+igittigitt==2.1.5
+    # via runway
 imageio==2.37.0
     # via moviepy
 imageio-ffmpeg==0.6.0
     # via moviepy
 importlib-metadata==8.7.0
     # via litellm
-instructor==1.10.0
+instructor==1.9.2
     # via eve
 jinja2==3.1.6
     # via instructor
     # via litellm
+    # via mkdocs
+    # via mkdocs-material
+    # via runway
     # via torch
 jiter==0.10.0
     # via anthropic
@@ -265,29 +314,56 @@ jiter==0.10.0
 jmespath==1.0.1
     # via boto3
     # via botocore
+jsonpatch==1.33
+    # via cfn-lint
+jsonpointer==3.0.0
+    # via jsonpatch
 jsonref==1.1.0
     # via eve
 jsonschema==4.25.0
+    # via aws-sam-translator
     # via litellm
     # via mcp
 jsonschema-specifications==2025.4.1
     # via jsonschema
 langfuse==2.59.7
     # via eve
+lark==1.2.2
+    # via python-hcl2
 lazy-model==0.2.0
     # via beanie
+lib-detect-testenv==2.0.8
+    # via cli-exit-tools
+    # via igittigitt
 litellm==1.75.0
     # via eve
+markdown==3.9
+    # via mkdocs
+    # via mkdocs-material
+    # via pymdown-extensions
 markdown-it-py==3.0.0
     # via rich
 markupsafe==3.0.2
     # via jinja2
+    # via mkdocs
 mcp==1.13.0
     # via eve
 mdurl==0.1.2
     # via markdown-it-py
+mergedeep==1.3.4
+    # via mkdocs
+    # via mkdocs-get-deps
 methoddispatch==3.0.2
     # via ably
+mkdocs==1.6.1
+    # via instructor
+    # via mkdocs-material
+mkdocs-get-deps==0.2.0
+    # via mkdocs
+mkdocs-material==9.6.18
+    # via instructor
+mkdocs-material-extensions==1.3.1
+    # via mkdocs-material
 modal==1.1.0
     # via eve
 motor==3.3.1
@@ -304,7 +380,10 @@ multidict==6.6.3
     # via grpclib
     # via yarl
 networkx==3.5
+    # via cfn-lint
     # via torch
+nodeenv==1.9.1
+    # via pre-commit
 numpy==2.3.1
     # via eve
     # via imageio
@@ -322,14 +401,26 @@ packaging==24.2
     # via google-cloud-bigquery
     # via huggingface-hub
     # via langfuse
+    # via mkdocs
     # via replicate
+    # via runway
+paginate==0.5.7
+    # via mkdocs-material
 parsimonious==0.10.0
     # via eth-abi
     # via farcaster
+pathspec==0.12.1
+    # via mkdocs
+    # via yamllint
 pillow==11.3.0
     # via eve
     # via imageio
     # via moviepy
+platformdirs==4.4.0
+    # via mkdocs-get-deps
+    # via virtualenv
+pre-commit==4.3.0
+    # via instructor
 proglog==0.1.12
     # via moviepy
 propcache==0.3.2
@@ -366,6 +457,7 @@ pycryptodome==3.23.0
     # via eth-keyfile
 pydantic==2.11.7
     # via anthropic
+    # via aws-sam-translator
     # via beanie
     # via clerk-backend-api
     # via elevenlabs
@@ -384,6 +476,7 @@ pydantic==2.11.7
     # via openai
     # via pydantic-settings
     # via replicate
+    # via runway
     # via runwayml
     # via web3
 pydantic-core==2.33.2
@@ -397,19 +490,27 @@ pydub==0.25.1
 pyee==12.1.1
     # via ably
 pygments==2.19.2
+    # via mkdocs-material
     # via rich
+pyhcl==0.4.5
+    # via runway
 pyhumps==3.8.0
     # via farcaster
 pyjwt==2.10.1
     # via clerk-backend-api
     # via eve
+pymdown-extensions==10.16.1
+    # via mkdocs-material
 pymongo==4.6.1
     # via eve
     # via motor
+pyopenssl==25.1.0
+    # via runway
 pyparsing==3.2.3
     # via eve
 python-dateutil==2.9.0.post0
     # via botocore
+    # via ghp-import
     # via google-cloud-bigquery
 python-dotenv==1.0.1
     # via eve
@@ -417,6 +518,8 @@ python-dotenv==1.0.1
     # via litellm
     # via moviepy
     # via pydantic-settings
+python-hcl2==7.3.1
+    # via runway
 python-magic==0.4.27
     # via eve
 python-multipart==0.0.20
@@ -428,17 +531,31 @@ pytz==2025.2
 pyunormalize==16.0.0
     # via web3
 pyyaml==6.0.2
+    # via cfn-flip
+    # via cfn-lint
     # via eve
     # via huggingface-hub
+    # via mkdocs
+    # via mkdocs-get-deps
+    # via pre-commit
+    # via pymdown-extensions
+    # via pyyaml-env-tag
+    # via runway
+    # via yamllint
+pyyaml-env-tag==1.1
+    # via mkdocs
 referencing==0.36.2
     # via jsonschema
     # via jsonschema-specifications
 regex==2024.11.6
+    # via cfn-lint
     # via parsimonious
+    # via python-hcl2
     # via tiktoken
 replicate==1.0.7
     # via eve
 requests==2.32.4
+    # via docker
     # via elevenlabs
     # via eve
     # via farcaster
@@ -449,7 +566,9 @@ requests==2.32.4
     # via huggingface-hub
     # via instructor
     # via langfuse
+    # via mkdocs-material
     # via requests-oauthlib
+    # via runway
     # via tiktoken
     # via tweepy
     # via web3
@@ -468,7 +587,9 @@ rpds-py==0.26.0
     # via referencing
 rsa==4.9.1
     # via google-auth
-runwayml==3.7.1
+runway==2.8.4
+    # via eve
+runwayml==3.11.0
     # via eve
 s3transfer==0.13.1
     # via boto3
@@ -485,6 +606,7 @@ shellingham==1.5.4
 sigtools==4.0.1
     # via synchronicity
 six==1.17.0
+    # via cfn-flip
     # via python-dateutil
 smmap==5.0.2
     # via gitdb
@@ -500,6 +622,7 @@ starlette==0.47.2
     # via fastapi
     # via mcp
 sympy==1.14.0
+    # via cfn-lint
     # via torch
 synchronicity==0.10.1
     # via modal
@@ -513,6 +636,8 @@ tokenizers==0.21.2
 toml==0.10.2
     # via beanie
     # via modal
+tomli==2.2.1
+    # via runway
 toolz==1.0.0
     # via cytoolz
 torch==2.7.0
@@ -522,6 +647,8 @@ tqdm==4.67.1
     # via huggingface-hub
     # via openai
     # via proglog
+troposphere==4.9.4
+    # via runway
 tweepy==4.16.0
     # via eve
 typer==0.16.0
@@ -537,6 +664,8 @@ typing-extensions==4.14.1
     # via aiosignal
     # via anthropic
     # via anyio
+    # via aws-sam-translator
+    # via cfn-lint
     # via elevenlabs
     # via eth-typing
     # via fastapi
@@ -548,8 +677,10 @@ typing-extensions==4.14.1
     # via pydantic
     # via pydantic-core
     # via pyee
+    # via pyopenssl
     # via referencing
     # via replicate
+    # via runway
     # via runwayml
     # via starlette
     # via synchronicity
@@ -564,13 +695,20 @@ tzlocal==5.3.1
     # via apscheduler
 urllib3==2.5.0
     # via botocore
+    # via docker
     # via requests
     # via sentry-sdk
     # via types-requests
 uvicorn==0.35.0
     # via mcp
+virtualenv==20.34.0
+    # via pre-commit
+watchdog==6.0.0
+    # via mkdocs
 watchfiles==1.1.0
     # via modal
+wcmatch==10.1
+    # via igittigitt
 web3==7.6.0
     # via eve
 websockets==13.1
@@ -580,6 +718,8 @@ websockets==13.1
     # via web3
 wrapt==1.17.2
     # via langfuse
+yamllint==1.37.1
+    # via runway
 yarl==1.20.1
     # via aiohttp
 zipp==3.23.0
