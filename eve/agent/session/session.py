@@ -1,6 +1,5 @@
 import asyncio
 import traceback
-import time
 import json
 import os
 import random
@@ -47,7 +46,6 @@ from eve.agent.session.memory_models import get_sender_id_to_sender_name_map, se
 from eve.agent.session.memory_assemble_context import assemble_memory_context
 
 from eve.agent.session.config import (
-    DEFAULT_SESSION_SELECTION_LIMIT,
     get_default_session_llm_config,
 )
 from eve.user import User
@@ -292,7 +290,8 @@ def add_user_message(
     if pin:
         new_message.pinned = True
     new_message.save()
-    session.messages.append(new_message.id)
+    # No longer storing message IDs on session to avoid race conditions
+    # session.messages.append(new_message.id)
     session.memory_context.last_activity = datetime.now(timezone.utc)
     session.memory_context.messages_since_memory_formation += 1
     session.save()
@@ -758,6 +757,30 @@ async def async_prompt_session(
             if cancellation_event.is_set():
                 raise SessionCancelledException("Session cancelled by user")
 
+            # Refresh messages from database to get any new messages added during tool calls
+            # This ensures we have the latest context including any user messages sent while tools were running
+            fresh_messages = select_messages(session)
+            
+            # Rebuild the messages list with fresh data
+            system_message = llm_context.messages[0]  # Keep the system message
+            system_extras = []
+            # Extract any system extras (messages with role="system" after the first one)
+            for msg in llm_context.messages[1:]:
+                if msg.role == "system":
+                    system_extras.append(msg)
+                else:
+                    break
+            
+            # Rebuild messages with fresh data from database
+            refreshed_messages = [system_message]
+            if system_extras:
+                refreshed_messages.extend(system_extras)
+            refreshed_messages.extend(fresh_messages)
+            refreshed_messages = convert_message_roles(refreshed_messages, actor.id)
+            
+            # Update the context with refreshed messages
+            llm_context.messages = refreshed_messages
+
             # Generate new generation_id for this LLM call
             llm_context.metadata.generation_id = str(uuid.uuid4())
 
@@ -867,7 +890,8 @@ async def async_prompt_session(
                 tokens_spent = response.tokens_spent
 
             assistant_message.save()
-            session.messages.append(assistant_message.id)
+            # No longer storing message IDs on session to avoid race conditions
+            # session.messages.append(assistant_message.id)
             session.memory_context.last_activity = datetime.now(timezone.utc)
             session.memory_context.messages_since_memory_formation += 1
 
@@ -877,7 +901,7 @@ async def async_prompt_session(
             
             update_session_budget(session, tokens_spent=tokens_spent, turns_spent=1)
             session.save()
-            llm_context.messages.append(assistant_message)
+            # No longer appending to llm_context.messages since we refresh from DB each iteration
             yield SessionUpdate(
                 type=UpdateType.ASSISTANT_MESSAGE, message=assistant_message
             )
@@ -959,7 +983,8 @@ async def async_prompt_session(
                 content="Response cancelled by user",
             )
             cancel_message.save()
-            session.messages.append(cancel_message.id)
+            # No longer storing message IDs on session to avoid race conditions
+            # session.messages.append(cancel_message.id)
 
             # 3. Yield final updates
             yield SessionUpdate(
