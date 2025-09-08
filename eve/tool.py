@@ -457,6 +457,8 @@ class Tool(Document, ABC):
                 prepared_args[field] = parameter["default"]
 
         try:
+            print("THE PREPARED ARGS ARE:")
+            print(prepared_args)
             self.model(**prepared_args)
 
         except ValidationError as e:
