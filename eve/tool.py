@@ -6,7 +6,7 @@ import asyncio
 import traceback
 from abc import ABC, abstractmethod
 from pydantic import BaseModel, create_model, ValidationError, Field
-from typing import Optional, List, Dict, Any, Type
+from typing import Optional, List, Dict, Any, Type, Callable
 from datetime import datetime, timezone
 from instructor.function_calls import openai_schema
 import sentry_sdk
@@ -344,6 +344,13 @@ class Tool(Document, ABC):
         sub_cls = cls.get_sub_class(schema, from_yaml=False)
 
         return sub_cls.model_validate(schema)
+
+    @classmethod
+    def register_new(cls, tool: BaseModel, handler: Callable):
+        from eve.tools.tool_handlers import handlers
+        custom_tool = Tool.from_pydantic(tool)
+        handlers[custom_tool.key] = handler
+        return custom_tool
 
     def update_parameters(self, parameters: Dict[str, Any]):
         """Update parameters and re-create BaseModel"""
