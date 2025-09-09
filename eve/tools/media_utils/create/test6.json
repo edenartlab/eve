@@ -1,0 +1,10 @@
+{   
+    "output": "video",
+    "prompt": "Create an epic cinematic sequence with dramatic lighting, sweeping camera movements, and rich atmospheric details",
+    "reference_images": ["https://d14i3advvh2bvd.cloudfront.net/58656ca3bf3013df15536f8cba11dbe224a353d866e5e5bbef070a377fb5bc36.jpeg"],
+    "model_preference": "veo",
+    "quality": "pro",
+    "extras": ["sound_effects"],
+    "aspect_ratio": "16:9",
+    "duration": 8
+}

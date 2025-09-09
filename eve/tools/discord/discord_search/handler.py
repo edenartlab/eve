@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 
 class ChannelSearchParams(BaseModel):
     channel_id: str  # The note/name of the channel to search
-    message_limit: int = 10
+    message_limit: int | None = None  # Optional: number of messages to fetch
     time_window_hours: int = 24
 
 
@@ -57,16 +57,17 @@ Available channel IDs + notes:
 
 Example queries:
 "Show me recent tech support messages" -> Search in tech support channels, last 10 messages
-"Get all announcements from the last 24 hours" -> Search in announcement channels, last 24 hours
+"Get all announcements from the last 24 hours" -> Search in announcement channels, last 24 hours, no message limit
 "Show me the last 5 messages from general discussion" -> Search in general channels, last 5 messages
 
 You must return a list of ChannelSearchParams objects, each containing:
 - channel_id: The ID of the channel to search (must match one of the available channel IDs)
-- message_limit: Optional number of messages to fetch, REQUIRED, default 10
-- time_window_hours: Optional time window in hours, REQUIRED, default 24
+- message_limit: Optional number of messages to fetch. If provided, returns the most recent N messages. If not provided, returns ALL messages within the time window (up to 24h max)
+- time_window_hours: Time window in hours, default 24
 
-
-At least one of message_limit or time_window_hours must be specified for each channel.""".format(
+Behavior:
+- If message_limit is specified: Return the most recent N messages, going back as far as needed (or until channel start)
+- If message_limit is NOT specified: Return ALL messages within the time_window_hours (up to 24h max)""".format(
         channel_notes="\n".join(f"{id}: {note}" for id, note in channel_map.items())
     )
 
@@ -119,15 +120,22 @@ At least one of message_limit or time_window_hours must be specified for each ch
             ]:  # Text channel types=
                 continue
 
-            # Determine time window if specified
-            after = datetime.utcnow() - timedelta(
-                hours=channel_params.time_window_hours
-            )
-
             # Get messages using HTTP client
             params = {}
-            params["limit"] = channel_params.message_limit
-            params["after"] = int((after.timestamp() - 1420070400) * 1000) << 22
+
+            if channel_params.message_limit:
+                # If message_limit is specified, get the most recent N messages
+                # Don't set 'after' parameter - we want to go back as far as needed
+                # Discord API limit is 100 messages per request
+                params["limit"] = min(channel_params.message_limit, 100)
+            else:
+                # If no message_limit, get all messages within the time window
+                # Set limit to 100 (Discord's max per request) and use time window
+                after = datetime.utcnow() - timedelta(
+                    hours=channel_params.time_window_hours
+                )
+                params["limit"] = 100  # Discord's max per request
+                params["after"] = int((after.timestamp() - 1420070400) * 1000) << 22
 
             message_data = await http.logs_from(int(channel_id), **params)
 
@@ -144,8 +152,8 @@ At least one of message_limit or time_window_hours must be specified for each ch
                     }
                 )
 
-        # Sort messages by created_at timestamp to ensure chronological order (oldest first)
-        messages.sort(key=lambda x: x["created_at"])
+        # Sort messages by created_at timestamp to ensure reverse chronological order (newest first)
+        messages.sort(key=lambda x: x["created_at"], reverse=True)
 
         return {"output": messages}
 

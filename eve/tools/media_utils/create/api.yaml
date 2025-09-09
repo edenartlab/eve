@@ -6,10 +6,13 @@ tip: |-
   Rules:
   - Use 16:9, 1:1, and 9:16 aspect ratios for landscape, square, and portrait images respectively. Only use the other ones if making images (not videos) and it is specifically requested of you. If no aspect ratio is specified, use your best judgment depending on the content requested. Cinematic content should be landscape while social media content should be square or portrait.
   - For images: If the user wants to make an infographic, logo, or any other image that requires a lot of coherent and legible text, or the user requests OpenAI image tools, you should include "text_precision" in extras.
-  - For images: If either "text_precision" is in extras *OR* there is an init_image, the prompt should be structured as an **INSTRUCTION**, unless there is a lora.
-  - For images: If the user has an init_image but also has a lora or "controlnet" in extras, ignore the last rule about being an instruction and instead make a normal text-to-image prompt.
-  - For videos: If you want to put specific lines of dialogue into the video, you must use "pro" quality with sound_effects, and no init_image).
+  - For images: If either "text_precision" is in extras *OR* there are reference_images, the prompt should be structured as an **INSTRUCTION**, unless there is a lora.
+  - For images: If the user has reference_images but also has a lora or "controlnet" in extras, ignore the last rule about being an instruction and instead make a normal text-to-image prompt.
+  - For images: When using nano_banana with multiple reference images, place the base image (whose aspect ratio should be copied) as the LAST reference image.
+  - For videos: Place the init_image as the first reference image and end_image as the second reference image (if using both for video interpolation).
+  - For videos: If you want to put specific lines of dialogue into the video, you must use "pro" quality with sound_effects, and no reference_images[0] (init_image)).
   - For videos: Audio files are *only* supported when "talking_head" is in extras, so don't use one otherwise. If you want to mix an audio file over video, use the media_editor tool instead.
+  - For videos: If reference_video is provided, Runway Aleph will be used for video-to-video style transfer. You can also provide reference_images for additional style guidance (style_image or style_video in Aleph terms).
 
   Prompt guide:
 
@@ -47,7 +50,7 @@ parameters:
     label: Prompt
     description: Text prompt.
     tip: |-
-      If generating from scratch, the prompt should be a visually detailed description of the image or video you want to generate. If using init or reference images, specify an instruction for how to edit or transform the input image(s) or create a new image with elements from the reference image(s).
+      If generating from scratch, the prompt should be a visually detailed description of the image or video you want to generate. If using reference images, specify an instruction for how to edit or transform the input image(s) or create a new image with elements from the reference image(s).
     required: true
   aspect_ratio:
     type: string
@@ -55,13 +58,21 @@ parameters:
     description: Aspect ratio width/height
     default: "auto"
     choices: ["auto", "21:9", "16:9", "3:2", "4:3", "5:4", "1:1", "4:5", "3:4", "2:3", "9:16", "9:21"]
-  init_image:
-    type: image
-    label: Input image
-    description: Input image.
+  reference_images:
+    type: array
+    items:
+      type: image
+    label: Reference images
+    description: Reference images for generation or editing.
     tip: |-
-      For images: Only use this if you are editing an image, generating an image based on a reference image, or using "controlnet" in extras.
-      For videos: Use this as init_image if you are animating an image, i.e. using it as the first frame of the video. If generating a video from scratch, do not use this.
+      For images, add reference images for editing, style transfer, or other image-to-image (Nano Banana) tasks with at least one refernece image. The last reference image's aspect ratio will be used for the output, so it is better for the base image if there is one.
+      For videos, the first image (if provided) is used as the init_image (first frame), and the second image (if provided) is used as the end_image (last frame). Only provide both for video interpolation between start and end frames.
+  reference_video:
+    type: video
+    label: Reference video
+    description: Reference video for style transfer (video output only).
+    tip: |-
+      For videos only. When provided, will use Runway Aleph for video-to-video style transfer. The input video will be stylized according to your prompt while preserving the motion and structure of the reference video.
   seed:
     type: integer
     label: Seed
@@ -78,17 +89,11 @@ parameters:
     tip: |-
       Choose any combination of extra features:
       - text_precision: For images only. Maximize the quality and legibility small details, especially text. Useful for infographics, signs, logos, thought bubbles, data visualizations, and other images that require a high degree of coherence, detail, and legibility, especially with text. *Not* compatible with LoRA! If you need to combine this with LoRA, it is better to first generate the initial image with the LoRA, then edit that image in a suqbsequent step with text_precision.
-      - talking_head: For videos only. Special mode for outputting talking avatar or lipsyncing videos with Hedra. You must feature a face in the prompt or init_image, your audio must feature speech, and you want to make a video with the face speaking, singing, or lipsyncing.
+      - talking_head: For videos only. Special mode for outputting talking avatar or lipsyncing videos with Hedra. You must feature a face in the prompt or reference_images[0], your audio must feature speech, and you want to make a video with the face speaking, singing, or lipsyncing.
       - double_character: For images only. Use this only when there are two LoRAs of characters/faces/people, or if the user requests it. It will attempt to make one image that generates both characters in it.
-      - controlnet: You should almost NEVER use this. For images only. Conform the output image to the match the contours of the init_image. Useful for style transfer with strict content preservation. Generic image editing tasks should not use this.
+      - controlnet: You should almost NEVER use this. For images only. Conform the output image to the match the contours of the reference_images[0]. Useful for style transfer with strict content preservation. Generic image editing tasks should not use this.
 
     default: []
-  end_image:
-    type: image
-    label: End image
-    description: Last frame of video
-    tip: |-
-      For videos only. Use this if and only if you want to specify both the start and end image of the video. Requires both init_image and end_image. This tends not to work well. You should almost never use this unless the user requests it and gives you two images.
   duration:
     type: integer
     label: Duration

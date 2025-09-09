@@ -1007,7 +1007,8 @@ def generate_session_title(
     if request.creation_args and request.creation_args.title:
         return
 
-    background_tasks.add_task(async_title_session, session, request.message.content)
+    if background_tasks:
+        background_tasks.add_task(async_title_session, session, request.message.content)
 
 
 def setup_session(
