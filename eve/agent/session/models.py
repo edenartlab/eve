@@ -741,6 +741,11 @@ class Session(Document):
     trigger: Optional[ObjectId] = None
     active_requests: Optional[List[str]] = []
 
+    def get_messages(self):
+        messages = ChatMessage.find({"session": self.id})
+        messages = sorted(messages, key=lambda x: x.createdAt)
+        return messages
+
     @classmethod
     def ensure_indexes(cls):
         """Ensure indexes exist for optimal query performance"""
