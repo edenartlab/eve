@@ -226,7 +226,7 @@ class ChatMessage(Document):
             ]
             attachments.extend([r for r in urls if r])
 
-        content = self.content
+        content = self.content.strip()
         if self.tool_calls:
             tool_calls = "\n".join(
                 [dumps_json(tc.model_dump()) for tc in self.tool_calls]
@@ -262,7 +262,7 @@ class ChatMessage(Document):
         """Assemble user message content block"""
 
         # start with original message content
-        content = self.content or ""
+        content = self.content.strip() or ""
 
         # let claude see names
         if self.name and schema == "anthropic":
@@ -372,7 +372,7 @@ class ChatMessage(Document):
             return [
                 {
                     "role": "system",
-                    "content": self.content,
+                    "content": self.content.strip(),
                 }
             ]
 
@@ -390,7 +390,7 @@ class ChatMessage(Document):
             schema = [
                 {
                     "role": "assistant",
-                    "content": [{"type": "text", "text": self.content}]
+                    "content": [{"type": "text", "text": self.content.strip()}]
                     if self.content else [],
                 }
             ]
@@ -434,7 +434,7 @@ class ChatMessage(Document):
             return [
                 {
                     "role": "system",
-                    "content": self.content,
+                    "content": self.content.strip(),
                 }
             ]
 
@@ -455,7 +455,7 @@ class ChatMessage(Document):
             schema = [
                 {
                     "role": "assistant",
-                    "content": self.content,
+                    "content": self.content.strip(),
                     "function_call": None,
                     "tool_calls": None,
                 }
