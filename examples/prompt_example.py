@@ -13,7 +13,6 @@ async def example_prompt():
     system_message = system_template.render(
         name=agent.name,
         current_date_time=datetime.now(pytz.utc).strftime("%Y-%m-%d %H:%M:%S"),
-        description=agent.description,
         persona=agent.persona,
         tools=None
     )
