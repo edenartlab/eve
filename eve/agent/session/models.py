@@ -895,12 +895,12 @@ class DeploymentSettingsTwitter(BaseModel):
 
 
 class DeploymentSecretsTwitter(BaseModel):
-    user_id: str
-    bearer_token: str
-    consumer_key: str
-    consumer_secret: str
+    # OAuth 2.0 fields
     access_token: str
-    access_token_secret: str
+    refresh_token: Optional[str] = None
+    twitter_id: str
+    expires_at: Optional[datetime] = None
+    username: str
 
 
 # Shopify Models
