@@ -725,6 +725,7 @@ class LLMContext:
     config: LLMConfig = field(default_factory=LLMConfig)
     tools: Optional[List[Tool]] = None
     metadata: LLMContextMetadata = None
+    enable_tracing: bool = True
 
 
 class ActorSelectionMethod(Enum):
