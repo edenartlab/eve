@@ -524,7 +524,7 @@ async def extract_memories_with_llm(
             #    }
             #    if shard_name
             #    else {"extraction_elements": extraction_elements},
-            ),
+            # ),
         ),
     )
 
