@@ -1361,7 +1361,7 @@ async def async_title_session(
                     session_id=str(session.id),
                 ),
             ),
-            disable_tracing=True,
+            enable_tracing=False,
         )
 
         # Generate title using async_prompt
