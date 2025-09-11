@@ -205,7 +205,9 @@ class ChatMessage(Document):
     observability: Optional[ChatMessageObservability] = None
     finish_reason: Optional[str] = None
     thought: Optional[List[Dict[str, Any]]] = None
-    llm_config: Optional[Dict[str, Any]] = None  # Final LLM config used for assistant messages
+    llm_config: Optional[Dict[str, Any]] = (
+        None  # Final LLM config used for assistant messages
+    )
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -226,7 +228,7 @@ class ChatMessage(Document):
             ]
             attachments.extend([r for r in urls if r])
 
-        content = self.content
+        content = self.content.strip()
         if self.tool_calls:
             tool_calls = "\n".join(
                 [dumps_json(tc.model_dump()) for tc in self.tool_calls]
@@ -262,7 +264,7 @@ class ChatMessage(Document):
         """Assemble user message content block"""
 
         # start with original message content
-        content = self.content or ""
+        content = self.content.strip() or ""
 
         # let claude see names
         if self.name and schema == "anthropic":
@@ -273,6 +275,8 @@ class ChatMessage(Document):
             attachment_lines = []
             attachment_files = []
             attachment_errors = []
+            text_attachments = []
+
             for attachment in self.attachments:
                 try:
                     attachment_file = download_file(
@@ -285,7 +289,40 @@ class ChatMessage(Document):
                     print("downloaded attachment", attachment_file)
                     mime_type = magic.from_file(attachment_file, mime=True)
                     print("mime type", mime_type)
-                    if "video" in mime_type:
+                    # Handle text files (.txt, .md, .plain)
+                    if mime_type in [
+                        "text/plain",
+                        "text/markdown",
+                        "text/x-markdown",
+                    ] or attachment.lower().endswith(
+                        (".txt", ".md", ".markdown", ".plain")
+                    ):
+                        try:
+                            with open(attachment_file, "r", encoding="utf-8") as f:
+                                text_content = f.read()
+                                # Limit text content to reasonable size (e.g., 10000 chars)
+                                if len(text_content) > 10000:
+                                    text_content = (
+                                        text_content[:10000]
+                                        + "\n\n[Content truncated...]"
+                                    )
+
+                                file_name = attachment.split("/")[-1]
+                                text_attachments.append(
+                                    {
+                                        "name": file_name,
+                                        "content": text_content,
+                                        "url": attachment,
+                                    }
+                                )
+                        except Exception as read_error:
+                            print(
+                                f"Error reading text file {attachment_file}: {read_error}"
+                            )
+                            attachment_lines.append(
+                                f"* {attachment}: (Text file, but could not read: {str(read_error)})"
+                            )
+                    elif "video" in mime_type:
                         attachment_lines.append(
                             f"* {attachment} (The asset is a video, the corresponding image attachment is its first frame.)"
                         )
@@ -302,18 +339,34 @@ class ChatMessage(Document):
                     attachment_errors.append(f"* {attachment}: {str(e)}")
 
             attachments = ""
+
+            # Add text file contents directly to the message
+            if text_attachments:
+                for text_att in text_attachments:
+                    attachments += f'\n<attached_file name="{text_att["name"]}" url="{text_att["url"]}">\n'
+                    attachments += text_att["content"]
+                    attachments += f"\n</attached_file>\n"
+
             if attachment_lines:
+                if attachments:
+                    attachments += "\n"
                 attachments += "The attached images correspond to the following urls:\n"
                 attachments += "\n".join(attachment_lines)
+
             if attachment_errors:
+                if attachments:
+                    attachments += "\n"
                 attachments += "The following files failed to attach:\n"
                 attachments += "\n".join(attachment_errors)
-            attachments = f"<attachments>\n{attachments}\n</attachments>"
-            content += f"\n{attachments}"
+
+            if attachments:
+                attachments = f"<attachments>\n{attachments}\n</attachments>"
+                content += f"\n{attachments}"
 
             # add image blocks
+            block = []
+
             if schema == "anthropic":
-                block = []
                 for file_path in attachment_files:
                     try:
                         block.append(
@@ -336,7 +389,6 @@ class ChatMessage(Document):
                         # Skip this image and continue with others
                         continue
             elif schema == "openai":
-                block = []
                 for file_path in attachment_files:
                     try:
                         block.append(
@@ -362,7 +414,9 @@ class ChatMessage(Document):
             if content:
                 block.extend([{"type": "text", "text": content.strip()}])
 
-            content = block
+            # Only replace content if we have blocks (images or text)
+            if block:
+                content = block
 
         return content
 
@@ -372,7 +426,7 @@ class ChatMessage(Document):
             return [
                 {
                     "role": "system",
-                    "content": self.content,
+                    "content": self.content.strip(),
                 }
             ]
 
@@ -390,27 +444,29 @@ class ChatMessage(Document):
             schema = [
                 {
                     "role": "assistant",
-                    "content": [{"type": "text", "text": self.content}]
-                    if self.content else [],
+                    "content": [{"type": "text", "text": self.content.strip()}]
+                    if self.content
+                    else [],
                 }
             ]
-            
+
             if self.thought and include_thoughts:
                 thinking_blocks = []
 
                 for t in self.thought:
                     if t.get("type") == "thinking" and t.get("signature"):
-                        thinking_blocks.append({
-                            "type": "thinking",
-                            "thinking": t["thinking"],
-                            "signature": t["signature"]
-                        })                        
+                        thinking_blocks.append(
+                            {
+                                "type": "thinking",
+                                "thinking": t["thinking"],
+                                "signature": t["signature"],
+                            }
+                        )
                     elif t.get("type") == "redacted_thinking":
-                        thinking_blocks.append({
-                            "type": "redacted_thinking",
-                            "data": t.get("data", "")
-                        })
-                
+                        thinking_blocks.append(
+                            {"type": "redacted_thinking", "data": t.get("data", "")}
+                        )
+
                 schema[0]["content"] = thinking_blocks + schema[0]["content"]
 
             if self.tool_calls:
@@ -421,7 +477,10 @@ class ChatMessage(Document):
                     {
                         "role": "user",
                         "content": [
-                            t.anthropic_result_schema(truncate_images=truncate_images, include_thoughts=include_thoughts)
+                            t.anthropic_result_schema(
+                                truncate_images=truncate_images,
+                                include_thoughts=include_thoughts,
+                            )
                             for t in self.tool_calls
                         ],
                     }
@@ -434,7 +493,7 @@ class ChatMessage(Document):
             return [
                 {
                     "role": "system",
-                    "content": self.content,
+                    "content": self.content.strip(),
                 }
             ]
 
@@ -444,7 +503,8 @@ class ChatMessage(Document):
                 {
                     "role": "user",
                     "content": self._get_content_block(
-                        "openai", truncate_images=truncate_images,
+                        "openai",
+                        truncate_images=truncate_images,
                     ),
                     **({"name": self.name} if self.name else {}),
                 }
@@ -455,30 +515,35 @@ class ChatMessage(Document):
             schema = [
                 {
                     "role": "assistant",
-                    "content": self.content,
+                    "content": self.content.strip(),
                     "function_call": None,
                     "tool_calls": None,
                 }
             ]
 
             if self.thought and include_thoughts:
-                schema[0]["thinking_blocks"] = []                
-                for t in self.thought:                    
+                schema[0]["thinking_blocks"] = []
+                for t in self.thought:
                     # injecting anthropic thinking blocks into openai schema because litellm uses opnenai schema
                     # this might fail if going through openai api directly.
                     # not sure if there is a better way ¯\_(ツ)_/¯
                     if t.get("type") == "thinking":
-                        schema[0]["thinking_blocks"].append({
-                            "type": "thinking",
-                            "thinking": t["thinking"],
-                            **({"signature": t["signature"]} if "signature" in t else {}),
-                        })
+                        schema[0]["thinking_blocks"].append(
+                            {
+                                "type": "thinking",
+                                "thinking": t["thinking"],
+                                **(
+                                    {"signature": t["signature"]}
+                                    if "signature" in t
+                                    else {}
+                                ),
+                            }
+                        )
                     elif t.get("type") == "redacted_thinking":
-                        schema[0]["thinking_blocks"].append({
-                            "type": "redacted_thinking",
-                            "data": t.get("data", "")
-                        })
-                    
+                        schema[0]["thinking_blocks"].append(
+                            {"type": "redacted_thinking", "data": t.get("data", "")}
+                        )
+
             if self.tool_calls:
                 schema[0]["tool_calls"] = [
                     t.openai_call_schema() for t in self.tool_calls
@@ -632,10 +697,12 @@ class LLMContextMetadata(BaseModel):
 
 class LLMThinkingSettings(BaseModel):
     """LLM configuration and thinking settings for an agent."""
-    
+
     policy: Optional[str] = "auto"  # "auto", "off", "always"
     effort_cap: Optional[str] = "medium"  # "low", "medium", "high"
-    effort_instructions: Optional[str] = "Use low for simple tasks, high for complex reasoning-intensive tasks."
+    effort_instructions: Optional[str] = (
+        "Use low for simple tasks, high for complex reasoning-intensive tasks."
+    )
 
 
 @dataclass
@@ -645,7 +712,9 @@ class LLMConfig:
     max_tokens: Optional[int] = None
     response_format: Optional[BaseModel] = None
     thinking: Optional[LLMThinkingSettings] = None
-    reasoning_effort: Optional[str] = None  # Final resolved reasoning effort (low/medium/high)
+    reasoning_effort: Optional[str] = (
+        None  # Final resolved reasoning effort (low/medium/high)
+    )
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -656,6 +725,7 @@ class LLMContext:
     config: LLMConfig = field(default_factory=LLMConfig)
     tools: Optional[List[Tool]] = None
     metadata: LLMContextMetadata = None
+    enable_tracing: bool = True
 
 
 class ActorSelectionMethod(Enum):
@@ -701,23 +771,24 @@ class Trigger(Document):
 
 class SessionMemoryContext(BaseModel):
     """Session-level memory context and caching"""
+
     # Core memory caching
     cached_memory_context: Optional[str] = None
     memory_context_timestamp: Optional[datetime] = None
-    
+
     # Session activity tracking
     last_activity: Optional[datetime] = None
     last_memory_message_id: Optional[ObjectId] = None
     messages_since_memory_formation: int = 0
-    
+
     # Memory freshness timestamps
     agent_memory_timestamp: Optional[datetime] = None
     user_memory_timestamp: Optional[datetime] = None
-    
+
     # Episode memory caching
     cached_episode_memories: Optional[List[Dict[str, Any]]] = None
     episode_memories_timestamp: Optional[datetime] = None
-    
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
@@ -731,7 +802,9 @@ class Session(Document):
     agents: List[ObjectId] = Field(default_factory=list)
     status: Literal["active", "archived"] = "active"
     messages: List[ObjectId] = Field(default_factory=list)
-    memory_context: Optional[SessionMemoryContext] = Field(default_factory=SessionMemoryContext)
+    memory_context: Optional[SessionMemoryContext] = Field(
+        default_factory=SessionMemoryContext
+    )
     title: Optional[str] = None
     scenario: Optional[str] = None
     autonomy_settings: Optional[SessionAutonomySettings] = None
@@ -741,20 +814,29 @@ class Session(Document):
     trigger: Optional[ObjectId] = None
     active_requests: Optional[List[str]] = []
 
+    def get_messages(self):
+        messages = ChatMessage.find({"session": self.id})
+        messages = sorted(messages, key=lambda x: x.createdAt)
+        return messages
+
     @classmethod
     def ensure_indexes(cls):
         """Ensure indexes exist for optimal query performance"""
         collection = cls.get_collection()
-        
+
         # Compound index for cold session detection query
-        # Optimizes: Session.find({"memory_context.last_activity": {"$lt": cutoff_time}, 
-        #                         "memory_context.messages_since_memory_formation": {"$gt": 0}, 
+        # Optimizes: Session.find({"memory_context.last_activity": {"$lt": cutoff_time},
+        #                         "memory_context.messages_since_memory_formation": {"$gt": 0},
         #                         "status": "active"})
-        collection.create_index([
-            ("memory_context.last_activity", 1),
-            ("memory_context.messages_since_memory_formation", 1), 
-            ("status", 1)
-        ], name="cold_sessions_idx", background=True)
+        collection.create_index(
+            [
+                ("memory_context.last_activity", 1),
+                ("memory_context.messages_since_memory_formation", 1),
+                ("status", 1),
+            ],
+            name="cold_sessions_idx",
+            background=True,
+        )
 
 
 @dataclass
@@ -787,7 +869,9 @@ class PromptSessionContext:
     llm_config: Optional[LLMConfig] = None
     custom_tools: Optional[Dict[str, Any]] = None
     notification_config: Optional[NotificationConfig] = None
-    thinking_override: Optional[bool] = None  # Override agent's thinking policy per-message
+    thinking_override: Optional[bool] = (
+        None  # Override agent's thinking policy per-message
+    )
 
 
 @dataclass
@@ -890,12 +974,12 @@ class DeploymentSettingsTwitter(BaseModel):
 
 
 class DeploymentSecretsTwitter(BaseModel):
-    user_id: str
-    bearer_token: str
-    consumer_key: str
-    consumer_secret: str
+    # OAuth 2.0 fields
     access_token: str
-    access_token_secret: str
+    refresh_token: Optional[str] = None
+    twitter_id: str
+    expires_at: Optional[datetime] = None
+    username: str
 
 
 # Shopify Models

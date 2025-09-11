@@ -2,67 +2,45 @@ import time
 import logging
 import requests
 from datetime import datetime, timedelta
-from requests_oauthlib import OAuth1Session
 
 from eve.agent.deployments import Deployment
 
 
 class X:
     def __init__(self, deployment: Deployment):
-        self.user_id = deployment.secrets.twitter.user_id
+        import os
+        
+        # OAuth 2.0 only mode
         self.access_token = deployment.secrets.twitter.access_token
-        self.access_token_secret = deployment.secrets.twitter.access_token_secret
-        self.consumer_key = deployment.secrets.twitter.consumer_key
-        self.consumer_secret = deployment.secrets.twitter.consumer_secret
-        self.bearer_token = deployment.secrets.twitter.bearer_token
-
-        if not all(
-            [
-                self.consumer_key,
-                self.consumer_secret,
-                self.access_token,
-                self.access_token_secret,
-                self.user_id,
-            ]
-        ):
-            raise ValueError("Missing required OAuth credentials")
-
-        self.oauth = OAuth1Session(
-            self.consumer_key,
-            client_secret=self.consumer_secret,
-            resource_owner_key=self.access_token,
-            resource_owner_secret=self.access_token_secret,
-        )
+        self.refresh_token = deployment.secrets.twitter.refresh_token
+        self.twitter_id = deployment.secrets.twitter.twitter_id
+        self.user_id = deployment.secrets.twitter.twitter_id  # For compatibility
+        self.username = deployment.secrets.twitter.username
+        
+        # Get app credentials from environment
+        self.consumer_key = os.getenv("TWITTER_INTEGRATIONS_CLIENT_ID")
+        self.consumer_secret = os.getenv("TWITTER_INTEGRATIONS_CLIENT_SECRET")
+        self.bearer_token = self.access_token  # OAuth 2.0 access token can be used as bearer
+        
+        if not all([self.access_token, self.twitter_id, self.username]):
+            raise ValueError("Missing required OAuth 2.0 credentials")
 
         logging.info(
-            f"Initialized X client for user_id: {self.user_id}\n"
-            f"Using app consumer key: {self.consumer_key[:8]}...\n"
-            f"Using user access token: {self.access_token[:8]}..."
+            f"Initialized X client for user: @{self.username} (ID: {self.twitter_id})\n"
+            f"Using OAuth 2.0 access token: {self.access_token[:8]}..."
         )
 
-    def _init_oauth_session(self):
-        """Initializes OAuth1 session."""
-        session = OAuth1Session(
-            client_key=self.consumer_key,
-            client_secret=self.consumer_secret,
-            resource_owner_key=self.access_token,
-            resource_owner_secret=self.access_token_secret,
-        )
-        logging.info(f"OAuth1 session initialized: {session}")
-        return session
-
-    def _make_request(self, method, url, oauth=True, **kwargs):
-        """Makes a request to the Twitter API."""
+    def _make_request(self, method, url, **kwargs):
+        """Makes a request to the Twitter API using OAuth 2.0."""
+        # Always use bearer token authentication for OAuth 2.0
+        if 'headers' not in kwargs:
+            kwargs['headers'] = {}
+        kwargs['headers']['Authorization'] = f'Bearer {self.access_token}'
+        
         if method.lower() == "get":
-            response = (
-                self.oauth.get(url, **kwargs) if oauth else requests.get(url, **kwargs)
-            )
+            response = requests.get(url, **kwargs)
         else:
-            response = (
-                self.oauth.post(url, **kwargs)
-                if oauth
-                else requests.post(url, **kwargs)
-            )
+            response = requests.post(url, **kwargs)
 
         if not response.ok:
             error_data = (
@@ -106,7 +84,6 @@ class X:
         response = self._make_request(
             "get",
             f"https://api.twitter.com/2/users/{self.user_id}/following",
-            headers={"Authorization": f"Bearer {self.bearer_token}"},
         )
         return response.json()
 
@@ -122,9 +99,9 @@ class X:
 
     def tweet_media(self, media_url):
         """Uploads media to Twitter and returns the media ID."""
-        # First, download the media
-        image_response = self._make_request("get", media_url, oauth=False)
-        if not image_response:
+        # First, download the media (don't use Twitter auth for external URL)
+        image_response = requests.get(media_url)
+        if not image_response.ok:
             logging.error(f"Failed to download media from: {media_url}")
             return None
 
@@ -242,7 +219,6 @@ class X:
             response = self._make_request(
                 "get",
                 f"https://api.twitter.com/2/users/by/username/{username}",
-                headers={"Authorization": f"Bearer {self.bearer_token}"},
             )
 
             if not response:
@@ -260,7 +236,6 @@ class X:
             follows_response = self._make_request(
                 "get",
                 f"https://api.twitter.com/2/users/{user_id}/following",
-                headers={"Authorization": f"Bearer {self.bearer_token}"},
                 params={"max_results": 1000},  # Adjust as needed for pagination.
             )
 
@@ -283,7 +258,6 @@ class X:
             response = self._make_request(
                 "get",
                 f"https://api.twitter.com/2/users/by/username/{username}",
-                headers={"Authorization": f"Bearer {self.bearer_token}"},
             )
 
             if not response:
@@ -301,7 +275,6 @@ class X:
             tweets_response = self._make_request(
                 "get",
                 f"https://api.twitter.com/2/users/{user_id}/tweets",
-                headers={"Authorization": f"Bearer {self.bearer_token}"},
                 params={"max_results": 100, "tweet.fields": "created_at"},
             )
 
@@ -329,11 +302,6 @@ class X:
               we will paginate until we've retrieved them all, using 'next_token'.
         """
         url_template = "https://api.twitter.com/2/users/{}/following"
-        headers = {
-            "Authorization": f"Bearer {self.bearer_token}",
-            "User-Agent": "v2UserFollowingLookupPython",
-        }
-
         all_followings = {}
 
         for user_id in user_ids:
@@ -345,13 +313,11 @@ class X:
                 if pagination_token:
                     params["pagination_token"] = pagination_token
 
-                # Use _make_request but set oauth=False to use Bearer token
-                # (the v2 'following' endpoint typically uses Bearer token).
+                # Use _make_request with Bearer token
+                # (the v2 'following' endpoint uses Bearer token).
                 response = self._make_request(
-                    "post",
+                    "get",  # This should be GET, not POST
                     url_template.format(user_id),
-                    oauth=False,
-                    headers=headers,
                     params=params,
                 )
 
@@ -385,8 +351,6 @@ class X:
         response = self._make_request(
             "get",
             f"https://api.twitter.com/2/users/by/username/{username}",
-            oauth=False,
-            headers={"Authorization": f"Bearer {self.bearer_token}"},
         )
         return response.json()
 
@@ -395,8 +359,6 @@ class X:
         response = self._make_request(
             "get",
             f"https://api.twitter.com/2/users/{user_id}/tweets",
-            oauth=False,
-            headers={"Authorization": f"Bearer {self.bearer_token}"},
             params={"max_results": max_results, "tweet.fields": "created_at"},
         )
         return response.json()
@@ -406,8 +368,6 @@ class X:
         response = self._make_request(
             "get",
             f"https://api.twitter.com/2/users/{user_id}/following",
-            oauth=False,
-            headers={"Authorization": f"Bearer {self.bearer_token}"},
             params={"max_results": max_results},
         )
         return response.json()

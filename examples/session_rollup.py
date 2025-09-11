@@ -9,6 +9,7 @@ from eve.agent.session.session import add_user_message, build_llm_context, async
 from eve.auth import get_my_eden_user
 from eve.agent import Agent
 from eve.tool import Tool
+from eve.tools.tool_handlers import handlers
 
 
 # Define a custom tool as a pydantic model
@@ -25,7 +26,8 @@ async def custom_handler(
 
 
 # Create and register the tool
-custom_tool = Tool.register_new(EdenDescription, custom_handler)
+custom_tool = Tool.from_pydantic(EdenDescription)
+handlers[custom_tool.key] = custom_handler
 
 
 async def example_session():
@@ -41,7 +43,7 @@ async def example_session():
             owner_id=str(user.id),
             agents=[str(agent.id)],
             title="Example session"
-        )
+        ),
     )
 
     # Setup session
@@ -73,7 +75,7 @@ async def example_session():
     )
     
     # Execute the prompt session
-    async for _ in async_prompt_session(session, context, agent):
+    async for _ in async_prompt_session(session, context, agent, rollup=True):
         pass
         
 
