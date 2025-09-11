@@ -892,6 +892,7 @@ class ClientType(Enum):
     PRINTIFY = "printify"
     CAPTIONS = "captions"
     TIKTOK = "tiktok"
+    INSTAGRAM = "instagram"
 
 
 class NotificationType(Enum):
@@ -1025,6 +1026,18 @@ class DeploymentSecretsTiktok(BaseModel):
     username: Optional[str] = None
 
 
+# Instagram Models
+class DeploymentSettingsInstagram(BaseModel):
+    pass
+
+
+class DeploymentSecretsInstagram(BaseModel):
+    access_token: str
+    user_id: str
+    username: Optional[str] = None
+    expires_at: Optional[datetime] = None
+
+
 # Combined Models
 class DeploymentSecrets(BaseModel):
     discord: DeploymentSecretsDiscord | None = None
@@ -1035,6 +1048,7 @@ class DeploymentSecrets(BaseModel):
     printify: DeploymentSecretsPrintify | None = None
     captions: DeploymentSecretsCaptions | None = None
     tiktok: DeploymentSecretsTiktok | None = None
+    instagram: DeploymentSecretsInstagram | None = None
 
 
 class DeploymentConfig(BaseModel):
@@ -1046,6 +1060,7 @@ class DeploymentConfig(BaseModel):
     printify: DeploymentSettingsPrintify | None = None
     captions: DeploymentSettingsCaptions | None = None
     tiktok: DeploymentSettingsTiktok | None = None
+    instagram: DeploymentSettingsInstagram | None = None
 
 
 @Collection("deployments2")

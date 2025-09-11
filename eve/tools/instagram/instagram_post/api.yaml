@@ -1,0 +1,29 @@
+name: instagram_post
+description: Post content to Instagram
+tip: |-
+  This tool allows an agent to post content to Instagram.
+  The content can be an image/video URL or text caption.
+  Examples:
+  - "Post this image to Instagram with caption 'Beautiful sunset!'"
+  - "Upload this video to Instagram as a reel"
+  Only use this tool when the user explicitly requests to post content to Instagram.
+cost_estimate: 0
+output_type: string
+active: true
+handler: local
+visible: false
+parameters:
+  media_url:
+    type: string
+    description: URL of the image or video to post to Instagram
+    required: true
+  caption:
+    type: string
+    description: Caption/description for the Instagram post
+    required: false
+  media_type:
+    type: string
+    description: Type of media to post
+    enum: ["IMAGE", "VIDEO"]
+    default: "IMAGE"
+    required: false

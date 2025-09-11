@@ -26,6 +26,7 @@ from ..tool_constants import (
     PRINTIFY_TOOLS,
     CAPTIONS_TOOLS,
     TIKTOK_TOOLS,
+    INSTAGRAM_TOOLS,
     SOCIAL_MEDIA_TOOLS,
     TOOL_SETS,
 )
@@ -346,6 +347,9 @@ class Agent(User):
                 tools.pop(tool, None)
         if "tiktok" not in self.deployments:
             for tool in TIKTOK_TOOLS:
+                tools.pop(tool, None)
+        if "instagram" not in self.deployments:
+            for tool in INSTAGRAM_TOOLS:
                 tools.pop(tool, None)
 
         # remove tools that only the owner can use
