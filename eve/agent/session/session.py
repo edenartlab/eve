@@ -1079,35 +1079,24 @@ async def _run_prompt_session_internal(
         # Generate session run ID for this prompt session
         session_run_id = str(uuid.uuid4())
 
-        # For single actor, maintain backwards compatibility
-        if len(actors) == 1:
-            actor = actors[0]
-            llm_context = await build_llm_context(
-                session,
-                actor,
-                context,
-                trace_id=session_run_id,
+        # Start typing indicator
+        if context.update_config:
+            from eve.api.typing_coordinator import update_busy_state
+            await update_busy_state(
+                context.update_config.model_dump() if hasattr(context.update_config, "model_dump") else context.update_config,
+                session_run_id,
+                True
             )
-            async for update in async_prompt_session(
-                session,
-                llm_context,
-                actor,
-                stream=stream,
-                is_client_platform=is_client_platform,
-                session_run_id=session_run_id,
-            ):
-                yield format_session_update(update, context)
-        else:
-            # Multiple actors - run them in parallel
-            async def run_actor_session(actor: Agent):
-                actor_updates = []
-                # Each actor gets its own generation ID
-                actor_session_run_id = str(uuid.uuid4())
+
+        try:
+            # For single actor, maintain backwards compatibility
+            if len(actors) == 1:
+                actor = actors[0]
                 llm_context = await build_llm_context(
                     session,
                     actor,
                     context,
-                    trace_id=actor_session_run_id,
+                    trace_id=session_run_id,
                 )
                 async for update in async_prompt_session(
                     session,
@@ -1115,28 +1104,57 @@ async def _run_prompt_session_internal(
                     actor,
                     stream=stream,
                     is_client_platform=is_client_platform,
-                    session_run_id=actor_session_run_id,
+                    session_run_id=session_run_id,
                 ):
-                    actor_updates.append(format_session_update(update, context))
-                return actor_updates
+                    yield format_session_update(update, context)
+            else:
+                # Multiple actors - run them in parallel
+                async def run_actor_session(actor: Agent):
+                    actor_updates = []
+                    # Each actor gets its own generation ID
+                    actor_session_run_id = str(uuid.uuid4())
+                    llm_context = await build_llm_context(
+                        session,
+                        actor,
+                        context,
+                        trace_id=actor_session_run_id,
+                    )
+                    async for update in async_prompt_session(
+                        session,
+                        llm_context,
+                        actor,
+                        stream=stream,
+                        is_client_platform=is_client_platform,
+                        session_run_id=actor_session_run_id,
+                    ):
+                        actor_updates.append(format_session_update(update, context))
+                    return actor_updates
 
-            # Run all actors in parallel
-            tasks = [run_actor_session(actor) for actor in actors]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
+                # Run all actors in parallel
+                tasks = [run_actor_session(actor) for actor in actors]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            # Yield updates from all actors in the order they complete
-            for result in results:
-                if isinstance(result, Exception):
-                    yield {
-                        "type": UpdateType.ERROR.value,
-                        "error": str(result),
-                        "update_config": context.update_config.model_dump()
-                        if context.update_config
-                        else None,
-                    }
-                else:
-                    for update in result:
-                        yield update
+                # Yield updates from all actors in the order they complete
+                for result in results:
+                    if isinstance(result, Exception):
+                        yield {
+                            "type": UpdateType.ERROR.value,
+                            "error": str(result),
+                            "update_config": context.update_config.model_dump()
+                            if context.update_config
+                            else None,
+                        }
+                    else:
+                        for update in result:
+                            yield update
+        finally:
+            # Stop typing indicator
+            if context.update_config:
+                await update_busy_state(
+                    context.update_config.model_dump() if hasattr(context.update_config, "model_dump") else context.update_config,
+                    session_run_id,
+                    False
+                )
 
         # Schedule background tasks if available
         if background_tasks:

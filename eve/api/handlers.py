@@ -55,8 +55,8 @@ from eve.api.helpers import (
     get_platform_client,
     setup_chat,
     create_telegram_chat_request,
-    update_busy_state,
 )
+from eve.api.typing_coordinator import update_busy_state
 from eve.utils import prepare_result, dumps_json, serialize_json
 from eve.tools.replicate_tool import replicate_update_task
 from eve.agent.llm import UpdateType
