@@ -16,26 +16,51 @@ from bson import ObjectId
 from eve.s3 import get_full_url
 from eve.tool import Tool
 from eve.models import Model
+
 # from eve.api.api import create
 from eve.user import User
+from eve.agent.agent import Agent
 from eve.utils import get_media_attributes
 
 
 def is_image_file(url: str) -> bool:
     """Check if URL points to an image file based on extension"""
-    image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg', '.tiff', '.tif', '.ico']
+    image_extensions = [
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".gif",
+        ".bmp",
+        ".webp",
+        ".svg",
+        ".tiff",
+        ".tif",
+        ".ico",
+    ]
     url_lower = url.lower()
     # Remove query parameters if present
-    url_lower = url_lower.split('?')[0]
+    url_lower = url_lower.split("?")[0]
     return any(url_lower.endswith(ext) for ext in image_extensions)
 
 
 def is_video_file(url: str) -> bool:
     """Check if URL points to a video file based on extension"""
-    video_extensions = ['.mp4', '.avi', '.mov', '.mkv', '.webm', '.flv', '.wmv', '.m4v', '.mpg', '.mpeg', '.3gp']
+    video_extensions = [
+        ".mp4",
+        ".avi",
+        ".mov",
+        ".mkv",
+        ".webm",
+        ".flv",
+        ".wmv",
+        ".m4v",
+        ".mpg",
+        ".mpeg",
+        ".3gp",
+    ]
     url_lower = url.lower()
     # Remove query parameters if present
-    url_lower = url_lower.split('?')[0]
+    url_lower = url_lower.split("?")[0]
     return any(url_lower.endswith(ext) for ext in video_extensions)
 
 
@@ -46,14 +71,18 @@ def validate_media_types(reference_images, reference_video):
         for i, img in enumerate(reference_images):
             if isinstance(img, str) and not is_image_file(img):
                 if is_video_file(img):
-                    raise Exception(f"Reference image {i+1} ({img}) is not an image, it's a video")
+                    raise Exception(
+                        f"Reference image {i + 1} ({img}) is not an image, it's a video"
+                    )
                 # Don't error on URLs without extensions, they might be valid
-    
+
     # Check reference video
     if reference_video:
         if isinstance(reference_video, str) and not is_video_file(reference_video):
             if is_image_file(reference_video):
-                raise Exception(f"The reference video {reference_video} is not a video, it's an image")
+                raise Exception(
+                    f"The reference video {reference_video} is not a video, it's an image"
+                )
             # Don't error on URLs without extensions, they might be valid
 
 
@@ -75,6 +104,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
         return await handle_video_creation(args, user, agent)
     else:
         raise Exception(f"Invalid output type: {output_type}")
+
 
 async def handle_image_creation(args: dict, user: str = None, agent: str = None):
     """Handle image creation - copied from original create tool handler"""
@@ -125,10 +155,10 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
                 image_tool = openai_image_edit  # preceded by flux_dev_lora call
             else:
                 image_tool = openai_image_edit
-        else:            
+        else:
             # just use one of the image editing tools for now, even when there's a lora
             # init image takes precedence over lora
-            if False: #loras:
+            if False:  # loras:
                 if loras[0].base_model == "sdxl":
                     image_tool = txt2img
                 else:
@@ -338,7 +368,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
             raise Exception("flux_double_character requires exactly 2 LoRAs")
 
         for l, lora in enumerate(loras):
-            prompt = prompt.replace(lora.name, f"subj_{l+1}")
+            prompt = prompt.replace(lora.name, f"subj_{l + 1}")
 
         args = {
             "prompt": prompt,
@@ -383,7 +413,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
             "prompt": prompt,
             "image_input": reference_images,  # Use all reference images
             "n_samples": n_samples,
-            "output_format": "png"
+            "output_format": "png",
         }
 
         if seed:
@@ -535,7 +565,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
     print("result", result)
     if result.get("status") == "failed":
         raise Exception(f"Error in /create: {result.get('error')}")
-    
+
     final_result = get_full_url(result["output"][0]["filename"])
     print("final result", final_result)
 
@@ -552,13 +582,13 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
                     tool_call["args"][key] = value
 
     final_result = {
-        "output": final_result, 
-        "subtool_calls": tool_calls, 
-        "intermediate_outputs": intermediate_outputs
+        "output": final_result,
+        "subtool_calls": tool_calls,
+        "intermediate_outputs": intermediate_outputs,
     }
     if intermediate_outputs:
         final_result["intermediate_outputs"] = intermediate_outputs
-    
+
     return final_result
 
 
@@ -570,7 +600,7 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
     veo3_enabled = True
     if user:
         user = User.from_mongo(user)
-        
+
         # if agent's owner pays, check their feature flags, otherwise user's
         if agent:
             agent = Agent.from_mongo(agent)
@@ -578,11 +608,14 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
                 paying_user = User.from_mongo(agent.owner)
             else:
                 paying_user = user
-        
-        veo3_enabled = any([
-            t for t in paying_user.featureFlags 
-            if t in ["tool_access_veo3", "preview"]
-        ])
+
+        veo3_enabled = any(
+            [
+                t
+                for t in paying_user.featureFlags
+                if t in ["tool_access_veo3", "preview"]
+            ]
+        )
 
     runway = Tool.load("runway")
     runway3 = Tool.load("runway3")  # Load Runway Aleph
@@ -668,11 +701,9 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
             try:
                 result = await create.async_run(args, save_thumbnails=True)
                 start_image = get_full_url(result["output"][0]["filename"])
-                tool_calls.append({
-                    "tool": create.key, 
-                    "args": args, 
-                    "output": start_image
-                })
+                tool_calls.append(
+                    {"tool": create.key, "args": args, "output": start_image}
+                )
                 intermediate_outputs["create_start_image"] = result["output"]
             except Exception as e:
                 raise Exception(
@@ -849,9 +880,11 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
         }
 
         if start_image:
-            args.update({
-                "image": start_image,
-            })
+            args.update(
+                {
+                    "image": start_image,
+                }
+            )
 
         if seed:
             args["seed"] = seed
@@ -882,7 +915,9 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
     elif video_tool == runway3:
         # Snap aspect ratio to closest Runway preset
         aspect_ratio = snap_aspect_ratio_to_model(
-            aspect_ratio, "runway4", None  # Use runway4 presets for Aleph
+            aspect_ratio,
+            "runway4",
+            None,  # Use runway4 presets for Aleph
         )
 
         args = {
@@ -893,11 +928,13 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
 
         # Add style reference images if provided
         if start_image:
-            args["style_image"] = start_image  # Use first reference image as style image
-        
+            args["style_image"] = (
+                start_image  # Use first reference image as style image
+            )
+
         # Could also use a video as style reference (from second reference image if it's a video)
         # But for now we'll keep it simple
-        
+
         if seed:
             args["seed"] = seed
 
@@ -935,15 +972,17 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
             )
 
         except Exception as e:
-            print(f"Error adding sound effects, just return video without it. Error: {e}")
+            print(
+                f"Error adding sound effects, just return video without it. Error: {e}"
+            )
 
     final_result = {
-        "output": final_video, 
-        "subtool_calls": tool_calls, 
+        "output": final_video,
+        "subtool_calls": tool_calls,
     }
     if intermediate_outputs:
         final_result["intermediate_outputs"] = intermediate_outputs
-    
+
     return final_result
 
 
