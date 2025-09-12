@@ -14,6 +14,7 @@ TODO:
 import os
 from bson import ObjectId
 from eve.s3 import get_full_url
+from eve.agent import Agent
 from eve.tool import Tool
 from eve.models import Model
 # from eve.api.api import create
