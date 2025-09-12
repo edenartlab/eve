@@ -42,7 +42,10 @@ from eve.agent.session.session_prompts import (
 )
 
 from eve.agent.session.memory import maybe_form_memories
-from eve.agent.session.memory_models import get_sender_id_to_sender_name_map, select_messages
+from eve.agent.session.memory_models import (
+    get_sender_id_to_sender_name_map,
+    select_messages,
+)
 from eve.agent.session.memory_assemble_context import assemble_memory_context
 
 from eve.agent.session.config import (
@@ -168,16 +171,14 @@ async def determine_actors(
     return actors
 
 
-
-
 def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
     """
     Re-assembles messages from perspective of actor (assistant) and everyone else (user)
     """
-    
+
     # Get sender name mapping for all messages
     sender_name_map = get_sender_id_to_sender_name_map(messages)
-    
+
     converted_messages = []
     for message in messages:
         if message.sender == actor_id:
@@ -190,8 +191,9 @@ def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
                 # Prepend the sender name to the content
                 user_message.content = f"[{sender_name}]: {user_message.content}"
             converted_messages.append(user_message)
-    
+
     return converted_messages
+
 
 async def build_system_message(
     session: Session,
@@ -211,7 +213,7 @@ async def build_system_message(
             actor.id,
             last_speaker_id=last_speaker_id,
             reason="build_system_message",
-            agent=actor
+            agent=actor,
         )
         if memory_context:
             memory_context = f"\n\n{memory_context}"
@@ -275,9 +277,7 @@ async def build_system_extras(
 
 
 def add_user_message(
-    session: Session, 
-    context: PromptSessionContext,
-    pin: bool = False
+    session: Session, context: PromptSessionContext, pin: bool = False
 ):
     new_message = ChatMessage(
         session=session.id,
@@ -296,9 +296,9 @@ def add_user_message(
     session.save()
 
     # Print the most recent message:
-    #print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
-    #print(f"--- {new_message.content[:30]} ---")
-    #print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+    # print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+    # print(f"--- {new_message.content[:30]} ---")
+    # print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
     return new_message
 
 
@@ -310,14 +310,16 @@ async def build_llm_context(
 ):
     user = User.from_mongo(context.initiating_user_id)
     tier = "premium" if user.subscriptionTier and user.subscriptionTier > 0 else "free"
-    
+
     tools = actor.get_tools(cache=False, auth_user=context.initiating_user_id)
     if context.custom_tools:
         tools.update(context.custom_tools)
     # build messages first to have context for thinking routing
     system_message = await build_system_message(session, actor, context, tools)
     messages = [system_message]
-    context, base_config, system_extras = await build_system_extras(session, context, context.llm_config or get_default_session_llm_config(tier))
+    context, base_config, system_extras = await build_system_extras(
+        session, context, context.llm_config or get_default_session_llm_config(tier)
+    )
     if len(system_extras) > 0:
         messages.extend(system_extras)
     existing_messages = select_messages(session)
@@ -327,11 +329,12 @@ async def build_llm_context(
     # Use agent's llm_settings if available, otherwise fallback to context or default
     if actor.llm_settings:
         from eve.agent.session.config import build_llm_config_from_agent_settings
+
         config = await build_llm_config_from_agent_settings(
-            actor, 
-            tier, 
-            thinking_override=getattr(context, 'thinking_override', None),
-            context_messages=existing_messages  # Pass existing messages for routing context
+            actor,
+            tier,
+            thinking_override=getattr(context, "thinking_override", None),
+            context_messages=existing_messages,  # Pass existing messages for routing context
         )
     else:
         config = context.llm_config or get_default_session_llm_config(tier)
@@ -369,10 +372,10 @@ async def async_run_tool_call_with_cancellation(
     """
     Cancellation-aware version of async_run_tool_call that can be interrupted
     """
-    
+
     if tool_call.tool == "web_search":
         return tool_call.result
-    
+
     tool = llm_context.tools[tool_call.tool]
 
     # Start the task
@@ -759,7 +762,7 @@ async def async_prompt_session(
             # Refresh messages from database to get any new messages added during tool calls
             # This ensures we have the latest context including any user messages sent while tools were running
             fresh_messages = select_messages(session)
-            
+
             # Rebuild the messages list with fresh data
             system_message = llm_context.messages[0]  # Keep the system message
             system_extras = []
@@ -769,14 +772,14 @@ async def async_prompt_session(
                     system_extras.append(msg)
                 else:
                     break
-            
+
             # Rebuild messages with fresh data from database
             refreshed_messages = [system_message]
             if system_extras:
                 refreshed_messages.extend(system_extras)
             refreshed_messages.extend(fresh_messages)
             refreshed_messages = convert_message_roles(refreshed_messages, actor.id)
-            
+
             # Update the context with refreshed messages
             llm_context.messages = refreshed_messages
 
@@ -858,7 +861,9 @@ async def async_prompt_session(
                     content=content,
                     tool_calls=tool_calls,
                     finish_reason=stop_reason,
-                    llm_config=llm_context.config.__dict__ if llm_context.config else None,
+                    llm_config=llm_context.config.__dict__
+                    if llm_context.config
+                    else None,
                     observability=ChatMessageObservability(
                         session_id=llm_context.metadata.session_id,
                         trace_id=llm_context.metadata.trace_id,
@@ -877,7 +882,9 @@ async def async_prompt_session(
                     tool_calls=response.tool_calls,
                     finish_reason=response.stop,
                     thought=response.thought,
-                    llm_config=llm_context.config.__dict__ if llm_context.config else None,
+                    llm_config=llm_context.config.__dict__
+                    if llm_context.config
+                    else None,
                     observability=ChatMessageObservability(
                         session_id=llm_context.metadata.session_id,
                         trace_id=llm_context.metadata.trace_id,
@@ -894,10 +901,10 @@ async def async_prompt_session(
             session.memory_context.last_activity = datetime.now(timezone.utc)
             session.memory_context.messages_since_memory_formation += 1
 
-            #print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
-            #print(f"--- {assistant_message.content[:30]} ---")
-            #print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
-            
+            # print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+            # print(f"--- {assistant_message.content[:30]} ---")
+            # print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+
             update_session_budget(session, tokens_spent=tokens_spent, turns_spent=1)
             session.save()
             # No longer appending to llm_context.messages since we refresh from DB each iteration
@@ -1072,35 +1079,24 @@ async def _run_prompt_session_internal(
         # Generate session run ID for this prompt session
         session_run_id = str(uuid.uuid4())
 
-        # For single actor, maintain backwards compatibility
-        if len(actors) == 1:
-            actor = actors[0]
-            llm_context = await build_llm_context(
-                session,
-                actor,
-                context,
-                trace_id=session_run_id,
+        # Start typing indicator
+        if context.update_config:
+            from eve.api.typing_coordinator import update_busy_state
+            await update_busy_state(
+                context.update_config.model_dump() if hasattr(context.update_config, "model_dump") else context.update_config,
+                session_run_id,
+                True
             )
-            async for update in async_prompt_session(
-                session,
-                llm_context,
-                actor,
-                stream=stream,
-                is_client_platform=is_client_platform,
-                session_run_id=session_run_id,
-            ):
-                yield format_session_update(update, context)
-        else:
-            # Multiple actors - run them in parallel
-            async def run_actor_session(actor: Agent):
-                actor_updates = []
-                # Each actor gets its own generation ID
-                actor_session_run_id = str(uuid.uuid4())
+
+        try:
+            # For single actor, maintain backwards compatibility
+            if len(actors) == 1:
+                actor = actors[0]
                 llm_context = await build_llm_context(
                     session,
                     actor,
                     context,
-                    trace_id=actor_session_run_id,
+                    trace_id=session_run_id,
                 )
                 async for update in async_prompt_session(
                     session,
@@ -1108,28 +1104,57 @@ async def _run_prompt_session_internal(
                     actor,
                     stream=stream,
                     is_client_platform=is_client_platform,
-                    session_run_id=actor_session_run_id,
+                    session_run_id=session_run_id,
                 ):
-                    actor_updates.append(format_session_update(update, context))
-                return actor_updates
+                    yield format_session_update(update, context)
+            else:
+                # Multiple actors - run them in parallel
+                async def run_actor_session(actor: Agent):
+                    actor_updates = []
+                    # Each actor gets its own generation ID
+                    actor_session_run_id = str(uuid.uuid4())
+                    llm_context = await build_llm_context(
+                        session,
+                        actor,
+                        context,
+                        trace_id=actor_session_run_id,
+                    )
+                    async for update in async_prompt_session(
+                        session,
+                        llm_context,
+                        actor,
+                        stream=stream,
+                        is_client_platform=is_client_platform,
+                        session_run_id=actor_session_run_id,
+                    ):
+                        actor_updates.append(format_session_update(update, context))
+                    return actor_updates
 
-            # Run all actors in parallel
-            tasks = [run_actor_session(actor) for actor in actors]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
+                # Run all actors in parallel
+                tasks = [run_actor_session(actor) for actor in actors]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            # Yield updates from all actors in the order they complete
-            for result in results:
-                if isinstance(result, Exception):
-                    yield {
-                        "type": UpdateType.ERROR.value,
-                        "error": str(result),
-                        "update_config": context.update_config.model_dump()
-                        if context.update_config
-                        else None,
-                    }
-                else:
-                    for update in result:
-                        yield update
+                # Yield updates from all actors in the order they complete
+                for result in results:
+                    if isinstance(result, Exception):
+                        yield {
+                            "type": UpdateType.ERROR.value,
+                            "error": str(result),
+                            "update_config": context.update_config.model_dump()
+                            if context.update_config
+                            else None,
+                        }
+                    else:
+                        for update in result:
+                            yield update
+        finally:
+            # Stop typing indicator
+            if context.update_config:
+                await update_busy_state(
+                    context.update_config.model_dump() if hasattr(context.update_config, "model_dump") else context.update_config,
+                    session_run_id,
+                    False
+                )
 
         # Schedule background tasks if available
         if background_tasks:
@@ -1354,6 +1379,7 @@ async def async_title_session(
                     session_id=str(session.id),
                 ),
             ),
+            enable_tracing=False,
         )
 
         # Generate title using async_prompt

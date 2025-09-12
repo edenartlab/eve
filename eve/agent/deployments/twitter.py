@@ -19,28 +19,28 @@ class TwitterClient(PlatformClient):
     async def predeploy(
         self, secrets: DeploymentSecrets, config: DeploymentConfig
     ) -> tuple[DeploymentSecrets, DeploymentConfig]:
-        """Validate Twitter credentials and add Twitter tools"""
+        """Validate Twitter OAuth 2.0 credentials and add Twitter tools"""
         try:
-            import tweepy
-
-            # Initialize Twitter client
-            client = tweepy.Client(
-                bearer_token=secrets.twitter.bearer_token,
-                consumer_key=secrets.twitter.consumer_key,
-                consumer_secret=secrets.twitter.consumer_secret,
-                access_token=secrets.twitter.access_token,
-                access_token_secret=secrets.twitter.access_token_secret,
+            # Simple validation - just check we have the required OAuth 2.0 fields
+            if not secrets.twitter.access_token:
+                raise ValueError("Missing OAuth 2.0 access token")
+            
+            if not secrets.twitter.twitter_id:
+                raise ValueError("Missing Twitter user ID")
+            
+            if not secrets.twitter.username:
+                raise ValueError("Missing Twitter username")
+            
+            print(
+                f"Twitter OAuth 2.0 credentials validated for user: @{secrets.twitter.username} (ID: {secrets.twitter.twitter_id})"
             )
-
-            # Test credentials by getting user info
-            user_info = client.get_me()
-            print(f"Verified Twitter credentials for user: {user_info.data.username}")
 
             # Add Twitter tools to agent
             self.add_tools()
 
             return secrets, config
         except Exception as e:
+            print(f"Invalid Twitter credentials: {str(e)}")
             raise APIError(f"Invalid Twitter credentials: {str(e)}", status_code=400)
 
     async def postdeploy(self) -> None:

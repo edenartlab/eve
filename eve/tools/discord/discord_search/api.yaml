@@ -2,19 +2,19 @@ name: discord_search
 description: Search for messages in specific Discord channels by channel note/name and time range. This tool can search multiple channels in a single call - specify which channel(s) to search by their channel note/name.
 tip: |-
   This tool searches for messages in specific Discord channels by their channel note/name. 
-  
+
   IMPORTANT: You can search multiple channels in a single call by mentioning all relevant channel names in your query.
-  
+
   Query format: Always specify the channel name(s)/note(s) explicitly in your query along with the time range or maximum message count.
-  
+
   Examples:
   - "Get all messages from the research channel from the past 24 hours"
   - "Show me messages from announcements and general channels from the past week"
   - "Fetch all content from research, development, and news channels from the past 48 hours, limited to 100 messages per channel"
   - "Get the last 10 messages from the support channel"
-  
+
   For comprehensive searches across multiple channels, include all relevant channel names in a single query rather than making separate calls.
-  
+
   DO NOT use topic-based queries like "new features" or "updates" - instead specify the actual channel names you want to search.
 cost_estimate: 0
 output_type: array
@@ -26,3 +26,8 @@ parameters:
     type: string
     description: Search query to match against channel notes
     required: true
+  include_thread_messages:
+    type: boolean
+    description: Whether to include thread messages
+    required: false
+    default: true
