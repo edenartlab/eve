@@ -4,10 +4,11 @@ tip: |-
   This tool generates and edits both images and videos based on the output parameter.
 
   Rules:
+  - If the user asks you to either edit an image or make a new image that somehow references one or more prior images in the conversation (either the results of previous tool calls or attachments in the user messages), then set them in reference_images.
   - Use 16:9, 1:1, and 9:16 aspect ratios for landscape, square, and portrait images respectively. Only use the other ones if making images (not videos) and it is specifically requested of you. If no aspect ratio is specified, use your best judgment depending on the content requested. Cinematic content should be landscape while social media content should be square or portrait.
-  - For images: If the user wants to make an infographic, logo, or any other image that requires a lot of coherent and legible text, or the user requests OpenAI image tools, you should include "text_precision" in extras.
-  - For images: If either "text_precision" is in extras *OR* there are reference_images, the prompt should be structured as an **INSTRUCTION**, unless there is a lora.
-  - For images: If the user has reference_images but also has a lora or "controlnet" in extras, ignore the last rule about being an instruction and instead make a normal text-to-image prompt.
+  - For images: If the user wants to generate several interrelated images with consistency among them, set the model preference to seedream4 and set n_samples to the number of such images requested.
+  - For images: If the user wants to make an infographic, logo, or any other image that requires a lot of coherent and legible text, set the model preference to seedream4, openai, or nano_banana
+  - For images: If there are reference_images, the prompt should be structured as an **INSTRUCTION**
   - For images: When using nano_banana with multiple reference images, place the base image (whose aspect ratio should be copied) as the LAST reference image.
   - For videos: Place the init_image as the first reference image and end_image as the second reference image (if using both for video interpolation).
   - For videos: If you want to put specific lines of dialogue into the video, you must use "pro" quality with sound_effects, and no reference_images[0] (init_image)).
@@ -67,6 +68,15 @@ parameters:
     tip: |-
       For images, add reference images for editing, style transfer, or other image-to-image (Nano Banana) tasks with at least one refernece image. The last reference image's aspect ratio will be used for the output, so it is better for the base image if there is one.
       For videos, the first image (if provided) is used as the init_image (first frame), and the second image (if provided) is used as the end_image (last frame). Only provide both for video interpolation between start and end frames.
+  n_samples:
+    type: integer
+    label: Number of samples
+    description: Images only. How many variations, individual images, or samples to generate
+    tip: When using Seedream 4, this will generate a set of images with consistency.
+    default: 1
+    minimum: 1
+    maximum: 15
+    required: false
   reference_video:
     type: video
     label: Reference video
@@ -85,14 +95,11 @@ parameters:
     description: Optional extra features to enable
     items:
       type: string
-      enum: ["text_precision", "talking_head", "double_character", "controlnet"]
+      enum: ["talking_head", "double_character"]
     tip: |-
       Choose any combination of extra features:
-      - text_precision: For images only. Maximize the quality and legibility small details, especially text. Useful for infographics, signs, logos, thought bubbles, data visualizations, and other images that require a high degree of coherence, detail, and legibility, especially with text. *Not* compatible with LoRA! If you need to combine this with LoRA, it is better to first generate the initial image with the LoRA, then edit that image in a suqbsequent step with text_precision.
       - talking_head: For videos only. Special mode for outputting talking avatar or lipsyncing videos with Hedra. You must feature a face in the prompt or reference_images[0], your audio must feature speech, and you want to make a video with the face speaking, singing, or lipsyncing.
       - double_character: For images only. Use this only when there are two LoRAs of characters/faces/people, or if the user requests it. It will attempt to make one image that generates both characters in it.
-      - controlnet: You should almost NEVER use this. For images only. Conform the output image to the match the contours of the reference_images[0]. Useful for style transfer with strict content preservation. Generic image editing tasks should not use this.
-
     default: []
   duration:
     type: integer
@@ -156,13 +163,4 @@ parameters:
     description: Optional foley sound effects to mix over the video
     tip: |-
       For videos only. Only use this if you want to or have been requested to produce sound effects over the video. You should not use this if the user has already provided an audio track. You can include long and very detailed text about vocals, foley sound effects, backgroun effects, music, etc. You may include full lines of spoken dialogue, e.g. "the boy says 'I heard you can make dialogue in Eden now!'"
-    required: false
-  n_samples:
-    type: integer
-    label: Number of samples
-    description: How many variations or samples to generate
-    tip: For images only.
-    default: 1
-    minimum: 1
-    maximum: 4
     required: false

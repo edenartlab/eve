@@ -22,8 +22,8 @@ parameters:
       type: image
     label: Input images
     description: Input images to transform or use as reference
-    required: true
-    min_length: 1
+    # required: true
+    # min_length: 1
     tip: |-
       Optional input images that will be used as context or reference for the generation. You can provide multiple images.
   output_format:

@@ -46,6 +46,7 @@ ALL_TOOLS = [
     "remix_flux_schnell",
     "flux_double_character",
     "seedream3",
+    "seedream4",
     # video
     "runway",
     "kling_pro",

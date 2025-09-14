@@ -1,0 +1,8 @@
+{
+  "prompt": "Regenerate the desert camel image in the style of the automata image, except do it in three parts. The second image the camels make it to an oasis, the third image the camels make it to a city.",
+  "image_input": ["https://d14i3advvh2bvd.cloudfront.net/58656ca3bf3013df15536f8cba11dbe224a353d866e5e5bbef070a377fb5bc36.jpeg", "https://d14i3advvh2bvd.cloudfront.net/48f4b354bd5711b4d2234a9b8f05b193e186df8639ca72273c068e8b4f1910f1.png"],
+  "size": "2K",
+  "aspect_ratio": "16:9",
+  "max_images": 3,
+  "sequential_image_generation": "auto"
+}
