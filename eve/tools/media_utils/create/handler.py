@@ -660,6 +660,7 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
     duration = args.get("duration", 5)
     extras = args.get("extras", [])
     talking_head = "talking_head" in extras
+    controlnet = "controlnet" in extras
     audio = args.get("audio", None)
     sound_effects = args.get("sound_effects", None)
 
