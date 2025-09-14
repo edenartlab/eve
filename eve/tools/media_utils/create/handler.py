@@ -234,7 +234,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
         args = {
             "prompt": prompt,
-            "n_samples": min(4, n_samples)
+            "n_samples": min(4, n_samples),
             "aspect_ratio": aspect_ratio,
         }
 
