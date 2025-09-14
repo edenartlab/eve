@@ -129,6 +129,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
     reference_images = args.get("reference_images", [])
     init_image = reference_images[0] if len(reference_images) > 0 else None
     extras = args.get("extras", [])
+    controlnet = "controlnet" in extras
     double_character = "double_character" in extras
     seed = args.get("seed", None)
     aspect_ratio = args.get("aspect_ratio", "auto")
