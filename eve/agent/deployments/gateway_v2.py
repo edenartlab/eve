@@ -109,11 +109,25 @@ class DiscordGatewayClient:
             return os.getenv("EDEN_API_URL")
 
     async def heartbeat_loop(self):
-        while True:
-            await self.ws.send(
-                json.dumps({"op": GatewayOpCode.HEARTBEAT, "d": self._last_sequence})
-            )
-            await asyncio.sleep(self.heartbeat_interval / 1000)
+        try:
+            while self._reconnect:
+                if not self.ws:
+                    logger.warning(f"Heartbeat loop: WebSocket is None for {self.deployment.id}")
+                    break
+                try:
+                    await self.ws.send(
+                        json.dumps({"op": GatewayOpCode.HEARTBEAT, "d": self._last_sequence})
+                    )
+                    await asyncio.sleep(self.heartbeat_interval / 1000)
+                except websockets.exceptions.ConnectionClosed as e:
+                    logger.info(f"Heartbeat loop: Connection closed for {self.deployment.id}: {e}")
+                    break
+                except Exception as e:
+                    logger.error(f"Heartbeat loop error for {self.deployment.id}: {e}")
+                    break
+        except asyncio.CancelledError:
+            logger.debug(f"Heartbeat loop cancelled for {self.deployment.id}")
+            raise
 
     async def identify(self):
         logger.info(f"Identifying for deployment {self.deployment.id}")
@@ -807,7 +821,7 @@ class DiscordGatewayClient:
                                     f"Gateway connected for deployment {self.deployment.id}"
                                 )
 
-            except websockets.exceptions.ConnectionClosedError as e:
+            except (websockets.exceptions.ConnectionClosed, websockets.exceptions.ConnectionClosedError, websockets.exceptions.ConnectionClosedOK) as e:
                 logger.error(
                     f"Gateway connection closed for {self.deployment.id}: Code={e.code}, Reason={e.reason}"
                 )
@@ -854,9 +868,18 @@ class DiscordGatewayClient:
                     )
                     await self.cleanup_resources()
                 # Ensure websocket is closed if loop exits while connected
-                if self.ws and not self.ws.closed:
-                    await self.ws.close()
-                    self.ws = None
+                if self.ws:
+                    try:
+                        # Check if websocket is still open using state property
+                        if hasattr(self.ws, 'state') and self.ws.state.name in ['OPEN', 'CLOSING']:
+                            await self.ws.close()
+                        elif hasattr(self.ws, 'close_code') and self.ws.close_code is None:
+                            # Alternative check - if no close code, might still be open
+                            await self.ws.close()
+                    except Exception as e:
+                        logger.debug(f"WebSocket already closed or error closing: {e}")
+                    finally:
+                        self.ws = None
 
     async def cleanup_resources(self):
         """Clean up heartbeat task and typing manager."""
@@ -876,7 +899,10 @@ class DiscordGatewayClient:
                 logger.error(f"Error awaiting heartbeat task cancellation: {e}")
         self.heartbeat_task = None
         # Cleanup typing manager
-        await self.typing_manager.cleanup()
+        try:
+            await self.typing_manager.cleanup()
+        except Exception as e:
+            logger.error(f"Error cleaning up typing manager: {e}")
         # Close Ably client (if managed per-client)
         if self.ably_client:
             logger.info(f"Closing Ably client for {self.deployment.id}")
@@ -908,26 +934,48 @@ class DiscordGatewayClient:
         self._reconnect = False  # Prevent automatic reconnections
 
         # Close websocket if open - this will trigger cleanup in connect() finally block
-        if self.ws and not self.ws.closed:
-            logger.info(f"Closing WebSocket connection for {self.deployment.id}")
-            # Schedule the close, don't block here
-            asyncio.create_task(self.ws.close(code=1000, reason="Client stopping"))
+        if self.ws:
+            try:
+                # Check if websocket is still open
+                ws_is_open = False
+                if hasattr(self.ws, 'state'):
+                    # websockets library uses state property
+                    ws_is_open = self.ws.state.name in ['OPEN', 'CLOSING']
+                elif hasattr(self.ws, 'close_code'):
+                    # Check if close_code is None (still open)
+                    ws_is_open = self.ws.close_code is None
+                
+                if ws_is_open:
+                    logger.info(f"Closing WebSocket connection for {self.deployment.id}")
+                    # Schedule the close, don't block here
+                    asyncio.create_task(self.ws.close(code=1000, reason="Client stopping"))
+                else:
+                    logger.info(f"WebSocket already closed for {self.deployment.id}")
+                    # Trigger cleanup since WS is already closed
+                    try:
+                        loop = asyncio.get_event_loop()
+                        if loop.is_running():
+                            asyncio.create_task(self.cleanup_resources())
+                    except Exception as e:
+                        logger.error(f"Error scheduling cleanup: {e}")
+            except Exception as e:
+                logger.error(f"Error checking WebSocket state for {self.deployment.id}: {e}")
+                # Try to trigger cleanup anyway
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        asyncio.create_task(self.cleanup_resources())
+                except Exception as cleanup_error:
+                    logger.error(f"Error scheduling cleanup: {cleanup_error}")
         else:
-            # If WS not open/already closed, manually trigger cleanup if needed
-            # Check if loop is running to avoid errors
+            # No WebSocket connection, just trigger cleanup
             try:
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
                     logger.info(
-                        f"WS not open for {self.deployment.id}, scheduling resource cleanup."
+                        f"No WS for {self.deployment.id}, scheduling resource cleanup."
                     )
                     asyncio.create_task(self.cleanup_resources())
-                else:
-                    # Not ideal to run_until_complete here, but as fallback
-                    logger.info(
-                        f"WS not open and loop not running for {self.deployment.id}, running cleanup synchronously."
-                    )
-                    loop.run_until_complete(self.cleanup_resources())
             except Exception as e:
                 logger.error(
                     f"Error triggering cleanup in stop() for {self.deployment.id}: {e}"
@@ -1204,8 +1252,24 @@ async def lifespan(app: FastAPI):
     yield
 
     # Clean up on shutdown
+    logger.info("Shutting down gateway manager")
+    # Stop all clients
+    stop_tasks = []
     for deployment_id in list(manager.clients.keys()):
-        await manager.stop_client(deployment_id)
+        stop_tasks.append(manager.stop_client(deployment_id))
+    
+    if stop_tasks:
+        await asyncio.gather(*stop_tasks, return_exceptions=True)
+    
+    # Clean up Ably connections
+    try:
+        if manager.ably_client:
+            await manager.ably_client.close()
+    except Exception as e:
+        logger.error(f"Error closing Ably client: {e}")
+    
+    # Give tasks a moment to clean up
+    await asyncio.sleep(0.5)
 
 
 web_app = FastAPI(lifespan=lifespan)
