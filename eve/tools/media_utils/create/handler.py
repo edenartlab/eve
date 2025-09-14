@@ -121,15 +121,15 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
     openai_image_edit = Tool.load("openai_image_edit")
     openai_image_generate = Tool.load("openai_image_generate")
     seedream3 = Tool.load("seedream3")
+    seedream4 = Tool.load("seedream4")
+    
     # get args
     prompt = args["prompt"]
     n_samples = args.get("n_samples", 1)
     reference_images = args.get("reference_images", [])
     init_image = reference_images[0] if len(reference_images) > 0 else None
     extras = args.get("extras", [])
-    text_precision = "text_precision" in extras
     double_character = "double_character" in extras
-    controlnet = "controlnet" in extras
     seed = args.get("seed", None)
     aspect_ratio = args.get("aspect_ratio", "auto")
     model_preference = args.get("model_preference", "").lower()
@@ -151,51 +151,30 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
     # Determine tool
     if init_image:
-        if text_precision:
-            if loras:
-                image_tool = openai_image_edit  # preceded by flux_dev_lora call
-            else:
-                image_tool = openai_image_edit
-        else:
-            # just use one of the image editing tools for now, even when there's a lora
-            # init image takes precedence over lora
-            if False:  # loras:
-                if loras[0].base_model == "sdxl":
-                    image_tool = txt2img
-                else:
-                    image_tool = flux_dev_lora
-            elif controlnet:
-                image_tool = (
-                    flux_dev  # todo: controlnet vs instructions is kind of a hack
-                )
-            else:
-                image_tool = {
-                    "flux": flux_kontext,
-                    "seedream": seedream3,
-                    "openai": openai_image_edit,
-                    "sdxl": txt2img,
-                    "nano_banana": nano_banana,
-                }.get(model_preference, nano_banana)
+        # just use one of the image editing tools for now, even when there's a lora
+        # init image takes precedence over lora
+        image_tool = {
+            "flux": flux_kontext,
+            "seedream": seedream4,
+            "openai": openai_image_edit,
+            "nano_banana": nano_banana,
+            "sdxl": txt2img,
+        }.get(model_preference, seedream4)
 
     else:
-        if text_precision:
-            if loras:
-                image_tool = openai_image_edit
+        if loras:
+            if loras[0].base_model == "sdxl":
+                image_tool = txt2img
             else:
-                image_tool = openai_image_generate
+                image_tool = flux_dev_lora
         else:
-            if loras:
-                if loras[0].base_model == "sdxl":
-                    image_tool = txt2img
-                else:
-                    image_tool = flux_dev_lora
-            else:
-                image_tool = {
-                    "flux": flux_dev_lora,
-                    "seedream": seedream3,
-                    "openai": openai_image_generate,
-                    "sdxl": txt2img,
-                }.get(model_preference, flux_dev_lora)
+            image_tool = {
+                "flux": flux_dev_lora,
+                "seedream": seedream4,
+                "openai": openai_image_generate,
+                "nano_banana": nano_banana,
+                "sdxl": txt2img,
+            }.get(model_preference, seedream4)
 
     # Switch from Flux Dev Lora to Flux Dev if and only if 2 LoRAs or Controlnet
     if image_tool == flux_dev_lora:
@@ -211,7 +190,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
     if image_tool == txt2img:
         args = {
             "prompt": prompt,
-            "n_samples": n_samples,
+            "n_samples": min(4, n_samples),
             "enforce_SDXL_resolution": True,
         }
 
@@ -255,7 +234,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
         args = {
             "prompt": prompt,
-            "n_samples": n_samples,
+            "n_samples": min(4, n_samples)
             "aspect_ratio": aspect_ratio,
         }
 
@@ -270,7 +249,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
     elif image_tool == flux_dev_lora:
         args = {
             "prompt": prompt,
-            "n_samples": n_samples,
+            "n_samples": min(4, n_samples),
         }
 
         if seed:
@@ -306,7 +285,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
         args = {
             "prompt": prompt,
             "denoise": 1.0 if init_image else 0.8,
-            "n_samples": n_samples,
+            "n_samples": min(4, n_samples),
             "speed_quality_tradeoff": 0.7,
         }
 
@@ -373,7 +352,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
         args = {
             "prompt": prompt,
-            "n_samples": n_samples,
+            "n_samples": min(4, n_samples),
             "speed_quality_slider": 0.4,
             "lora": str(loras[0].id),
             "lora2": str(loras[1].id),
@@ -396,7 +375,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
         args = {
             "prompt": prompt,
             "init_image": init_image,
-            "n_samples": n_samples,
+            "n_samples": min(4, n_samples),
             "aspect_ratio": aspect_ratio,
             "fast": False,
         }
@@ -412,10 +391,12 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
     elif image_tool == nano_banana:
         args = {
             "prompt": prompt,
-            "image_input": reference_images,  # Use all reference images
             "n_samples": n_samples,
             "output_format": "png",
         }
+
+        if reference_images:
+            args["image_input"] = reference_images
 
         if seed:
             args["seed"] = seed
@@ -428,7 +409,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
     elif image_tool == openai_image_generate:
         args = {
             "prompt": prompt,
-            "n_samples": n_samples,
+            "n_samples": min(4, n_samples),
             "quality": "high",
         }
         if aspect_ratio in ["21:9", "16:9", "3:2", "4:3"]:
@@ -453,7 +434,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
             try:
                 args_pre = {
                     "prompt": prompt,
-                    "n_samples": n_samples,
+                    "n_samples": min(4, n_samples),
                     "lora": str(loras[0].id),
                     "lora_strength": lora_strength,
                 }
@@ -522,7 +503,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
         args = {
             "prompt": prompt,
-            "n_samples": n_samples,
+            "n_samples": min(4, n_samples),
             "input_fidelity": "high",
             "size": "auto",
         }
@@ -544,22 +525,58 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
     elif image_tool == seedream3:
         args = {
             "prompt": prompt,
-            "aspect_ratio": aspect_ratio if aspect_ratio != "auto" else "16:9",
             "size": "regular",
         }
 
-        if init_image:
-            args["image"] = init_image
-            args.pop("aspect_ratio", None)
-
+        if aspect_ratio == "auto":
+            args["aspect_ratio"] = "match_input_image"
+        elif aspect_ratio == "5:4":
+            args["aspect_ratio"] = "4:3"  # Seedream 3 doesn't support 5:4
+        elif aspect_ratio == "4:5":
+            args["aspect_ratio"] = "3:4"  # Seedream 3 doesn't support 4:5
+        else:
+            args["aspect_ratio"] = aspect_ratio
+        
         if seed:
             args["seed"] = seed
 
         print("Running Seedream3", args)
         result = await seedream3.async_run(args, save_thumbnails=True)
 
+    #########################################################
+    # Seedream 4
+    elif image_tool == seedream4:
+        args = {
+            "prompt": prompt,
+            "size": "2K",
+        }
+
+        if reference_images:
+            args["image_input"] = reference_images
+        
+        else:
+            if aspect_ratio == "auto":
+                args["aspect_ratio"] = "match_input_image"
+            elif aspect_ratio == "5:4":
+                args["aspect_ratio"] = "4:3"  # Seedream 3 doesn't support 5:4
+            elif aspect_ratio == "4:5":
+                args["aspect_ratio"] = "3:4"  # Seedream 3 doesn't support 4:5
+            else:
+                args["aspect_ratio"] = aspect_ratio
+
+        if seed:
+            args["seed"] = seed
+
+        if n_samples > 1:
+            args["sequential_image_generation"] = "auto"
+            args["max_images"] = min(15, n_samples)
+
+        print("Running Seedream4", args)
+        result = await seedream4.async_run(args, save_thumbnails=True)
+
     else:
         raise Exception("Invalid args", args, image_tool)
+
 
     #########################################################
     # Final result
