@@ -49,6 +49,8 @@ ALL_TOOLS = [
     "seedream4",
     # video
     "runway",
+    "runway2",
+    "runway3",
     "kling_pro",
     "kling",
     "veo2",
