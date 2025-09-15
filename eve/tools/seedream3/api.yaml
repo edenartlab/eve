@@ -1,4 +1,4 @@
-name: SeeDream-3
+name: Seedream-3
 description: A text-to-image model with support for native high-resolution (2K) image generation.
 tip: |-
   High-quality text-to-image generation with support for resolutions up to 2K. Offers flexible aspect ratios and precise prompt adherence control.

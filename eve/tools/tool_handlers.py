@@ -168,6 +168,11 @@ def load_handler(name):
 
             handlers[name] = handler
 
+        elif name == "runway3":
+            from .runway3.handler import handler
+
+            handlers[name] = handler
+
         elif name == "hedra":
             from .hedra.handler import handler
 

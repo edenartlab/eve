@@ -37,12 +37,38 @@ def setup_eve():
         # print(f"Traces sample rate: {traces_sample_rate}")
         # print(f"Profiles sample rate: {profiles_sample_rate}")
 
+        def before_send(event, hint):
+            """Filter out certain errors before sending to Sentry"""
+            # Check if there's an exception in the hint
+            if "exc_info" in hint:
+                error = hint["exc_info"][1]
+                error_message = str(error)
+                
+                # Filter out "Document not found" errors
+                if "not found" in error_message.lower() and "document" in error_message.lower():
+                    return None  # Don't send to Sentry
+                
+                # Filter out specific trigger not found errors
+                if "not found in triggers" in error_message:
+                    return None  # Don't send to Sentry
+            
+            # Check the event message as well
+            if "message" in event:
+                message = event["message"]
+                if "not found" in message.lower() and "document" in message.lower():
+                    return None
+                if "not found in triggers" in message:
+                    return None
+            
+            return event  # Send everything else to Sentry
+
         sentry_sdk.init(
             dsn=sentry_dsn,
             traces_sample_rate=traces_sample_rate,
             profiles_sample_rate=profiles_sample_rate,
             environment=sentry_env,
             debug=True if os.getenv("SENTRY_ENV") == "jmill-dev" else False,
+            before_send=before_send,
             _experiments={
                 "continuous_profiling_auto_start": True
                 if os.getenv("SENTRY_ENV")

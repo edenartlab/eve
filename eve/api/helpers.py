@@ -299,6 +299,23 @@ async def publish_busy_state(key: str, is_busy: bool, context: dict):
 
 
 async def update_busy_state(update_config, request_id: str, is_busy: bool):
+    """Update busy state using the new typing coordinator."""
+    logger.info(f"[Helpers] update_busy_state called - request: {request_id}, busy: {is_busy}")
+    
+    from eve.api.typing_coordinator import update_busy_state as coord_update_busy_state
+    
+    # Convert to dict if it's a Pydantic model
+    config_dict = None
+    if hasattr(update_config, "model_dump"):
+        config_dict = update_config.model_dump(exclude_unset=True)
+    elif isinstance(update_config, dict):
+        config_dict = update_config
+    
+    logger.info(f"[Helpers] config_dict: {config_dict}")
+    return await coord_update_busy_state(config_dict, request_id, is_busy)
+
+
+async def update_busy_state_old(update_config, request_id: str, is_busy: bool):
     """Updates the busy state in modal.Dict and publishes to Ably."""
     if not update_config:
         logger.warning("Cannot update busy state: update_config is missing.")

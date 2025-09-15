@@ -137,4 +137,4 @@ async def handler(args: dict, user: str = None, agent: str = None):
         print("OpenAI error result: ", error_result)
         print("!!!! ================ ERROR ==================== !!!!")
 
-        raise e
+        return error_result

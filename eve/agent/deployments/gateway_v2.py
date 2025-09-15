@@ -18,6 +18,7 @@ from eve.agent.session.models import (
     Deployment,
     ClientType,
 )
+from eve.agent.deployments.typing_manager import DiscordTypingManager, TelegramTypingManager
 from eve.api.api_requests import SessionCreationArgs, PromptSessionRequest
 import eve.mongo
 from fastapi import FastAPI
@@ -76,359 +77,6 @@ class GatewayEvent:
     MESSAGE_CREATE = "MESSAGE_CREATE"
 
 
-class TypingManager:
-    """Manages typing indicators for Discord channels"""
-
-    def __init__(self, client):
-        self.client = client
-        # Store task and last keepalive timestamp
-        self.typing_channels: Dict[str, Dict] = {}
-        self.check_interval = 60  # Check for stale tasks every 60 seconds
-        self.stale_threshold = (
-            300  # Consider typing stale after 5 minutes without keepalive
-        )
-        self._check_task: Optional[asyncio.Task] = None  # Store check task
-
-    def start_check_loop(self):
-        """Starts the background loop to check for stale typing tasks."""
-        if self._check_task is None or self._check_task.done():
-            self._check_task = asyncio.create_task(self._check_stale_loop())
-            logger.info("Started TypingManager stale check loop.")
-
-    async def _check_stale_loop(self):
-        """Periodically check for and clean up stale typing tasks."""
-        while True:
-            try:
-                await asyncio.sleep(self.check_interval)
-                now = asyncio.get_event_loop().time()
-                stale_channels = []
-                for channel_id, state in list(self.typing_channels.items()):
-                    if isinstance(state, dict) and "last_keepalive" in state:
-                        if now - state.get("last_keepalive", 0) > self.stale_threshold:
-                            stale_channels.append(channel_id)
-                            # Log the specific channel being marked as stale
-                            logger.warning(
-                                f"[StaleCheck] Marking channel {channel_id} as stale (last keepalive: {state.get('last_keepalive')}, now: {now})."
-                            )
-                    else:
-                        logger.warning(
-                            f"[StaleCheck] Found invalid typing state for channel {channel_id}, marking stale: {state}"
-                        )
-                        stale_channels.append(channel_id)
-
-                if stale_channels:
-                    logger.warning(
-                        f"[StaleCheck] Attempting to stop stale typing indicators for channels: {stale_channels}."
-                    )
-                    await asyncio.gather(
-                        *[
-                            self.stop_typing(channel_id, reason="stale")
-                            for channel_id in stale_channels
-                        ],
-                        return_exceptions=True,
-                    )
-
-            except asyncio.CancelledError:
-                logger.info("[StaleCheck] TypingManager stale check loop cancelled.")
-                break
-            except Exception as e:
-                logger.error(
-                    f"[StaleCheck] Error in TypingManager stale check loop: {e}",
-                    exc_info=True,
-                )
-                await asyncio.sleep(self.check_interval)
-
-    async def start_typing(self, channel_id: str):
-        """Start typing in a channel or update keepalive if already typing."""
-        now = asyncio.get_event_loop().time()
-        state = self.typing_channels.get(channel_id)
-
-        if state and isinstance(state, dict):
-            # Update keepalive timestamp
-            state["last_keepalive"] = now
-            task = state.get("task")
-            # Check if task exists and is running
-            if task and isinstance(task, asyncio.Task) and not task.done():
-                logger.debug(f"Updated keepalive for typing in channel {channel_id}")
-                return  # Already typing and keepalive updated
-            else:
-                logger.warning(
-                    f"Found existing state but task invalid/done for channel {channel_id}, restarting task."
-                )
-                # Ensure old task is cancelled if it exists but is done/invalid
-                if task and isinstance(task, asyncio.Task) and not task.cancelled():
-                    task.cancel()
-
-        # If state doesn't exist or task needs restarting
-        logger.info(f"Starting typing task for channel {channel_id}")
-        task = asyncio.create_task(self._typing_loop(channel_id))
-        self.typing_channels[channel_id] = {"task": task, "last_keepalive": now}
-        # Ensure the check loop is running
-        self.start_check_loop()
-
-    async def stop_typing(self, channel_id: str, reason: str = "signal"):
-        """Stop typing in a channel."""
-        logger.info(
-            f"[StopTyping:{reason}] Attempting to stop typing for channel {channel_id}."
-        )
-        state = self.typing_channels.pop(channel_id, None)
-        if state and isinstance(state, dict):
-            task = state.get("task")
-            if task and isinstance(task, asyncio.Task) and not task.done():
-                logger.info(
-                    f"[StopTyping:{reason}] Found active task for channel {channel_id}. Cancelling..."
-                )
-                task.cancel()
-                try:
-                    await asyncio.wait_for(task, timeout=1.0)
-                    logger.info(
-                        f"[StopTyping:{reason}] Typing task cancellation confirmed for channel {channel_id}."
-                    )
-                except asyncio.CancelledError:
-                    logger.info(
-                        f"[StopTyping:{reason}] Typing task cancellation confirmed (exception) for channel {channel_id}."
-                    )
-                except asyncio.TimeoutError:
-                    logger.warning(
-                        f"[StopTyping:{reason}] Timeout waiting for typing task cancellation for channel {channel_id}."
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"[StopTyping:{reason}] Error awaiting cancelled typing task for channel {channel_id}: {e}",
-                        exc_info=True,
-                    )
-            elif task:
-                logger.debug(
-                    f"[StopTyping:{reason}] Typing task for channel {channel_id} already done or invalid, removed state."
-                )
-            else:
-                logger.warning(
-                    f"[StopTyping:{reason}] State existed for channel {channel_id} but task was missing or invalid."
-                )
-            logger.info(
-                f"[StopTyping:{reason}] Removed state for channel {channel_id}. Current states: {list(self.typing_channels.keys())}"
-            )
-        else:
-            logger.debug(
-                f"[StopTyping:{reason}] No active typing state found to stop for channel {channel_id}."
-            )
-
-    async def _typing_loop(self, channel_id: str):
-        """Loop that sends typing indicators every ~8 seconds."""
-        typing_interval = 8  # Discord times out typing after 10 seconds
-        try:
-            while True:
-                # Check if state still exists before updating keepalive/sending
-                current_state = self.typing_channels.get(channel_id)
-                if not current_state or not isinstance(current_state, dict):
-                    logger.warning(
-                        f"Typing loop for channel {channel_id} found state missing/invalid, stopping loop."
-                    )
-                    break
-
-                # Update keepalive timestamp
-                current_state["last_keepalive"] = asyncio.get_event_loop().time()
-                logger.debug(
-                    f"Sending typing indicator and updated keepalive for {channel_id}"
-                )
-
-                await self._send_typing_indicator(channel_id)
-                await asyncio.sleep(typing_interval)
-
-        except asyncio.CancelledError:
-            # Expected when stop_typing is called
-            logger.info(f"Typing loop gracefully cancelled for channel {channel_id}")
-            # Do not re-raise, allow loop to exit cleanly
-        except Exception as e:
-            logger.error(
-                f"Error in typing loop for channel {channel_id}: {e}", exc_info=True
-            )
-        finally:
-            # Log when this loop actually terminates
-            logger.info(f"[_TypingLoop] Exiting typing loop for channel {channel_id}.")
-            # Ensure channel is removed from tracking if loop exits unexpectedly
-            if channel_id in self.typing_channels:
-                logger.warning(
-                    f"[_TypingLoop] Typing loop for {channel_id} ended unexpectedly (state still existed), cleaning up state."
-                )
-                # Call stop_typing to ensure proper cleanup, even if task is already cancelled
-                await self.stop_typing(channel_id, reason="loop_exit")
-
-    async def _send_typing_indicator(self, channel_id: str):
-        """Send a typing indicator to a Discord channel."""
-        try:
-            # Use the client's session if available, otherwise create one
-            # TODO: Refactor client to hold a persistent aiohttp session?
-            async with aiohttp.ClientSession() as session:
-                headers = {
-                    "Authorization": f"Bot {self.client.token}",
-                    "Content-Type": "application/json",
-                    "User-Agent": "EveDiscordClient (https://github.com/your-repo, 1.0)",  # Good practice
-                }
-                url = f"https://discord.com/api/v10/channels/{channel_id}/typing"
-                async with session.post(url, headers=headers) as response:
-                    if response.status == 204:
-                        logger.debug(
-                            f"Successfully sent typing indicator to {channel_id}"
-                        )
-                    elif response.status == 429:  # Rate limited
-                        retry_after = float(
-                            await response.json().get("retry_after", 1.0)
-                        )
-                        logger.warning(
-                            f"Rate limited sending typing to {channel_id}, retrying after {retry_after}s"
-                        )
-                        await asyncio.sleep(retry_after)
-                    elif response.status in [401, 403]:  # Permissions issue
-                        logger.error(
-                            f"Permissions error sending typing to {channel_id} (Status: {response.status}). Stopping typing for this channel."
-                        )
-                        # Stop the loop by removing the channel state
-                        self.typing_channels.pop(channel_id, None)
-                    elif response.status == 404:  # Channel not found
-                        logger.error(
-                            f"Channel {channel_id} not found sending typing. Stopping typing for this channel."
-                        )
-                        self.typing_channels.pop(channel_id, None)
-                    else:
-                        logger.warning(
-                            f"Failed to send typing indicator to {channel_id}: {response.status} - {await response.text()}"
-                        )
-        except aiohttp.ClientError as e:
-            logger.error(
-                f"HTTP Client error sending typing indicator to {channel_id}: {e}"
-            )
-            # Consider temporary backoff?
-            await asyncio.sleep(5)  # Basic retry delay
-        except Exception as e:
-            logger.error(
-                f"Unexpected error sending typing indicator to {channel_id}: {e}",
-                exc_info=True,
-            )
-            # Consider stopping the loop if error persists?
-            await asyncio.sleep(5)  # Basic retry delay
-
-    async def cleanup(self):
-        """Cleans up all active typing tasks and the check loop."""
-        logger.info("Cleaning up TypingManager tasks...")
-        # Cancel the check loop first
-        if self._check_task and not self._check_task.done():
-            self._check_task.cancel()
-
-        # Stop all active typing loops
-        active_channels = list(self.typing_channels.keys())
-        if active_channels:
-            logger.info(f"Stopping active typing for channels: {active_channels}")
-            await asyncio.gather(
-                *[self.stop_typing(channel_id) for channel_id in active_channels],
-                return_exceptions=True,
-            )
-
-        # Wait for the check loop task to finish cancellation
-        if self._check_task:
-            try:
-                await asyncio.wait_for(self._check_task, timeout=2.0)
-            except asyncio.CancelledError:
-                logger.info("TypingManager check loop cancellation confirmed.")
-            except asyncio.TimeoutError:
-                logger.warning(
-                    "Timeout waiting for typing manager check loop cancellation."
-                )
-            except Exception as e:
-                logger.error(
-                    f"Error awaiting check loop cancellation: {e}", exc_info=True
-                )
-
-        self.typing_channels.clear()  # Ensure dict is empty
-        logger.info("TypingManager cleanup complete.")
-
-
-class TelegramTypingManager:
-    """Manages typing indicators for Telegram chats"""
-
-    def __init__(self):
-        self.typing_chats = {}  # chat_id_thread_id -> typing task
-        self.tokens = {}  # deployment_id -> bot token
-
-    def register_deployment(self, deployment_id: str, token: str):
-        """Register a new deployment with its token"""
-        self.tokens[deployment_id] = token
-        logger.info(f"Registered Telegram deployment {deployment_id} for typing")
-
-    def unregister_deployment(self, deployment_id: str):
-        """Unregister a deployment"""
-        if deployment_id in self.tokens:
-            del self.tokens[deployment_id]
-            logger.info(f"Unregistered Telegram deployment {deployment_id} from typing")
-
-            # Stop any active typing for this deployment
-            # This is a safety measure to ensure no lingering typing indicators
-            chats_to_stop = []
-            for chat_key in self.typing_chats:
-                if chat_key.startswith(f"{deployment_id}:"):
-                    chats_to_stop.append(chat_key)
-
-            for chat_key in chats_to_stop:
-                task = self.typing_chats.pop(chat_key, None)
-                if task and not task.done():
-                    task.cancel()
-
-    async def start_typing(self, deployment_id, chat_id, thread_id=None):
-        """Start typing in a Telegram chat"""
-        if deployment_id not in self.tokens:
-            logger.warning(f"No token found for deployment {deployment_id}")
-            return
-
-        chat_key = f"{chat_id}_{thread_id}" if thread_id else str(chat_id)
-
-        if chat_key in self.typing_chats and not self.typing_chats[chat_key].done():
-            return  # Already typing in this chat
-
-        self.typing_chats[chat_key] = asyncio.create_task(
-            self._typing_loop(deployment_id, chat_id, thread_id)
-        )
-        logger.info(f"Started typing in Telegram chat {chat_key}")
-
-    async def stop_typing(self, chat_id, thread_id=None):
-        """Stop typing in a Telegram chat"""
-        chat_key = f"{chat_id}_{thread_id}" if thread_id else str(chat_id)
-        task = self.typing_chats.pop(chat_key, None)
-        if task and not task.done():
-            task.cancel()
-            logger.info(f"Stopped typing in Telegram chat {chat_key}")
-
-    async def _typing_loop(self, deployment_id, chat_id, thread_id):
-        """Loop that sends typing indicators every 5 seconds"""
-        try:
-            token = self.tokens.get(deployment_id)
-            if not token:
-                return
-
-            while True:
-                await self._send_typing_indicator(token, chat_id, thread_id)
-                await asyncio.sleep(5)
-        except asyncio.CancelledError:
-            logger.info(f"Typing cancelled for Telegram chat {chat_id}")
-        except Exception as e:
-            logger.error(f"Error in Telegram typing loop: {e}")
-
-    async def _send_typing_indicator(self, token, chat_id, thread_id):
-        """Send a typing indicator to a Telegram chat"""
-        try:
-            async with aiohttp.ClientSession() as session:
-                url = f"https://api.telegram.org/bot{token}/sendChatAction"
-                payload = {"chat_id": chat_id, "action": "typing"}
-                if thread_id:
-                    payload["message_thread_id"] = thread_id
-
-                async with session.post(url, json=payload) as response:
-                    if response.status != 200:
-                        logger.warning(
-                            f"Failed to send Telegram typing indicator: {await response.text()}"
-                        )
-        except Exception as e:
-            logger.error(f"Error sending Telegram typing indicator: {e}")
-
 
 class DiscordGatewayClient:
     GATEWAY_VERSION = 10
@@ -446,7 +94,7 @@ class DiscordGatewayClient:
         self._reconnect = True
         self._last_sequence = None
         self._session_id = None
-        self.typing_manager = TypingManager(self)
+        self.typing_manager = DiscordTypingManager(self)
 
         # Set up Ably for busy state updates
         self.ably_client = None
@@ -461,11 +109,25 @@ class DiscordGatewayClient:
             return os.getenv("EDEN_API_URL")
 
     async def heartbeat_loop(self):
-        while True:
-            await self.ws.send(
-                json.dumps({"op": GatewayOpCode.HEARTBEAT, "d": self._last_sequence})
-            )
-            await asyncio.sleep(self.heartbeat_interval / 1000)
+        try:
+            while self._reconnect:
+                if not self.ws:
+                    logger.warning(f"Heartbeat loop: WebSocket is None for {self.deployment.id}")
+                    break
+                try:
+                    await self.ws.send(
+                        json.dumps({"op": GatewayOpCode.HEARTBEAT, "d": self._last_sequence})
+                    )
+                    await asyncio.sleep(self.heartbeat_interval / 1000)
+                except websockets.exceptions.ConnectionClosed as e:
+                    logger.info(f"Heartbeat loop: Connection closed for {self.deployment.id}: {e}")
+                    break
+                except Exception as e:
+                    logger.error(f"Heartbeat loop error for {self.deployment.id}: {e}")
+                    break
+        except asyncio.CancelledError:
+            logger.debug(f"Heartbeat loop cancelled for {self.deployment.id}")
+            raise
 
     async def identify(self):
         logger.info(f"Identifying for deployment {self.deployment.id}")
@@ -1029,18 +691,18 @@ class DiscordGatewayClient:
                         return
 
                     channel_id = data.get("channel_id")
-                    is_busy = data.get(
-                        "is_busy"
-                    )  # Don't default to False, check existence
+                    request_id = data.get("request_id")
+                    is_busy = data.get("is_busy")
 
                     # Log exactly what was received
                     logger.info(
-                        f"[{trace_id}] Ably message received: channel_id={channel_id}, is_busy={is_busy} (type: {type(is_busy)}), data={data}"
+                        f"[{trace_id}] Ably typing message: channel_id={channel_id}, "
+                        f"request_id={request_id}, is_busy={is_busy}, data={data}"
                     )
 
-                    if channel_id is None:
+                    if not channel_id or not request_id:
                         logger.warning(
-                            f"[{trace_id}] Received busy state update without channel_id: {data}"
+                            f"[{trace_id}] Missing channel_id or request_id: {data}"
                         )
                         return
 
@@ -1048,20 +710,20 @@ class DiscordGatewayClient:
                     if is_busy is True:
                         channel_id_str = str(channel_id)
                         logger.info(
-                            f"[{trace_id}] Calling start_typing for channel {channel_id_str}"
+                            f"[{trace_id}] Starting typing - channel: {channel_id_str}, request: {request_id}"
                         )
-                        await self.typing_manager.start_typing(channel_id_str)
+                        await self.typing_manager.start_typing(channel_id_str, request_id)
                     elif is_busy is False:
                         channel_id_str = str(channel_id)
                         logger.info(
-                            f"[{trace_id}] Received is_busy=False. Calling stop_typing for channel {channel_id_str}"
+                            f"[{trace_id}] Stopping typing - channel: {channel_id_str}, request: {request_id}"
                         )
                         await self.typing_manager.stop_typing(
-                            channel_id_str, reason="ably_signal"
+                            channel_id_str, reason="ably_signal", request_id=request_id
                         )
                     else:
                         logger.warning(
-                            f"[{trace_id}] Received invalid or missing 'is_busy' value ({is_busy}). Ignoring message: {data}"
+                            f"[{trace_id}] Invalid is_busy value ({is_busy}): {data}"
                         )
 
                 except Exception as e:
@@ -1080,8 +742,8 @@ class DiscordGatewayClient:
     async def connect(self):
         # Set up Ably first
         await self.setup_ably()
-        # Start the typing manager's check loop
-        self.typing_manager.start_check_loop()
+        # Start the typing manager's cleanup loop
+        self.typing_manager.start_cleanup_loop()
 
         while self._reconnect:
             try:
@@ -1159,7 +821,7 @@ class DiscordGatewayClient:
                                     f"Gateway connected for deployment {self.deployment.id}"
                                 )
 
-            except websockets.exceptions.ConnectionClosedError as e:
+            except (websockets.exceptions.ConnectionClosed, websockets.exceptions.ConnectionClosedError, websockets.exceptions.ConnectionClosedOK) as e:
                 logger.error(
                     f"Gateway connection closed for {self.deployment.id}: Code={e.code}, Reason={e.reason}"
                 )
@@ -1206,9 +868,18 @@ class DiscordGatewayClient:
                     )
                     await self.cleanup_resources()
                 # Ensure websocket is closed if loop exits while connected
-                if self.ws and self.ws.open:
-                    await self.ws.close()
-                    self.ws = None
+                if self.ws:
+                    try:
+                        # Check if websocket is still open using state property
+                        if hasattr(self.ws, 'state') and self.ws.state.name in ['OPEN', 'CLOSING']:
+                            await self.ws.close()
+                        elif hasattr(self.ws, 'close_code') and self.ws.close_code is None:
+                            # Alternative check - if no close code, might still be open
+                            await self.ws.close()
+                    except Exception as e:
+                        logger.debug(f"WebSocket already closed or error closing: {e}")
+                    finally:
+                        self.ws = None
 
     async def cleanup_resources(self):
         """Clean up heartbeat task and typing manager."""
@@ -1228,7 +899,10 @@ class DiscordGatewayClient:
                 logger.error(f"Error awaiting heartbeat task cancellation: {e}")
         self.heartbeat_task = None
         # Cleanup typing manager
-        await self.typing_manager.cleanup()
+        try:
+            await self.typing_manager.cleanup()
+        except Exception as e:
+            logger.error(f"Error cleaning up typing manager: {e}")
         # Close Ably client (if managed per-client)
         if self.ably_client:
             logger.info(f"Closing Ably client for {self.deployment.id}")
@@ -1260,26 +934,48 @@ class DiscordGatewayClient:
         self._reconnect = False  # Prevent automatic reconnections
 
         # Close websocket if open - this will trigger cleanup in connect() finally block
-        if self.ws and self.ws.open:
-            logger.info(f"Closing WebSocket connection for {self.deployment.id}")
-            # Schedule the close, don't block here
-            asyncio.create_task(self.ws.close(code=1000, reason="Client stopping"))
+        if self.ws:
+            try:
+                # Check if websocket is still open
+                ws_is_open = False
+                if hasattr(self.ws, 'state'):
+                    # websockets library uses state property
+                    ws_is_open = self.ws.state.name in ['OPEN', 'CLOSING']
+                elif hasattr(self.ws, 'close_code'):
+                    # Check if close_code is None (still open)
+                    ws_is_open = self.ws.close_code is None
+                
+                if ws_is_open:
+                    logger.info(f"Closing WebSocket connection for {self.deployment.id}")
+                    # Schedule the close, don't block here
+                    asyncio.create_task(self.ws.close(code=1000, reason="Client stopping"))
+                else:
+                    logger.info(f"WebSocket already closed for {self.deployment.id}")
+                    # Trigger cleanup since WS is already closed
+                    try:
+                        loop = asyncio.get_event_loop()
+                        if loop.is_running():
+                            asyncio.create_task(self.cleanup_resources())
+                    except Exception as e:
+                        logger.error(f"Error scheduling cleanup: {e}")
+            except Exception as e:
+                logger.error(f"Error checking WebSocket state for {self.deployment.id}: {e}")
+                # Try to trigger cleanup anyway
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        asyncio.create_task(self.cleanup_resources())
+                except Exception as cleanup_error:
+                    logger.error(f"Error scheduling cleanup: {cleanup_error}")
         else:
-            # If WS not open/already closed, manually trigger cleanup if needed
-            # Check if loop is running to avoid errors
+            # No WebSocket connection, just trigger cleanup
             try:
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
                     logger.info(
-                        f"WS not open for {self.deployment.id}, scheduling resource cleanup."
+                        f"No WS for {self.deployment.id}, scheduling resource cleanup."
                     )
                     asyncio.create_task(self.cleanup_resources())
-                else:
-                    # Not ideal to run_until_complete here, but as fallback
-                    logger.info(
-                        f"WS not open and loop not running for {self.deployment.id}, running cleanup synchronously."
-                    )
-                    loop.run_until_complete(self.cleanup_resources())
             except Exception as e:
                 logger.error(
                     f"Error triggering cleanup in stop() for {self.deployment.id}: {e}"
@@ -1296,7 +992,7 @@ class GatewayManager:
         self.ably_client = AblyRealtime(os.getenv("ABLY_SUBSCRIBER_KEY"))
         self.channel = self.ably_client.channels.get(f"discord-gateway-v2-{db}")
 
-        # Add Telegram typing manager
+        # Add Telegram typing manager - use improved version
         self.telegram_typing_manager = TelegramTypingManager()
 
         # Set up Ably for Telegram busy state updates
@@ -1460,16 +1156,23 @@ class GatewayManager:
                     deployment_id = data.get("deployment_id")
                     chat_id = data.get("chat_id")
                     thread_id = data.get("thread_id")
-                    is_busy = data.get("is_busy", False)
+                    request_id = data.get("request_id")
+                    is_busy = data.get("is_busy")
 
-                    if deployment_id and chat_id:
-                        if is_busy:
-                            await self.telegram_typing_manager.start_typing(
-                                deployment_id, chat_id, thread_id
+                    logger.info(
+                        f"Telegram typing update: deployment={deployment_id}, "
+                        f"chat={chat_id}, request={request_id}, busy={is_busy}"
+                    )
+
+                    if deployment_id and chat_id and request_id:
+                        if is_busy is True:
+                            await self.telegram_typing_manager.start_typing_with_deployment(
+                                deployment_id, str(chat_id), request_id, thread_id
                             )
-                        else:
+                        elif is_busy is False:
+                            channel_key = f"{deployment_id}:{chat_id}:{thread_id or 'main'}"
                             await self.telegram_typing_manager.stop_typing(
-                                chat_id, thread_id
+                                channel_key, reason="ably_signal", request_id=request_id
                             )
                 except Exception as e:
                     logger.error(f"Error handling Telegram busy state update: {e}")
@@ -1549,12 +1252,27 @@ async def lifespan(app: FastAPI):
     yield
 
     # Clean up on shutdown
+    logger.info("Shutting down gateway manager")
+    # Stop all clients
+    stop_tasks = []
     for deployment_id in list(manager.clients.keys()):
-        await manager.stop_client(deployment_id)
+        stop_tasks.append(manager.stop_client(deployment_id))
+    
+    if stop_tasks:
+        await asyncio.gather(*stop_tasks, return_exceptions=True)
+    
+    # Clean up Ably connections
+    try:
+        if manager.ably_client:
+            await manager.ably_client.close()
+    except Exception as e:
+        logger.error(f"Error closing Ably client: {e}")
+    
+    # Give tasks a moment to clean up
+    await asyncio.sleep(0.5)
 
 
 web_app = FastAPI(lifespan=lifespan)
-
 
 @app.function(
     image=image,
