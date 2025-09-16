@@ -482,6 +482,7 @@ def export_agent_creations(
     # Get filtered creatiobs
     creations_collection = get_collection("creations3")
     query = {"agent": agent.id, "user": ObjectId(user_id)}
+
     all_creations = list(creations_collection.find(query))
 
     for creation in all_creations:
@@ -490,9 +491,10 @@ def export_agent_creations(
         url = data_utils.prepare_result(creation).get("url")
         task = Task.from_mongo(creation["task"])
         creation["task"] = task.model_dump()
+        ext = creation["filename"].split(".")[-1]
         if url:
             response = requests.get(url)
-            with open(export_dir / f"{created_at}_{id}.png", "wb") as f:
+            with open(export_dir / f"{created_at}_{id}.{ext}", "wb") as f:
                 f.write(response.content)
             with open(export_dir / f"{created_at}_{id}.json", "w") as f:
                 json.dump(creation, f, indent=2, default=str)
