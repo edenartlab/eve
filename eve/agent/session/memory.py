@@ -917,14 +917,11 @@ def should_form_memories(agent_id: ObjectId, session: Session) -> bool:
 
 
 async def maybe_form_memories(agent_id: ObjectId, session: Session, agent=None) -> bool:
-    start_time = time.time()
 
     if not should_form_memories(agent_id, session):
-        stop_time = time.time()
         return
 
     await form_memories(agent_id, session, agent)
-    stop_time = time.time()
     return
 
 

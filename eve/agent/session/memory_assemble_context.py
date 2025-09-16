@@ -296,7 +296,7 @@ async def assemble_memory_context(
     
     # Rebuild memory context
     # 1. Get user memory (1 query)
-    if last_speaker_id:
+    if last_speaker_id and len(session.users) < 4:
         user_memory_content = await _assemble_user_memory(agent_id, last_speaker_id, agent)
     else:
         user_memory_content = ""

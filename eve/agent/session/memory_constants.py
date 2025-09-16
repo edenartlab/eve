@@ -29,11 +29,11 @@ if LOCAL_DEV:
 else:
     MEMORY_LLM_MODEL_FAST = "gpt-5-mini"
     MEMORY_LLM_MODEL_SLOW = "gpt-5"
-    MEMORY_FORMATION_MSG_INTERVAL   = 15    # Number of messages to wait before forming memories
+    MEMORY_FORMATION_MSG_INTERVAL   = 20    # Number of messages to wait before forming memories
     MEMORY_FORMATION_TOKEN_INTERVAL = 1000  # Number of tokens to wait before forming memories
 
     # Normal memory settings:
-    MAX_USER_MEMORIES_BEFORE_CONSOLIDATION = 4  # Number of individual memories to store before consolidating them into the agent's user_memory blob
+    MAX_USER_MEMORIES_BEFORE_CONSOLIDATION = 5  # Number of individual memories to store before consolidating them into the agent's user_memory blob
     MAX_N_EPISODES_TO_REMEMBER = 8  # Number of episodes to keep in context from a session
     # Collective memory settings:
     MAX_AGENT_MEMORIES_BEFORE_CONSOLIDATION = 16 # Number of suggestions to store before consolidating them into the agent's collective memory blob
@@ -43,13 +43,13 @@ else:
 CONSIDER_COLD_AFTER_MINUTES = 10  # Consider a session cold if no activity for this many minutes
 CLEANUP_COLD_SESSIONS_EVERY_MINUTES = 10  # Run the background task every N minutes
 
-SYNC_MEMORIES_ACROSS_SESSIONS_EVERY_N_MINUTES = 4
+SYNC_MEMORIES_ACROSS_SESSIONS_EVERY_N_MINUTES = 5
 NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES = 4
-AGENT_TOKEN_MULTIPLIER = 0.25  # Multiplier to downscale agent/assistant message importance for token interval trigger
+AGENT_TOKEN_MULTIPLIER = 0.20  # Multiplier to downscale agent/assistant message importance for token interval trigger
 
 # LLMs cannot count tokens at all (weirdly), so instruct with word count:
 # Raw memory blobs:
-SESSION_EPISODE_MEMORY_MAX_WORDS    = 50  # Target word length for session episode memory
+SESSION_EPISODE_MEMORY_MAX_WORDS    = 40  # Target word length for session episode memory
 SESSION_DIRECTIVE_MEMORY_MAX_WORDS  = 20  # Target word length for session directive memory
 SESSION_SUGGESTION_MEMORY_MAX_WORDS = 35  # Target word length for session suggestion memory
 SESSION_FACT_MEMORY_MAX_WORDS       = 25  # Target word length for session fact memory
@@ -60,7 +60,7 @@ AGENT_MEMORY_BLOB_MAX_WORDS = 500  # Target word count for consolidated agent me
 # Define different memory types and their extraction limits:
 MEMORY_TYPES = {
     "episode":    MemoryType("episode",    1, 1, "Summary of given conversation segment for contextual recall. Will always be provided in the context of previous episodes and most recent messages."),
-    "directive":  MemoryType("directive",  0, 3, "Persistent instructions, preferences and behavioral rules to remember for future interactions with this user."), 
+    "directive":  MemoryType("directive",  0, 3, "Persistent instructions, preferences and personal context to remember for future interactions with this user."), 
     "suggestion": MemoryType("suggestion", 0, 5, "New ideas, suggestions, insights, or context relevant to the shard that could help improve / evolve / form this shard's area of focus"),
     "fact":       MemoryType("fact",       0, 3, "Atomic, verifiable information about the user or the world that is relevant to the shard context and should be kept in memory FOREVER.")
 }
@@ -86,14 +86,13 @@ REGULAR_MEMORY_EXTRACTION_PROMPT = f"""Task: Extract persistent memories from th
   - Avoid commentary or analysis, create memories that stand on their own without context
 
 2. DIRECTIVE: {MEMORY_TYPES['directive'].custom_prompt}
-  Create {MEMORY_TYPES['directive'].min_items}-{MEMORY_TYPES['directive'].max_items} permanent directives (maximum {SESSION_DIRECTIVE_MEMORY_MAX_WORDS} words each) ONLY if there are clear, long-lasting rules, preferences, or behavioral patterns that should be applied consistently in all future interactions with this user. If none exist (highly likely), return empty array.
+  Create {MEMORY_TYPES['directive'].min_items}-{MEMORY_TYPES['directive'].max_items} permanent directives (maximum {SESSION_DIRECTIVE_MEMORY_MAX_WORDS} words each) ONLY if there are clear, long-lasting rules, preferences, or personal context that should be remembered consistently in all future interactions with this user. If none exist (highly likely), return empty array.
    
   INCLUDE as directives:
   - Explicit behavioral rules ("always ask before X", "never do Y")
-  - CONDITIONAL preferences ("when creating/discussing Z, Xander prefers...")
-  - Implicit patterns shown repeatedly (eg if user corrects same behavior 2+ times)
-  - Clear exceptions or special handling rules for interaction patterns with the current user that should persist across many future conversations
-   
+  - Personal preferences ("when creating/discussing Z, Xander prefers...")
+  - Personal context and background information that is atomic and unchanging ("Xander is a clockmaker", "Xander is an introvert and hates to speak in public")
+
   DO NOT include:
   - One-time requests or specific current tasks
   - Ad hoc instructions relevant for the current conversation context only that don't apply broadly
@@ -187,32 +186,33 @@ Return **exactly** this JSON:
 ########################################################
 
 # User Memory Consolidation Prompt Template
-USER_MEMORY_CONSOLIDATION_PROMPT = f"""Task: You are helping to consolidate all memories regarding one specific user's preferences and behavioral rules for all your future interactions with this user.
+USER_MEMORY_CONSOLIDATION_PROMPT = f"""Task: You are helping to consolidate all memories regarding one specific user's preferences and personal context for all your future interactions with this user.
 
 CURRENT CONSOLIDATED MEMORY:
 {{current_memory}}
 
-NEW DIRECTIVE MEMORIES TO INTEGRATE:
+NEW MEMORIES TO INTEGRATE:
 {{new_memories}}
 
-Your task: Create a single consolidated memory (≤{{max_words}} words) that combines the CURRENT CONSOLIDATED MEMORY with the NEW DIRECTIVE MEMORIES TO INTEGRATE.
+Your task: Create a single consolidated memory (≤{{max_words}} words) that combines the CURRENT CONSOLIDATED MEMORY with the NEW MEMORIES TO INTEGRATE.
 
 Requirements:
-- Preserve all important behavioral rules and preferences from both current memory and new directives
-- Remove redundancies and contradictions (newer directives override older ones, although directive age should not be integrated)
-- Keep the most specific and actionable guidance
-- Use the actual user name from the directives (never use "User" or "the user"). There is only one single user in this context.
-- Focus on persistent preferences and behavioral rules that should guide future interactions
-- Be concise but comprehensive
+- Try to preserve all important behavioral rules, preferences and context from both current memory and new memories.
+- Remove redundancies and contradictions (newer memories override older ones, memory age should not be integrated), keep the most specific and actionable information.
+- Store actual names when available (avoid "User" or "the user"). There is only one single user in this context.
+- Focus on persistent preferences and personal context that will consistently affect future interactions. Avoid storing ephemeral information, focus on long-lasting, always-true information.
+- Be concise but comprehensive.
 
+IMPORTANT:
+Certain sections of the existing consolidated memory may not need to be updated at all, especially if the new memories are not relevant to that section. Whenever possible, simply copy existing fragments from current memory unchanged.
 Return only the consolidated memory text, no additional formatting or explanation.
 """
 
 ########################################################
 
 # Agent Memory Consolidation Prompt Template  
-AGENT_MEMORY_CONSOLIDATION_PROMPT = f"""You are synthesizing the collective memory of a community working on "{{shard_name}}" 
-Your task is to update an evolving collective memory based on new memories extracted from recent conversations with various community members.
+AGENT_MEMORY_CONSOLIDATION_PROMPT = f"""You are synthesizing the collective memory of a community / org working on "{{shard_name}}" 
+Your task is to update an evolving collective memory based on new memories extracted from recent conversations with various members.
 
 Below is the context / project / event / topic ({{shard_name}} shard) you are working on.
 Only create new memories that are highly relevant in the context of this shard:
@@ -257,5 +257,7 @@ Integration Guidelines:
 - Format contested items clearly: "Proposed by Alice, supported by Bob, opposed by Carol: [suggestion]"
 - Separate "agreed actions" from "open proposals" in the MEMORY STATE
 
+IMPORTANT:
+Certain sections of the existing consolidated MEMORY STATE may not need to be updated at all, especially if the new suggestions are not relevant to that section. Whenever possible, simply copy existing fragments from current MEMORY STATE unchanged.
 Return only the newly consolidated MEMORY STATE (strictly ≤{{max_words}} words!), no additional formatting or explanation.
 """
