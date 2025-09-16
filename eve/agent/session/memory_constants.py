@@ -226,14 +226,14 @@ Only create new memories that are highly relevant in the context of this shard:
 ## Current, consolidated MEMORY STATE (The thing to update):
 {{current_memory}}
 
-## NEW SUGGESTIONS and ideas to integrate (The information to integrate):
+## NEW SUGGESTIONS and ideas to integrate:
 {{suggestions_text}}
 
 Your goal is to update the current consolidated MEMORY STATE for this "{{shard_name}}" memory shard by integrating the new suggestions while leveraging the know facts as context.
 Refine, restructure, and merge the information to create a new, coherent, and updated consolidated memory (≤{{max_words}} words).
 
 If the current, consolidated MEMORY STATE is EMPTY:
- - this means you are about to create the first consolidated memory for this shard, add "VERSION: 1" (integer) at the top of the MEMORY STATE
+ - this means you're about to create the first consolidated memory for this shard, add "VERSION: 1" (integer) at the top of the MEMORY STATE
  - In that case, think carefully about the core purpose, goals, and context of the shard and generate a structured and extendable memory template that is suited for future updates.
  - Typically, there is little initial information available, so don't start filling up the MEMORY STATE with invented information. EVERYTHING you store must be based on collective user input, not the your free-form interpretation / generation! Don't rush to fill this up, more NEW SUGGESTIONS will come in the future.
 
