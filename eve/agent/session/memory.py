@@ -205,7 +205,7 @@ async def _update_user_memory(
         from eve.agent.agent import Agent
 
         agent = Agent.from_mongo(agent_id)
-        if not agent or not getattr(agent, "user_memory_enabled", True):
+        if not agent or not getattr(agent, "user_memory_enabled", False):
             return
 
         user_memory = UserMemory.find_one_or_create(

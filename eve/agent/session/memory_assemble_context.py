@@ -22,7 +22,7 @@ async def _assemble_user_memory(agent_id: ObjectId, user_id: ObjectId, agent=Non
             from eve.agent.agent import Agent
             agent = Agent.from_mongo(agent_id)
         
-        if not agent or not getattr(agent, 'user_memory_enabled', True):
+        if not agent or not getattr(agent, 'user_memory_enabled', False):
             #print(f"   ⚠️  UserMemory disabled for agent {agent_id}, returning empty content")
             return ""
         query_start = time.time()
