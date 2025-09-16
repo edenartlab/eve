@@ -740,12 +740,26 @@ async def _regenerate_fully_formed_agent_memory(shard: AgentMemory):
 async def _regenerate_fully_formed_user_memory(user_memory: UserMemory):
     """
     Regenerate the fully formed user memory by combining:
+    - Username from users3 collection
     - Consolidated memory blob
     - Unabsorbed directive memories with age information
     """
 
     try:
         user_content = []
+
+        # Get username from User model
+        username = "unknown user"
+        try:
+            from eve.user import User
+            user = User.from_mongo(user_memory.user_id)
+            if user and user.username:
+                username = user.username
+        except Exception as e:
+            print(f"Warning: Could not fetch username for user {user_memory.user_id}: {e}")
+
+        # Add username at the beginning
+        user_content.append(f"-- User Memory for {username} --")
 
         # Add consolidated content
         if user_memory.content:

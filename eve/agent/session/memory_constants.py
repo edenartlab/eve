@@ -9,7 +9,7 @@ class MemoryType:
     
 # Flag to easily switch between local and production memory settings (keep this in but always set to False in production):
 # Remember to also deploy bg apps with LODAL_DEV = False!
-LOCAL_DEV = False
+LOCAL_DEV = True
 
 # Memory formation settings:
 if LOCAL_DEV:
