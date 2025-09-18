@@ -88,7 +88,7 @@ ALL_TOOLS = [
     "openai_image_generate",
 ]
 
-DISCORD_TOOLS = ["discord_post", "discord_search"]
+DISCORD_TOOLS = ["discord_post", "discord_search", "discord_broadcast_dm"]
 TELEGRAM_TOOLS = ["telegram_post"]
 TWITTER_TOOLS = ["tweet", "twitter_mentions", "twitter_search"]
 FARCASTER_TOOLS = ["farcaster_cast", "farcaster_mentions", "farcaster_search"]
