@@ -25,7 +25,7 @@ def export(agent: str, username: str, resume_dir: Path = None):
         export_dir = export_user_data(
             username=username, 
             agentname=agent,
-            export_dir=resume_dir
+            export_dir=Path(resume_dir)
         )
         
         export_agent_creations(
