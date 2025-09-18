@@ -448,7 +448,8 @@ Context about this user:
 Instructions:
 {instruction}
 
-After generating your response, use the discord_post tool to send it as a DM to this user by setting discord_user_id to "{discord_user.discord_id}".
+Its likely this is part of a daily, recurring task, so leverage the previous conversation context to make the message more contextualized and following a linear, constructive narrative.
+Important:After generating your response, use the discord_post tool to send it as a DM to this user by setting discord_user_id to {discord_user.discord_id}
 """,
         },
     }
@@ -467,7 +468,7 @@ After generating your response, use the discord_post tool to send it as a DM to 
     api_url = os.getenv("EDEN_API_URL")
     print(f"Sending session prompt request for user {discord_user.discord_username} (session_id: {session_id})")
     print(f"Request data: {request_data}")
-    
+
     async with aiohttp.ClientSession() as session:
         async with session.post(
             f"{api_url}/sessions/prompt",
