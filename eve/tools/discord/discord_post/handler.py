@@ -15,6 +15,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
     channel_id = args.get("channel_id")
     discord_user_id = args.get("discord_user_id")
     content = args["content"]
+    media_urls = args.get("media_urls", [])
 
     # Validate parameters
     if not discord_user_id and not channel_id:
@@ -22,6 +23,11 @@ async def handler(args: dict, user: str = None, agent: str = None):
 
     if not content or not content.strip():
         raise Exception("Content cannot be empty")
+
+    # Add media URLs to content if provided
+    if media_urls:
+        media_content = "\n".join(media_urls)
+        content = f"{content}\n\n{media_content}"
 
     # Create Discord client
     client = discord.Client(intents=discord.Intents.default())

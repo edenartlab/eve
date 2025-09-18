@@ -32,3 +32,12 @@ parameters:
     type: string
     description: The message content to post
     required: true
+  media_urls:
+    type: array
+    label: Media URLs
+    description: Array of image URLs to include in the video
+    tip: At least one image URL is required. Use high-quality images.
+    required: false
+    minimum: 1
+    items:
+      type: string
