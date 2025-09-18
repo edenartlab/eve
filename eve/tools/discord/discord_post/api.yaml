@@ -35,9 +35,8 @@ parameters:
   media_urls:
     type: array
     label: Media URLs
-    description: Array of image URLs to include in the video
-    tip: At least one image URL is required. Use high-quality images.
+    description: Array of any media URLs to attach in the discord post
     required: false
-    minimum: 1
+    minimum: 0
     items:
       type: string

@@ -1,6 +1,6 @@
 {
-  "channel_id": "1407368841104850974",
-  "instruction": "Send a friendly check-in message asking how the user is doing and updating them on their outstanding tasks. Inform them of any recent udpates from the team that are relevant to their tasks. Keep things concise and to the point. Invite them to talk about what they are working on, what they are blocked on etc.",
-  "active_days": 1,
+  "channel_id": "898297428011266080",
+  "instruction": "Send a daily check-in message asking how the team member is doing and updating them on their current high-value tasks and responsibilities by leveraging all the context from your memory. Inform them of any recent updates from the team that are most relevant to them. Keep things concise and to the point. Invite them to talk about new ideas, what they are currently working on, what they are blocked on etc. Once you are done with generating the message, I want you to use the create tool with the seeddream4 model and aspect 1:1 to generate one powerful image that visualizes the essence of your message in a creative way.",
+  "active_days": 3,
   "agent_id": "6896568efccc3801cfa3a211"
 }

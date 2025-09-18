@@ -281,8 +281,8 @@ Behavior:
                     print(f"Error getting threads for channel {channel_id}: {e}")
                     print(traceback.format_exc())
 
-        # Sort messages by created_at timestamp to ensure reverse chronological order (newest first)
-        messages.sort(key=lambda x: x["created_at"], reverse=True)
+        # Sort messages by created_at timestamp to ensure chronological order (oldest first)
+        messages.sort(key=lambda x: x["created_at"], reverse=False)
 
         return {"output": messages}
 
