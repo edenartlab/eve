@@ -1,0 +1,6 @@
+{
+  "channel_id": "1407368841104850974",
+  "instruction": "Send a friendly check-in message asking how the user is doing and updating them on their outstanding tasks. Inform them of any recent udpates from the team that are relevant to their tasks. Keep things concise and to the point. Invite them to talk about what they are working on, what they are blocked on etc.",
+  "active_days": 1,
+  "agent_id": "6896568efccc3801cfa3a211"
+}

@@ -1,0 +1,43 @@
+name: discord_broadcast_dm
+description: Send DMs to all recently active users from a Discord channel. Creates or reuses DM sessions for each user and sends personalized messages through the agent.
+tip: |-
+  This tool sends DMs to users who have been active in a Discord channel within a specified timeframe.
+
+  The tool:
+  1. Discovers active users from the specified Discord channel
+  2. Maps Discord users to Eden users (creates shadow users if needed)
+  3. Creates or reuses individual DM sessions for each user
+  4. Sends the instruction to each DM session for personalized responses
+  5. Delivers the generated responses as DMs
+
+  Examples:
+  - "Send a good morning check-in to all users active in #general in the last 3 days"
+  - "DM everyone who posted in #support this week with a follow-up message"
+  - "Reach out to all active community members from #announcements with project updates"
+
+  The instruction parameter should describe what the agent should say/do in each DM, like:
+  "Say good morning, check how they're doing, and update them on any outstanding tasks"
+cost_estimate: 5
+output_type: array
+active: true
+handler: local
+visible: false
+parameters:
+  channel_id:
+    type: string
+    description: The Discord channel ID to find active users from
+    required: true
+  instruction:
+    type: string
+    description: Instructions for what the agent should say/do in each DM session
+    required: true
+  active_days:
+    type: integer
+    description: Number of days to look back for user activity (default 3)
+    required: false
+    default: 3
+  message_limit:
+    type: integer
+    description: Maximum number of messages to fetch from a channel to determine user activity
+    required: false
+    default: 100

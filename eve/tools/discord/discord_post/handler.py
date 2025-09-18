@@ -11,14 +11,69 @@ async def handler(args: dict, user: str = None, agent: str = None):
     if not deployment:
         raise Exception("No valid Discord deployments found")
 
+    # Get parameters
+    channel_id = args.get("channel_id")
+    discord_user_id = args.get("discord_user_id")
+    content = args["content"]
+
+    # Validate parameters
+    if not discord_user_id and not channel_id:
+        raise Exception("Either channel_id or discord_user_id must be provided")
+
+    if not content or not content.strip():
+        raise Exception("Content cannot be empty")
+
+    # Create Discord client
+    client = discord.Client(intents=discord.Intents.default())
+
+    try:
+        # Login to Discord
+        await client.login(deployment.secrets.discord.token)
+
+        if discord_user_id:
+            # Send DM to user
+            return await send_dm(client, discord_user_id, content)
+        else:
+            # Send message to channel (existing functionality)
+            return await send_channel_message(client, deployment, channel_id, content)
+
+    finally:
+        await client.close()
+
+
+async def send_dm(client: discord.Client, discord_user_id: str, content: str):
+    """Send a direct message to a Discord user."""
+    try:
+        # Get the user object
+        user = await client.fetch_user(int(discord_user_id))
+
+        # Send DM
+        message = await user.send(content=content)
+
+        # Return with dummy URL since DMs don't have public URLs
+        return {
+            "output": [
+                {
+                    "url": f"https://discord.com/channels/@me/{user.dm_channel.id}/{message.id}",
+                }
+            ]
+        }
+
+    except discord.Forbidden:
+        # User has DMs disabled or bot is blocked
+        raise Exception(f"Cannot send DM to user {discord_user_id}: DMs disabled or bot blocked")
+    except discord.NotFound:
+        raise Exception(f"User {discord_user_id} not found")
+    except Exception as e:
+        raise Exception(f"Failed to send DM to user {discord_user_id}: {str(e)}")
+
+
+async def send_channel_message(client: discord.Client, deployment: Deployment, channel_id: str, content: str):
+    """Send a message to a Discord channel (existing functionality)."""
     # Get allowed channels from deployment config
     allowed_channels = deployment.config.discord.channel_allowlist
     if not allowed_channels:
         raise Exception("No channels configured for this deployment")
-
-    # Get channel ID and content from args
-    channel_id = args["channel_id"]
-    content = args["content"]
 
     # Verify the channel is in the allowlist
     if not any(str(channel.id) == channel_id for channel in allowed_channels):
@@ -29,24 +84,14 @@ async def handler(args: dict, user: str = None, agent: str = None):
             f"Channel {channel_id} is not in the allowlist. Allowed channels (note: id): {allowed_channels_info}"
         )
 
-    # Create Discord client
-    client = discord.Client(intents=discord.Intents.default())
+    # Get the channel and post the message
+    channel = await client.fetch_channel(int(channel_id))
+    message = await channel.send(content=content)
 
-    try:
-        # Login to Discord
-        await client.login(deployment.secrets.discord.token)
-
-        # Get the channel and post the message
-        channel = await client.fetch_channel(int(channel_id))
-        message = await channel.send(content=content)
-
-        return {
-            "output": [
-                {
-                    "url": f"https://discord.com/channels/{channel.guild.id}/{channel.id}/{message.id}",
-                }
-            ]
-        }
-
-    finally:
-        await client.close()
+    return {
+        "output": [
+            {
+                "url": f"https://discord.com/channels/{channel.guild.id}/{channel.id}/{message.id}",
+            }
+        ]
+    }
