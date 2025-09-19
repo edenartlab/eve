@@ -44,11 +44,11 @@ async def veo_handler(args: dict, model: str):
     # ---- list models ----
     # for m in client.models.list(): print(m.name)
 
-
     # ---- get image and setup args ----
     config_dict = {
         "duration_seconds": args.get("duration"),         # 5-8 seconds
         "number_of_videos": args.get("n_samples"),        # 1-4
+        "enhance_prompt": True,
         # enhance_prompt=args.get("prompt_enhance"),
         # person_generation="dont_allow",   # safety switch
         # storage_uri="gs://MY_BUCKET/veo/" # optional – if omitted you get bytes
@@ -59,11 +59,19 @@ async def veo_handler(args: dict, model: str):
 
     if args.get("negative_prompt"):
         config_dict["negative_prompt"] = args.get("negative_prompt")
+
+    # if args.get("generate_audio"):
+    #     config_dict["generate_audio"] = True if args.get("generate_audio") else False
     
     args_dict = {
         "model": model,
         "config": genai.types.GenerateVideosConfig(**config_dict),
     }
+
+    print("HERE ARE")
+    print(args_dict)
+    print("----")
+    print(config_dict)
 
     image = args.get("image")
     if image:

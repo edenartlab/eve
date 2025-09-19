@@ -39,13 +39,19 @@ parameters:
     maximum: 8
     step: 1
     required: true
-  # aspect_ratio:
-  #   type: string
-  #   label: Aspect Ratio
-  #   description: The aspect ratio of the video
-  #   default: '16:9'
-  #   choices: ['16:9', '9:16']
-  #   required: true
+  generate_audio:
+    type: boolean
+    label: Generate audio
+    description: Whether to generate audio (sound effects, vocals, and music)
+    default: true
+    required: false
+  aspect_ratio:
+    type: string
+    label: Aspect Ratio
+    description: The aspect ratio of the video
+    default: '16:9'
+    choices: ['16:9', '9:16']
+    required: true
   n_samples:
     type: integer
     label: Number of samples

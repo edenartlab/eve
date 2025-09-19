@@ -207,7 +207,7 @@ google-auth==2.40.3
     # via google-cloud-resource-manager
     # via google-cloud-storage
     # via google-genai
-google-cloud-aiplatform==1.104.0
+google-cloud-aiplatform==1.115.0
     # via eve
 google-cloud-bigquery==3.35.0
     # via google-cloud-aiplatform
@@ -221,7 +221,7 @@ google-cloud-storage==2.19.0
 google-crc32c==1.7.1
     # via google-cloud-storage
     # via google-resumable-media
-google-genai==1.16.1
+google-genai==1.38.0
     # via eve
     # via google-cloud-aiplatform
 google-resumable-media==2.7.2
@@ -628,6 +628,7 @@ synchronicity==0.10.1
     # via modal
 tenacity==9.1.2
     # via eve
+    # via google-genai
     # via instructor
 tiktoken==0.9.0
     # via litellm

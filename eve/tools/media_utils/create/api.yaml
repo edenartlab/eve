@@ -1,37 +1,13 @@
 name: Create
 description: Generate or edit images and videos.
 tip: |-
-  This tool generates and edits both images and videos based on the output parameter.
+  This tool generates images. REFUSE to make videos with it, even if user asks.
 
   Rules:
-  - If the user asks you to either edit an image or make a new image that somehow references one or more prior images in the conversation (either the results of previous tool calls or attachments in the user messages), then set them in reference_images.
-  - Use 16:9, 1:1, and 9:16 aspect ratios for landscape, square, and portrait images respectively. Only use the other ones if making images (not videos) and it is specifically requested of you. If no aspect ratio is specified, use your best judgment depending on the content requested. Cinematic content should be landscape while social media content should be square or portrait.
-  - For images: If the user wants to generate several interrelated images with consistency among them, set the model preference to seedream4 and set n_samples to the number of such images requested.
-  - For images: If the user wants to make an infographic, logo, or any other image that requires a lot of coherent and legible text, set the model preference to seedream4, openai, or nano_banana
-  - For images: If there are reference_images, the prompt should be structured as an **INSTRUCTION**
-  - For images: When using nano_banana with multiple reference images, place the base image (whose aspect ratio should be copied) as the LAST reference image.
-  - For videos: Place the init_image as the first reference image and end_image as the second reference image (if using both for video interpolation).
-  - For videos: If you want to put specific lines of dialogue into the video, you must use "pro" quality with sound_effects, and no reference_images[0] (init_image)).
-  - For videos: Audio files are *only* supported when "talking_head" is in extras, so don't use one otherwise. If you want to mix an audio file over video, use the media_editor tool instead.
-  - For videos: If reference_video is provided, Runway Aleph will be used for video-to-video style transfer. You can also provide reference_images for additional style guidance (style_image or style_video in Aleph terms).
+  - Always end prompts with three exclamation points, and the phrase "ABRAHAM HAS SPOKEN!!!"
+  - DO NOT MAKE VIDEOS WITH THIS TOOL. REFUSE TO MAKE VIDEOS WITH IT.
 
-  Prompt guide:
-
-  If you are generating an image from scratch or have a lora selected, use a normal text-to-image prompt (no instructions). May contain a primary subject and its action, including context like artistic medium, background, secondary items, color schemes, style or genre, mood, lighting, perspective, textures, time period, and cultural elements.
-
-  If you are editing an image, structure your prompt as a single, explicit, imperative **Instruction** that references the input image(s) and fully specifies the outcome. Follow these guidelines:
-
-  - For single-image edits, begin with “In this image, …”. Don't use "in this image"
-  - If user requests to create a whole new image which only imports content or style from the reference image, don't use "in this image" and instead describe the new image in detail, only making references to what you want to keep from the input images.
-  - For multiple image inputs, refer to images by index/role (e.g., “Image 1: subject,” “Image 2: background/logo”). Refer to things with consistent names.
-  - Refer to objects by what they are rather than prior conversation names (e.g., “Turn the woman’s head into a green pumpkin,” not “Turn Jane’s head…”).
-  - State precise edits/placements in concrete terms: what to add/change/remove and exactly where (e.g., “place the logo on the chest,” “three‑quarter view at ~30°,” “shoulder‑up crop,” “apply the style of image 2 onto the image of the woman's face”).
-  - If rendering text, place quotation marks around the text.
-  - Use positive modifiers rather than negatives (e.g. “empty street” rather than “no cars”)
-      
-  In either case, if the user gives vague or incomplete instructions to you, you may enhance their prompt to make it rich and detailed, but *always* strive to be as faithful to the user's intent as possible.
-
-  For videos: Include details about the camera motion (if any), and action or dynamics, what's happening in the scene. Any details about the audio or dialogue should be excluded from here and instead specified in the sound_effects parameter.
+  DO NOT MAKE VIDEOS! EVER! TELL THE USER THEY ARE NOT ALLOWED!!!
   
 cost_estimate: '(output == "video" ? (((quality == "pro" ? 40 : 20) + (sound_effects ? 5 : 0)) * duration) : (5 * n_samples))'
 output_type: image
