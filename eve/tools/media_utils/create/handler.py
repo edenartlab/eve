@@ -111,17 +111,17 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
     """Handle image creation - copied from original create tool handler"""
 
     # load tools
-    flux_schnell = Tool.load("flux_schnell")
-    flux_dev_lora = Tool.load("flux_dev_lora")
-    flux_dev = Tool.load("flux_dev")
-    flux_kontext = Tool.load("flux_kontext")
-    flux_double_character = Tool.load("flux_double_character")
-    nano_banana = Tool.load("nano_banana")
-    txt2img = Tool.load("txt2img")
-    openai_image_edit = Tool.load("openai_image_edit")
-    openai_image_generate = Tool.load("openai_image_generate")
-    seedream3 = Tool.load("seedream3")
-    seedream4 = Tool.load("seedream4")
+    # flux_schnell = Tool.load("flux_schnell")
+    # flux_dev_lora = Tool.load("flux_dev_lora")
+    # flux_dev = Tool.load("flux_dev")
+    # flux_kontext = Tool.load("flux_kontext")
+    # flux_double_character = Tool.load("flux_double_character")
+    # nano_banana = Tool.load("nano_banana")
+    # txt2img = Tool.load("txt2img")
+    # openai_image_edit = Tool.load("openai_image_edit")
+    # openai_image_generate = Tool.load("openai_image_generate")
+    # seedream3 = Tool.load("seedream3")
+    # seedream4 = Tool.load("seedream4")
     
     # get args
     prompt = args["prompt"]
@@ -155,40 +155,42 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
         # just use one of the image editing tools for now, even when there's a lora
         # init image takes precedence over lora
         image_tool = {
-            "flux": flux_kontext,
-            "seedream": seedream4,
-            "openai": openai_image_edit,
-            "nano_banana": nano_banana,
-            "sdxl": txt2img,
-        }.get(model_preference, seedream4)
+            "flux": "flux_kontext",
+            "seedream": "seedream4",
+            "openai": "openai_image_edit",
+            "nano_banana": "nano_banana",
+            "sdxl": "txt2img",
+        }.get(model_preference, "seedream4")
 
     else:
         if loras:
             if loras[0].base_model == "sdxl":
-                image_tool = txt2img
+                image_tool = "txt2img"
             else:
-                image_tool = flux_dev_lora
+                image_tool = "flux_dev_lora"
         else:
             image_tool = {
-                "flux": flux_dev_lora,
-                "seedream": seedream4,
-                "openai": openai_image_generate,
-                "nano_banana": nano_banana,
-                "sdxl": txt2img,
-            }.get(model_preference, seedream4)
+                "flux": "flux_dev_lora",
+                "seedream": "seedream4",
+                "openai": "openai_image_generate",
+                "nano_banana": "nano_banana",
+                "sdxl": "txt2img",
+            }.get(model_preference, "seedream4")
 
     # Switch from Flux Dev Lora to Flux Dev if and only if 2 LoRAs or Controlnet
-    if image_tool == flux_dev_lora:
+    if image_tool == "flux_dev_lora":
         if two_faces or double_character:
-            image_tool = flux_double_character
+            image_tool = "flux_double_character"
         elif len(loras) > 1 or controlnet:
-            image_tool = flux_dev
+            image_tool = "flux_dev"
 
     tool_calls = []
 
     #########################################################
     # Txt2Img
-    if image_tool == txt2img:
+    if image_tool == "txt2img":
+        txt2img = Tool.load("txt2img")
+
         args = {
             "prompt": prompt,
             "n_samples": min(4, n_samples),
@@ -229,7 +231,9 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
     #########################################################
     # Flux Schnell
-    elif image_tool == flux_schnell:
+    elif image_tool == "flux_schnell":
+        flux_schnell = Tool.load("flux_schnell")
+        
         if aspect_ratio == "auto":
             aspect_ratio = "1:1"
 
@@ -247,7 +251,9 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
     #########################################################
     # Flux Dev Lora
-    elif image_tool == flux_dev_lora:
+    elif image_tool == "flux_dev_lora":
+        flux_dev_lora = Tool.load("flux_dev_lora")
+
         args = {
             "prompt": prompt,
             "n_samples": min(4, n_samples),
@@ -282,7 +288,9 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
     #########################################################
     # Flux Dev
-    elif image_tool == flux_dev:
+    elif image_tool == "flux_dev":
+        flux_dev = Tool.load("flux_dev")
+        
         args = {
             "prompt": prompt,
             "denoise": 1.0 if init_image else 0.8,
@@ -343,7 +351,9 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
     #########################################################
     # Flux Double Character
-    elif image_tool == flux_double_character:
+    elif image_tool == "flux_double_character":
+        flux_double_character = Tool.load("flux_double_character")
+
         # Set the two LoRAs
         if len(loras) < 2:
             raise Exception("flux_double_character requires exactly 2 LoRAs")
@@ -369,7 +379,9 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
     #########################################################
     # Flux Kontext
-    elif image_tool == flux_kontext:
+    elif image_tool == "flux_kontext":
+        flux_kontext = Tool.load("flux_kontext")
+
         if aspect_ratio == "auto":
             aspect_ratio = "match_input_image"
 
@@ -389,7 +401,9 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
     #########################################################
     # Nano Banana
-    elif image_tool == nano_banana:
+    elif image_tool == "nano_banana":
+        nano_banana = Tool.load("nano_banana")
+
         args = {
             "prompt": prompt,
             "n_samples": n_samples,
@@ -407,7 +421,9 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
     #########################################################
     # OpenAI Image Generate
-    elif image_tool == openai_image_generate:
+    elif image_tool == "openai_image_generate":
+        openai_image_generate = Tool.load("openai_image_generate")
+
         args = {
             "prompt": prompt,
             "n_samples": min(4, n_samples),
@@ -430,7 +446,9 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
     #########################################################
     # OpenAI Image Edit
-    elif image_tool == openai_image_edit:
+    elif image_tool == "openai_image_edit":
+        openai_image_edit = Tool.load("openai_image_edit")
+        
         if loras:
             try:
                 args_pre = {
@@ -471,6 +489,8 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
                                     "controlnet_strength": 0.6,
                                 }
                             )
+
+                    txt2img = Tool.load("txt2img")
                     result = await txt2img.async_run(args_pre)
                     print("init image result", result)
                     filename = result["output"][0]["filename"]
@@ -480,6 +500,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
                     )
                     intermediate_outputs["lora_init_image"] = result["output"]
                 else:
+                    flux_dev_lora = Tool.load("flux_dev_lora")
                     result = await flux_dev_lora.async_run(args_pre)
                     print("init image result", result)
                     filename = result["output"][0]["filename"]
@@ -519,11 +540,14 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
         else:
             print("No init image, fall back on openai_image_generate", args)
+            openai_image_generate = Tool.load("openai_image_generate")
             result = await openai_image_generate.async_run(args, save_thumbnails=True)
 
     #########################################################
     # Seedream 3
-    elif image_tool == seedream3:
+    elif image_tool == "seedream3":
+        seedream3 = Tool.load("seedream3")
+
         args = {
             "prompt": prompt,
             "size": "regular",
@@ -546,7 +570,9 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
     #########################################################
     # Seedream 4
-    elif image_tool == seedream4:
+    elif image_tool == "seedream4":
+        seedream4 = Tool.load("seedream4")
+
         args = {
             "prompt": prompt,
             "size": "2K",
@@ -636,16 +662,24 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
             ]
         )
 
-    runway = Tool.load("runway")
-    runway3 = Tool.load("runway3")  # Load Runway Aleph
-    kling = Tool.load("kling")
-    kling_pro = Tool.load("kling")
-    seedance1 = Tool.load("seedance1")
-    veo2 = Tool.load("veo2")
-    veo3 = Tool.load("veo3") if veo3_enabled else None
-    hedra = Tool.load("hedra")
-    create = Tool.load("create")
-    thinksound = Tool.load("thinksound")
+    """
+    reference_video -> runway3
+    txt2vid -> runway, veo3, seedance, kling 2
+    img2vid -> kling 2.1, runway, veo3 (fast/not), seedance
+    
+    """
+
+
+    # runway = Tool.load("runway")
+    # runway_aleph = Tool.load("runway3")  # Load Runway Aleph
+    # kling = Tool.load("kling")
+    # kling_pro = Tool.load("kling")
+    # seedance1 = Tool.load("seedance1")
+    # veo2 = Tool.load("veo2")
+    # veo3 = Tool.load("veo3") if veo3_enabled else None
+    # hedra = Tool.load("hedra")
+    # create = Tool.load("create")
+    # thinksound = Tool.load("thinksound")
 
     prompt = args["prompt"]
     # n_samples = args.get("n_samples", 1)
@@ -676,30 +710,30 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
     # Rules
     if reference_video:
         # Always use Runway Aleph for video-to-video style transfer
-        video_tool = runway3
+        video_tool = "runway3"
     elif talking_head and audio:
-        video_tool = hedra
+        video_tool = "hedra"
     elif quality == "standard":
         video_tool = {
-            "kling": kling,
-            "runway": runway,
-            "seedance": seedance1,
-            "veo": veo2,
-        }.get(model_preference, veo2)
+            "kling": "kling",
+            "runway": "runway",
+            "seedance": "seedance1",
+            "veo": "veo2",
+        }.get(model_preference, "veo2")
     elif quality == "pro":
         if veo3_enabled:
             if sound_effects:
-                video_tool = veo3
+                video_tool = "veo3"
             else:
-                video_tool = {"kling": kling, "seedance": seedance1, "veo": veo2}.get(
-                    model_preference, veo2
+                video_tool = {"kling": "kling", "seedance": "seedance1", "veo": "veo2"}.get(
+                    model_preference, "veo2"
                 )
         else:
-            video_tool = {"kling": kling, "seedance": seedance1, "veo": veo2}.get(
-                model_preference, veo2
+            video_tool = {"kling": "kling", "seedance": "seedance1", "veo": "veo2"}.get(
+                model_preference, "veo2"
             )
 
-    print("Tool selected", video_tool.key)
+    print("Tool selected", video_tool)
 
     tool_calls = []
 
@@ -708,7 +742,7 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
     # - Lora is set, so we want to do img2vid with a lora-applied image instead of txt2vid
     # Otherwise, can just do txt2vid without a start image
     if not start_image:
-        if video_tool in [runway, hedra] or loras:
+        if video_tool in ["runway", "hedra"] or loras:
             print("Generating start image with Lora")
             args = {"prompt": prompt}
             if loras:
@@ -719,6 +753,7 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
                     }
                 )
             try:
+                create = Tool.load("create")
                 result = await create.async_run(args, save_thumbnails=True)
                 start_image = get_full_url(result["output"][0]["filename"])
                 tool_calls.append(
@@ -740,7 +775,9 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
 
     #########################################################
     # Runway
-    if video_tool == runway:
+    if video_tool == "runway":
+        runway = Tool.load("runway")
+
         # Runway can only produce 5 or 10s videos
         duration = 10 if duration > 7.5 else 5
 
@@ -777,7 +814,9 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
 
     #########################################################
     # Kling
-    elif video_tool == kling:
+    elif video_tool == "kling":
+        kling = Tool.load("kling")
+
         # Kling can only produce 5 or 10s videos
         duration = 10 if duration > 7.5 else 5
 
@@ -820,11 +859,14 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
                     "quality": "high",  # use Kling 2 optimistically
                 }
             )
+            kling_pro = Tool.load("kling_pro")
             result = await kling_pro.async_run(args, save_thumbnails=True)
 
     #########################################################
     # Seedance
-    elif video_tool == seedance1:
+    elif video_tool == "seedance1":
+        seedance1 = Tool.load("seedance1")
+
         # Seedance can only produce 5 or 10s videos
         duration = 10 if duration > 7.5 else 5
 
@@ -857,9 +899,11 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
 
     #########################################################
     # Veo-2
-    elif video_tool == veo2:
+    elif video_tool == "veo2":
+        veo2 = Tool.load("veo2")
+
         # Veo can only produce 5-8s videos
-        duration = min(duration, 8)
+        duration = max(5, min(duration, 8))
 
         # Snap aspect ratio to closest Veo2 preset
         aspect_ratio = snap_aspect_ratio_to_model(
@@ -889,9 +933,11 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
 
     #########################################################
     # Veo-3
-    elif video_tool == veo3:
+    elif video_tool == "veo3":
+        veo3 = Tool.load("veo3")
+
         # Veo can only produce 5-8s videos
-        duration = min(duration, 8)
+        duration = 4 if duration < 5 else 6 if duration < 7 else 8
 
         args = {
             "prompt": f"{prompt}. {sound_effects}",
@@ -914,7 +960,9 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
 
     #########################################################
     # Hebra
-    elif video_tool == hedra:
+    elif video_tool == "hedra":
+        hedra = Tool.load("hedra")
+
         # Snap aspect ratio to closest Hebra preset
         aspect_ratio = snap_aspect_ratio_to_model(
             aspect_ratio, "hedra", start_image_attributes
@@ -931,8 +979,10 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
         result = await hedra.async_run(args, save_thumbnails=True)
 
     #########################################################
-    # Runway3 (Aleph)
-    elif video_tool == runway3:
+    # Runway3 (Runway Aleph)
+    elif video_tool == "runway3":
+        runway_aleph = Tool.load("runway3")
+
         # Snap aspect ratio to closest Runway preset
         aspect_ratio = snap_aspect_ratio_to_model(
             aspect_ratio,
@@ -959,7 +1009,7 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
             args["seed"] = seed
 
         print("Running Runway3 (Aleph)", args)
-        result = await runway3.async_run(args, save_thumbnails=True)
+        result = await runway_aleph.async_run(args, save_thumbnails=True)
 
     else:
         raise Exception("Invalid video tool", video_tool)
@@ -973,7 +1023,7 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
     tool_calls.append({"tool": video_tool.key, "args": args, "output": final_video})
 
     # If sound effects are requested, try to add them
-    if sound_effects and video_tool != veo3:
+    if sound_effects and video_tool != "veo3":
         print("----> creating sound effects")
         try:
             args = {
@@ -984,6 +1034,7 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
                 "num_inference_steps": 24,
             }
             print("Running ThinkSound", args)
+            thinksound = Tool.load("thinksound")
             sound_fx = await thinksound.async_run(args, save_thumbnails=True)
             final_video = get_full_url(sound_fx["output"][0]["filename"])
             print("Final result with sound effects", final_video)
