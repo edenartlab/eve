@@ -88,7 +88,7 @@ def extract_result_urls(result):
                 if isinstance(output, str) and (output.startswith("http://") or output.startswith("https://")):
                     urls.append(output)
     
-    return urls
+    return list(set(urls))
 
 
 def get_tool_test_files(tool_key: str, test_filter: list = None) -> list:
