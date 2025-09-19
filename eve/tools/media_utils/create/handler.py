@@ -1013,7 +1013,7 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
     final_video = get_full_url(result["output"][0]["filename"])
     print("final result", final_video)
 
-    tool_calls.append({"tool": "video_tool", "args": args, "output": final_video})
+    tool_calls.append({"tool": video_tool, "args": args, "output": final_video})
 
     # If sound effects are requested, try to add them
     if sound_effects and video_tool != "veo3":
