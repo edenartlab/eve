@@ -608,14 +608,14 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
     #########################################################
     # Final result
     print("result", result)
-    if result.get("status") == "failed":
+    if result.get("status") == "failed" or not "output" in result:
         raise Exception(f"Error in /create: {result.get('error')}")
 
     final_result = get_full_url(result["output"][0]["filename"])
     print("final result", final_result)
 
     # Add sub tool call to tool_calls
-    tool_calls.append({"tool": image_tool.key, "args": args, "output": final_result})
+    tool_calls.append({"tool": image_tool, "args": args, "output": final_result})
 
     # insert args urls
     for tool_call in tool_calls:
@@ -653,6 +653,8 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
                 paying_user = User.from_mongo(agent.owner)
             else:
                 paying_user = user
+        else:
+            paying_user = user
 
         veo3_enabled = any(
             [
@@ -660,7 +662,7 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
                 for t in paying_user.featureFlags
                 if t in ["tool_access_veo3", "preview"]
             ]
-        )
+        ) or paying_user.subscriptionTier > 0
 
     """
     reference_video -> runway3
@@ -668,7 +670,6 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
     img2vid -> kling 2.1, runway, veo3 (fast/not), seedance
     
     """
-
 
     # runway = Tool.load("runway")
     # runway_aleph = Tool.load("runway3")  # Load Runway Aleph
@@ -712,26 +713,18 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
         # Always use Runway Aleph for video-to-video style transfer
         video_tool = "runway3"
     elif talking_head and audio:
-        video_tool = "hedra"
-    elif quality == "standard":
+        video_tool = "hedra"    
+    # Go by model preference
+    else:
         video_tool = {
-            "kling": "kling",
-            "runway": "runway",
-            "seedance": "seedance1",
-            "veo": "veo2",
-        }.get(model_preference, "veo2")
-    elif quality == "pro":
-        if veo3_enabled:
-            if sound_effects:
-                video_tool = "veo3"
-            else:
-                video_tool = {"kling": "kling", "seedance": "seedance1", "veo": "veo2"}.get(
-                    model_preference, "veo2"
-                )
-        else:
-            video_tool = {"kling": "kling", "seedance": "seedance1", "veo": "veo2"}.get(
-                model_preference, "veo2"
-            )
+            "kling": "kling", 
+            "seedance": "seedance1", 
+            "veo": "veo3",
+            "runway": "runway"
+        }.get(model_preference, "veo3")
+
+        if not veo3_enabled and video_tool == "veo3":
+            video_tool = "seedance1"
 
     print("Tool selected", video_tool)
 
@@ -815,8 +808,6 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
     #########################################################
     # Kling
     elif video_tool == "kling":
-        kling = Tool.load("kling")
-
         # Kling can only produce 5 or 10s videos
         duration = 10 if duration > 7.5 else 5
 
@@ -825,42 +816,38 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
             aspect_ratio, "kling", start_image_attributes
         )
 
-        args = {"prompt": prompt, "duration": duration}
+        # if no start image, use kling_pro 1.6
+        if not start_image:
+            kling_pro = Tool.load("kling_pro") 
+        
+            args = {
+                "prompt": prompt, 
+                "duration": duration, 
+                "quality": "medium"
+            }
 
-        if start_image:
-            args.update(
-                {
-                    "start_image": start_image,
-                }
-            )
-
-        # If an end image is requested, fall back to Kling 1.6 Pro which supports it
-        if end_image:
-            args.update(
-                {
-                    "end_image": end_image,
-                    "quality": "medium",
-                }
-            )
-
-        print(f"Running Kling {args.get('quality')}", args)
-
-        if "start_image" in args:
-            args.update(
-                {
-                    "mode": quality,
-                }
-            )
-            result = await kling.async_run(args, save_thumbnails=True)
-        else:
-            args.update(
-                {
-                    "aspect_ratio": aspect_ratio,
-                    "quality": "high",  # use Kling 2 optimistically
-                }
-            )
-            kling_pro = Tool.load("kling_pro")
+            if end_image:
+                args.update({"end_image": end_image})
+            
+            print(f"Running Kling Pro {args.get('quality')}", args)
             result = await kling_pro.async_run(args, save_thumbnails=True)
+
+        # else, use kling 2.1
+        else:
+            kling = Tool.load("kling")
+
+            args = {
+                "prompt": prompt, 
+                "duration": duration, 
+                "mode": quality,
+                "start_image": start_image,
+            }
+
+            if end_image:
+                args.update({"end_image": end_image})
+
+            print(f"Running Kling {args.get('quality')}", args)
+            result = await kling.async_run(args, save_thumbnails=True)
 
     #########################################################
     # Seedance
@@ -878,7 +865,7 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
         args = {
             "prompt": prompt,
             "duration": duration,
-            "resolution": "1080p" if quality == "pro" else "480p",
+            "resolution": "1080p" if quality == "pro" else "720p",
         }
 
         if aspect_ratio != "auto":
@@ -936,13 +923,19 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
     elif video_tool == "veo3":
         veo3 = Tool.load("veo3")
 
+        # Snap aspect ratio to closest Veo2 preset
+        aspect_ratio = snap_aspect_ratio_to_model(
+            aspect_ratio, "veo3", start_image_attributes
+        )
+
         # Veo can only produce 5-8s videos
         duration = 4 if duration < 5 else 6 if duration < 7 else 8
 
         args = {
-            "prompt": f"{prompt}. {sound_effects}",
+            "prompt": f"{prompt}. AUDIO: {sound_effects}" if sound_effects else prompt,
             "duration": duration,
-            # "aspect_ratio": aspect_ratio,
+            "fast": True if quality == "standard" else False,
+            "aspect_ratio": aspect_ratio,
         }
 
         if start_image:
@@ -1020,7 +1013,7 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
     final_video = get_full_url(result["output"][0]["filename"])
     print("final result", final_video)
 
-    tool_calls.append({"tool": video_tool.key, "args": args, "output": final_video})
+    tool_calls.append({"tool": "video_tool", "args": args, "output": final_video})
 
     # If sound effects are requested, try to add them
     if sound_effects and video_tool != "veo3":
@@ -1134,6 +1127,7 @@ def snap_aspect_ratio_to_model(aspect_ratio, model_name, start_image_attributes)
         },
         "kling": {"16:9": 16 / 9, "1:1": 1 / 1, "9:16": 9 / 16},
         "veo2": {"16:9": 16 / 9, "9:16": 9 / 16},
+        "veo3": {"16:9": 16 / 9, "9:16": 9 / 16},
         "hedra": {"16:9": 16 / 9, "1:1": 1 / 1, "9:16": 9 / 16},
         "seedance1": {
             "21:9": 21 / 9,
