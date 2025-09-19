@@ -25,6 +25,12 @@ parameters:
     tip: |-
       This image will be used as the first frame of the video. The model will animate from this starting point based on your prompt.
     required: true
+  end_image:
+    type: image
+    label: Ending image
+    description: Last frame of the video (optional)
+    tip: |-
+      This image will be used as the last frame of the video. The model will animate to this ending point based on your prompt.
   mode:
     type: string
     label: Mode
