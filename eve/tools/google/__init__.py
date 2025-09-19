@@ -81,19 +81,16 @@ async def veo_handler(args: dict, model: str):
     if args.get("prompt"):
         args_dict["prompt"] = args.get("prompt")
 
-
     # ---- start generation ----
     operation = client.models.generate_videos(
         **args_dict
     )
     print("operation", operation)
 
-
-    # ---- poll until done ----
+    # ---- poll until done ----    
     while not operation.done:
         await asyncio.sleep(2)
         operation = client.operations.get(operation)
-
 
     # ---- download the video(s) ----
     videos = []

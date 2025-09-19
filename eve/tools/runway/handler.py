@@ -216,6 +216,8 @@ async def handler(args: dict, user: str = None, agent: str = None):
     except Exception as e:
         print(f"Failed after retries: {e}")
         print(f"Failed due to unsafe content: {unsafe_content_error}")
+
+        task = None
         
         # if unsafe_content_error:
         #     print("Retrying...")

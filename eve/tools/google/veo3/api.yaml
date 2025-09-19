@@ -43,6 +43,11 @@ parameters:
     description: Whether to generate audio (sound effects, vocals, and music)
     default: true
     required: false
+  fast:
+    type: boolean
+    label: Fast
+    description: Use faster and cheaper model
+    default: false
   aspect_ratio:
     type: string
     label: Aspect Ratio
