@@ -872,6 +872,7 @@ class PromptSessionContext:
     thinking_override: Optional[bool] = (
         None  # Override agent's thinking policy per-message
     )
+    acting_user_id: Optional[str] = None
 
 
 @dataclass

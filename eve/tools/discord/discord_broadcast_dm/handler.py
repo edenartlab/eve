@@ -37,6 +37,8 @@ async def handler(args: dict, user: str = None, agent: str = None):
     if not deployment:
         raise Exception("No valid Discord deployment found")
 
+    agent_owner_id = str(agent_obj.owner) if agent_obj.owner else None
+
     # Extract parameters
     channel_id = args["channel_id"]
     instruction = args["instruction"]
@@ -87,7 +89,12 @@ async def handler(args: dict, user: str = None, agent: str = None):
 
         # Step 4: Create/find DM sessions and send messages with rate limiting
         results = await orchestrate_dm_sessions(
-            agent, deployment, eden_users, instruction, rate_limit_delay
+            agent,
+            deployment,
+            eden_users,
+            instruction,
+            rate_limit_delay,
+            agent_owner_id,
         )
 
         return {"output": results}
@@ -352,7 +359,8 @@ async def orchestrate_dm_sessions(
     deployment: Deployment,
     eden_users: List[Tuple[DiscordUser, User]],
     instruction: str,
-    rate_limit_delay: float = 1.0
+    rate_limit_delay: float = 1.0,
+    acting_user_id: Optional[str] = None,
 ) -> List[Dict]:
     """
     Create or find DM sessions for each user and send personalized messages with rate limiting.
@@ -362,7 +370,12 @@ async def orchestrate_dm_sessions(
 
     for discord_user, eden_user in eden_users:
         task = create_dm_session_task(
-            agent, deployment, discord_user, eden_user, instruction
+            agent,
+            deployment,
+            discord_user,
+            eden_user,
+            instruction,
+            acting_user_id,
         )
         session_tasks.append(task)
 
@@ -409,7 +422,8 @@ async def create_dm_session_task(
     deployment: Deployment,
     discord_user: DiscordUser,
     eden_user: User,
-    instruction: str
+    instruction: str,
+    acting_user_id: Optional[str] = None,
 ) -> Dict:
     """
     Create or reuse a DM session for a specific user and send the instruction.
@@ -453,6 +467,9 @@ Important:After generating your response, use the discord_post tool to send it a
 """,
         },
     }
+
+    if acting_user_id:
+        request_data["acting_user_id"] = acting_user_id
 
     # Add session creation args if needed
     if not session_id:

@@ -1096,6 +1096,7 @@ async def handle_prompt_session(
         llm_config=request.llm_config,
         notification_config=notification_config,
         thinking_override=request.thinking,  # Pass thinking override
+        acting_user_id=request.acting_user_id or request.user_id,
     )
 
     if request.stream:

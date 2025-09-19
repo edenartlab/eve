@@ -311,7 +311,8 @@ async def build_llm_context(
     user = User.from_mongo(context.initiating_user_id)
     tier = "premium" if user.subscriptionTier and user.subscriptionTier > 0 else "free"
 
-    tools = actor.get_tools(cache=False, auth_user=context.initiating_user_id)
+    auth_user_id = context.acting_user_id or context.initiating_user_id
+    tools = actor.get_tools(cache=False, auth_user=auth_user_id)
     if context.custom_tools:
         tools.update(context.custom_tools)
     # build messages first to have context for thinking routing
