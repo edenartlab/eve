@@ -5,7 +5,13 @@ from eve.agent.session.models import Deployment
 from pydantic import BaseModel
 import discord
 from datetime import datetime, timedelta, timezone
+import re
 import traceback
+from typing import Any, Dict, List, Optional
+
+
+DISCORD_EPOCH_MS = 1420070400000
+MENTION_PATTERN = re.compile(r"<@!?(\d+)>")
 
 
 class ChannelSearchParams(BaseModel):
@@ -100,191 +106,392 @@ Behavior:
     await http.static_login(deployment.secrets.discord.token)
 
     try:
-        # Get messages from relevant channels
-        messages = []
+        messages: List[Dict[str, Any]] = []
+        guild_thread_cache: Dict[str, List[Dict[str, Any]]] = {}
+
         for channel_params in parsed_query.channels:
-            # Get the channel ID from the note
-            channel_id = channel_params.channel_id
-            if not channel_id:
-                allowed_ids = list(channel_map.keys())
-                raise Exception(
-                    f"Channel note '{channel_params.channel_id}' not found. Available channel notes: {allowed_ids}"
-                )
+            channel_messages = await _collect_channel_messages(
+                http=http,
+                channel_params=channel_params,
+                include_thread_messages=include_thread_messages,
+                channel_map=channel_map,
+                guild_thread_cache=guild_thread_cache,
+            )
+            messages.extend(channel_messages)
 
-            # Get channel data
-            channel_data = await http.get_channel(int(channel_id))
+        if messages:
+            messages.sort(
+                key=lambda msg: _parse_iso_timestamp(msg.get("created_at"))
+                or datetime.min.replace(tzinfo=timezone.utc)
+            )
 
-            # Check if channel supports messages (text channels)
-            if channel_data.get("type") not in [
-                0,
-                5,
-                10,
-                11,
-                12,
-            ]:  # Text channel types=
-                continue
+        if messages:
+            messages = await _replace_user_mentions(http=http, messages=messages)
 
-            # Get messages using HTTP client
-            params = {}
-
-            if channel_params.message_limit:
-                # If message_limit is specified, get the most recent N messages
-                # Don't set 'after' parameter - we want to go back as far as needed
-                # Discord API limit is 100 messages per request
-                params["limit"] = min(channel_params.message_limit, 100)
-            else:
-                # If no message_limit, get all messages within the time window
-                # Set limit to 100 (Discord's max per request) and use time window
-                after = datetime.now(timezone.utc) - timedelta(
-                    hours=channel_params.time_window_hours
-                )
-                params["limit"] = 100  # Discord's max per request
-                params["after"] = int((after.timestamp() - 1420070400) * 1000) << 22
-
-            message_data = await http.logs_from(int(channel_id), **params)
-
-            for msg in message_data:
-                messages.append(
-                    {
-                        "id": str(msg["id"]),
-                        "content": msg.get("content", ""),
-                        "author": msg.get("author", {}).get("username", "Unknown"),
-                        "created_at": msg.get("timestamp", ""),
-                        "channel_id": str(channel_id),
-                        "channel_name": channel_data.get("name", "Unknown"),
-                        "url": f"https://discord.com/channels/{channel_data.get('guild_id', 'Unknown')}/{channel_id}/{msg['id']}",
-                    }
-                )
-
-            # Get thread messages if include_thread_messages is True
-            if include_thread_messages:
-                try:
-                    # Get the guild_id from the channel data
-                    guild_id = channel_data.get("guild_id")
-                    if not guild_id:
-                        print(f"Warning: No guild_id found for channel {channel_id}")
-                        continue
-
-                    print(f"Getting active threads for guild {guild_id}")
-
-                    # Get all active threads for the guild
-                    active_threads_response = await http.request(
-                        discord.http.Route("GET", f"/guilds/{guild_id}/threads/active")
-                    )
-
-                    all_threads = active_threads_response.get("threads", [])
-                    print(
-                        f"Found {len(all_threads)} active threads in guild {guild_id}"
-                    )
-
-                    # Filter threads that belong to this channel
-                    channel_threads = [
-                        t for t in all_threads if t.get("parent_id") == str(channel_id)
-                    ]
-                    print(
-                        f"Found {len(channel_threads)} threads for channel {channel_id}"
-                    )
-
-                    # Get messages from each thread
-                    for thread in channel_threads:
-                        thread_id = thread["id"]
-                        thread_name = thread.get("name", "Unknown Thread")
-
-                        try:
-                            print(
-                                f"Getting messages from thread {thread_id} ({thread_name})"
-                            )
-
-                            thread_params = {}
-                            if channel_params.message_limit:
-                                # Use same message limit for threads as main channel
-                                thread_params["limit"] = min(
-                                    channel_params.message_limit, 100
-                                )
-                            else:
-                                # Use time window for threads
-                                after = datetime.now(timezone.utc) - timedelta(
-                                    hours=channel_params.time_window_hours
-                                )
-                                thread_params["limit"] = 100
-                                thread_params["after"] = (
-                                    int((after.timestamp() - 1420070400) * 1000) << 22
-                                )
-
-                            thread_messages = await http.logs_from(
-                                int(thread_id), **thread_params
-                            )
-                            print(
-                                f"Retrieved {len(thread_messages)} messages from thread {thread_id}"
-                            )
-
-                            # Get the thread starter message (the original message that created the thread)
-                            try:
-                                parent_message_id = thread.get(
-                                    "id"
-                                )  # In threads, the thread ID often equals the starter message ID
-                                # Try to get the first message in the thread which is usually the starter
-                                if (
-                                    thread_messages
-                                    and thread_messages[-1]["id"] == parent_message_id
-                                ):
-                                    # Mark the first message as the thread starter
-                                    starter_msg = thread_messages[-1]
-                                    messages.append(
-                                        {
-                                            "id": str(starter_msg["id"]),
-                                            "content": starter_msg.get("content", ""),
-                                            "author": starter_msg.get("author", {}).get(
-                                                "username", "Unknown"
-                                            ),
-                                            "created_at": starter_msg.get(
-                                                "timestamp", ""
-                                            ),
-                                            "channel_id": str(thread_id),
-                                            "channel_name": f"{channel_data.get('name', 'Unknown')} > {thread_name}",
-                                            "url": f"https://discord.com/channels/{guild_id}/{thread_id}/{starter_msg['id']}",
-                                            "thread_parent_id": str(channel_id),
-                                            "is_thread_message": True,
-                                            "is_thread_starter": True,
-                                        }
-                                    )
-                                    # Add rest of the messages (excluding the starter we already added)
-                                    thread_messages = thread_messages[:-1]
-                            except Exception as e:
-                                print(f"Error getting thread starter message: {e}")
-                                print(traceback.format_exc())
-
-                            # Add all thread messages
-                            for msg in thread_messages:
-                                messages.append(
-                                    {
-                                        "id": str(msg["id"]),
-                                        "content": msg.get("content", ""),
-                                        "author": msg.get("author", {}).get(
-                                            "username", "Unknown"
-                                        ),
-                                        "created_at": msg.get("timestamp", ""),
-                                        "channel_id": str(thread_id),
-                                        "channel_name": f"{channel_data.get('name', 'Unknown')} > {thread_name}",
-                                        "url": f"https://discord.com/channels/{guild_id}/{thread_id}/{msg['id']}",
-                                        "thread_parent_id": str(channel_id),
-                                        "is_thread_message": True,
-                                    }
-                                )
-
-                        except Exception as e:
-                            print(f"Error processing thread {thread_id}: {e}")
-                            print(traceback.format_exc())
-                            continue
-
-                except Exception as e:
-                    print(f"Error getting threads for channel {channel_id}: {e}")
-                    print(traceback.format_exc())
-
-        # Sort messages by created_at timestamp to ensure chronological order (oldest first)
-        messages.sort(key=lambda x: x["created_at"], reverse=False)
-
-        return {"output": messages}
+        formatted_messages = _format_output_messages(messages)
+        return {"output": formatted_messages, "_skip_upload_processing": True}
 
     finally:
         await http.close()
+
+
+def _parse_iso_timestamp(timestamp: str) -> Optional[datetime]:
+    if not timestamp:
+        return None
+    try:
+        # Discord timestamps are ISO 8601 with Z suffix
+        return datetime.fromisoformat(timestamp.replace("Z", "+00:00")).astimezone(
+            timezone.utc
+        )
+    except Exception:
+        return None
+
+
+def _datetime_to_snowflake(dt: datetime) -> int:
+    milliseconds = int(dt.timestamp() * 1000)
+    return max(((milliseconds - DISCORD_EPOCH_MS) << 22), 0)
+
+
+def _snowflake_to_datetime(snowflake_id: Optional[str | int]) -> Optional[datetime]:
+    if not snowflake_id:
+        return None
+    try:
+        snowflake_int = int(snowflake_id)
+    except (TypeError, ValueError):
+        return None
+    timestamp_ms = (snowflake_int >> 22) + DISCORD_EPOCH_MS
+    return datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc)
+
+
+def _coerce_channel_id(channel_id_or_note: str, channel_map: Dict[str, str]) -> str:
+    if not channel_id_or_note:
+        raise Exception("Channel identifier is required")
+    channel_id_or_note = str(channel_id_or_note)
+    mapped = channel_map.get(channel_id_or_note.lower())
+    return mapped or channel_id_or_note
+
+
+async def _collect_channel_messages(
+    http: discord.http.HTTPClient,
+    channel_params: ChannelSearchParams,
+    include_thread_messages: bool,
+    channel_map: Dict[str, str],
+    guild_thread_cache: Dict[str, List[Dict[str, Any]]],
+) -> List[Dict[str, Any]]:
+    channel_id = _coerce_channel_id(channel_params.channel_id, channel_map)
+
+    channel_data = await http.get_channel(int(channel_id))
+    if channel_data.get("type") not in {0, 5, 10, 11, 12}:
+        return []
+
+    guild_id = channel_data.get("guild_id")
+    channel_name = channel_data.get("name", "Unknown")
+
+    message_limit = channel_params.message_limit
+    has_message_limit = message_limit is not None
+    per_request_limit = _determine_request_limit(message_limit)
+
+    cutoff_dt: Optional[datetime]
+    raw_channel_messages: List[Dict[str, Any]]
+
+    if has_message_limit:
+        print(
+            f"Fetching channel {channel_name} ({channel_id}) with limit={per_request_limit}"
+        )
+        raw_channel_messages = await http.logs_from(
+            int(channel_id), limit=per_request_limit
+        )
+        cutoff_dt = _oldest_timestamp(raw_channel_messages)
+    else:
+        cutoff_dt = datetime.now(timezone.utc) - timedelta(
+            hours=channel_params.time_window_hours
+        )
+        after_snowflake = _datetime_to_snowflake(cutoff_dt)
+        print(
+            f"Fetching channel {channel_name} ({channel_id}) after={after_snowflake} cutoff={cutoff_dt.isoformat()} limit={per_request_limit}"
+        )
+        raw_channel_messages = await http.logs_from(
+            int(channel_id), limit=per_request_limit, after=after_snowflake
+        )
+
+    print(
+        f"Retrieved {len(raw_channel_messages)} channel messages for {channel_name} ({channel_id})"
+    )
+
+    channel_messages = _transform_messages(
+        raw_messages=raw_channel_messages,
+        guild_id=guild_id,
+        resolved_channel_id=channel_id,
+        channel_name=channel_name,
+        thread_parent_id=None,
+    )
+
+    # Filter to timeframe when message_limit provided
+    if cutoff_dt:
+        channel_messages = [
+            msg for msg in channel_messages if msg["_created_at_dt"] >= cutoff_dt
+        ]
+        print(
+            f"Channel {channel_name} ({channel_id}) retained {len(channel_messages)} messages after cutoff"
+        )
+
+    if include_thread_messages and guild_id and cutoff_dt:
+        thread_messages = await _collect_thread_messages(
+            http=http,
+            guild_id=str(guild_id),
+            parent_channel_id=str(channel_id),
+            channel_name=channel_name,
+            cutoff_dt=cutoff_dt,
+            per_request_limit=per_request_limit,
+            guild_thread_cache=guild_thread_cache,
+        )
+        channel_messages.extend(thread_messages)
+        print(
+            f"Channel {channel_name} ({channel_id}) total after threads: {len(channel_messages)}"
+        )
+
+    # Sort ascending (oldest first)
+    channel_messages.sort(key=lambda msg: msg["_created_at_dt"])
+
+    if has_message_limit and message_limit is not None:
+        channel_messages = channel_messages[-message_limit:]
+        print(
+            f"Channel {channel_name} ({channel_id}) trimmed to final {len(channel_messages)} messages"
+        )
+
+    # Strip helper field before returning
+    for msg in channel_messages:
+        msg.pop("_created_at_dt", None)
+
+    return channel_messages
+
+
+def _determine_request_limit(message_limit: Optional[int]) -> int:
+    if message_limit is None:
+        return 100
+    if message_limit <= 0:
+        raise Exception("message_limit must be greater than zero")
+    return min(max(message_limit, 1), 100)
+
+
+def _oldest_timestamp(messages: List[Dict[str, Any]]) -> Optional[datetime]:
+    oldest: Optional[datetime] = None
+    for message in messages:
+        current = _parse_iso_timestamp(message.get("timestamp"))
+        if current and (oldest is None or current < oldest):
+            oldest = current
+    return oldest
+
+
+def _transform_messages(
+    raw_messages: List[Dict[str, Any]],
+    guild_id: Optional[str],
+    resolved_channel_id: str,
+    channel_name: str,
+    thread_parent_id: Optional[str],
+) -> List[Dict[str, Any]]:
+    transformed: List[Dict[str, Any]] = []
+    for message in raw_messages:
+        created_at = message.get("timestamp", "")
+        created_at_dt = _parse_iso_timestamp(created_at)
+        if not created_at_dt:
+            continue
+
+        message_channel_id = str(message.get("channel_id", resolved_channel_id))
+        resolved_guild_id = guild_id or message.get("guild_id")
+        guild = str(resolved_guild_id) if resolved_guild_id is not None else None
+        channel_identifier = (
+            str(resolved_channel_id)
+            if thread_parent_id is None
+            else message_channel_id
+        )
+        target_channel_id = (
+            message_channel_id
+            if thread_parent_id is not None
+            else str(resolved_channel_id)
+        )
+        author_info = message.get("author", {})
+        author_name = (
+            author_info.get("global_name")
+            or author_info.get("username")
+            or "Unknown"
+        )
+        message_id = str(message.get("id"))
+
+        message_url = None
+        if guild and channel_identifier and message_id:
+            message_url = (
+                f"https://discord.com/channels/{guild}/{channel_identifier}/{message_id}"
+            )
+
+        transformed.append(
+            {
+                "id": message_id,
+                "content": message.get("content", ""),
+                "author": author_name,
+                "created_at": created_at,
+                "channel_id": str(target_channel_id),
+                "channel_name": channel_name,
+                "guild_id": guild,
+                "url": message_url,
+                **(
+                    {
+                        "thread_parent_id": str(thread_parent_id),
+                        "is_thread_message": True,
+                    }
+                    if thread_parent_id is not None
+                    else {}
+                ),
+                "_created_at_dt": created_at_dt,
+            }
+        )
+    return transformed
+
+
+def _build_message_url(
+    guild_id: Optional[str], channel_id: Optional[str], message_id: Optional[str]
+) -> Optional[str]:
+    if not guild_id or not channel_id or not message_id:
+        return None
+    return f"https://discord.com/channels/{guild_id}/{channel_id}/{message_id}"
+
+
+def _format_output_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    formatted: List[Dict[str, Any]] = []
+    for message in messages:
+        url = _build_message_url(
+            guild_id=message.get("guild_id"),
+            channel_id=message.get("channel_id"),
+            message_id=message.get("id"),
+        )
+
+        entry: Dict[str, Any] = {
+            "message_id": message.get("id"),
+            "content": message.get("content"),
+            "author": message.get("author"),
+            "created_at": message.get("created_at"),
+            "channel_id": message.get("channel_id"),
+            "channel_name": message.get("channel_name"),
+            "guild_id": message.get("guild_id"),
+            "thread_parent_id": message.get("thread_parent_id"),
+            "is_thread_message": message.get("is_thread_message", False),
+        }
+
+        if url and isinstance(url, str) and url.startswith("http"):
+            entry["url"] = url
+
+        formatted.append(entry)
+
+    return formatted
+
+
+async def _collect_thread_messages(
+    http: discord.http.HTTPClient,
+    guild_id: str,
+    parent_channel_id: str,
+    channel_name: str,
+    cutoff_dt: datetime,
+    per_request_limit: int,
+    guild_thread_cache: Dict[str, List[Dict[str, Any]]],
+) -> List[Dict[str, Any]]:
+    if guild_id not in guild_thread_cache:
+        response = await http.request(
+            discord.http.Route("GET", f"/guilds/{guild_id}/threads/active")
+        )
+        guild_thread_cache[guild_id] = response.get("threads", [])
+
+    all_threads = guild_thread_cache.get(guild_id, [])
+    relevant_threads: List[Dict[str, Any]] = []
+
+    for thread in all_threads:
+        if thread.get("parent_id") != parent_channel_id:
+            continue
+
+        last_message_id = thread.get("last_message_id") or thread.get("id")
+        last_activity = _snowflake_to_datetime(last_message_id)
+        if not last_activity or last_activity < cutoff_dt:
+            continue
+        relevant_threads.append(thread)
+
+    print(
+        f"Channel {parent_channel_id} has {len(relevant_threads)} active threads within cutoff"
+    )
+
+    thread_messages: List[Dict[str, Any]] = []
+
+    for thread in relevant_threads:
+        thread_id = thread["id"]
+        thread_name = thread.get("name", "Unknown Thread")
+
+        try:
+            print(
+                f"Fetching thread {thread_name} ({thread_id}) for parent {parent_channel_id} limit={per_request_limit}"
+            )
+            raw_thread_messages = await http.logs_from(
+                int(thread_id), limit=per_request_limit
+            )
+        except Exception as exc:
+            print(f"Error processing thread {thread_id}: {exc}")
+            print(traceback.format_exc())
+            continue
+
+        thread_channel_name = f"{channel_name} > {thread_name}"
+        transformed = _transform_messages(
+            raw_messages=raw_thread_messages,
+            guild_id=guild_id,
+            resolved_channel_id=thread_id,
+            channel_name=thread_channel_name,
+            thread_parent_id=parent_channel_id,
+        )
+
+        filtered = [
+            msg for msg in transformed if msg["_created_at_dt"] >= cutoff_dt
+        ]
+        print(
+            f"Retrieved {len(filtered)} messages from thread {thread_name} ({thread_id}) within cutoff"
+        )
+        thread_messages.extend(filtered)
+
+    return thread_messages
+
+
+async def _replace_user_mentions(
+    http: discord.http.HTTPClient, messages: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    user_ids: set[str] = set()
+    for message in messages:
+        content = message.get("content")
+        if not content:
+            continue
+        for match in MENTION_PATTERN.finditer(content):
+            user_ids.add(match.group(1))
+
+    if not user_ids:
+        return messages
+
+    username_cache: Dict[str, str] = {}
+    for user_id in user_ids:
+        try:
+            user = await http.get_user(int(user_id))
+        except Exception as exc:
+            print(f"Failed to resolve user {user_id}: {exc}")
+            continue
+        if user:
+            username = user.get("global_name") or user.get("username")
+            if username:
+                username_cache[user_id] = username
+
+    def replace(content: str) -> str:
+        def repl(match: re.Match[str]) -> str:
+            target_id = match.group(1)
+            username = username_cache.get(target_id)
+            return f"@{username}" if username else match.group(0)
+
+        return MENTION_PATTERN.sub(repl, content)
+
+    for message in messages:
+        content = message.get("content")
+        if content:
+            message["content"] = replace(content)
+
+    return messages
