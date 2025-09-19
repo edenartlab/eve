@@ -356,31 +356,44 @@ def _build_message_url(
     return f"https://discord.com/channels/{guild_id}/{channel_id}/{message_id}"
 
 
+def _format_timestamp_for_output(timestamp: Optional[str]) -> Optional[str]:
+    dt = _parse_iso_timestamp(timestamp) if timestamp else None
+    if not dt:
+        return timestamp
+    return dt.strftime("%m-%d %H:%M")
+
+
 def _format_output_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     formatted: List[Dict[str, Any]] = []
+    include_url = True
+    include_channel_name = True
+
     for message in messages:
-        url = _build_message_url(
-            guild_id=message.get("guild_id"),
-            channel_id=message.get("channel_id"),
-            message_id=message.get("id"),
-        )
+        formatted_timestamp = _format_timestamp_for_output(message.get("created_at"))
 
         entry: Dict[str, Any] = {
-            "message_id": message.get("id"),
             "content": message.get("content"),
             "author": message.get("author"),
-            "created_at": message.get("created_at"),
-            "channel_id": message.get("channel_id"),
-            "channel_name": message.get("channel_name"),
-            "guild_id": message.get("guild_id"),
-            "thread_parent_id": message.get("thread_parent_id"),
-            "is_thread_message": message.get("is_thread_message", False),
+            "created_at": formatted_timestamp,
         }
 
-        if url and isinstance(url, str) and url.startswith("http"):
-            entry["url"] = url
+        if include_channel_name:
+            entry["channel_name"] = message.get("channel_name") or "Unknown"
+
+        if include_url:
+            url = _build_message_url(
+                guild_id=message.get("guild_id"),
+                channel_id=message.get("channel_id"),
+                message_id=message.get("id"),
+            )
+            if url and isinstance(url, str) and url.startswith("http"):
+                entry["url"] = url
+            elif message.get("url"):
+                entry["url"] = message["url"]
 
         formatted.append(entry)
+        include_channel_name = False
+        include_url = False
 
     return formatted
 
