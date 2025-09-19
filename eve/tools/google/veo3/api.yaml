@@ -35,9 +35,7 @@ parameters:
     label: Duration
     description: Duration in seconds
     default: 8
-    minimum: 5
-    maximum: 8
-    step: 1
+    choices: [4, 6, 8]
     required: true
   generate_audio:
     type: boolean

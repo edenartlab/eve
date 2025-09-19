@@ -60,18 +60,13 @@ async def veo_handler(args: dict, model: str):
     if args.get("negative_prompt"):
         config_dict["negative_prompt"] = args.get("negative_prompt")
 
-    # if args.get("generate_audio"):
-    #     config_dict["generate_audio"] = True if args.get("generate_audio") else False
+    if args.get("generate_audio"):
+        config_dict["generate_audio"] = True if args.get("generate_audio") else False
     
     args_dict = {
         "model": model,
         "config": genai.types.GenerateVideosConfig(**config_dict),
     }
-
-    print("HERE ARE")
-    print(args_dict)
-    print("----")
-    print(config_dict)
 
     image = args.get("image")
     if image:
