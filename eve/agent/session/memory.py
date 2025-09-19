@@ -205,7 +205,7 @@ async def _update_user_memory(
         from eve.agent.agent import Agent
 
         agent = Agent.from_mongo(agent_id)
-        if not agent or not getattr(agent, "user_memory_enabled", True):
+        if not agent or not getattr(agent, "user_memory_enabled", False):
             return
 
         user_memory = UserMemory.find_one_or_create(
@@ -740,12 +740,26 @@ async def _regenerate_fully_formed_agent_memory(shard: AgentMemory):
 async def _regenerate_fully_formed_user_memory(user_memory: UserMemory):
     """
     Regenerate the fully formed user memory by combining:
+    - Username from users3 collection
     - Consolidated memory blob
     - Unabsorbed directive memories with age information
     """
 
     try:
         user_content = []
+
+        # Get username from User model
+        username = "unknown user"
+        try:
+            from eve.user import User
+            user = User.from_mongo(user_memory.user_id)
+            if user and user.username:
+                username = user.username
+        except Exception as e:
+            print(f"Warning: Could not fetch username for user {user_memory.user_id}: {e}")
+
+        # Add username at the beginning
+        user_content.append(f"-- User Memory for {username} --")
 
         # Add consolidated content
         if user_memory.content:
@@ -917,14 +931,11 @@ def should_form_memories(agent_id: ObjectId, session: Session) -> bool:
 
 
 async def maybe_form_memories(agent_id: ObjectId, session: Session, agent=None) -> bool:
-    start_time = time.time()
 
     if not should_form_memories(agent_id, session):
-        stop_time = time.time()
         return
 
     await form_memories(agent_id, session, agent)
-    stop_time = time.time()
     return
 
 

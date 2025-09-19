@@ -1,38 +1,17 @@
 name: Create
-description: Generate or edit images and videos.
+description: Generate or edit images and videos from an objective, single-scene prompt plus optional reference media.
 tip: |-
-  This tool generates and edits both images and videos based on the output parameter.
-
-  Rules:
-  - If the user asks you to either edit an image or make a new image that somehow references one or more prior images in the conversation (either the results of previous tool calls or attachments in the user messages), then set them in reference_images.
-  - Use 16:9, 1:1, and 9:16 aspect ratios for landscape, square, and portrait images respectively. Only use the other ones if making images (not videos) and it is specifically requested of you. If no aspect ratio is specified, use your best judgment depending on the content requested. Cinematic content should be landscape while social media content should be square or portrait.
-  - For images: If the user wants to generate several interrelated images with consistency among them, set the model preference to seedream4 and set n_samples to the number of such images requested.
-  - For images: If the user wants to make an infographic, logo, or any other image that requires a lot of coherent and legible text, set the model preference to seedream4, openai, or nano_banana
-  - For images: If there are reference_images, the prompt should be structured as an **INSTRUCTION**
-  - For images: When using nano_banana with multiple reference images, place the base image (whose aspect ratio should be copied) as the LAST reference image.
-  - For videos: Place the init_image as the first reference image and end_image as the second reference image (if using both for video interpolation).
-  - For videos: If you want to put specific lines of dialogue into the video, you must use "pro" quality with sound_effects, and no reference_images[0] (init_image)).
-  - For videos: Audio files are *only* supported when "talking_head" is in extras, so don't use one otherwise. If you want to mix an audio file over video, use the media_editor tool instead.
-  - For videos: If reference_video is provided, Runway Aleph will be used for video-to-video style transfer. You can also provide reference_images for additional style guidance (style_image or style_video in Aleph terms).
-
-  Prompt guide:
-
-  If you are generating an image from scratch or have a lora selected, use a normal text-to-image prompt (no instructions). May contain a primary subject and its action, including context like artistic medium, background, secondary items, color schemes, style or genre, mood, lighting, perspective, textures, time period, and cultural elements.
-
-  If you are editing an image, structure your prompt as a single, explicit, imperative **Instruction** that references the input image(s) and fully specifies the outcome. Follow these guidelines:
-
-  - For single-image edits, begin with “In this image, …”. Don't use "in this image"
-  - If user requests to create a whole new image which only imports content or style from the reference image, don't use "in this image" and instead describe the new image in detail, only making references to what you want to keep from the input images.
-  - For multiple image inputs, refer to images by index/role (e.g., “Image 1: subject,” “Image 2: background/logo”). Refer to things with consistent names.
-  - Refer to objects by what they are rather than prior conversation names (e.g., “Turn the woman’s head into a green pumpkin,” not “Turn Jane’s head…”).
-  - State precise edits/placements in concrete terms: what to add/change/remove and exactly where (e.g., “place the logo on the chest,” “three‑quarter view at ~30°,” “shoulder‑up crop,” “apply the style of image 2 onto the image of the woman's face”).
-  - If rendering text, place quotation marks around the text.
-  - Use positive modifiers rather than negatives (e.g. “empty street” rather than “no cars”)
-      
-  In either case, if the user gives vague or incomplete instructions to you, you may enhance their prompt to make it rich and detailed, but *always* strive to be as faithful to the user's intent as possible.
-
-  For videos: Include details about the camera motion (if any), and action or dynamics, what's happening in the scene. Any details about the audio or dialogue should be excluded from here and instead specified in the sound_effects parameter.
+  Images:
+    - For multi-image consistency sets, prefer model_preference=seedream and set n_samples accordingly.
+    - For text-heavy designs (infographics, logos, signage), prefer model_preference=seedream (or openai / nano_banana).
   
+  Videos:
+    - If reference_images or reference_video are provided, describe only motion/camera/dynamics in the prompt and refer to the specific references; do not re-prompt static content already provided by references.
+    - Use sound_effects if you need synthesized dialogue/foley/music. Do not mix a separate audio file unless using extras.talking_head.
+
+  Aspect ratio:
+    - Use 16:9 (landscape), 1:1 (square), 9:16 (portrait) unless the user specifies otherwise.
+    - If aspect_ratio != "auto", it overrides any aspect ratio inferred from references.
 cost_estimate: '(output == "video" ? (((quality == "pro" ? 40 : 20) + (sound_effects ? 5 : 0)) * duration) : (5 * n_samples))'
 output_type: image
 active: true
@@ -49,14 +28,45 @@ parameters:
   prompt:
     type: string
     label: Prompt
-    description: Text prompt.
+    description: One objective, single-scene instruction for what to generate or edit. No roleplay.
     tip: |-
-      If generating from scratch, the prompt should be a visually detailed description of the image or video you want to generate. If using reference images, specify an instruction for how to edit or transform the input image(s) or create a new image with elements from the reference image(s).
+      Write a concise, structured brief the model can execute deterministically.
+
+      From-scratch (image or video):
+        • Purpose (asset/use) → Subject + Action → Environment/Context → Style/Lighting/Camera → Composition/Framing.
+        • Use full sentences, not keyword lists. Put any literal text to render in "double quotes".
+        • Do not mention tool parameters in the prompt (aspect ratio, model, etc. go in their fields).
+
+      Edits (image or video):
+        • Use: Action + Target + Location + Keep/Constraints.
+        • Refer to references by index/role: “Image 1 …”, “Image 2 …”. (Image 1 = reference_images[0])
+        • Be explicit about what stays unchanged (e.g., “keep pose and background”).
+        • Be surgical: specify exactly what to change and what must remain unchanged.
+        • Avoid pronouns; reference the object directly (“the woman’s jacket”, not “her jacket”).
+      
+      Reference usage:
+        • Combine by role: “Use the composition from Image 1, the character from Image 2, and the ink style from Image 3.”
+        • For identity/style transfer, specify what to extract (“maintain character identity from Image 2”) and where to apply it.
+        • If multiple references are provided, name each and state its function to avoid ambiguity.
+      
+      Video-specific:
+        • If init/end images or a reference video are provided, describe only motion/camera/dynamics, timing, and transitions.
+        • Include camera moves (“slow dolly-in”, “handheld sway”), pacing (“2‑second hold”, “quick cut”), and action beats.
+        • Put dialogue/foley/music in the sound_effects parameter, not in the prompt.
+
+      Phrasing:
+        • Prefer positive constraints (“empty street”) over negatives (“no cars”).
+        • Use precise placements (“logo on left chest”, “3/4 view ~30°”, “shoulder‑up crop”).
+      
+      Mini-examples:
+        • From-scratch: “Poster: A red sports coupe drifting on a wet city street at night, neon reflections, photoreal 50mm, low angle, golden rim light, dramatic rain streaks, centered composition.”
+        • Edit w/ refs: “Image 1: replace the background with a sunset cityscape in watercolor style from Image 3; keep the subject from Image 1 and maintain her outfit; add title text at top reading 'Summer Festival'.”
     required: true
   aspect_ratio:
     type: string
     label: Aspect ratio
-    description: Aspect ratio width/height
+    description: Output aspect ratio (width:height).
+    tip: If not "auto", this overrides any ratio inferred from references.
     default: "auto"
     choices: ["auto", "21:9", "16:9", "3:2", "4:3", "5:4", "1:1", "4:5", "3:4", "2:3", "9:16", "9:21"]
   reference_images:
@@ -66,13 +76,16 @@ parameters:
     label: Reference images
     description: Reference images for generation or editing.
     tip: |-
-      For images, add reference images for editing, style transfer, or other image-to-image (Nano Banana) tasks with at least one refernece image. The last reference image's aspect ratio will be used for the output, so it is better for the base image if there is one.
-      For videos, the first image (if provided) is used as the init_image (first frame), and the second image (if provided) is used as the end_image (last frame). Only provide both for video interpolation between start and end frames.
+      Use for editing, identity/style transfer, composition borrowing, or other image-to-image tasks.
+      - Label references in the prompt as Image 1, Image 2, … (Image 1 = reference_images[0]).
+      - When multiple references are used, state each image’s role (e.g., Image 1: base subject; Image 2: outfit; Image 3: art style).
+      - For video interpolation: reference_images[0] = init frame, reference_images[1] = end frame.
+      - If aspect_ratio is set to auto, it will follow the last reference image’s aspect ratio; set aspect_ratio explicitly to control it.
   n_samples:
     type: integer
     label: Number of samples
     description: Images only. How many variations, individual images, or samples to generate
-    tip: When using Seedream 4, this will generate a set of images with consistency.
+    tip: Generates multiple images. With model_preference=seedream, n_samples can be used for consistent sets (same identity/style across images).
     default: 1
     minimum: 1
     maximum: 15
@@ -82,7 +95,7 @@ parameters:
     label: Reference video
     description: Reference video for style transfer (video output only).
     tip: |-
-      For videos only. When provided, will use Runway Aleph for video-to-video style transfer. The input video will be stylized according to your prompt while preserving the motion and structure of the reference video.
+      For videos only. When provided, will use Runway Aleph for video-to-video style transfer, regardless of model_preference. The input video will be stylized according to your prompt while preserving the motion and structure of the reference video.
   seed:
     type: integer
     label: Seed
@@ -97,9 +110,8 @@ parameters:
       type: string
       enum: ["talking_head", "double_character"]
     tip: |-
-      Choose any combination of extra features:
-      - talking_head: For videos only. Special mode for outputting talking avatar or lipsyncing videos with Hedra. You must feature a face in the prompt or reference_images[0], your audio must feature speech, and you want to make a video with the face speaking, singing, or lipsyncing.
-      - double_character: For images only. Use this only when there are two LoRAs of characters/faces/people, or if the user requests it. It will attempt to make one image that generates both characters in it.
+      - talking_head (videos only): For lip-sync or talking avatars (Hedra). Requires a face in references or prompt and a speech-only audio file in the audio parameter.
+      - double_character (images only): Use only when generating two distinct character LoRAs/faces in one image.
     default: []
   duration:
     type: integer
@@ -118,7 +130,8 @@ parameters:
     label: LoRA strength
     description: Strength of the LoRA model
     tip: |-
-      Higher values increase adherence/resemblance to the LoRA. Lower values may increase prompt adherence. Only works if you are using a LoRA. If the output does not look like the LoRA subject, can be increased (0.8-1.0). If the output does look like the subject but is ignoring the prompt too much, try decreating it (0.25-0.7).
+      Higher values increase resemblance to the LoRA subject; lower values increase prompt adherence. 
+      Typical ranges: 0.25–0.7 (balanced), 0.8–1.0 (strong likeness). If likeness is weak, increase. If likeness is too strong and ignores prompt, decrease.
     default: 0.8
     minimum: 0
     maximum: 1.2
@@ -148,19 +161,22 @@ parameters:
     label: Model preference
     description: Optional preference for specific model provider
     tip: |-
-      Optionally specify which model provider to use. If not specified, will automatically choose the best model based on your requirements. For videos: kling, seedance, runway, veo. For images: seedream, openai, flux, nano_banana.
+      Optionally choose a provider. If omitted, the system auto-selects based on task.
+      Videos: kling, seedance, runway, veo. Images: seedream, openai, flux, nano_banana.
     choices: ["kling", "seedream", "seedance", "sdxl", "runway", "openai", "flux", "veo", "nano_banana"]
   audio:
     type: audio
-    label: Audio track URL
-    description: Optional audio track to mix with the video
+    label: Audio track
+    description: Speech audio file (videos + extras.talking_head only).
     tip: |-
-      Mix audio file into the video. For "talking_head", you must include this and it should be of speech only.
+      Only valid when extras includes "talking_head". Provide a speech-only track to drive lip-sync. 
+      For generic background music or SFX mixing, use the media_editor tool instead.
     required: false
   sound_effects:
     type: string
-    label: Sound effects prompt
-    description: Optional foley sound effects to mix over the video
+    label: Sound effects / dialogue
+    description: Optional synthesized dialogue, foley, or music to generate over the video.
     tip: |-
-      For videos only. Only use this if you want to or have been requested to produce sound effects over the video. You should not use this if the user has already provided an audio track. You can include long and very detailed text about vocals, foley sound effects, backgroun effects, music, etc. You may include full lines of spoken dialogue, e.g. "the boy says 'I heard you can make dialogue in Eden now!'"
+      Videos only. Use when you want the system to synthesize audio (dialogue in quotes, foley, ambience, music).
+      If an audio track is provided for talking_head, sound_effects are ignored.
     required: false

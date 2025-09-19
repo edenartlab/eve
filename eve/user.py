@@ -113,7 +113,6 @@ class User(Document):
         discord_username = str(discord_username)
         users = get_collection(cls.collection_name)
         matching_users = list(users.find({"discordId": discord_id}))
-        print("matching_users", matching_users)
 
         if not matching_users:
             username = cls._get_unique_username(f"discord_{discord_username}")
@@ -127,7 +126,6 @@ class User(Document):
 
         # Find user with userId if any exist
         user_with_id = next((u for u in matching_users if u.get("userId")), None)
-        print("user_with_id", user_with_id)
         return cls(**(user_with_id or matching_users[0]))
 
     @classmethod

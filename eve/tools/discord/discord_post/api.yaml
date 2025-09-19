@@ -1,12 +1,19 @@
 name: discord_post
-description: Post a message to a Discord channel using natural language to specify the target channel
+description: Post a message to a Discord channel or send a direct message to a Discord user
 tip: |-
-  This tool allows an agent to post messages to Discord channels by specifying the channel in natural language.
-  Examples:
+  This tool allows an agent to post messages to Discord channels or send DMs to users.
+
+  For channel posting:
   - "Post 'Hello everyone!' to general chat"
   - "Send announcement to the news channel"
   - "Share this update in tech support"
-  Only use this tool when the user explicitly requests to post a message to a Discord channel.
+
+  For direct messages:
+  - Use discord_user_id parameter to send DMs
+  - The channel_id parameter is ignored when discord_user_id is provided
+  - DMs are sent directly to the specified Discord user
+
+  Only use this tool when explicitly requested to post a message or send a DM.
 cost_estimate: 0
 output_type: string
 active: true
@@ -15,9 +22,21 @@ visible: false
 parameters:
   channel_id:
     type: string
-    description: The Discord channel ID to post to
-    required: true
+    description: The Discord channel ID to post to (ignored if discord_user_id is provided)
+    required: false
+  discord_user_id:
+    type: string
+    description: The Discord user ID to send a DM to (takes priority over channel_id)
+    required: false
   content:
     type: string
     description: The message content to post
     required: true
+  media_urls:
+    type: array
+    label: Media URLs
+    description: Array of any media URLs to attach in the discord post
+    required: false
+    minimum: 0
+    items:
+      type: string

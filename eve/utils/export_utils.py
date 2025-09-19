@@ -1,8 +1,10 @@
+import os
 import json
 import requests
 import html as html_module
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 from bson import ObjectId
 
 from ..mongo import get_collection
@@ -15,7 +17,7 @@ from . import data_utils
 def export_user_data(
     username: str = None, 
     agentname: str = None,
-    export_dir: Path = Path(".")
+    export_dir: Optional[Path] = None
 ):
     """Export user data to a folder with JSON and HTML files
     
@@ -47,8 +49,9 @@ def export_user_data(
     print("Exporting user data for", username, "with", agentname if agentname else "all agents")
     
     # Create export directory
-    agent_suffix = f"_agent_{agentname}" if agentname else ""
-    export_dir = export_dir / f"export_{username}{agent_suffix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    if not export_dir:
+        agent_suffix = f"_agent_{agentname}" if agentname else ""
+        export_dir = export_dir / f"export_{username}{agent_suffix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     export_dir.mkdir(parents=True, exist_ok=True)
     
     sessions_collection = get_collection("sessions")
@@ -444,7 +447,7 @@ def export_user_data(
 def export_agent_creations(
     username: str = None,
     agentname: str = None,
-    export_dir: Path = Path(".")
+    export_dir: Path = None
 ):
     """Export agent creations
 
@@ -476,26 +479,41 @@ def export_agent_creations(
     print(f"Exporting Agent creations for {agentname}")
     
     # Create export directory
-    export_dir = export_dir / f"{agentname}_creations"
+    if not export_dir:
+        export_dir = export_dir / f"{agentname}_creations"
     export_dir.mkdir(parents=True, exist_ok=True)
     
     # Get filtered creatiobs
     creations_collection = get_collection("creations3")
     query = {"agent": agent.id, "user": ObjectId(user_id)}
+
     all_creations = list(creations_collection.find(query))
 
     for creation in all_creations:
-        id = str(creation["_id"])
+        id_ = str(creation["_id"])
         created_at = creation["createdAt"].strftime("%Y-%m-%d_%H%M")
+        filename = creation.get("filename")
+        ext = filename.split(".")[-1]
+        asset_filename = export_dir / f"{created_at}_{id_}.{ext}"
+        json_filename = export_dir / f"{created_at}_{id_}.json"
+        if os.path.exists(asset_filename) and os.path.exists(json_filename):
+            print(f"Skipping creation {id_} because it already downloaded")
+            continue
+        if not filename:
+            print(f"No filename for creation {id_}")
+            continue
         url = data_utils.prepare_result(creation).get("url")
+        if not url:
+            print(f"No url for creation {id_}")
+            continue
         task = Task.from_mongo(creation["task"])
         creation["task"] = task.model_dump()
-        if url:
-            response = requests.get(url)
-            with open(export_dir / f"{created_at}_{id}.png", "wb") as f:
-                f.write(response.content)
-            with open(export_dir / f"{created_at}_{id}.json", "w") as f:
-                json.dump(creation, f, indent=2, default=str)
+        
+        response = requests.get(url)
+        with open(asset_filename, "wb") as f:
+            f.write(response.content)
+        with open(json_filename, "w") as f:
+            json.dump(creation, f, indent=2, default=str)
 
     print(f"Export completed successfully!")
     print(f"Export directory: {export_dir}")

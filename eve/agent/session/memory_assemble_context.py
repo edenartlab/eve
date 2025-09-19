@@ -1,4 +1,4 @@
-from eve.agent.session.memory_models import SessionMemory, UserMemory, AgentMemory
+from eve.agent.session.memory_models import SessionMemory, UserMemory, AgentMemory, select_messages
 from eve.agent.session.memory_constants import MAX_N_EPISODES_TO_REMEMBER, LOCAL_DEV, SYNC_MEMORIES_ACROSS_SESSIONS_EVERY_N_MINUTES
 
 import time, logging, traceback, asyncio
@@ -22,7 +22,7 @@ async def _assemble_user_memory(agent_id: ObjectId, user_id: ObjectId, agent=Non
             from eve.agent.agent import Agent
             agent = Agent.from_mongo(agent_id)
         
-        if not agent or not getattr(agent, 'user_memory_enabled', True):
+        if not agent or not getattr(agent, 'user_memory_enabled', False):
             #print(f"   ⚠️  UserMemory disabled for agent {agent_id}, returning empty content")
             return ""
         query_start = time.time()
@@ -295,9 +295,23 @@ async def assemble_memory_context(
     print(f"   🔄 Rebuilding memory context... Reason: {reason}")
     
     # Rebuild memory context
-    # 1. Get user memory (1 query)
-    if last_speaker_id:
-        user_memory_content = await _assemble_user_memory(agent_id, last_speaker_id, agent)
+    
+    session_messages = select_messages(session)
+    session_users = set([m.sender for m in session_messages if m.role == "user"])
+    max_n_user_memories_to_assemble = 4
+
+    # 1. Get user memory (multiple queries if needed)
+    if len(session_users) <= max_n_user_memories_to_assemble:
+        # Assemble memories for all unique users in the session
+        user_memory_contents = []
+        for user_id in session_users:
+            if user_id:  # Skip None user_ids
+                user_content = await _assemble_user_memory(agent_id, user_id, agent)
+                if user_content.strip():  # Only include non-empty memories
+                    user_memory_contents.append(user_content)
+
+        # Combine all user memories
+        user_memory_content = "\n\n".join(user_memory_contents) if user_memory_contents else ""
     else:
         user_memory_content = ""
     

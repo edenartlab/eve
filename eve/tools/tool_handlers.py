@@ -123,6 +123,11 @@ def load_handler(name):
 
             handlers[name] = handler
 
+        elif name == "discord_broadcast_dm":
+            from .discord.discord_broadcast_dm.handler import handler
+
+            handlers[name] = handler
+
         elif name == "telegram_post":
             from .telegram.telegram_post.handler import handler
 
