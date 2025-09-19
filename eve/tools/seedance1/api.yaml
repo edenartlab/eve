@@ -25,7 +25,7 @@ parameters:
     label: Resolution
     description: Resolution of the generated video
     default: "1080p"
-    choices: ["480p", "1080p"]
+    choices: ["480p", "720p", "1080p"]
   aspect_ratio:
     type: string
     label: Aspect ratio
