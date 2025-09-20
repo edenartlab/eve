@@ -9,6 +9,7 @@ from bson import ObjectId
 from eve.agent.agent import Agent
 from eve.agent.session.models import Deployment, Session
 from eve.user import User
+from eve.utils import serialize_json
 from pydantic import BaseModel
 
 
@@ -486,10 +487,13 @@ Important:After generating your response, use the discord_post tool to send it a
     print(f"Sending session prompt request for user {discord_user.discord_username} (session_id: {session_id})")
     print(f"Request data: {request_data}")
 
+    # Serialize request_data to properly handle ObjectId fields
+    serialized_data = serialize_json(request_data)
+
     async with aiohttp.ClientSession() as session:
         async with session.post(
             f"{api_url}/sessions/prompt",
-            json=request_data,
+            json=serialized_data,
             headers={
                 "Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}",
                 "Content-Type": "application/json",
