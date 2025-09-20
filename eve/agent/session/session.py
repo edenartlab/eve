@@ -945,42 +945,44 @@ async def async_prompt_session(
         try:
             # 1. Mark any unfinished tool calls as cancelled
             last_message = None
-            if session.messages:
-                last_message_id = session.messages[-1]
-                last_message = ChatMessage.from_mongo(last_message_id)
+            last_messages = ChatMessage.find(
+                {"session": session.id},
+                sort="createdAt",
+                desc=True,
+                limit=1,
+            )
+            if last_messages:
+                last_message = last_messages[0]
 
-                if last_message and last_message.tool_calls:
-                    for idx, tool_call in enumerate(last_message.tool_calls):
-                        if tool_call.status in ["pending", "running"]:
-                            tool_call.status = "cancelled"
-                            # Yield cancellation update for each tool call
-                            yield SessionUpdate(
-                                type=UpdateType.TOOL_CANCELLED,
-                                tool_name=tool_call.tool,
-                                tool_index=idx,
-                                result={"status": "cancelled"},
-                            )
-
-                    # Force save by updating the entire tool_calls array
-                    try:
-                        # Save using direct MongoDB update to ensure the change persists
-                        from eve.mongo import get_collection
-
-                        messages_collection = get_collection("messages")
-                        messages_collection.update_one(
-                            {"_id": last_message.id},
-                            {
-                                "$set": {
-                                    "tool_calls": [
-                                        tc.model_dump()
-                                        for tc in last_message.tool_calls
-                                    ]
-                                }
-                            },
+            if last_message and last_message.tool_calls:
+                for idx, tool_call in enumerate(last_message.tool_calls):
+                    if tool_call.status in ["pending", "running"]:
+                        tool_call.status = "cancelled"
+                        # Yield cancellation update for each tool call
+                        yield SessionUpdate(
+                            type=UpdateType.TOOL_CANCELLED,
+                            tool_name=tool_call.tool,
+                            tool_index=idx,
+                            result={"status": "cancelled"},
                         )
-                    except Exception:
-                        last_message.markModified("tool_calls")
-                        last_message.save()
+
+                # Force save by updating the entire tool_calls array
+                try:
+                    # Save using direct MongoDB update to ensure the change persists
+                    messages_collection = ChatMessage.get_collection()
+                    messages_collection.update_one(
+                        {"_id": last_message.id},
+                        {
+                            "$set": {
+                                "tool_calls": [
+                                    tc.model_dump()
+                                    for tc in last_message.tool_calls
+                                ]
+                            }
+                        },
+                    )
+                except Exception:
+                    last_message.save()
 
             # 2. Add system message indicating cancellation
             cancel_message = ChatMessage(

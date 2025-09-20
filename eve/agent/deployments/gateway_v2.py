@@ -138,7 +138,7 @@ class DiscordGatewayClient:
                     "op": GatewayOpCode.IDENTIFY,
                     "d": {
                         "token": self.token,
-                        "intents": 1 << 9 | 1 << 15,  # GUILD_MESSAGES | MESSAGE_CONTENT
+                        "intents": 1 << 9 | 1 << 12 | 1 << 15,  # GUILD_MESSAGES | DIRECT_MESSAGES | MESSAGE_CONTENT
                         "properties": {
                             "$os": "linux",
                             "$browser": "eve",
@@ -388,7 +388,7 @@ class DiscordGatewayClient:
                     channel_mentions.append(f"<#{item.id}>")
 
         message_lines = [
-            "Thanks for reaching out! I can't continue chats in DMs.",
+            "Yoo, thanks for reaching out! For now, I can't continue chats in DMs yet...",
             f"Chat with me on Eden: {chat_url}",
         ]
         if channel_mentions:
