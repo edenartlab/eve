@@ -13,6 +13,21 @@ from eve.utils import serialize_json
 from pydantic import BaseModel
 
 
+def construct_agent_chat_url(agent_username: str) -> str:
+    """
+    Construct the Eden agent chat URL based on the environment and agent username.
+
+    Args:
+        agent_username: The username of the agent (not the ID)
+
+    Returns:
+        Properly formatted Eden agent chat URL
+    """
+    db = os.getenv("DB", "STAGE")
+    root_url = "app.eden.art" if db == "PROD" else "staging.app.eden.art"
+    return f"https://{root_url}/chat/{agent_username}"
+
+
 class DiscordUser(BaseModel):
     discord_id: str
     discord_username: str
@@ -96,6 +111,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
             instruction,
             rate_limit_delay,
             agent_owner_id,
+            agent_obj.username,
         )
 
         return {"output": results}
@@ -362,6 +378,7 @@ async def orchestrate_dm_sessions(
     instruction: str,
     rate_limit_delay: float = 1.0,
     acting_user_id: Optional[str] = None,
+    agent_username: Optional[str] = None,
 ) -> List[Dict]:
     """
     Create or find DM sessions for each user and send personalized messages with rate limiting.
@@ -377,6 +394,7 @@ async def orchestrate_dm_sessions(
             eden_user,
             instruction,
             acting_user_id,
+            agent_username,
         )
         session_tasks.append(task)
 
@@ -425,6 +443,7 @@ async def create_dm_session_task(
     eden_user: User,
     instruction: str,
     acting_user_id: Optional[str] = None,
+    agent_username: Optional[str] = None,
 ) -> Dict:
     """
     Create or reuse a DM session for a specific user and send the instruction.
@@ -464,7 +483,9 @@ Instructions:
 {instruction}
 
 Its likely this is part of a daily, recurring task, so leverage the previous conversation context to make the message more contextualized and following a linear, constructive narrative.
-Important:After generating your response, use the discord_post tool to send it as a DM to this user by setting discord_user_id to {discord_user.discord_id}
+Important: 
+- Users currently cannot reply to DMs on Discord, so always include a link to the eden agent chat url: {construct_agent_chat_url(agent_username) if agent_username else f"https://app.eden.art/chat/{str(agent)}"}.
+- After generating your response, use the discord_post tool to send it as a DM to this user by setting discord_user_id to {discord_user.discord_id}
 """,
         },
     }

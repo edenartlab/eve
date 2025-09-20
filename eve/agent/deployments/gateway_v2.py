@@ -26,6 +26,21 @@ from fastapi import FastAPI
 from contextlib import asynccontextmanager
 
 
+def construct_agent_chat_url(agent_username: str) -> str:
+    """
+    Construct the Eden agent chat URL based on the environment and agent username.
+
+    Args:
+        agent_username: The username of the agent (not the ID)
+
+    Returns:
+        Properly formatted Eden agent chat URL
+    """
+    db = os.getenv("DB", "STAGE")
+    root_url = "app.eden.art" if db == "PROD" else "staging.app.eden.art"
+    return f"https://{root_url}/chat/{agent_username}"
+
+
 logger = logging.getLogger(__name__)
 root_dir = Path(__file__).parent.parent.parent.parent
 
@@ -369,12 +384,10 @@ class DiscordGatewayClient:
                 exc_info=True,
             )
 
-        base_web_url = os.getenv("EDEN_WEB_URL") or "https://www.eden.art"
-        base_web_url = base_web_url.rstrip("/")
         chat_url = (
-            f"{base_web_url}/chat/{agent_username}"
+            construct_agent_chat_url(agent_username)
             if agent_username
-            else f"{base_web_url}/chat"
+            else (f"https://{os.getenv('DB', 'STAGE') == 'PROD' and 'app.eden.art' or 'staging.app.eden.art'}/chat")
         )
 
         channel_mentions = []
