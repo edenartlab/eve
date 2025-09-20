@@ -447,14 +447,14 @@ async def _consolidate_with_llm(
             session_id=f"{os.getenv('DB')}-{str(session_id)}"
             if session_id
             else f"{os.getenv('DB')}-memory-consolidation",
-            # trace_name="FN_form_memories",
-            # trace_id=str(uuid.uuid4()),
-            # generation_name=generation_name,
-            # trace_metadata=LLMTraceMetadata(
-            #    session_id=str(session_id) if session_id else None,
-            #    user_id=str(user_id) if user_id else None,
-            #    agent_id=str(agent_id),
-            # ),
+            trace_name="FN_form_memories",
+            trace_id=str(uuid.uuid4()),
+            generation_name=generation_name,
+            trace_metadata=LLMTraceMetadata(
+                session_id=str(session_id) if session_id else None,
+                user_id=str(user_id) if user_id else None,
+                agent_id=str(agent_id),
+            ),
         ),
         enable_tracing=False,
     )
@@ -511,20 +511,20 @@ async def extract_memories_with_llm(
             session_id=f"{os.getenv('DB')}-{str(session_id)}"
             if session_id
             else f"{os.getenv('DB')}-memory-extraction",
-            # trace_name="FN_form_memories",
-            # trace_id=str(uuid.uuid4()),
-            # generation_name=generation_name,
-            # trace_metadata=LLMTraceMetadata(
-            #    session_id=str(session_id) if session_id else None,
-            #    user_id=str(user_id) if user_id else None,
-            #    agent_id=str(agent_id),
-            #    additional_metadata={
-            #        "shard_name": shard_name,
-            #        "extraction_elements": extraction_elements,
-            #    }
-            #    if shard_name
-            #    else {"extraction_elements": extraction_elements},
-            # ),
+            trace_name="FN_form_memories",
+            trace_id=str(uuid.uuid4()),
+            generation_name=generation_name,
+            trace_metadata=LLMTraceMetadata(
+                session_id=str(session_id) if session_id else None,
+                user_id=str(user_id) if user_id else None,
+                agent_id=str(agent_id),
+                additional_metadata={
+                    "shard_name": shard_name,
+                    "extraction_elements": extraction_elements,
+                }
+                if shard_name
+                else {"extraction_elements": extraction_elements},
+            ),
         ),
         enable_tracing=False,
     )
