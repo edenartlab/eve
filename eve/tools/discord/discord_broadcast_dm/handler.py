@@ -377,7 +377,7 @@ async def orchestrate_dm_sessions(
     eden_users: List[Tuple[DiscordUser, User]],
     instruction: str,
     rate_limit_delay: float = 1.0,
-    acting_user_id: Optional[str] = None,
+    acting_user_id: Optional[str] = None,  # The user whose permissions are used for tool authorization (defaults to session owner if not provided)
     agent_username: Optional[str] = None,
 ) -> List[Dict]:
     """
@@ -442,7 +442,7 @@ async def create_dm_session_task(
     discord_user: DiscordUser,
     eden_user: User,
     instruction: str,
-    acting_user_id: Optional[str] = None,
+    acting_user_id: Optional[str] = None,  # The user whose permissions are used for tool authorization (defaults to session owner if not provided)
     agent_username: Optional[str] = None,
 ) -> Dict:
     """
