@@ -462,6 +462,25 @@ async def create_dm_session_task(
     else:
         print(f"No existing session found for key {session_key}, will create new DM session for user {discord_user.discord_username}")
 
+    # Get channel mentions from deployment config (similar to gateway_v2.py)
+    channel_mentions = []
+    if (
+        deployment.config
+        and deployment.config.discord
+        and deployment.config.discord.channel_allowlist
+    ):
+        for item in deployment.config.discord.channel_allowlist:
+            if item and item.id:
+                channel_mentions.append(f"<#{item.id}>")
+
+    # Build specific instruction for including channel links
+    channel_instruction = ""
+    if channel_mentions:
+        channels_text = ", ".join(channel_mentions)
+        channel_instruction = f"\n- MUST include these clickable Discord channel links in your response: {channels_text}"
+    else:
+        channel_instruction = "\n- Mention that they can find you in the public Discord channels you're active in."
+
     # Prepare session prompt request
     request_data = {
         "session_id": session_id,
@@ -483,8 +502,8 @@ Instructions:
 {instruction}
 
 Its likely this is part of a daily, recurring task, so leverage the previous conversation context to make the message more contextualized and following a linear, constructive narrative.
-Important: 
-- Users currently cannot reply to DMs on Discord, so always include a link to the eden agent chat url: {construct_agent_chat_url(agent_username) if agent_username else f"https://app.eden.art/chat/{str(agent)}"}.
+Important:
+- Users currently cannot reply to DMs on Discord, so always include a link to the eden agent chat url: {construct_agent_chat_url(agent_username) if agent_username else f"https://app.eden.art/chat/{str(agent)}"}.{channel_instruction}
 - After generating your response, use the discord_post tool to send it as a DM to this user by setting discord_user_id to {discord_user.discord_id}
 """,
         },
