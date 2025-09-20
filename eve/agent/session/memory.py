@@ -456,7 +456,7 @@ async def _consolidate_with_llm(
                 agent_id=str(agent_id),
             ),
         ),
-        enable_tracing=False,
+        enable_tracing=True,
     )
 
     llm_response = await async_prompt(context)
@@ -526,7 +526,7 @@ async def extract_memories_with_llm(
                 else {"extraction_elements": extraction_elements},
             ),
         ),
-        enable_tracing=False,
+        enable_tracing=True,
     )
 
     response = await async_prompt(context)
