@@ -862,7 +862,7 @@ class NotificationConfig:
 @dataclass
 class PromptSessionContext:
     session: Session
-    initiating_user_id: str
+    initiating_user_id: str  # The user who owns/initiates the session
     message: ChatMessageRequestInput
     update_config: Optional[SessionUpdateConfig] = None
     actor_agent_ids: Optional[List[str]] = None
@@ -872,6 +872,7 @@ class PromptSessionContext:
     thinking_override: Optional[bool] = (
         None  # Override agent's thinking policy per-message
     )
+    acting_user_id: Optional[str] = None  # The user whose permissions are used for tool authorization (defaults to initiating_user_id if not provided)
 
 
 @dataclass

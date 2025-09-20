@@ -945,18 +945,27 @@ async def form_memories(agent_id: ObjectId, session: Session, agent=None) -> boo
     Returns True if memories were formed.
     """
     start_time = time.time()
+    reset_applied = False
+    should_reset_counters = False
+    recent_messages: List[ChatMessage] = []
+    reset_updates: Dict[str, Any] = {}
+    session_messages: List[ChatMessage] = []
+    last_message_id: ObjectId = None
 
     try:
         session_messages = select_messages(session)
 
-        if not agent_id or not session_messages or len(session_messages) == 0:
+        if not agent_id or not session_messages:
             return False
+
+        last_message_id = session_messages[-1].id
 
         # Get messages since last memory formation
         safe_update_memory_context(session, {})  # Ensure memory_context exists
         recent_messages = _get_recent_messages(
             session_messages, session.memory_context.last_memory_message_id
         )
+        should_reset_counters = len(recent_messages) > 0
 
         if (
             recent_messages
@@ -997,19 +1006,33 @@ async def form_memories(agent_id: ObjectId, session: Session, agent=None) -> boo
         )
 
         # Update the session's memory formation tracking and save once
-        safe_update_memory_context(
-            session,
-            {
-                "last_activity": datetime.now(timezone.utc),
-                "last_memory_message_id": session_messages[-1].id,
-                "messages_since_memory_formation": 0,
-            },
-        )
+        reset_updates = {
+            "last_activity": datetime.now(timezone.utc),
+            "last_memory_message_id": last_message_id,
+            "messages_since_memory_formation": 0,
+        }
+        safe_update_memory_context(session, reset_updates)
+        reset_applied = True
 
         print(f"Form memories took {time.time() - start_time:.2f} seconds to complete")
         return True
 
     except Exception as e:
-        print(f"Error processing memory formation: {e}")
+        print(
+            f"Error processing memory formation for session {session.id if hasattr(session, 'id') else 'unknown'}: {e}"
+        )
         traceback.print_exc()
         return False
+
+    finally:
+        if should_reset_counters and not reset_applied and last_message_id:
+            if not reset_updates:
+                reset_updates = {
+                    "last_activity": datetime.now(timezone.utc),
+                    "last_memory_message_id": last_message_id,
+                    "messages_since_memory_formation": 0,
+                }
+            safe_update_memory_context(session, reset_updates)
+            print(
+                f"Reset memory counters after failure for session {session.id} to avoid duplicate processing"
+            )

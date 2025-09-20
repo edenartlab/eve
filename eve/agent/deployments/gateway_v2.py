@@ -10,6 +10,7 @@ import aiohttp
 from ably import AblyRealtime
 
 from eve import db
+from eve.agent.agent import Agent
 from eve.user import User
 from eve.agent.session.models import (
     ChatMessageRequestInput,
@@ -23,6 +24,21 @@ from eve.api.api_requests import SessionCreationArgs, PromptSessionRequest
 import eve.mongo
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
+
+
+def construct_agent_chat_url(agent_username: str) -> str:
+    """
+    Construct the Eden agent chat URL based on the environment and agent username.
+
+    Args:
+        agent_username: The username of the agent (not the ID)
+
+    Returns:
+        Properly formatted Eden agent chat URL
+    """
+    db = os.getenv("DB", "STAGE")
+    root_url = "app.eden.art" if db == "PROD" else "staging.app.eden.art"
+    return f"https://{root_url}/chat/{agent_username}"
 
 
 logger = logging.getLogger(__name__)
@@ -137,7 +153,7 @@ class DiscordGatewayClient:
                     "op": GatewayOpCode.IDENTIFY,
                     "d": {
                         "token": self.token,
-                        "intents": 1 << 9 | 1 << 15,  # GUILD_MESSAGES | MESSAGE_CONTENT
+                        "intents": 1 << 9 | 1 << 12 | 1 << 15,  # GUILD_MESSAGES | DIRECT_MESSAGES | MESSAGE_CONTENT
                         "properties": {
                             "$os": "linux",
                             "$browser": "eve",
@@ -351,6 +367,71 @@ class DiscordGatewayClient:
         if not is_allowed:
             logger.info(f"[{trace_id}] Channel {channel_id} not in allowlist")
         return is_allowed
+
+    async def _handle_direct_message(
+        self, data: dict, trace_id: str, deployment: Deployment
+    ) -> None:
+        """Send a canned response for direct messages and exit early."""
+        logger.info(f"[{trace_id}] Received DM, sending redirect message")
+
+        agent_username: Optional[str] = None
+        try:
+            agent = Agent.from_mongo(deployment.agent)
+            agent_username = agent.username
+        except Exception as exc:
+            logger.warning(
+                f"[{trace_id}] Unable to load agent for DM redirect: {exc}",
+                exc_info=True,
+            )
+
+        chat_url = (
+            construct_agent_chat_url(agent_username)
+            if agent_username
+            else (f"https://{os.getenv('DB', 'STAGE') == 'PROD' and 'app.eden.art' or 'staging.app.eden.art'}/chat")
+        )
+
+        channel_mentions = []
+        if (
+            deployment.config
+            and deployment.config.discord
+            and deployment.config.discord.channel_allowlist
+        ):
+            for item in deployment.config.discord.channel_allowlist:
+                if item and item.id:
+                    channel_mentions.append(f"<#{item.id}>")
+
+        message_lines = [
+            "Yoo, thanks for reaching out! For now, I can't continue chats in DMs yet...",
+            f"Chat with me on Eden: {chat_url}",
+        ]
+        if channel_mentions:
+            channels_text = ", ".join(channel_mentions)
+            message_lines.append(f"Or ping me in: {channels_text}")
+        else:
+            message_lines.append("Or say hi in the public Discord channels I'm active in.")
+
+        payload = {
+            "content": "\n".join(message_lines),
+            "allowed_mentions": {"parse": []},
+        }
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                url = f"https://discord.com/api/v10/channels/{data['channel_id']}/messages"
+                headers = {"Authorization": f"Bot {self.token}"}
+                async with session.post(url, headers=headers, json=payload) as response:
+                    if response.status >= 400:
+                        error_text = await response.text()
+                        logger.error(
+                            f"[{trace_id}] Failed to send DM redirect message: {error_text}"
+                        )
+                    else:
+                        logger.info(f"[{trace_id}] DM redirect message sent successfully")
+        except Exception as exc:
+            logger.error(
+                f"[{trace_id}] Error sending DM redirect message: {exc}",
+                exc_info=True,
+            )
 
     def _extract_user_info(self, message_data: dict) -> Tuple[str, str, User]:
         """Extract user information from message data"""
@@ -614,6 +695,10 @@ class DiscordGatewayClient:
 
         deployment = await self._validate_deployment_config(trace_id)
         if not deployment:
+            return
+
+        if not data.get("guild_id"):
+            await self._handle_direct_message(data, trace_id, deployment)
             return
 
         channel_id = str(data["channel_id"])

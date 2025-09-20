@@ -164,7 +164,8 @@ class SessionCreationArgs(BaseModel):
 class PromptSessionRequest(BaseModel):
     session_id: Optional[str] = None
     message: Optional[ChatMessageRequestInput] = None
-    user_id: Optional[str] = None
+    user_id: Optional[str] = None  # The user who owns/initiates the session
+    acting_user_id: Optional[str] = None  # The user whose permissions are used for tool authorization (defaults to user_id if not provided)
     actor_agent_ids: Optional[List[str]] = None
     update_config: Optional[SessionUpdateConfig] = None
     llm_config: Optional[LLMConfig] = None

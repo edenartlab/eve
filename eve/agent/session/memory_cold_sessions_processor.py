@@ -43,9 +43,9 @@ async def process_cold_sessions():
     print("🧠 Processing cold sessions for memory formation...")
     
     try:
-        from eve.agent.session.models import Session
+        from eve.agent.session.models import Session, ChatMessage
         from eve.agent.session.memory import form_memories
-        
+
         current_time = datetime.now(timezone.utc)
         cutoff_time = current_time - timedelta(minutes=CONSIDER_COLD_AFTER_MINUTES)
         hard_filter_date = current_time - timedelta(days=2)
@@ -58,27 +58,82 @@ async def process_cold_sessions():
         base_query = {
             "updatedAt": {"$gte": hard_filter_date, "$lt": cutoff_time},
             "status": "active",
-            f"messages.{NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES - 1}": {"$exists": True}
         }
-        
+
         # First batch: Sessions with memory_context that need processing
         query_with_context = {
             **base_query,
             "memory_context.last_activity": {"$lt": cutoff_time},
             "memory_context.messages_since_memory_formation": {"$gte": NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES}
         }
-        
-        # Second batch: Sessions without memory_context
-        query_without_context = {
-            **base_query,
-            "memory_context": {"$exists": False}
-        }
-        
-        # Process both query results with limits
+
         print(f"Running queries...")
-        cold_sessions_with_context = Session.find(query_with_context, limit=MAX_SESSIONS_TO_PROCESS // 2)
-        cold_sessions_without_context = Session.find(query_without_context, limit=MAX_SESSIONS_TO_PROCESS // 2)
-        
+        cold_sessions_with_context = Session.find(
+            query_with_context, limit=MAX_SESSIONS_TO_PROCESS // 2
+        )
+
+        # Second batch: Sessions without memory_context (legacy sessions)
+        messages_collection = ChatMessage.get_collection()
+        pipeline = [
+            {
+                "$match": {
+                    "session": {"$ne": None},
+                    "role": {"$ne": "eden"},
+                    "createdAt": {"$gte": hard_filter_date, "$lt": cutoff_time},
+                }
+            },
+            {
+                "$group": {
+                    "_id": "$session",
+                    "count": {"$sum": 1},
+                    "last_message_at": {"$max": "$createdAt"},
+                }
+            },
+            {
+                "$match": {
+                    "count": {"$gte": NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES},
+                    "last_message_at": {"$lt": cutoff_time},
+                }
+            },
+            {"$sort": {"last_message_at": -1}},
+            {"$limit": MAX_SESSIONS_TO_PROCESS},
+        ]
+
+        candidate_session_ids = [
+            doc["_id"]
+            for doc in messages_collection.aggregate(pipeline, allowDiskUse=True)
+            if doc.get("_id")
+        ]
+
+        print(
+            f"Aggregation found {len(candidate_session_ids)} candidate sessions without context"
+        )
+
+        processed_session_ids = {session.id for session in cold_sessions_with_context}
+        candidate_session_ids = [
+            session_id
+            for session_id in candidate_session_ids
+            if session_id not in processed_session_ids
+        ][: MAX_SESSIONS_TO_PROCESS // 2]
+
+        print(
+            f"Considering {len(candidate_session_ids)} candidate sessions after filtering processed ones"
+        )
+
+        cold_sessions_without_context = []
+        if candidate_session_ids:
+            query_without_context = {
+                **base_query,
+                "_id": {"$in": candidate_session_ids},
+                "$or": [
+                    {"memory_context": {"$exists": False}},
+                    {"memory_context": None},
+                ],
+            }
+            cold_sessions_without_context = Session.find(
+                query_without_context, limit=len(candidate_session_ids)
+            )
+
         # Combine results
         cold_sessions = list(cold_sessions_with_context) + list(cold_sessions_without_context)
         print(f"Found {len(cold_sessions_with_context)} cold sessions with context")

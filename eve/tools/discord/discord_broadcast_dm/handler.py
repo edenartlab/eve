@@ -9,7 +9,23 @@ from bson import ObjectId
 from eve.agent.agent import Agent
 from eve.agent.session.models import Deployment, Session
 from eve.user import User
+from eve.utils import serialize_json
 from pydantic import BaseModel
+
+
+def construct_agent_chat_url(agent_username: str) -> str:
+    """
+    Construct the Eden agent chat URL based on the environment and agent username.
+
+    Args:
+        agent_username: The username of the agent (not the ID)
+
+    Returns:
+        Properly formatted Eden agent chat URL
+    """
+    db = os.getenv("DB", "STAGE")
+    root_url = "app.eden.art" if db == "PROD" else "staging.app.eden.art"
+    return f"https://{root_url}/chat/{agent_username}"
 
 
 class DiscordUser(BaseModel):
@@ -36,6 +52,8 @@ async def handler(args: dict, user: str = None, agent: str = None):
     deployment = Deployment.load(agent=agent_obj.id, platform="discord")
     if not deployment:
         raise Exception("No valid Discord deployment found")
+
+    agent_owner_id = str(agent_obj.owner) if agent_obj.owner else None
 
     # Extract parameters
     channel_id = args["channel_id"]
@@ -87,7 +105,13 @@ async def handler(args: dict, user: str = None, agent: str = None):
 
         # Step 4: Create/find DM sessions and send messages with rate limiting
         results = await orchestrate_dm_sessions(
-            agent, deployment, eden_users, instruction, rate_limit_delay
+            agent,
+            deployment,
+            eden_users,
+            instruction,
+            rate_limit_delay,
+            agent_owner_id,
+            agent_obj.username,
         )
 
         return {"output": results}
@@ -352,7 +376,9 @@ async def orchestrate_dm_sessions(
     deployment: Deployment,
     eden_users: List[Tuple[DiscordUser, User]],
     instruction: str,
-    rate_limit_delay: float = 1.0
+    rate_limit_delay: float = 1.0,
+    acting_user_id: Optional[str] = None,  # The user whose permissions are used for tool authorization (defaults to session owner if not provided)
+    agent_username: Optional[str] = None,
 ) -> List[Dict]:
     """
     Create or find DM sessions for each user and send personalized messages with rate limiting.
@@ -362,7 +388,13 @@ async def orchestrate_dm_sessions(
 
     for discord_user, eden_user in eden_users:
         task = create_dm_session_task(
-            agent, deployment, discord_user, eden_user, instruction
+            agent,
+            deployment,
+            discord_user,
+            eden_user,
+            instruction,
+            acting_user_id,
+            agent_username,
         )
         session_tasks.append(task)
 
@@ -409,7 +441,9 @@ async def create_dm_session_task(
     deployment: Deployment,
     discord_user: DiscordUser,
     eden_user: User,
-    instruction: str
+    instruction: str,
+    acting_user_id: Optional[str] = None,  # The user whose permissions are used for tool authorization (defaults to session owner if not provided)
+    agent_username: Optional[str] = None,
 ) -> Dict:
     """
     Create or reuse a DM session for a specific user and send the instruction.
@@ -427,6 +461,25 @@ async def create_dm_session_task(
         print(f"Found existing DM session {session_id} for user {discord_user.discord_username} (key: {session_key})")
     else:
         print(f"No existing session found for key {session_key}, will create new DM session for user {discord_user.discord_username}")
+
+    # Get channel mentions from deployment config (similar to gateway_v2.py)
+    channel_mentions = []
+    if (
+        deployment.config
+        and deployment.config.discord
+        and deployment.config.discord.channel_allowlist
+    ):
+        for item in deployment.config.discord.channel_allowlist:
+            if item and item.id:
+                channel_mentions.append(f"<#{item.id}>")
+
+    # Build specific instruction for including channel links
+    channel_instruction = ""
+    if channel_mentions:
+        channels_text = ", ".join(channel_mentions)
+        channel_instruction = f"\n- MUST include these clickable Discord channel links in your response: {channels_text}"
+    else:
+        channel_instruction = "\n- Mention that they can find you in the public Discord channels you're active in."
 
     # Prepare session prompt request
     request_data = {
@@ -449,10 +502,15 @@ Instructions:
 {instruction}
 
 Its likely this is part of a daily, recurring task, so leverage the previous conversation context to make the message more contextualized and following a linear, constructive narrative.
-Important:After generating your response, use the discord_post tool to send it as a DM to this user by setting discord_user_id to {discord_user.discord_id}
+Important:
+- Users currently cannot reply to DMs on Discord, so always include a link to the eden agent chat url: {construct_agent_chat_url(agent_username) if agent_username else f"https://app.eden.art/chat/{str(agent)}"}.{channel_instruction}
+- After generating your response, use the discord_post tool to send it as a DM to this user by setting discord_user_id to {discord_user.discord_id}
 """,
         },
     }
+
+    if acting_user_id:
+        request_data["acting_user_id"] = acting_user_id
 
     # Add session creation args if needed
     if not session_id:
@@ -469,10 +527,13 @@ Important:After generating your response, use the discord_post tool to send it a
     print(f"Sending session prompt request for user {discord_user.discord_username} (session_id: {session_id})")
     print(f"Request data: {request_data}")
 
+    # Serialize request_data to properly handle ObjectId fields
+    serialized_data = serialize_json(request_data)
+
     async with aiohttp.ClientSession() as session:
         async with session.post(
             f"{api_url}/sessions/prompt",
-            json=request_data,
+            json=serialized_data,
             headers={
                 "Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}",
                 "Content-Type": "application/json",

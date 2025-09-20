@@ -1062,11 +1062,7 @@ def setup_session(
     agents = [Agent.from_mongo(agent_id) for agent_id in agent_object_ids]
     agents = [agent for agent in agents if agent]  # Filter out None values
     if agents:
-        eden_message = create_eden_message(
-            session.id, EdenMessageType.AGENT_ADD, agents
-        )
-        session.messages.append(eden_message.id)
-        session.save()
+        create_eden_message(session.id, EdenMessageType.AGENT_ADD, agents)
 
     # Generate title for new sessions if no title provided and we have background tasks
     generate_session_title(session, request, background_tasks)
@@ -1096,6 +1092,7 @@ async def handle_prompt_session(
         llm_config=request.llm_config,
         notification_config=notification_config,
         thinking_override=request.thinking,  # Pass thinking override
+        acting_user_id=request.acting_user_id or request.user_id,
     )
 
     if request.stream:
