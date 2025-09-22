@@ -73,6 +73,18 @@ def messages_to_text(messages: List[ChatMessage], fast_dry_run: bool = False) ->
                 f" [Used tools: {', '.join([tc.tool for tc in msg.tool_calls])}]"
             )
             content += tools_summary
+
+            # Include full tool call results for specific tools
+            tools_with_full_results = ["discord_search"] #, "farcaster_search", "twitter_search", "get_tweets"]
+            for tc in msg.tool_calls:
+                if tc.result and tc.status == "completed" and tc.tool in tools_with_full_results:
+                    try:
+                        import json
+                        result_json = json.dumps(tc.result)
+                        content += f"\n[{tc.tool} full result: {result_json}]"
+                    except Exception as e:
+                        # Fallback: just mention tool was used with results
+                        content += f"\n[{tc.tool} completed with results]"
         text_parts.append(f"{speaker}: {content}")
     return "\n".join(text_parts)
 
