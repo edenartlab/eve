@@ -37,6 +37,11 @@ from eve.agent.session.memory_constants import (
     MEMORY_LLM_MODEL_SLOW,
 )
 
+def _is_user_memory_enabled(agent) -> bool:
+    """
+    Check if user memory is enabled for this agent
+    """
+    return agent and getattr(agent, "user_memory_enabled", False)
 
 def safe_update_memory_context(
     session: Session, updates: Dict[str, Any], skip_save: bool = False
@@ -189,7 +194,6 @@ async def _save_all_memories(
 
     return
 
-
 async def _update_user_memory(
     agent_id: ObjectId, user_id: ObjectId, new_directive_memories: List[SessionMemory]
 ):
@@ -203,9 +207,8 @@ async def _update_user_memory(
 
         # Check if user memory is enabled for this agent
         from eve.agent.agent import Agent
-
         agent = Agent.from_mongo(agent_id)
-        if not agent or not getattr(agent, "user_memory_enabled", False):
+        if not _is_user_memory_enabled(agent):
             return
 
         user_memory = UserMemory.find_one_or_create(
@@ -529,6 +532,9 @@ async def extract_memories_with_llm(
         enable_tracing=True,
     )
 
+    if LOCAL_DEV:
+        print(f"Running extract_memories_with_llm: {generation_name}")
+
     response = await async_prompt(context)
 
     # Parse the structured response
@@ -802,6 +808,9 @@ async def _extract_all_memories(
 
     session_id = session.id
 
+    if LOCAL_DEV:
+        print(f"Running _extract_all_memories...")
+
     # Extract regular memories (episode and directive)
     regular_memories = await extract_memories_with_llm(
         conversation_text,
@@ -818,19 +827,24 @@ async def _extract_all_memories(
     # Extract collective memories from active shards if agent memory is enabled
     if agent is None:
         from eve.agent.agent import Agent
-
         agent = Agent.from_mongo(agent_id)
 
-    if not agent or not getattr(agent, "agent_memory_enabled", True):
+    if not agent:
+        if LOCAL_DEV:
+            print(f"Agent not found or agent memory disabled for agent {agent_id}")
         return extracted_data, memory_to_shard_map
 
     active_shards = AgentMemory.find({"agent_id": agent_id, "is_active": True})
 
     if not active_shards:
+        if LOCAL_DEV:
+            print(f"No active shards found for agent {agent_id}")
         return extracted_data, memory_to_shard_map
 
     for shard in active_shards:
         if not shard.extraction_prompt:
+            if LOCAL_DEV:
+                print(f"No extraction prompt found for shard {shard.shard_name}")
             continue
 
         try:
@@ -875,6 +889,10 @@ def should_form_memories(agent_id: ObjectId, session: Session) -> bool:
     Check if memory formation should run based on either messages elapsed or tokens accumulated since last formation.
     Returns True if memory formation should occur.
     """
+    
+    if LOCAL_DEV:
+        print(f"Running should_form_memories...")
+
     try:
         session_messages = select_messages(session)
 
@@ -902,12 +920,16 @@ def should_form_memories(agent_id: ObjectId, session: Session) -> bool:
 
         # Check minimum message threshold first
         if messages_since_last < NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES:
+            if LOCAL_DEV:
+                print(f" (1) Skipping memory formation. Session is at {messages_since_last} out of {NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES} messages since last memory formation")
             return False
 
         # Check message-based trigger if configured
         if MEMORY_FORMATION_MSG_INTERVAL is not None:
             msg_trigger_met = messages_since_last >= MEMORY_FORMATION_MSG_INTERVAL
-            # print(f"Session is at {messages_since_last} out of {MEMORY_FORMATION_MSG_INTERVAL} messages since last memory formation")
+            if LOCAL_DEV:
+                print(f"msg_trigger_met: {msg_trigger_met}")
+                print(f" (2) Session is at {messages_since_last} out of {MEMORY_FORMATION_MSG_INTERVAL} messages since last memory formation")
             if msg_trigger_met:
                 return True
 
@@ -917,6 +939,10 @@ def should_form_memories(agent_id: ObjectId, session: Session) -> bool:
             recent_text = messages_to_text(recent_messages, fast_dry_run=True)
             tokens_since_last = estimate_tokens(recent_text)
             token_trigger_met = tokens_since_last >= MEMORY_FORMATION_TOKEN_INTERVAL
+
+            if LOCAL_DEV:
+                print(f"token_trigger_met: {token_trigger_met}")
+                print(f" (3) Tokens since last: {tokens_since_last} out of {MEMORY_FORMATION_TOKEN_INTERVAL} tokens since last memory formation")
             if token_trigger_met:
                 return True
 

@@ -123,7 +123,7 @@ async def _assemble_agent_memories(agent_id: ObjectId, agent=None) -> List[Dict[
             from eve.agent.agent import Agent
             agent = Agent.from_mongo(agent_id)
         
-        if not agent or not getattr(agent, 'agent_memory_enabled', True):
+        if not agent:
             return []
             
         query_start = time.time()

@@ -171,7 +171,7 @@ class Agent(User):
     agent_extras: Optional[AgentExtras] = None
 
     user_memory_enabled: Optional[bool] = False
-    agent_memory_enabled: Optional[bool] = False
+    agent_memory_enabled: Optional[bool] = False # Not yet used anywhere yet
     
     @classmethod
     def convert_from_yaml(cls, schema: dict, file_path: str = None) -> dict:
