@@ -178,7 +178,7 @@ async def _save_all_memories(
             session, {"agent_memory_timestamp": datetime.now(timezone.utc)}
         )
 
-    if LOCAL_DEV:
+    if LOCAL_DEV or 1:
         memories_created = [
             individual_memory
             for memory_list in memories_by_type.values()
