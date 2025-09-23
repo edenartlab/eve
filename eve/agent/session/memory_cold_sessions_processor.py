@@ -8,9 +8,11 @@ DB=STAGE PYTHONPATH=/Users/xandersteenbrugge/Documents/GitHub/Eden python -m eve
 
 DEPLOYMENT COMMANDS:
 # Deploy to staging
+cd /Users/xandersteenbrugge/Documents/GitHub/Eden/eve
 DB=STAGE modal deploy eve/agent/session/memory_cold_sessions_processor.py
 
 # Deploy to production  
+cd /Users/xandersteenbrugge/Documents/GitHub/Eden/eve
 DB=PROD modal deploy eve/agent/session/memory_cold_sessions_processor.py
 
 # Monitor deployments
