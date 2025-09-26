@@ -264,11 +264,14 @@ async def handle_trigger_create(
     if not next_run:
         raise APIError("Failed to calculate next scheduled run time", status_code=400)
 
+    trigger_name = f"Untitled Trigger"
+    think = False  # TODO
+
     # Create trigger in database  
-    logger.info(f"Creating trigger with name: '{request.name}'")
+    logger.info(f"Creating trigger with name: '{trigger_name}'")
     trigger = Trigger(
         trigger_id=trigger_id,
-        name=request.name,  # Add the name field
+        name=trigger_name,  # Add the name field
         user=ObjectId(user.id),
         agent=ObjectId(agent.id),
         schedule=schedule_dict,
@@ -276,7 +279,7 @@ async def handle_trigger_create(
         posting_instructions=request.posting_instructions.model_dump()
         if request.posting_instructions
         else None,
-        think=request.think,
+        think=think,
         update_config=request.update_config.model_dump()
         if request.update_config
         else None,
@@ -346,7 +349,7 @@ async def handle_trigger_get(trigger_id: str):
 @handle_errors
 async def execute_trigger(
     trigger_id: str,
-    background_tasks: BackgroundTasks,
+    # background_tasks: BackgroundTasks,
 ) -> Session: 
     try: 
         trigger = Trigger.from_mongo(trigger_id)
@@ -396,7 +399,8 @@ async def execute_trigger(
         # Setup session
         from eve.api.handlers import setup_session
         session = setup_session(
-            background_tasks, 
+            # background_tasks, 
+            None,
             request.session_id, 
             request.user_id, 
             request
@@ -458,7 +462,7 @@ async def execute_trigger(
 @handle_errors
 async def handle_trigger_run(
     request: RunTriggerRequest,
-    background_tasks: BackgroundTasks,
+    # background_tasks: BackgroundTasks,
 ):
     trigger_id = request.trigger_id    
     trigger = Trigger.from_mongo(trigger_id)
@@ -473,8 +477,18 @@ async def handle_trigger_run(
         raise APIError(f"Trigger {trigger_id} is not active (status: {trigger.status})", status_code=400)
     
     try:
-        session_id = background_tasks.add_task(execute_trigger, trigger, background_tasks)
-        
+        # session_id = background_tasks.add_task(execute_trigger, trigger, background_tasks)
+        # todo: use the modal func or the function directly?
+        # from eve.api.api import execute_trigger_fn
+        from eve.trigger import execute_trigger
+        session = await execute_trigger(trigger_id)
+        print("Response data", session)
+        # response_data = response_data
+
+        session_id = str(session.id) #response_data.get("session_id")
+
+        # session_id = execute_trigger.map.aio(trigger_id)
+
         return {
             "trigger_id": trigger_id,
             "session_id": session_id,

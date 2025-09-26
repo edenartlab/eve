@@ -133,7 +133,8 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
     double_character = "double_character" in extras
     seed = args.get("seed", None)
     aspect_ratio = args.get("aspect_ratio", "auto")
-    model_preference = args.get("model_preference", "").lower()
+    model_preference = args.get("model_preference")
+    model_preference = model_preference.lower() if model_preference else ""
 
     # get loras
     loras = get_loras(args.get("lora"), args.get("lora2"))
@@ -691,7 +692,8 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
     lora_strength = args.get("lora_strength", 0.75)
     aspect_ratio = args.get("aspect_ratio", "auto")
     quality = args.get("quality", "standard")
-    model_preference = args.get("model_preference", "seedance").lower()
+    model_preference = args.get("model_preference")
+    model_preference = model_preference.lower() if model_preference else ""
     duration = args.get("duration", 5)
     extras = args.get("extras", [])
     talking_head = "talking_head" in extras

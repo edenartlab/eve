@@ -53,15 +53,22 @@ from eve.api.handlers import (
     handle_v2_deployment_farcaster_neynar_webhook,
     handle_create_notification,
 )
+
+from eve.trigger import (
+    CreateTriggerRequest,
+    DeleteTriggerRequest,
+    RunTriggerRequest
+)
+
 from eve.api.api_requests import (
     CancelRequest,
     CancelSessionRequest,
     ChatRequest,
     CreateDeploymentRequestV2,
-    CreateTriggerRequest,
+    # CreateTriggerRequest,
     DeleteDeploymentRequestV2,
-    DeleteTriggerRequest,
-    RunTriggerRequest,
+    # DeleteTriggerRequest,
+    # RunTriggerRequest,
     DeploymentEmissionRequest,
     DeploymentInteractRequest,
     PromptSessionRequest,
@@ -510,7 +517,7 @@ async def run_scheduled_triggers_fn_new():
     triggers = list(
         Trigger.find(
             {
-                "_id": ObjectId("68d61e07b95d5206f5985173"),
+                "_id": ObjectId("68d634bc050ad90f48a03e6f"),
 
                 # "status": "active",
                 # "deleted": {"$ne": True},
