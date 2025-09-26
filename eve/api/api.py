@@ -94,6 +94,7 @@ from eve.api.api_functions import (
 
 app_name = f"api-{db.lower()}"
 logging.getLogger("ably").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 
