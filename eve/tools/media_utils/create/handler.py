@@ -610,7 +610,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
     if result.get("status") == "failed" or not "output" in result:
         raise Exception(f"Error in /create: {result.get('error')}")
 
-    final_result = get_full_url(result["output"][0]["filename"])
+    final_result = [get_full_url(r["filename"]) for r in result["output"]]
     print("final result", final_result)
 
     # Add sub tool call to tool_calls
@@ -1121,7 +1121,6 @@ def snap_aspect_ratio_to_model(aspect_ratio, model_name, start_image_attributes)
             "4:3": 4 / 3,
             "3:2": 3 / 2,
             "1:1": 1 / 1,
-            "2:3": 2 / 3,
             "3:4": 3 / 4,
             "9:16": 9 / 16,
             "9:21": 9 / 21,

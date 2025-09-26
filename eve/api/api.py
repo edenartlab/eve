@@ -14,6 +14,16 @@ from fastapi.exceptions import RequestValidationError
 
 from eve import auth, db
 
+
+from eve.trigger import (
+    handle_trigger_create,
+    handle_trigger_delete,
+    handle_trigger_stop,
+    handle_trigger_run,
+    handle_trigger_get
+)
+
+
 from eve.api.handlers import (
     handle_create,
     handle_cancel,
@@ -24,12 +34,12 @@ from eve.api.handlers import (
     handle_stream_chat,
     handle_telegram_emission,
     handle_telegram_update,
-    handle_trigger_create,
-    handle_trigger_delete,
-    handle_trigger_stop,
-    handle_trigger_run,
+    # handle_trigger_create,
+    # handle_trigger_delete,
+    # handle_trigger_stop,
+    # handle_trigger_run,
+    # handle_trigger_get,
     handle_twitter_update,
-    handle_trigger_get,
     handle_agent_tools_update,
     handle_agent_tools_delete,
     handle_farcaster_update,
@@ -67,7 +77,7 @@ from eve.api.api_functions import (
     cancel_stuck_tasks_fn,
     generate_lora_thumbnails_fn,
     rotate_agent_metadata_fn,
-    run_scheduled_triggers_fn,
+    # run_scheduled_triggers_fn,
     run,
     run_task,
     run_task_replicate,
@@ -441,9 +451,9 @@ rotate_agent_metadata_modal = app.function(
 )(rotate_agent_metadata_fn)
 
 
-run_scheduled_triggers_modal = app.function(
-    image=image, max_containers=1, schedule=modal.Period(minutes=1), timeout=300
-)(run_scheduled_triggers_fn)
+# run_scheduled_triggers_modal = app.function(
+#     image=image, max_containers=1, schedule=modal.Period(minutes=1), timeout=300
+# )(run_scheduled_triggers_fn)
 
 
 run = app.function(
@@ -465,3 +475,89 @@ run_task_replicate = app.function(
 cleanup_stale_busy_states_modal = app.function(
     image=image, max_containers=1, schedule=modal.Period(minutes=2), timeout=3600
 )(cleanup_stale_busy_states)
+
+
+
+
+from datetime import datetime, timezone
+import aiohttp
+
+from eve.trigger import execute_trigger
+from eve.agent.session.models import Session
+from eve.trigger import Trigger
+
+
+@app.function(
+    image=image, max_containers=4
+)
+async def execute_trigger_fn(trigger_id: str) -> Session:
+    # from eve.trigger import Trigger
+    # trigger = Trigger.from_mongo(trigger_id)
+    return await execute_trigger(trigger_id)
+
+
+@app.function(
+    image=image, max_containers=1, schedule=modal.Period(minutes=2), timeout=300
+)
+async def run_scheduled_triggers_fn_new():
+    from bson import ObjectId
+    from eve.trigger import Trigger
+
+    # Find triggers that need to run
+    current_time = datetime.now(timezone.utc)
+
+    # Find active triggers where next_scheduled_run <= current time
+    triggers = list(
+        Trigger.find(
+            {
+                "_id": ObjectId("68d61e07b95d5206f5985173"),
+
+                # "status": "active",
+                # "deleted": {"$ne": True},
+                # "next_scheduled_run": {"$lte": current_time},
+            }
+        )
+    )
+
+    logger.info(f"Found {len(triggers)} triggers to run")
+
+    if not triggers:
+        logger.info("No triggers to run")
+        return
+
+
+    print("Running triggers")
+    logger.info("Running triggers")
+
+    from eve.agent.session.triggers import calculate_next_scheduled_run
+
+    current_time = datetime.now(timezone.utc)
+    valid_triggers = []
+
+    from pymongo import UpdateOne
+    # from eve.agent.session.models import Trigger
+    from eve.trigger import Trigger
+
+    # Try bulk update first, fallback to individual updates
+
+    # Fallback to individual updates
+    
+
+    sessions = []
+    triggers = [str(trigger.id) for trigger in triggers]
+    async for result in execute_trigger_fn.map.aio(triggers):
+        sessions.append(result)
+
+
+    print("Ran triggers")
+    logger.info("Ran triggers")
+    print(sessions)
+    logger.info(sessions)
+
+    logger.info(f"Ran {len(triggers)} triggers")
+
+
+
+@app.local_entrypoint()
+async def local_entrypoint():
+    run_scheduled_triggers_fn_new.remote()

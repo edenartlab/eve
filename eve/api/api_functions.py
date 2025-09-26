@@ -53,160 +53,162 @@ async def rotate_agent_metadata_fn():
         sentry_sdk.capture_exception(e)
 
 
-async def run_scheduled_triggers_fn():
-    """Check for and run scheduled triggers every minute"""
-    from datetime import datetime, timezone
-    from eve.agent.session.models import Trigger
-    import aiohttp
+# async def run_scheduled_triggers_fn_deprecated():
+#     """Check for and run scheduled triggers every minute"""
+#     from datetime import datetime, timezone
+#     #from eve.agent.session.models import Trigger
+#     from eve.trigger import Trigger
+#     import aiohttp
 
-    try:
-        # Find triggers that need to run
-        current_time = datetime.now(timezone.utc)
+#     try:
+#         # Find triggers that need to run
+#         current_time = datetime.now(timezone.utc)
 
-        # Find active triggers where next_scheduled_run <= current time
-        triggers = list(
-            Trigger.find(
-                {
-                    "status": "active",
-                    "deleted": {"$ne": True},
-                    "next_scheduled_run": {"$lte": current_time},
-                }
-            )
-        )
+#         # Find active triggers where next_scheduled_run <= current time
+#         triggers = list(
+#             Trigger.find(
+#                 {
+#                     "status": "active",
+#                     "deleted": {"$ne": True},
+#                     "next_scheduled_run": {"$lte": current_time},
+#                 }
+#             )
+#         )
 
-        logger.info(f"Found {len(triggers)} triggers to run")
+#         logger.info(f"Found {len(triggers)} triggers to run")
 
-        # Fast update all trigger timing to prevent duplicates
-        if triggers:
-            from eve.agent.session.triggers import calculate_next_scheduled_run
+#         # Fast update all trigger timing to prevent duplicates
+#         if triggers:
+#             from eve.agent.session.triggers import calculate_next_scheduled_run
 
-            current_time = datetime.now(timezone.utc)
-            valid_triggers = []
+#             current_time = datetime.now(timezone.utc)
+#             valid_triggers = []
 
-            # Try bulk update first, fallback to individual updates
-            try:
-                from pymongo import UpdateOne
-                from eve.agent.session.models import Trigger
+#             # Try bulk update first, fallback to individual updates
+#             try:
+#                 from pymongo import UpdateOne
+#                 # from eve.agent.session.models import Trigger
+#                 from eve.trigger import Trigger
 
-                bulk_operations = []
+#                 bulk_operations = []
 
-                # Prepare all updates in memory first
-                for trigger in triggers:
-                    try:
-                        # Calculate next run time
-                        next_run = calculate_next_scheduled_run(trigger.schedule)
+#                 # Prepare all updates in memory first
+#                 for trigger in triggers:
+#                     try:
+#                         # Calculate next run time
+#                         next_run = calculate_next_scheduled_run(trigger.schedule)
 
-                        update_doc = {
-                            "last_run_time": current_time,
-                        }
+#                         update_doc = {
+#                             "last_run_time": current_time,
+#                         }
 
-                        if next_run:
-                            update_doc["next_scheduled_run"] = next_run
-                            logger.info(
-                                f"Scheduling next run for trigger {trigger.trigger_id} at {next_run}"
-                            )
-                        else:
-                            # No next run (possibly due to end_date)
-                            update_doc["status"] = "finished"
-                            logger.info(
-                                f"Trigger {trigger.trigger_id} has no next run, marking as finished"
-                            )
+#                         if next_run:
+#                             update_doc["next_scheduled_run"] = next_run
+#                             logger.info(
+#                                 f"Scheduling next run for trigger {trigger.trigger_id} at {next_run}"
+#                             )
+#                         else:
+#                             # No next run (possibly due to end_date)
+#                             update_doc["status"] = "finished"
+#                             logger.info(
+#                                 f"Trigger {trigger.trigger_id} has no next run, marking as finished"
+#                             )
 
-                        # Add to bulk operations
-                        bulk_operations.append(
-                            UpdateOne({"_id": trigger.id}, {"$set": update_doc})
-                        )
-                        valid_triggers.append(trigger)
+#                         # Add to bulk operations
+#                         bulk_operations.append(
+#                             UpdateOne({"_id": trigger.id}, {"$set": update_doc})
+#                         )
+#                         valid_triggers.append(trigger)
 
-                    except Exception as e:
-                        logger.error(
-                            f"Error preparing update for trigger {trigger.trigger_id}: {str(e)}"
-                        )
-                        sentry_sdk.capture_exception(e)
-                        continue
+#                     except Exception as e:
+#                         logger.error(
+#                             f"Error preparing update for trigger {trigger.trigger_id}: {str(e)}"
+#                         )
+#                         sentry_sdk.capture_exception(e)
+#                         continue
 
-                # Try bulk operation
-                if bulk_operations:
-                    result = Trigger.get_collection().bulk_write(
-                        bulk_operations, ordered=False
-                    )
-                    logger.info(
-                        f"Bulk updated {result.modified_count} triggers in single operation"
-                    )
-                    triggers = valid_triggers
+#                 # Try bulk operation
+#                 if bulk_operations:
+#                     result = Trigger.get_collection().bulk_write(
+#                         bulk_operations, ordered=False
+#                     )
+#                     logger.info(
+#                         f"Bulk updated {result.modified_count} triggers in single operation"
+#                     )
+#                     triggers = valid_triggers
 
-            except Exception as bulk_error:
-                logger.warning(
-                    f"Bulk update failed, falling back to individual updates: {bulk_error}"
-                )
+#             except Exception as bulk_error:
+#                 logger.warning(
+#                     f"Bulk update failed, falling back to individual updates: {bulk_error}"
+#                 )
 
-                # Fallback to individual updates
-                valid_triggers = []
-                for trigger in triggers:
-                    try:
-                        # Calculate next run time
-                        next_run = calculate_next_scheduled_run(trigger.schedule)
+#                 # Fallback to individual updates
+#                 valid_triggers = []
+#                 for trigger in triggers:
+#                     try:
+#                         # Calculate next run time
+#                         next_run = calculate_next_scheduled_run(trigger.schedule)
 
-                        trigger.last_run_time = current_time
+#                         trigger.last_run_time = current_time
 
-                        if next_run:
-                            trigger.next_scheduled_run = next_run
-                            logger.info(
-                                f"Scheduling next run for trigger {trigger.trigger_id} at {next_run}"
-                            )
-                        else:
-                            # No next run (possibly due to end_date)
-                            trigger.status = "finished"
-                            logger.info(
-                                f"Trigger {trigger.trigger_id} has no next run, marking as finished"
-                            )
+#                         if next_run:
+#                             trigger.next_scheduled_run = next_run
+#                             logger.info(
+#                                 f"Scheduling next run for trigger {trigger.trigger_id} at {next_run}"
+#                             )
+#                         else:
+#                             # No next run (possibly due to end_date)
+#                             trigger.status = "finished"
+#                             logger.info(
+#                                 f"Trigger {trigger.trigger_id} has no next run, marking as finished"
+#                             )
 
-                        # Save individual trigger
-                        trigger.save()
-                        valid_triggers.append(trigger)
+#                         # Save individual trigger
+#                         trigger.save()
+#                         valid_triggers.append(trigger)
 
-                    except Exception as e:
-                        logger.error(
-                            f"Error updating timing for trigger {trigger.trigger_id}: {str(e)}"
-                        )
-                        sentry_sdk.capture_exception(e)
-                        continue
+#                     except Exception as e:
+#                         logger.error(
+#                             f"Error updating timing for trigger {trigger.trigger_id}: {str(e)}"
+#                         )
+#                         sentry_sdk.capture_exception(e)
+#                         continue
 
-                triggers = valid_triggers
-                logger.info(f"Updated {len(triggers)} triggers individually")
+#                 triggers = valid_triggers
+#                 logger.info(f"Updated {len(triggers)} triggers individually")
 
-        # Now execute all triggers concurrently
-        import asyncio
+#         # Now execute all triggers concurrently
+#         import asyncio
 
-        async def execute_trigger_wrapper(trigger):
-            try:
-                from eve.agent.session.triggers import execute_trigger
+#         async def execute_trigger_wrapper(trigger):
+#             try:
+#                 from eve.trigger import execute_trigger
                 
-                # Use the shared execution function
-                result = await execute_trigger(trigger, is_immediate=False)
-                session_id = result.get("session_id")
+#                 # Use the shared execution function
+#                 result = await execute_trigger(trigger_id, is_immediate=False)
+#                 session_id = result.get("session_id")
 
-                # Update trigger with session if it was created
-                if not trigger.session and session_id:
-                    trigger.session = ObjectId(session_id)
-                    trigger.save()
+#                 # Update trigger with session if it was created
+#                 if not trigger.session and session_id:
+#                     trigger.session = ObjectId(session_id)
+#                     trigger.save()
 
-                # Handle posting instructions if present
-                if trigger.posting_instructions:
-                    await handle_trigger_posting(trigger, session_id)
+#                 # Handle posting instructions if present
+#                 if trigger.posting_instructions:
+#                     await handle_trigger_posting(trigger, session_id)
 
-            except Exception as e:
-                logger.error(f"Error executing trigger {trigger.trigger_id}: {str(e)}")
-                sentry_sdk.capture_exception(e)
+#             except Exception as e:
+#                 logger.error(f"Error executing trigger {trigger.trigger_id}: {str(e)}")
+#                 sentry_sdk.capture_exception(e)
 
-        # Execute all triggers concurrently
-        if triggers:
-            tasks = [execute_trigger_wrapper(trigger) for trigger in triggers]
-            await asyncio.gather(*tasks, return_exceptions=True)
+#         # Execute all triggers concurrently
+#         if triggers:
+#             tasks = [execute_trigger_wrapper(trigger) for trigger in triggers]
+#             await asyncio.gather(*tasks, return_exceptions=True)
 
-    except Exception as e:
-        logger.error(f"Error in run_scheduled_triggers: {str(e)}")
-        sentry_sdk.capture_exception(e)
+#     except Exception as e:
+#         logger.error(f"Error in run_scheduled_triggers: {str(e)}")
+#         sentry_sdk.capture_exception(e)
 
 
 async def handle_trigger_posting(trigger, session_id):

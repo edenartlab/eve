@@ -17,7 +17,6 @@ from eve.agent.session.models import (
     EdenMessageType,
     EdenMessageData,
     EdenMessageAgentData,
-    Trigger,
     Deployment,
     DeploymentConfig,
     Notification,
@@ -28,6 +27,7 @@ from eve.deploy import (
     Deployment as DeploymentV1,
 )
 from eve.agent.session.session import run_prompt_session, run_prompt_session_stream
+from eve.trigger import Trigger
 from eve.agent.session.triggers import create_trigger_fn, stop_trigger
 from eve.api.errors import handle_errors, APIError
 from eve.api.api_requests import (
@@ -423,7 +423,7 @@ async def handle_trigger_run(request: RunTriggerRequest):
     
     try:
         # Execute the trigger using the shared function
-        response_data = await execute_trigger(trigger, is_immediate=True)
+        response_data = await execute_trigger(trigger_id, is_immediate=True)
         session_id = response_data.get("session_id")
         
         # Update trigger with session if it was created

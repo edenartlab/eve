@@ -11,7 +11,8 @@ import time
 
 import modal
 
-from eve import deploy, trigger
+from eve import deploy
+# from eve.trigger import DEPLOYMENT_ENV_NAME, TRIGGER_ENV_NAME
 from eve.agent.deployments import PlatformClient
 from eve.api.errors import APIError
 from eve.tool import Tool
@@ -116,11 +117,13 @@ def pre_modal_setup():
     if not authenticate_modal_key():
         print("Skipping Modal environment setup due to missing credentials")
         return
-        
-    if not check_environment_exists(deploy.DEPLOYMENT_ENV_NAME):
-        create_environment(deploy.DEPLOYMENT_ENV_NAME)
-    if not check_environment_exists(trigger.TRIGGER_ENV_NAME):
-        create_environment(trigger.TRIGGER_ENV_NAME)
+    
+    from eve import DEPLOYMENT_ENV_NAME
+    TRIGGER_ENV_NAME = "triggers"
+    if not check_environment_exists(DEPLOYMENT_ENV_NAME):
+        create_environment(DEPLOYMENT_ENV_NAME)
+    if not check_environment_exists(TRIGGER_ENV_NAME):
+        create_environment(TRIGGER_ENV_NAME)
 
 
 async def create_telegram_chat_request(
