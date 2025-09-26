@@ -518,11 +518,10 @@ async def run_scheduled_triggers_fn_new():
     triggers = list(
         Trigger.find(
             {
-                "_id": ObjectId("68d634bc050ad90f48a03e6f"),
-
-                # "status": "active",
-                # "deleted": {"$ne": True},
-                # "next_scheduled_run": {"$lte": current_time},
+                # "_id": ObjectId("68d634bc050ad90f48a03e6f"),
+                "status": "active",
+                "deleted": {"$ne": True},
+                "next_scheduled_run": {"$lte": current_time},
             }
         )
     )
@@ -553,10 +552,14 @@ async def run_scheduled_triggers_fn_new():
 
     sessions = []
     triggers = [str(trigger.id) for trigger in triggers]
+
+    print("Executing triggers now!!!!")
     async for result in execute_trigger_fn.map.aio(triggers):
+        print("Result121212", result)
         sessions.append(result)
 
 
+    print("Sessions", sessions)
     print("Ran triggers")
     logger.info("Ran triggers")
     print(sessions)

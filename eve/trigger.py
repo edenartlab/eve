@@ -19,11 +19,11 @@ from eve.api.api_requests import PromptSessionRequest, SessionCreationArgs
 # from eve.session2 import setup_session
 
 
-# from eve.agent.session.session import (
-#     add_user_message, 
-#     async_prompt_session, 
-#     build_llm_context
-# )
+from eve.agent.session.session import (
+    add_user_message, 
+    async_prompt_session, 
+    build_llm_context
+)
 
 
 from eve.agent.agent import Agent
@@ -482,10 +482,11 @@ async def handle_trigger_run(
         # from eve.api.api import execute_trigger_fn
         from eve.trigger import execute_trigger
         session = await execute_trigger(trigger_id)
-        print("Response data", session)
+        print("Response data !!!456", session)
         # response_data = response_data
 
         session_id = str(session.id) #response_data.get("session_id")
+        print("Session id !!!456231", session_id)
 
         # session_id = execute_trigger.map.aio(trigger_id)
 
