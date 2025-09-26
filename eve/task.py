@@ -201,6 +201,9 @@ async def _task_handler(func, *args, **kwargs):
     output_type = task.output_type
     is_creation_tool = not task.tool in NON_CREATION_TOOLS
 
+    if task.tool == "create":
+        n_samples = 1
+
     try:
         for i in range(n_samples):
             task_args = task.args.copy()
