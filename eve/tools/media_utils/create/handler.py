@@ -580,17 +580,16 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
         if reference_images:
             args["image_input"] = reference_images
-        
+            start_image_attributes, _ = get_media_attributes(reference_images[0])
         else:
-            if aspect_ratio == "auto":
-                args["aspect_ratio"] = "match_input_image"
-            elif aspect_ratio == "5:4":
-                args["aspect_ratio"] = "4:3"  # Seedream 3 doesn't support 5:4
-            elif aspect_ratio == "4:5":
-                args["aspect_ratio"] = "3:4"  # Seedream 3 doesn't support 4:5
-            else:
-                args["aspect_ratio"] = aspect_ratio
+            start_image_attributes = None
 
+        if aspect_ratio != "auto":
+            aspect_ratio = snap_aspect_ratio_to_model(
+                aspect_ratio, "seedream4", start_image_attributes
+            )
+            args["aspect_ratio"] = aspect_ratio
+        
         if seed:
             args["seed"] = seed
 
@@ -1116,6 +1115,17 @@ def snap_aspect_ratio_to_model(aspect_ratio, model_name, start_image_attributes)
     """
 
     presets = {
+        "seedream4": {
+            "21:9": 21 / 9,
+            "16:9": 16 / 9,
+            "4:3": 4 / 3,
+            "3:2": 3 / 2,
+            "1:1": 1 / 1,
+            "2:3": 2 / 3,
+            "3:4": 3 / 4,
+            "9:16": 9 / 16,
+            "9:21": 9 / 21,
+        },
         "runway3": {"16:9": 16 / 9, "9:16": 9 / 16},
         "runway4": {
             "21:9": 21 / 9,

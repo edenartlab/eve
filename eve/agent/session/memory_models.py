@@ -1,13 +1,71 @@
 import traceback
+import math
 from typing import List, Optional, Dict
 from bson import ObjectId
 from eve.mongo import Collection, Document
 from datetime import datetime, timezone
 
-from eve.agent.session.memory_constants import MAX_FACTS_PER_SHARD, MAX_AGENT_MEMORIES_BEFORE_CONSOLIDATION
+from eve.agent.session.memory_constants import MAX_FACTS_PER_SHARD, MAX_AGENT_MEMORIES_BEFORE_CONSOLIDATION, MemoryType
 from eve.agent.session.models import ChatMessage, Session
 from eve.agent.session.config import DEFAULT_SESSION_SELECTION_LIMIT
 from eve.user import User
+
+# Multipliers on the char/token count of different message types for memory importance / formation triggers:
+USER_MULTIPLIER  = 1.0
+TOOL_MULTIPLIER  = 0.5  # mostly discord_search rn
+AGENT_MULTIPLIER = 0.2  # we want memories to come from users, not agents
+OTHER_MULTIPLIER = 0.5  # not really used
+
+def calculate_dynamic_limits(base_memory_types: dict, char_counts_by_source: dict, log_power: float = 4.0) -> dict:
+    """
+    Calculate dynamic memory limits based on conversation text length using logarithmic scaling.
+
+    Args:
+        base_memory_types: Dictionary of base memory type configurations
+        char_counts_by_source: Character counts by source type
+        log_power: Base for logarithmic scaling (default: 2.8 for balanced scaling)
+    """
+    if not char_counts_by_source:
+        return base_memory_types
+
+    # Calculate total weighted character count (same weighting as memory formation)
+    total_chars = (
+        char_counts_by_source.get("user", 0) * USER_MULTIPLIER +
+        char_counts_by_source.get("tool", 0) * TOOL_MULTIPLIER +
+        char_counts_by_source.get("other", 0) * OTHER_MULTIPLIER +
+        int(char_counts_by_source.get("agent", 0) * AGENT_MULTIPLIER)
+    )
+
+    # Use logarithmic scaling to determine multiplier
+    base_chars = 3000
+
+    # Logarithmic scaling: log_base(total_chars / base_chars) + 1
+    multiplier = math.log(max(total_chars / base_chars, 0.25), log_power) + 1
+    multiplier = max(multiplier, 0.5)  # Cap at 0.5x to prevent underflow memory formation
+    multiplier = min(multiplier, 2.0)  # Cap at 2.0x to prevent excessive memory formation
+
+    # Create new memory types with scaled limits
+    dynamic_memory_types = {}
+    for key, memory_type in base_memory_types.items():
+        # Scale max_items logarithmically, keep min_items as floor
+        original_max = memory_type.max_items
+        original_min = memory_type.min_items
+
+        # Apply multiplier to the range (max - min) and add back to min
+        range_expansion = (original_max - original_min) * multiplier
+        new_max = int(round(original_min + range_expansion))
+        new_max = max(original_min, new_max)  # Ensure new_max >= min
+
+        # Create new MemoryType with scaled limits
+        dynamic_memory_types[key] = MemoryType(
+            name=memory_type.name,
+            min_items=original_min,  # Keep original min
+            max_items=new_max,       # Scale max
+            custom_prompt=memory_type.custom_prompt
+        )
+
+    return dynamic_memory_types
+
 
 def get_sender_id_to_sender_name_map(messages: List[ChatMessage]) -> Dict[ObjectId, str]:
     """Find all unique senders in the messages and return a map of sender id to sender name"""
@@ -51,28 +109,36 @@ def get_sender_id_to_sender_name_map(messages: List[ChatMessage]) -> Dict[Object
         traceback.print_exc()
         return {}
 
-def messages_to_text(messages: List[ChatMessage], fast_dry_run: bool = False) -> str:
-    """Convert messages to readable text for LLM processing"""
-    if not fast_dry_run:
-        sender_id_to_sender_name_map = get_sender_id_to_sender_name_map(messages)
+def messages_to_text(messages: List[ChatMessage]) -> tuple[str, dict[str, int]]:
+    """Convert messages to readable text for LLM processing
+
+    Returns:
+        tuple: (formatted_text, char_counts_by_source)
+        - formatted_text: The fully formatted message string
+        - char_counts_by_source: Dictionary with character counts per message type
+    """
+    sender_id_to_sender_name_map = get_sender_id_to_sender_name_map(messages)
     text_parts = []
+    char_counts_by_source = {"user": 0, "agent": 0, "tool": 0, "other": 0}
+
     for msg in messages:
-        if fast_dry_run:
-            speaker = msg.name or msg.role
-        else:
-            speaker = sender_id_to_sender_name_map.get(msg.sender) or msg.name or msg.role
+        speaker = sender_id_to_sender_name_map.get(msg.sender) or msg.name or msg.role
         content = msg.content
-        
-        # During fast_dry_run, downscale agent/assistant messages for token counting
-        if fast_dry_run and speaker in ["agent", "assistant"]:
-            from eve.agent.session.memory_constants import AGENT_TOKEN_MULTIPLIER
-            content = content[:int(len(content) * AGENT_TOKEN_MULTIPLIER)]
-        
-        if (not fast_dry_run) and msg.tool_calls: # Add tool calls summary if present
+
+        # Count original content characters by message type
+        if msg.role == "user":
+            char_counts_by_source["user"] += len(content)
+        elif msg.role in ["agent", "assistant", "eden"]:
+            char_counts_by_source["agent"] += len(content)
+        else:
+            char_counts_by_source["other"] += len(content)
+
+        if msg.tool_calls: # Add tool calls summary if present
             tools_summary = (
                 f" [Used tools: {', '.join([tc.tool for tc in msg.tool_calls])}]"
             )
             content += tools_summary
+            char_counts_by_source["tool"] += len(tools_summary)
 
             # Include full tool call results for specific tools
             tools_with_full_results = ["discord_search"] #, "farcaster_search", "twitter_search", "get_tweets"]
@@ -81,12 +147,16 @@ def messages_to_text(messages: List[ChatMessage], fast_dry_run: bool = False) ->
                     try:
                         import json
                         result_json = json.dumps(tc.result)
-                        content += f"\n[{tc.tool} full result: {result_json}]"
+                        tool_result_content = f"\n[{tc.tool} full result: {result_json}]"
+                        content += tool_result_content
+                        char_counts_by_source["tool"] += len(tool_result_content)
                     except Exception as e:
                         # Fallback: just mention tool was used with results
-                        content += f"\n[{tc.tool} completed with results]"
+                        fallback_content = f"\n[{tc.tool} completed with results]"
+                        content += fallback_content
+                        char_counts_by_source["tool"] += len(fallback_content)
         text_parts.append(f"{speaker}: {content}")
-    return "\n".join(text_parts)
+    return "\n".join(text_parts), char_counts_by_source
 
 @Collection("memory_sessions")
 class SessionMemory(Document):

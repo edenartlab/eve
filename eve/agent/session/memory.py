@@ -30,6 +30,7 @@ from eve.agent.session.memory_models import (
     _format_memories_with_age,
     estimate_tokens,
     select_messages,
+    calculate_dynamic_limits,
 )
 from eve.agent.session.memory_constants import *
 from eve.agent.session.memory_constants import (
@@ -178,7 +179,7 @@ async def _save_all_memories(
             session, {"agent_memory_timestamp": datetime.now(timezone.utc)}
         )
 
-    if LOCAL_DEV:
+    if LOCAL_DEV or 1:
         memories_created = [
             individual_memory
             for memory_list in memories_by_type.values()
@@ -423,6 +424,7 @@ async def _consolidate_with_llm(
     model: str,
     session_id: ObjectId = None,
     user_id: ObjectId = None,
+    add_word_count: bool = True,
     **format_args,
 ) -> str:
     """Generic LLM consolidation function that works with any memory type.
@@ -464,7 +466,12 @@ async def _consolidate_with_llm(
 
     llm_response = await async_prompt(context)
 
-    return llm_response.content
+    response_content = llm_response.content
+    if add_word_count:
+        word_count = len(response_content.split())
+        response_content = f"{response_content}\n\n-- Total word count: {word_count}"
+
+    return response_content
 
 
 async def extract_memories_with_llm(
@@ -477,6 +484,7 @@ async def extract_memories_with_llm(
     session_id: ObjectId = None,
     user_id: ObjectId = None,
     shard_name: str = None,
+    char_counts_by_source: Dict[str, int] = None,
 ) -> Dict[str, List[str]]:
     """Use LLM to extract categorized memories from conversation text"""
 
@@ -488,11 +496,14 @@ async def extract_memories_with_llm(
     extraction_prompt = extraction_prompt.replace(
         CONVERSATION_TEXT_TOKEN, conversation_text
     )
+    # Calculate dynamic memory limits based on conversation length, or use defaults
+    active_memory_types = calculate_dynamic_limits(MEMORY_TYPES, char_counts_by_source) if char_counts_by_source else MEMORY_TYPES
+
     # Dynamically create model with only requested fields and max_length constraints
     fields = {}
     for element in extraction_elements:
-        if element in MEMORY_TYPES:
-            memory_type = MEMORY_TYPES[element]
+        if element in active_memory_types:
+            memory_type = active_memory_types[element]
             fields[element] = (
                 List[str],
                 Field(default_factory=list, max_length=memory_type.max_items),
@@ -801,6 +812,7 @@ async def _extract_all_memories(
     session: Session,
     user_id: ObjectId = None,
     agent=None,
+    char_counts_by_source: Dict[str, int] = None,
 ) -> Tuple[Dict[str, List[str]], Dict[str, ObjectId]]:
     """Extract both regular and collective memories from conversation."""
     extracted_data = {}
@@ -821,6 +833,7 @@ async def _extract_all_memories(
         model=MEMORY_LLM_MODEL_FAST,  # Use FAST model for regular memory extraction
         session_id=session_id,
         user_id=user_id,
+        char_counts_by_source=char_counts_by_source,
     )
     extracted_data.update(regular_memories)
 
@@ -865,6 +878,7 @@ async def _extract_all_memories(
                 session_id=session_id,
                 user_id=user_id,
                 shard_name=shard.shard_name,
+                char_counts_by_source=char_counts_by_source,
             )
 
             for memory_type, memories in shard_memories.items():
@@ -884,10 +898,11 @@ async def _extract_all_memories(
     return extracted_data, memory_to_shard_map
 
 
-def should_form_memories(agent_id: ObjectId, session: Session) -> bool:
+def should_form_memories(agent_id: ObjectId, session: Session) -> tuple[bool, str, dict]:
     """
     Check if memory formation should run based on either messages elapsed or tokens accumulated since last formation.
-    Returns True if memory formation should occur.
+    Returns tuple of (should_form: bool, conversation_text: str or None, char_counts_by_source: dict or None).
+    conversation_text and char_counts_by_source are only populated when token-based checking occurs, None otherwise.
     """
     
     if LOCAL_DEV:
@@ -897,7 +912,7 @@ def should_form_memories(agent_id: ObjectId, session: Session) -> bool:
         session_messages = select_messages(session)
 
         if not agent_id or not session_messages or len(session_messages) == 0:
-            return False
+            return False, None, None
 
         # Create message ID to index mapping for O(1) lookup
         message_id_to_index = {msg.id: i for i, msg in enumerate(session_messages)}
@@ -922,53 +937,67 @@ def should_form_memories(agent_id: ObjectId, session: Session) -> bool:
         if messages_since_last < NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES:
             if LOCAL_DEV:
                 print(f" (1) Skipping memory formation. Session is at {messages_since_last} out of {NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES} messages since last memory formation")
-            return False
+            return False, None, None
 
         # Check message-based trigger if configured
-        if MEMORY_FORMATION_MSG_INTERVAL is not None:
-            msg_trigger_met = messages_since_last >= MEMORY_FORMATION_MSG_INTERVAL
-            if LOCAL_DEV:
-                print(f"msg_trigger_met: {msg_trigger_met}")
-                print(f" (2) Session is at {messages_since_last} out of {MEMORY_FORMATION_MSG_INTERVAL} messages since last memory formation")
-            if msg_trigger_met:
-                return True
+        msg_trigger_met = messages_since_last >= MEMORY_FORMATION_MSG_INTERVAL
+        if LOCAL_DEV:
+            print(f"msg_trigger_met: {msg_trigger_met}")
+            print(f" (2) Session is at {messages_since_last} out of {MEMORY_FORMATION_MSG_INTERVAL} messages since last memory formation")
+        if msg_trigger_met:
+            return True, None, None
 
         # Check token-based trigger if configured
-        if MEMORY_FORMATION_TOKEN_INTERVAL is not None:
-            # Convert recent messages to text and count tokens
-            recent_text = messages_to_text(recent_messages, fast_dry_run=True)
-            tokens_since_last = estimate_tokens(recent_text)
-            token_trigger_met = tokens_since_last >= MEMORY_FORMATION_TOKEN_INTERVAL
+        conversation_text, char_counts_by_source = messages_to_text(recent_messages)
 
-            if LOCAL_DEV:
-                print(f"token_trigger_met: {token_trigger_met}")
-                print(f" (3) Tokens since last: {tokens_since_last} out of {MEMORY_FORMATION_TOKEN_INTERVAL} tokens since last memory formation")
-            if token_trigger_met:
-                return True
+        # Weight tokens from different sources differently:
+        from eve.agent.session.memory_models import USER_MULTIPLIER, TOOL_MULTIPLIER, OTHER_MULTIPLIER, AGENT_MULTIPLIER
+        weight_adjusted_text_char_length = (
+            char_counts_by_source["user"] * USER_MULTIPLIER +
+            char_counts_by_source["tool"] * TOOL_MULTIPLIER +
+            char_counts_by_source["other"] * OTHER_MULTIPLIER +
+            int(char_counts_by_source["agent"] * AGENT_MULTIPLIER)
+        )
 
-        return False
+        tokens_since_last = int(weight_adjusted_text_char_length / 4.5)  # Same estimation as estimate_tokens
+        token_trigger_met = tokens_since_last >= MEMORY_FORMATION_TOKEN_INTERVAL
+
+        if LOCAL_DEV:
+            print(f"token_trigger_met: {token_trigger_met}")
+            print(f" (3) Tokens since last: {tokens_since_last} out of {MEMORY_FORMATION_TOKEN_INTERVAL} tokens since last memory formation")
+        if token_trigger_met:
+            return True, conversation_text, char_counts_by_source
+
+        return False, None, None
 
     except Exception as e:
         print(
             f"Error checking if memory formation should run for agent {agent_id} in session {session.id}: {e}"
         )
         traceback.print_exc()
-        return False
+        return False, None, None
 
 
 async def maybe_form_memories(agent_id: ObjectId, session: Session, agent=None) -> bool:
 
-    if not should_form_memories(agent_id, session):
+    should_form, conversation_text, char_counts_by_source = should_form_memories(agent_id, session)
+    if not should_form:
         return
 
-    await form_memories(agent_id, session, agent)
+    await form_memories(agent_id, session, agent, conversation_text=conversation_text, char_counts_by_source=char_counts_by_source)
     return
 
 
-async def form_memories(agent_id: ObjectId, session: Session, agent=None) -> bool:
+async def form_memories(agent_id: ObjectId, session: Session, agent=None, conversation_text: str = None, char_counts_by_source: dict = None) -> bool:
     """
     Form memories from recent conversation messages.
     Returns True if memories were formed.
+
+    Args:
+        conversation_text: Pre-computed conversation text from messages_to_text().
+                          If None, will compute it internally.
+        char_counts_by_source: Pre-computed character counts by source type.
+                               If None, will compute it internally.
     """
     start_time = time.time()
     reset_applied = False
@@ -986,21 +1015,36 @@ async def form_memories(agent_id: ObjectId, session: Session, agent=None) -> boo
 
         last_message_id = session_messages[-1].id
 
-        # Get messages since last memory formation
+        # Get messages since last memory formation BEFORE claiming
         safe_update_memory_context(session, {})  # Ensure memory_context exists
+        old_last_memory_message_id = session.memory_context.last_memory_message_id
         recent_messages = _get_recent_messages(
-            session_messages, session.memory_context.last_memory_message_id
+            session_messages, old_last_memory_message_id
         )
+
+        # If no messages to process, exit early
+        if not recent_messages or len(recent_messages) < NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES:
+            return False
+
+        # IMMEDIATELY claim all messages by updating MongoDB - this prevents race conditions
+        safe_update_memory_context(session, {
+            "last_memory_message_id": last_message_id,
+            "last_activity": datetime.now(timezone.utc),
+            "messages_since_memory_formation": 0,
+        }, skip_save=False)  # Force immediate save to MongoDB
+
         should_reset_counters = len(recent_messages) > 0
 
         if (
             recent_messages
             and len(recent_messages) >= NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES
         ):
-            conversation_text = messages_to_text(recent_messages)
+            # Use provided conversation_text or compute it if not provided
+            if conversation_text is None:
+                conversation_text, char_counts_by_source = messages_to_text(recent_messages)
 
             extracted_data, memory_to_shard_map = await _extract_all_memories(
-                agent_id, conversation_text, session, agent=agent
+                agent_id, conversation_text, session, agent=agent, char_counts_by_source=char_counts_by_source
             )
 
             await _save_all_memories(
@@ -1031,13 +1075,7 @@ async def form_memories(agent_id: ObjectId, session: Session, agent=None) -> boo
             agent=agent,
         )
 
-        # Update the session's memory formation tracking and save once
-        reset_updates = {
-            "last_activity": datetime.now(timezone.utc),
-            "last_memory_message_id": last_message_id,
-            "messages_since_memory_formation": 0,
-        }
-        safe_update_memory_context(session, reset_updates)
+        # Memory formation tracking already updated at start of function
         reset_applied = True
 
         print(f"Form memories took {time.time() - start_time:.2f} seconds to complete")

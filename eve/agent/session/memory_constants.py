@@ -46,14 +46,13 @@ CLEANUP_COLD_SESSIONS_EVERY_MINUTES = 10  # Run the background task every N minu
 
 SYNC_MEMORIES_ACROSS_SESSIONS_EVERY_N_MINUTES = 5
 NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES = 4
-AGENT_TOKEN_MULTIPLIER = 0.20  # Multiplier to downscale agent/assistant message importance for token interval trigger
 
 # LLMs cannot count tokens at all (weirdly), so instruct with word count:
 # Raw memory blobs:
-SESSION_EPISODE_MEMORY_MAX_WORDS    = 40  # Target word length for session episode memory
-SESSION_DIRECTIVE_MEMORY_MAX_WORDS  = 20  # Target word length for session directive memory
+SESSION_EPISODE_MEMORY_MAX_WORDS    = 50  # Target word length for session episode memory
+SESSION_DIRECTIVE_MEMORY_MAX_WORDS  = 25  # Target word length for session directive memory
 SESSION_SUGGESTION_MEMORY_MAX_WORDS = 35  # Target word length for session suggestion memory
-SESSION_FACT_MEMORY_MAX_WORDS       = 25  # Target word length for session fact memory
+SESSION_FACT_MEMORY_MAX_WORDS       = 30  # Target word length for session fact memory
 # Consolidated memory blobs:
 USER_MEMORY_BLOB_MAX_WORDS  = 250  # Target word count for consolidated user memory blob
 AGENT_MEMORY_BLOB_MAX_WORDS = 750  # Target word count for consolidated agent memory blob (shard)
@@ -63,7 +62,7 @@ MEMORY_TYPES = {
     "episode":    MemoryType("episode",    1, 1, "Summary of given conversation segment for contextual recall. Will always be provided in the context of previous episodes and most recent messages."),
     "directive":  MemoryType("directive",  0, 3, "Persistent instructions, preferences and personal context to remember for future interactions with this user."), 
     "suggestion": MemoryType("suggestion", 0, 5, "New ideas, suggestions, insights, or context relevant to the shard that could help improve / evolve / form this shard's area of focus"),
-    "fact":       MemoryType("fact",       0, 3, "Atomic, verifiable, unchanging information that is relevant to the collective memory shard context and should be kept in memory FOREVER.")
+    "fact":       MemoryType("fact",       0, 2, "Atomic, verifiable, unchanging information that is relevant to the collective memory shard context and should be kept in memory FOREVER.")
 }
 
 #############################
@@ -98,23 +97,22 @@ REGULAR_MEMORY_EXTRACTION_PROMPT = f"""Task: Extract persistent memories from th
   DO NOT include:
   - One-time requests or specific current tasks
   - Ad hoc instructions relevant for the current conversation context only that don't apply broadly
-  - Facts about completed work or past events
   - Random facts about the user that are not actionable
 
   Good examples: 
   - "Always ask Jack for permission before generating videos"
   - "Before generating images always check what aspect ratio the user prefers"
+  - "Jack is fascinated by calligraphy and loves to paint"
   Bad examples (DO NOT make these directives):
-  - "Gene requested a story about clockmaker" (one-time request)
-  - "The deadline is next Friday" (temporal fact, not behavioral rule)
-  - "User works at Google" (fact about user, not actionable rule)
+  - "Gene requested a story about a clockmaker" (one-time request)
+  - "The deadline is next Friday" (ephemeral temporal fact, not behavioral rule)
    
 CRITICAL REQUIREMENTS: 
 - BE VERY STRICT about directives - most conversations will have NO directives (empty array), only episodes
 - ALWAYS use specific user names from the conversation (NEVER use "User", "the user", or "they")
 - Episodes should capture both WHAT happened and WHY it matters (avoid interpretations or commentary but preserve emotional context when relevant)
 - Directives can include CONDITIONAL rules ("when X, then Y")
-- Return arrays for both episode and directive (empty arrays if no relevant directives)
+- Return arrays for both episode and directive (empty array if no relevant directives)
 
 Now carefully read the conversation text and extract the episodes and directives:
 <conversation_text>
@@ -144,12 +142,12 @@ Your goal is to extract facts and suggestions relevant to the shard's context ac
 
 1. FACTS: {MEMORY_TYPES['fact'].custom_prompt}
   - Extract 0 to {MEMORY_TYPES['fact'].max_items} facts (maximum {SESSION_FACT_MEMORY_MAX_WORDS} words each). Typically, you will extract much less than {MEMORY_TYPES['fact'].max_items} #facts (often none at all).
-  - Each fact must be UNIQUE, ATOMIC and VERIFIED - one specific piece of information coming from the user(s) that will never change.
-  - Include SOURCE when provided ("Alice: deadline is May 1st" or "Bob: the max budget is $1000")
+  - Each fact must be unique and verified statements - a specific piece of information coming from the user(s) that will never change.
+  - Include source when provided ("Alice: deadline is May 1st" or "Bob: the max budget is $1000")
   - Facts must be self-contained and understandable without any additional context
-  - Only include facts that are relevant to the shard's context and were actually spoken by the user(s) themselves.
+  - Only include facts that are relevant to the shard's context.
   - Facts are permanently stored in the shard memory and so they must be true in future phases of the project / context, not just true right this moment. A current rule / preference that could evolve over time should always be stored as a suggestion.
-  - The memory capacity for facts is limited (oldest facts are evicted FIFO when the shard fills), so be careful not to store too many facts. When uncertain, prioritize suggestions over facts.
+  - The memory capacity for facts is limited (oldest facts are evicted FIFO when the shard fills), so be careful not to store too many facts. When uncertain, prioritize suggestions over facts, its also possible to combine multiple knowledge bits into a single fact.
   - Prioritize facts that:
     a) Create or complement existing knowledge
     b) Provide critical constraints or dependencies
@@ -235,10 +233,11 @@ Only create new memories that are highly relevant in the context of this shard:
 Your goal is to update the current consolidated MEMORY STATE for this "{{shard_name}}" memory shard by integrating the new suggestions while leveraging the know facts as context.
 Refine, restructure, and merge the information to create a new, coherent, and updated consolidated memory (≤{{max_words}} words).
 
-If the current, consolidated MEMORY STATE is EMPTY:
+If the current, consolidated MEMORY STATE is EMPTY (ignore otherwise):
  - this means you're about to create the first consolidated memory for this shard, add "VERSION: 1" (integer) at the top of the MEMORY STATE
  - In that case, think carefully about the core purpose, goals, and context of the shard and generate a structured and extendable memory template that is suited for future updates.
- - Typically, there is very little initial information available, so don't start filling up the MEMORY STATE with invented information. EVERYTHING you store into memory must be based on collective user input, not the your free-form interpretation / generation! Don't rush to fill this up, more NEW SUGGESTIONS will come in the future. Its better to start with a very basic, minimal MEMORY STATE and then update it over time.
+ - Typically, there is very little initial information available, so don't start filling up the MEMORY STATE with invented information. EVERYTHING you store into memory must be based on collective user input, not the your free-form interpretation / generation!
+ - Don't rush to fill this up, more NEW SUGGESTIONS will come in the future. Its better to start with a very basic, minimal MEMORY STATE and then update it over time. Keep the inital MEMORY STATE below 200 words so it can grow over time.
 
 Here are just a few example sections that could be included in the MEMORY STATE. These are just examples, you can include any other sections that are relevant to the shard's context or leave the MEMORY STATE super basic if there is not a lot of information available yet.
 overview, tasks, decisions & consensus, active proposals, concerns & blockers, action items, integration principles, responsibilities, budget, planning, ...

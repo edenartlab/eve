@@ -1,0 +1,60 @@
+name: Generate Tool Documentation
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'eve/tools/**/api.yaml'
+      - 'scripts/generate_tool_docs.py'
+
+jobs:
+  generate-and-deploy-tool-docs:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Eve repository
+        uses: actions/checkout@v4
+        with:
+          path: eve
+
+      - name: Checkout mintlify-docs repository
+        uses: actions/checkout@v4
+        with:
+          repository: edenartlab/mintlify-docs
+          token: ${{ secrets.MINTLIFY_DOCS_TOKEN }}
+          path: mintlify-docs
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Install Python dependencies
+        run: |
+          pip install pyyaml
+
+      - name: Generate tool documentation
+        working-directory: eve/scripts
+        run: |
+          python generate_tool_docs.py --all --eve-dir ../eve --docs-dir ../../mintlify-docs
+
+      - name: Commit and push to mintlify-docs
+        working-directory: mintlify-docs
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+
+          # Check if there are changes
+          if git diff --quiet --exit-code; then
+            echo "No changes to tool documentation"
+            exit 0
+          fi
+
+          git add .
+          git commit -m "Update tool documentation from eve repo
+
+          Generated from: ${{ github.repository }}@${{ github.sha }}
+          Triggered by: ${{ github.event.head_commit.message }}"
+
+          git push origin main
