@@ -310,6 +310,15 @@ async def cancel_session(
     return await handle_session_cancel(request)
 
 
+@web_app.get("/sessions/{session_id}/stream")
+async def stream_session(
+    session_id: str,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    from eve.api.handlers import handle_session_stream
+    return await handle_session_stream(session_id)
+
+
 @web_app.post("/v2/deployments/create")
 async def create_deployment(
     request: CreateDeploymentRequestV2,

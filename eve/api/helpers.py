@@ -79,21 +79,50 @@ async def setup_chat(
     return user, agent, thread, tools
 
 
-async def emit_update(update_config: Optional[UpdateConfig], data: dict):
-    if not update_config:
+async def emit_update(update_config: Optional[UpdateConfig], data: dict, session_id: Optional[str] = None):
+    """
+    Emit updates through configured channels (HTTP, Ably) and also broadcast to SSE connections.
+    
+    Args:
+        update_config: Configuration for update channels
+        data: The update data to emit
+        session_id: Optional session ID for SSE broadcasting
+    """
+    from eve.agent.session.debug_logger import SessionDebugger
+    debugger = SessionDebugger(session_id)
+    
+    if not update_config and not session_id:
         return
 
-    if update_config.update_endpoint:
-        await emit_http_update(update_config, data)
-    elif update_config.sub_channel_name:
+    # Emit through configured channels (HTTP or Ably)
+    if update_config:
+        if update_config.update_endpoint:
+            debugger.log(f"HTTP emit", {"endpoint": update_config.update_endpoint.split('/')[-1]}, emoji='update')
+            await emit_http_update(update_config, data)
+        elif update_config.sub_channel_name:
+            try:
+                debugger.log(f"Ably emit", {"channel": update_config.sub_channel_name}, emoji='update')
+                client = AblyRest(os.getenv("ABLY_PUBLISHER_KEY"))
+                channel = client.channels.get(update_config.sub_channel_name)
+                await channel.publish(update_config.sub_channel_name, data)
+            except Exception as e:
+                debugger.log_error("Ably failed", e)
+                logger.error(f"Failed to publish to Ably: {str(e)}")
+    
+    # Also broadcast to SSE connections if session_id is provided
+    if session_id:
         try:
-            client = AblyRest(os.getenv("ABLY_PUBLISHER_KEY"))
-            print(client)
-            channel = client.channels.get(update_config.sub_channel_name)
-            print(channel)
-            await channel.publish(update_config.sub_channel_name, data)
+            from eve.api.sse_manager import sse_manager
+            connection_count = sse_manager.get_connection_count(session_id)
+            
+            if connection_count > 0:
+                debugger.log(f"SSE broadcast", {"connections": connection_count, "type": data.get("type", "?")}, emoji='broadcast')
+                await sse_manager.broadcast(session_id, data)
+            else:
+                debugger.log(f"No SSE connections", emoji='warning')
         except Exception as e:
-            logger.error(f"Failed to publish to Ably: {str(e)}")
+            debugger.log_error("SSE failed", e)
+            logger.error(f"Failed to broadcast to SSE connections: {str(e)}")
 
 
 async def emit_http_update(update_config: UpdateConfig, data: dict):

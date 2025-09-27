@@ -16,6 +16,7 @@ from eve.agent.agent import Agent
 from eve.tool import Tool
 from eve.mongo import get_collection
 from eve.models import Model
+from eve.agent.session.debug_logger import SessionDebugger
 from eve.agent.session.models import (
     ActorSelectionMethod,
     ChatMessage,
@@ -975,8 +976,7 @@ async def async_prompt_session(
                         {
                             "$set": {
                                 "tool_calls": [
-                                    tc.model_dump()
-                                    for tc in last_message.tool_calls
+                                    tc.model_dump() for tc in last_message.tool_calls
                                 ]
                             }
                         },
@@ -1065,42 +1065,93 @@ async def _run_prompt_session_internal(
 ):
     """Internal function that handles both streaming and non-streaming"""
     session = context.session
+    session_id = str(session.id) if session else None
+    debugger = SessionDebugger(session_id)
+
+    debugger.start_section("_run_prompt_session_internal")
+    debugger.log(
+        f"Starting prompt session",
+        {
+            "session_id": session_id,
+            "stream": stream,
+            "initiating_user_id": context.initiating_user_id,
+            "message": context.message.content if context.message else None,
+            "has_update_config": context.update_config is not None,
+            "actor_agent_ids": context.actor_agent_ids,
+        },
+    )
 
     try:
+        debugger.log("Validating prompt session", emoji="info")
         validate_prompt_session(session, context)
 
         # Create user message first, regardless of whether actors are determined
         if context.initiating_user_id:
+            debugger.log(
+                f"Adding user message",
+                {"user_id": str(context.initiating_user_id)[:8]},
+                emoji="message",
+            )
             add_user_message(session, context)
 
+        debugger.log("Determining actors", emoji="actor")
         actors = await determine_actors(session, context)
+        debugger.log(
+            f"Found {len(actors)} actor(s)",
+            {
+                "actors": [str(actor.id)[:8] for actor in actors] if actors else [],
+                "agent_count": len(session.agents) if session.agents else 0,
+            },
+            emoji="actor" if actors else "warning",
+        )
+
         is_client_platform = context.update_config is not None
 
         if not actors:
+            debugger.log(
+                "No actors found - session has no agents assigned",
+                level="warning",
+                emoji="warning",
+            )
+            debugger.end_section("_run_prompt_session_internal")
             return
 
         # Generate session run ID for this prompt session
         session_run_id = str(uuid.uuid4())
+        debugger.log(f"Session run ID", {"id": session_run_id[:8]}, emoji="info")
 
         # Start typing indicator
         if context.update_config:
+            debugger.log("Starting typing indicator", emoji="info")
             from eve.api.typing_coordinator import update_busy_state
+
             await update_busy_state(
-                context.update_config.model_dump() if hasattr(context.update_config, "model_dump") else context.update_config,
+                context.update_config.model_dump()
+                if hasattr(context.update_config, "model_dump")
+                else context.update_config,
                 session_run_id,
-                True
+                True,
             )
 
         try:
             # For single actor, maintain backwards compatibility
             if len(actors) == 1:
                 actor = actors[0]
+                debugger.log(
+                    f"Single actor mode",
+                    {"name": actor.name, "id": str(actor.id)[:8]},
+                    emoji="actor",
+                )
+
+                debugger.log("Building LLM context", emoji="llm")
                 llm_context = await build_llm_context(
                     session,
                     actor,
                     context,
                     trace_id=session_run_id,
                 )
+
+                debugger.log("Starting prompt session", emoji="llm")
                 async for update in async_prompt_session(
                     session,
                     llm_context,
@@ -1109,7 +1160,12 @@ async def _run_prompt_session_internal(
                     is_client_platform=is_client_platform,
                     session_run_id=session_run_id,
                 ):
-                    yield format_session_update(update, context)
+                    formatted_update = format_session_update(update, context)
+                    debugger.log_update(
+                        update.type.value if hasattr(update, "type") else "unknown",
+                        formatted_update,
+                    )
+                    yield formatted_update
             else:
                 # Multiple actors - run them in parallel
                 async def run_actor_session(actor: Agent):
@@ -1154,9 +1210,11 @@ async def _run_prompt_session_internal(
             # Stop typing indicator
             if context.update_config:
                 await update_busy_state(
-                    context.update_config.model_dump() if hasattr(context.update_config, "model_dump") else context.update_config,
+                    context.update_config.model_dump()
+                    if hasattr(context.update_config, "model_dump")
+                    else context.update_config,
                     session_run_id,
-                    False
+                    False,
                 )
 
         # Schedule background tasks if available
@@ -1208,30 +1266,66 @@ async def _run_prompt_session_internal(
 async def run_prompt_session_stream(
     context: PromptSessionContext, background_tasks: BackgroundTasks
 ):
+    session_id = str(context.session.id) if context.session else None
+    debugger = SessionDebugger(session_id)
+
+    debugger.start_section("run_prompt_session_stream")
     try:
         async for data in _run_prompt_session_internal(
             context, background_tasks, stream=True
         ):
+            # Also broadcast to SSE connections
+            if session_id:
+                try:
+                    from eve.api.sse_manager import sse_manager
+
+                    connection_count = sse_manager.get_connection_count(session_id)
+                    debugger.log_sse_broadcast(session_id, data, connection_count)
+                    await sse_manager.broadcast(session_id, data)
+                except Exception as sse_error:
+                    debugger.log_error(f"Failed to broadcast to SSE", sse_error)
+                    print(f"Failed to broadcast to SSE: {sse_error}")
             yield data
     except Exception as e:
         traceback.print_exc()
-        yield {
+        error_data = {
             "type": UpdateType.ERROR.value,
             "error": str(e),
             "update_config": context.update_config.model_dump()
             if context.update_config
             else None,
         }
+        # Broadcast error to SSE as well
+        session_id = str(context.session.id) if context.session else None
+        if session_id:
+            try:
+                from eve.api.sse_manager import sse_manager
+
+                await sse_manager.broadcast(session_id, error_data)
+            except Exception:
+                pass
+        yield error_data
 
 
 @handle_errors
 async def run_prompt_session(
     context: PromptSessionContext, background_tasks: BackgroundTasks
 ):
+    session_id = str(context.session.id) if context.session else None
+    debugger = SessionDebugger(session_id)
+
+    debugger.start_section("run_prompt_session")
+    debugger.log("Non-streaming mode", emoji="info")
+
     async for data in _run_prompt_session_internal(
         context, background_tasks, stream=False
     ):
-        await emit_update(context.update_config, data)
+        # Pass session_id for SSE broadcasting
+        update_type = data.get("type", "unknown")
+        debugger.log(f"Emitting update: {update_type}", emoji="update")
+        await emit_update(context.update_config, data, session_id=session_id)
+
+    debugger.end_section("run_prompt_session")
 
 
 async def _queue_session_action_fastify_background_task(session: Session):

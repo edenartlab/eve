@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -1140,6 +1141,68 @@ async def handle_prompt_session(
     )
 
     return {"session_id": str(session.id)}
+
+
+@handle_errors
+async def handle_session_stream(session_id: str):
+    """Stream SSE updates for a session."""
+    import uuid
+    from fastapi.responses import StreamingResponse
+    from eve.api.sse_manager import sse_manager
+    
+    # Verify session exists
+    try:
+        session = Session.from_mongo(ObjectId(session_id))
+        if not session:
+            raise APIError(f"Session not found: {session_id}", status_code=404)
+    except Exception as e:
+        raise APIError(f"Invalid session_id: {session_id}", status_code=400)
+    
+    # Generate unique client ID for this connection
+    client_id = str(uuid.uuid4())
+    
+    async def event_generator():
+        # Register connection
+        connection = await sse_manager.connect(session_id, client_id)
+        
+        try:
+            # Send initial connection message
+            yield f"data: {json.dumps({'event': 'connected', 'session_id': session_id, 'client_id': client_id})}\n\n"
+            
+            # Stream updates from queue
+            while True:
+                try:
+                    # Wait for message with timeout for keep-alive
+                    message = await asyncio.wait_for(
+                        connection.queue.get(), 
+                        timeout=30.0  # 30 second timeout
+                    )
+                    yield f"data: {message}\n\n"
+                    
+                except asyncio.TimeoutError:
+                    # Send keep-alive ping
+                    yield f": keep-alive\n\n"
+                    continue
+                    
+        except asyncio.CancelledError:
+            logger.info(f"SSE connection cancelled for session {session_id}")
+            raise
+        except Exception as e:
+            logger.error(f"Error in SSE stream for session {session_id}: {e}")
+            yield f"data: {json.dumps({'event': 'error', 'error': str(e)})}\n\n"
+        finally:
+            # Clean up connection
+            await sse_manager.disconnect(session_id, connection)
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable Nginx buffering
+        },
+    )
 
 
 @handle_errors
