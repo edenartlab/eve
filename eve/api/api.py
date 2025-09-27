@@ -1,4 +1,5 @@
 import logging
+import aiohttp
 import os
 import json
 import modal
@@ -11,19 +12,11 @@ from fastapi.security import APIKeyHeader, HTTPBearer
 from pathlib import Path
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.exceptions import RequestValidationError
+from datetime import datetime, timezone
 
 from eve import auth, db
 
-
-from eve.trigger import (
-    handle_trigger_create,
-    handle_trigger_delete,
-    handle_trigger_stop,
-    handle_trigger_run,
-    handle_trigger_get
-)
-
-
+from eve.agent.session.models import Session
 from eve.api.handlers import (
     handle_create,
     handle_cancel,
@@ -53,24 +46,32 @@ from eve.api.handlers import (
     handle_v2_deployment_farcaster_neynar_webhook,
     handle_create_notification,
 )
-
 from eve.trigger import (
-    CreateTriggerRequest,
-    DeleteTriggerRequest,
-    RunTriggerRequest
+    handle_trigger_create,
+    handle_trigger_delete,
+    handle_trigger_stop,
+    handle_trigger_run,
+    handle_trigger_get,
+    execute_trigger, 
+    Trigger
 )
-
+from eve.concepts import (
+    handle_concept_create,
+    handle_concept_update,
+)
 from eve.api.api_requests import (
     CancelRequest,
     CancelSessionRequest,
     ChatRequest,
     CreateDeploymentRequestV2,
-    # CreateTriggerRequest,
     DeleteDeploymentRequestV2,
-    # DeleteTriggerRequest,
-    # RunTriggerRequest,
     DeploymentEmissionRequest,
     DeploymentInteractRequest,
+    CreateTriggerRequest,
+    DeleteTriggerRequest,
+    RunTriggerRequest,
+    CreateConceptRequest,
+    UpdateConceptRequest,
     PromptSessionRequest,
     TaskRequest,
     PlatformUpdateRequest,
@@ -79,7 +80,6 @@ from eve.api.api_requests import (
     UpdateDeploymentRequestV2,
     CreateNotificationRequest,
 )
-from eve.api.helpers import pre_modal_setup
 from eve.api.api_functions import (
     cancel_stuck_tasks_fn,
     generate_lora_thumbnails_fn,
@@ -95,12 +95,9 @@ from eve.api.api_functions import (
 app_name = f"api-{db.lower()}"
 logging.getLogger("ably").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
-
 logger = logging.getLogger(__name__)
 
-
 # FastAPI setup
-
 
 class SentryContextMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
@@ -199,15 +196,14 @@ async def trigger_create(
     background_tasks: BackgroundTasks,
     _: dict = Depends(auth.authenticate_admin),
 ):
-    pre_modal_setup()
     return await handle_trigger_create(request, background_tasks)
+
 
 
 @web_app.post("/triggers/stop")
 async def trigger_stop(
     request: DeleteTriggerRequest, _: dict = Depends(auth.authenticate_admin)
 ):
-    pre_modal_setup()
     return await handle_trigger_stop(request)
 
 
@@ -215,7 +211,6 @@ async def trigger_stop(
 async def trigger_delete(
     request: DeleteTriggerRequest, _: dict = Depends(auth.authenticate_admin)
 ):
-    pre_modal_setup()
     return await handle_trigger_delete(request)
 
 
@@ -224,7 +219,6 @@ async def trigger_run(
     request: RunTriggerRequest, 
     _: dict = Depends(auth.authenticate_admin)
 ):
-    pre_modal_setup()
     return await handle_trigger_run(request)
 
 
@@ -291,6 +285,23 @@ async def agent_tools_delete(
     request: AgentToolsDeleteRequest, _: dict = Depends(auth.authenticate_admin)
 ):
     return await handle_agent_tools_delete(request)
+
+
+@web_app.post("/concepts/create")
+async def concept_create(
+    request: CreateConceptRequest,
+    background_tasks: BackgroundTasks,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    return await handle_concept_create(request, background_tasks)
+
+@web_app.post("/concepts/update")
+async def concept_create(
+    request: UpdateConceptRequest,
+    background_tasks: BackgroundTasks,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    return await handle_concept_update(request, background_tasks)
 
 
 @web_app.post("/sessions/prompt")
@@ -486,26 +497,34 @@ cleanup_stale_busy_states_modal = app.function(
 
 
 
+########################################################
+## Concepts
+########################################################
 
-from datetime import datetime, timezone
-import aiohttp
+from eve.concepts import create_concept_thumbnail
+create_concept_thumbnail_fn = app.function(
+    image=image, max_containers=10, timeout=600
+)(create_concept_thumbnail)
 
-from eve.trigger import execute_trigger
-from eve.agent.session.models import Session
-from eve.trigger import Trigger
 
+
+########################################################
+## Triggers
+########################################################
 
 @app.function(
-    image=image, max_containers=4
+    image=image, 
+    max_containers=4
 )
 async def execute_trigger_fn(trigger_id: str) -> Session:
-    # from eve.trigger import Trigger
-    # trigger = Trigger.from_mongo(trigger_id)
     return await execute_trigger(trigger_id)
 
 
 @app.function(
-    image=image, max_containers=1, schedule=modal.Period(minutes=2), timeout=300
+    image=image, 
+    max_containers=1, 
+    schedule=modal.Period(minutes=2), 
+    timeout=300
 )
 async def run_scheduled_triggers_fn_new():
     from bson import ObjectId
@@ -536,7 +555,6 @@ async def run_scheduled_triggers_fn_new():
     print("Running triggers")
     logger.info("Running triggers")
 
-    from eve.agent.session.triggers import calculate_next_scheduled_run
 
     current_time = datetime.now(timezone.utc)
     valid_triggers = []
