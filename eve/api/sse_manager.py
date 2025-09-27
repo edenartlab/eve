@@ -7,7 +7,7 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 
-@dataclass
+@dataclass 
 class SSEConnection:
     """Represents an SSE connection for a session"""
     session_id: str

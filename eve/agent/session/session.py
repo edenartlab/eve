@@ -452,6 +452,7 @@ async def process_tool_call(
     cancellation_event: asyncio.Event = None,
     tool_cancellation_event: asyncio.Event = None,
     is_client_platform: bool = False,
+    session_run_id: str = None,
 ):
     # Update the tool call status to running
     tool_call.status = "running"
@@ -572,6 +573,7 @@ async def process_tool_call(
                 tool_name=tool_call.tool,
                 tool_index=tool_call_index,
                 result=result,
+                session_run_id=session_run_id,
             )
         elif result["status"] == "cancelled":
             tool_call.status = "cancelled"
@@ -615,6 +617,7 @@ async def process_tool_call(
                 tool_name=tool_call.tool,
                 tool_index=tool_call_index,
                 error=result.get("error"),
+                session_run_id=session_run_id,
             )
     except Exception as e:
         capture_exception(e)
@@ -635,6 +638,7 @@ async def process_tool_call(
             tool_name=tool_call.tool,
             tool_index=tool_call_index,
             error=str(e),
+            session_run_id=session_run_id,
         )
 
 
@@ -645,6 +649,7 @@ async def process_tool_calls(
     cancellation_event: asyncio.Event = None,
     tool_cancellation_events: dict = None,
     is_client_platform: bool = False,
+    session_run_id: str = None,
 ):
     tool_calls = assistant_message.tool_calls
     if tool_cancellation_events is None:
@@ -672,6 +677,7 @@ async def process_tool_calls(
                     cancellation_event,
                     tool_cancellation_events[tool_call_id],
                     is_client_platform,
+                    session_run_id,
                 )
             )
 
@@ -808,6 +814,7 @@ async def async_prompt_session(
                             yield SessionUpdate(
                                 type=UpdateType.ASSISTANT_TOKEN,
                                 text=choice.delta.content,
+                                session_run_id=session_run_id,
                             )
                         # Process tool calls silently (don't yield anything)
                         if choice.delta and choice.delta.tool_calls:
@@ -919,6 +926,7 @@ async def async_prompt_session(
                     "name": actor.name,
                     "userImage": actor.userImage,
                 },
+                session_run_id=session_run_id,
             )
 
             if assistant_message.tool_calls:
@@ -929,6 +937,7 @@ async def async_prompt_session(
                     cancellation_event,
                     tool_cancellation_events,
                     is_client_platform,
+                    session_run_id,
                 ):
                     # Check for cancellation during tool execution
                     if cancellation_event.is_set():
@@ -972,6 +981,7 @@ async def async_prompt_session(
                             tool_name=tool_call.tool,
                             tool_index=idx,
                             result={"status": "cancelled"},
+                            session_run_id=session_run_id,
                         )
 
                 # Force save by updating the entire tool_calls array
@@ -1004,9 +1014,9 @@ async def async_prompt_session(
 
             # 3. Yield final updates
             yield SessionUpdate(
-                type=UpdateType.ASSISTANT_MESSAGE, message=cancel_message
+                type=UpdateType.ASSISTANT_MESSAGE, message=cancel_message, session_run_id=session_run_id
             )
-            yield SessionUpdate(type=UpdateType.END_PROMPT)
+            yield SessionUpdate(type=UpdateType.END_PROMPT, session_run_id=session_run_id)
 
         except Exception as e:
             print(f"Error during session cancellation cleanup: {e}")
@@ -1036,6 +1046,10 @@ def format_session_update(update: SessionUpdate, context: PromptSessionContext) 
         if context.update_config
         else None,
     }
+    
+    # Include session_run_id in all updates for request tracking
+    if update.session_run_id:
+        data["session_run_id"] = update.session_run_id
 
     if update.type == UpdateType.START_PROMPT:
         if update.agent:
