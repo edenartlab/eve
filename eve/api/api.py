@@ -127,7 +127,40 @@ class SentryContextMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
-web_app = FastAPI()
+from contextlib import asynccontextmanager
+import signal
+import asyncio
+
+# Global flag for shutdown
+_shutdown_event = asyncio.Event()
+
+def handle_shutdown_signal(signum, frame):
+    """Handle SIGINT/SIGTERM to close SSE connections immediately"""
+    print(f"\n🛑 Received signal {signum}, closing all SSE connections...")
+    from eve.api.sse_manager import sse_manager
+    # Run async close in the event loop
+    loop = asyncio.get_event_loop()
+    if loop.is_running():
+        loop.create_task(sse_manager.close_all())
+    _shutdown_event.set()
+    # Force exit after a short delay
+    import sys
+    import os
+    os._exit(0)
+
+# Register signal handlers
+signal.signal(signal.SIGINT, handle_shutdown_signal)
+signal.signal(signal.SIGTERM, handle_shutdown_signal)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    yield
+    # Shutdown - close all SSE connections
+    from eve.api.sse_manager import sse_manager
+    await sse_manager.close_all()
+
+web_app = FastAPI(lifespan=lifespan)
 web_app.add_middleware(SentryContextMiddleware)
 web_app.add_middleware(
     CORSMiddleware,

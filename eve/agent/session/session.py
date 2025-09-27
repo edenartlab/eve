@@ -911,7 +911,14 @@ async def async_prompt_session(
             session.save()
             # No longer appending to llm_context.messages since we refresh from DB each iteration
             yield SessionUpdate(
-                type=UpdateType.ASSISTANT_MESSAGE, message=assistant_message
+                type=UpdateType.ASSISTANT_MESSAGE,
+                message=assistant_message,
+                agent={
+                    "_id": str(actor.id),
+                    "username": actor.username,
+                    "name": actor.name,
+                    "userImage": actor.userImage,
+                },
             )
 
             if assistant_message.tool_calls:
@@ -1039,6 +1046,23 @@ def format_session_update(update: SessionUpdate, context: PromptSessionContext) 
         data["text"] = update.text
     elif update.type == UpdateType.ASSISTANT_MESSAGE:
         data["content"] = update.message.content
+        message_dict = update.message.model_dump(by_alias=True)
+        
+        print(f"DEBUG format_session_update: update.agent = {update.agent}")
+        print(f"DEBUG format_session_update: message_dict sender before = {message_dict.get('sender')}")
+        
+        # Populate sender with full agent data if available
+        if update.agent and message_dict.get("sender"):
+            print(f"DEBUG: Replacing sender with agent data")
+            message_dict["sender"] = update.agent
+            # Also add agent to top-level for debugging
+            data["agent"] = update.agent
+        else:
+            print(f"DEBUG: NOT replacing - update.agent={update.agent}, has sender={bool(message_dict.get('sender'))}")
+        
+        print(f"DEBUG format_session_update: message_dict sender after = {message_dict.get('sender')}")
+        
+        data["message"] = message_dict
         if update.message.tool_calls:
             data["tool_calls"] = [
                 dumps_json(tc.model_dump()) for tc in update.message.tool_calls

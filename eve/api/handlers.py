@@ -30,13 +30,7 @@ from eve.deploy import (
 from eve.agent.session.session import run_prompt_session, run_prompt_session_stream
 from eve.trigger import (
     Trigger,
-    CreateTriggerRequest,
-    DeleteTriggerRequest,
-    RunTriggerRequest
 )
-# from eve.agent.session.triggers import create_trigger_fn, stop_trigger
-
-from eve.trigger import create_trigger_fn, stop_trigger
 
 from eve.api.errors import handle_errors, APIError
 from eve.api.api_requests import (
@@ -44,9 +38,7 @@ from eve.api.api_requests import (
     CancelSessionRequest,
     ChatRequest,
     CreateDeploymentRequestV2,
-    # CreateTriggerRequest,
     DeleteDeploymentRequestV2,
-    # DeleteTriggerRequest,
     DeploymentEmissionRequest,
     DeploymentInteractRequest,
     PromptSessionRequest,
@@ -416,20 +408,20 @@ async def handle_twitter_update(request: PlatformUpdateRequest):
 # @handle_errors
 # async def handle_trigger_run(request: RunTriggerRequest):
 #     trigger_id = request.trigger_id
-    
+
 #     trigger = Trigger.from_mongo(trigger_id)
 #     if not trigger or trigger.deleted:
 #         print(f"❌ Trigger not found or deleted: {trigger_id}")
 #         raise APIError(f"Trigger not found: {trigger_id}", status_code=404)
-    
+
 #     # Check if trigger is active
 #     if trigger.status != "active":
 #         print(f"⚠️ Trigger not active: status={trigger.status}")
 #         raise APIError(f"Trigger is not active (status: {trigger.status})", status_code=400)
-    
+
 #     # Use the shared trigger execution function
 #     from eve.agent.session.triggers import execute_trigger
-    
+
 #     try:
 #         # Execute the trigger using the shared function
 #         # response_data = await execute_trigger(trigger_id, is_immediate=True)
@@ -439,20 +431,20 @@ async def handle_twitter_update(request: PlatformUpdateRequest):
 #         print("Response data", response_data)
 
 #         session_id = response_data.get("session_id")
-        
+
 #         # Update trigger with session if it was created
 #         if not trigger.session and session_id:
 #             from bson import ObjectId
 #             trigger.session = ObjectId(session_id)
 #             trigger.save()
-        
+
 #         return {
 #             "trigger_id": trigger_id,
 #             "executed": True,
 #             "session_id": session_id,
 #             "response": response_data
 #         }
-        
+
 #     except Exception as e:
 #         print(f"❌ Immediate trigger execution failed: {str(e)}")
 #         raise APIError(f"Failed to execute trigger: {str(e)}", status_code=500)
@@ -488,14 +480,14 @@ async def handle_farcaster_update(request: Request):
                 status_code=401,
                 content={"error": "Webhook secret not configured"},
             )
-        
+
         # Verify signature
         computed_signature = hmac.new(
             webhook_secret.encode(),
             body,
             hashlib.sha512,
         ).hexdigest()
-        
+
         if not hmac.compare_digest(computed_signature, signature):
             return JSONResponse(
                 status_code=401,
@@ -504,31 +496,41 @@ async def handle_farcaster_update(request: Request):
 
         # Find deployment by mentioned FID and check for self-mentions
         cast_author_fid = cast_data["author"]["fid"]
-        
+
         deployment = None
         for d in Deployment.find({"platform": "farcaster"}):
             if d.config and d.config.farcaster and d.config.farcaster.auto_reply:
                 try:
                     from farcaster import Warpcast
+
                     client = Warpcast(mnemonic=d.secrets.farcaster.mnemonic)
                     user_info = client.get_me()
-                    
+
                     # Skip if this cast is from the agent itself (prevent loops)
                     if user_info.fid == cast_author_fid:
-                        logger.info(f"Ignoring cast from agent FID {cast_author_fid} to prevent loops")
+                        logger.info(
+                            f"Ignoring cast from agent FID {cast_author_fid} to prevent loops"
+                        )
                         return JSONResponse(status_code=200, content={"ok": True})
-                    
+
                     # Check if agent was mentioned or is parent author
                     mentioned_fids = cast_data.get("mentioned_profiles", [])
                     mentioned_fid_list = [profile["fid"] for profile in mentioned_fids]
-                    
+
                     parent_cast = cast_data.get("parent_cast")
-                    parent_author_fid = parent_cast.get("author", {}).get("fid") if parent_cast else None
-                    
-                    if user_info.fid in mentioned_fid_list or user_info.fid == parent_author_fid:
+                    parent_author_fid = (
+                        parent_cast.get("author", {}).get("fid")
+                        if parent_cast
+                        else None
+                    )
+
+                    if (
+                        user_info.fid in mentioned_fid_list
+                        or user_info.fid == parent_author_fid
+                    ):
                         deployment = d
                         break
-                        
+
                 except Exception as e:
                     logger.error(f"Error checking deployment {d.id}: {e}")
                     continue
@@ -1035,7 +1037,7 @@ def setup_session(
         session = Session.from_mongo(ObjectId(session_id))
         if not session:
             raise APIError(f"Session not found: {session_id}", status_code=404)
-        
+
         # TODO: titling
         if background_tasks:
             generate_session_title(session, request, background_tasks)
@@ -1091,8 +1093,7 @@ def setup_session(
 
 @handle_errors
 async def handle_prompt_session(
-    request: PromptSessionRequest, 
-    background_tasks: BackgroundTasks
+    request: PromptSessionRequest, background_tasks: BackgroundTasks
 ):
     session = setup_session(
         background_tasks, request.session_id, request.user_id, request
@@ -1118,12 +1119,13 @@ async def handle_prompt_session(
 
         async def event_generator():
             try:
+                from eve.utils import dumps_json
                 async for data in run_prompt_session_stream(context, background_tasks):
-                    yield f"data: {json.dumps({'event': 'update', 'data': data})}\n\n"
-                yield f"data: {json.dumps({'event': 'done', 'data': ''})}\n\n"
+                    yield f"data: {dumps_json({'event': 'update', 'data': data})}\n\n"
+                yield f"data: {dumps_json({'event': 'done', 'data': ''})}\n\n"
             except Exception as e:
                 logger.error("Error in event_generator", exc_info=True)
-                yield f"data: {json.dumps({'event': 'error', 'data': {'error': str(e)}})}\n\n"
+                yield f"data: {dumps_json({'event': 'error', 'data': {'error': str(e)}})}\n\n"
 
         return StreamingResponse(
             event_generator(),
@@ -1149,41 +1151,41 @@ async def handle_session_stream(session_id: str):
     import uuid
     from fastapi.responses import StreamingResponse
     from eve.api.sse_manager import sse_manager
-    
+
     # Verify session exists
     try:
         session = Session.from_mongo(ObjectId(session_id))
         if not session:
             raise APIError(f"Session not found: {session_id}", status_code=404)
-    except Exception as e:
+    except Exception:
         raise APIError(f"Invalid session_id: {session_id}", status_code=400)
-    
+
     # Generate unique client ID for this connection
     client_id = str(uuid.uuid4())
-    
+
     async def event_generator():
         # Register connection
         connection = await sse_manager.connect(session_id, client_id)
-        
+
         try:
             # Send initial connection message
             yield f"data: {json.dumps({'event': 'connected', 'session_id': session_id, 'client_id': client_id})}\n\n"
-            
+
             # Stream updates from queue
             while True:
                 try:
                     # Wait for message with timeout for keep-alive
                     message = await asyncio.wait_for(
-                        connection.queue.get(), 
-                        timeout=30.0  # 30 second timeout
+                        connection.queue.get(),
+                        timeout=30.0,  # 30 second timeout
                     )
                     yield f"data: {message}\n\n"
-                    
+
                 except asyncio.TimeoutError:
                     # Send keep-alive ping
-                    yield f": keep-alive\n\n"
+                    yield ": keep-alive\n\n"
                     continue
-                    
+
         except asyncio.CancelledError:
             logger.info(f"SSE connection cancelled for session {session_id}")
             raise
@@ -1193,7 +1195,7 @@ async def handle_session_stream(session_id: str):
         finally:
             # Clean up connection
             await sse_manager.disconnect(session_id, connection)
-    
+
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
@@ -1334,7 +1336,7 @@ async def handle_v2_deployment_update(request: UpdateDeploymentRequestV2):
     # Handle secrets updates by merging with existing secrets
     if request.secrets:
         from eve.agent.session.models import DeploymentSecrets
-        
+
         existing_secrets = deployment.secrets or DeploymentSecrets()
         new_secrets = request.secrets.model_dump(exclude_unset=True)
 

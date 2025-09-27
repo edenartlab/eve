@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import json
 from typing import Dict, Set, Optional, List
 from dataclasses import dataclass
 from datetime import datetime
@@ -94,8 +93,9 @@ class SSEConnectionManager:
         if session_id not in self._connections:
             return
         
-        # Format as SSE message
-        message = json.dumps(data)
+        # Format as SSE message using dumps_json to handle ObjectIds
+        from eve.utils import dumps_json
+        message = dumps_json(data)
         
         # Send to all connections for this session
         disconnected = []
@@ -127,6 +127,20 @@ class SSEConnectionManager:
     def get_active_sessions(self) -> Set[str]:
         """Get set of session IDs with active connections"""
         return set(self._connections.keys())
+    
+    async def close_all(self):
+        """Close all connections (for shutdown)"""
+        async with self._lock:
+            for session_id in list(self._connections.keys()):
+                for connection in self._connections[session_id]:
+                    # Put a shutdown message in the queue
+                    try:
+                        await connection.queue.put('data: {"event": "shutdown"}\n\n')
+                    except:
+                        pass
+            self._connections.clear()
+            self._connection_count = 0
+            logger.info("All SSE connections closed")
 
 
 # Global singleton instance
