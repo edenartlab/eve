@@ -856,7 +856,7 @@ class PromptSessionContext:
         None  # Override agent's thinking policy per-message
     )
     acting_user_id: Optional[str] = None  # The user whose permissions are used for tool authorization (defaults to initiating_user_id if not provided)
-    trigger: Optional[Any] = None
+    # trigger: Optional[Any] = None
 
 
 @dataclass

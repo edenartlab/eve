@@ -49,9 +49,9 @@ class Trigger(Document):
     schedule: Dict[str, Any]
     user: ObjectId
     agent: Optional[ObjectId] = None
-    context: str
+    context: Optional[str] = None
     trigger_prompt: str
-    posting_instructions: List[Optional[Dict[str, Any]]] = None
+    posting_instructions: Optional[List[Dict[str, Any]]] = None
     # think: Optional[bool] = None
     session_type: Optional[Literal["new", "another"]] = "new"
     session: Optional[ObjectId] = None
@@ -119,7 +119,7 @@ async def handle_trigger_create(
         raise APIError("Failed to calculate next scheduled run time", status_code=400)
     logger.info(f"New Trigger next scheduled run: {next_run}")
     
-    trigger_name = f"Untitled Trigger"
+    trigger_name = request.name or f"Untitled Task"
     think = False  # TODO
 
     # Create trigger in database  
@@ -280,7 +280,6 @@ async def execute_trigger(
         # Create context with selected model
         context = PromptSessionContext(
             session=session,
-            trigger=trigger,
             initiating_user_id=request.user_id,
             message=message,
             #thinking_override=trigger.think,

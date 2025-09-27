@@ -264,12 +264,14 @@ async def build_system_extras(
 ):
     extras = []
 
-    if context.trigger:
+    if session.trigger:
+        from eve.trigger import Trigger
+        trigger = Trigger.from_mongo(session.trigger)
         extras.append(
             ChatMessage(
                 session=session.id,
                 role="system",
-                content=f"<Full Task Context>\n{context.trigger.context}\n</Full Task Context>",
+                content=f"<Full Task Context>\n{trigger.context}\n</Full Task Context>",
             )
         )
 
@@ -347,7 +349,7 @@ async def build_llm_context(
             actor,
             tier,
             thinking_override=getattr(context, "thinking_override", None),
-            context_messages=existing_messages,  # Pass existing messages for routing context
+            context_messages=messages,  # Pass existing messages for routing context
         )
     else:
         config = context.llm_config or get_default_session_llm_config(tier)
@@ -785,6 +787,16 @@ async def async_prompt_session(
                     system_extras.append(msg)
                 else:
                     break
+
+            if session.trigger:
+                from eve.trigger import Trigger
+                trigger = Trigger.from_mongo(session.trigger)
+                trigger_message = ChatMessage(
+                    session=session.id,
+                    role="system",
+                    content=f"<Full Task Context>\n{trigger.context}\n</Full Task Context>",
+                )
+                system_extras.append(trigger_message)
 
             # Rebuild messages with fresh data from database
             refreshed_messages = [system_message]
