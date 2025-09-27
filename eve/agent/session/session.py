@@ -263,16 +263,27 @@ async def build_system_extras(
     session: Session, context: PromptSessionContext, config: LLMConfig
 ):
     extras = []
+
+    if context.trigger:
+        extras.append(
+            ChatMessage(
+                session=session.id,
+                role="system",
+                content=f"<Full Task Context>\n{context.trigger.context}\n</Full Task Context>",
+            )
+        )
+
+    # deprecated when we move to new farcaster gateway (wip in abraham)
     if context.update_config and context.update_config.farcaster_hash:
         extras.append(
             ChatMessage(
                 session=session.id,
-                sender=ObjectId("000000000000000000000000"),
                 role="system",
                 content="You are currently replying to a Farcaster cast. The maximum length before the fold is 320 characters, and the maximum length is 1024 characters, so attempt to be concise in your response.",
             )
         )
         config.max_tokens = 1024
+
     return context, config, extras
 
 
@@ -321,6 +332,7 @@ async def build_llm_context(
     context, base_config, system_extras = await build_system_extras(
         session, context, context.llm_config or get_default_session_llm_config(tier)
     )
+    print("system_extras !!", system_extras)
     if len(system_extras) > 0:
         messages.extend(system_extras)
     existing_messages = select_messages(session)
@@ -1410,10 +1422,3 @@ async def async_title_session(
         capture_exception(e)
         traceback.print_exc()
         return
-
-
-def title_session(
-    session: Session, initial_message_content: str, metadata: Optional[Dict] = None
-):
-    """Synchronous wrapper for async_title_session"""
-    return asyncio.run(async_title_session(session, initial_message_content))
