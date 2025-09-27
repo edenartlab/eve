@@ -5,11 +5,13 @@ import json
 import modal
 import replicate
 import sentry_sdk
+from bson import ObjectId
+from pathlib import Path
+from pymongo import UpdateOne
 from fastapi.responses import JSONResponse
 from fastapi import FastAPI, Depends, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader, HTTPBearer
-from pathlib import Path
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.exceptions import RequestValidationError
 from datetime import datetime, timezone
@@ -56,6 +58,8 @@ from eve.trigger import (
     Trigger
 )
 from eve.concepts import (
+    Concept, 
+    create_concept_thumbnail,
     handle_concept_create,
     handle_concept_update,
 )
@@ -296,7 +300,7 @@ async def concept_create(
     return await handle_concept_create(request, background_tasks)
 
 @web_app.post("/concepts/update")
-async def concept_create(
+async def concept_update(
     request: UpdateConceptRequest,
     background_tasks: BackgroundTasks,
     _: dict = Depends(auth.authenticate_admin),
@@ -474,7 +478,6 @@ rotate_agent_metadata_modal = app.function(
 #     image=image, max_containers=1, schedule=modal.Period(minutes=1), timeout=300
 # )(run_scheduled_triggers_fn)
 
-
 run = app.function(
     image=image, max_containers=10, timeout=3600, volumes={"/data/media-cache": media_cache_vol}
 )(modal.concurrent(max_inputs=4)(run))
@@ -487,8 +490,7 @@ run_task = app.function(
 
 run_task_replicate = app.function(
     image=image, min_containers=2, max_containers=10, timeout=3600, volumes={"/data/media-cache": media_cache_vol}
-)(modal.concurrent(max_inputs=4)(run_task_replicate)
-)
+)(modal.concurrent(max_inputs=4)(run_task_replicate))
 
 
 cleanup_stale_busy_states_modal = app.function(
@@ -496,16 +498,14 @@ cleanup_stale_busy_states_modal = app.function(
 )(cleanup_stale_busy_states)
 
 
-
 ########################################################
 ## Concepts
 ########################################################
 
-from eve.concepts import create_concept_thumbnail
-create_concept_thumbnail_fn = app.function(
-    image=image, max_containers=10, timeout=600
-)(create_concept_thumbnail)
 
+create_concept_thumbnail = app.function(
+    image=image, min_containers=1, max_containers=10, timeout=600, volumes={"/data/media-cache": media_cache_vol}
+)(modal.concurrent(max_inputs=4)(create_concept_thumbnail))
 
 
 ########################################################
@@ -527,9 +527,7 @@ async def execute_trigger_fn(trigger_id: str) -> Session:
     timeout=300
 )
 async def run_scheduled_triggers_fn_new():
-    from bson import ObjectId
-    from eve.trigger import Trigger
-
+    
     # Find triggers that need to run
     current_time = datetime.now(timezone.utc)
 
@@ -559,9 +557,9 @@ async def run_scheduled_triggers_fn_new():
     current_time = datetime.now(timezone.utc)
     valid_triggers = []
 
-    from pymongo import UpdateOne
+    
     # from eve.agent.session.models import Trigger
-    from eve.trigger import Trigger
+    
 
     # Try bulk update first, fallback to individual updates
 

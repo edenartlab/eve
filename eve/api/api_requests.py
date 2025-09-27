@@ -123,6 +123,7 @@ class PostingInstructions(BaseModel):
 class CreateTriggerRequest(BaseModel):
     agent: str
     user: str
+    name: str
     context: str
     trigger_prompt: str
     posting_instructions: Optional[List[PostingInstructions]] = []
