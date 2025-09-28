@@ -202,12 +202,14 @@ async def async_prompt_litellm(
         context.messages, context.config.model, include_thoughts=thinking
     )
     tools = construct_tools(context)
+    tool_choice = context.tool_choice
 
     completion_kwargs = {
         "model": context.config.model,
         "messages": messages,
         "metadata": construct_observability_metadata(context) if context.enable_tracing else {},
         "tools": tools,
+        "tool_choice": tool_choice,
         "response_format": context.config.response_format,
         "fallbacks": context.config.fallback_models,
         "drop_params": True,
@@ -348,6 +350,7 @@ async def async_prompt_stream_litellm(
         messages=prepare_messages(context.messages, context.config.model),
         metadata=construct_observability_metadata(context),
         tools=construct_tools(context),
+        tool_choice=context.tool_choice,
         stream=True,
         response_format=context.config.response_format,
     )

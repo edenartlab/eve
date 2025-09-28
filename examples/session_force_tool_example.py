@@ -1,4 +1,5 @@
 import asyncio
+import json
 from fastapi import BackgroundTasks
 from pydantic import BaseModel, Field
 from typing import Literal, Dict, Any
@@ -11,28 +12,17 @@ from eve.agent import Agent
 from eve.tool import Tool
 
 
-# Define a custom tool as a pydantic model
-class EdenDescription(BaseModel):
-    """A tool to structure a description of Eden"""    
-    description: str = Field(description="A description of Eden")
-    sentiment: Literal["positive", "negative", "neutral"] = Field(description="The sentiment")
-
-async def custom_handler(
-    args: Dict[str, Any], user: str = None, agent: str = None
-) -> Dict[str, Any]:
-    result = f"Eden is {args['description']} and its sentiment {args['sentiment']}"
-    return {"output": result}
-
-
 # Create and register the tool
-custom_tool = Tool.register_new(EdenDescription, custom_handler)
+tool = Tool.load("discord_post")
+tool.parameters["channel_id"].update({"default": "1181679778651181067", "hide_from_agent": True})
+
 
 
 async def example_session():
     background_tasks = BackgroundTasks()
 
     user = get_my_eden_user()
-    agent = Agent.load("eve")
+    agent = Agent.load("verdelis")
 
     # Create session request
     request = PromptSessionRequest(
@@ -49,7 +39,7 @@ async def example_session():
 
     # Create message
     message = ChatMessageRequestInput(
-        content="Describe Eden and its sentiment. Use the EdenDescription tool."
+        content="Post 'yes, it was that day, I say, oy vey' to discord channel '1181679778651181067'."
     )
 
     # Create context and add custom tool
@@ -57,10 +47,11 @@ async def example_session():
         session=session,
         initiating_user_id=request.user_id,
         message=message,
-        llm_config=LLMConfig(model="gpt-4o-mini"),
+        llm_config=LLMConfig(model="gpt-5"),
 
         # insert custom tool here
-        extra_tools={custom_tool.key: custom_tool},
+        tools={tool.key: tool},
+        tool_choice=tool.key,
     )
 
     add_user_message(session, context)
@@ -71,7 +62,7 @@ async def example_session():
         agent, 
         context, 
     )
-    
+
     # Execute the prompt session
     async for _ in async_prompt_session(session, context, agent):
         pass

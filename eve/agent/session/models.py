@@ -724,6 +724,7 @@ class LLMContext:
     messages: List[ChatMessage]
     config: LLMConfig = field(default_factory=LLMConfig)
     tools: Optional[List[Tool]] = None
+    tool_choice: Optional[str] = None
     metadata: LLMContextMetadata = None
     enable_tracing: bool = True
 
@@ -850,12 +851,20 @@ class PromptSessionContext:
     update_config: Optional[SessionUpdateConfig] = None
     actor_agent_ids: Optional[List[str]] = None
     llm_config: Optional[LLMConfig] = None
-    custom_tools: Optional[Dict[str, Any]] = None
+    
+    # overrides all tools if set, otherwise uses actor's tools
+    tools: Optional[Dict[str, Any]] = None
+    # extra tools added to the base or actor's tools
+    extra_tools: Optional[Dict[str, Any]] = None
+    tool_choice: Optional[str] = None
+
     notification_config: Optional[NotificationConfig] = None
     thinking_override: Optional[bool] = (
         None  # Override agent's thinking policy per-message
     )
-    acting_user_id: Optional[str] = None  # The user whose permissions are used for tool authorization (defaults to initiating_user_id if not provided)
+    acting_user_id: Optional[str] = None
+    
+    # The user whose permissions are used for tool authorization (defaults to initiating_user_id if not provided)
     # trigger: Optional[Any] = None
 
 
