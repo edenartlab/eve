@@ -277,7 +277,7 @@ async def build_system_extras(
     return context, config, extras
 
 
-def add_user_message(
+async def add_user_message(
     session: Session, context: PromptSessionContext, pin: bool = False
 ):
     new_message = ChatMessage(
@@ -295,6 +295,37 @@ def add_user_message(
     session.memory_context.last_activity = datetime.now(timezone.utc)
     session.memory_context.messages_since_memory_formation += 1
     session.save()
+
+    # Broadcast user message to SSE connections for real-time updates
+    try:
+        from eve.api.sse_manager import sse_manager
+        from eve.user import User
+        
+        # Get full user data for enrichment
+        user = User.from_mongo(context.initiating_user_id)
+        user_data = None
+        if user:
+            user_data = {
+                "_id": str(user.id),
+                "username": user.username,
+                "name": user.username,  # Use username as name for consistency
+                "userImage": user.userImage,
+            }
+        
+        message_dict = new_message.model_dump(by_alias=True)
+        # Enrich sender with full user data if available
+        if user_data:
+            message_dict["sender"] = user_data
+        
+        user_message_update = {
+            "type": UpdateType.USER_MESSAGE.value,
+            "message": message_dict
+        }
+        
+        session_id = str(session.id)
+        await sse_manager.broadcast(session_id, user_message_update)
+    except Exception as e:
+        print(f"Failed to broadcast user message to SSE: {e}")
 
     # Print the most recent message:
     # print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
@@ -1081,6 +1112,9 @@ def format_session_update(update: SessionUpdate, context: PromptSessionContext) 
             data["tool_calls"] = [
                 dumps_json(tc.model_dump()) for tc in update.message.tool_calls
             ]
+    elif update.type == UpdateType.USER_MESSAGE:
+        # User messages should already have enriched sender data from add_user_message
+        data["message"] = update.message.model_dump(by_alias=True) if hasattr(update.message, 'model_dump') else update.message
     elif update.type == UpdateType.TOOL_COMPLETE:
         data["tool"] = update.tool_name
         data["result"] = dumps_json(update.result)
@@ -1130,7 +1164,7 @@ async def _run_prompt_session_internal(
                 {"user_id": str(context.initiating_user_id)[:8]},
                 emoji="message",
             )
-            add_user_message(session, context)
+            await add_user_message(session, context)
 
         debugger.log("Determining actors", emoji="actor")
         actors = await determine_actors(session, context)

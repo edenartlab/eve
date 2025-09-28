@@ -421,7 +421,7 @@ async def execute_trigger(
         )
         
         # Add user message to session
-        add_user_message(session, context, pin=True)
+        await add_user_message(session, context, pin=True)
         
         # Build LLM context
         context = await build_llm_context(

@@ -41,7 +41,7 @@ async def example_session():
         llm_config=LLMConfig(model="gpt-4o-mini")
     )
 
-    add_user_message(session, context)
+    await add_user_message(session, context)
 
     # Run session
     context = await build_llm_context(
