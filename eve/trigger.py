@@ -14,6 +14,7 @@ from fastapi import FastAPI, Depends, BackgroundTasks, Request
 
 from eve.agent import Agent
 from eve.user import User
+from eve.tool import Tool
 from eve.mongo import Collection, Document
 from eve.api.errors import handle_errors, APIError
 from eve.api.api_requests import (
@@ -137,7 +138,7 @@ async def handle_trigger_create(
         if request.update_config
         else None,
         session=ObjectId(request.session) if request.session else None,
-        session_type=request.session_type,
+        session_type="another", #request.session_type,
         next_scheduled_run=next_run,
     )
     trigger.save()
@@ -294,13 +295,95 @@ async def execute_trigger(
             session, 
             agent, 
             context, 
-            trace_id=str(uuid.uuid4()), 
         )
         
         # Execute the prompt session
         async for _ in async_prompt_session(session, context, agent):
             pass
+
+        if not trigger.posting_instructions:
+            return session
+
+        # Posting section
+        posting_tools = {}
+        posting_instructions = ""
+        for i, p in enumerate(trigger.posting_instructions):
+            post_to = p.get("post_to")
+            channel_id = p.get("channel_id")
+            session_id = p.get("session_id")
+            custom_instructions = p.get("custom_instructions")
+
+            platform = {
+                "discord": "discord_post",
+                "telegram": "telegram_post",
+                "x": "tweet",
+                "farcaster": "farcaster_post",
+            }
+
+            tool = platform.get(post_to)
+            if not tool:
+                continue
+            
+            if not tool in posting_tools:
+                posting_tools[tool] = []
+            posting_tools[tool].append(channel_id)
+
+            posting_instructions += f"\n{i+1}) Post to {post_to}, channel '{channel_id}': {custom_instructions}"
+
+        instructions = f"""
+        <Posting Instructions>
+        Post the result of your last task to the following channels:
+        {posting_instructions}
+        </Posting Instructions>
+        """
+
+        tools = {}
+        for tool, channels in posting_tools.items():
+            if tool not in ["discord_post", "telegram_post"]:
+                continue
+            tools[tool] = Tool.load(tool)
+            deployment = {"discord_post": "discord", "telegram_post": "telegram"}.get(tool)
+            allowed_channels = agent.deployments[deployment].get_allowed_channels()
+            channels_description = " | ".join(
+                [f"ID {c.id} ({c.note})" for c in allowed_channels if c.id in channels]
+            )
+            tools[tool].update_parameters(
+                {
+                    "channel_id": {
+                        "choices": [c.id for c in allowed_channels if c.id in channels],
+                        "tip": f"Some hints about the available channels: {channels_description}",
+                    },
+                }
+            )
+
+        # Create posting instructions message
+        message = ChatMessageRequestInput(
+            role="system",
+            content=instructions
+        )
+
+        # Create context with selected model
+        context = PromptSessionContext(
+            session=session,
+            initiating_user_id=request.user_id,
+            message=message,
+            tools=tools,
+        )
+
+        # Add user message to session
+        add_user_message(session, context)
         
+        # Build LLM context
+        context = await build_llm_context(
+            session, 
+            agent, 
+            context, 
+        )
+        
+        # Execute the prompt session
+        async for _ in async_prompt_session(session, context, agent):
+            pass
+
         return session
 
     except Exception as e:
@@ -409,7 +492,7 @@ async def handle_trigger_posting_deprecated(trigger, session_id):
         # Add custom tools based on platform
         platform = posting_instructions.get("post_to")
         if platform == "discord" and posting_instructions.get("channel_id"):
-            request_data["custom_tools"] = {
+            request_data["tools"] = {
                 "discord_post": {
                     "parameters": {
                         "channel_id": {"default": posting_instructions["channel_id"]}
@@ -417,7 +500,7 @@ async def handle_trigger_posting_deprecated(trigger, session_id):
                 }
             }
         elif platform == "telegram" and posting_instructions.get("channel_id"):
-            request_data["custom_tools"] = {
+            request_data["tools"] = {
                 "telegram_post": {
                     "parameters": {
                         "channel_id": {"default": posting_instructions["channel_id"]}

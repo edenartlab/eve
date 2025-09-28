@@ -4,10 +4,10 @@ import json
 import os
 import random
 import re
-from fastapi import BackgroundTasks
 import pytz
-from typing import List, Optional, Dict
 import uuid
+from fastapi import BackgroundTasks
+from typing import List, Optional, Dict
 from datetime import datetime, timezone
 from bson import ObjectId
 from sentry_sdk import capture_exception
@@ -319,22 +319,33 @@ async def build_llm_context(
     session: Session,
     actor: Agent,
     context: PromptSessionContext,
-    trace_id: Optional[str] = None,
+    trace_id: Optional[str] = str(uuid.uuid4()),
 ):
     user = User.from_mongo(context.initiating_user_id)
     tier = "premium" if user.subscriptionTier and user.subscriptionTier > 0 else "free"
 
     auth_user_id = context.acting_user_id or context.initiating_user_id
-    tools = actor.get_tools(cache=False, auth_user=auth_user_id)
-    if context.custom_tools:
-        tools.update(context.custom_tools)
+    if context.tools:
+        tools = context.tools
+    else:
+        tools = actor.get_tools(cache=False, auth_user=auth_user_id)
+    if context.extra_tools:
+        tools.update(context.extra_tools)
+
+    # setup tool_choice
+    if tools:
+        tool_choice = context.tool_choice or "auto"
+    else:
+        tool_choice = "none"
+    if tool_choice not in ["auto", "none"]:
+        tool_choice = {"type": "function", "function": {"name": context.tool_choice}}
+
     # build messages first to have context for thinking routing
     system_message = await build_system_message(session, actor, context, tools)
     messages = [system_message]
     context, base_config, system_extras = await build_system_extras(
         session, context, context.llm_config or get_default_session_llm_config(tier)
     )
-    print("system_extras !!", system_extras)
     if len(system_extras) > 0:
         messages.extend(system_extras)
     existing_messages = select_messages(session)
@@ -357,6 +368,7 @@ async def build_llm_context(
     return LLMContext(
         messages=messages,
         tools=tools,
+        tool_choice=tool_choice,
         config=config,
         metadata=LLMContextMetadata(
             # for observability purposes. not same as session.id
@@ -953,6 +965,9 @@ async def async_prompt_session(
 
             if stop_reason in ["stop", "completed"]:
                 prompt_session_finished = True
+
+            # if tool choice was previously set to something specific, set it to None for follow-up messages
+            llm_context.tool_choice = "auto"
 
         yield SessionUpdate(
             type=UpdateType.END_PROMPT,
