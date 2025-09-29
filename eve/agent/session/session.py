@@ -300,7 +300,7 @@ async def add_user_message(
     try:
         from eve.api.sse_manager import sse_manager
         from eve.user import User
-        
+
         # Get full user data for enrichment
         user = User.from_mongo(context.initiating_user_id)
         user_data = None
@@ -311,17 +311,17 @@ async def add_user_message(
                 "name": user.username,  # Use username as name for consistency
                 "userImage": user.userImage,
             }
-        
+
         message_dict = new_message.model_dump(by_alias=True)
         # Enrich sender with full user data if available
         if user_data:
             message_dict["sender"] = user_data
-        
+
         user_message_update = {
             "type": UpdateType.USER_MESSAGE.value,
-            "message": message_dict
+            "message": message_dict,
         }
-        
+
         session_id = str(session.id)
         await sse_manager.broadcast(session_id, user_message_update)
     except Exception as e:
@@ -340,8 +340,13 @@ async def build_llm_context(
     context: PromptSessionContext,
     trace_id: Optional[str] = None,
 ):
-    user = User.from_mongo(context.initiating_user_id)
-    tier = "premium" if user.subscriptionTier and user.subscriptionTier > 0 else "free"
+    if context.initiating_user_id:
+        user = User.from_mongo(context.initiating_user_id)
+        tier = (
+            "premium" if user.subscriptionTier and user.subscriptionTier > 0 else "free"
+        )
+    else:
+        tier = "free"
 
     auth_user_id = context.acting_user_id or context.initiating_user_id
     tools = actor.get_tools(cache=False, auth_user=auth_user_id)
@@ -1045,9 +1050,13 @@ async def async_prompt_session(
 
             # 3. Yield final updates
             yield SessionUpdate(
-                type=UpdateType.ASSISTANT_MESSAGE, message=cancel_message, session_run_id=session_run_id
+                type=UpdateType.ASSISTANT_MESSAGE,
+                message=cancel_message,
+                session_run_id=session_run_id,
             )
-            yield SessionUpdate(type=UpdateType.END_PROMPT, session_run_id=session_run_id)
+            yield SessionUpdate(
+                type=UpdateType.END_PROMPT, session_run_id=session_run_id
+            )
 
         except Exception as e:
             print(f"Error during session cancellation cleanup: {e}")
@@ -1077,7 +1086,7 @@ def format_session_update(update: SessionUpdate, context: PromptSessionContext) 
         if context.update_config
         else None,
     }
-    
+
     # Include session_run_id in all updates for request tracking
     if update.session_run_id:
         data["session_run_id"] = update.session_run_id
@@ -1092,10 +1101,12 @@ def format_session_update(update: SessionUpdate, context: PromptSessionContext) 
     elif update.type == UpdateType.ASSISTANT_MESSAGE:
         data["content"] = update.message.content
         message_dict = update.message.model_dump(by_alias=True)
-        
+
         print(f"DEBUG format_session_update: update.agent = {update.agent}")
-        print(f"DEBUG format_session_update: message_dict sender before = {message_dict.get('sender')}")
-        
+        print(
+            f"DEBUG format_session_update: message_dict sender before = {message_dict.get('sender')}"
+        )
+
         # Populate sender with full agent data if available
         if update.agent and message_dict.get("sender"):
             print(f"DEBUG: Replacing sender with agent data")
@@ -1103,10 +1114,14 @@ def format_session_update(update: SessionUpdate, context: PromptSessionContext) 
             # Also add agent to top-level for debugging
             data["agent"] = update.agent
         else:
-            print(f"DEBUG: NOT replacing - update.agent={update.agent}, has sender={bool(message_dict.get('sender'))}")
-        
-        print(f"DEBUG format_session_update: message_dict sender after = {message_dict.get('sender')}")
-        
+            print(
+                f"DEBUG: NOT replacing - update.agent={update.agent}, has sender={bool(message_dict.get('sender'))}"
+            )
+
+        print(
+            f"DEBUG format_session_update: message_dict sender after = {message_dict.get('sender')}"
+        )
+
         data["message"] = message_dict
         if update.message.tool_calls:
             data["tool_calls"] = [
@@ -1114,7 +1129,11 @@ def format_session_update(update: SessionUpdate, context: PromptSessionContext) 
             ]
     elif update.type == UpdateType.USER_MESSAGE:
         # User messages should already have enriched sender data from add_user_message
-        data["message"] = update.message.model_dump(by_alias=True) if hasattr(update.message, 'model_dump') else update.message
+        data["message"] = (
+            update.message.model_dump(by_alias=True)
+            if hasattr(update.message, "model_dump")
+            else update.message
+        )
     elif update.type == UpdateType.TOOL_COMPLETE:
         data["tool"] = update.tool_name
         data["result"] = dumps_json(update.result)
@@ -1407,7 +1426,7 @@ async def _queue_session_action_fastify_background_task(session: Session):
         await asyncio.sleep(session.autonomy_settings.reply_interval)
 
     url = f"{os.getenv('EDEN_API_URL')}/sessions/prompt"
-    payload = {"session_id": str(session.id)}
+    payload = {"session_id": str(session.id), "stream": True}
     headers = {"Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}"}
 
     try:
