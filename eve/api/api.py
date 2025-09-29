@@ -47,6 +47,7 @@ from eve.api.handlers import (
     handle_v2_deployment_delete,
     handle_v2_deployment_farcaster_neynar_webhook,
     handle_create_notification,
+    handle_embedsearch,
 )
 from eve.trigger import (
     handle_trigger_create,
@@ -83,6 +84,7 @@ from eve.api.api_requests import (
     AgentToolsDeleteRequest,
     UpdateDeploymentRequestV2,
     CreateNotificationRequest,
+    EmbedSearchRequest,
 )
 from eve.api.api_functions import (
     cancel_stuck_tasks_fn,
@@ -374,6 +376,14 @@ async def create_notification(
     return await handle_create_notification(request)
 
 
+# Embed search route
+@web_app.post("/embedsearch")
+async def embedsearch(
+    request: EmbedSearchRequest, _: dict = Depends(auth.authenticate_admin)
+):
+    return await handle_embedsearch(request)
+
+
 @web_app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     print(f"Validation error on {request.url}:")
@@ -587,4 +597,8 @@ async def run_scheduled_triggers_fn_new():
 
 @app.local_entrypoint()
 async def local_entrypoint():
-    run_scheduled_triggers_fn_new.remote()
+    # run_scheduled_triggers_fn_new.remote()
+    from eve.s3 import get_full_url
+    results = await handle_embedsearch(EmbedSearchRequest(query="cats"))
+    for hit in results["results"]:
+        print(hit["score"], get_full_url(hit["filename"]))

@@ -1248,3 +1248,54 @@ async def handle_create_notification(request: CreateNotificationRequest):
         notification.mark_delivered(NotificationChannel.IN_APP)
 
     return {"id": str(notification.id), "message": "Notification created successfully"}
+
+
+# Embed search handler
+@handle_errors
+async def handle_embedsearch(request):
+    """Search images using CLIP embeddings"""
+
+    import torch, torch.nn.functional as F
+    from transformers import CLIPProcessor, CLIPModel
+
+    MODEL_NAME = "openai/clip-vit-large-patch14"
+    creations = get_collection("creations3")
+
+    device = "cpu" # torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model  = CLIPModel.from_pretrained(MODEL_NAME).to(device).eval()
+    proc   = CLIPProcessor.from_pretrained(MODEL_NAME)
+
+    inputs = proc(text=[request.query], return_tensors="pt", padding=True, truncation=True).to(device)
+    v = model.get_text_features(**inputs)
+    qv = F.normalize(v, p=2, dim=-1)[0].cpu().tolist()
+
+    # Build pre-filter (works only if 'tags'/'subsetId' are in index as filter fields)
+    filt = {}
+    if request.agent_id:
+        filt["agent"] = ObjectId(request.agent_id)
+    if request.user_id:
+        filt["user"] = ObjectId(request.user_id)
+
+    pipeline = [
+        {
+            "$vectorSearch": {
+                "index": "img_vec_idx",
+                "path": "embedding",
+                "queryVector": qv,
+                "numCandidates": 10000,    # ~20x limit is recommended starting point
+                "limit": int(request.limit),
+                **({"filter": filt} if filt else {})
+            }
+        },
+        # { "$project": { "url": 1, "tags": 1, "score": { "$meta": "vectorSearchScore" } } }
+        { "$project": { "filename": 1, "score": { "$meta": "vectorSearchScore" } } }
+    ]
+    
+    results = list(creations.aggregate(pipeline))
+
+    # Add full URLs to results
+    # for result in results:
+    #     if "filename" in result:
+    #         result["url"] = get_full_url(result["filename"])
+
+    return {"results": results}
