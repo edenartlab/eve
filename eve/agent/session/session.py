@@ -1258,45 +1258,69 @@ async def _run_prompt_session_internal(
                     )
                     yield formatted_update
             else:
-                # Multiple actors - run them in parallel
-                async def run_actor_session(actor: Agent):
-                    actor_updates = []
-                    # Each actor gets its own generation ID
-                    actor_session_run_id = str(uuid.uuid4())
-                    llm_context = await build_llm_context(
-                        session,
-                        actor,
-                        context,
-                        trace_id=actor_session_run_id,
-                    )
-                    async for update in async_prompt_session(
-                        session,
-                        llm_context,
-                        actor,
-                        stream=stream,
-                        is_client_platform=is_client_platform,
-                        session_run_id=actor_session_run_id,
-                    ):
-                        actor_updates.append(format_session_update(update, context))
-                    return actor_updates
-
-                # Run all actors in parallel
-                tasks = [run_actor_session(actor) for actor in actors]
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-
-                # Yield updates from all actors in the order they complete
-                for result in results:
-                    if isinstance(result, Exception):
-                        yield {
+                # Multiple actors - run them in parallel with streaming
+                update_queue = asyncio.Queue()
+                tasks = []
+                
+                async def run_actor_session(actor: Agent, queue: asyncio.Queue):
+                    try:
+                        # Each actor gets its own generation ID
+                        actor_session_run_id = str(uuid.uuid4())
+                        llm_context = await build_llm_context(
+                            session,
+                            actor,
+                            context,
+                            trace_id=actor_session_run_id,
+                        )
+                        async for update in async_prompt_session(
+                            session,
+                            llm_context,
+                            actor,
+                            stream=stream,
+                            is_client_platform=is_client_platform,
+                            session_run_id=actor_session_run_id,
+                        ):
+                            formatted_update = format_session_update(update, context)
+                            await queue.put(formatted_update)
+                    except Exception as e:
+                        await queue.put({
                             "type": UpdateType.ERROR.value,
-                            "error": str(result),
+                            "error": str(e),
+                            "actor_id": str(actor.id),
                             "update_config": context.update_config.model_dump()
                             if context.update_config
                             else None,
-                        }
-                    else:
-                        for update in result:
-                            yield update
+                        })
+
+                # Create tasks for all actors
+                for actor in actors:
+                    task = asyncio.create_task(run_actor_session(actor, update_queue))
+                    tasks.append(task)
+
+                # Yield updates as they arrive from any actor
+                completed_count = 0
+                while completed_count < len(tasks):
+                    # Check if any tasks are done
+                    done_tasks = [t for t in tasks if t.done()]
+                    completed_count = len(done_tasks)
+                    
+                    try:
+                        # Get update with timeout to periodically check task status
+                        update = await asyncio.wait_for(update_queue.get(), timeout=0.1)
+                        yield update
+                    except asyncio.TimeoutError:
+                        # No update available, check if all tasks are done
+                        if completed_count == len(tasks):
+                            break
+                        continue
+                
+                # Drain any remaining updates from the queue
+                while not update_queue.empty():
+                    update = await update_queue.get()
+                    yield update
+                
+                # Ensure all tasks are complete
+                await asyncio.gather(*tasks, return_exceptions=True)
         finally:
             # Stop typing indicator
             if context.update_config:
