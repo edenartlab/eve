@@ -11,6 +11,8 @@ import sentry_sdk
 from bson import ObjectId
 
 from eve import utils
+from eve.mongo import get_collection
+from eve.s3 import get_full_url
 from eve.task import task_handler_func, Task
 from eve.tool import Tool
 from eve.tools.tool_handlers import load_handler
@@ -199,6 +201,87 @@ async def cleanup_stale_busy_states():
         logger.info("Finished cleaning up stale busy states.")
     except Exception as e:
         logger.error(f"Error in cleanup_stale_busy_states job: {e}", exc_info=True)
+        sentry_sdk.capture_exception(e)
+
+
+async def embed_recent_creations():
+    """Embed recent creations that don't have embeddings yet"""
+    try:
+        import io
+        import requests
+        from datetime import datetime, timedelta, timezone
+        from PIL import Image
+        import torch
+        import torch.nn.functional as F
+        from transformers import CLIPProcessor, CLIPModel
+        from pymongo import UpdateOne
+        from bson.binary import Binary, BinaryVectorDtype
+
+        logger.info("Starting embed_recent_creations job")
+
+        MODEL_NAME = "openai/clip-vit-large-patch14"
+        BATCH_SIZE = 8
+
+        col = get_collection("creations3")
+
+        # Find creations less than 1 hour old without embeddings
+        one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
+        cursor = col.find(
+            {
+                "embedding": {"$exists": False},
+                "createdAt": {"$gte": one_hour_ago},
+                "mediaAttributes.mimeType": {"$regex": "^image/"}
+            },
+            {"_id": 1, "filename": 1, "mediaAttributes": 1}
+        ).limit(BATCH_SIZE)
+
+        docs = list(cursor)
+        if not docs:
+            logger.info("No recent creations to embed")
+            return
+
+        logger.info(f"Found {len(docs)} recent creations to embed")
+
+        # Load model
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        model = CLIPModel.from_pretrained(MODEL_NAME).to(device).eval()
+        proc = CLIPProcessor.from_pretrained(MODEL_NAME)
+
+        # Prepare images
+        ids, urls, images = [], [], []
+        for doc in docs:
+            url = get_full_url(doc["filename"])
+            try:
+                im = Image.open(io.BytesIO(requests.get(url, timeout=15).content)).convert("RGB")
+                images.append(im)
+                ids.append(doc["_id"])
+                urls.append(url)
+            except Exception as e:
+                logger.warning(f"Failed to load image {url}: {e}")
+
+        if not images:
+            logger.info("No valid images to embed")
+            return
+
+        # Embed images
+        with torch.no_grad():
+            inputs = proc(images=images, return_tensors="pt", padding=True).to(device)
+            feats = model.get_image_features(**inputs)
+            feats = F.normalize(feats, p=2, dim=-1)
+            vecs = [f.detach().cpu().tolist() for f in feats]
+
+        # Store embeddings
+        ops = []
+        for _id, v in zip(ids, vecs):
+            bindata_v = Binary.from_vector(v, BinaryVectorDtype.FLOAT32)
+            ops.append(UpdateOne({"_id": _id}, {"$set": {"embedding": bindata_v}}))
+
+        if ops:
+            result = col.bulk_write(ops, ordered=False)
+            logger.info(f"Embedded {result.modified_count} images")
+
+    except Exception as e:
+        logger.error(f"Error in embed_recent_creations: {e}", exc_info=True)
         sentry_sdk.capture_exception(e)
 
 
