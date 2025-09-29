@@ -233,3 +233,10 @@ class CreateNotificationRequest(BaseModel):
     metadata: Optional[Dict[str, Any]] = None
     action_url: Optional[str] = None
     expires_at: Optional[datetime] = None
+
+
+class EmbedSearchRequest(BaseModel):
+    query: str
+    agent_id: Optional[str] = None
+    user_id: Optional[str] = None
+    limit: Optional[int] = 20
