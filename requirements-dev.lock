@@ -177,6 +177,7 @@ fastapi==0.116.1
 filelock==3.18.0
     # via huggingface-hub
     # via torch
+    # via transformers
     # via virtualenv
 formic2==1.0.3
     # via runway
@@ -276,8 +277,9 @@ httpx==0.28.1
 httpx-sse==0.4.1
     # via fal-client
     # via mcp
-huggingface-hub==0.33.4
+huggingface-hub==0.35.3
     # via tokenizers
+    # via transformers
 humanfriendly==10.0
     # via coloredlogs
 hyperframe==6.1.0
@@ -392,6 +394,7 @@ numpy==2.3.1
     # via moviepy
     # via pylance
     # via shapely
+    # via transformers
 oauthlib==3.3.1
     # via requests-oauthlib
     # via tweepy
@@ -408,6 +411,7 @@ packaging==24.2
     # via pytest
     # via replicate
     # via runway
+    # via transformers
 paginate==0.5.7
     # via mkdocs-material
 parsimonious==0.10.0
@@ -511,7 +515,7 @@ pyjwt==2.10.1
 pylance==0.31.1
 pymdown-extensions==10.16.1
     # via mkdocs-material
-pymongo==4.6.1
+pymongo==4.15.1
     # via eve
     # via motor
 pyopenssl==25.1.0
@@ -554,6 +558,7 @@ pyyaml==6.0.2
     # via pymdown-extensions
     # via pyyaml-env-tag
     # via runway
+    # via transformers
     # via yamllint
 pyyaml-env-tag==1.1
     # via mkdocs
@@ -565,6 +570,7 @@ regex==2024.11.6
     # via parsimonious
     # via python-hcl2
     # via tiktoken
+    # via transformers
 replicate==1.0.7
     # via eve
 requests==2.32.4
@@ -583,6 +589,7 @@ requests==2.32.4
     # via requests-oauthlib
     # via runway
     # via tiktoken
+    # via transformers
     # via tweepy
     # via web3
 requests-oauthlib==2.0.0
@@ -609,6 +616,7 @@ s3transfer==0.13.1
     # via boto3
 safetensors==0.5.3
     # via eve
+    # via transformers
 sentry-sdk==2.33.2
     # via eve
 setuptools==80.9.0
@@ -646,8 +654,9 @@ tenacity==9.1.2
     # via instructor
 tiktoken==0.9.0
     # via litellm
-tokenizers==0.21.2
+tokenizers==0.22.1
     # via litellm
+    # via transformers
 toml==0.10.2
     # via beanie
     # via modal
@@ -662,6 +671,9 @@ tqdm==4.67.1
     # via huggingface-hub
     # via openai
     # via proglog
+    # via transformers
+transformers==4.56.2
+    # via eve
 troposphere==4.9.4
     # via runway
 tweepy==4.16.0

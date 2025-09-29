@@ -1287,15 +1287,9 @@ async def handle_embedsearch(request):
                 **({"filter": filt} if filt else {})
             }
         },
-        # { "$project": { "url": 1, "tags": 1, "score": { "$meta": "vectorSearchScore" } } }
-        { "$project": { "filename": 1, "score": { "$meta": "vectorSearchScore" } } }
+        { "$project": { "_id": 1, "filename": 1, "score": { "$meta": "vectorSearchScore" } } }
     ]
     
     results = list(creations.aggregate(pipeline))
-
-    # Add full URLs to results
-    # for result in results:
-    #     if "filename" in result:
-    #         result["url"] = get_full_url(result["filename"])
 
     return {"results": results}

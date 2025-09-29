@@ -90,7 +90,7 @@ from eve.api.api_functions import (
     cancel_stuck_tasks_fn,
     generate_lora_thumbnails_fn,
     rotate_agent_metadata_fn,
-    # run_scheduled_triggers_fn,
+    embed_recent_creations,
     run,
     run_task,
     run_task_replicate,
@@ -508,6 +508,11 @@ cleanup_stale_busy_states_modal = app.function(
 )(cleanup_stale_busy_states)
 
 
+embed_recent_creations_modal = app.function(
+    image=image, max_containers=1, schedule=modal.Period(minutes=5), timeout=600
+)(embed_recent_creations)
+
+
 ########################################################
 ## Concepts
 ########################################################
@@ -536,9 +541,7 @@ async def execute_trigger_fn(trigger_id: str) -> Session:
     schedule=modal.Period(minutes=2), 
     timeout=300
 )
-async def run_scheduled_triggers_fn_new():
-    
-    # Find triggers that need to run
+async def run_scheduled_triggers_fn():
     current_time = datetime.now(timezone.utc)
 
     # Find active triggers where next_scheduled_run <= current time
@@ -559,46 +562,18 @@ async def run_scheduled_triggers_fn_new():
         logger.info("No triggers to run")
         return
 
-
-    print("Running triggers")
-    logger.info("Running triggers")
-
-
-    current_time = datetime.now(timezone.utc)
-    valid_triggers = []
-
-    
-    # from eve.agent.session.models import Trigger
-    
-
-    # Try bulk update first, fallback to individual updates
-
-    # Fallback to individual updates
-    
-
     sessions = []
     triggers = [str(trigger.id) for trigger in triggers]
 
-    print("Executing triggers now!!!!")
     async for result in execute_trigger_fn.map.aio(triggers):
-        print("Result121212", result)
         sessions.append(result)
 
-
-    print("Sessions", sessions)
-    print("Ran triggers")
-    logger.info("Ran triggers")
-    print(sessions)
-    logger.info(sessions)
-
     logger.info(f"Ran {len(triggers)} triggers")
+    logger.info(sessions)
 
 
 
 @app.local_entrypoint()
 async def local_entrypoint():
-    # run_scheduled_triggers_fn_new.remote()
-    from eve.s3 import get_full_url
-    results = await handle_embedsearch(EmbedSearchRequest(query="cats"))
-    for hit in results["results"]:
-        print(hit["score"], get_full_url(hit["filename"]))
+    # run_scheduled_triggers_fn.remote()
+    embed_recent_creations_modal.remote()
