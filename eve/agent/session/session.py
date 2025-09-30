@@ -16,6 +16,7 @@ from eve.agent.agent import Agent
 from eve.tool import Tool
 from eve.mongo import get_collection
 from eve.models import Model
+from eve.concepts import Concept
 from eve.agent.session.models import (
     ActorSelectionMethod,
     ChatMessage,
@@ -222,6 +223,16 @@ async def build_system_message(
             f"Warning: Failed to load memory context for agent {actor.id} in session {session.id}: {e}"
         )
 
+    # Get text describing concepts
+    concepts = None
+    concept_docs = Concept.find({"agent": actor.id})
+    if concept_docs:
+        concepts = "---\n"
+        for c, concept in enumerate(concept_docs):
+            images = [f"{image['image']} :: {image['usage_instructions']}" for image in concept.images]
+            concept_string = f"Concept {c+1}: {concept.name}\nUsage instructions: {concept.usage_instructions}\nImages:\n * {'\n * '.join(images)}\n---\n"
+            concepts += concept_string
+            
     # Get text describing models
     lora_name = None
     if actor.models:
@@ -239,7 +250,7 @@ async def build_system_message(
             )
         loras = "\n".join(model_template.render(doc) for doc in lora_docs or [])
     else:
-        loras = ""
+        loras = None
 
     # Build system prompt with memory context
     base_content = system_template.render(
@@ -247,6 +258,7 @@ async def build_system_message(
         current_date_time=datetime.now(pytz.utc).strftime("%Y-%m-%d %H:%M:%S"),
         persona=actor.persona,
         scenario=session.scenario,
+        concepts=concepts,
         loras=loras,
         lora_name=lora_name,
         voice=actor.voice,
