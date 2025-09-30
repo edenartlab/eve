@@ -31,7 +31,6 @@ from eve.agent.session.session import run_prompt_session, run_prompt_session_str
 from eve.trigger import (
     Trigger,
 )
-
 from eve.api.errors import handle_errors, APIError
 from eve.api.api_requests import (
     CancelRequest,
@@ -49,7 +48,6 @@ from eve.api.api_requests import (
     AgentToolsDeleteRequest,
     UpdateDeploymentRequestV2,
     CreateNotificationRequest,
-    # RunTriggerRequest
 )
 from eve.api.helpers import (
     emit_update,
@@ -278,84 +276,6 @@ async def handle_stream_chat(request: ChatRequest, background_tasks: BackgroundT
     )
 
 
-# @handle_errors
-# async def handle_trigger_create(
-#     request: CreateTriggerRequest, background_tasks: BackgroundTasks
-# ):
-#     agent = Agent.from_mongo(ObjectId(request.agent))
-#     if not agent:
-#         raise APIError(f"Agent not found: {request.agent}", status_code=404)
-
-#     user = User.from_mongo(ObjectId(request.user))
-#     if not user:
-#         raise APIError(f"User not found: {request.user}", status_code=404)
-
-#     trigger_id = f"{db}_{str(user.id)}_{int(time.time())}"
-
-#     # Calculate next scheduled run
-#     schedule_dict = request.schedule.to_cron_dict()
-#     next_run = await create_trigger_fn(
-#         schedule=schedule_dict,
-#         trigger_id=trigger_id,
-#     )
-
-#     if not next_run:
-#         raise APIError("Failed to calculate next scheduled run time", status_code=400)
-
-#     # Create trigger in database
-#     trigger = Trigger(
-#         trigger_id=trigger_id,
-#         user=ObjectId(user.id),
-#         agent=ObjectId(agent.id),
-#         schedule=schedule_dict,
-#         instruction=request.instruction,
-#         posting_instructions=request.posting_instructions.model_dump()
-#         if request.posting_instructions
-#         else None,
-#         update_config=request.update_config.model_dump()
-#         if request.update_config
-#         else None,
-#         session=ObjectId(request.session) if request.session else None,
-#         session_type=request.session_type,
-#         next_scheduled_run=next_run,
-#     )
-#     trigger.save()
-
-#     return {
-#         "id": str(trigger.id),
-#         "trigger_id": trigger_id,
-#         "next_scheduled_run": next_run.isoformat(),
-#     }
-
-
-# @handle_errors
-# async def handle_trigger_stop(request: DeleteTriggerRequest):
-#     trigger = Trigger.from_mongo(request.id)
-#     if not trigger or trigger.deleted:
-#         raise APIError(f"Trigger not found: {request.id}", status_code=404)
-#     await stop_trigger(trigger.trigger_id)
-#     trigger.status = "finished"
-#     trigger.save()
-
-#     return {"id": str(request.id)}
-
-
-# @handle_errors
-# async def handle_trigger_delete(request: DeleteTriggerRequest):
-#     trigger = Trigger.from_mongo(request.id)
-#     if not trigger:
-#         raise APIError(f"Trigger not found: {request.id}", status_code=404)
-
-#     if trigger.status != "finished":
-#         await stop_trigger(trigger.trigger_id)
-
-#     # Soft delete by setting deleted flag
-#     trigger.deleted = True
-#     trigger.save()
-
-#     return {"id": str(trigger.id)}
-
-
 @handle_errors
 async def handle_twitter_update(request: PlatformUpdateRequest):
     """Handle Twitter updates from async_prompt_thread"""
@@ -386,68 +306,6 @@ async def handle_twitter_update(request: PlatformUpdateRequest):
         tweet_id = response.get("data", {}).get("id")
 
     return {"status": "success", "tweet_id": tweet_id}
-
-
-# @handle_errors
-# async def handle_trigger_get(trigger_id: str):
-#     trigger = Trigger.load(trigger_id=trigger_id)
-#     if not trigger or trigger.deleted:
-#         raise APIError(f"Trigger not found: {trigger_id}", status_code=404)
-
-#     return {
-#         "id": str(trigger.id) if trigger.id else None,
-#         "user": str(trigger.user) if trigger.user else None,
-#         "agent": str(trigger.agent) if trigger.agent else None,
-#         "session": str(trigger.session) if trigger.session else None,
-#         "instruction": trigger.instruction,
-#         "update_config": trigger.update_config,
-#         "schedule": trigger.schedule,
-#     }
-
-
-# @handle_errors
-# async def handle_trigger_run(request: RunTriggerRequest):
-#     trigger_id = request.trigger_id
-
-#     trigger = Trigger.from_mongo(trigger_id)
-#     if not trigger or trigger.deleted:
-#         print(f"❌ Trigger not found or deleted: {trigger_id}")
-#         raise APIError(f"Trigger not found: {trigger_id}", status_code=404)
-
-#     # Check if trigger is active
-#     if trigger.status != "active":
-#         print(f"⚠️ Trigger not active: status={trigger.status}")
-#         raise APIError(f"Trigger is not active (status: {trigger.status})", status_code=400)
-
-#     # Use the shared trigger execution function
-#     from eve.agent.session.triggers import execute_trigger
-
-#     try:
-#         # Execute the trigger using the shared function
-#         # response_data = await execute_trigger(trigger_id, is_immediate=True)
-#         print("Executing trigger", trigger_id)
-#         from eve.api.api import execute_trigger_fn
-#         response_data = execute_trigger_fn.map.aio(trigger_id)
-#         print("Response data", response_data)
-
-#         session_id = response_data.get("session_id")
-
-#         # Update trigger with session if it was created
-#         if not trigger.session and session_id:
-#             from bson import ObjectId
-#             trigger.session = ObjectId(session_id)
-#             trigger.save()
-
-#         return {
-#             "trigger_id": trigger_id,
-#             "executed": True,
-#             "session_id": session_id,
-#             "response": response_data
-#         }
-
-#     except Exception as e:
-#         print(f"❌ Immediate trigger execution failed: {str(e)}")
-#         raise APIError(f"Failed to execute trigger: {str(e)}", status_code=500)
 
 
 @handle_errors
@@ -1120,6 +978,7 @@ async def handle_prompt_session(
         async def event_generator():
             try:
                 from eve.utils import dumps_json
+
                 async for data in run_prompt_session_stream(context, background_tasks):
                     yield f"data: {dumps_json({'event': 'update', 'data': data})}\n\n"
                 yield f"data: {dumps_json({'event': 'done', 'data': ''})}\n\n"
@@ -1460,3 +1319,56 @@ async def handle_create_notification(request: CreateNotificationRequest):
         notification.mark_delivered(NotificationChannel.IN_APP)
 
     return {"id": str(notification.id), "message": "Notification created successfully"}
+
+
+# Embed search handler
+@handle_errors
+async def handle_embedsearch(request):
+    """Search images using CLIP embeddings"""
+
+    import torch, torch.nn.functional as F
+    from transformers import CLIPProcessor, CLIPModel
+
+    MODEL_NAME = "openai/clip-vit-large-patch14"
+    creations = get_collection("creations3")
+
+    device = "cpu"  # torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = CLIPModel.from_pretrained(MODEL_NAME).to(device).eval()
+    proc = CLIPProcessor.from_pretrained(MODEL_NAME)
+
+    inputs = proc(
+        text=[request.query], return_tensors="pt", padding=True, truncation=True
+    ).to(device)
+    v = model.get_text_features(**inputs)
+    qv = F.normalize(v, p=2, dim=-1)[0].cpu().tolist()
+
+    # Build pre-filter (works only if 'tags'/'subsetId' are in index as filter fields)
+    filt = {}
+    if request.agent_id:
+        filt["agent"] = ObjectId(request.agent_id)
+    if request.user_id:
+        filt["user"] = ObjectId(request.user_id)
+
+    pipeline = [
+        {
+            "$vectorSearch": {
+                "index": "img_vec_idx",
+                "path": "embedding",
+                "queryVector": qv,
+                "numCandidates": 10000,  # ~20x limit is recommended starting point
+                "limit": int(request.limit),
+                **({"filter": filt} if filt else {}),
+            }
+        },
+        {
+            "$project": {
+                "_id": 1,
+                "filename": 1,
+                "score": {"$meta": "vectorSearchScore"},
+            }
+        },
+    ]
+
+    results = list(creations.aggregate(pipeline))
+
+    return {"results": results}

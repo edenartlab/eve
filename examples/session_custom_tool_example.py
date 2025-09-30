@@ -60,7 +60,7 @@ async def example_session():
         llm_config=LLMConfig(model="gpt-4o-mini"),
 
         # insert custom tool here
-        custom_tools={custom_tool.key: custom_tool},
+        extra_tools={custom_tool.key: custom_tool},
     )
 
     await add_user_message(session, context)

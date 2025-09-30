@@ -21,7 +21,7 @@ dependencies = [
     "pydantic>=2.9.2",
     "pydub>=0.25.1",
     "pyjwt>=2.10.0",
-    "pymongo==4.6.1",
+    "pymongo>=4.10.0",
     "python-dotenv>=1.0.1",
     "python-magic>=0.4.27",
     "pyyaml>=6.0.2",
@@ -60,6 +60,7 @@ dependencies = [
     "pyparsing>=3.2.3",
     "mcp>=1.13.0",
     "runway>=2.8.4",
+    "transformers>=4.56.2",
 ]
 
 [build-system]

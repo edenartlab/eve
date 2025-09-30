@@ -1,29 +1,24 @@
 import logging
+import aiohttp
 import os
 import json
 import modal
 import replicate
 import sentry_sdk
+from bson import ObjectId
+from pathlib import Path
+from pymongo import UpdateOne
 from fastapi.responses import JSONResponse
 from fastapi import FastAPI, Depends, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader, HTTPBearer
-from pathlib import Path
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.exceptions import RequestValidationError
+from datetime import datetime, timezone
 
 from eve import auth, db
 
-
-from eve.trigger import (
-    handle_trigger_create,
-    handle_trigger_delete,
-    handle_trigger_stop,
-    handle_trigger_run,
-    handle_trigger_get
-)
-
-
+from eve.agent.session.models import Session
 from eve.api.handlers import (
     handle_create,
     handle_cancel,
@@ -52,25 +47,36 @@ from eve.api.handlers import (
     handle_v2_deployment_delete,
     handle_v2_deployment_farcaster_neynar_webhook,
     handle_create_notification,
+    handle_embedsearch,
 )
-
 from eve.trigger import (
-    CreateTriggerRequest,
-    DeleteTriggerRequest,
-    RunTriggerRequest
+    handle_trigger_create,
+    handle_trigger_delete,
+    handle_trigger_stop,
+    handle_trigger_run,
+    handle_trigger_get,
+    execute_trigger, 
+    Trigger
 )
-
+from eve.concepts import (
+    Concept, 
+    create_concept_thumbnail,
+    handle_concept_create,
+    handle_concept_update,
+)
 from eve.api.api_requests import (
     CancelRequest,
     CancelSessionRequest,
     ChatRequest,
     CreateDeploymentRequestV2,
-    # CreateTriggerRequest,
     DeleteDeploymentRequestV2,
-    # DeleteTriggerRequest,
-    # RunTriggerRequest,
     DeploymentEmissionRequest,
     DeploymentInteractRequest,
+    CreateTriggerRequest,
+    DeleteTriggerRequest,
+    RunTriggerRequest,
+    CreateConceptRequest,
+    UpdateConceptRequest,
     PromptSessionRequest,
     TaskRequest,
     PlatformUpdateRequest,
@@ -78,13 +84,13 @@ from eve.api.api_requests import (
     AgentToolsDeleteRequest,
     UpdateDeploymentRequestV2,
     CreateNotificationRequest,
+    EmbedSearchRequest,
 )
-from eve.api.helpers import pre_modal_setup
 from eve.api.api_functions import (
     cancel_stuck_tasks_fn,
     generate_lora_thumbnails_fn,
     rotate_agent_metadata_fn,
-    # run_scheduled_triggers_fn,
+    embed_recent_creations,
     run,
     run_task,
     run_task_replicate,
@@ -95,12 +101,9 @@ from eve.api.api_functions import (
 app_name = f"api-{db.lower()}"
 logging.getLogger("ably").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
-
 logger = logging.getLogger(__name__)
 
-
 # FastAPI setup
-
 
 class SentryContextMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
@@ -232,15 +235,14 @@ async def trigger_create(
     background_tasks: BackgroundTasks,
     _: dict = Depends(auth.authenticate_admin),
 ):
-    pre_modal_setup()
     return await handle_trigger_create(request, background_tasks)
+
 
 
 @web_app.post("/triggers/stop")
 async def trigger_stop(
     request: DeleteTriggerRequest, _: dict = Depends(auth.authenticate_admin)
 ):
-    pre_modal_setup()
     return await handle_trigger_stop(request)
 
 
@@ -248,7 +250,6 @@ async def trigger_stop(
 async def trigger_delete(
     request: DeleteTriggerRequest, _: dict = Depends(auth.authenticate_admin)
 ):
-    pre_modal_setup()
     return await handle_trigger_delete(request)
 
 
@@ -257,7 +258,6 @@ async def trigger_run(
     request: RunTriggerRequest, 
     _: dict = Depends(auth.authenticate_admin)
 ):
-    pre_modal_setup()
     return await handle_trigger_run(request)
 
 
@@ -324,6 +324,23 @@ async def agent_tools_delete(
     request: AgentToolsDeleteRequest, _: dict = Depends(auth.authenticate_admin)
 ):
     return await handle_agent_tools_delete(request)
+
+
+@web_app.post("/concepts/create")
+async def concept_create(
+    request: CreateConceptRequest,
+    background_tasks: BackgroundTasks,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    return await handle_concept_create(request, background_tasks)
+
+@web_app.post("/concepts/update")
+async def concept_update(
+    request: UpdateConceptRequest,
+    background_tasks: BackgroundTasks,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    return await handle_concept_update(request, background_tasks)
 
 
 @web_app.post("/sessions/prompt")
@@ -399,6 +416,14 @@ async def create_notification(
     request: CreateNotificationRequest, _: dict = Depends(auth.authenticate_admin)
 ):
     return await handle_create_notification(request)
+
+
+# Embed search route
+@web_app.post("/embedsearch")
+async def embedsearch(
+    request: EmbedSearchRequest, _: dict = Depends(auth.authenticate_admin)
+):
+    return await handle_embedsearch(request)
 
 
 @web_app.exception_handler(RequestValidationError)
@@ -505,7 +530,6 @@ rotate_agent_metadata_modal = app.function(
 #     image=image, max_containers=1, schedule=modal.Period(minutes=1), timeout=300
 # )(run_scheduled_triggers_fn)
 
-
 run = app.function(
     image=image, max_containers=10, timeout=3600, volumes={"/data/media-cache": media_cache_vol}
 )(modal.concurrent(max_inputs=4)(run))
@@ -518,8 +542,7 @@ run_task = app.function(
 
 run_task_replicate = app.function(
     image=image, min_containers=2, max_containers=10, timeout=3600, volumes={"/data/media-cache": media_cache_vol}
-)(modal.concurrent(max_inputs=4)(run_task_replicate)
-)
+)(modal.concurrent(max_inputs=4)(run_task_replicate))
 
 
 cleanup_stale_busy_states_modal = app.function(
@@ -527,33 +550,40 @@ cleanup_stale_busy_states_modal = app.function(
 )(cleanup_stale_busy_states)
 
 
+embed_recent_creations_modal = app.function(
+    image=image, max_containers=1, schedule=modal.Period(minutes=5), timeout=600
+)(embed_recent_creations)
 
 
-from datetime import datetime, timezone
-import aiohttp
+########################################################
+## Concepts
+########################################################
 
-from eve.trigger import execute_trigger
-from eve.agent.session.models import Session
-from eve.trigger import Trigger
 
+create_concept_thumbnail = app.function(
+    image=image, min_containers=1, max_containers=10, timeout=600, volumes={"/data/media-cache": media_cache_vol}
+)(modal.concurrent(max_inputs=4)(create_concept_thumbnail))
+
+
+########################################################
+## Triggers
+########################################################
 
 @app.function(
-    image=image, max_containers=4
+    image=image, 
+    max_containers=4
 )
 async def execute_trigger_fn(trigger_id: str) -> Session:
-    # from eve.trigger import Trigger
-    # trigger = Trigger.from_mongo(trigger_id)
     return await execute_trigger(trigger_id)
 
 
 @app.function(
-    image=image, max_containers=1, schedule=modal.Period(minutes=2), timeout=300
+    image=image, 
+    max_containers=1, 
+    schedule=modal.Period(minutes=2), 
+    timeout=300
 )
-async def run_scheduled_triggers_fn_new():
-    from bson import ObjectId
-    from eve.trigger import Trigger
-
-    # Find triggers that need to run
+async def run_scheduled_triggers_fn():
     current_time = datetime.now(timezone.utc)
 
     # Find active triggers where next_scheduled_run <= current time
@@ -574,43 +604,18 @@ async def run_scheduled_triggers_fn_new():
         logger.info("No triggers to run")
         return
 
-
-    print("Running triggers")
-    logger.info("Running triggers")
-
-    from eve.agent.session.triggers import calculate_next_scheduled_run
-
-    current_time = datetime.now(timezone.utc)
-    valid_triggers = []
-
-    from pymongo import UpdateOne
-    # from eve.agent.session.models import Trigger
-    from eve.trigger import Trigger
-
-    # Try bulk update first, fallback to individual updates
-
-    # Fallback to individual updates
-    
-
     sessions = []
     triggers = [str(trigger.id) for trigger in triggers]
 
-    print("Executing triggers now!!!!")
     async for result in execute_trigger_fn.map.aio(triggers):
-        print("Result121212", result)
         sessions.append(result)
 
-
-    print("Sessions", sessions)
-    print("Ran triggers")
-    logger.info("Ran triggers")
-    print(sessions)
-    logger.info(sessions)
-
     logger.info(f"Ran {len(triggers)} triggers")
+    logger.info(sessions)
 
 
 
 @app.local_entrypoint()
 async def local_entrypoint():
-    run_scheduled_triggers_fn_new.remote()
+    # run_scheduled_triggers_fn.remote()
+    embed_recent_creations_modal.remote()
