@@ -91,6 +91,7 @@ from eve.api.api_functions import (
     generate_lora_thumbnails_fn,
     rotate_agent_metadata_fn,
     embed_recent_creations,
+    # run_scheduled_triggers_fn,
     run,
     run_task,
     run_task_replicate,
@@ -577,3 +578,12 @@ async def run_scheduled_triggers_fn():
 async def local_entrypoint():
     # run_scheduled_triggers_fn.remote()
     embed_recent_creations_modal.remote()
+
+
+@app.local_entrypoint()
+async def local_entrypoint():
+    # run_scheduled_triggers_fn_new.remote()
+    from eve.s3 import get_full_url
+    results = await handle_embedsearch(EmbedSearchRequest(query="cats"))
+    for hit in results["results"]:
+        print(hit["score"], get_full_url(hit["filename"]))

@@ -239,4 +239,5 @@ class EmbedSearchRequest(BaseModel):
     query: str
     agent_id: Optional[str] = None
     user_id: Optional[str] = None
+    tool: Optional[str] = None
     limit: Optional[int] = 20
