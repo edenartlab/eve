@@ -724,6 +724,7 @@ class LLMContext:
     messages: List[ChatMessage]
     config: LLMConfig = field(default_factory=LLMConfig)
     tools: Optional[List[Tool]] = None
+    tool_choice: Optional[str] = None
     metadata: LLMContextMetadata = None
     enable_tracing: bool = True
 
@@ -750,23 +751,6 @@ class SessionBudget(BaseModel):
     tokens_spent: Optional[int] = 0
     manna_spent: Optional[float] = 0
     turns_spent: Optional[int] = 0
-
-
-@Collection("triggers2")
-class Trigger(Document):
-    trigger_id: str
-    user: ObjectId
-    schedule: Dict[str, Any]
-    instruction: str
-    posting_instructions: Optional[Dict[str, Any]] = None
-    agent: Optional[ObjectId] = None
-    session_type: Optional[Literal["new", "another"]] = "new"
-    session: Optional[ObjectId] = None
-    update_config: Optional[Dict[str, Any]] = None
-    status: Optional[Literal["active", "paused", "finished"]] = "active"
-    deleted: Optional[bool] = False
-    last_run_time: Optional[datetime] = None
-    next_scheduled_run: Optional[datetime] = None
 
 
 class SessionMemoryContext(BaseModel):
@@ -867,12 +851,21 @@ class PromptSessionContext:
     update_config: Optional[SessionUpdateConfig] = None
     actor_agent_ids: Optional[List[str]] = None
     llm_config: Optional[LLMConfig] = None
-    custom_tools: Optional[Dict[str, Any]] = None
+    
+    # overrides all tools if set, otherwise uses actor's tools
+    tools: Optional[Dict[str, Any]] = None
+    # extra tools added to the base or actor's tools
+    extra_tools: Optional[Dict[str, Any]] = None
+    tool_choice: Optional[str] = None
+
     notification_config: Optional[NotificationConfig] = None
     thinking_override: Optional[bool] = (
         None  # Override agent's thinking policy per-message
     )
-    acting_user_id: Optional[str] = None  # The user whose permissions are used for tool authorization (defaults to initiating_user_id if not provided)
+    acting_user_id: Optional[str] = None
+    
+    # The user whose permissions are used for tool authorization (defaults to initiating_user_id if not provided)
+    # trigger: Optional[Any] = None
 
 
 @dataclass

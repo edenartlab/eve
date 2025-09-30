@@ -92,6 +92,11 @@ async def veo_handler(args: dict, model: str):
         await asyncio.sleep(2)
         operation = client.operations.get(operation)
 
+    if not operation.response or not operation.response.generated_videos:
+        print("No videos generated")
+        print(operation.response)
+        print(operation)
+        raise ValueError("No videos generated")
     # ---- download the video(s) ----
     videos = []
     for result in operation.response.generated_videos:

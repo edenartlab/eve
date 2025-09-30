@@ -133,7 +133,8 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
     double_character = "double_character" in extras
     seed = args.get("seed", None)
     aspect_ratio = args.get("aspect_ratio", "auto")
-    model_preference = args.get("model_preference", "").lower()
+    model_preference = args.get("model_preference")
+    model_preference = model_preference.lower() if model_preference else ""
 
     # get loras
     loras = get_loras(args.get("lora"), args.get("lora2"))
@@ -610,7 +611,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
     if result.get("status") == "failed" or not "output" in result:
         raise Exception(f"Error in /create: {result.get('error')}")
 
-    final_result = get_full_url(result["output"][0]["filename"])
+    final_result = [get_full_url(r["filename"]) for r in result["output"]]
     print("final result", final_result)
 
     # Add sub tool call to tool_calls
@@ -691,7 +692,8 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
     lora_strength = args.get("lora_strength", 0.75)
     aspect_ratio = args.get("aspect_ratio", "auto")
     quality = args.get("quality", "standard")
-    model_preference = args.get("model_preference", "seedance").lower()
+    model_preference = args.get("model_preference")
+    model_preference = model_preference.lower() if model_preference else ""
     duration = args.get("duration", 5)
     extras = args.get("extras", [])
     talking_head = "talking_head" in extras
@@ -1121,7 +1123,6 @@ def snap_aspect_ratio_to_model(aspect_ratio, model_name, start_image_attributes)
             "4:3": 4 / 3,
             "3:2": 3 / 2,
             "1:1": 1 / 1,
-            "2:3": 2 / 3,
             "3:4": 3 / 4,
             "9:16": 9 / 16,
             "9:21": 9 / 21,

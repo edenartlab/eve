@@ -4,10 +4,10 @@ import json
 import os
 import random
 import re
-from fastapi import BackgroundTasks
 import pytz
-from typing import List, Optional, Dict
 import uuid
+from fastapi import BackgroundTasks
+from typing import List, Optional, Dict
 from datetime import datetime, timezone
 from bson import ObjectId
 from sentry_sdk import capture_exception
@@ -263,16 +263,29 @@ async def build_system_extras(
     session: Session, context: PromptSessionContext, config: LLMConfig
 ):
     extras = []
+
+    if session.trigger:
+        from eve.trigger import Trigger
+        trigger = Trigger.from_mongo(session.trigger)
+        extras.append(
+            ChatMessage(
+                session=session.id,
+                role="system",
+                content=f"<Full Task Context>\n{trigger.context}\n</Full Task Context>",
+            )
+        )
+
+    # deprecated when we move to new farcaster gateway (wip in abraham)
     if context.update_config and context.update_config.farcaster_hash:
         extras.append(
             ChatMessage(
                 session=session.id,
-                sender=ObjectId("000000000000000000000000"),
                 role="system",
                 content="You are currently replying to a Farcaster cast. The maximum length before the fold is 320 characters, and the maximum length is 1024 characters, so attempt to be concise in your response.",
             )
         )
         config.max_tokens = 1024
+
     return context, config, extras
 
 
@@ -306,15 +319,27 @@ async def build_llm_context(
     session: Session,
     actor: Agent,
     context: PromptSessionContext,
-    trace_id: Optional[str] = None,
+    trace_id: Optional[str] = str(uuid.uuid4()),
 ):
     user = User.from_mongo(context.initiating_user_id)
     tier = "premium" if user.subscriptionTier and user.subscriptionTier > 0 else "free"
 
     auth_user_id = context.acting_user_id or context.initiating_user_id
-    tools = actor.get_tools(cache=False, auth_user=auth_user_id)
-    if context.custom_tools:
-        tools.update(context.custom_tools)
+    if context.tools:
+        tools = context.tools
+    else:
+        tools = actor.get_tools(cache=False, auth_user=auth_user_id)
+    if context.extra_tools:
+        tools.update(context.extra_tools)
+
+    # setup tool_choice
+    if tools:
+        tool_choice = context.tool_choice or "auto"
+    else:
+        tool_choice = "none"
+    if tool_choice not in ["auto", "none"]:
+        tool_choice = {"type": "function", "function": {"name": context.tool_choice}}
+
     # build messages first to have context for thinking routing
     system_message = await build_system_message(session, actor, context, tools)
     messages = [system_message]
@@ -335,7 +360,7 @@ async def build_llm_context(
             actor,
             tier,
             thinking_override=getattr(context, "thinking_override", None),
-            context_messages=existing_messages,  # Pass existing messages for routing context
+            context_messages=messages,  # Pass existing messages for routing context
         )
     else:
         config = context.llm_config or get_default_session_llm_config(tier)
@@ -343,6 +368,7 @@ async def build_llm_context(
     return LLMContext(
         messages=messages,
         tools=tools,
+        tool_choice=tool_choice,
         config=config,
         metadata=LLMContextMetadata(
             # for observability purposes. not same as session.id
@@ -774,6 +800,16 @@ async def async_prompt_session(
                 else:
                     break
 
+            if session.trigger:
+                from eve.trigger import Trigger
+                trigger = Trigger.from_mongo(session.trigger)
+                trigger_message = ChatMessage(
+                    session=session.id,
+                    role="system",
+                    content=f"<Full Task Context>\n{trigger.context}\n</Full Task Context>",
+                )
+                system_extras.append(trigger_message)
+
             # Rebuild messages with fresh data from database
             refreshed_messages = [system_message]
             if system_extras:
@@ -929,6 +965,9 @@ async def async_prompt_session(
 
             if stop_reason in ["stop", "completed"]:
                 prompt_session_finished = True
+
+            # if tool choice was previously set to something specific, set it to None for follow-up messages
+            llm_context.tool_choice = "auto"
 
         yield SessionUpdate(
             type=UpdateType.END_PROMPT,
@@ -1410,10 +1449,3 @@ async def async_title_session(
         capture_exception(e)
         traceback.print_exc()
         return
-
-
-def title_session(
-    session: Session, initial_message_content: str, metadata: Optional[Dict] = None
-):
-    """Synchronous wrapper for async_title_session"""
-    return asyncio.run(async_title_session(session, initial_message_content))

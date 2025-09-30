@@ -11,6 +11,8 @@ import sentry_sdk
 from bson import ObjectId
 
 from eve import utils
+from eve.mongo import get_collection
+from eve.s3 import get_full_url
 from eve.task import task_handler_func, Task
 from eve.tool import Tool
 from eve.tools.tool_handlers import load_handler
@@ -52,227 +54,6 @@ async def rotate_agent_metadata_fn():
         print(f"Error generating lora thumbnails: {e}")
         sentry_sdk.capture_exception(e)
 
-
-async def run_scheduled_triggers_fn():
-    """Check for and run scheduled triggers every minute"""
-    from datetime import datetime, timezone
-    from eve.agent.session.models import Trigger
-    import aiohttp
-
-    try:
-        # Find triggers that need to run
-        current_time = datetime.now(timezone.utc)
-
-        # Find active triggers where next_scheduled_run <= current time
-        triggers = list(
-            Trigger.find(
-                {
-                    "status": "active",
-                    "deleted": {"$ne": True},
-                    "next_scheduled_run": {"$lte": current_time},
-                }
-            )
-        )
-
-        logger.info(f"Found {len(triggers)} triggers to run")
-
-        # Fast update all trigger timing to prevent duplicates
-        if triggers:
-            from eve.agent.session.triggers import calculate_next_scheduled_run
-
-            current_time = datetime.now(timezone.utc)
-            valid_triggers = []
-
-            # Try bulk update first, fallback to individual updates
-            try:
-                from pymongo import UpdateOne
-                from eve.agent.session.models import Trigger
-
-                bulk_operations = []
-
-                # Prepare all updates in memory first
-                for trigger in triggers:
-                    try:
-                        # Calculate next run time
-                        next_run = calculate_next_scheduled_run(trigger.schedule)
-
-                        update_doc = {
-                            "last_run_time": current_time,
-                        }
-
-                        if next_run:
-                            update_doc["next_scheduled_run"] = next_run
-                            logger.info(
-                                f"Scheduling next run for trigger {trigger.trigger_id} at {next_run}"
-                            )
-                        else:
-                            # No next run (possibly due to end_date)
-                            update_doc["status"] = "finished"
-                            logger.info(
-                                f"Trigger {trigger.trigger_id} has no next run, marking as finished"
-                            )
-
-                        # Add to bulk operations
-                        bulk_operations.append(
-                            UpdateOne({"_id": trigger.id}, {"$set": update_doc})
-                        )
-                        valid_triggers.append(trigger)
-
-                    except Exception as e:
-                        logger.error(
-                            f"Error preparing update for trigger {trigger.trigger_id}: {str(e)}"
-                        )
-                        sentry_sdk.capture_exception(e)
-                        continue
-
-                # Try bulk operation
-                if bulk_operations:
-                    result = Trigger.get_collection().bulk_write(
-                        bulk_operations, ordered=False
-                    )
-                    logger.info(
-                        f"Bulk updated {result.modified_count} triggers in single operation"
-                    )
-                    triggers = valid_triggers
-
-            except Exception as bulk_error:
-                logger.warning(
-                    f"Bulk update failed, falling back to individual updates: {bulk_error}"
-                )
-
-                # Fallback to individual updates
-                valid_triggers = []
-                for trigger in triggers:
-                    try:
-                        # Calculate next run time
-                        next_run = calculate_next_scheduled_run(trigger.schedule)
-
-                        trigger.last_run_time = current_time
-
-                        if next_run:
-                            trigger.next_scheduled_run = next_run
-                            logger.info(
-                                f"Scheduling next run for trigger {trigger.trigger_id} at {next_run}"
-                            )
-                        else:
-                            # No next run (possibly due to end_date)
-                            trigger.status = "finished"
-                            logger.info(
-                                f"Trigger {trigger.trigger_id} has no next run, marking as finished"
-                            )
-
-                        # Save individual trigger
-                        trigger.save()
-                        valid_triggers.append(trigger)
-
-                    except Exception as e:
-                        logger.error(
-                            f"Error updating timing for trigger {trigger.trigger_id}: {str(e)}"
-                        )
-                        sentry_sdk.capture_exception(e)
-                        continue
-
-                triggers = valid_triggers
-                logger.info(f"Updated {len(triggers)} triggers individually")
-
-        # Now execute all triggers concurrently
-        import asyncio
-
-        async def execute_trigger_wrapper(trigger):
-            try:
-                from eve.agent.session.triggers import execute_trigger
-                
-                # Use the shared execution function
-                result = await execute_trigger(trigger, is_immediate=False)
-                session_id = result.get("session_id")
-
-                # Update trigger with session if it was created
-                if not trigger.session and session_id:
-                    trigger.session = ObjectId(session_id)
-                    trigger.save()
-
-                # Handle posting instructions if present
-                if trigger.posting_instructions:
-                    await handle_trigger_posting(trigger, session_id)
-
-            except Exception as e:
-                logger.error(f"Error executing trigger {trigger.trigger_id}: {str(e)}")
-                sentry_sdk.capture_exception(e)
-
-        # Execute all triggers concurrently
-        if triggers:
-            tasks = [execute_trigger_wrapper(trigger) for trigger in triggers]
-            await asyncio.gather(*tasks, return_exceptions=True)
-
-    except Exception as e:
-        logger.error(f"Error in run_scheduled_triggers: {str(e)}")
-        sentry_sdk.capture_exception(e)
-
-
-async def handle_trigger_posting(trigger, session_id):
-    """Handle posting instructions for a trigger"""
-    import aiohttp
-
-    posting_instructions = trigger.posting_instructions
-    if not posting_instructions:
-        return
-
-    try:
-        request_data = {
-            "session_id": session_id,
-            "user_id": str(trigger.user),
-            "actor_agent_ids": [str(trigger.agent)],
-            "message": {
-                "role": "system",
-                "content": f"""## Posting instructions
-{posting_instructions.get("post_to", "")} channel {posting_instructions.get("channel_id", "")}
-
-{posting_instructions.get("custom_instructions", "")}
-""",
-            },
-            "update_config": trigger.update_config,
-        }
-
-        # Add custom tools based on platform
-        platform = posting_instructions.get("post_to")
-        if platform == "discord" and posting_instructions.get("channel_id"):
-            request_data["custom_tools"] = {
-                "discord_post": {
-                    "parameters": {
-                        "channel_id": {"default": posting_instructions["channel_id"]}
-                    }
-                }
-            }
-        elif platform == "telegram" and posting_instructions.get("channel_id"):
-            request_data["custom_tools"] = {
-                "telegram_post": {
-                    "parameters": {
-                        "channel_id": {"default": posting_instructions["channel_id"]}
-                    }
-                }
-            }
-
-        # Make async HTTP POST to prompt session endpoint
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                f"{os.getenv('EDEN_API_URL')}/sessions/prompt",
-                json=request_data,
-                headers={
-                    "Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}",
-                    "Content-Type": "application/json",
-                },
-            ) as response:
-                if response.status != 200:
-                    error_text = await response.text()
-                    logger.error(
-                        f"Failed to run posting instructions for trigger {trigger.trigger_id}: {error_text}"
-                    )
-
-    except Exception as e:
-        logger.error(
-            f"Error handling posting instructions for trigger {trigger.trigger_id}: {str(e)}"
-        )
-        sentry_sdk.capture_exception(e)
 
 
 # Modal task functions
@@ -420,6 +201,87 @@ async def cleanup_stale_busy_states():
         logger.info("Finished cleaning up stale busy states.")
     except Exception as e:
         logger.error(f"Error in cleanup_stale_busy_states job: {e}", exc_info=True)
+        sentry_sdk.capture_exception(e)
+
+
+async def embed_recent_creations():
+    """Embed recent creations that don't have embeddings yet"""
+    try:
+        import io
+        import requests
+        from datetime import datetime, timedelta, timezone
+        from PIL import Image
+        import torch
+        import torch.nn.functional as F
+        from transformers import CLIPProcessor, CLIPModel
+        from pymongo import UpdateOne
+        from bson.binary import Binary, BinaryVectorDtype
+
+        logger.info("Starting embed_recent_creations job")
+
+        MODEL_NAME = "openai/clip-vit-large-patch14"
+        BATCH_SIZE = 8
+
+        col = get_collection("creations3")
+
+        # Find creations less than 1 hour old without embeddings
+        one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
+        cursor = col.find(
+            {
+                "embedding": {"$exists": False},
+                "createdAt": {"$gte": one_hour_ago},
+                "mediaAttributes.mimeType": {"$regex": "^image/"}
+            },
+            {"_id": 1, "filename": 1, "mediaAttributes": 1}
+        ).limit(BATCH_SIZE)
+
+        docs = list(cursor)
+        if not docs:
+            logger.info("No recent creations to embed")
+            return
+
+        logger.info(f"Found {len(docs)} recent creations to embed")
+
+        # Load model
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        model = CLIPModel.from_pretrained(MODEL_NAME).to(device).eval()
+        proc = CLIPProcessor.from_pretrained(MODEL_NAME)
+
+        # Prepare images
+        ids, urls, images = [], [], []
+        for doc in docs:
+            url = get_full_url(doc["filename"])
+            try:
+                im = Image.open(io.BytesIO(requests.get(url, timeout=15).content)).convert("RGB")
+                images.append(im)
+                ids.append(doc["_id"])
+                urls.append(url)
+            except Exception as e:
+                logger.warning(f"Failed to load image {url}: {e}")
+
+        if not images:
+            logger.info("No valid images to embed")
+            return
+
+        # Embed images
+        with torch.no_grad():
+            inputs = proc(images=images, return_tensors="pt", padding=True).to(device)
+            feats = model.get_image_features(**inputs)
+            feats = F.normalize(feats, p=2, dim=-1)
+            vecs = [f.detach().cpu().tolist() for f in feats]
+
+        # Store embeddings
+        ops = []
+        for _id, v in zip(ids, vecs):
+            bindata_v = Binary.from_vector(v, BinaryVectorDtype.FLOAT32)
+            ops.append(UpdateOne({"_id": _id}, {"$set": {"embedding": bindata_v}}))
+
+        if ops:
+            result = col.bulk_write(ops, ordered=False)
+            logger.info(f"Embedded {result.modified_count} images")
+
+    except Exception as e:
+        logger.error(f"Error in embed_recent_creations: {e}", exc_info=True)
         sentry_sdk.capture_exception(e)
 
 

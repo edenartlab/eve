@@ -123,12 +123,22 @@ class PostingInstructions(BaseModel):
 class CreateTriggerRequest(BaseModel):
     agent: str
     user: str
-    instruction: str
-    posting_instructions: Optional[PostingInstructions] = None
+    name: str
+    context: str
+    trigger_prompt: str
+    posting_instructions: Optional[List[PostingInstructions]] = []
     schedule: CronSchedule
     update_config: Optional[UpdateConfig] = None
     session_type: Literal["new", "another"] = "new"
     session: Optional[str] = None
+
+
+class CreateConceptRequest(BaseModel):
+    concept: str
+
+
+class UpdateConceptRequest(BaseModel):
+    concept: str
 
 
 class AgentDeploymentConfig(BaseModel):
@@ -223,3 +233,10 @@ class CreateNotificationRequest(BaseModel):
     metadata: Optional[Dict[str, Any]] = None
     action_url: Optional[str] = None
     expires_at: Optional[datetime] = None
+
+
+class EmbedSearchRequest(BaseModel):
+    query: str
+    agent_id: Optional[str] = None
+    user_id: Optional[str] = None
+    limit: Optional[int] = 20
