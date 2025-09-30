@@ -580,10 +580,10 @@ async def local_entrypoint():
     embed_recent_creations_modal.remote()
 
 
-@app.local_entrypoint()
-async def local_entrypoint():
-    # run_scheduled_triggers_fn_new.remote()
-    from eve.s3 import get_full_url
-    results = await handle_embedsearch(EmbedSearchRequest(query="cats"))
-    for hit in results["results"]:
-        print(hit["score"], get_full_url(hit["filename"]))
+# @app.local_entrypoint()
+# async def local_entrypoint():
+#     # run_scheduled_triggers_fn_new.remote()
+#     from eve.s3 import get_full_url
+#     results = await handle_embedsearch(EmbedSearchRequest(query="cats"))
+#     for hit in results["results"]:
+#         print(hit["score"], get_full_url(hit["filename"]))
