@@ -214,3 +214,263 @@ def copy_file_to_bucket(source_bucket, dest_bucket, source_key, dest_key=None):
             raise e
 
     return file_url
+
+
+
+
+########################################################
+########################################################
+
+
+
+
+
+
+# https://chatgpt.com/c/68dbf846-933c-832a-91be-0dcb6be3647b
+
+
+# big_export.py
+import os, io, json, tarfile, gzip, hashlib, datetime
+import boto3
+from botocore.exceptions import ClientError
+
+try:
+    import zstandard as zstd  # optional, for .zst
+    HAS_ZSTD = True
+except Exception:
+    HAS_ZSTD = False
+
+class MultipartUploadWriter:
+    """File-like object: writes bytes into S3 Multipart Upload."""
+    def __init__(
+        self, 
+        bucket, 
+        key, 
+        part_size=128*1024*1024,  # 128MB parts (~400 parts for 50GB)
+        content_type="application/x-tar",
+        content_disposition=None,
+        kms_key_id=None,
+        storage_class="STANDARD",
+        tags=None,
+        metadata=None
+    ):
+        self.s3 = s3
+        self.bucket = bucket
+        self.key = key
+        self.part_size = max(part_size, 5 * 1024 * 1024)  # S3 minimum is 5MB
+        self.buf = bytearray()
+        self.part_no = 1
+        self.parts = []
+        self.closed = False
+        self.sha256 = hashlib.sha256()
+
+        create_args = {
+            "Bucket": bucket,
+            "Key": key,
+            "ContentType": content_type,
+            "StorageClass": storage_class,
+        }
+        if content_disposition:
+            create_args["ContentDisposition"] = content_disposition
+        if kms_key_id:
+            create_args["ServerSideEncryption"] = "aws:kms"
+            create_args["SSEKMSKeyId"] = kms_key_id
+        if tags:
+            # "k1=v1&k2=v2" format
+            create_args["Tagging"] = "&".join(f"{k}={v}" for k, v in tags.items())
+        if metadata:
+            create_args["Metadata"] = metadata
+
+        resp = self.s3.create_multipart_upload(**create_args)
+        self.upload_id = resp["UploadId"]
+
+    def write(self, data: bytes):
+        if self.closed:
+            raise ValueError("Writer already closed")
+        if not data:
+            return 0
+        self.sha256.update(data)
+        self.buf.extend(data)
+        if len(self.buf) >= self.part_size:
+            self._flush_part()
+        return len(data)
+
+    def _flush_part(self):
+        body = bytes(self.buf)
+        self.buf.clear()
+        resp = self.s3.upload_part(
+            Bucket=self.bucket,
+            Key=self.key,
+            PartNumber=self.part_no,
+            UploadId=self.upload_id,
+            Body=body,
+        )
+        self.parts.append({"ETag": resp["ETag"], "PartNumber": self.part_no})
+        self.part_no += 1
+
+    def close(self):
+        if self.closed:
+            return
+        try:
+            if self.buf:
+                self._flush_part()
+            self.s3.complete_multipart_upload(
+                Bucket=self.bucket,
+                Key=self.key,
+                UploadId=self.upload_id,
+                MultipartUpload={"Parts": self.parts},
+            )
+            self.closed = True
+        except Exception:
+            # Ensure we don't leave pending MPU junk in the bucket
+            try:
+                self.s3.abort_multipart_upload(
+                    Bucket=self.bucket, Key=self.key, UploadId=self.upload_id
+                )
+            except Exception:
+                pass
+            raise
+
+    def digest_hex(self):
+        return self.sha256.hexdigest()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        if exc_type is None:
+            self.close()
+        else:
+            try:
+                self.s3.abort_multipart_upload(
+                    Bucket=self.bucket, Key=self.key, UploadId=self.upload_id
+                )
+            except Exception:
+                pass
+
+def _open_tar_sink(muw: MultipartUploadWriter, compression: str):
+    """
+    Returns (tarfile_obj, sink_to_close, content_ext, content_type)
+    compression: "none" | "gz" | "zst"
+    """
+    if compression == "gz":
+        gz = gzip.GzipFile(fileobj=muw, mode="wb", mtime=0)
+        tf = tarfile.open(fileobj=gz, mode="w|", format=tarfile.PAX_FORMAT)
+        return tf, gz, ".tar.gz", "application/gzip"
+    elif compression == "zst":
+        if not HAS_ZSTD:
+            raise RuntimeError("zstandard not installed; pip install zstandard or use 'gz'/'none'")
+        cctx = zstd.ZstdCompressor(level=10)
+        zfh = cctx.stream_writer(muw)  # file-like
+        tf = tarfile.open(fileobj=zfh, mode="w|", format=tarfile.PAX_FORMAT)
+        return tf, zfh, ".tar.zst", "application/zstd"
+    else:
+        # plain tar (fastest for already-compressed media)
+        tf = tarfile.open(fileobj=muw, mode="w|", format=tarfile.PAX_FORMAT)
+        return tf, None, ".tar", "application/x-tar"
+
+def stream_export_to_s3(
+    *, 
+    user_id: str,
+    items: list[dict],
+    compression: str = "none",  # "none" | "gz" | "zst"
+    exports_bucket: str | None = None,
+    kms_key_id: str | None = None
+) -> dict:
+    """
+    items: list of {"s3_bucket": "...", "s3_key": "...", "arcname": "path/in/archive.ext"}
+    Returns dict with {bucket, key, filename, sha256}
+    """
+    exports_bucket = exports_bucket or os.getenv("AWS_EXPORTS_BUCKET_NAME") or os.getenv("AWS_BUCKET_NAME")
+    ts = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    base_filename = f"user-{user_id}-export-{ts}"
+    s3_key_prefix = f"exports/{user_id}/{ts}/"
+    # We’ll decide extension/content-type after we pick compression
+    dummy_key = s3_key_prefix + base_filename  # temporary; writer gets final key
+
+    # open sink (figures out extension + content-type)
+    # Create the writer AFTER knowing extension/content-type (we need to set ContentType/Disposition on MPU)
+    # So, we first create a dummy writer, detect, then recreate? Instead: call _open_tar_sink after creating writer with chosen types.
+    # We'll determine these before instantiating writer:
+    ext_map = {"none": (".tar", "application/x-tar"),
+               "gz": (".tar.gz", "application/gzip"),
+               "zst": (".tar.zst", "application/zstd")}
+    content_ext, content_type = ext_map[compression]
+
+    filename = base_filename + content_ext
+    key = s3_key_prefix + filename
+    content_disp = f'attachment; filename="{filename}"'
+
+    with MultipartUploadWriter(
+        exports_bucket,
+        key,
+        part_size=128 * 1024 * 1024,
+        content_type=content_type,
+        content_disposition=content_disp,
+        kms_key_id=kms_key_id,
+        tags={"export": "1", "user_id": user_id},
+        metadata={"creator": "modal-export"},
+    ) as muw:
+        tf, secondary_sink, _, _ = _open_tar_sink(muw, compression)
+
+        manifest = {"user_id": user_id, "created_at": ts, "count": 0, "items": []}
+
+        for it in items:
+            src_bucket = it["s3_bucket"]
+            src_key = it["s3_key"]
+            arcname = it["arcname"]
+
+            head = s3.head_object(Bucket=src_bucket, Key=src_key)
+            size = head["ContentLength"]
+            mtime = int(head["LastModified"].timestamp())
+
+            ti = tarfile.TarInfo(name=arcname)
+            ti.size = size
+            ti.mtime = mtime
+            # Optional: ti.mode, ti.uid, ti.gid, ti.uname/gname
+
+            # Stream the source object into the tar (no temp files)
+            obj = s3.get_object(Bucket=src_bucket, Key=src_key)
+            body = obj["Body"]  # StreamingBody, provides .read()
+            tf.addfile(ti, fileobj=body)
+
+            manifest["count"] += 1
+            manifest["items"].append({
+                "name": arcname,
+                "size": size,
+                "src": f"s3://{src_bucket}/{src_key}",
+                "last_modified": head["LastModified"].isoformat()
+            })
+
+        tf.close()
+        if secondary_sink is not None:
+            secondary_sink.close()
+
+        sha256_hex = muw.digest_hex()
+
+    # Upload checksum + manifest (small single PUTs)
+    s3.put_object(
+        Bucket=exports_bucket,
+        Key=f"{key}.sha256",
+        Body=f"{sha256_hex}  {filename}\n".encode("utf-8"),
+        ContentType="text/plain",
+        ServerSideEncryption="aws:kms" if kms_key_id else None,
+        SSEKMSKeyId=kms_key_id if kms_key_id else None,
+    )
+    s3.put_object(
+        Bucket=exports_bucket,
+        Key=f"{key}.manifest.json",
+        Body=json.dumps(manifest, separators=(",", ":")).encode("utf-8"),
+        ContentType="application/json",
+        ServerSideEncryption="aws:kms" if kms_key_id else None,
+        SSEKMSKeyId=kms_key_id if kms_key_id else None,
+    )
+
+    return {
+        "bucket": exports_bucket,
+        "key": key,
+        "filename": filename,
+        "sha256": sha256_hex,
+        "manifest_key": f"{key}.manifest.json",
+        "sha256_key": f"{key}.sha256",
+    }

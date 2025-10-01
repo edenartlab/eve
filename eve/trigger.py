@@ -93,7 +93,6 @@ def calculate_next_scheduled_run(schedule: dict) -> datetime:
     return None
 
 
-
 @handle_errors
 async def handle_trigger_create(
     request: CreateTriggerRequest, 
