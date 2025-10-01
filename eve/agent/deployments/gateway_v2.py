@@ -861,7 +861,8 @@ class DiscordGatewayClient:
                         # Check for authentication failures
                         if data.get("op") == GatewayOpCode.INVALID_SESSION:
                             # Check the close code if available
-                            close_code = data.get("d", {}).get("code", 0)
+                            d_data = data.get("d", {})
+                            close_code = d_data.get("code", 0) if isinstance(d_data, dict) else 0
                             if close_code == 4004 or "Authentication failed" in str(
                                 data
                             ):
