@@ -23,19 +23,19 @@ from eve.api.api_requests import (
     RunTriggerRequest,
     CronSchedule,
     PromptSessionRequest,
-    SessionCreationArgs
+    SessionCreationArgs,
 )
 from eve.agent.session.session import (
-    add_user_message, 
-    async_prompt_session, 
-    build_llm_context
+    add_user_message,
+    async_prompt_session,
+    build_llm_context,
 )
 from eve.agent.session.models import (
-    ChatMessageRequestInput, 
-    LLMConfig,  
-    PromptSessionContext, 
+    ChatMessageRequestInput,
+    LLMConfig,
+    PromptSessionContext,
     Session,
-    NotificationConfig
+    NotificationConfig,
 )
 
 
@@ -73,7 +73,7 @@ def calculate_next_scheduled_run(schedule: dict) -> datetime:
     day_of_week = schedule.get("day_of_week", "*")
     timezone_str = schedule.get("timezone", "UTC")
     end_date = schedule.get("end_date")
-    
+
     # Create CronTrigger
     trigger = CronTrigger(
         hour=hour,
@@ -82,11 +82,13 @@ def calculate_next_scheduled_run(schedule: dict) -> datetime:
         month=month,
         day_of_week=day_of_week,
         timezone=timezone_str,
-        end_date=end_date
+        end_date=end_date,
     )
-    
+
     # Get next fire time
-    next_time = trigger.get_next_fire_time(None, datetime.now(pytz.timezone(timezone_str)))
+    next_time = trigger.get_next_fire_time(
+        None, datetime.now(pytz.timezone(timezone_str))
+    )
     if next_time:
         # Convert to UTC for storage
         return next_time.astimezone(pytz.UTC).replace(tzinfo=timezone.utc)
@@ -95,14 +97,13 @@ def calculate_next_scheduled_run(schedule: dict) -> datetime:
 
 @handle_errors
 async def handle_trigger_create(
-    request: CreateTriggerRequest, 
-    background_tasks: BackgroundTasks
+    request: CreateTriggerRequest, background_tasks: BackgroundTasks
 ):
     # Log the incoming request to check for name field
     logger.info(f"Creating trigger with request: {request}")
     logger.info(f"Request model fields: {request.model_fields_set}")
     logger.info(f"Request dict: {request.model_dump()}")
-    
+
     agent = Agent.from_mongo(ObjectId(request.agent))
     if not agent:
         raise APIError(f"Agent not found: {request.agent}", status_code=404)
@@ -118,11 +119,11 @@ async def handle_trigger_create(
     if not next_run:
         raise APIError("Failed to calculate next scheduled run time", status_code=400)
     logger.info(f"New Trigger next scheduled run: {next_run}")
-    
+
     trigger_name = request.name or f"Untitled Task"
     think = False  # TODO
 
-    # Create trigger in database  
+    # Create trigger in database
     logger.info(f"Creating trigger with name: '{trigger_name}'")
     trigger = Trigger(
         name=trigger_name,  # Add the name field
@@ -137,7 +138,7 @@ async def handle_trigger_create(
         if request.update_config
         else None,
         session=ObjectId(request.session) if request.session else None,
-        session_type="another", #request.session_type,
+        session_type="another",  # request.session_type,
         next_scheduled_run=next_run,
     )
     trigger.save()
@@ -197,8 +198,8 @@ async def handle_trigger_get(trigger_id: str):
 async def execute_trigger(
     trigger_id: str,
     # background_tasks: BackgroundTasks,
-) -> Session: 
-    try: 
+) -> Session:
+    try:
         from eve.api.handlers import setup_session
 
         trigger = Trigger.from_mongo(trigger_id)
@@ -208,7 +209,7 @@ async def execute_trigger(
         if trigger.status in ["finished", "running", "paused"]:
             logger.info(f"Trigger {trigger.id} is {trigger.status}, skipping...")
             return
-        
+
         session = None
         user = User.from_mongo(trigger.user)
         agent = Agent.from_mongo(trigger.agent)
@@ -216,7 +217,7 @@ async def execute_trigger(
         trigger_prompt = trigger.trigger_prompt
 
         current_time = datetime.now(timezone.utc)
-            
+
         if trigger.session:
             session = Session.from_mongo(trigger.session)
             request = PromptSessionRequest(
@@ -238,19 +239,17 @@ async def execute_trigger(
                     owner_id=str(user.id),
                     agents=[str(agent.id)],
                     trigger=str(trigger.id),
-                    title=trigger.name
-                )
+                    title=trigger.name,
+                ),
             )
             trigger.update(
-                session=session_id,
-                status="running",
-                last_run_time=current_time
+                session=session_id, status="running", last_run_time=current_time
             )
-        
+
         request.notification_config = NotificationConfig(
             user_id=str(user.id),
             notification_type="trigger_complete",
-            title=f'Task Completed',
+            title=f"Task Completed",
             message=f'Your task "{trigger.name}" has completed successfully',
             trigger_id=str(trigger.id),
             agent_id=str(trigger.agent),
@@ -258,44 +257,41 @@ async def execute_trigger(
             # metadata={"trigger_id": trigger.trigger_id},
             success_notification=True,
             failure_notification=True,
-            failure_title=f'Task Failed',
+            failure_title=f"Task Failed",
             failure_message=f'Your task "{trigger.name}" has failed',
         )
 
         # Setup session
         session = setup_session(
-            # background_tasks, 
+            # background_tasks,
             None,
-            request.session_id, 
-            request.user_id, 
-            request
+            request.session_id,
+            request.user_id,
+            request,
         )
 
         # Create artwork generation message
-        message = ChatMessageRequestInput(
-            role="user",
-            content=trigger_prompt
-        )
-        
+        message = ChatMessageRequestInput(role="user", content=trigger_prompt)
+
         # Create context with selected model
         context = PromptSessionContext(
             session=session,
             initiating_user_id=request.user_id,
             message=message,
-            #thinking_override=trigger.think,
+            # thinking_override=trigger.think,
             thinking_override=False,
         )
-        
+
         # Add user message to session
-        add_user_message(session, context)
-        
+        await add_user_message(session, context, pin=True)
+
         # Build LLM context
         context = await build_llm_context(
-            session, 
-            agent, 
-            context, 
+            session,
+            agent,
+            context,
         )
-        
+
         # Execute the prompt session
         async for _ in async_prompt_session(session, context, agent):
             pass
@@ -321,9 +317,9 @@ async def execute_trigger(
 
             if post_to in ["same", "another"]:
                 if post_to == "same":
-                    posting_instructions += f"\n{i+1}): {custom_instructions}"
+                    posting_instructions += f"\n{i + 1}): {custom_instructions}"
                 else:
-                    posting_instructions += f"\n{i+1}) Post to {post_to}, channel '{session_id}': {custom_instructions}"
+                    posting_instructions += f"\n{i + 1}) Post to {post_to}, channel '{session_id}': {custom_instructions}"
 
             elif post_to in platform:
                 tool = platform.get(post_to)
@@ -331,7 +327,7 @@ async def execute_trigger(
                     posting_tools[tool] = []
                 posting_tools[tool].append(channel_id)
 
-                posting_instructions += f"\n{i+1}) Post to {post_to}, channel '{channel_id}': {custom_instructions}"
+                posting_instructions += f"\n{i + 1}) Post to {post_to}, channel '{channel_id}': {custom_instructions}"
 
             else:
                 raise APIError(f"Invalid post_to: {post_to}", status_code=400)
@@ -348,7 +344,9 @@ async def execute_trigger(
             if tool not in ["discord_post", "telegram_post"]:
                 continue
             tools[tool] = Tool.load(tool)
-            deployment = {"discord_post": "discord", "telegram_post": "telegram"}.get(tool)
+            deployment = {"discord_post": "discord", "telegram_post": "telegram"}.get(
+                tool
+            )
             allowed_channels = agent.deployments[deployment].get_allowed_channels()
             channels_description = " | ".join(
                 [f"ID {c.id} ({c.note})" for c in allowed_channels if c.id in channels]
@@ -363,10 +361,7 @@ async def execute_trigger(
             )
 
         # Create posting instructions message
-        message = ChatMessageRequestInput(
-            role="system",
-            content=instructions
-        )
+        message = ChatMessageRequestInput(role="system", content=instructions)
 
         # Create context with selected model
         context = PromptSessionContext(
@@ -378,14 +373,14 @@ async def execute_trigger(
 
         # Add user message to session
         add_user_message(session, context)
-        
+
         # Build LLM context
         context = await build_llm_context(
-            session, 
-            agent, 
-            context, 
+            session,
+            agent,
+            context,
         )
-        
+
         # Execute the prompt session
         async for _ in async_prompt_session(session, context, agent):
             pass
@@ -399,19 +394,13 @@ async def execute_trigger(
 
     finally:
         logger.info(f"Trigger execution cleanup completed for {trigger.id}")
-        
+
         next_run = calculate_next_scheduled_run(trigger.schedule)
 
         if next_run:
-            trigger.update(
-                status="active",
-                next_scheduled_run=next_run
-            )
+            trigger.update(status="active", next_scheduled_run=next_run)
         else:
-            trigger.update(
-                status="finished",
-                next_scheduled_run=None
-            )
+            trigger.update(status="finished", next_scheduled_run=None)
 
 
 @handle_errors
@@ -419,22 +408,28 @@ async def handle_trigger_run(
     request: RunTriggerRequest,
     # background_tasks: BackgroundTasks,
 ):
-    trigger_id = request.trigger_id    
+    trigger_id = request.trigger_id
     trigger = Trigger.from_mongo(trigger_id)
 
     if not trigger or trigger.deleted:
         raise APIError(f"Trigger {trigger_id} not found", status_code=404)
 
     if trigger.status == "running":
-        raise APIError(f"Trigger {trigger_id} already running, try later", status_code=400)
+        raise APIError(
+            f"Trigger {trigger_id} already running, try later", status_code=400
+        )
 
     if trigger.status != "active":
-        raise APIError(f"Trigger {trigger_id} is not active (status: {trigger.status})", status_code=400)
-    
+        raise APIError(
+            f"Trigger {trigger_id} is not active (status: {trigger.status})",
+            status_code=400,
+        )
+
     try:
         # session_id = background_tasks.add_task(execute_trigger, trigger, background_tasks)
         # todo: use the modal func or the function directly?
         from eve.trigger import execute_trigger
+
         session = await execute_trigger(trigger_id)
         session_id = str(session.id)
 
@@ -443,19 +438,9 @@ async def handle_trigger_run(
             "session_id": session_id,
             "executed": True,
         }
-        
+
     except Exception as e:
         raise APIError(f"Failed to execute trigger: {str(e)}", status_code=500)
-
-
-
-
-
-
-
-
-
-
 
 
 trigger_message = """<SystemMessage>
@@ -469,6 +454,7 @@ trigger_message_post = """
 <PostInstruction>
 When you have completed the task, write out a single summary of the result of the task. Make sure to include the URLs to any relevant media you created. Do not include intermediate results, just the media relevant to the task. Then post it on {platform} using the discord_post tool to channel "{platform_channel_id}". Do not forget to do this at the end.
 </PostInstruction>"""
+
 
 # TODO
 async def handle_trigger_posting_deprecated(trigger, session_id):
@@ -535,4 +521,3 @@ async def handle_trigger_posting_deprecated(trigger, session_id):
             f"Error handling posting instructions for trigger {trigger.trigger_id}: {str(e)}"
         )
         sentry_sdk.capture_exception(e)
-

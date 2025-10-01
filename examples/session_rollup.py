@@ -65,7 +65,7 @@ async def example_session():
         extra_tools={custom_tool.key: custom_tool},
     )
 
-    add_user_message(session, context)
+    await add_user_message(session, context)
 
     # Run session
     context = await build_llm_context(
