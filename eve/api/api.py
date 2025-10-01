@@ -206,7 +206,6 @@ async def trigger_create(
     return await handle_trigger_create(request, background_tasks)
 
 
-
 @web_app.post("/triggers/stop")
 async def trigger_stop(
     request: DeleteTriggerRequest, _: dict = Depends(auth.authenticate_admin)
