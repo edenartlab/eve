@@ -1275,6 +1275,15 @@ async def handle_embedsearch(request):
         filt["agent"] = ObjectId(request.agent_id)
     if request.user_id:
         filt["user"] = ObjectId(request.user_id)
+    if request.tool:
+        filt["tool"] = ObjectId(request.tool)
+
+    base_nc = max(50 * request.limit, 10_000)
+    exact = False
+    if filt:
+        subset_cap = 10_000
+        n = creations.count_documents(filt, limit=subset_cap + 1)
+        exact = (n <= subset_cap)
 
     pipeline = [
         {
@@ -1282,13 +1291,20 @@ async def handle_embedsearch(request):
                 "index": "img_vec_idx",
                 "path": "embedding",
                 "queryVector": qv,
-                "numCandidates": 10000,    # ~20x limit is recommended starting point
+                #"numCandidates": 50 * request.limit, # ~20x limit is recommended starting point
                 "limit": int(request.limit),
                 **({"filter": filt} if filt else {})
             }
         },
         { "$project": { "_id": 1, "filename": 1, "score": { "$meta": "vectorSearchScore" } } }
     ]
+
+    if exact:
+        # ENN: omit numCandidates
+        pipeline[0]["$vectorSearch"]["exact"] = True
+    else:
+        # ANN: start at ~20x limit
+        pipeline[0]["$vectorSearch"]["numCandidates"] = base_nc
     
     results = list(creations.aggregate(pipeline))
 
