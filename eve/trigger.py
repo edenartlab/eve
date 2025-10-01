@@ -315,15 +315,22 @@ async def execute_trigger(
                 "farcaster": "farcaster_post",
             }
 
-            tool = platform.get(post_to)
-            if not tool:
-                continue
+            if post_to in ["same", "another"]:
+                if post_to == "same":
+                    posting_instructions += f"\n{i + 1}): {custom_instructions}"
+                else:
+                    posting_instructions += f"\n{i + 1}) Post to {post_to}, channel '{session_id}': {custom_instructions}"
 
-            if not tool in posting_tools:
-                posting_tools[tool] = []
-            posting_tools[tool].append(channel_id)
+            elif post_to in platform:
+                tool = platform.get(post_to)
+                if not tool in posting_tools:
+                    posting_tools[tool] = []
+                posting_tools[tool].append(channel_id)
 
-            posting_instructions += f"\n{i + 1}) Post to {post_to}, channel '{channel_id}': {custom_instructions}"
+                posting_instructions += f"\n{i + 1}) Post to {post_to}, channel '{channel_id}': {custom_instructions}"
+
+            else:
+                raise APIError(f"Invalid post_to: {post_to}", status_code=400)
 
         instructions = f"""
         <Posting Instructions>

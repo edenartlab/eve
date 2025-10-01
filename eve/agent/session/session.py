@@ -17,6 +17,7 @@ from eve.tool import Tool
 from eve.mongo import get_collection
 from eve.models import Model
 from eve.agent.session.debug_logger import SessionDebugger
+from eve.concepts import Concept
 from eve.agent.session.models import (
     ActorSelectionMethod,
     ChatMessage,
@@ -223,6 +224,19 @@ async def build_system_message(
             f"Warning: Failed to load memory context for agent {actor.id} in session {session.id}: {e}"
         )
 
+    # Get text describing concepts
+    concepts = None
+    concept_docs = Concept.find({"agent": actor.id})
+    if concept_docs:
+        concepts = "---\n"
+        for c, concept in enumerate(concept_docs):
+            images = [
+                f"{image['image']} :: {image['usage_instructions']}"
+                for image in concept.images
+            ]
+            concept_string = f"Concept {c + 1}: {concept.name}\nUsage instructions: {concept.usage_instructions}\nImages:\n * {'\n * '.join(images)}\n---\n"
+            concepts += concept_string
+
     # Get text describing models
     lora_name = None
     if actor.models:
@@ -240,7 +254,7 @@ async def build_system_message(
             )
         loras = "\n".join(model_template.render(doc) for doc in lora_docs or [])
     else:
-        loras = ""
+        loras = None
 
     # Build system prompt with memory context
     base_content = system_template.render(
@@ -248,6 +262,7 @@ async def build_system_message(
         current_date_time=datetime.now(pytz.utc).strftime("%Y-%m-%d %H:%M:%S"),
         persona=actor.persona,
         scenario=session.scenario,
+        concepts=concepts,
         loras=loras,
         lora_name=lora_name,
         voice=actor.voice,
@@ -267,6 +282,7 @@ async def build_system_extras(
 
     if session.trigger:
         from eve.trigger import Trigger
+
         trigger = Trigger.from_mongo(session.trigger)
         extras.append(
             ChatMessage(
@@ -845,6 +861,7 @@ async def async_prompt_session(
 
             if session.trigger:
                 from eve.trigger import Trigger
+
                 trigger = Trigger.from_mongo(session.trigger)
                 trigger_message = ChatMessage(
                     session=session.id,
@@ -1300,7 +1317,7 @@ async def _run_prompt_session_internal(
                 # Multiple actors - run them in parallel with streaming
                 update_queue = asyncio.Queue()
                 tasks = []
-                
+
                 async def run_actor_session(actor: Agent, queue: asyncio.Queue):
                     try:
                         # Each actor gets its own generation ID
@@ -1322,14 +1339,16 @@ async def _run_prompt_session_internal(
                             formatted_update = format_session_update(update, context)
                             await queue.put(formatted_update)
                     except Exception as e:
-                        await queue.put({
-                            "type": UpdateType.ERROR.value,
-                            "error": str(e),
-                            "actor_id": str(actor.id),
-                            "update_config": context.update_config.model_dump()
-                            if context.update_config
-                            else None,
-                        })
+                        await queue.put(
+                            {
+                                "type": UpdateType.ERROR.value,
+                                "error": str(e),
+                                "actor_id": str(actor.id),
+                                "update_config": context.update_config.model_dump()
+                                if context.update_config
+                                else None,
+                            }
+                        )
 
                 # Create tasks for all actors
                 for actor in actors:
@@ -1342,7 +1361,7 @@ async def _run_prompt_session_internal(
                     # Check if any tasks are done
                     done_tasks = [t for t in tasks if t.done()]
                     completed_count = len(done_tasks)
-                    
+
                     try:
                         # Get update with timeout to periodically check task status
                         update = await asyncio.wait_for(update_queue.get(), timeout=0.1)
@@ -1352,12 +1371,12 @@ async def _run_prompt_session_internal(
                         if completed_count == len(tasks):
                             break
                         continue
-                
+
                 # Drain any remaining updates from the queue
                 while not update_queue.empty():
                     update = await update_queue.get()
                     yield update
-                
+
                 # Ensure all tasks are complete
                 await asyncio.gather(*tasks, return_exceptions=True)
         finally:

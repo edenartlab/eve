@@ -205,9 +205,9 @@ async def cleanup_stale_busy_states():
 
 
 async def embed_recent_creations():
-    """Embed recent creations that don't have embeddings yet"""
+    """Embed recent creations (images & videos) that don't have embeddings yet."""
     try:
-        import io
+        import io, json, subprocess
         import requests
         from datetime import datetime, timedelta, timezone
         from PIL import Image
@@ -219,21 +219,28 @@ async def embed_recent_creations():
 
         logger.info("Starting embed_recent_creations job")
 
+        # ---- Settings ----
         MODEL_NAME = "openai/clip-vit-large-patch14"
-        BATCH_SIZE = 8
+        IMAGE_BATCH = 8                      # how many images to embed at once
+        VIDEO_FRAMES = 8                    # how many frames to sample per video
+        VIDEO_POOLING = "mean"              # "mean" | "self_sim" | "max"
+        INCLUDE_THUMBNAIL_FRAME = True      # include stored first-frame thumbnail if present
+        HTTP_TIMEOUT = 15
 
         col = get_collection("creations3")
 
-        # Find creations less than 1 hour old without embeddings
-        one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
+        # Find recent (<= 1h) docs without embeddings; include image OR video
         cursor = col.find(
             {
                 "embedding": {"$exists": False},
-                "createdAt": {"$gte": one_hour_ago},
-                "mediaAttributes.mimeType": {"$regex": "^image/"}
+                "createdAt": {"$gte": datetime.now(timezone.utc) - timedelta(minutes=30)},
+                "$or": [
+                    {"mediaAttributes.mimeType": {"$regex": "^image/"}},
+                    {"mediaAttributes.mimeType": {"$regex": "^video/"}}
+                ]
             },
-            {"_id": 1, "filename": 1, "mediaAttributes": 1}
-        ).limit(BATCH_SIZE)
+            {"_id": 1, "filename": 1, "mediaAttributes": 1, "thumbnail": 1}
+        ).limit(64)  # small batch for “recent” job
 
         docs = list(cursor)
         if not docs:
@@ -242,43 +249,144 @@ async def embed_recent_creations():
 
         logger.info(f"Found {len(docs)} recent creations to embed")
 
-        # Load model
+        # ---- Load CLIP once for both images and video frames ----
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         model = CLIPModel.from_pretrained(MODEL_NAME).to(device).eval()
         proc = CLIPProcessor.from_pretrained(MODEL_NAME)
 
-        # Prepare images
-        ids, urls, images = [], [], []
-        for doc in docs:
-            url = get_full_url(doc["filename"])
-            try:
-                im = Image.open(io.BytesIO(requests.get(url, timeout=15).content)).convert("RGB")
-                images.append(im)
-                ids.append(doc["_id"])
-                urls.append(url)
-            except Exception as e:
-                logger.warning(f"Failed to load image {url}: {e}")
-
-        if not images:
-            logger.info("No valid images to embed")
-            return
-
-        # Embed images
-        with torch.no_grad():
-            inputs = proc(images=images, return_tensors="pt", padding=True).to(device)
+        # ---- Helpers ----
+        @torch.no_grad()
+        def embed_pil_batch(pil_images):
+            if not pil_images:
+                return None
+            inputs = proc(images=pil_images, return_tensors="pt", padding=True).to(device)
             feats = model.get_image_features(**inputs)
-            feats = F.normalize(feats, p=2, dim=-1)
-            vecs = [f.detach().cpu().tolist() for f in feats]
+            feats = F.normalize(feats, p=2, dim=-1).detach().cpu()  # [N, D]
+            return feats
 
-        # Store embeddings
-        ops = []
-        for _id, v in zip(ids, vecs):
-            bindata_v = Binary.from_vector(v, BinaryVectorDtype.FLOAT32)
-            ops.append(UpdateOne({"_id": _id}, {"$set": {"embedding": bindata_v}}))
+        def _ffprobe_duration(url: str) -> float:
+            try:
+                cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "json", url]
+                cp = subprocess.run(cmd, capture_output=True, text=True, check=True)
+                return float(json.loads(cp.stdout)["format"]["duration"])
+            except Exception as e:
+                logger.warning(f"ffprobe failed for {url}: {e}")
+                return 0.0
 
-        if ops:
-            result = col.bulk_write(ops, ordered=False)
-            logger.info(f"Embedded {result.modified_count} images")
+        def _ffmpeg_frame_at(url: str, t: float):
+            try:
+                cmd = [
+                    "ffmpeg", "-ss", f"{t:.3f}", "-i", url,
+                    "-frames:v", "1", "-f", "image2pipe", "-vcodec", "mjpeg",
+                    "-loglevel", "error", "-"
+                ]
+                cp = subprocess.run(cmd, capture_output=True, check=True)
+                return Image.open(io.BytesIO(cp.stdout)).convert("RGB")
+            except Exception as e:
+                logger.warning(f"ffmpeg extract failed @ {t}s for {url}: {e}")
+                return None
+
+        def sample_video_frames(url: str, k: int, thumb_url: str | None):
+            frames = []
+            if INCLUDE_THUMBNAIL_FRAME and thumb_url:
+                try:
+                    im = Image.open(io.BytesIO(requests.get(thumb_url, timeout=HTTP_TIMEOUT).content)).convert("RGB")
+                    frames.append(im)
+                except Exception as e:
+                    logger.warning(f"Failed to load thumbnail {thumb_url}: {e}")
+
+            dur = _ffprobe_duration(url)
+            if dur <= 0:
+                times = [0.5, 1.5, 2.5, 3.5][:max(0, k)]
+            else:
+                if k == 1:
+                    times = [0.5 * dur]
+                else:
+                    start, end = 0.10 * dur, 0.90 * dur
+                    step = (end - start) / (k - 1)
+                    times = [start + i * step for i in range(k)]
+            for t in times:
+                im = _ffmpeg_frame_at(url, t)
+                if im is not None:
+                    frames.append(im)
+            return frames
+
+        @torch.no_grad()
+        def embed_video(url: str, thumb_url: str | None):
+            frames = sample_video_frames(url, VIDEO_FRAMES, thumb_url)
+            if not frames:
+                return None
+            feats = embed_pil_batch(frames)  # [N, D], unit vectors
+            if feats is None or feats.shape[0] == 0:
+                return None
+
+            if VIDEO_POOLING == "self_sim" and feats.shape[0] > 1:
+                sims = feats @ feats.T   # [N, N]
+                w = sims.sum(dim=1)
+                w = w / (w.sum() + 1e-9)
+                pooled = (feats * w.unsqueeze(1)).sum(dim=0)
+            elif VIDEO_POOLING == "max":
+                pooled = feats.max(dim=0).values
+            else:
+                pooled = feats.mean(dim=0)
+            pooled = F.normalize(pooled, p=2, dim=-1).detach().cpu().tolist()
+            return pooled
+
+        # ---- Partition docs ----
+        def is_image_doc(d):
+            mt = d.get("mediaAttributes", {}).get("mimeType", d.get("mediaAttributes", {}).get("type", ""))
+            return isinstance(mt, str) and mt.startswith("image/")
+        def is_video_doc(d):
+            mt = d.get("mediaAttributes", {}).get("mimeType", d.get("mediaAttributes", {}).get("type", ""))
+            return isinstance(mt, str) and mt.startswith("video/")
+
+        image_docs = [d for d in docs if is_image_doc(d)]
+        video_docs = [d for d in docs if is_video_doc(d)]
+
+        # ---- Process images in small batch ----
+        img_ops, img_done = [], 0
+        if image_docs:
+            ids, pil_images = [], []
+            for d in image_docs:
+                url = get_full_url(d["filename"])
+                try:
+                    im = Image.open(io.BytesIO(requests.get(url, timeout=HTTP_TIMEOUT).content)).convert("RGB")
+                    pil_images.append(im)
+                    ids.append(d["_id"])
+                except Exception as e:
+                    logger.warning(f"Failed to load image {url}: {e}")
+
+            if pil_images:
+                feats = embed_pil_batch(pil_images)   # [M, D]
+                if feats is not None:
+                    for _id, f in zip(ids, feats):
+                        v = f.tolist()
+                        bindata_v = Binary.from_vector(v, BinaryVectorDtype.FLOAT32)
+                        img_ops.append(UpdateOne({"_id": _id}, {"$set": {"embedding": bindata_v}}))
+                    if img_ops:
+                        result = col.bulk_write(img_ops, ordered=False)
+                        img_done = result.modified_count
+
+        # ---- Process videos one-by-one (ffmpeg cost dominates; batching adds little) ----
+        vid_ops, vid_done = [], 0
+        if video_docs:
+            for d in video_docs:
+                vurl = get_full_url(d["filename"])
+                turl = get_full_url(d["thumbnail"]) if d.get("thumbnail") else None
+                try:
+                    v = embed_video(vurl, turl)
+                    if v is None:
+                        continue
+                    bindata_v = Binary.from_vector(v, BinaryVectorDtype.FLOAT32)
+                    vid_ops.append(UpdateOne({"_id": d["_id"]}, {"$set": {"embedding": bindata_v}}))
+                except Exception as e:
+                    logger.warning(f"Video embed failed for {vurl}: {e}")
+
+            if vid_ops:
+                result = col.bulk_write(vid_ops, ordered=False)
+                vid_done = result.modified_count
+
+        logger.info(f"Embedded {img_done} images and {vid_done} videos")
 
     except Exception as e:
         logger.error(f"Error in embed_recent_creations: {e}", exc_info=True)
