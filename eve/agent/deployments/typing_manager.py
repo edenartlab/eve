@@ -33,7 +33,6 @@ class TypingSession:
     def duration(self) -> float:
         return time.time() - self.start_time
     
-    @property
     def is_stale(self, timeout: float = 300) -> bool:
         """Check if session is stale (no updates for timeout seconds)"""
         return time.time() - self.last_update > timeout
@@ -178,7 +177,8 @@ class ImprovedTypingManager:
                 )
         
         # Remove from tracking
-        del self.sessions[channel_id]
+        if channel_id in self.sessions:
+            del self.sessions[channel_id]
         if session.request_id in self.request_to_channel:
             del self.request_to_channel[session.request_id]
         

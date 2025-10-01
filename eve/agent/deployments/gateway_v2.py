@@ -793,18 +793,18 @@ class DiscordGatewayClient:
 
                     # Only proceed if is_busy is explicitly True or False
                     if is_busy is True:
-                        channel_id_str = str(channel_id)
+                        channel_id_int = int(channel_id) if isinstance(channel_id, str) else channel_id
                         logger.info(
-                            f"[{trace_id}] Starting typing - channel: {channel_id_str}, request: {request_id}"
+                            f"[{trace_id}] Starting typing - channel: {channel_id_int}, request: {request_id}"
                         )
-                        await self.typing_manager.start_typing(channel_id_str, request_id)
+                        await self.typing_manager.start_typing(str(channel_id_int), request_id)
                     elif is_busy is False:
-                        channel_id_str = str(channel_id)
+                        channel_id_int = int(channel_id) if isinstance(channel_id, str) else channel_id
                         logger.info(
-                            f"[{trace_id}] Stopping typing - channel: {channel_id_str}, request: {request_id}"
+                            f"[{trace_id}] Stopping typing - channel: {channel_id_int}, request: {request_id}"
                         )
                         await self.typing_manager.stop_typing(
-                            channel_id_str, reason="ably_signal", request_id=request_id
+                            str(channel_id_int), reason="ably_signal", request_id=request_id
                         )
                     else:
                         logger.warning(
