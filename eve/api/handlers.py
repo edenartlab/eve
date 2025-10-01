@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -29,9 +30,6 @@ from eve.deploy import (
 from eve.agent.session.session import run_prompt_session, run_prompt_session_stream
 from eve.trigger import (
     Trigger,
-    CreateTriggerRequest,
-    DeleteTriggerRequest,
-    RunTriggerRequest
 )
 from eve.api.errors import handle_errors, APIError
 from eve.api.api_requests import (
@@ -340,14 +338,14 @@ async def handle_farcaster_update(request: Request):
                 status_code=401,
                 content={"error": "Webhook secret not configured"},
             )
-        
+
         # Verify signature
         computed_signature = hmac.new(
             webhook_secret.encode(),
             body,
             hashlib.sha512,
         ).hexdigest()
-        
+
         if not hmac.compare_digest(computed_signature, signature):
             return JSONResponse(
                 status_code=401,
@@ -356,31 +354,41 @@ async def handle_farcaster_update(request: Request):
 
         # Find deployment by mentioned FID and check for self-mentions
         cast_author_fid = cast_data["author"]["fid"]
-        
+
         deployment = None
         for d in Deployment.find({"platform": "farcaster"}):
             if d.config and d.config.farcaster and d.config.farcaster.auto_reply:
                 try:
                     from farcaster import Warpcast
+
                     client = Warpcast(mnemonic=d.secrets.farcaster.mnemonic)
                     user_info = client.get_me()
-                    
+
                     # Skip if this cast is from the agent itself (prevent loops)
                     if user_info.fid == cast_author_fid:
-                        logger.info(f"Ignoring cast from agent FID {cast_author_fid} to prevent loops")
+                        logger.info(
+                            f"Ignoring cast from agent FID {cast_author_fid} to prevent loops"
+                        )
                         return JSONResponse(status_code=200, content={"ok": True})
-                    
+
                     # Check if agent was mentioned or is parent author
                     mentioned_fids = cast_data.get("mentioned_profiles", [])
                     mentioned_fid_list = [profile["fid"] for profile in mentioned_fids]
-                    
+
                     parent_cast = cast_data.get("parent_cast")
-                    parent_author_fid = parent_cast.get("author", {}).get("fid") if parent_cast else None
-                    
-                    if user_info.fid in mentioned_fid_list or user_info.fid == parent_author_fid:
+                    parent_author_fid = (
+                        parent_cast.get("author", {}).get("fid")
+                        if parent_cast
+                        else None
+                    )
+
+                    if (
+                        user_info.fid in mentioned_fid_list
+                        or user_info.fid == parent_author_fid
+                    ):
                         deployment = d
                         break
-                        
+
                 except Exception as e:
                     logger.error(f"Error checking deployment {d.id}: {e}")
                     continue
@@ -887,7 +895,7 @@ def setup_session(
         session = Session.from_mongo(ObjectId(session_id))
         if not session:
             raise APIError(f"Session not found: {session_id}", status_code=404)
-        
+
         # TODO: titling
         if background_tasks:
             generate_session_title(session, request, background_tasks)
@@ -943,8 +951,7 @@ def setup_session(
 
 @handle_errors
 async def handle_prompt_session(
-    request: PromptSessionRequest, 
-    background_tasks: BackgroundTasks
+    request: PromptSessionRequest, background_tasks: BackgroundTasks
 ):
     session = setup_session(
         background_tasks, request.session_id, request.user_id, request
@@ -970,12 +977,14 @@ async def handle_prompt_session(
 
         async def event_generator():
             try:
+                from eve.utils import dumps_json
+
                 async for data in run_prompt_session_stream(context, background_tasks):
-                    yield f"data: {json.dumps({'event': 'update', 'data': data})}\n\n"
-                yield f"data: {json.dumps({'event': 'done', 'data': ''})}\n\n"
+                    yield f"data: {dumps_json({'event': 'update', 'data': data})}\n\n"
+                yield f"data: {dumps_json({'event': 'done', 'data': ''})}\n\n"
             except Exception as e:
                 logger.error("Error in event_generator", exc_info=True)
-                yield f"data: {json.dumps({'event': 'error', 'data': {'error': str(e)}})}\n\n"
+                yield f"data: {dumps_json({'event': 'error', 'data': {'error': str(e)}})}\n\n"
 
         return StreamingResponse(
             event_generator(),
@@ -993,6 +1002,68 @@ async def handle_prompt_session(
     )
 
     return {"session_id": str(session.id)}
+
+
+@handle_errors
+async def handle_session_stream(session_id: str):
+    """Stream SSE updates for a session."""
+    import uuid
+    from fastapi.responses import StreamingResponse
+    from eve.api.sse_manager import sse_manager
+
+    # Verify session exists
+    try:
+        session = Session.from_mongo(ObjectId(session_id))
+        if not session:
+            raise APIError(f"Session not found: {session_id}", status_code=404)
+    except Exception:
+        raise APIError(f"Invalid session_id: {session_id}", status_code=400)
+
+    # Generate unique client ID for this connection
+    client_id = str(uuid.uuid4())
+
+    async def event_generator():
+        # Register connection
+        connection = await sse_manager.connect(session_id, client_id)
+
+        try:
+            # Send initial connection message
+            yield f"data: {json.dumps({'event': 'connected', 'session_id': session_id, 'client_id': client_id})}\n\n"
+
+            # Stream updates from queue
+            while True:
+                try:
+                    # Wait for message with timeout for keep-alive
+                    message = await asyncio.wait_for(
+                        connection.queue.get(),
+                        timeout=30.0,  # 30 second timeout
+                    )
+                    yield f"data: {message}\n\n"
+
+                except asyncio.TimeoutError:
+                    # Send keep-alive ping
+                    yield ": keep-alive\n\n"
+                    continue
+
+        except asyncio.CancelledError:
+            logger.info(f"SSE connection cancelled for session {session_id}")
+            raise
+        except Exception as e:
+            logger.error(f"Error in SSE stream for session {session_id}: {e}")
+            yield f"data: {json.dumps({'event': 'error', 'error': str(e)})}\n\n"
+        finally:
+            # Clean up connection
+            await sse_manager.disconnect(session_id, connection)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable Nginx buffering
+        },
+    )
 
 
 @handle_errors
@@ -1124,7 +1195,7 @@ async def handle_v2_deployment_update(request: UpdateDeploymentRequestV2):
     # Handle secrets updates by merging with existing secrets
     if request.secrets:
         from eve.agent.session.models import DeploymentSecrets
-        
+
         existing_secrets = deployment.secrets or DeploymentSecrets()
         new_secrets = request.secrets.model_dump(exclude_unset=True)
 
@@ -1261,11 +1332,13 @@ async def handle_embedsearch(request):
     MODEL_NAME = "openai/clip-vit-large-patch14"
     creations = get_collection("creations3")
 
-    device = "cpu" # torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model  = CLIPModel.from_pretrained(MODEL_NAME).to(device).eval()
-    proc   = CLIPProcessor.from_pretrained(MODEL_NAME)
+    device = "cpu"  # torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = CLIPModel.from_pretrained(MODEL_NAME).to(device).eval()
+    proc = CLIPProcessor.from_pretrained(MODEL_NAME)
 
-    inputs = proc(text=[request.query], return_tensors="pt", padding=True, truncation=True).to(device)
+    inputs = proc(
+        text=[request.query], return_tensors="pt", padding=True, truncation=True
+    ).to(device)
     v = model.get_text_features(**inputs)
     qv = F.normalize(v, p=2, dim=-1)[0].cpu().tolist()
 
@@ -1283,7 +1356,7 @@ async def handle_embedsearch(request):
     if filt:
         subset_cap = 10_000
         n = creations.count_documents(filt, limit=subset_cap + 1)
-        exact = (n <= subset_cap)
+        exact = n <= subset_cap
 
     pipeline = [
         {
@@ -1291,12 +1364,18 @@ async def handle_embedsearch(request):
                 "index": "img_vec_idx",
                 "path": "embedding",
                 "queryVector": qv,
-                #"numCandidates": 50 * request.limit, # ~20x limit is recommended starting point
+                # "numCandidates": 50 * request.limit, # ~20x limit is recommended starting point
                 "limit": int(request.limit),
-                **({"filter": filt} if filt else {})
+                **({"filter": filt} if filt else {}),
             }
         },
-        { "$project": { "_id": 1, "filename": 1, "score": { "$meta": "vectorSearchScore" } } }
+        {
+            "$project": {
+                "_id": 1,
+                "filename": 1,
+                "score": {"$meta": "vectorSearchScore"},
+            }
+        },
     ]
 
     if exact:
@@ -1305,7 +1384,7 @@ async def handle_embedsearch(request):
     else:
         # ANN: start at ~20x limit
         pipeline[0]["$vectorSearch"]["numCandidates"] = base_nc
-    
+
     results = list(creations.aggregate(pipeline))
 
     return {"results": results}

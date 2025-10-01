@@ -1,13 +1,10 @@
 import logging
-import aiohttp
 import os
 import json
 import modal
 import replicate
 import sentry_sdk
-from bson import ObjectId
 from pathlib import Path
-from pymongo import UpdateOne
 from fastapi.responses import JSONResponse
 from fastapi import FastAPI, Depends, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -29,11 +26,6 @@ from eve.api.handlers import (
     handle_stream_chat,
     handle_telegram_emission,
     handle_telegram_update,
-    # handle_trigger_create,
-    # handle_trigger_delete,
-    # handle_trigger_stop,
-    # handle_trigger_run,
-    # handle_trigger_get,
     handle_twitter_update,
     handle_agent_tools_update,
     handle_agent_tools_delete,
@@ -55,11 +47,10 @@ from eve.trigger import (
     handle_trigger_stop,
     handle_trigger_run,
     handle_trigger_get,
-    execute_trigger, 
-    Trigger
+    execute_trigger,
+    Trigger,
 )
 from eve.concepts import (
-    Concept, 
     create_concept_thumbnail,
     handle_concept_create,
     handle_concept_update,
@@ -106,6 +97,7 @@ logger = logging.getLogger(__name__)
 
 # FastAPI setup
 
+
 class SentryContextMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         with sentry_sdk.configure_scope() as scope:
@@ -131,7 +123,47 @@ class SentryContextMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
-web_app = FastAPI()
+from contextlib import asynccontextmanager
+import signal
+import asyncio
+
+# Global flag for shutdown
+_shutdown_event = asyncio.Event()
+
+
+def handle_shutdown_signal(signum, frame):
+    """Handle SIGINT/SIGTERM to close SSE connections immediately"""
+    print(f"\n🛑 Received signal {signum}, closing all SSE connections...")
+    from eve.api.sse_manager import sse_manager
+
+    # Run async close in the event loop
+    loop = asyncio.get_event_loop()
+    if loop.is_running():
+        loop.create_task(sse_manager.close_all())
+    _shutdown_event.set()
+    # Force exit after a short delay
+    import sys
+    import os
+
+    os._exit(0)
+
+
+# Register signal handlers
+signal.signal(signal.SIGINT, handle_shutdown_signal)
+signal.signal(signal.SIGTERM, handle_shutdown_signal)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    yield
+    # Shutdown - close all SSE connections
+    from eve.api.sse_manager import sse_manager
+
+    await sse_manager.close_all()
+
+
+web_app = FastAPI(lifespan=lifespan)
 web_app.add_middleware(SentryContextMiddleware)
 web_app.add_middleware(
     CORSMiddleware,
@@ -222,8 +254,7 @@ async def trigger_delete(
 
 @web_app.post("/triggers/run")
 async def trigger_run(
-    request: RunTriggerRequest, 
-    _: dict = Depends(auth.authenticate_admin)
+    request: RunTriggerRequest, _: dict = Depends(auth.authenticate_admin)
 ):
     return await handle_trigger_run(request)
 
@@ -301,6 +332,7 @@ async def concept_create(
 ):
     return await handle_concept_create(request, background_tasks)
 
+
 @web_app.post("/concepts/update")
 async def concept_update(
     request: UpdateConceptRequest,
@@ -325,6 +357,16 @@ async def cancel_session(
     _: dict = Depends(auth.authenticate_admin),
 ):
     return await handle_session_cancel(request)
+
+
+# @web_app.get("/sessions/{session_id}/stream")
+# async def stream_session(
+#     session_id: str,
+#     _: dict = Depends(auth.authenticate_admin),
+# ):
+#     from eve.api.handlers import handle_session_stream
+
+#     return await handle_session_stream(session_id)
 
 
 @web_app.post("/v2/deployments/create")
@@ -489,17 +531,28 @@ rotate_agent_metadata_modal = app.function(
 # )(run_scheduled_triggers_fn)
 
 run = app.function(
-    image=image, max_containers=10, timeout=3600, volumes={"/data/media-cache": media_cache_vol}
+    image=image,
+    max_containers=10,
+    timeout=3600,
+    volumes={"/data/media-cache": media_cache_vol},
 )(modal.concurrent(max_inputs=4)(run))
 
 
 run_task = app.function(
-    image=image, min_containers=2, max_containers=10, timeout=3600, volumes={"/data/media-cache": media_cache_vol}
+    image=image,
+    min_containers=2,
+    max_containers=10,
+    timeout=3600,
+    volumes={"/data/media-cache": media_cache_vol},
 )(modal.concurrent(max_inputs=4)(run_task))
 
 
 run_task_replicate = app.function(
-    image=image, min_containers=2, max_containers=10, timeout=3600, volumes={"/data/media-cache": media_cache_vol}
+    image=image,
+    min_containers=2,
+    max_containers=10,
+    timeout=3600,
+    volumes={"/data/media-cache": media_cache_vol},
 )(modal.concurrent(max_inputs=4)(run_task_replicate))
 
 
@@ -519,7 +572,11 @@ embed_recent_creations_modal = app.function(
 
 
 create_concept_thumbnail = app.function(
-    image=image, min_containers=1, max_containers=10, timeout=600, volumes={"/data/media-cache": media_cache_vol}
+    image=image,
+    min_containers=1,
+    max_containers=10,
+    timeout=600,
+    volumes={"/data/media-cache": media_cache_vol},
 )(modal.concurrent(max_inputs=4)(create_concept_thumbnail))
 
 
@@ -527,19 +584,14 @@ create_concept_thumbnail = app.function(
 ## Triggers
 ########################################################
 
-@app.function(
-    image=image, 
-    max_containers=4
-)
+
+@app.function(image=image, max_containers=4)
 async def execute_trigger_fn(trigger_id: str) -> Session:
     return await execute_trigger(trigger_id)
 
 
 @app.function(
-    image=image, 
-    max_containers=1, 
-    schedule=modal.Period(minutes=2), 
-    timeout=300
+    image=image, max_containers=1, schedule=modal.Period(minutes=2), timeout=300
 )
 async def run_scheduled_triggers_fn():
     current_time = datetime.now(timezone.utc)
@@ -570,7 +622,6 @@ async def run_scheduled_triggers_fn():
 
     logger.info(f"Ran {len(triggers)} triggers")
     logger.info(sessions)
-
 
 
 @app.local_entrypoint()

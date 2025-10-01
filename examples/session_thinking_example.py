@@ -77,7 +77,7 @@ async def example_thinking_session():
         llm_config=llm_config
     )
 
-    add_user_message(session, context)
+    await add_user_message(session, context)
 
     # Run session
     context = await build_llm_context(

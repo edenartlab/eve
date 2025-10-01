@@ -639,6 +639,7 @@ class UpdateType(Enum):
     START_PROMPT = "start_prompt"
     ASSISTANT_TOKEN = "assistant_token"
     ASSISTANT_MESSAGE = "assistant_message"
+    USER_MESSAGE = "user_message"
     TOOL_COMPLETE = "tool_complete"
     TOOL_CANCELLED = "tool_cancelled"
     ERROR = "error"

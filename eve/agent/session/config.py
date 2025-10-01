@@ -4,7 +4,7 @@ from eve.agent.session.models import LLMConfig
 
 DEFAULT_SESSION_LLM_CONFIG_DEV = {
     "premium": LLMConfig(
-        model="claude-sonnet-4-20250514",
+        model="claude-sonnet-4-5",
         fallback_models=[
             "claude-3-7-sonnet-20250219",
             "claude-3-5-haiku-20241022",
@@ -12,7 +12,7 @@ DEFAULT_SESSION_LLM_CONFIG_DEV = {
         ]
     ),
     "free": LLMConfig(
-        model="claude-sonnet-4-20250514",
+        model="claude-sonnet-4-5",
         fallback_models=[
             "claude-3-7-sonnet-20250219",
             "claude-3-5-haiku-20241022",
@@ -22,7 +22,7 @@ DEFAULT_SESSION_LLM_CONFIG_DEV = {
 }
 DEFAULT_SESSION_LLM_CONFIG_STAGE = {
     "premium": LLMConfig(
-        model="claude-sonnet-4-20250514",
+        model="claude-sonnet-4-5",
         fallback_models=[
             "claude-3-7-sonnet-20250219",
             "claude-3-5-haiku-20241022",
@@ -30,7 +30,7 @@ DEFAULT_SESSION_LLM_CONFIG_STAGE = {
         ]
     ),
     "free": LLMConfig(
-        model="claude-sonnet-4-20250514",
+        model="claude-sonnet-4-5",
         fallback_models=[
             "claude-3-7-sonnet-20250219",
             "claude-3-5-haiku-20241022",
@@ -41,10 +41,10 @@ DEFAULT_SESSION_LLM_CONFIG_STAGE = {
 
 DEFAULT_SESSION_LLM_CONFIG_PROD = {
     "premium": LLMConfig(
-        model="claude-sonnet-4-20250514",
+        model="claude-sonnet-4-5",
     ),
     "free": LLMConfig(
-        model="claude-sonnet-4-20250514",
+        model="claude-sonnet-4-5",
     ),
 }
 
@@ -70,8 +70,8 @@ DEFAULT_SESSION_SELECTION_LIMIT = 25
 # }
 
 MODEL_TIERS = {
-    "high": ["anthropic/claude-sonnet-4-20250514", "gemini/gemini-2.5-pro", "openai/gpt-5"],
-    "medium": ["anthropic/claude-sonnet-4-20250514", "gemini/gemini-2.5-flash", "anthropic/claude-3-5-haiku-20241022" ],
+    "high": ["anthropic/claude-sonnet-4-5", "gemini/gemini-2.5-pro", "openai/gpt-5"],
+    "medium": ["anthropic/claude-sonnet-4-5", "gemini/gemini-2.5-flash", "anthropic/claude-3-5-haiku-20241022" ],
     "low": ["anthropic/claude-3-5-haiku-20241022", "gemini/gemini-2.5-flash", "openai/gpt-5-nano"]
 }
 

@@ -16,6 +16,7 @@ from eve.agent.agent import Agent
 from eve.tool import Tool
 from eve.mongo import get_collection
 from eve.models import Model
+from eve.agent.session.debug_logger import SessionDebugger
 from eve.concepts import Concept
 from eve.agent.session.models import (
     ActorSelectionMethod,
@@ -229,11 +230,14 @@ async def build_system_message(
     if concept_docs:
         concepts = "---\n"
         for c, concept in enumerate(concept_docs):
-            images = [f"{image['image']} :: {image['usage_instructions']}" for image in concept.images]
-            image_list = '\n * '.join(images)
+            images = [
+                f"{image['image']} :: {image['usage_instructions']}"
+                for image in concept.images
+            ]
+            image_list = "\n * ".join(images)
             concept_string = f"Concept {c + 1}: {concept.name}\nUsage instructions: {concept.usage_instructions}\nImages:\n * {image_list}\n---\n"
             concepts += concept_string
-            
+
     # Get text describing models
     lora_name = None
     if actor.models:
@@ -279,6 +283,7 @@ async def build_system_extras(
 
     if session.trigger:
         from eve.trigger import Trigger
+
         trigger = Trigger.from_mongo(session.trigger)
         extras.append(
             ChatMessage(
@@ -302,7 +307,7 @@ async def build_system_extras(
     return context, config, extras
 
 
-def add_user_message(
+async def add_user_message(
     session: Session, context: PromptSessionContext, pin: bool = False
 ):
     new_message = ChatMessage(
@@ -321,6 +326,37 @@ def add_user_message(
     session.memory_context.messages_since_memory_formation += 1
     session.save()
 
+    # Broadcast user message to SSE connections for real-time updates
+    try:
+        from eve.api.sse_manager import sse_manager
+        from eve.user import User
+
+        # Get full user data for enrichment
+        user = User.from_mongo(context.initiating_user_id)
+        user_data = None
+        if user:
+            user_data = {
+                "_id": str(user.id),
+                "username": user.username,
+                "name": user.username,  # Use username as name for consistency
+                "userImage": user.userImage,
+            }
+
+        message_dict = new_message.model_dump(by_alias=True)
+        # Enrich sender with full user data if available
+        if user_data:
+            message_dict["sender"] = user_data
+
+        user_message_update = {
+            "type": UpdateType.USER_MESSAGE.value,
+            "message": message_dict,
+        }
+
+        session_id = str(session.id)
+        await sse_manager.broadcast(session_id, user_message_update)
+    except Exception as e:
+        print(f"Failed to broadcast user message to SSE: {e}")
+
     # Print the most recent message:
     # print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
     # print(f"--- {new_message.content[:30]} ---")
@@ -334,8 +370,13 @@ async def build_llm_context(
     context: PromptSessionContext,
     trace_id: Optional[str] = str(uuid.uuid4()),
 ):
-    user = User.from_mongo(context.initiating_user_id)
-    tier = "premium" if user.subscriptionTier and user.subscriptionTier > 0 else "free"
+    if context.initiating_user_id:
+        user = User.from_mongo(context.initiating_user_id)
+        tier = (
+            "premium" if user.subscriptionTier and user.subscriptionTier > 0 else "free"
+        )
+    else:
+        tier = "free"
 
     auth_user_id = context.acting_user_id or context.initiating_user_id
     if context.tools:
@@ -490,6 +531,7 @@ async def process_tool_call(
     cancellation_event: asyncio.Event = None,
     tool_cancellation_event: asyncio.Event = None,
     is_client_platform: bool = False,
+    session_run_id: str = None,
 ):
     # Update the tool call status to running
     tool_call.status = "running"
@@ -610,6 +652,7 @@ async def process_tool_call(
                 tool_name=tool_call.tool,
                 tool_index=tool_call_index,
                 result=result,
+                session_run_id=session_run_id,
             )
         elif result["status"] == "cancelled":
             tool_call.status = "cancelled"
@@ -653,6 +696,7 @@ async def process_tool_call(
                 tool_name=tool_call.tool,
                 tool_index=tool_call_index,
                 error=result.get("error"),
+                session_run_id=session_run_id,
             )
     except Exception as e:
         capture_exception(e)
@@ -673,6 +717,7 @@ async def process_tool_call(
             tool_name=tool_call.tool,
             tool_index=tool_call_index,
             error=str(e),
+            session_run_id=session_run_id,
         )
 
 
@@ -683,6 +728,7 @@ async def process_tool_calls(
     cancellation_event: asyncio.Event = None,
     tool_cancellation_events: dict = None,
     is_client_platform: bool = False,
+    session_run_id: str = None,
 ):
     tool_calls = assistant_message.tool_calls
     if tool_cancellation_events is None:
@@ -710,6 +756,7 @@ async def process_tool_calls(
                     cancellation_event,
                     tool_cancellation_events[tool_call_id],
                     is_client_platform,
+                    session_run_id,
                 )
             )
 
@@ -815,6 +862,7 @@ async def async_prompt_session(
 
             if session.trigger:
                 from eve.trigger import Trigger
+
                 trigger = Trigger.from_mongo(session.trigger)
                 trigger_message = ChatMessage(
                     session=session.id,
@@ -856,6 +904,7 @@ async def async_prompt_session(
                             yield SessionUpdate(
                                 type=UpdateType.ASSISTANT_TOKEN,
                                 text=choice.delta.content,
+                                session_run_id=session_run_id,
                             )
                         # Process tool calls silently (don't yield anything)
                         if choice.delta and choice.delta.tool_calls:
@@ -959,7 +1008,15 @@ async def async_prompt_session(
             session.save()
             # No longer appending to llm_context.messages since we refresh from DB each iteration
             yield SessionUpdate(
-                type=UpdateType.ASSISTANT_MESSAGE, message=assistant_message
+                type=UpdateType.ASSISTANT_MESSAGE,
+                message=assistant_message,
+                agent={
+                    "_id": str(actor.id),
+                    "username": actor.username,
+                    "name": actor.name,
+                    "userImage": actor.userImage,
+                },
+                session_run_id=session_run_id,
             )
 
             if assistant_message.tool_calls:
@@ -970,6 +1027,7 @@ async def async_prompt_session(
                     cancellation_event,
                     tool_cancellation_events,
                     is_client_platform,
+                    session_run_id,
                 ):
                     # Check for cancellation during tool execution
                     if cancellation_event.is_set():
@@ -1016,6 +1074,7 @@ async def async_prompt_session(
                             tool_name=tool_call.tool,
                             tool_index=idx,
                             result={"status": "cancelled"},
+                            session_run_id=session_run_id,
                         )
 
                 # Force save by updating the entire tool_calls array
@@ -1027,8 +1086,7 @@ async def async_prompt_session(
                         {
                             "$set": {
                                 "tool_calls": [
-                                    tc.model_dump()
-                                    for tc in last_message.tool_calls
+                                    tc.model_dump() for tc in last_message.tool_calls
                                 ]
                             }
                         },
@@ -1049,9 +1107,13 @@ async def async_prompt_session(
 
             # 3. Yield final updates
             yield SessionUpdate(
-                type=UpdateType.ASSISTANT_MESSAGE, message=cancel_message
+                type=UpdateType.ASSISTANT_MESSAGE,
+                message=cancel_message,
+                session_run_id=session_run_id,
             )
-            yield SessionUpdate(type=UpdateType.END_PROMPT)
+            yield SessionUpdate(
+                type=UpdateType.END_PROMPT, session_run_id=session_run_id
+            )
 
         except Exception as e:
             print(f"Error during session cancellation cleanup: {e}")
@@ -1082,6 +1144,10 @@ def format_session_update(update: SessionUpdate, context: PromptSessionContext) 
         else None,
     }
 
+    # Include session_run_id in all updates for request tracking
+    if update.session_run_id:
+        data["session_run_id"] = update.session_run_id
+
     if update.type == UpdateType.START_PROMPT:
         if update.agent:
             data["agent"] = update.agent
@@ -1091,10 +1157,40 @@ def format_session_update(update: SessionUpdate, context: PromptSessionContext) 
         data["text"] = update.text
     elif update.type == UpdateType.ASSISTANT_MESSAGE:
         data["content"] = update.message.content
+        message_dict = update.message.model_dump(by_alias=True)
+
+        print(f"DEBUG format_session_update: update.agent = {update.agent}")
+        print(
+            f"DEBUG format_session_update: message_dict sender before = {message_dict.get('sender')}"
+        )
+
+        # Populate sender with full agent data if available
+        if update.agent and message_dict.get("sender"):
+            print(f"DEBUG: Replacing sender with agent data")
+            message_dict["sender"] = update.agent
+            # Also add agent to top-level for debugging
+            data["agent"] = update.agent
+        else:
+            print(
+                f"DEBUG: NOT replacing - update.agent={update.agent}, has sender={bool(message_dict.get('sender'))}"
+            )
+
+        print(
+            f"DEBUG format_session_update: message_dict sender after = {message_dict.get('sender')}"
+        )
+
+        data["message"] = message_dict
         if update.message.tool_calls:
             data["tool_calls"] = [
                 dumps_json(tc.model_dump()) for tc in update.message.tool_calls
             ]
+    elif update.type == UpdateType.USER_MESSAGE:
+        # User messages should already have enriched sender data from add_user_message
+        data["message"] = (
+            update.message.model_dump(by_alias=True)
+            if hasattr(update.message, "model_dump")
+            else update.message
+        )
     elif update.type == UpdateType.TOOL_COMPLETE:
         data["tool"] = update.tool_name
         data["result"] = dumps_json(update.result)
@@ -1117,42 +1213,93 @@ async def _run_prompt_session_internal(
 ):
     """Internal function that handles both streaming and non-streaming"""
     session = context.session
+    session_id = str(session.id) if session else None
+    debugger = SessionDebugger(session_id)
+
+    debugger.start_section("_run_prompt_session_internal")
+    debugger.log(
+        f"Starting prompt session",
+        {
+            "session_id": session_id,
+            "stream": stream,
+            "initiating_user_id": context.initiating_user_id,
+            "message": context.message.content if context.message else None,
+            "has_update_config": context.update_config is not None,
+            "actor_agent_ids": context.actor_agent_ids,
+        },
+    )
 
     try:
+        debugger.log("Validating prompt session", emoji="info")
         validate_prompt_session(session, context)
 
         # Create user message first, regardless of whether actors are determined
         if context.initiating_user_id:
-            add_user_message(session, context)
+            debugger.log(
+                f"Adding user message",
+                {"user_id": str(context.initiating_user_id)[:8]},
+                emoji="message",
+            )
+            await add_user_message(session, context)
 
+        debugger.log("Determining actors", emoji="actor")
         actors = await determine_actors(session, context)
+        debugger.log(
+            f"Found {len(actors)} actor(s)",
+            {
+                "actors": [str(actor.id)[:8] for actor in actors] if actors else [],
+                "agent_count": len(session.agents) if session.agents else 0,
+            },
+            emoji="actor" if actors else "warning",
+        )
+
         is_client_platform = context.update_config is not None
 
         if not actors:
+            debugger.log(
+                "No actors found - session has no agents assigned",
+                level="warning",
+                emoji="warning",
+            )
+            debugger.end_section("_run_prompt_session_internal")
             return
 
         # Generate session run ID for this prompt session
         session_run_id = str(uuid.uuid4())
+        debugger.log(f"Session run ID", {"id": session_run_id[:8]}, emoji="info")
 
         # Start typing indicator
         if context.update_config:
+            debugger.log("Starting typing indicator", emoji="info")
             from eve.api.typing_coordinator import update_busy_state
+
             await update_busy_state(
-                context.update_config.model_dump() if hasattr(context.update_config, "model_dump") else context.update_config,
+                context.update_config.model_dump()
+                if hasattr(context.update_config, "model_dump")
+                else context.update_config,
                 session_run_id,
-                True
+                True,
             )
 
         try:
             # For single actor, maintain backwards compatibility
             if len(actors) == 1:
                 actor = actors[0]
+                debugger.log(
+                    f"Single actor mode",
+                    {"name": actor.name, "id": str(actor.id)[:8]},
+                    emoji="actor",
+                )
+
+                debugger.log("Building LLM context", emoji="llm")
                 llm_context = await build_llm_context(
                     session,
                     actor,
                     context,
                     trace_id=session_run_id,
                 )
+
+                debugger.log("Starting prompt session", emoji="llm")
                 async for update in async_prompt_session(
                     session,
                     llm_context,
@@ -1161,54 +1308,87 @@ async def _run_prompt_session_internal(
                     is_client_platform=is_client_platform,
                     session_run_id=session_run_id,
                 ):
-                    yield format_session_update(update, context)
-            else:
-                # Multiple actors - run them in parallel
-                async def run_actor_session(actor: Agent):
-                    actor_updates = []
-                    # Each actor gets its own generation ID
-                    actor_session_run_id = str(uuid.uuid4())
-                    llm_context = await build_llm_context(
-                        session,
-                        actor,
-                        context,
-                        trace_id=actor_session_run_id,
+                    formatted_update = format_session_update(update, context)
+                    debugger.log_update(
+                        update.type.value if hasattr(update, "type") else "unknown",
+                        formatted_update,
                     )
-                    async for update in async_prompt_session(
-                        session,
-                        llm_context,
-                        actor,
-                        stream=stream,
-                        is_client_platform=is_client_platform,
-                        session_run_id=actor_session_run_id,
-                    ):
-                        actor_updates.append(format_session_update(update, context))
-                    return actor_updates
+                    yield formatted_update
+            else:
+                # Multiple actors - run them in parallel with streaming
+                update_queue = asyncio.Queue()
+                tasks = []
 
-                # Run all actors in parallel
-                tasks = [run_actor_session(actor) for actor in actors]
-                results = await asyncio.gather(*tasks, return_exceptions=True)
+                async def run_actor_session(actor: Agent, queue: asyncio.Queue):
+                    try:
+                        # Each actor gets its own generation ID
+                        actor_session_run_id = str(uuid.uuid4())
+                        llm_context = await build_llm_context(
+                            session,
+                            actor,
+                            context,
+                            trace_id=actor_session_run_id,
+                        )
+                        async for update in async_prompt_session(
+                            session,
+                            llm_context,
+                            actor,
+                            stream=stream,
+                            is_client_platform=is_client_platform,
+                            session_run_id=actor_session_run_id,
+                        ):
+                            formatted_update = format_session_update(update, context)
+                            await queue.put(formatted_update)
+                    except Exception as e:
+                        await queue.put(
+                            {
+                                "type": UpdateType.ERROR.value,
+                                "error": str(e),
+                                "actor_id": str(actor.id),
+                                "update_config": context.update_config.model_dump()
+                                if context.update_config
+                                else None,
+                            }
+                        )
 
-                # Yield updates from all actors in the order they complete
-                for result in results:
-                    if isinstance(result, Exception):
-                        yield {
-                            "type": UpdateType.ERROR.value,
-                            "error": str(result),
-                            "update_config": context.update_config.model_dump()
-                            if context.update_config
-                            else None,
-                        }
-                    else:
-                        for update in result:
-                            yield update
+                # Create tasks for all actors
+                for actor in actors:
+                    task = asyncio.create_task(run_actor_session(actor, update_queue))
+                    tasks.append(task)
+
+                # Yield updates as they arrive from any actor
+                completed_count = 0
+                while completed_count < len(tasks):
+                    # Check if any tasks are done
+                    done_tasks = [t for t in tasks if t.done()]
+                    completed_count = len(done_tasks)
+
+                    try:
+                        # Get update with timeout to periodically check task status
+                        update = await asyncio.wait_for(update_queue.get(), timeout=0.1)
+                        yield update
+                    except asyncio.TimeoutError:
+                        # No update available, check if all tasks are done
+                        if completed_count == len(tasks):
+                            break
+                        continue
+
+                # Drain any remaining updates from the queue
+                while not update_queue.empty():
+                    update = await update_queue.get()
+                    yield update
+
+                # Ensure all tasks are complete
+                await asyncio.gather(*tasks, return_exceptions=True)
         finally:
             # Stop typing indicator
             if context.update_config:
                 await update_busy_state(
-                    context.update_config.model_dump() if hasattr(context.update_config, "model_dump") else context.update_config,
+                    context.update_config.model_dump()
+                    if hasattr(context.update_config, "model_dump")
+                    else context.update_config,
                     session_run_id,
-                    False
+                    False,
                 )
 
         # Schedule background tasks if available
@@ -1260,30 +1440,66 @@ async def _run_prompt_session_internal(
 async def run_prompt_session_stream(
     context: PromptSessionContext, background_tasks: BackgroundTasks
 ):
+    session_id = str(context.session.id) if context.session else None
+    debugger = SessionDebugger(session_id)
+
+    debugger.start_section("run_prompt_session_stream")
     try:
         async for data in _run_prompt_session_internal(
             context, background_tasks, stream=True
         ):
+            # Also broadcast to SSE connections
+            if session_id:
+                try:
+                    from eve.api.sse_manager import sse_manager
+
+                    connection_count = sse_manager.get_connection_count(session_id)
+                    debugger.log_sse_broadcast(session_id, data, connection_count)
+                    await sse_manager.broadcast(session_id, data)
+                except Exception as sse_error:
+                    debugger.log_error(f"Failed to broadcast to SSE", sse_error)
+                    print(f"Failed to broadcast to SSE: {sse_error}")
             yield data
     except Exception as e:
         traceback.print_exc()
-        yield {
+        error_data = {
             "type": UpdateType.ERROR.value,
             "error": str(e),
             "update_config": context.update_config.model_dump()
             if context.update_config
             else None,
         }
+        # Broadcast error to SSE as well
+        session_id = str(context.session.id) if context.session else None
+        if session_id:
+            try:
+                from eve.api.sse_manager import sse_manager
+
+                await sse_manager.broadcast(session_id, error_data)
+            except Exception:
+                pass
+        yield error_data
 
 
 @handle_errors
 async def run_prompt_session(
     context: PromptSessionContext, background_tasks: BackgroundTasks
 ):
+    session_id = str(context.session.id) if context.session else None
+    debugger = SessionDebugger(session_id)
+
+    debugger.start_section("run_prompt_session")
+    debugger.log("Non-streaming mode", emoji="info")
+
     async for data in _run_prompt_session_internal(
         context, background_tasks, stream=False
     ):
-        await emit_update(context.update_config, data)
+        # Pass session_id for SSE broadcasting
+        update_type = data.get("type", "unknown")
+        debugger.log(f"Emitting update: {update_type}", emoji="update")
+        await emit_update(context.update_config, data, session_id=session_id)
+
+    debugger.end_section("run_prompt_session")
 
 
 async def _queue_session_action_fastify_background_task(session: Session):
@@ -1293,7 +1509,7 @@ async def _queue_session_action_fastify_background_task(session: Session):
         await asyncio.sleep(session.autonomy_settings.reply_interval)
 
     url = f"{os.getenv('EDEN_API_URL')}/sessions/prompt"
-    payload = {"session_id": str(session.id)}
+    payload = {"session_id": str(session.id), "stream": True}
     headers = {"Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}"}
 
     try:

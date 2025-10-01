@@ -94,7 +94,7 @@ async def handler(args: dict, user: str = None, agent: str = None):
         tools, 
         force_reply=True, 
         use_thinking=False, 
-        model="claude-sonnet-4-20250514"
+        model="claude-sonnet-4-5"
     ):
         pass
 
