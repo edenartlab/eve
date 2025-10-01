@@ -234,7 +234,8 @@ async def build_system_message(
                 f"{image['image']} :: {image['usage_instructions']}"
                 for image in concept.images
             ]
-            concept_string = f"Concept {c + 1}: {concept.name}\nUsage instructions: {concept.usage_instructions}\nImages:\n * {'\n * '.join(images)}\n---\n"
+            image_list = '\n * '.join(images)
+            concept_string = f"Concept {c + 1}: {concept.name}\nUsage instructions: {concept.usage_instructions}\nImages:\n * {image_list}\n---\n"
             concepts += concept_string
 
     # Get text describing models
