@@ -8,7 +8,7 @@ from instructor.function_calls import openai_schema
 MAX_MEMORY_WORDS = 200
 LLM_CALL_MAX_TOKENS = MAX_MEMORY_WORDS * 2
 EMPTY_MEMORY_STRING = "[Empty agent memory]"
-CLAUDE_MODEL = "claude-sonnet-4-20250514"
+CLAUDE_MODEL = "claude-sonnet-4-5"
 
 @openai_schema
 class MemoryResponse(BaseModel):

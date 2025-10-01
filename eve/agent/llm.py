@@ -17,6 +17,7 @@ MODELS = [
     "claude-3-7-sonnet-latest",
     "claude-3-5-haiku-latest",
     "claude-sonnet-4-20250514",
+    "claude-sonnet-4-5",
     "claude-opus-4-20250514",
     "gpt-4o",
     "gpt-4o-mini",
