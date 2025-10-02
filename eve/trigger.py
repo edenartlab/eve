@@ -271,7 +271,7 @@ async def execute_trigger(
         )
 
         # Create artwork generation message
-        message = ChatMessageRequestInput(role="user", content=trigger_prompt)
+        message = ChatMessageRequestInput(role="system", content=trigger_prompt)
 
         # Create context with selected model
         context = PromptSessionContext(

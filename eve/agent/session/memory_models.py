@@ -122,6 +122,9 @@ def messages_to_text(messages: List[ChatMessage]) -> tuple[str, dict[str, int]]:
     char_counts_by_source = {"user": 0, "agent": 0, "tool": 0, "other": 0}
 
     for msg in messages:
+        # Skip system messages (e.g., periodic task instructions)
+        if msg.role == "system":
+            continue
         speaker = sender_id_to_sender_name_map.get(msg.sender) or msg.name or msg.role
         content = msg.content
 
