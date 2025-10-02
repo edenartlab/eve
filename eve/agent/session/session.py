@@ -313,7 +313,7 @@ async def add_user_message(
     new_message = ChatMessage(
         session=session.id,
         sender=ObjectId(context.initiating_user_id),
-        role="user",
+        role=context.message.role,
         content=context.message.content,
         attachments=context.message.attachments or [],
     )
