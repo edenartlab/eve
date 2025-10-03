@@ -41,6 +41,7 @@ from eve.api.handlers import (
     handle_create_notification,
     handle_embedsearch,
     handle_async_llm_call,
+    handle_extract_agent_prompts,
 )
 from eve.trigger import (
     handle_trigger_create,
@@ -78,6 +79,7 @@ from eve.api.api_requests import (
     CreateNotificationRequest,
     EmbedSearchRequest,
     AsyncLLMCallRequest,
+    AgentPromptsExtractionRequest,
 )
 from eve.api.api_functions import (
     cancel_stuck_tasks_fn,
@@ -434,6 +436,14 @@ async def async_llm_call(
     request: AsyncLLMCallRequest, _: dict = Depends(auth.authenticate_admin)
 ):
     return await handle_async_llm_call(request)
+
+
+# Agent creation - extract prompts from conversation session
+@web_app.post("/agent_creation/extract_prompts")
+async def extract_agent_prompts(
+    request: AgentPromptsExtractionRequest, _: dict = Depends(auth.authenticate_admin)
+):
+    return await handle_extract_agent_prompts(request)
 
 
 # Simple embed endpoint that just returns the embedding vector

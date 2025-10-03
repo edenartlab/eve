@@ -256,3 +256,8 @@ class AsyncLLMCallRequest(BaseModel):
     model: Optional[str] = None
     tools: Optional[Dict[str, Dict[str, Any]]] = None
     response_model: Optional[str] = None  # Not implemented for now
+
+
+class AgentPromptsExtractionRequest(BaseModel):
+    user_id: str
+    session_id: str

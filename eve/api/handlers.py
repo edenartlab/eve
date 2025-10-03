@@ -1485,3 +1485,91 @@ async def handle_async_llm_call(request):
         "stop": stop,
         "cost": cost,
     }
+
+
+@handle_errors
+async def handle_extract_agent_prompts(request):
+    """
+    Extract agent persona, description, and memory instructions from a conversation session.
+
+    Takes a session_id, fetches all messages from that session, and uses LLM to extract:
+    - persona: Core personality traits and characteristics
+    - description: Short summary of agent's purpose and capabilities
+    - memory_instructions: Instructions for how agent should store/recall memories
+    """
+    from eve.agent.thread import UserMessage
+    from eve.agent.session.models import Session
+
+    # Get user_id and verify user exists
+    user_id = request.user_id
+    user = User.from_mongo(ObjectId(user_id))
+    if not user:
+        raise APIError(f"User not found: {user_id}", status_code=404)
+
+    # Fetch session
+    session = Session.from_mongo(ObjectId(request.session_id))
+    if not session:
+        raise APIError(f"Session not found: {request.session_id}", status_code=404)
+
+    # Verify user owns the session
+    if str(session.owner) != str(user_id):
+        raise APIError("Unauthorized: User does not own this session", status_code=403)
+
+    # Format conversation from session messages
+    conversation_parts = []
+    for msg in session.messages:
+        if msg.role in ["user", "assistant"]:
+            role_label = "User" if msg.role == "user" else "Assistant"
+            conversation_parts.append(f"{role_label}: {msg.content}")
+
+    conversation_text = "\n\n".join(conversation_parts)
+
+    # Define extraction prompts
+    persona_prompt = f"Extract the core personality traits and characteristics from the following conversation. Return ONLY the persona description, no preamble.\n\n{conversation_text}"
+    description_prompt = f"Generate a SHORT (1-2 sentence) summary of the agent's purpose and capabilities based on this conversation. Return ONLY the description, no preamble.\n\n{conversation_text}"
+    memory_prompt = f"Based on the following conversation, generate instructions for how this agent should store and recall memories. Return ONLY the instructions, no preamble.\n\n{conversation_text}"
+
+    # Calculate total input text for cost estimation
+    total_input_text = persona_prompt + description_prompt + memory_prompt
+
+    # Make three parallel LLM calls
+    import asyncio
+
+    async def call_llm(prompt: str) -> str:
+        messages = [UserMessage(content=prompt)]
+        content, _, _ = await async_prompt(
+            messages=messages,
+            system_message=None,
+            model="claude-sonnet-4-5",
+            response_model=None,
+            tools={},
+        )
+        return content
+
+    # Execute all three extractions in parallel
+    persona, description, memory_instructions = await asyncio.gather(
+        call_llm(persona_prompt),
+        call_llm(description_prompt),
+        call_llm(memory_prompt),
+    )
+
+    # Calculate total output text for cost
+    total_output_text = persona + description + memory_instructions
+
+    # Calculate cost
+    cost = compute_llm_cost(total_input_text, total_output_text)
+
+    # Check and spend manna
+    user.check_manna(cost)
+
+    if "free_tools" not in (user.featureFlags or []):
+        from eve.user import Manna
+        manna = Manna.load(user.id)
+        manna.spend(cost)
+
+    return {
+        "persona": persona.strip(),
+        "description": description.strip(),
+        "memory_instructions": memory_instructions.strip(),
+        "cost": cost,
+    }
