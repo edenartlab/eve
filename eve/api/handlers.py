@@ -73,6 +73,37 @@ logger = logging.getLogger(__name__)
 db = os.getenv("DB", "STAGE").upper()
 
 
+def compute_llm_cost(input_text: str, output_text: str) -> float:
+    """
+    Compute manna cost for LLM calls based on token count estimates.
+
+    Args:
+        input_text: The input text (system message + user messages)
+        output_text: The output text from the LLM
+
+    Returns:
+        The manna cost
+    """
+    # Estimate token count (4 chars ≈ 1 token)
+    input_tokens = len(input_text) / 4
+    output_tokens = len(output_text) / 4
+
+    # Cost parameters
+    manna_cost_per_dollar = 1 / 0.01  # 0.01 dollars = 1 manna, so 100 manna per dollar
+    input_cost_per_M_tokens = 3  # dollars per million tokens
+    output_cost_per_M_tokens = 15  # dollars per million tokens
+
+    # Calculate dollar cost
+    input_cost_dollars = (input_tokens / 1_000_000) * input_cost_per_M_tokens
+    output_cost_dollars = (output_tokens / 1_000_000) * output_cost_per_M_tokens
+    total_cost_dollars = input_cost_dollars + output_cost_dollars
+
+    # Convert to manna
+    manna_cost = total_cost_dollars * manna_cost_per_dollar
+
+    return manna_cost
+
+
 @handle_errors
 async def handle_create(request: TaskRequest):
     tool = Tool.load(key=request.tool)
@@ -1395,11 +1426,22 @@ async def handle_async_llm_call(request):
     """Generic LLM prompt endpoint that exposes async_prompt directly"""
     from eve.agent.thread import UserMessage, AssistantMessage
 
-    # Convert request messages to Thread messages
+    # Get user_id from the authenticated request
+    user_id = request.user_id
+    user = User.from_mongo(ObjectId(user_id))
+    if not user:
+        raise APIError(f"User not found: {user_id}", status_code=404)
+
+    # Convert request messages to Thread messages and build input text
     messages = []
     system_message = request.system_message
+    input_text = ""
+
+    if system_message:
+        input_text += system_message
 
     for msg in request.messages:
+        input_text += msg.content
         if msg.role == "system":
             # If system message in messages, use it (override system_message field)
             system_message = msg.content
@@ -1425,8 +1467,21 @@ async def handle_async_llm_call(request):
         tools=tools_dict,
     )
 
+    # Calculate cost using the new function
+    cost = compute_llm_cost(input_text, content)
+
+    # Check and spend manna
+    user.check_manna(cost)
+
+    # Spend manna
+    if "free_tools" not in (user.featureFlags or []):
+        from eve.user import Manna
+        manna = Manna.load(user.id)
+        manna.spend(cost)
+
     return {
         "content": content,
         "tool_calls": [tc.model_dump() for tc in tool_calls],
         "stop": stop,
+        "cost": cost,
     }

@@ -250,6 +250,7 @@ class LLMMessage(BaseModel):
 
 
 class AsyncLLMCallRequest(BaseModel):
+    user_id: str
     messages: List[LLMMessage]
     system_message: Optional[str] = None
     model: Optional[str] = None
