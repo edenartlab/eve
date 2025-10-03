@@ -60,7 +60,7 @@ DEFAULT_SESSION_SELECTION_LIMIT = 25
 MODEL_TIERS = {
     "high": ["anthropic/claude-sonnet-4-5", "gemini/gemini-2.5-pro", "openai/gpt-5"],
     "medium": ["anthropic/claude-sonnet-4-5", "gemini/gemini-2.5-flash", "openai/gpt-4o"],
-    "low": ["gemini/gemini-2.5-flash", "openai/gpt-5-nano", "openai/gpt-4o-mini"]
+    "low": ["anthropic/claude-3-5-haiku-latest", "openai/gpt-5-nano", "openai/gpt-4o-mini"]
 }
 
 async def build_llm_config_from_agent_settings(

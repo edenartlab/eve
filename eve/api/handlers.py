@@ -58,7 +58,7 @@ from eve.api.helpers import (
 from eve.api.typing_coordinator import update_busy_state
 from eve.utils import prepare_result, dumps_json, serialize_json
 from eve.tools.replicate_tool import replicate_update_task
-from eve.agent.llm import UpdateType
+from eve.agent.llm import UpdateType, async_prompt
 from eve.agent.run_thread import async_prompt_thread
 from eve.mongo import get_collection
 from eve.task import Task
@@ -1388,3 +1388,45 @@ async def handle_embedsearch(request):
     results = list(creations.aggregate(pipeline))
 
     return {"results": results}
+
+
+@handle_errors
+async def handle_async_llm_call(request):
+    """Generic LLM prompt endpoint that exposes async_prompt directly"""
+    from eve.agent.thread import UserMessage, AssistantMessage
+
+    # Convert request messages to Thread messages
+    messages = []
+    system_message = request.system_message
+
+    for msg in request.messages:
+        if msg.role == "system":
+            # If system message in messages, use it (override system_message field)
+            system_message = msg.content
+        elif msg.role == "user":
+            messages.append(UserMessage(content=msg.content, name=msg.name))
+        elif msg.role == "assistant":
+            messages.append(AssistantMessage(content=msg.content, tool_calls=[]))
+
+    # Convert tools dict to Tool objects if provided
+    tools_dict = {}
+    if request.tools:
+        for tool_name, tool_config in request.tools.items():
+            tool = Tool.load(key=tool_name)
+            if tool:
+                tools_dict[tool_name] = tool
+
+    # Call async_prompt
+    content, tool_calls, stop = await async_prompt(
+        messages=messages,
+        system_message=system_message,
+        model=request.model or "claude-sonnet-4-5",
+        response_model=None,  # Not supporting structured output for now
+        tools=tools_dict,
+    )
+
+    return {
+        "content": content,
+        "tool_calls": [tc.model_dump() for tc in tool_calls],
+        "stop": stop,
+    }

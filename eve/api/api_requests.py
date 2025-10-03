@@ -241,3 +241,17 @@ class EmbedSearchRequest(BaseModel):
     user_id: Optional[str] = None
     tool: Optional[str] = None
     limit: Optional[int] = 20
+
+
+class LLMMessage(BaseModel):
+    role: Literal["user", "assistant", "system"]
+    content: str
+    name: Optional[str] = None
+
+
+class AsyncLLMCallRequest(BaseModel):
+    messages: List[LLMMessage]
+    system_message: Optional[str] = None
+    model: Optional[str] = None
+    tools: Optional[Dict[str, Dict[str, Any]]] = None
+    response_model: Optional[str] = None  # Not implemented for now

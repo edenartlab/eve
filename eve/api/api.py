@@ -40,6 +40,7 @@ from eve.api.handlers import (
     handle_v2_deployment_farcaster_neynar_webhook,
     handle_create_notification,
     handle_embedsearch,
+    handle_async_llm_call,
 )
 from eve.trigger import (
     handle_trigger_create,
@@ -76,6 +77,7 @@ from eve.api.api_requests import (
     UpdateDeploymentRequestV2,
     CreateNotificationRequest,
     EmbedSearchRequest,
+    AsyncLLMCallRequest,
 )
 from eve.api.api_functions import (
     cancel_stuck_tasks_fn,
@@ -424,6 +426,14 @@ async def embedsearch(
     request: EmbedSearchRequest, _: dict = Depends(auth.authenticate_admin)
 ):
     return await handle_embedsearch(request)
+
+
+# Generic LLM call endpoint
+@web_app.post("/llm/call")
+async def async_llm_call(
+    request: AsyncLLMCallRequest, _: dict = Depends(auth.authenticate_admin)
+):
+    return await handle_async_llm_call(request)
 
 
 # Simple embed endpoint that just returns the embedding vector

@@ -118,7 +118,7 @@ def write_reel(args: dict, agent: Agent = None):
 
     client = instructor.from_anthropic(Anthropic())
     reel = client.messages.create(
-        model="claude-sonnet-4-5",
+        model="claude-opus-4-1-20250805",
         max_tokens=3000,
         max_retries=1,
         system=system_prompt,
