@@ -88,7 +88,7 @@ def compute_llm_cost(input_text: str, output_text: str) -> float:
     input_tokens = len(input_text) / 4
     output_tokens = len(output_text) / 4
 
-    # Cost parameters
+    # Cost parameters (hardcoded to claude-sonnet-4-5)
     manna_cost_per_dollar = 1 / 0.01  # 0.01 dollars = 1 manna, so 100 manna per dollar
     input_cost_per_M_tokens = 3  # dollars per million tokens
     output_cost_per_M_tokens = 15  # dollars per million tokens
