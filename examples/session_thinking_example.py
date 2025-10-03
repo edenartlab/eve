@@ -60,7 +60,7 @@ async def example_thinking_session():
 
     # Create context with thinking model configuration
     llm_config = LLMConfig(
-        model="claude-3-7-sonnet-20250219",
+        model="claude-sonnet-4-5",
         llm_settings=LLMThinkingSettings(
             policy="auto",
             effort_instructions="Use low when I ask you to think about Hanoi Problem, but high for anything else, especially when I ask you to think about the best college to go to for an introvert."

@@ -47,7 +47,7 @@ async def async_think(
     thread: Thread,
     user_message: UserMessage,
     force_reply: bool = True,
-    model: str = "claude-3-5-haiku-latest",
+    model: str = "claude-sonnet-4-5",
 ):
     
     print("================================================")
@@ -144,7 +144,7 @@ def think(
     thread: Thread, 
     user_message: UserMessage, 
     force_reply: bool = True,
-    model: str = "claude-3-5-haiku-latest",
+    model: str = "claude-sonnet-4-5",
 ):
     return asyncio.run(
         async_think(agent, thread, user_message, force_reply, model)

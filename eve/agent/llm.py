@@ -14,11 +14,7 @@ from .thread import UserMessage, AssistantMessage, ToolCall
 
 
 MODELS = [
-    "claude-3-7-sonnet-latest",
-    "claude-3-5-haiku-latest",
-    "claude-sonnet-4-20250514",
     "claude-sonnet-4-5",
-    "claude-opus-4-20250514",
     "gpt-4o",
     "gpt-4o-mini",
     "gpt-4.1",
@@ -26,11 +22,10 @@ MODELS = [
     "o1-mini",
     "o1",
     "o3",
-    "google/gemini-2.0-flash-001",
-    "anthropic/claude-3.7-sonnet",
+    "google/gemini-2.0-flash-001"
 ]
 
-DEFAULT_MODEL = os.getenv("DEFAULT_AGENT_MODEL", "claude-3-5-haiku-latest")
+DEFAULT_MODEL = os.getenv("DEFAULT_AGENT_MODEL", "claude-sonnet-4-5")
 
 
 class UpdateType(str, Enum):
@@ -44,76 +39,10 @@ class UpdateType(str, Enum):
     TOOL_CALL = "tool_call"
 
 
-def calculate_anthropic_model_cost(
-    model: str,
-    input_tokens: int,
-    output_tokens: int,
-    prompt_cache_write_tokens: int = 0,
-    cached_tokens: int = 0,
-) -> Dict[str, float]:
-    """
-    Calculate the cost of a model call based on token usage.
-
-    Args:
-        model: The model name
-        input_tokens: Number of input tokens
-        output_tokens: Number of output tokens
-        cached_tokens: Number of cached tokens (for prompt caching)
-
-    Returns:
-        Dictionary with cost details
-    """
-
-    # Claude 3.7 Sonnet
-    if model == "claude-3-7-sonnet-latest":
-        # Prices per million tokens ($X/MTok)
-        input_price = 3.0 / 1_000_000  # $3/MTok
-        prompt_cache_write_price = 3.75 / 1_000_000  # $0.30/MTok for cached tokens
-        output_price = 15.0 / 1_000_000  # $15/MTok
-        cached_price = 0.30 / 1_000_000  # $0.30/MTok for cached tokens
-
-        # Calculate costs
-        input_cost = input_tokens * input_price
-        prompt_cache_write_cost = prompt_cache_write_tokens * prompt_cache_write_price
-        output_cost = output_tokens * output_price
-        cached_cost = cached_tokens * cached_price
-        total_cost = input_cost + prompt_cache_write_cost + output_cost + cached_cost
-
-        return {
-            "input": input_cost + prompt_cache_write_cost,
-            "output": output_cost,
-            "total": total_cost,
-        }
-
-    # Claude 3.5 Haiku
-    elif model == "claude-3-5-haiku-latest":
-        # Prices per million tokens ($X/MTok)
-        input_price = 0.8 / 1_000_000  # $3/MTok
-        output_price = 4.0 / 1_000_000  # $15/MTok
-        prompt_cache_write_price = 1.0 / 1_000_000  # $0.30/MTok for cached tokens
-        cached_price = 0.08 / 1_000_000  # $0.30/MTok for cached tokens
-
-        # Calculate costs
-        input_cost = input_tokens * input_price
-        prompt_cache_write_cost = prompt_cache_write_tokens * prompt_cache_write_price
-        output_cost = output_tokens * output_price
-        cached_cost = cached_tokens * cached_price
-        total_cost = input_cost + prompt_cache_write_cost + output_cost + cached_cost
-
-        return {
-            "input": input_cost + prompt_cache_write_cost,
-            "output": output_cost,
-            "total": total_cost,
-        }
-
-    # Default fallback pricing
-    return {"input": 0, "output": 0, "cache_read_input_tokens": 0, "total": 0}
-
-
 async def async_anthropic_prompt(
     messages: List[Union[UserMessage, AssistantMessage]],
     system_message: Optional[str] = "You are a helpful assistant.",
-    model: Literal[tuple(MODELS)] = "claude-3-5-haiku-latest",
+    model: Literal[tuple(MODELS)] = "claude-sonnet-4-5",
     response_model: Optional[type[BaseModel]] = None,
     tools: Dict[str, Tool] = {},
 ):
@@ -131,10 +60,6 @@ async def async_anthropic_prompt(
             }
         ],
     }
-
-    # efficient tool calls feature for claude 3.7
-    # if "claude-3-7" in model:
-    #     prompt["betas"] = ["token-efficient-tools-2025-02-19"]
 
     # add tools / structure output
     if tools or response_model:
@@ -188,7 +113,7 @@ async def async_anthropic_prompt(
 async def async_anthropic_prompt_stream(
     messages: List[Union[UserMessage, AssistantMessage]],
     system_message: Optional[str] = "You are a helpful assistant.",
-    model: Literal[tuple(MODELS)] = "claude-3-5-haiku-latest",
+    model: Literal[tuple(MODELS)] = "claude-sonnet-4-5",
     response_model: Optional[type[BaseModel]] = None,
     tools: Dict[str, Tool] = {},
 ) -> AsyncGenerator[Tuple[UpdateType, str], None]:
@@ -400,27 +325,19 @@ async def async_prompt(
     """
     Non-streaming LLM call => returns (content, tool_calls, stop).
     """
-
-    if model == "anthropic/claude-3.7-sonnet":
-        print("OpenRouter -> Anthropic")
-        return await async_openrouter_prompt(
-            messages, system_message, model, response_model, tools
-        )
-
-    elif model.startswith("claude"):
-        print("Anthropic -> Anthropic")
-        # Use the non-stream Anthropics helper
+    if ("claude" in model) or ("anthropic" in model):
+        print("Anthropic -> async_anthropic_prompt")
         return await async_anthropic_prompt(
             messages, system_message, model, response_model, tools
         )
-    elif model == "google/gemini-2.0-flash-001":
-        print("OpenRouter -> Gemini")
+    elif "gemini" in model:
+        print("gemini -> async_openrouter_prompt")
         return await async_openrouter_prompt(
             messages, system_message, model, response_model, tools
         )
     else:
         # Use existing OpenAI path
-        print("OpenAI -> OpenAI")
+        print("OpenAI -> async_openai_prompt")
         return await async_openai_prompt(
             messages, system_message, model, response_model, tools
         )
@@ -477,7 +394,7 @@ async def async_prompt_stream(
 def anthropic_prompt(
     messages,
     system_message="You are a helpful assistant.",
-    model="claude-3-5-haiku-latest",
+    model="claude-sonnet-4-5",
     response_model=None,
     tools=None,
 ):
@@ -501,7 +418,7 @@ def openai_prompt(
 def prompt(
     messages,
     system_message="You are a helpful assistant.",
-    model="claude-3-5-haiku-latest",
+    model="claude-sonnet-4-5",
     response_model=None,
     tools=None,
 ):

@@ -91,7 +91,7 @@ The mandatory elements should feel integral to the story, not just mentioned in 
             ],
             config=LLMConfig(
                 model="claude-sonnet-4-5",
-                fallback_models=["claude-3-5-haiku-20241022", "gpt-4o"],
+                fallback_models=["claude-3-7-sonnet-20250219", "gpt-4o"],
                 reasoning_effort="medium"
             ),
         )
