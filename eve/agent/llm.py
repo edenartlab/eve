@@ -1,6 +1,7 @@
 import os
 import json
 import asyncio
+import logging
 import anthropic
 import openai
 from enum import Enum
@@ -11,6 +12,8 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 
 from ..tool import Tool
 from .thread import UserMessage, AssistantMessage, ToolCall
+
+logger = logging.getLogger(__name__)
 
 
 MODELS = [
@@ -27,6 +30,34 @@ MODELS = [
 ]
 
 DEFAULT_MODEL = os.getenv("DEFAULT_AGENT_MODEL", "claude-sonnet-4-5")
+
+
+def get_anthropic_api_key():
+    """Get the appropriate Anthropic API key based on environment (STAGE or PROD)"""
+    db_env = os.getenv("DB", "STAGE").upper()
+
+    # Determine which .env file is likely being used and check if it exists
+    env_file = ".eve.STAGE" if db_env == "STAGE" else ".eve.PROD"
+    env_file_path = os.path.join(os.getcwd(), env_file)
+    env_file_exists = os.path.isfile(env_file_path)
+
+    if db_env == "PROD":
+        api_key = os.getenv("ANTHROPIC_API_KEY_PROD")
+        if not api_key:
+            # Fallback to default if prod-specific key not set
+            api_key = os.getenv("ANTHROPIC_API_KEY")
+            if api_key:
+                logger.warning(f"Using deprecated ANTHROPIC_API_KEY{f' from {env_file}' if env_file_exists else ''}. Please update to use ANTHROPIC_API_KEY_PROD for production environment.")
+    else:
+        # For STAGE or any other environment
+        api_key = os.getenv("ANTHROPIC_API_KEY_STAGE")
+        if not api_key:
+            # Fallback to default if stage-specific key not set
+            api_key = os.getenv("ANTHROPIC_API_KEY")
+            if api_key:
+                logger.warning(f"Using deprecated ANTHROPIC_API_KEY{f' from {env_file}' if env_file_exists else ''}. Please update to use ANTHROPIC_API_KEY_STAGE for staging environment.")
+    
+    return api_key
 
 
 class UpdateType(str, Enum):
@@ -47,7 +78,7 @@ async def async_anthropic_prompt(
     response_model: Optional[type[BaseModel]] = None,
     tools: Dict[str, Tool] = {},
 ):
-    anthropic_client = anthropic.AsyncAnthropic()
+    anthropic_client = anthropic.AsyncAnthropic(api_key=get_anthropic_api_key())
 
     prompt = {
         "model": model,
@@ -119,7 +150,7 @@ async def async_anthropic_prompt_stream(
     tools: Dict[str, Tool] = {},
 ) -> AsyncGenerator[Tuple[UpdateType, str], None]:
     """Yields partial tokens (ASSISTANT_TOKEN, partial_text) for streaming."""
-    anthropic_client = anthropic.AsyncAnthropic()
+    anthropic_client = anthropic.AsyncAnthropic(api_key=get_anthropic_api_key())
     prompt = {
         "model": model,
         "max_tokens": 8192,

@@ -16,6 +16,7 @@ from eve.agent.session.models import (
     LLMTraceMetadata,
     ToolCall,
 )
+from eve.agent.llm import get_anthropic_api_key
 
 logging.getLogger("LiteLLM").setLevel(logging.WARNING)
 
@@ -220,7 +221,7 @@ async def async_prompt_litellm(
             "gemini-2.5-flash-lite": "gemini-2.5-flash",
         },
     }
-    
+
     # Set success callback per-request instead of globally
     original_callback = litellm.success_callback
     if context.enable_tracing and os.getenv("LANGFUSE_TRACING_ENVIRONMENT"):
@@ -232,6 +233,10 @@ async def async_prompt_litellm(
     # todo: does this fail in fallback models?
     if "claude" in context.config.model:
         completion_kwargs["web_search_options"] = {"search_context_size": "medium"}
+        # Set environment-specific Anthropic API key
+        anthropic_api_key = get_anthropic_api_key()
+        if anthropic_api_key:
+            completion_kwargs["api_key"] = anthropic_api_key
 
     # Use finalized reasoning_effort from config if available
     if thinking:
