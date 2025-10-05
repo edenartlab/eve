@@ -87,7 +87,7 @@ def validate_media_types(reference_images, reference_video):
             # Don't error on URLs without extensions, they might be valid
 
 
-async def handler(args: dict, user: str = None, agent: str = None):
+async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
     print("args", args)
     print("user", user)
     print("agent", agent)

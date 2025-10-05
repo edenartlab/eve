@@ -133,7 +133,7 @@ def _validate_input(args: dict) -> tuple[ObjectId, ObjectId, str]:
     return userId, agentId, args["instruction"].strip()
 
 
-async def handler(args: dict, user: str = None, agent: str = None) -> dict:
+async def handler(args: dict, user: str = None, agent: str = None, session: str = None) -> dict:
     """Handle memory update requests."""
     try:
         userId, agentId, instruction = _validate_input(args)

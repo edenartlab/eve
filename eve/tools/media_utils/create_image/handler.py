@@ -20,7 +20,7 @@ from eve.tool import Tool
 from eve.models import Model
 
 
-async def handler(args: dict, user: str = None, agent: str = None):
+async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
     # load tools
     flux_schnell = Tool.load("flux_schnell")
     flux_dev_lora = Tool.load("flux_dev_lora")

@@ -6,7 +6,7 @@ import io
 import os
 
 
-async def handler(args: dict, user: str = None, agent: str = None):
+async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
     if not agent:
         raise Exception("Agent is required")
     agent = Agent.from_mongo(agent)

@@ -59,16 +59,16 @@ async def rotate_agent_metadata_fn():
 # Modal task functions
 
 
-async def run(tool_key: str, args: dict, user: str = None, agent: str = None):
+async def run(tool_key: str, args: dict, user: str = None, agent: str = None, session: str = None):
     handler = load_handler(tool_key)
-    result = await handler(args, user, agent)
+    result = await handler(args, user, agent, session)
     return utils.upload_result(result)
 
 
 @task_handler_func
-async def run_task(tool_key: str, args: dict, user: str = None, agent: str = None):
+async def run_task(tool_key: str, args: dict, user: str = None, agent: str = None, session: str = None):
     handler = load_handler(tool_key)
-    return await handler(args, user, agent)
+    return await handler(args, user, agent, session)
 
 
 async def run_task_replicate(task: Task):

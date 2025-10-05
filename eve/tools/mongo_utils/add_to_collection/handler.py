@@ -2,7 +2,7 @@ from ....task import CreationsCollection, Creation
 from ....tool import Tool
 
 
-async def handler(args: dict, user: str = None, agent: str = None):
+async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
     # query = args.get("query")
     # tool = Tool.load("search_collections")
     # results = await tool.async_run({

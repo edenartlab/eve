@@ -446,6 +446,7 @@ async def async_run_tool_call_with_cancellation(
     tool_call: ToolCall,
     user_id: Optional[str] = None,
     agent_id: Optional[str] = None,
+    session_id: Optional[str] = None,
     public: bool = True,
     is_client_platform: bool = False,
     cancellation_event: asyncio.Event = None,
@@ -463,6 +464,7 @@ async def async_run_tool_call_with_cancellation(
     task = await tool.async_start_task(
         user_id=user_id,
         agent_id=agent_id,
+        session_id=session_id,
         args=tool_call.args,
         mock=False,
         public=public,
@@ -595,6 +597,7 @@ async def process_tool_call(
             user_id=llm_context.metadata.trace_metadata.user_id
             or llm_context.metadata.trace_metadata.agent_id,
             agent_id=llm_context.metadata.trace_metadata.agent_id,
+            session_id=str(session.id),
             cancellation_event=effective_cancellation_event,
             is_client_platform=is_client_platform,
         )

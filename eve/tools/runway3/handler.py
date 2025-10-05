@@ -30,7 +30,7 @@ def _ratio_to_resolution(ratio_str: str) -> str:
     return "1280:720"
 
 
-async def handler(args: dict, user: str = None, agent: str = None):
+async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
     """
     Expected args:
       - input_video: str (required)  # URI to the source video to stylize

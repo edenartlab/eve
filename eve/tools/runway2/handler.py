@@ -6,7 +6,7 @@ from runwayml import AsyncRunwayML
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 
-async def handler(args: dict, user: str = None, agent: str = None):
+async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
     client = AsyncRunwayML()
     unsafe_content_error = False
 

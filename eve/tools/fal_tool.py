@@ -19,7 +19,7 @@ class FalTool(Tool):
     # output_handler: str = "normal" # Removed, logic now uses output_schema
 
     @Tool.handle_run
-    async def async_run(self, args: Dict, user_id: str = None, agent_id: str = None):
+    async def async_run(self, args: Dict, user_id: str = None, agent_id: str = None, session_id: str = None):
         check_fal_api_token()
         args = self._format_args_for_fal(args)
         

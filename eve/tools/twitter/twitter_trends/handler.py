@@ -145,7 +145,7 @@ def save_baseline(baseline: dict[str, float]) -> None:
 
 # ---------------------------------------------------------------------------
 # 3.  Main handler ----------------------------------------------------------
-async def handler(args: dict, user: str = None, agent: str = None):
+async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
     """
     Required
     --------

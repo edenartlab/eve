@@ -192,7 +192,7 @@ def write_visual_prompts(
 
 
 
-async def handler(args: dict, user: str = None, agent: str = None):
+async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
     print("args", args)
 
     elevenlabs = Tool.load("elevenlabs")

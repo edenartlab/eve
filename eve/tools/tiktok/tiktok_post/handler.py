@@ -10,7 +10,7 @@ import json
 import re
 
 
-async def handler(args: dict, user: str = None, agent: str = None):
+async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
     if not agent:
         raise Exception("Agent is required")
 

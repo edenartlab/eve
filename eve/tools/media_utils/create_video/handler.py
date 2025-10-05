@@ -35,7 +35,7 @@ from eve.s3 import get_full_url
 from eve.utils import get_media_attributes
     
 
-async def handler(args: dict, user: str = None, agent: str = None):
+async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
 
     print("THE AGENT IS", agent)
     print("THE USER IS", user)

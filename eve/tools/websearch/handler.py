@@ -104,7 +104,7 @@ async def get_text_content(page) -> str:
     except:
         return ""
 
-async def handler(args: dict, user: str = None, agent: str = None):
+async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
     """
     Performance-optimized web scraper using Playwright.
     """

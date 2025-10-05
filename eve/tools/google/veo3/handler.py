@@ -1,6 +1,6 @@
 from .. import veo_handler
 
-async def handler(args: dict, user: str = None, agent: str = None):
+async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
     if args.get("fast"):
         model = "veo-3.0-fast-generate-preview"
     else:

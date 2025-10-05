@@ -19,7 +19,7 @@ class EdenDescription(BaseModel):
     sentiment: Literal["positive", "negative", "neutral"] = Field(description="The sentiment")
 
 async def custom_handler(
-    args: Dict[str, Any], user: str = None, agent: str = None
+    args: Dict[str, Any], user: str = None, agent: str = None, session: str = None
 ) -> Dict[str, Any]:
     result = f"Eden is {args['description']} and its sentiment {args['sentiment']}"
     return {"output": result}
