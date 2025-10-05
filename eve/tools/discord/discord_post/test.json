@@ -1,5 +1,8 @@
 {
     "content": "Testing the Discord post tool",
-    "channel_id": "1407368841104850974",
-    "agent_id": "6896568efccc3801cfa3a211"
+    "channel_id": "911125237184204810",
+    "agent_id": "675f880479e00297cd9b4688",
+    "media_urls": [
+        "https://edenartlab-prod-data.s3.us-east-1.amazonaws.com/bb88e857586a358ce3f02f92911588207fbddeabff62a3d6a479517a646f053c.jpg"
+    ]
 }
