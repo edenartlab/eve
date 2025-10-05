@@ -96,6 +96,7 @@ async def send_dm(client: discord.Client, discord_user_id: str, content: str, fi
         user = await client.fetch_user(int(discord_user_id))
 
         # Truncate content to 2000 characters (Discord limit)
+        # Todo: make this multiple messages instead of truncating
         content = content[:2000]
 
         # Send DM with files if provided
@@ -139,6 +140,7 @@ async def send_channel_message(client: discord.Client, deployment: Deployment, c
         )
 
     # Truncate content to 2000 characters (Discord limit)
+    # Todo: make this multiple messages instead of truncating
     content = content[:2000]
 
     # Get the channel and post the message with files if provided
