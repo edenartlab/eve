@@ -1352,29 +1352,39 @@ async def handle_create_notification(request: CreateNotificationRequest):
     return {"id": str(notification.id), "message": "Notification created successfully"}
 
 
+
+import torch, torch.nn.functional as F
+from transformers import CLIPProcessor, CLIPModel
+
+MODEL_NAME = "openai/clip-vit-large-patch14"
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model  = CLIPModel.from_pretrained(MODEL_NAME).to(device).eval()
+proc   = CLIPProcessor.from_pretrained(MODEL_NAME)
+
+# Embed handler
+@handle_errors
+async def handle_embed(request):
+    """Embed images with CLIP"""
+
+    creations = get_collection("creations3")
+
+    inputs = proc(text=[request.query], return_tensors="pt", padding=True, truncation=True).to(device)
+    v = model.get_text_features(**inputs)
+    qv = F.normalize(v, p=2, dim=-1)[0].cpu().tolist()
+
+    return {"embedding": qv}
+
 # Embed search handler
 @handle_errors
 async def handle_embedsearch(request):
     """Search images using CLIP embeddings"""
 
-    import torch, torch.nn.functional as F
-    from transformers import CLIPProcessor, CLIPModel
+    qv_result = await handle_embed(request)
+    qv = qv_result["embedding"]
 
-    MODEL_NAME = "openai/clip-vit-large-patch14"
     creations = get_collection("creations3")
-
-    device = "cpu"  # torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = CLIPModel.from_pretrained(MODEL_NAME).to(device).eval()
-    proc = CLIPProcessor.from_pretrained(MODEL_NAME)
-
-    inputs = proc(
-        text=[request.query], return_tensors="pt", padding=True, truncation=True
-    ).to(device)
-    v = model.get_text_features(**inputs)
-    qv = F.normalize(v, p=2, dim=-1)[0].cpu().tolist()
-
-    # Build pre-filter (works only if 'tags'/'subsetId' are in index as filter fields)
     filt = {}
+
     if request.agent_id:
         filt["agent"] = ObjectId(request.agent_id)
     if request.user_id:

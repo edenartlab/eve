@@ -684,10 +684,10 @@ async def run_scheduled_triggers_fn():
     logger.info(sessions)
 
 
-@app.local_entrypoint()
-async def local_entrypoint():
-    # run_scheduled_triggers_fn.remote()
-    embed_recent_creations_modal.remote()
+# @app.local_entrypoint()
+# async def local_entrypoint():
+#     # run_scheduled_triggers_fn.remote()
+#     embed_recent_creations_modal.remote()
 
 
 # @app.local_entrypoint()
