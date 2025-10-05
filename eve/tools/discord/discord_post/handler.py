@@ -95,6 +95,9 @@ async def send_dm(client: discord.Client, discord_user_id: str, content: str, fi
         # Get the user object
         user = await client.fetch_user(int(discord_user_id))
 
+        # Truncate content to 2000 characters (Discord limit)
+        content = content[:2000]
+
         # Send DM with files if provided
         if files:
             message = await user.send(content=content, files=files)
@@ -134,6 +137,9 @@ async def send_channel_message(client: discord.Client, deployment: Deployment, c
         raise Exception(
             f"Channel {channel_id} is not in the allowlist. Allowed channels (note: id): {allowed_channels_info}"
         )
+
+    # Truncate content to 2000 characters (Discord limit)
+    content = content[:2000]
 
     # Get the channel and post the message with files if provided
     channel = await client.fetch_channel(int(channel_id))
