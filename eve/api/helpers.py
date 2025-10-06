@@ -126,11 +126,16 @@ async def emit_update(update_config: Optional[UpdateConfig], data: dict, session
 
 
 async def emit_http_update(update_config: UpdateConfig, data: dict):
+    from eve.utils.data_utils import serialize_json
+
     async with aiohttp.ClientSession() as session:
         try:
+            # Serialize ObjectIds and other non-JSON types
+            serialized_data = serialize_json(data)
+
             async with session.post(
                 update_config.update_endpoint,
-                json=data,
+                json=serialized_data,
                 headers={"Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}"},
             ) as response:
                 if response.status != 200:
