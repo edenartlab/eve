@@ -31,34 +31,9 @@ MODELS = [
 
 DEFAULT_MODEL = os.getenv("DEFAULT_AGENT_MODEL", "claude-sonnet-4-5")
 
-
 def get_anthropic_api_key():
-    """Get the appropriate Anthropic API key based on environment (STAGE or PROD)"""
-    db_env = os.getenv("DB", "STAGE").upper()
-
-    # Determine which .env file is likely being used and check if it exists
-    env_file = ".eve.STAGE" if db_env == "STAGE" else ".eve.PROD"
-    env_file_path = os.path.join(os.getcwd(), env_file)
-    env_file_exists = os.path.isfile(env_file_path)
-
-    if db_env == "PROD":
-        api_key = os.getenv("ANTHROPIC_API_KEY_PROD")
-        if not api_key:
-            # Fallback to default if prod-specific key not set
-            api_key = os.getenv("ANTHROPIC_API_KEY")
-            if api_key:
-                logger.warning(f"Using deprecated ANTHROPIC_API_KEY{f' from {env_file}' if env_file_exists else ''}. Please update to use ANTHROPIC_API_KEY_PROD for production environment.")
-    else:
-        # For STAGE or any other environment
-        api_key = os.getenv("ANTHROPIC_API_KEY_STAGE")
-        if not api_key:
-            # Fallback to default if stage-specific key not set
-            api_key = os.getenv("ANTHROPIC_API_KEY")
-            if api_key:
-                logger.warning(f"Using deprecated ANTHROPIC_API_KEY{f' from {env_file}' if env_file_exists else ''}. Please update to use ANTHROPIC_API_KEY_STAGE for staging environment.")
-    
-    return api_key
-
+    """Get the Anthropic API key from ANTHROPIC_API_KEY environment variable"""
+    return os.getenv("ANTHROPIC_API_KEY")
 
 class UpdateType(str, Enum):
     START_PROMPT = "start_prompt"
