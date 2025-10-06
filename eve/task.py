@@ -214,6 +214,8 @@ async def _task_handler(func, *args, **kwargs):
                 task_args["seed"] = task_args["seed"] + i
 
             # Run both functions concurrently
+            print("THE TASK?")
+            print(task.id)
             result = await func(
                 *args[:-1],
                 task.parent_tool or task.tool,
@@ -230,7 +232,9 @@ async def _task_handler(func, *args, **kwargs):
                     else [result["output"]]
                 )
                 result = utils.upload_result(
-                    result, save_thumbnails=True, save_blurhash=True
+                    result, 
+                    save_thumbnails=True, 
+                    save_blurhash=True
                 )
 
                 for output in result["output"]:

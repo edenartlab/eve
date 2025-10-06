@@ -84,7 +84,7 @@ def update_session_budget(
     turns_spent: Optional[int] = None,
 ):
     if session.budget:
-        budget = session.budget if isinstance(session.budget, SessionBudget) else SessionBudget(**session.budget)
+        budget = session.budget
         if tokens_spent:
             budget.tokens_spent += tokens_spent
         if manna_spent:
@@ -92,6 +92,7 @@ def update_session_budget(
         if turns_spent:
             budget.turns_spent += turns_spent
         session.update(budget=budget.model_dump())
+        session.budget = SessionBudget(**session.budget)
 
 
 def validate_prompt_session(session: Session, context: PromptSessionContext):
@@ -331,10 +332,11 @@ async def add_chat_message(
     # session.memory_context.last_activity = datetime.now(timezone.utc)
     # session.memory_context.messages_since_memory_formation += 1
     # session.save()
-    memory_context = session.memory_context if isinstance(session.memory_context, SessionMemoryContext) else SessionMemoryContext(**session.memory_context)
+    memory_context = session.memory_context
     memory_context.last_activity = datetime.now(timezone.utc)
     memory_context.messages_since_memory_formation += 1
     session.update(memory_context=memory_context.model_dump())
+    session.memory_context = SessionMemoryContext(**session.memory_context)
 
 
     # Broadcast user message to SSE connections for real-time updates
@@ -1015,10 +1017,11 @@ async def async_prompt_session(
             
             #session.memory_context.last_activity = datetime.now(timezone.utc)
             #session.memory_context.messages_since_memory_formation += 1
-            memory_context = session.memory_context if isinstance(session.memory_context, SessionMemoryContext) else SessionMemoryContext(**session.memory_context)
+            memory_context = session.memory_context
             memory_context.last_activity = datetime.now(timezone.utc)
             memory_context.messages_since_memory_formation += 1
             session.update(memory_context=memory_context.model_dump())
+            session.memory_context = SessionMemoryContext(**session.memory_context)
 
             # print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
             # print(f"--- {assistant_message.content[:30]} ---")
