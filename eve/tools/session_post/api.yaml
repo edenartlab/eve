@@ -18,6 +18,26 @@ parameters:
     description: The title of the new session
     tip: Only set this if you are making a new session
     required: false
+  role:
+    type: string
+    label: Role
+    description: The role of the message
+    choices: [assistant, user, system]
+    default: user
+    required: true
+  prompt:
+    type: boolean
+    label: Prompt
+    default: false
+    description: Whether to prompt the assistant after an assistant message
+    required: false
+  extra_tools:
+    type: array
+    label: Extra tools
+    description: Any extra tools to make available to the assistant when prompting
+    required: false
+    items:
+      type: string
   content:
     type: string
     label: Content
@@ -30,4 +50,10 @@ parameters:
     required: false
     items:
       type: string
+    required: false
+  pin:
+    type: boolean
+    label: Pin
+    description: Whether to pin the message to the session
+    default: false
     required: false

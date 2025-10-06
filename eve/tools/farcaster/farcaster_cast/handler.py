@@ -1,6 +1,25 @@
+from bson import ObjectId
+from typing import Optional, Dict, Any, Literal
 from farcaster import Warpcast
+
+from eve.mongo import Collection, Document
 from eve.agent.deployments import Deployment
 from eve.agent import Agent
+from eve.agent.session.models import Session
+
+@Collection("farcaster_events")
+class FarcasterEvent(Document):
+    cast_hash: str
+    event: Optional[Dict[str, Any]] = None
+    status: Literal["running", "completed", "failed"]
+    error: Optional[str] = None
+    session_id: Optional[ObjectId] = None
+    message_id: Optional[ObjectId] = None
+    reply_cast: Optional[Dict[str, Any]] = None
+    reply_fid: Optional[int] = None
+
+
+# TODO: save message id too?
 
 
 async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
@@ -54,6 +73,24 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
             cast_url2 = f"https://warpcast.com/{user_info.username}/{cast_hash2}"
             outputs.append({"url": cast_url2, "cast_hash": cast_hash2, "success": True})
 
+        # update session key to the hash
+        if session and outputs:
+            session = Session.from_mongo(session)
+            cast_hash = outputs[0].get('cast_hash')
+            session.update(session_key=f"FC-{cast_hash}")
+        
+        # save casts as farcaster events
+        for output in outputs:
+            event = FarcasterEvent(
+                session_id=session.id,
+                # message_id=new_messages[0].id,
+                cast_hash=output.get('cast_hash'),
+                status="completed",
+                event=None
+            )
+            event.save()
+
+        
         return {"output": outputs}
 
     except Exception as e:

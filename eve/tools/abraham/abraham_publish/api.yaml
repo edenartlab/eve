@@ -1,7 +1,7 @@
 name: abraham_publish
-description: Abraham publish a new Creation
+description: Abraham initiate a new Creation
 tip: |-
-  This tool allows Abraham to publish a new Creation. Do not use this tool unless explicitly requested to use the abraham_publish tool.
+  This tool allows Abraham to create and publish a new Creation seed. Do not use this tool unless explicitly requested to use the abraham_publish tool.
 cost_estimate: 0
 output_type: string
 active: true
@@ -10,15 +10,10 @@ visible: false
 parameters:
   title:
     type: string
-    description: The publication title to post.
+    description: Title of the creation
     required: true
-  text:
+  proposal:
     type: string
-    description: The publication text content to post. The maximum length before the fold is 320 characters, and the maximum length is 1024 characters, so attempt to be concise.
+    description: Creation proposal
+    tip: This describes the creative research project or artwork in detail; what to research, what to make, and how to structure the creation.
     required: true
-  media_urls:
-    type: array
-    description: Optional array of URLs to embed in the publication (images, links, etc.)
-    required: false
-    items:
-      type: string
