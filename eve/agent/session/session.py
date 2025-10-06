@@ -23,11 +23,14 @@ from eve.agent.session.models import (
     ChatMessage,
     ChatMessageObservability,
     LLMTraceMetadata,
+    LLMConfig, 
     PromptSessionContext,
     Session,
     SessionUpdate,
     ToolCall,
     UpdateType,
+    SessionBudget,
+    SessionMemoryContext
 )
 from eve.agent.session.session_llm import (
     LLMContext,
@@ -37,7 +40,6 @@ from eve.agent.session.session_llm import (
 from eve.agent.session.models import LLMContextMetadata
 from eve.api.errors import handle_errors
 from eve.api.helpers import emit_update
-from eve.agent.session.models import LLMConfig
 from eve.agent.session.session_prompts import (
     system_template,
     model_template,
@@ -82,7 +84,7 @@ def update_session_budget(
     turns_spent: Optional[int] = None,
 ):
     if session.budget:
-        budget = session.budget
+        budget = session.budget if isinstance(session.budget, SessionBudget) else SessionBudget(**session.budget)
         if tokens_spent:
             budget.tokens_spent += tokens_spent
         if manna_spent:
@@ -329,7 +331,7 @@ async def add_chat_message(
     # session.memory_context.last_activity = datetime.now(timezone.utc)
     # session.memory_context.messages_since_memory_formation += 1
     # session.save()
-    memory_context = session.memory_context
+    memory_context = session.memory_context if isinstance(session.memory_context, SessionMemoryContext) else SessionMemoryContext(**session.memory_context)
     memory_context.last_activity = datetime.now(timezone.utc)
     memory_context.messages_since_memory_formation += 1
     session.update(memory_context=memory_context.model_dump())
@@ -1007,13 +1009,13 @@ async def async_prompt_session(
                 tokens_spent = response.tokens_spent
 
             assistant_message.save()
-            
+
             # No longer storing message IDs on session to avoid race conditions
             # session.messages.append(assistant_message.id)
             
             #session.memory_context.last_activity = datetime.now(timezone.utc)
             #session.memory_context.messages_since_memory_formation += 1
-            memory_context = session.memory_context
+            memory_context = session.memory_context if isinstance(session.memory_context, SessionMemoryContext) else SessionMemoryContext(**session.memory_context)
             memory_context.last_activity = datetime.now(timezone.utc)
             memory_context.messages_since_memory_formation += 1
             session.update(memory_context=memory_context.model_dump())
