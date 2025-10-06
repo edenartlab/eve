@@ -26,7 +26,7 @@ from eve.api.api_requests import (
     SessionCreationArgs,
 )
 from eve.agent.session.session import (
-    add_user_message,
+    add_chat_message,
     async_prompt_session,
     build_llm_context,
 )
@@ -283,7 +283,7 @@ async def execute_trigger(
         )
 
         # Add user message to session
-        await add_user_message(session, context, pin=True)
+        await add_chat_message(session, context, pin=True)
 
         # Build LLM context
         context = await build_llm_context(
@@ -372,7 +372,7 @@ async def execute_trigger(
         )
 
         # Add user message to session
-        await add_user_message(session, context)
+        await add_chat_message(session, context)
 
         # Build LLM context
         context = await build_llm_context(

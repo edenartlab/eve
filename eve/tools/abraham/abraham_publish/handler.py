@@ -10,9 +10,6 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     if agent.username != "abraham":
         raise Exception("Agent is not Abraham")
 
-
-    print("Session !!!", str(session))
-
     deployment = Deployment.load(agent=agent.id, platform="farcaster")
     if not deployment:
         raise Exception("No valid Farcaster deployments found")

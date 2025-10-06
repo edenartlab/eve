@@ -307,7 +307,7 @@ async def build_system_extras(
     return context, config, extras
 
 
-async def add_user_message(
+async def add_chat_message(
     session: Session, context: PromptSessionContext, pin: bool = False
 ):
     new_message = ChatMessage(
@@ -1188,7 +1188,7 @@ def format_session_update(update: SessionUpdate, context: PromptSessionContext) 
                 dumps_json(tc.model_dump()) for tc in update.message.tool_calls
             ]
     elif update.type == UpdateType.USER_MESSAGE:
-        # User messages should already have enriched sender data from add_user_message
+        # User messages should already have enriched sender data from add_chat_message
         data["message"] = (
             update.message.model_dump(by_alias=True)
             if hasattr(update.message, "model_dump")
@@ -1243,7 +1243,7 @@ async def _run_prompt_session_internal(
                 {"user_id": str(context.initiating_user_id)[:8]},
                 emoji="message",
             )
-            await add_user_message(session, context)
+            await add_chat_message(session, context)
 
         debugger.log("Determining actors", emoji="actor")
         actors = await determine_actors(session, context)
