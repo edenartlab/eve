@@ -5,7 +5,7 @@ from ...agent.session.models import ChatMessage, LLMContext, LLMConfig
 from ...agent.session.session_llm import async_prompt
 
 
-async def handler(args: Dict, user: str = None, agent_id: str = None):
+async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
     """
     Magic Eightball handler that randomly samples from categories and generates constrained content.
     
@@ -51,11 +51,11 @@ async def handler(args: Dict, user: str = None, agent_id: str = None):
             agent = Agent.from_mongo(agent_override)
         except Exception as e:
             print(f"Warning: Could not load agent from override '{agent_override}': {e}")
-    elif agent_id:
+    elif agent:
         try:
-            agent = Agent.from_mongo(agent_id)
+            agent = Agent.from_mongo(agent)
         except Exception as e:
-            print(f"Warning: Could not load agent from session '{agent_id}': {e}")
+            print(f"Warning: Could not load agent from session '{agent}': {e}")
     
     if agent:
         print(f"Using agent persona: {agent.name}")
@@ -91,7 +91,7 @@ The mandatory elements should feel integral to the story, not just mentioned in 
             ],
             config=LLMConfig(
                 model="claude-sonnet-4-5",
-                fallback_models=["claude-3-5-haiku-20241022", "gpt-4o"],
+                fallback_models=["claude-3-7-sonnet-20250219", "gpt-4o"],
                 reasoning_effort="medium"
             ),
         )

@@ -248,4 +248,14 @@ def load_handler(name):
 
             handlers[name] = handler
 
+        elif name == "session_post":
+            from .session_post.handler import handler
+
+            handlers[name] = handler
+
+        elif name == "abraham_publish":
+            from .abraham.abraham_publish.handler import handler
+
+            handlers[name] = handler
+
     return handlers[name]

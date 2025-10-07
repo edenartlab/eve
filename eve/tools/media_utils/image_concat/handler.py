@@ -2,7 +2,7 @@ from PIL import Image
 # from ... import utils
 
 
-async def handler(args: dict, user: str = None, agent: str = None):
+async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
     from .... import utils
 
     image_urls = args.get("images")

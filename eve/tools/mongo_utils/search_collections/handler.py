@@ -60,7 +60,7 @@ class SearchResults(BaseModel):
     )
 
 
-async def handler(args: dict, user: str = None, agent: str = None):
+async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
     searcher = user
     query = args.get("query")
     num_results = args.get("results", 5)

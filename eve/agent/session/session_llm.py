@@ -21,11 +21,9 @@ logging.getLogger("LiteLLM").setLevel(logging.WARNING)
 
 
 supported_models = [
-    "claude-3-5-haiku-20241022",
-    "claude-sonnet-4-20250514",
     "claude-sonnet-4-5",
-    "claude-opus-4-20250514",
     "claude-3-7-sonnet-20250219",
+    "claude-opus-4-1-20250805",
     "gpt-4o-mini",
     "gpt-4o",
     "gpt-5",
@@ -34,10 +32,7 @@ supported_models = [
     "gemini-2.5-pro",
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
-    "anthropic/claude-3-5-haiku-20241022",
-    "anthropic/claude-sonnet-4-20250514",
     "anthropic/claude-sonnet-4-5",
-    "anthropic/claude-opus-4-20250514",
     "anthropic/claude-3-7-sonnet-20250219",
     "openai/gpt-4o-mini",
     "openai/gpt-4o",
@@ -225,7 +220,7 @@ async def async_prompt_litellm(
             "gemini-2.5-flash-lite": "gemini-2.5-flash",
         },
     }
-    
+
     # Set success callback per-request instead of globally
     original_callback = litellm.success_callback
     if context.enable_tracing and os.getenv("LANGFUSE_TRACING_ENVIRONMENT"):

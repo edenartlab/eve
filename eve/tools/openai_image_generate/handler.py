@@ -57,7 +57,7 @@ def classify_openai_error(e: Exception):
     return "client_runtime", {"message": message}
 
 
-async def handler(args: dict, user: str = None, agent: str = None):
+async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
     """
     Handles the image generation request using the OpenAI API (gpt-image-1 only).
     """

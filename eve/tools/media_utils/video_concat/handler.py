@@ -6,7 +6,7 @@ import subprocess
 
 # bug: if some videos are silent but others have sound, the concatenated video will have no sound
 
-async def handler(args: dict, user: str = None, agent: str = None):
+async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
     from .... import utils
     
     video_urls = args.get("videos")

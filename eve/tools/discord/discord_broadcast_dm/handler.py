@@ -35,7 +35,7 @@ class DiscordUser(BaseModel):
     last_seen: str
 
 
-async def handler(args: dict, user: str = None, agent: str = None):
+async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
     """
     Main handler for discord_broadcast_dm tool.
 

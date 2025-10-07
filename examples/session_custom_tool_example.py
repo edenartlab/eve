@@ -5,7 +5,7 @@ from typing import Literal, Dict, Any
 from eve.api.api_requests import PromptSessionRequest, SessionCreationArgs
 from eve.api.handlers import setup_session
 from eve.agent.session.models import PromptSessionContext, ChatMessageRequestInput, LLMConfig
-from eve.agent.session.session import add_user_message, build_llm_context, async_prompt_session
+from eve.agent.session.session import add_chat_message, build_llm_context, async_prompt_session
 from eve.auth import get_my_eden_user
 from eve.agent import Agent
 from eve.tool import Tool
@@ -18,7 +18,7 @@ class EdenDescription(BaseModel):
     sentiment: Literal["positive", "negative", "neutral"] = Field(description="The sentiment")
 
 async def custom_handler(
-    args: Dict[str, Any], user: str = None, agent: str = None
+    args: Dict[str, Any], user: str = None, agent: str = None, session: str = None
 ) -> Dict[str, Any]:
     result = f"Eden is {args['description']} and its sentiment {args['sentiment']}"
     return {"output": result}
@@ -63,7 +63,7 @@ async def example_session():
         extra_tools={custom_tool.key: custom_tool},
     )
 
-    await add_user_message(session, context)
+    await add_chat_message(session, context)
 
     # Run session
     context = await build_llm_context(

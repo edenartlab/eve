@@ -49,7 +49,6 @@ async def enhance_prompt(prompt_guide: str, prompt: str):
             messages=messages,
             system_message=f"You are a prompt engineer who enhances prompts. Given a style guide, you convert possibly faulty prompts into better prompts.",
             model="gpt-4o-mini",
-            # model="claude-3-7-sonnet-latest",
             response_model=PromptText,
         )
         print("--d 3124234sff", result.prompt)

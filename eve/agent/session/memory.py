@@ -65,7 +65,8 @@ def safe_update_memory_context(
         session_updated = True
 
     if session_updated and not skip_save:
-        session.save()
+        session.update(memory_context=session.memory_context.model_dump())
+        session.memory_context = SessionMemoryContext(**session.memory_context)
 
 
 async def _store_memories_by_type(

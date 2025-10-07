@@ -11,7 +11,7 @@ eleven = ElevenLabs(
 )
 
 
-async def handler(args: dict, user: str = None, agent: str = None):
+async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
     
     async def generate_with_params():
         audio_generator = eleven.music.compose(

@@ -1,0 +1,10 @@
+{
+    "agent_id": "675f880479e00297cd9b4688",
+    "title": "Test new assistant session",
+    "role": "assistant",
+    "prompt": false,
+    "content": "This is a test assistant message from Abraham to a new a session",
+    "attachments": [
+        "https://edenartlab-prod-data.s3.us-east-1.amazonaws.com/bb88e857586a358ce3f02f92911588207fbddeabff62a3d6a479517a646f053c.jpg"
+    ]
+}

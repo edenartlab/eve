@@ -6,6 +6,7 @@ import uuid
 import sentry_sdk
 import time
 import modal
+from jinja2 import Template
 from typing import Optional, Dict, Any, Literal, List
 from bson import ObjectId
 from datetime import datetime, timezone
@@ -26,7 +27,7 @@ from eve.api.api_requests import (
     SessionCreationArgs,
 )
 from eve.agent.session.session import (
-    add_user_message,
+    add_chat_message,
     async_prompt_session,
     build_llm_context,
 )
@@ -166,7 +167,7 @@ async def handle_trigger_delete(request: DeleteTriggerRequest):
     trigger = Trigger.from_mongo(request.id)
     if not trigger:
         raise APIError(f"Trigger not found: {request.id}", status_code=404)
-
+ 
     # if trigger.status != "finished":
     #     await stop_trigger(trigger.trigger_id)
 
@@ -194,6 +195,64 @@ async def handle_trigger_get(trigger_id: str):
     }
 
 
+trigger_prompt_template = Template("""
+{{trigger_prompt}}
+{% if posting_instructions %}
+<Posting Instructions>
+Post the result of your last task to the following channels:
+{{posting_instructions}}
+</Posting Instructions>
+{% endif %}
+""")
+
+async def prepare_trigger_prompt(
+    trigger: Trigger,
+    agent: Agent,
+    session: Session,
+    user_id: str,
+) -> PromptSessionContext:
+    extra_tools = []
+    posting_instructions = ""
+
+    for i, p in enumerate(trigger.posting_instructions):
+        post_to = p.get("post_to")
+        channel_id = p.get("channel_id")
+        session_id = p.get("session_id")
+        custom_instructions = p.get("custom_instructions")
+
+        platform = {
+            "discord": "discord_post",
+            "telegram": "telegram_post",
+            "x": "tweet",
+            "farcaster": "farcaster_post",
+        }
+
+        if post_to in ["same", "another"]:
+            if post_to == "same":
+                posting_instructions += f"\n{i + 1}): {custom_instructions}"
+            else:
+                posting_instructions += f"\n{i + 1}) Post to {post_to}, channel '{session_id}': {custom_instructions}"
+
+        elif post_to in platform:
+            tool = platform.get(post_to)
+            extra_tools.append(tool)
+            posting_instructions += f"\n{i + 1}) Post to {post_to}, channel '{channel_id}': {custom_instructions}"
+
+        else:
+            raise APIError(f"Invalid post_to: {post_to}", status_code=400)
+
+    trigger_prompt = trigger_prompt_template.render(
+        trigger_prompt=trigger.trigger_prompt,
+        posting_instructions=posting_instructions
+    )
+
+    # load posting tools even if they are not active by default in the agent
+    tools = agent.get_tools(auth_user=user_id, extra_tools=extra_tools)
+    posting_tools = {k: v for k, v in tools.items() if k in ["discord_post", "telegram_post", "farcaster_post", "tweet"]}
+
+    return trigger_prompt, posting_tools
+
+
 @handle_errors
 async def execute_trigger(
     trigger_id: str,
@@ -213,9 +272,7 @@ async def execute_trigger(
         session = None
         user = User.from_mongo(trigger.user)
         agent = Agent.from_mongo(trigger.agent)
-        context = trigger.context
-        trigger_prompt = trigger.trigger_prompt
-
+        
         current_time = datetime.now(timezone.utc)
 
         if trigger.session:
@@ -270,8 +327,15 @@ async def execute_trigger(
             request,
         )
 
+        trigger_prompt, extra_tools = await prepare_trigger_prompt(
+            trigger, 
+            agent, 
+            session, 
+            request.user_id
+        )
+
         # Create artwork generation message
-        message = ChatMessageRequestInput(role="user", content=trigger_prompt)
+        message = ChatMessageRequestInput(role="system", content=trigger_prompt)
 
         # Create context with selected model
         context = PromptSessionContext(
@@ -280,99 +344,11 @@ async def execute_trigger(
             message=message,
             # thinking_override=trigger.think,
             thinking_override=False,
+            extra_tools=extra_tools,
         )
 
         # Add user message to session
-        await add_user_message(session, context, pin=True)
-
-        # Build LLM context
-        context = await build_llm_context(
-            session,
-            agent,
-            context,
-        )
-
-        # Execute the prompt session
-        async for _ in async_prompt_session(session, context, agent):
-            pass
-
-        if not trigger.posting_instructions:
-            return session
-
-        # Posting section
-        posting_tools = {}
-        posting_instructions = ""
-        for i, p in enumerate(trigger.posting_instructions):
-            post_to = p.get("post_to")
-            channel_id = p.get("channel_id")
-            session_id = p.get("session_id")
-            custom_instructions = p.get("custom_instructions")
-
-            platform = {
-                "discord": "discord_post",
-                "telegram": "telegram_post",
-                "x": "tweet",
-                "farcaster": "farcaster_post",
-            }
-
-            if post_to in ["same", "another"]:
-                if post_to == "same":
-                    posting_instructions += f"\n{i + 1}): {custom_instructions}"
-                else:
-                    posting_instructions += f"\n{i + 1}) Post to {post_to}, channel '{session_id}': {custom_instructions}"
-
-            elif post_to in platform:
-                tool = platform.get(post_to)
-                if not tool in posting_tools:
-                    posting_tools[tool] = []
-                posting_tools[tool].append(channel_id)
-
-                posting_instructions += f"\n{i + 1}) Post to {post_to}, channel '{channel_id}': {custom_instructions}"
-
-            else:
-                raise APIError(f"Invalid post_to: {post_to}", status_code=400)
-
-        instructions = f"""
-        <Posting Instructions>
-        Post the result of your last task to the following channels:
-        {posting_instructions}
-        </Posting Instructions>
-        """
-
-        tools = {}
-        for tool, channels in posting_tools.items():
-            if tool not in ["discord_post", "telegram_post"]:
-                continue
-            tools[tool] = Tool.load(tool)
-            deployment = {"discord_post": "discord", "telegram_post": "telegram"}.get(
-                tool
-            )
-            allowed_channels = agent.deployments[deployment].get_allowed_channels()
-            channels_description = " | ".join(
-                [f"ID {c.id} ({c.note})" for c in allowed_channels if c.id in channels]
-            )
-            tools[tool].update_parameters(
-                {
-                    "channel_id": {
-                        "choices": [c.id for c in allowed_channels if c.id in channels],
-                        "tip": f"Some hints about the available channels: {channels_description}",
-                    },
-                }
-            )
-
-        # Create posting instructions message
-        message = ChatMessageRequestInput(role="system", content=instructions)
-
-        # Create context with selected model
-        context = PromptSessionContext(
-            session=session,
-            initiating_user_id=request.user_id,
-            message=message,
-            tools=tools,
-        )
-
-        # Add user message to session
-        add_user_message(session, context)
+        await add_chat_message(session, context)
 
         # Build LLM context
         context = await build_llm_context(
@@ -442,18 +418,6 @@ async def handle_trigger_run(
     except Exception as e:
         raise APIError(f"Failed to execute trigger: {str(e)}", status_code=500)
 
-
-trigger_message = """<SystemMessage>
-You have received a request from an admin to run a scheduled task. The instructions for the task are below. In your response, do not ask for clarification, just do the task. Do not acknowledge receipt of this message, as no one else in the chat can see it and the admin is absent. Simply follow whatever instructions are below.
-</SystemMessage>
-<Task>
-{task}
-</Task>"""
-
-trigger_message_post = """
-<PostInstruction>
-When you have completed the task, write out a single summary of the result of the task. Make sure to include the URLs to any relevant media you created. Do not include intermediate results, just the media relevant to the task. Then post it on {platform} using the discord_post tool to channel "{platform_channel_id}". Do not forget to do this at the end.
-</PostInstruction>"""
 
 
 # TODO

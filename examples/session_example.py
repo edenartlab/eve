@@ -3,7 +3,7 @@ from fastapi import BackgroundTasks
 from eve.api.api_requests import PromptSessionRequest, SessionCreationArgs
 from eve.api.handlers import setup_session
 from eve.agent.session.models import PromptSessionContext, ChatMessageRequestInput, LLMConfig
-from eve.agent.session.session import add_user_message, build_llm_context, async_prompt_session
+from eve.agent.session.session import add_chat_message, build_llm_context, async_prompt_session
 from eve.auth import get_my_eden_user
 from eve.agent import Agent
 
@@ -41,7 +41,7 @@ async def example_session():
         llm_config=LLMConfig(model="gpt-4o-mini")
     )
 
-    await add_user_message(session, context)
+    await add_chat_message(session, context)
 
     # Run session
     context = await build_llm_context(

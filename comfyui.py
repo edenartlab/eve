@@ -1076,7 +1076,7 @@ class ComfyUI:
         print(f"DEBUG: ComfyUI server started in {self.launch_time:.2f}s")
 
     def _execute(
-        self, workflow_name: str, args: dict, user: str = None, agent: str = None
+        self, workflow_name: str, args: dict, user: str = None, agent: str = None, session: str = None
     ):
         try:
             print("\n" + "=" * 60)
@@ -1190,9 +1190,9 @@ class ComfyUI:
     @modal.method()
     @task_handler_method
     async def run_task(
-        self, tool_key: str, args: dict, user: str = None, agent: str = None
+        self, tool_key: str, args: dict, user: str = None, agent: str = None, session: str = None
     ):
-        return self._execute(tool_key, args, user, agent)
+        return self._execute(tool_key, args, user, agent, session)
 
     @modal.enter()
     def enter(self):

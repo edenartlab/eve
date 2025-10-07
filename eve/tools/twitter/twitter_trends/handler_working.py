@@ -15,7 +15,7 @@ TECH_RE = re.compile("|".join(TECH_PATTERNS), flags=re.I)
 DEFAULT_WOEIDS = [2487956, 2459115]                # SF & NYC
 
 
-async def handler(args: dict, user: str = None, agent: str = None):
+async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
     """
     Fetch tech-filtered trends and dump raw JSON to disk.
 

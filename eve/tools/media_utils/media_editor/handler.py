@@ -51,7 +51,7 @@ class MediaResults(BaseModel):
         description="An error message if the media editing process fails, otherwise None."
     )
 
-async def handler(args: dict, user: str = None, agent: str = None):
+async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
     
     if not user:
         user = get_my_eden_user()

@@ -40,6 +40,8 @@ from eve.api.handlers import (
     handle_v2_deployment_farcaster_neynar_webhook,
     handle_create_notification,
     handle_embedsearch,
+    handle_async_llm_call,
+    handle_extract_agent_prompts,
 )
 from eve.trigger import (
     handle_trigger_create,
@@ -76,6 +78,8 @@ from eve.api.api_requests import (
     UpdateDeploymentRequestV2,
     CreateNotificationRequest,
     EmbedSearchRequest,
+    AsyncLLMCallRequest,
+    AgentPromptsExtractionRequest,
 )
 from eve.api.api_functions import (
     cancel_stuck_tasks_fn,
@@ -426,6 +430,62 @@ async def embedsearch(
     return await handle_embedsearch(request)
 
 
+# Generic LLM call endpoint
+@web_app.post("/llm/call")
+async def async_llm_call(
+    request: AsyncLLMCallRequest, _: dict = Depends(auth.authenticate_admin)
+):
+    return await handle_async_llm_call(request)
+
+
+# Agent creation - extract prompts from conversation session
+@web_app.post("/agent_creation/extract_prompts")
+async def extract_agent_prompts(
+    request: AgentPromptsExtractionRequest, _: dict = Depends(auth.authenticate_admin)
+):
+    return await handle_extract_agent_prompts(request)
+
+
+# Simple embed endpoint that just returns the embedding vector
+@web_app.post("/embed")
+async def embed(request: Request, _: dict = Depends(auth.authenticate_admin)):
+    """Generate CLIP embedding for a text query"""
+    import torch
+    import torch.nn.functional as F
+    from transformers import CLIPProcessor, CLIPModel
+
+    body = await request.json()
+    query = body.get("query")
+    if not query:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "query parameter is required"}
+        )
+
+    MODEL_NAME = "openai/clip-vit-large-patch14"
+    device = "cpu"
+
+    try:
+        model = CLIPModel.from_pretrained(MODEL_NAME).to(device).eval()
+        proc = CLIPProcessor.from_pretrained(MODEL_NAME)
+
+        inputs = proc(
+            text=[query], return_tensors="pt", padding=True, truncation=True
+        ).to(device)
+
+        with torch.no_grad():
+            v = model.get_text_features(**inputs)
+            qv = F.normalize(v, p=2, dim=-1)[0].cpu().tolist()
+
+        return {"embedding": qv}
+    except Exception as e:
+        logger.error(f"Error generating embedding: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to generate embedding: {str(e)}"}
+        )
+
+
 @web_app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     print(f"Validation error on {request.url}:")
@@ -624,10 +684,10 @@ async def run_scheduled_triggers_fn():
     logger.info(sessions)
 
 
-@app.local_entrypoint()
-async def local_entrypoint():
-    # run_scheduled_triggers_fn.remote()
-    embed_recent_creations_modal.remote()
+# @app.local_entrypoint()
+# async def local_entrypoint():
+#     # run_scheduled_triggers_fn.remote()
+#     embed_recent_creations_modal.remote()
 
 
 # @app.local_entrypoint()

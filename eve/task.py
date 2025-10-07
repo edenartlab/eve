@@ -105,7 +105,8 @@ class CreationsCollection(Document):
 class Task(Document):
     user: ObjectId
     agent: Optional[ObjectId] = None
-    thread: Optional[ObjectId] = None
+    #thread: Optional[ObjectId] = None
+    session: Optional[ObjectId] = None
     tool: str
     parent_tool: Optional[str] = None
     output_type: str
@@ -128,6 +129,8 @@ class Task(Document):
             data["user"] = ObjectId(data["user"])
         if isinstance(data.get("agent"), str):
             data["agent"] = ObjectId(data["agent"])
+        if isinstance(data.get("session"), str):
+            data["session"] = ObjectId(data["session"])
         super().__init__(**data)
 
     @classmethod
@@ -211,17 +214,16 @@ async def _task_handler(func, *args, **kwargs):
                 task_args["seed"] = task_args["seed"] + i
 
             # Run both functions concurrently
-            main_task = func(
+            print("THE TASK?")
+            print(task.id)
+            result = await func(
                 *args[:-1],
                 task.parent_tool or task.tool,
                 task_args,
                 user=task.user,
                 agent=task.agent,
+                session=task.session,
             )
-            preprocess_task = _preprocess_task(task)
-
-            # preprocess_task is just a stub. it will allow us to parallelize pre-processing tasks that dont want to hold up the main task
-            result, _ = await asyncio.gather(main_task, preprocess_task)
 
             if output_type in ["image", "video", "audio", "lora"] and is_creation_tool:
                 result["output"] = (
@@ -230,7 +232,9 @@ async def _task_handler(func, *args, **kwargs):
                     else [result["output"]]
                 )
                 result = utils.upload_result(
-                    result, save_thumbnails=True, save_blurhash=True
+                    result, 
+                    save_thumbnails=True, 
+                    save_blurhash=True
                 )
 
                 for output in result["output"]:

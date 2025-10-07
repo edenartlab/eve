@@ -23,11 +23,14 @@ from eve.agent.session.models import (
     ChatMessage,
     ChatMessageObservability,
     LLMTraceMetadata,
+    LLMConfig, 
     PromptSessionContext,
     Session,
     SessionUpdate,
     ToolCall,
     UpdateType,
+    SessionBudget,
+    SessionMemoryContext
 )
 from eve.agent.session.session_llm import (
     LLMContext,
@@ -37,7 +40,6 @@ from eve.agent.session.session_llm import (
 from eve.agent.session.models import LLMContextMetadata
 from eve.api.errors import handle_errors
 from eve.api.helpers import emit_update
-from eve.agent.session.models import LLMConfig
 from eve.agent.session.session_prompts import (
     system_template,
     model_template,
@@ -82,12 +84,15 @@ def update_session_budget(
     turns_spent: Optional[int] = None,
 ):
     if session.budget:
+        budget = session.budget
         if tokens_spent:
-            session.budget.tokens_spent += tokens_spent
+            budget.tokens_spent += tokens_spent
         if manna_spent:
-            session.budget.manna_spent += manna_spent
+            budget.manna_spent += manna_spent
         if turns_spent:
-            session.budget.turns_spent += turns_spent
+            budget.turns_spent += turns_spent
+        session.update(budget=budget.model_dump())
+        session.budget = SessionBudget(**session.budget)
 
 
 def validate_prompt_session(session: Session, context: PromptSessionContext):
@@ -167,8 +172,9 @@ async def determine_actors(
 
     # Update last_actor_id to the first actor for backwards compatibility
     if actors:
-        session.last_actor_id = actors[0].id
-        session.save()
+        #session.last_actor_id = actors[0].id
+        #session.save()
+        session.update(last_actor_id=actors[0].id)
 
     return actors
 
@@ -283,13 +289,12 @@ async def build_system_extras(
 
     if session.trigger:
         from eve.trigger import Trigger
-
         trigger = Trigger.from_mongo(session.trigger)
         extras.append(
             ChatMessage(
                 session=session.id,
                 role="system",
-                content=f"<Full Task Context>\n{trigger.context}\n</Full Task Context>",
+                content=trigger.context
             )
         )
 
@@ -307,13 +312,13 @@ async def build_system_extras(
     return context, config, extras
 
 
-async def add_user_message(
+async def add_chat_message(
     session: Session, context: PromptSessionContext, pin: bool = False
 ):
     new_message = ChatMessage(
         session=session.id,
         sender=ObjectId(context.initiating_user_id),
-        role="user",
+        role=context.message.role,
         content=context.message.content,
         attachments=context.message.attachments or [],
     )
@@ -322,9 +327,16 @@ async def add_user_message(
     new_message.save()
     # No longer storing message IDs on session to avoid race conditions
     # session.messages.append(new_message.id)
-    session.memory_context.last_activity = datetime.now(timezone.utc)
-    session.memory_context.messages_since_memory_formation += 1
-    session.save()
+    
+    # session.memory_context.last_activity = datetime.now(timezone.utc)
+    # session.memory_context.messages_since_memory_formation += 1
+    # session.save()
+    memory_context = session.memory_context
+    memory_context.last_activity = datetime.now(timezone.utc)
+    memory_context.messages_since_memory_formation += 1
+    session.update(memory_context=memory_context.model_dump())
+    session.memory_context = SessionMemoryContext(**session.memory_context)
+
 
     # Broadcast user message to SSE connections for real-time updates
     try:
@@ -383,6 +395,7 @@ async def build_llm_context(
         tools = context.tools
     else:
         tools = actor.get_tools(cache=False, auth_user=auth_user_id)
+    
     if context.extra_tools:
         tools.update(context.extra_tools)
 
@@ -446,6 +459,7 @@ async def async_run_tool_call_with_cancellation(
     tool_call: ToolCall,
     user_id: Optional[str] = None,
     agent_id: Optional[str] = None,
+    session_id: Optional[str] = None,
     public: bool = True,
     is_client_platform: bool = False,
     cancellation_event: asyncio.Event = None,
@@ -463,6 +477,7 @@ async def async_run_tool_call_with_cancellation(
     task = await tool.async_start_task(
         user_id=user_id,
         agent_id=agent_id,
+        session_id=session_id,
         args=tool_call.args,
         mock=False,
         public=public,
@@ -595,6 +610,7 @@ async def process_tool_call(
             user_id=llm_context.metadata.trace_metadata.user_id
             or llm_context.metadata.trace_metadata.agent_id,
             agent_id=llm_context.metadata.trace_metadata.agent_id,
+            session_id=str(session.id),
             cancellation_event=effective_cancellation_event,
             is_client_platform=is_client_platform,
         )
@@ -645,7 +661,6 @@ async def process_tool_call(
                 assistant_message.save()
 
             update_session_budget(session, manna_spent=result.get("cost", 0))
-            session.save()
 
             return SessionUpdate(
                 type=UpdateType.TOOL_COMPLETE,
@@ -822,8 +837,9 @@ async def async_prompt_session(
         """Generator function that yields session updates and can be cancelled."""
         active_requests = session.active_requests or []
         active_requests.append(session_run_id)
-        session.active_requests = active_requests
-        session.save()
+        # session.active_requests = active_requests
+        # session.save()
+        session.update(active_requests=active_requests)
 
         yield SessionUpdate(
             type=UpdateType.START_PROMPT,
@@ -995,17 +1011,23 @@ async def async_prompt_session(
                 tokens_spent = response.tokens_spent
 
             assistant_message.save()
+
             # No longer storing message IDs on session to avoid race conditions
             # session.messages.append(assistant_message.id)
-            session.memory_context.last_activity = datetime.now(timezone.utc)
-            session.memory_context.messages_since_memory_formation += 1
+            
+            #session.memory_context.last_activity = datetime.now(timezone.utc)
+            #session.memory_context.messages_since_memory_formation += 1
+            memory_context = session.memory_context
+            memory_context.last_activity = datetime.now(timezone.utc)
+            memory_context.messages_since_memory_formation += 1
+            session.update(memory_context=memory_context.model_dump())
+            session.memory_context = SessionMemoryContext(**session.memory_context)
 
             # print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
             # print(f"--- {assistant_message.content[:30]} ---")
             # print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
 
             update_session_budget(session, tokens_spent=tokens_spent, turns_spent=1)
-            session.save()
             # No longer appending to llm_context.messages since we refresh from DB each iteration
             yield SessionUpdate(
                 type=UpdateType.ASSISTANT_MESSAGE,
@@ -1124,8 +1146,9 @@ async def async_prompt_session(
     finally:
         active_requests = session.active_requests or []
         active_requests.remove(session_run_id)
-        session.active_requests = active_requests
-        session.save()
+        # session.active_requests = active_requests
+        # session.save()
+        session.update(active_requests=active_requests)
 
         # Clean up Ably subscription
         if ably_client:
@@ -1185,7 +1208,7 @@ def format_session_update(update: SessionUpdate, context: PromptSessionContext) 
                 dumps_json(tc.model_dump()) for tc in update.message.tool_calls
             ]
     elif update.type == UpdateType.USER_MESSAGE:
-        # User messages should already have enriched sender data from add_user_message
+        # User messages should already have enriched sender data from add_chat_message
         data["message"] = (
             update.message.model_dump(by_alias=True)
             if hasattr(update.message, "model_dump")
@@ -1240,7 +1263,7 @@ async def _run_prompt_session_internal(
                 {"user_id": str(context.initiating_user_id)[:8]},
                 emoji="message",
             )
-            await add_user_message(session, context)
+            await add_chat_message(session, context)
 
         debugger.log("Determining actors", emoji="actor")
         actors = await determine_actors(session, context)
@@ -1664,15 +1687,18 @@ async def async_title_session(
 
                 title_data = json.loads(result.content)
                 if isinstance(title_data, dict) and "title" in title_data:
-                    session.title = title_data["title"]
+                    #session.title = title_data["title"]
+                    session.update(title=title_data["title"])
                 else:
                     # Fallback to using content directly
-                    session.title = result.content[:30]  # Limit to 30 chars
+                    #session.title = result.content[:30]  # Limit to 30 chars
+                    session.update(title=result.content[:30])
             except (json.JSONDecodeError, TypeError):
                 # If JSON parsing fails, use content directly
-                session.title = result.content[:30]  # Limit to 30 chars
+                #session.title = result.content[:30]  # Limit to 30 chars
+                session.update(title=result.content[:30])
 
-            session.save()
+            #session.save()
 
     except Exception as e:
         capture_exception(e)

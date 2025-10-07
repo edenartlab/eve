@@ -510,6 +510,14 @@ class DiscordGatewayClient:
 
         try:
             session = Session.load(session_key=session_key)
+
+            # Check if the session is deleted - if so, treat it as non-existent
+            if hasattr(session, 'deleted') and session.deleted:
+                logger.info(
+                    f"[{trace_id}] Found deleted session {session.id} for key {session_key}, treating as non-existent"
+                )
+                return None
+
             logger.info(f"[{trace_id}] Found existing session: {session.id}")
             return session
         except Exception as e:

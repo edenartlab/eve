@@ -3,7 +3,7 @@ from eve.tools.twitter import X
 from eve.agent.session.models import Deployment
 
 
-async def handler(args: dict, user: str = None, agent: str = None):
+async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
     if not agent:
         raise Exception("Agent is required")
     agent_obj = Agent.from_mongo(agent)

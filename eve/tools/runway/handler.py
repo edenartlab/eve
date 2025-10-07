@@ -104,7 +104,7 @@ async def enhance_prompt(prompt_text: str):
     return result.prompt
 
 
-async def handler(args: dict, user: str = None, agent: str = None):
+async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
     client = AsyncRunwayML()
     unsafe_content_error = False
 

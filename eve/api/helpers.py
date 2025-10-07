@@ -11,8 +11,6 @@ import time
 
 import modal
 
-from eve import deploy
-# from eve.trigger import DEPLOYMENT_ENV_NAME, TRIGGER_ENV_NAME
 from eve.agent.deployments import PlatformClient
 from eve.api.errors import APIError
 from eve.tool import Tool

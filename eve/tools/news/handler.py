@@ -4,7 +4,7 @@ import requests
 from openai import OpenAI
 
 
-async def handler(args: dict, user: str = None, agent: str = None):
+async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
     NEWSAPI_API_KEY = os.environ['NEWSAPI_API_KEY']
 
     category = args['subject']

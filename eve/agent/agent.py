@@ -227,7 +227,7 @@ class Agent(User):
         return thread
 
     # @profile_method("_reload")
-    def _reload(self):
+    def _reload(self, extra_tools: list[str] = []):
         """Reload all tools, loras, and deployments from mongo"""
         from ..tool import get_tools_from_mongo
         from ..agent.session.models import Deployment
@@ -263,14 +263,22 @@ class Agent(User):
                 continue
             tools_to_load.extend(set_tools)
 
+        # load extra tools
+        tools_to_load.extend(extra_tools)
+
+        # agent-specific tools
+        # todo: systemize this for other agents
+        if self.username == "abraham":
+            tools_to_load.append("abraham_publish")
+
         if tools_to_load:
             self.tools_ = get_tools_from_mongo(tools_to_load)
         else:
             self.tools_ = {}
 
     # @profile_method("get_tools")
-    def get_tools(self, cache=True, auth_user: str = None):
-        self._reload()
+    def get_tools(self, cache=True, auth_user: str = None, extra_tools: list[str] = []):
+        self._reload(extra_tools)
         tools = self.tools_
 
         # update tools with platform-specific args

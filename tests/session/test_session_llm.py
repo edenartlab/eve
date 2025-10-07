@@ -139,7 +139,7 @@ def test_construct_observability_metadata():
     [
         pytest.param("gpt-4o-mini", None, id="openai"),
         pytest.param(
-            "claude-3-5-haiku-latest",
+            "claude-sonnet-4-5",
             "provider_anthropic",
             marks=pytest.mark.provider_anthropic,
             id="anthropic",

@@ -118,7 +118,7 @@ def write_reel(args: dict, agent: Agent = None):
 
     client = instructor.from_anthropic(Anthropic())
     reel = client.messages.create(
-        model="claude-opus-4-20250514",
+        model="claude-opus-4-1-20250805",
         max_tokens=3000,
         max_retries=1,
         system=system_prompt,
@@ -192,7 +192,7 @@ def write_visual_prompts(
 
 
 
-async def handler(args: dict, user: str = None, agent: str = None):
+async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
     print("args", args)
 
     elevenlabs = Tool.load("elevenlabs")

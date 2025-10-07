@@ -58,7 +58,7 @@ from eve.api.helpers import (
 from eve.api.typing_coordinator import update_busy_state
 from eve.utils import prepare_result, dumps_json, serialize_json
 from eve.tools.replicate_tool import replicate_update_task
-from eve.agent.llm import UpdateType
+from eve.agent.llm import UpdateType, async_prompt
 from eve.agent.run_thread import async_prompt_thread
 from eve.mongo import get_collection
 from eve.task import Task
@@ -71,6 +71,37 @@ from eve.api.helpers import get_eden_creation_url
 
 logger = logging.getLogger(__name__)
 db = os.getenv("DB", "STAGE").upper()
+
+
+def compute_llm_cost(input_text: str, output_text: str) -> float:
+    """
+    Compute manna cost for LLM calls based on token count estimates.
+
+    Args:
+        input_text: The input text (system message + user messages)
+        output_text: The output text from the LLM
+
+    Returns:
+        The manna cost
+    """
+    # Estimate token count (4 chars ≈ 1 token)
+    input_tokens = len(input_text) / 4
+    output_tokens = len(output_text) / 4
+
+    # Cost parameters (hardcoded to claude-sonnet-4-5)
+    manna_cost_per_dollar = 1 / 0.01  # 0.01 dollars = 1 manna, so 100 manna per dollar
+    input_cost_per_M_tokens = 3  # dollars per million tokens
+    output_cost_per_M_tokens = 15  # dollars per million tokens
+
+    # Calculate dollar cost
+    input_cost_dollars = (input_tokens / 1_000_000) * input_cost_per_M_tokens
+    output_cost_dollars = (output_tokens / 1_000_000) * output_cost_per_M_tokens
+    total_cost_dollars = input_cost_dollars + output_cost_dollars
+
+    # Convert to manna
+    manna_cost = total_cost_dollars * manna_cost_per_dollar
+
+    return manna_cost
 
 
 @handle_errors
@@ -1321,29 +1352,39 @@ async def handle_create_notification(request: CreateNotificationRequest):
     return {"id": str(notification.id), "message": "Notification created successfully"}
 
 
+
+import torch, torch.nn.functional as F
+from transformers import CLIPProcessor, CLIPModel
+
+MODEL_NAME = "openai/clip-vit-large-patch14"
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model  = CLIPModel.from_pretrained(MODEL_NAME).to(device).eval()
+proc   = CLIPProcessor.from_pretrained(MODEL_NAME)
+
+# Embed handler
+@handle_errors
+async def handle_embed(request):
+    """Embed images with CLIP"""
+
+    creations = get_collection("creations3")
+
+    inputs = proc(text=[request.query], return_tensors="pt", padding=True, truncation=True).to(device)
+    v = model.get_text_features(**inputs)
+    qv = F.normalize(v, p=2, dim=-1)[0].cpu().tolist()
+
+    return {"embedding": qv}
+
 # Embed search handler
 @handle_errors
 async def handle_embedsearch(request):
     """Search images using CLIP embeddings"""
 
-    import torch, torch.nn.functional as F
-    from transformers import CLIPProcessor, CLIPModel
+    qv_result = await handle_embed(request)
+    qv = qv_result["embedding"]
 
-    MODEL_NAME = "openai/clip-vit-large-patch14"
     creations = get_collection("creations3")
-
-    device = "cpu"  # torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = CLIPModel.from_pretrained(MODEL_NAME).to(device).eval()
-    proc = CLIPProcessor.from_pretrained(MODEL_NAME)
-
-    inputs = proc(
-        text=[request.query], return_tensors="pt", padding=True, truncation=True
-    ).to(device)
-    v = model.get_text_features(**inputs)
-    qv = F.normalize(v, p=2, dim=-1)[0].cpu().tolist()
-
-    # Build pre-filter (works only if 'tags'/'subsetId' are in index as filter fields)
     filt = {}
+
     if request.agent_id:
         filt["agent"] = ObjectId(request.agent_id)
     if request.user_id:
@@ -1388,3 +1429,157 @@ async def handle_embedsearch(request):
     results = list(creations.aggregate(pipeline))
 
     return {"results": results}
+
+
+@handle_errors
+async def handle_async_llm_call(request):
+    """Generic LLM prompt endpoint that exposes async_prompt directly"""
+    from eve.agent.thread import UserMessage, AssistantMessage
+
+    # Get user_id from the authenticated request
+    user_id = request.user_id
+    user = User.from_mongo(ObjectId(user_id))
+    if not user:
+        raise APIError(f"User not found: {user_id}", status_code=404)
+
+    # Convert request messages to Thread messages and build input text
+    messages = []
+    system_message = request.system_message
+    input_text = ""
+
+    if system_message:
+        input_text += system_message
+
+    for msg in request.messages:
+        input_text += msg.content
+        if msg.role == "system":
+            # If system message in messages, use it (override system_message field)
+            system_message = msg.content
+        elif msg.role == "user":
+            messages.append(UserMessage(content=msg.content, name=msg.name))
+        elif msg.role == "assistant":
+            messages.append(AssistantMessage(content=msg.content, tool_calls=[]))
+
+    # Convert tools dict to Tool objects if provided
+    tools_dict = {}
+    if request.tools:
+        for tool_name, tool_config in request.tools.items():
+            tool = Tool.load(key=tool_name)
+            if tool:
+                tools_dict[tool_name] = tool
+
+    # Call async_prompt
+    content, tool_calls, stop = await async_prompt(
+        messages=messages,
+        system_message=system_message,
+        model=request.model or "claude-sonnet-4-5",
+        response_model=None,  # Not supporting structured output for now
+        tools=tools_dict,
+    )
+
+    # Calculate cost using the new function
+    cost = compute_llm_cost(input_text, content)
+
+    # Check and spend manna
+    user.check_manna(cost)
+
+    # Spend manna
+    if "free_tools" not in (user.featureFlags or []):
+        from eve.user import Manna
+        manna = Manna.load(user.id)
+        manna.spend(cost)
+
+    return {
+        "content": content,
+        "tool_calls": [tc.model_dump() for tc in tool_calls],
+        "stop": stop,
+        "cost": cost,
+    }
+
+
+@handle_errors
+async def handle_extract_agent_prompts(request):
+    """
+    Extract agent persona, description, and memory instructions from a conversation session.
+
+    Takes a session_id, fetches all messages from that session, and uses LLM to extract:
+    - persona: Core personality traits and characteristics
+    - description: Short summary of agent's purpose and capabilities
+    - memory_instructions: Instructions for how agent should store/recall memories
+    """
+    from eve.agent.thread import UserMessage
+    from eve.agent.session.models import Session
+
+    # Get user_id and verify user exists
+    user_id = request.user_id
+    user = User.from_mongo(ObjectId(user_id))
+    if not user:
+        raise APIError(f"User not found: {user_id}", status_code=404)
+
+    # Fetch session
+    session = Session.from_mongo(ObjectId(request.session_id))
+    if not session:
+        raise APIError(f"Session not found: {request.session_id}", status_code=404)
+
+    # Verify user owns the session
+    if str(session.owner) != str(user_id):
+        raise APIError("Unauthorized: User does not own this session", status_code=403)
+
+    # Format conversation from session messages
+    conversation_parts = []
+    for msg in session.messages:
+        if msg.role in ["user", "assistant"]:
+            role_label = "User" if msg.role == "user" else "Assistant"
+            conversation_parts.append(f"{role_label}: {msg.content}")
+
+    conversation_text = "\n\n".join(conversation_parts)
+
+    # Define extraction prompts
+    persona_prompt = f"Extract the core personality traits and characteristics from the following conversation. Return ONLY the persona description, no preamble.\n\n{conversation_text}"
+    description_prompt = f"Generate a SHORT (1-2 sentence) summary of the agent's purpose and capabilities based on this conversation. Return ONLY the description, no preamble.\n\n{conversation_text}"
+    memory_prompt = f"Based on the following conversation, generate instructions for how this agent should store and recall memories. Return ONLY the instructions, no preamble.\n\n{conversation_text}"
+
+    # Calculate total input text for cost estimation
+    total_input_text = persona_prompt + description_prompt + memory_prompt
+
+    # Make three parallel LLM calls
+    import asyncio
+
+    async def call_llm(prompt: str) -> str:
+        messages = [UserMessage(content=prompt)]
+        content, _, _ = await async_prompt(
+            messages=messages,
+            system_message=None,
+            model="claude-sonnet-4-5",
+            response_model=None,
+            tools={},
+        )
+        return content
+
+    # Execute all three extractions in parallel
+    persona, description, memory_instructions = await asyncio.gather(
+        call_llm(persona_prompt),
+        call_llm(description_prompt),
+        call_llm(memory_prompt),
+    )
+
+    # Calculate total output text for cost
+    total_output_text = persona + description + memory_instructions
+
+    # Calculate cost
+    cost = compute_llm_cost(total_input_text, total_output_text)
+
+    # Check and spend manna
+    user.check_manna(cost)
+
+    if "free_tools" not in (user.featureFlags or []):
+        from eve.user import Manna
+        manna = Manna.load(user.id)
+        manna.spend(cost)
+
+    return {
+        "persona": persona.strip(),
+        "description": description.strip(),
+        "memory_instructions": memory_instructions.strip(),
+        "cost": cost,
+    }

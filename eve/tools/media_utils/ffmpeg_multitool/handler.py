@@ -230,7 +230,7 @@ async def generate_ffmpeg_command(
         print("---------------------------------------------------------------------")
 
         prompt = {
-            "model": "claude-3-7-sonnet-latest",
+            "model": "claude-sonnet-4-5",
             "max_tokens": 2048,
             "messages": messages,
             "system": "You are an expert at generating FFmpeg commands. Respond with a JSON object containing just the ffmpeg command and output path.",
@@ -339,7 +339,7 @@ def validate_and_prepare_media(args: Dict[str, Any], tmp_dir: Optional[str] = No
         shutil.rmtree(tmp_dir, ignore_errors=True)
         raise
 
-async def handler(args: dict, user: str = None, agent: str = None):
+async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
     """Main handler function for processing media files and generating FFmpeg commands"""
     if not isinstance(args, dict):
         raise TypeError("Args must be a dictionary")

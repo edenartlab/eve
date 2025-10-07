@@ -1,0 +1,19 @@
+name: abraham_publish
+description: Abraham initiate a new Creation
+tip: |-
+  This tool allows Abraham to create and publish a new Creation seed. Do not use this tool unless explicitly requested to use the abraham_publish tool.
+cost_estimate: 0
+output_type: string
+active: true
+handler: local
+visible: false
+parameters:
+  title:
+    type: string
+    description: Title of the creation
+    required: true
+  proposal:
+    type: string
+    description: Creation proposal
+    tip: This describes the creative research project or artwork in detail; what to research, what to make, and how to structure the creation.
+    required: true

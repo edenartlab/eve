@@ -133,7 +133,7 @@ def preprocess_image(file_input, is_mask=False):
             except OSError as e:
                 print(f"Error cleaning up temporary file {temp_file_path}: {e}")
 
-async def handler(args: dict, user: str = None, agent: str = None):
+async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
     """
     Handles the image editing request using the OpenAI API (gpt-image-1 only).
     Supports single or multiple input images.

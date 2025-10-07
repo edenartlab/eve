@@ -25,7 +25,7 @@ class Session(requests.Session):
         return super().prepare_request(request)
 
 
-async def handler(args: dict, user: str = None, agent: str = None):
+async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
     HEDRA_API_KEY = os.getenv("HEDRA_API_KEY")
     session = Session(api_key=HEDRA_API_KEY)
 

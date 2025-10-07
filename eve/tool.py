@@ -473,12 +473,13 @@ class Tool(Document, ABC):
             try:
                 user_id = args.pop("user_id", None) or str(get_my_eden_user().id)
                 agent_id = args.pop("agent_id", None) 
+                session_id = args.pop("session_id", None)
                 args = self.prepare_args(args)
                 sentry_sdk.add_breadcrumb(category="handle_run", data=args)
                 if mock:
                     result = {"output": utils.mock_image(args)}
                 else:
-                    result = await run_function(self, args, user_id, agent_id)
+                    result = await run_function(self, args, user_id, agent_id, session_id)
                 result["output"] = (
                     result["output"]
                     if isinstance(result["output"], list)
@@ -508,6 +509,7 @@ class Tool(Document, ABC):
             self,
             user_id: str,
             agent_id: str,
+            session_id: str,
             args: Dict,
             public: bool = False,
             mock: bool = False,
@@ -542,6 +544,7 @@ class Tool(Document, ABC):
             task = Task(
                 user=user_id,
                 agent=agent_id,
+                session=session_id,
                 tool=self.key,
                 parent_tool=self.parent_tool,
                 output_type=self.output_type,
@@ -650,11 +653,12 @@ class Tool(Document, ABC):
         self,
         user_id: str,
         agent_id: str,
+        session_id: str,
         args: Dict,
         mock: bool = False,
         public: bool = False,
     ):
-        return asyncio.run(self.async_start_task(user_id, agent_id, args, mock, public))
+        return asyncio.run(self.async_start_task(user_id, agent_id, session_id, args, mock, public))
 
     def wait(self, task: Task):
         return asyncio.run(self.async_wait(task))
