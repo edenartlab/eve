@@ -289,13 +289,12 @@ async def build_system_extras(
 
     if session.trigger:
         from eve.trigger import Trigger
-
         trigger = Trigger.from_mongo(session.trigger)
         extras.append(
             ChatMessage(
                 session=session.id,
                 role="system",
-                content=f"<Full Task Context>\n{trigger.context}\n</Full Task Context>",
+                content=trigger.context
             )
         )
 
@@ -396,6 +395,7 @@ async def build_llm_context(
         tools = context.tools
     else:
         tools = actor.get_tools(cache=False, auth_user=auth_user_id)
+    
     if context.extra_tools:
         tools.update(context.extra_tools)
 
