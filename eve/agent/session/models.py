@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 import magic
+import pdfplumber
 from bson import ObjectId
 from pydantic import ConfigDict, Field, BaseModel, field_serializer
 
@@ -13,6 +14,8 @@ from eve.utils import download_file, image_to_base64, prepare_result, dumps_json
 from eve.mongo import Collection, Document
 from eve.tool import Tool
 
+# Maximum character limit for text attachments (both .txt and .pdf files)
+TEXT_ATTACHMENT_MAX_LENGTH = 20000
 
 class ToolCall(BaseModel):
     id: str
@@ -276,6 +279,7 @@ class ChatMessage(Document):
             attachment_files = []
             attachment_errors = []
             text_attachments = []
+            truncated_files = []  # Track which files were truncated
 
             for attachment in self.attachments:
                 try:
@@ -289,6 +293,7 @@ class ChatMessage(Document):
                     print("downloaded attachment", attachment_file)
                     mime_type = magic.from_file(attachment_file, mime=True)
                     print("mime type", mime_type)
+
                     # Handle text files (.txt, .md, .plain)
                     if mime_type in [
                         "text/plain",
@@ -300,19 +305,24 @@ class ChatMessage(Document):
                         try:
                             with open(attachment_file, "r", encoding="utf-8") as f:
                                 text_content = f.read()
-                                # Limit text content to reasonable size (e.g., 10000 chars)
-                                if len(text_content) > 10000:
+                                file_name = attachment.split("/")[-1]
+                                was_truncated = False
+
+                                # Limit text content using the constant
+                                if len(text_content) > TEXT_ATTACHMENT_MAX_LENGTH:
                                     text_content = (
-                                        text_content[:10000]
+                                        text_content[:TEXT_ATTACHMENT_MAX_LENGTH]
                                         + "\n\n[Content truncated...]"
                                     )
+                                    was_truncated = True
+                                    truncated_files.append(file_name)
 
-                                file_name = attachment.split("/")[-1]
                                 text_attachments.append(
                                     {
                                         "name": file_name,
                                         "content": text_content,
                                         "url": attachment,
+                                        "truncated": was_truncated,
                                     }
                                 )
                         except Exception as read_error:
@@ -322,6 +332,52 @@ class ChatMessage(Document):
                             attachment_lines.append(
                                 f"* {attachment}: (Text file, but could not read: {str(read_error)})"
                             )
+
+                    # Handle PDF files
+                    elif mime_type == "application/pdf" or attachment.lower().endswith(".pdf"):
+                        try:
+                            with pdfplumber.open(attachment_file) as pdf:
+                                # Extract text from all pages
+                                text_content = ""
+                                for page in pdf.pages:
+                                    page_text = page.extract_text()
+                                    if page_text:
+                                        text_content += page_text + "\n"
+
+                                file_name = attachment.split("/")[-1]
+                                was_truncated = False
+
+                                # Limit text content using the constant
+                                if len(text_content) > TEXT_ATTACHMENT_MAX_LENGTH:
+                                    text_content = (
+                                        text_content[:TEXT_ATTACHMENT_MAX_LENGTH]
+                                        + "\n\n[Content truncated...]"
+                                    )
+                                    was_truncated = True
+                                    truncated_files.append(file_name)
+
+                                # Only add if we successfully extracted text
+                                if text_content.strip():
+                                    text_attachments.append(
+                                        {
+                                            "name": file_name,
+                                            "content": text_content,
+                                            "url": attachment,
+                                            "truncated": was_truncated,
+                                        }
+                                    )
+                                else:
+                                    attachment_lines.append(
+                                        f"* {attachment}: (PDF file with no extractable text)"
+                                    )
+                        except Exception as read_error:
+                            print(
+                                f"Error reading PDF file {attachment_file}: {read_error}"
+                            )
+                            attachment_lines.append(
+                                f"* {attachment}: (PDF file, but could not extract text: {str(read_error)})"
+                            )
+
                     elif "video" in mime_type:
                         attachment_lines.append(
                             f"* {attachment} (The asset is a video, the corresponding image attachment is its first frame.)"
@@ -346,6 +402,12 @@ class ChatMessage(Document):
                     attachments += f'\n<attached_file name="{text_att["name"]}" url="{text_att["url"]}">\n'
                     attachments += text_att["content"]
                     attachments += f"\n</attached_file>\n"
+
+            # Add truncation notification if any files were truncated
+            if truncated_files:
+                if attachments:
+                    attachments += "\n"
+                attachments += f"<truncation_notice>\nNote: The following file(s) exceeded the {TEXT_ATTACHMENT_MAX_LENGTH} character limit and were truncated: {', '.join(truncated_files)}\n</truncation_notice>\n"
 
             if attachment_lines:
                 if attachments:
