@@ -3,15 +3,20 @@ description: Post a message to a Discord channel or send a direct message to a D
 tip: |-
   This tool allows an agent to post messages to Discord channels or send DMs to users.
 
+  IMPORTANT: Messages are truncated at 2000 characters (Discord's limit). Keep messages concise.
+
   For channel posting:
-  - "Post 'Hello everyone!' to general chat"
-  - "Send announcement to the news channel"
-  - "Share this update in tech support"
+  - Requires exact channel_id from the deployment's channel allowlist
+  - Channel must be pre-configured in the deployment
+  - Example: channel_id="123456789"
 
   For direct messages:
   - Use discord_user_id parameter to send DMs
   - The channel_id parameter is ignored when discord_user_id is provided
   - DMs are sent directly to the specified Discord user
+  - Example: discord_user_id="987654321"
+
+  Either channel_id OR discord_user_id must be provided (not both).
 
   Only use this tool when explicitly requested to post a message or send a DM.
 cost_estimate: 1

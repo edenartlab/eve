@@ -40,7 +40,6 @@ from eve.api.handlers import (
     handle_v2_deployment_farcaster_neynar_webhook,
     handle_create_notification,
     handle_embedsearch,
-    handle_async_llm_call,
     handle_extract_agent_prompts,
 )
 from eve.trigger import (
@@ -428,15 +427,6 @@ async def embedsearch(
     request: EmbedSearchRequest, _: dict = Depends(auth.authenticate_admin)
 ):
     return await handle_embedsearch(request)
-
-
-# Generic LLM call endpoint
-@web_app.post("/llm/call")
-async def async_llm_call(
-    request: AsyncLLMCallRequest, _: dict = Depends(auth.authenticate_admin)
-):
-    return await handle_async_llm_call(request)
-
 
 # Agent creation - extract prompts from conversation session
 @web_app.post("/agent_creation/extract_prompts")
