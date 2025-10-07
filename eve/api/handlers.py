@@ -1358,8 +1358,15 @@ from transformers import CLIPProcessor, CLIPModel
 
 MODEL_NAME = "openai/clip-vit-large-patch14"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model  = CLIPModel.from_pretrained(MODEL_NAME).to(device).eval()
-proc   = CLIPProcessor.from_pretrained(MODEL_NAME)
+
+# Only load model on Modal, not on localhost
+# MODAL_IS_REMOTE is automatically set by Modal when running remotely
+if os.getenv("MODAL_IS_REMOTE") == "1":
+    model  = CLIPModel.from_pretrained(MODEL_NAME).to(device).eval()
+    proc   = CLIPProcessor.from_pretrained(MODEL_NAME)
+else:
+    model = None
+    proc = None
 
 # Embed handler
 @handle_errors

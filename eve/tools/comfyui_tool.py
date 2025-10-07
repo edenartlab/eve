@@ -52,7 +52,7 @@ class ComfyUITool(Tool):
 
     @Tool.handle_run
     async def async_run(self, args: Dict, user_id: str = None, agent_id: str = None, session_id: str = None):
-        db = os.getenv("DB")
+        db = os.getenv("DB", "STAGE")
         print(f"ComfyUI: comfyui-{self.workspace}-{db}")
         cls = modal.Cls.from_name(
             f"comfyui-{self.workspace}-{db}", "ComfyUIBasic", environment_name="main"
@@ -69,7 +69,7 @@ class ComfyUITool(Tool):
         normal_class = "ComfyUIPremium" if is_subscriber else "ComfyUIBasic"
         modal_class = special_class or normal_class
 
-        db = os.getenv("DB")
+        db = os.getenv("DB", "STAGE")
         cls = modal.Cls.from_name(
             f"comfyui-{self.workspace}-{db}", modal_class, environment_name="main"
         )

@@ -92,6 +92,7 @@ cfn-flip==1.3.0
 cfn-lint==1.39.1
     # via runway
 charset-normalizer==3.4.2
+    # via pdfminer-six
     # via requests
 ckzg==2.1.1
     # via eth-account
@@ -119,6 +120,7 @@ coloredlogs==15.0
     # via runway
 cryptography==44.0.3
     # via clerk-backend-api
+    # via pdfminer-six
     # via pyopenssl
 cytoolz==1.0.1
     # via eth-utils
@@ -416,10 +418,15 @@ parsimonious==0.10.0
 pathspec==0.12.1
     # via mkdocs
     # via yamllint
+pdfminer-six==20250506
+    # via pdfplumber
+pdfplumber==0.11.7
+    # via eve
 pillow==11.3.0
     # via eve
     # via imageio
     # via moviepy
+    # via pdfplumber
 platformdirs==4.4.0
     # via mkdocs-get-deps
     # via virtualenv
@@ -512,6 +519,8 @@ pyopenssl==25.1.0
     # via runway
 pyparsing==3.2.3
     # via eve
+pypdfium2==4.30.0
+    # via pdfplumber
 python-dateutil==2.9.0.post0
     # via botocore
     # via ghp-import

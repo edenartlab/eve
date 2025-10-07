@@ -61,6 +61,7 @@ dependencies = [
     "mcp>=1.13.0",
     "runway>=2.8.4",
     "transformers>=4.56.2",
+    "pdfplumber>=0.11.0",
 ]
 
 [build-system]
