@@ -126,6 +126,7 @@ async def async_run_tool_call(
     task = await tool.async_start_task(
         user_id=user_id,
         agent_id=agent_id,
+        session_id=session_id,
         args=tool_call.args,
         mock=False,
         public=public,

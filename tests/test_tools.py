@@ -8,7 +8,7 @@ async def async_run_tool(tool, api: bool, mock: bool):
     """Run a single tool test"""
     if api:
         user = get_my_eden_user()
-        task = await tool.async_start_task(user.id, user.id, tool.test_args, mock=mock)
+        task = await tool.async_start_task(user.id, user.id, args=tool.test_args, mock=mock)
         return await tool.async_wait(task)
     return await tool.async_run(tool.test_args, mock=mock)
 
