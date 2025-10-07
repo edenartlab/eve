@@ -42,7 +42,7 @@ def get_mongo_client():
 @trace
 def get_collection(collection_name: str):
     """Get a MongoDB collection with connection pooling"""
-    db = os.getenv("DB")
+    db = os.getenv("DB", "STAGE")
     cache_key = f"{db}:{collection_name}"
     if cache_key in _collections:
         return _collections[cache_key]
@@ -135,7 +135,7 @@ class Document(BaseModel):
         )
         schema = cls.get_collection().find_one({"_id": document_id})
         if not schema:
-            db = os.getenv("DB")
+            db = os.getenv("DB", "STAGE")
             raise ValueError(
                 f"Document {document_id} not found in {cls.collection_name}:{db}"
             )
@@ -362,7 +362,7 @@ class MongoDocumentNotFound(Exception):
     """Exception raised when a document is not found in MongoDB."""
 
     def __init__(self, collection_name: str, document_id: str = None, **kwargs):
-        db = os.getenv("DB")
+        db = os.getenv("DB", "STAGE")
         if document_id:
             self.message = f"Document with id {document_id} not found in collection {collection_name}, db: {db}"
         else:

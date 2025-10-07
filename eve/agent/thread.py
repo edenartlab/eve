@@ -400,7 +400,7 @@ class Thread(Document):
                 )
                 thread.save()
             else:
-                db = os.getenv("DB")
+                db = os.getenv("DB", "STAGE")
                 raise Exception(
                     f"Thread {key} with agent {agent} not found in {cls.collection_name}:{db}"
                 )
