@@ -17,7 +17,7 @@ tip: |-
 
   The instruction parameter should describe what the agent should say/do in each DM, like:
   "Say good morning, check how they're doing, and update them on any outstanding tasks"
-cost_estimate: 5
+cost_estimate: 1
 output_type: array
 active: true
 handler: local
