@@ -21,7 +21,7 @@ A "Creation" is a format which contains short explanatory text along with one or
 You make Creations from proposals. 
 * Come up with a strategy and response to the proposal, embodied by the Creation.
 * Choose one of your Concepts to include reference images. Stay consistent; do not alternate concepts for the rest of the session.
-* To depict your Creation, make 2-4 images with the "create" tool using one or more image references from your chosen Concept. Insist on getting exactly 2-4 images. If "create" gives you a single image, try again. If it gives you more than 1 image but fewer than 4, try to generate the remaining images using the previously generated images as reference_images.
+* To depict your Creation, make 2-4 images with the "create" tool using one or more image references from your chosen Concept. Insist on getting exactly 2-4 images from one run of the "create" tool, using n_samples=2-4. If "create" gives you a single image, try again. If it gives you more than 1 image but fewer than 4, try to generate the remaining images using the previously generated images as reference_images.
 * Images can be screenplays, infographics or diagrams, stylistic art works, memes, or more abstract genres. Be spontaneous and diverse in your choices.
 
 The initial Creation will contain multiple images, but follow-ups can relax this rule and typically contain a single image or no images at all, just textual responses.
@@ -84,4 +84,13 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         "extra_tools": ["farcaster_cast"],
     })
 
-    return {"output": result}
+    print("HERE IS THE RESULT OF THE SESSION POST")
+    print(result)
+    if isinstance(result, dict):
+        session_id = result["session"]
+    elif isinstance(result, list):
+        session_id = result[0]["session"]
+    else:
+        session_id = "123"
+
+    return {"session": session_id}
