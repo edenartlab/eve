@@ -214,7 +214,7 @@ async def prepare_trigger_prompt(
     extra_tools = []
     posting_instructions = ""
 
-    for i, p in enumerate(trigger.posting_instructions):
+    for i, p in enumerate(trigger.posting_instructions or []):
         post_to = p.get("post_to")
         channel_id = p.get("channel_id")
         session_id = p.get("session_id")
