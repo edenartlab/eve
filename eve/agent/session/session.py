@@ -40,10 +40,7 @@ from eve.agent.session.session_llm import (
 from eve.agent.session.models import LLMContextMetadata
 from eve.api.errors import handle_errors
 from eve.api.helpers import emit_update
-from eve.agent.session.session_prompts import (
-    system_template,
-    model_template,
-)
+from eve.agent.session.session_prompts import system_template
 
 from eve.agent.session.memory import maybe_form_memories
 from eve.agent.session.memory_models import (
@@ -206,77 +203,45 @@ def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
 async def build_system_message(
     session: Session,
     actor: Agent,
-    context: PromptSessionContext,
+    user: User,
     tools: Dict[str, Tool],
 ):  # Get the last speaker ID for memory prioritization
-    last_speaker_id = None
-    if context.initiating_user_id:
-        last_speaker_id = ObjectId(context.initiating_user_id)
 
-    # Get agent memory context
-    memory_context = ""
-    try:
-        memory_context = await assemble_memory_context(
-            session,
-            actor.id,
-            last_speaker_id=last_speaker_id,
-            reason="build_system_message",
-            agent=actor,
-        )
-        if memory_context:
-            memory_context = f"\n\n{memory_context}"
-    except Exception as e:
-        print(
-            f"Warning: Failed to load memory context for agent {actor.id} in session {session.id}: {e}"
-        )
+    # Get concepts
+    concepts = Concept.find({"agent": actor.id})
 
-    # Get text describing concepts
-    concepts = None
-    concept_docs = Concept.find({"agent": actor.id})
-    if concept_docs:
-        concepts = "---\n"
-        for c, concept in enumerate(concept_docs):
-            images = [
-                f"{image['image']} :: {image['usage_instructions']}"
-                for image in concept.images
-            ]
-            image_list = "\n * ".join(images)
-            concept_string = f"Concept {c + 1}: {concept.name}\nUsage instructions: {concept.usage_instructions}\nImages:\n * {image_list}\n---\n"
-            concepts += concept_string
+    # Get time
+    current_date_time = datetime.now(pytz.utc).strftime("%Y-%m-%d %H:%M:%S")
 
-    # Get text describing models
-    lora_name = None
-    if actor.models:
-        models_collection = get_collection(Model.collection_name)
-        loras_dict = {m["lora"]: m for m in actor.models}
-        lora_docs = models_collection.find(
-            {"_id": {"$in": list(loras_dict.keys())}, "deleted": {"$ne": True}}
-        )
-        lora_docs = list(lora_docs or [])
-        if lora_docs:
-            lora_name = lora_docs[0]["name"]
-        for doc in lora_docs:
-            doc["use_when"] = loras_dict[ObjectId(doc["_id"])].get(
-                "use_when", "This is your default Lora model"
-            )
-        loras = "\n".join(model_template.render(doc) for doc in lora_docs or [])
-    else:
-        loras = None
+    # Get loras
+    lora_dict = {m["lora"]: m for m in actor.models or []}
+    lora_docs = Model.find({"_id": {"$in": list(lora_dict.keys())}, "deleted": {"$ne": True}})
+    loras = [doc.model_dump() for doc in lora_docs]
+    for doc in loras:
+        doc["use_when"] = lora_dict[doc["id"]].get("use_when", "This is your default Lora model")
 
-    # Build system prompt with memory context
-    base_content = system_template.render(
-        name=actor.name,
-        current_date_time=datetime.now(pytz.utc).strftime("%Y-%m-%d %H:%M:%S"),
-        persona=actor.persona,
-        scenario=session.scenario,
-        concepts=concepts,
-        loras=loras,
-        lora_name=lora_name,
-        voice=actor.voice,
-        tools=tools,
+    # Get memory
+    memory = await assemble_memory_context(
+        session,
+        actor,
+        user,
+        reason="build_system_message",
     )
 
-    content = f"{base_content}{memory_context}"
+    # Build system prompt with memory context
+    content = system_template.render(
+        name=actor.name,
+        current_date_time=current_date_time,
+        description=actor.description,
+        scenario=session.scenario,
+        persona=actor.persona,
+        tools=tools,
+        concepts=concepts,
+        loras=lora_docs,
+        voice=actor.voice,
+        memory=memory
+    )
+
     return ChatMessage(
         session=session.id, sender=ObjectId(actor.id), role="system", content=content
     )
