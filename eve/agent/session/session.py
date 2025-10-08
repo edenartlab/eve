@@ -243,7 +243,9 @@ async def build_system_message(
     )
 
     return ChatMessage(
-        session=session.id, sender=ObjectId(actor.id), role="system", content=content
+        session=session.id, 
+        role="system", 
+        content=content
     )
 
 
@@ -273,7 +275,7 @@ async def build_system_extras(
             ChatMessage(
                 session=session.id,
                 role="user",
-                sender=context.initiating_user_id,
+                sender=ObjectId(str(context.initiating_user_id)),
                 content=trigger.context
             )
         )
@@ -286,7 +288,7 @@ async def add_chat_message(
 ):
     new_message = ChatMessage(
         session=session.id,
-        sender=ObjectId(context.initiating_user_id),
+        sender=ObjectId(str(context.initiating_user_id)),
         role=context.message.role,
         content=context.message.content,
         attachments=context.message.attachments or [],

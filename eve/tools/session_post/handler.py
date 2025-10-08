@@ -5,6 +5,7 @@ import uuid
 
 from eve.agent import Agent
 from eve.user import User
+from eve.tool import Tool
 from eve.api.handlers import setup_session
 from eve.api.api_requests import (
     PromptSessionRequest, 
@@ -86,10 +87,6 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         new_message.save()
 
     elif args.get("role") in ["system", "user"]:
-
-        from eve.tool import Tool
-        custom_tool = Tool.load("farcaster_cast")
-        
         new_message = ChatMessage(
             role=args.get("role"),
             sender=user.id,
@@ -103,7 +100,6 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
             initiating_user_id=request.user_id,
             message=new_message,
             llm_config=LLMConfig(model="claude-sonnet-4-5"),
-            extra_tools={custom_tool.key: custom_tool},
         )
 
         if args.get("extra_tools"):

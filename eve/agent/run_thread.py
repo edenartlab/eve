@@ -18,11 +18,9 @@ from ..user import User
 from .agent import Agent
 from .thread import UserMessage, AssistantMessage, ToolCall, Thread
 from .llm import async_prompt, async_prompt_stream, UpdateType, MODELS, DEFAULT_MODEL
-from .think import async_think
 
 
 system_template = load_template("system")
-knowledge_reply_template = load_template("knowledge_reply")
 models_instructions_template = load_template("models_instructions")
 model_template = load_template("model_doc")
 
@@ -152,7 +150,6 @@ async def async_prompt_thread(
     user_messages: Union[UserMessage, List[UserMessage]],
     tools: Dict[str, Tool],
     force_reply: bool = False,
-    use_thinking: bool = True,
     model: Literal[tuple(MODELS)] = DEFAULT_MODEL,
     user_is_bot: bool = False,
     stream: bool = False,
@@ -169,35 +166,19 @@ async def async_prompt_thread(
         print("Bot message, stopping")
         return
 
-    # Thinking step
-    use_thinking = False
-    if use_thinking:
-        print("Thinking...")
-
-        # A thought contains intention and tool pre-selection
-        thought = await async_think(
-            agent=agent,
-            thread=thread,
-            user_message=user_messages[-1],
-            force_reply=force_reply,
+    # Check mentions
+    agent_mentioned = any(
+        re.search(
+            rf"\b{re.escape(agent.name.lower())}\b", (msg.content or "").lower()
         )
-        thought = thought.model_dump()
+        for msg in user_messages
+    )
 
-    else:
-        # Check mentions
-        agent_mentioned = any(
-            re.search(
-                rf"\b{re.escape(agent.name.lower())}\b", (msg.content or "").lower()
-            )
-            for msg in user_messages
-        )
-
-        # When there's no thinking, reply if mentioned or forced, and include all tools
-        thought = {
-            "thought": "none",
-            "intention": "reply" if agent_mentioned or force_reply else "ignore",
-            "recall_knowledge": False,
-        }
+    # When there's no thinking, reply if mentioned or forced, and include all tools
+    thought = {
+        "thought": "none",
+        "intention": "reply" if agent_mentioned or force_reply else "ignore",
+    }
 
     # for error tracing
     add_breadcrumb(
@@ -247,19 +228,10 @@ async def async_prompt_thread(
         try:
             messages = thread.get_messages(25)
 
-            # If knowledge requested, prepend with full knowledge text
-            if thought.get("recall_knowledge") and agent.knowledge:
-                knowledge = knowledge_reply_template.render(
-                    knowledge=agent.knowledge
-                )
-            else:
-                knowledge = ""
-
             system_message = system_template.render(
                 name=agent.name,
                 current_date_time=datetime.now(pytz.utc).strftime("%Y-%m-%d %H:%M:%S"),
                 persona=agent.persona,
-                knowledge=knowledge,
                 models_instructions=models_instructions,
             )
 
@@ -411,7 +383,6 @@ def prompt_thread(
     user_messages: Union[UserMessage, List[UserMessage]],
     tools: Dict[str, Tool],
     force_reply: bool = False,
-    use_thinking: bool = USE_THINKING,
     model: Literal[tuple(MODELS)] = DEFAULT_MODEL,
     user_is_bot: bool = False,
     is_client_platform: bool = False,
@@ -423,7 +394,6 @@ def prompt_thread(
         user_messages,
         tools,
         force_reply,
-        use_thinking,
         model,
         user_is_bot,
         is_client_platform=is_client_platform,

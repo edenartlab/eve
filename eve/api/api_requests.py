@@ -261,3 +261,4 @@ class AsyncLLMCallRequest(BaseModel):
 class AgentPromptsExtractionRequest(BaseModel):
     user_id: str
     session_id: str
+    agent_name: Optional[str] = None

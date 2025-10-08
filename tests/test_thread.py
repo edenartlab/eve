@@ -4,7 +4,6 @@ from eve.auth import get_my_eden_user
 from eve.agent import Agent
 from eve.agent.thread import Thread, UserMessage, AssistantMessage, ToolCall
 from eve.agent.tasks import title_thread
-from eve.agent.think import think
 from eve.agent.llm import UpdateType
 from eve.agent.run_thread import prompt_thread
 
@@ -126,17 +125,3 @@ def test_prompt_thread():
         print(update)
         assert update.type != UpdateType.ERROR
 
-
-def test_think():
-    agent = Agent.load("eve")
-    thread = agent.request_thread(key=f"test")
-    
-    thought = think(
-        agent=agent,
-        thread=thread,
-        user_message=UserMessage(content="eve, i want to talk to you"),
-        model="gpt-4o-mini"
-    )
-    
-    print(thought)
-    assert thought.intention == "reply"

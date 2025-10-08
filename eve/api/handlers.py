@@ -24,7 +24,7 @@ from eve.agent.session.models import (
     NotificationChannel,
     NotificationConfig,
 )
-from eve.agent.session.memory_models import messages_to_text
+from eve.agent.session.memory_models import messages_to_text, select_messages
 from eve.deploy import (
     Deployment as DeploymentV1,
 )
@@ -1473,7 +1473,11 @@ async def handle_extract_agent_prompts(request):
     if not session:
         raise APIError(f"Session not found: {request.session_id}", status_code=404)
 
-    conversation_text, _ = messages_to_text(session.messages)
+    session_messages = select_messages(session, selection_limit = 50)
+    conversation_text, _ = messages_to_text(session_messages)
+
+    # Get agent name from request, default to "<agent-name>" if not provided
+    agent_name = request.agent_name or "<agent-name>"
 
     # Load prompt template
     template_path = os.path.join(
@@ -1482,8 +1486,9 @@ async def handle_extract_agent_prompts(request):
     with open(template_path, "r") as f:
         prompt_template = f.read()
 
-    # Inject conversation into template
+    # Inject conversation and agent name into template
     prompt = prompt_template.replace("{conversation}", conversation_text)
+    prompt = prompt.replace("{agent_name}", agent_name)
 
     # Make single LLM call with structured output using LLMContext with tracing
     context = LLMContext(
@@ -1524,14 +1529,11 @@ async def handle_extract_agent_prompts(request):
     content_text = json.dumps(result.model_dump())
     cost = compute_llm_cost_simple(prompt, content_text)
 
-    print(f"Successfully extracted agent prompts")
-    print(f"Agent instructions: {agent_instructions}")
-    print(f"Agent description: {agent_description}")
-    print(f"Memory instructions: {memory_instructions}")
-    print(f"Cost: {cost}")
-
     # Check and spend manna
-    user.check_manna(cost)
+    try:
+        user.check_manna(cost)
+    except Exception as e:
+        raise APIError(f"Insufficient manna: {str(e)}", status_code=402)
 
     return {
         "agent_instructions": agent_instructions.strip(),
