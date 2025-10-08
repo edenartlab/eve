@@ -449,7 +449,7 @@ async def run_twitter_automation():
 
 async def rotate_agent_metadata(since_hours=6):
     """
-    Rotate agent suggestions, greetings, and knowledge descriptions for agents whose updatedAt is younger than 6 hours or null (new agents)
+    Rotate agent suggestions for agents whose updatedAt is younger than 6 hours or null (new agents)
     """
 
     agents = get_collection(Agent.collection_name)

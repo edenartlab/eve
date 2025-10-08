@@ -14,7 +14,6 @@ agent_template = Template("""<Agent>
   <name>{{name}}</name>
   <username>{{username}}</username>
   {% if description is not none %}<description>{{description[:150]}}</description>{% endif %}
-  {% if knowledge_description is not none %}<knowledge_description[:150]>{{knowledge_description}}</knowledge_description>{% endif %}
   {% if persona is not none %}<persona>{{persona[:150]}}</persona>{% endif %}
   <created_at>{{createdAt}}</created_at>
 </Agent>""")

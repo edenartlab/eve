@@ -54,19 +54,6 @@ def profile_method(method_name):
     return decorator
 
 
-class KnowledgeDescription(BaseModel):
-    """Defines when and why a reference document should be consulted to enhance responses."""
-
-    summary: str = Field(
-        ...,
-        description="A precise, content-focused summary of the document, detailing what information it contains without unnecessary adjectives or filler words.",
-    )
-    retrieval_criteria: str = Field(
-        ...,
-        description="A clear, specific description of when the reference document is needed to answer a user query. This should specify what topics, types of questions, or gaps in the assistant's knowledge require consulting the document.",
-    )
-
-
 class Suggestion(BaseModel):
     """A prompt suggestion for an Agent in two parts: a concise tagline, and a longer prompt for an LLM. The prompt should be appropriate for the agent, but not exaggerated."""
 
@@ -149,9 +136,6 @@ class Agent(User):
     suggestions: Optional[List[Suggestion]] = None
     greeting: Optional[str] = None
     persona: Optional[str] = None
-    knowledge: Optional[str] = None
-    knowledge_summary: Optional[str] = None
-    knowledge_description: Optional[KnowledgeDescription] = None
     voice: Optional[str] = None
     refreshed_at: Optional[datetime] = None
 
@@ -519,35 +503,6 @@ class AgentText(BaseModel):
     )
 
 
-async def generate_agent_knowledge_description(agent: Agent):
-    """
-    Given a knowledge document / reference, generate a summary and retrieval criteria
-    """
-
-    system_message = "You receive a description of an agent, along with a large document of information the agent must memorize, and you come up with instructions for the agent on when they should consult the reference document."
-
-    knowledge_template = load_template("knowledge_summarize")
-
-    prompt = knowledge_template.render(
-        name=agent.username,
-        agent_description=agent.persona,
-        knowledge=agent.knowledge,
-    )
-
-    client = instructor.from_openai(openai.AsyncOpenAI())
-
-    result = await client.chat.completions.create(
-        model="gpt-4o",
-        messages=[
-            {"role": "system", "content": system_message},
-            {"role": "user", "content": prompt},
-        ],
-        response_model=KnowledgeDescription,
-    )
-
-    return result
-
-
 async def generate_agent_text(agent: Agent):
     """
     Given an agent's description, generate a greeting and suggestions for prompts and taglines (labels) for the prompts
@@ -572,26 +527,15 @@ async def generate_agent_text(agent: Agent):
 
 async def refresh_agent(agent: Agent):
     """
-    Refresh an agent's suggestions, greetings, and knowledge descriptions
+    Refresh an agent's suggestions
     """
     # get suggestions and greeting
     agent_text = await generate_agent_text(agent)
 
-    # get knowledge description if there is any knowledge
-    if agent.knowledge:
-        knowledge_description = await generate_agent_knowledge_description(agent)
-        knowledge_description_dict = {
-            "summary": knowledge_description.summary,
-            "retrieval_criteria": knowledge_description.retrieval_criteria,
-        }
-    else:
-        knowledge_description_dict = None
-
     time = datetime.now(timezone.utc)
 
     update = {
-        "knowledge_description": knowledge_description_dict,
-        "greeting": agent_text.greeting,
+        # "greeting": agent_text.greeting,
         "suggestions": [s.model_dump() for s in agent_text.suggestions],
         "refreshed_at": time,
         "updatedAt": time,
