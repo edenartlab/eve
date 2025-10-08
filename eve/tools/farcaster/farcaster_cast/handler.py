@@ -54,7 +54,10 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         embeds = embeds[:4]  # limit to 4 embeds
 
         # break into 2 casts if there are more than 2 embeds
-        embeds1, embeds2 = embeds[:2], embeds[2:]
+        if agent.username == "abraham": # pro subscription allows 4 embeds
+            embeds1, embeds2 = embeds[:4], embeds[4:]
+        else:
+            embeds1, embeds2 = embeds[:2], embeds[2:]
 
         # Post the main cast
         result = client.post_cast(
