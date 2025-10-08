@@ -1476,8 +1476,8 @@ async def handle_extract_agent_prompts(request):
     session_messages = select_messages(session, selection_limit = 50)
     conversation_text, _ = messages_to_text(session_messages)
 
-    # Get agent name from request, default to "your agent" if not provided
-    agent_name = request.agent_name or "your agent"
+    # Get agent name from request, default to "<agent-name>" if not provided
+    agent_name = request.agent_name or "<agent-name>"
 
     # Load prompt template
     template_path = os.path.join(
@@ -1512,8 +1512,6 @@ async def handle_extract_agent_prompts(request):
     )
 
     response = await async_prompt(context)
-
-    print(f"--- Agent extraction LLM call completed! Parsing results... --- ")
 
     # Parse the structured response
     if hasattr(response, "parsed"):
