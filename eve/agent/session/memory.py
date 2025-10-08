@@ -1068,12 +1068,11 @@ async def form_memories(agent_id: ObjectId, session: Session, agent=None, conver
 
         await assemble_memory_context(
             session,
-            agent_id,
+            agent,
             last_speaker_id,
             force_refresh=True,
             reason="form_memories",
             skip_save=True,
-            agent=agent,
         )
 
         # Memory formation tracking already updated at start of function

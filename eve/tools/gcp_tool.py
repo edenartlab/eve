@@ -83,7 +83,7 @@ def submit_job(
     gpu_count,
     task_id
 ):
-    db = os.getenv("DB")
+    db = os.getenv("DB", "STAGE")
     aiplatform = get_ai_platform_client()
     job_name = f"flux-{task_id}"
     job = aiplatform.CustomJob(

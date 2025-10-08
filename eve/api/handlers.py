@@ -24,6 +24,7 @@ from eve.agent.session.models import (
     NotificationChannel,
     NotificationConfig,
 )
+from eve.agent.session.memory_models import messages_to_text
 from eve.deploy import (
     Deployment as DeploymentV1,
 )
@@ -58,7 +59,8 @@ from eve.api.helpers import (
 from eve.api.typing_coordinator import update_busy_state
 from eve.utils import prepare_result, dumps_json, serialize_json
 from eve.tools.replicate_tool import replicate_update_task
-from eve.agent.llm import UpdateType, async_prompt
+from eve.agent.session.session_llm import LLMContext, LLMConfig, async_prompt
+from eve.agent.session.models import LLMContextMetadata, LLMTraceMetadata, UpdateType
 from eve.agent.run_thread import async_prompt_thread
 from eve.mongo import get_collection
 from eve.task import Task
@@ -73,7 +75,7 @@ logger = logging.getLogger(__name__)
 db = os.getenv("DB", "STAGE").upper()
 
 
-def compute_llm_cost(input_text: str, output_text: str) -> float:
+def compute_llm_cost_simple(input_text: str, output_text: str) -> float:
     """
     Compute manna cost for LLM calls based on token count estimates.
 
@@ -84,6 +86,10 @@ def compute_llm_cost(input_text: str, output_text: str) -> float:
     Returns:
         The manna cost
     """
+    # Make sure output_text is a str (sometimes it's a dict)
+    if isinstance(output_text, dict):
+        output_text = json.dumps(output_text)
+    
     # Estimate token count (4 chars ≈ 1 token)
     input_tokens = len(input_text) / 4
     output_tokens = len(output_text) / 4
@@ -1437,85 +1443,24 @@ async def handle_embedsearch(request):
 
     return {"results": results}
 
-
-@handle_errors
-async def handle_async_llm_call(request):
-    """Generic LLM prompt endpoint that exposes async_prompt directly"""
-    from eve.agent.thread import UserMessage, AssistantMessage
-
-    # Get user_id from the authenticated request
-    user_id = request.user_id
-    user = User.from_mongo(ObjectId(user_id))
-    if not user:
-        raise APIError(f"User not found: {user_id}", status_code=404)
-
-    # Convert request messages to Thread messages and build input text
-    messages = []
-    system_message = request.system_message
-    input_text = ""
-
-    if system_message:
-        input_text += system_message
-
-    for msg in request.messages:
-        input_text += msg.content
-        if msg.role == "system":
-            # If system message in messages, use it (override system_message field)
-            system_message = msg.content
-        elif msg.role == "user":
-            messages.append(UserMessage(content=msg.content, name=msg.name))
-        elif msg.role == "assistant":
-            messages.append(AssistantMessage(content=msg.content, tool_calls=[]))
-
-    # Convert tools dict to Tool objects if provided
-    tools_dict = {}
-    if request.tools:
-        for tool_name, tool_config in request.tools.items():
-            tool = Tool.load(key=tool_name)
-            if tool:
-                tools_dict[tool_name] = tool
-
-    # Call async_prompt
-    content, tool_calls, stop = await async_prompt(
-        messages=messages,
-        system_message=system_message,
-        model=request.model or "claude-sonnet-4-5",
-        response_model=None,  # Not supporting structured output for now
-        tools=tools_dict,
-    )
-
-    # Calculate cost using the new function
-    cost = compute_llm_cost(input_text, content)
-
-    # Check and spend manna
-    user.check_manna(cost)
-
-    # Spend manna
-    if "free_tools" not in (user.featureFlags or []):
-        from eve.user import Manna
-        manna = Manna.load(user.id)
-        manna.spend(cost)
-
-    return {
-        "content": content,
-        "tool_calls": [tc.model_dump() for tc in tool_calls],
-        "stop": stop,
-        "cost": cost,
-    }
-
-
 @handle_errors
 async def handle_extract_agent_prompts(request):
     """
     Extract agent persona, description, and memory instructions from a conversation session.
 
     Takes a session_id, fetches all messages from that session, and uses LLM to extract:
-    - persona: Core personality traits and characteristics
-    - description: Short summary of agent's purpose and capabilities
+    - agent_instructions: Core personality traits and characteristics
+    - agent_description: Short summary of agent's purpose and capabilities
     - memory_instructions: Instructions for how agent should store/recall memories
     """
+    from pydantic import BaseModel, Field
     from eve.agent.thread import UserMessage
     from eve.agent.session.models import Session
+
+    class AgentPromptsResponse(BaseModel):
+        agent_instructions: str = Field(description="Core personality traits and characteristics")
+        agent_description: str = Field(description="Short summary of agent's purpose")
+        memory_instructions: str = Field(description="Instructions for memory extraction")
 
     # Get user_id and verify user exists
     user_id = request.user_id
@@ -1528,65 +1473,69 @@ async def handle_extract_agent_prompts(request):
     if not session:
         raise APIError(f"Session not found: {request.session_id}", status_code=404)
 
-    # Verify user owns the session
-    if str(session.owner) != str(user_id):
-        raise APIError("Unauthorized: User does not own this session", status_code=403)
+    conversation_text, _ = messages_to_text(session.messages)
 
-    # Format conversation from session messages
-    conversation_parts = []
-    for msg in session.messages:
-        if msg.role in ["user", "assistant"]:
-            role_label = "User" if msg.role == "user" else "Assistant"
-            conversation_parts.append(f"{role_label}: {msg.content}")
+    # Load prompt template
+    template_path = os.path.join(
+        os.path.dirname(__file__), "..", "prompt_templates", "extract_agent_prompts.txt"
+    )
+    with open(template_path, "r") as f:
+        prompt_template = f.read()
 
-    conversation_text = "\n\n".join(conversation_parts)
+    # Inject conversation into template
+    prompt = prompt_template.replace("{conversation}", conversation_text)
 
-    # Define extraction prompts
-    persona_prompt = f"Extract the core personality traits and characteristics from the following conversation. Return ONLY the persona description, no preamble.\n\n{conversation_text}"
-    description_prompt = f"Generate a SHORT (1-2 sentence) summary of the agent's purpose and capabilities based on this conversation. Return ONLY the description, no preamble.\n\n{conversation_text}"
-    memory_prompt = f"Based on the following conversation, generate instructions for how this agent should store and recall memories. Return ONLY the instructions, no preamble.\n\n{conversation_text}"
-
-    # Calculate total input text for cost estimation
-    total_input_text = persona_prompt + description_prompt + memory_prompt
-
-    # Make three parallel LLM calls
-    import asyncio
-
-    async def call_llm(prompt: str) -> str:
-        messages = [UserMessage(content=prompt)]
-        content, _, _ = await async_prompt(
-            messages=messages,
-            system_message=None,
-            model="claude-sonnet-4-5",
-            response_model=None,
-            tools={},
-        )
-        return content
-
-    # Execute all three extractions in parallel
-    persona, description, memory_instructions = await asyncio.gather(
-        call_llm(persona_prompt),
-        call_llm(description_prompt),
-        call_llm(memory_prompt),
+    # Make single LLM call with structured output using LLMContext with tracing
+    context = LLMContext(
+        messages=[ChatMessage(role="user", content=prompt)],
+        config=LLMConfig(
+            model="gpt-5",
+            response_format=AgentPromptsResponse,
+        ),
+        metadata=LLMContextMetadata(
+            session_id=f"{os.getenv('DB')}-{str(session.id)}",
+            trace_name="extract_agent_prompts",
+            trace_id=str(uuid.uuid4()),
+            generation_name="extract_agent_prompts",
+            trace_metadata=LLMTraceMetadata(
+                session_id=str(session.id),
+                user_id=str(user_id),
+                agent_id=str(session.agents[0]) if session.agents else None,
+            ),
+        ),
+        enable_tracing=True,
     )
 
-    # Calculate total output text for cost
-    total_output_text = persona + description + memory_instructions
+    response = await async_prompt(context)
 
-    # Calculate cost
-    cost = compute_llm_cost(total_input_text, total_output_text)
+    # Parse the structured response
+    if hasattr(response, "parsed"):
+        result = response.parsed
+    else:
+        result = AgentPromptsResponse.model_validate_json(response.content)
+
+    # Extract fields from response model
+    agent_instructions = result.agent_instructions
+    agent_description = result.agent_description
+    memory_instructions = result.memory_instructions
+
+    # Calculate cost (estimate based on prompt length and typical response)
+    # Since we're using response_model, we get a structured object back, not text
+    content_text = json.dumps(result.model_dump())
+    cost = compute_llm_cost_simple(prompt, content_text)
+
+    print(f"Successfully extracted agent prompts")
+    print(f"Agent instructions: {agent_instructions}")
+    print(f"Agent description: {agent_description}")
+    print(f"Memory instructions: {memory_instructions}")
+    print(f"Cost: {cost}")
 
     # Check and spend manna
     user.check_manna(cost)
 
-    if "free_tools" not in (user.featureFlags or []):
-        from eve.user import Manna
-        manna = Manna.load(user.id)
-        manna.spend(cost)
-
     return {
-        "persona": persona.strip(),
-        "description": description.strip(),
+        "agent_instructions": agent_instructions.strip(),
+        "agent_description": agent_description.strip(),
         "memory_instructions": memory_instructions.strip(),
         "cost": cost,
     }

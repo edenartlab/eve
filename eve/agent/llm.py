@@ -226,7 +226,7 @@ async def async_openai_prompt(
 
 async def async_openai_prompt_stream(
     messages: List[Union[UserMessage, AssistantMessage]],
-    system_message: Optional[str],
+    system_message: Optional[str] = "You are a helpful assistant.",
     model: Literal[tuple(MODELS)] = "gpt-4o-mini",
     response_model: Optional[type[BaseModel]] = None,
     tools: Dict[str, Tool] = {},
@@ -324,7 +324,7 @@ async def async_openai_prompt_stream(
 )
 async def async_prompt(
     messages: List[Union[UserMessage, AssistantMessage]],
-    system_message: Optional[str],
+    system_message: Optional[str] = "You are a helpful assistant.",
     model: Literal[tuple(MODELS)] = DEFAULT_MODEL,
     response_model: Optional[type[BaseModel]] = None,
     tools: Dict[str, Tool] = {},
@@ -376,8 +376,8 @@ async def async_prompt(
 )
 async def async_prompt_stream(
     messages: List[Union[UserMessage, AssistantMessage]],
-    system_message: Optional[str],
-    model: str,
+    system_message: Optional[str] = "You are a helpful assistant.",
+    model: Literal[tuple(MODELS)] = DEFAULT_MODEL,
     response_model: Optional[type[BaseModel]] = None,
     tools: Optional[Dict[str, Tool]] = None,
 ) -> AsyncGenerator[Tuple[UpdateType, str], None]:
@@ -447,10 +447,6 @@ async def async_openrouter_prompt(
         raise ValueError("OPENROUTER_API_KEY env is not set")
 
     messages_json = [item for msg in messages for item in msg.openai_schema()]
-    # if system_message and model != "o1-mini":  # o1 does not support system messages
-    #     messages_json = [{"role": "system", "content": system_message}] + messages_json
-
-    # openai_client = openai.AsyncOpenAI()
 
     openai_client = openai.AsyncOpenAI(
         base_url="https://openrouter.ai/api/v1",

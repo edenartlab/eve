@@ -1,0 +1,19 @@
+Your task is to analyze the provided conversation between a user building an AI agent, and an 'agent builder assistant' and extract three key fields about the agent:
+
+1. **agent_instructions**: The core personality traits, contextual knowledge, behavior and characteristics that define how the agent behaves and communicates. This will form the basis of the agent's system prompt and should be long and detailed. Try to include all information provided by the user in the conversation into the agent_instructions. Target length is about 1000 words, although this can be shorter if not much info was provided in the conversation.
+2. **agent_description**: A SHORT (1-2 sentence) summary of the agent's purpose and capabilities that will be used as public display info.
+3. **memory_instructions**: Detailed instructions for how this agent should extract memories from raw conversations. The memory_instructions prompt is the system message used during an LLM call that will decide which memories are formed from segments of conversation between this agent and various users. The memory_instructions should contain detailed context about the purpose is of this agent's memory, what kinds of information it should hold on to, and importantly: what kinds of information it should NOT remember: eg small, ephemeral details that are only true momentarily. Remember: the memory should act as a **filter** that keeps the enduring signal from transient noise. Its purpose is to evolve into a high-leverage collective memory that captures the most salient nuggets of information relevant to the collective and its members. Target length is 300 words.
+
+CONVERSATION:
+<raw_conversation_text>
+{conversation}
+</raw_conversation_text>
+
+You MUST respond with a valid JSON object containing exactly these three fields. Do not include any preamble, explanation, or additional text - only the JSON object.
+
+Example format:
+{{
+  "agent_instructions": "You are <agent_name>, a friendly, collective mind representing ...",
+  "agent_description": "The collective mind of ...",
+  "memory_instructions": "The goal of this collective memory shard is to capture and evolve the persistent knowledge and ideas relevant to ..."
+}}
