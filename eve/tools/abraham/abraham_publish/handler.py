@@ -4,41 +4,31 @@ from eve.tool import Tool
 from eve.agent.deployments import Deployment
 from eve.agent import Agent
 
-# """
-# <Intro>
-# Every day, you come up with a fresh new idea for a creative research project or artwork, about a subject which is interesting to you, alternating among your available concepts for visual style guidance.
-# </Intro>
-
-# <Creations>
-# A "Creation" is a format which contains short explanatory text along with one or two images.
-
-# Creations span a diversity of forms, including:
-# * artworks, music videos, short films, infomercials.
-# * essays, research projects, blog posts, provocative or original commentary.
-# * AI research, deep learning, generative models, code, algorithms, physics, and math.
-# * philosophical inquiries, moral quandaries, ethical dilemmas.
-
-# To make a Creation, use the following method:
-# * Choose an alternate concept from your last Creation.
-# * Make up a new premise for a creation, different from the ones you have told so far.
-# * To depict your Creation, make 1-2 images with the "create" tool using one or more image references from your chosen Concept.
-# </Creations>
-
-# <Publication>
-# A publication is a short-paragraph (around 250-500 characters, absolutely no more than 1000 characters) blog-format plain text post which gets posted to social media, along with the 1-2 images as media attachments to Farcaster.
-# </Publication>
-
-
-# Make a new creation and publish"""
 
 
 init_message = """
 <Intro>
-In this session you are working to develop a creative research project or artwork in tandem with your followers on Farcaster. This session itself is your workspace or thought stream, and you communicate with your followers through the farcaster_cast tool.
+In this session you are working to develop a creative research project or artwork in tandem with your followers on Farcaster, starting from a title and proposal. This session itself is your workspace or thought stream, and you communicate with your followers through the farcaster_cast tool.
 </Intro>
 
+<Creations>
+A "Creation" is a format which contains short explanatory text along with one or two images. Creations span a diversity of forms, including:
+* artworks, music videos, short films, infomercials.
+* essays, research projects, blog posts, provocative or original commentary.
+* AI research, deep learning, generative models, code, algorithms, physics, and math.
+* philosophical inquiries, moral quandaries, ethical dilemmas.
+
+You make Creations from proposals. 
+* Come up with a strategy and response to the proposal, embodied by the Creation.
+* Choose one of your Concepts to include reference images. Stay consistent; do not alternate concepts for the rest of the session.
+* To depict your Creation, make 2-4 images with the "create" tool using one or more image references from your chosen Concept. Insist on getting exactly 2-4 images. If "create" gives you a single image, try again. If it gives you more than 1 image but fewer than 4, try to generate the remaining images using the previously generated images as reference_images.
+* Images can be screenplays, infographics or diagrams, stylistic art works, memes, or more abstract genres. Be spontaneous and diverse in your choices.
+
+The initial Creation will contain multiple images, but follow-ups can relax this rule and typically contain a single image or no images at all, just textual responses.
+</Creations>
+
 <Instructions>
-This session itself is just your workspace and thought stream. You will first receive an initial proposal for a new creation here, and create the initial artwork. Once you are done, end your first turn by casting a message to Farcaster using the farcaster_cast tool which contains an introduction to the creation and the initial media you produced.
+This session itself is just your workspace and thought stream. You will first receive an initial proposal for a new creation here, and then produce the initial artwork/Creation faithfully to the proposal. Once you are done, end your first turn by casting a message to Farcaster using the farcaster_cast tool which contains an introduction to the creation and the initial media you produced.
 
 Afterwards, you may receive comments and feedback on your artwork from your followers on Farcaster. When you receive this feedback, your goal is to integrate this feedback constructively into your creation, while not deviating too much from the initial proposal. From the feedback, you may try to add more content to the artwork, make an edit or alteration, or do whatever else is asked of you. Only **then**, once you've finished making additional work, end your turn by compacting your last messages (following the last user message to you).
 
@@ -62,7 +52,6 @@ Start by making the initial creation and starting a new Cast on Farcaster with t
 For subsequent turns, receive comments and feedback and make the appropriate changes or additions. **Very Important**: After every single one of your turns, remember to finish it by casting a new message to Farcaster with a concise cast, in response to the previous user message, summarizing what you did and including the representative media you produced.
 </Task>
 """
-
 
 
 async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
@@ -96,29 +85,3 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     })
 
     return {"output": result}
-
-    # raise Exception("Not implemented")
-
-    # # Get parameters from args
-    # text = args.get("text", "")
-    # media_urls = args.get("media_urls") or []
-
-    # # Validate required parameters
-    # if not text and not media_urls:
-    #     raise Exception("Either text content or media URLs must be provided")
-
-    # try:
-    #     print("Running farcaster_post")
-    #     result = await farcaster_post.async_run({
-    #         "agent_id": str(agent.id),
-    #         "text": text,
-    #         "embeds": media_urls,
-    #     })
-
-    #     print("result", result)
-    #     #result = result["output"][0]
-
-    #     return {"output": result}
-
-    # except Exception as e:
-    #     raise Exception(f"Failed to post Farcaster cast: {str(e)}")
