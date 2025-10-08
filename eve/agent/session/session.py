@@ -248,20 +248,11 @@ async def build_system_message(
 
 
 async def build_system_extras(
-    session: Session, context: PromptSessionContext, config: LLMConfig
+    session: Session, 
+    context: PromptSessionContext, 
+    config: LLMConfig
 ):
     extras = []
-
-    if session.trigger:
-        from eve.trigger import Trigger
-        trigger = Trigger.from_mongo(session.trigger)
-        extras.append(
-            ChatMessage(
-                session=session.id,
-                role="system",
-                content=trigger.context
-            )
-        )
 
     # deprecated when we move to new farcaster gateway (wip in abraham)
     if context.update_config and context.update_config.farcaster_hash:
@@ -273,6 +264,19 @@ async def build_system_extras(
             )
         )
         config.max_tokens = 1024
+
+    # add trigger context
+    if session.trigger:
+        from eve.trigger import Trigger
+        trigger = Trigger.from_mongo(session.trigger)
+        extras.append(
+            ChatMessage(
+                session=session.id,
+                role="user",
+                sender=context.initiating_user_id,
+                content=trigger.context
+            )
+        )
 
     return context, config, extras
 
