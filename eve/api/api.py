@@ -91,6 +91,7 @@ from eve.api.api_functions import (
     run_task_replicate,
     cleanup_stale_busy_states,
 )
+from eve.api.runner_tasks import download_clip_models
 
 
 app_name = f"api-{db.lower()}"
@@ -530,6 +531,7 @@ image = (
     .add_local_file(str(root_dir / "pyproject.toml"), "/eve/pyproject.toml")
     .add_local_python_source("eve", ignore=[])
     .add_local_python_source("api", ignore=[])
+    .run_function(download_clip_models)
 )
 
 

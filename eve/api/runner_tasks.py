@@ -75,6 +75,14 @@ def download_nsfw_models():
     ViTImageProcessor.from_pretrained("Falconsai/nsfw_image_detection")
 
 
+def download_clip_models():
+    from transformers import CLIPModel, CLIPProcessor
+
+    MODEL_NAME = "openai/clip-vit-large-patch14"
+    CLIPModel.from_pretrained(MODEL_NAME)
+    CLIPProcessor.from_pretrained(MODEL_NAME)
+
+
 async def run_nsfw_detection():
     import torch
     from PIL import Image
