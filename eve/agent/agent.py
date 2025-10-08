@@ -355,9 +355,9 @@ class Agent(User):
                 if permission:
                     has_owner_permission = True
         
-        if not has_owner_permission:
-            for tool in SOCIAL_MEDIA_TOOLS:
-                tools.pop(tool, None)
+        # if not has_owner_permission:
+        #     for tool in SOCIAL_MEDIA_TOOLS:
+        #         tools.pop(tool, None)
 
         # if models are found, inject them as defaults for any tools that use lora
         for tool in tools:
