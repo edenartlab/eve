@@ -23,16 +23,9 @@ async def _assemble_user_memory(agent: Agent, user: User) -> str:
             #print(f"   ⚠️  UserMemory disabled for agent {agent_id}, returning empty content")
             return ""
         query_start = time.time()
-        print("ok lets get ??")
-        print(user.id)
-        print(agent.id)
-        print("d1")
         user_memory = UserMemory.find_one_or_create(
             {"agent_id": agent.id, "user_id": user.id}
         )
-        print("d2")
-        print(user_memory)
-        print("----")
         if user_memory:
             # Check if fully_formed_memory exists and is up-to-date
             if user_memory.fully_formed_memory is not None:
