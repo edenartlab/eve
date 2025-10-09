@@ -126,7 +126,7 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
             pass
     
     return {
-        "session": session_id
+        "output": [{"session": session_id}]
     }
 
 
