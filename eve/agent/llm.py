@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 MODELS = [
-    "claude-sonnet-4-5",
+    "claude-sonnet-4-5-20250929",
     "claude-opus-4-1-20250805",
     "gpt-4o",
     "gpt-4o-mini",
@@ -29,7 +29,7 @@ MODELS = [
     "google/gemini-2.0-flash-001"
 ]
 
-DEFAULT_MODEL = os.getenv("DEFAULT_AGENT_MODEL", "claude-sonnet-4-5")
+DEFAULT_MODEL = os.getenv("DEFAULT_AGENT_MODEL", "claude-sonnet-4-5-20250929")
 
 def get_anthropic_api_key():
     """Get the Anthropic API key from ANTHROPIC_API_KEY environment variable"""
@@ -49,7 +49,7 @@ class UpdateType(str, Enum):
 async def async_anthropic_prompt(
     messages: List[Union[UserMessage, AssistantMessage]],
     system_message: Optional[str] = "You are a helpful assistant.",
-    model: Literal[tuple(MODELS)] = "claude-sonnet-4-5",
+    model: Literal[tuple(MODELS)] = "claude-sonnet-4-5-20250929",
     response_model: Optional[type[BaseModel]] = None,
     tools: Dict[str, Tool] = {},
 ):
@@ -120,7 +120,7 @@ async def async_anthropic_prompt(
 async def async_anthropic_prompt_stream(
     messages: List[Union[UserMessage, AssistantMessage]],
     system_message: Optional[str] = "You are a helpful assistant.",
-    model: Literal[tuple(MODELS)] = "claude-sonnet-4-5",
+    model: Literal[tuple(MODELS)] = "claude-sonnet-4-5-20250929",
     response_model: Optional[type[BaseModel]] = None,
     tools: Dict[str, Tool] = {},
 ) -> AsyncGenerator[Tuple[UpdateType, str], None]:
@@ -401,7 +401,7 @@ async def async_prompt_stream(
 def anthropic_prompt(
     messages,
     system_message="You are a helpful assistant.",
-    model="claude-sonnet-4-5",
+    model="claude-sonnet-4-5-20250929",
     response_model=None,
     tools=None,
 ):
@@ -425,7 +425,7 @@ def openai_prompt(
 def prompt(
     messages,
     system_message="You are a helpful assistant.",
-    model="claude-sonnet-4-5",
+    model="claude-sonnet-4-5-20250929",
     response_model=None,
     tools=None,
 ):

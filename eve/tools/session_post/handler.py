@@ -30,14 +30,15 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         raise Exception("Agent is required")
     if not user:
         raise Exception("User is required")
-    
-    agent = Agent.from_mongo(agent)    
+
+    agent = Agent.from_mongo(agent)
     user = User.from_mongo(user)
 
     # note: session in handler args refers to the originating session (if there is one), not the session that is being posted to. session to post to is args.get("session")
     session_id = args.get("session")
 
     # create genesis session if new
+    request = None
     if session_id is None:
         title = args.get("title")
         if not title:
@@ -54,11 +55,11 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
                 title=title
             )
         )
-        
+
         new_session = setup_session(
-            None, 
-            request.session_id, 
-            request.user_id, 
+            None,
+            request.session_id,
+            request.user_id,
             request
         )
 
@@ -66,6 +67,9 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
 
     # make a new set of drafts
     session = Session.from_mongo(session_id)
+
+    # Use user.id as initiating_user_id if request is not available
+    initiating_user_id = request.user_id if request else str(user.id)
 
     if args.get("role") == "assistant":
 
@@ -79,9 +83,9 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
 
         context = PromptSessionContext(
             session=session,
-            initiating_user_id=request.user_id,
+            initiating_user_id=initiating_user_id,
             message=new_message,
-            llm_config=LLMConfig(model="claude-sonnet-4-5")
+            llm_config=LLMConfig(model="claude-sonnet-4-5-20250929")
         )
 
         new_message.save()
@@ -97,9 +101,9 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
 
         context = PromptSessionContext(
             session=session,
-            initiating_user_id=request.user_id,
+            initiating_user_id=initiating_user_id,
             message=new_message,
-            llm_config=LLMConfig(model="claude-sonnet-4-5"),
+            llm_config=LLMConfig(model="claude-sonnet-4-5-20250929"),
         )
 
         if args.get("extra_tools"):
@@ -142,7 +146,7 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
 #     session=session,
 #     initiating_user_id=user.id,
 #     message=new_message,
-#     llm_config=LLMConfig(model="claude-sonnet-4-5"),
+#     llm_config=LLMConfig(model="claude-sonnet-4-5-20250929"),
 # )
 
 # if True:

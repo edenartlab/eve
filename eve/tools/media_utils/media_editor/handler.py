@@ -93,7 +93,7 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         message,
         tools, 
         force_reply=True, 
-        model="claude-sonnet-4-5"
+        model="claude-sonnet-4-5-20250929"
     ):
         pass
 

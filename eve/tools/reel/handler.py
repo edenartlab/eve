@@ -173,7 +173,7 @@ def write_visual_prompts(
     # )
     client = instructor.from_anthropic(Anthropic())
     result = client.messages.create(
-        model="claude-sonnet-4-5",
+        model="claude-sonnet-4-5-20250929",
         max_tokens=3000,
         max_retries=1,
         system=system_prompt,

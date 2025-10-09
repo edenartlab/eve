@@ -4,14 +4,14 @@ from eve.agent.session.models import LLMConfig
 
 DEFAULT_SESSION_LLM_CONFIG_DEV = {
     "premium": LLMConfig(
-        model="claude-sonnet-4-5",
+        model="claude-sonnet-4-5-20250929",
         fallback_models=[
             "claude-3-7-sonnet-20250219",
             "gpt-4o",
         ]
     ),
     "free": LLMConfig(
-        model="claude-sonnet-4-5",
+        model="claude-sonnet-4-5-20250929",
         fallback_models=[
             "claude-3-7-sonnet-20250219",
             "gpt-4o",
@@ -20,14 +20,14 @@ DEFAULT_SESSION_LLM_CONFIG_DEV = {
 }
 DEFAULT_SESSION_LLM_CONFIG_STAGE = {
     "premium": LLMConfig(
-        model="claude-sonnet-4-5",
+        model="claude-sonnet-4-5-20250929",
         fallback_models=[
             "claude-3-7-sonnet-20250219",
             "gpt-4o",
         ]
     ),
     "free": LLMConfig(
-        model="claude-sonnet-4-5",
+        model="claude-sonnet-4-5-20250929",
         fallback_models=[
             "claude-3-7-sonnet-20250219",
             "gpt-4o",
@@ -37,10 +37,10 @@ DEFAULT_SESSION_LLM_CONFIG_STAGE = {
 
 DEFAULT_SESSION_LLM_CONFIG_PROD = {
     "premium": LLMConfig(
-        model="claude-sonnet-4-5",
+        model="claude-sonnet-4-5-20250929",
     ),
     "free": LLMConfig(
-        model="claude-sonnet-4-5",
+        model="claude-sonnet-4-5-20250929",
     ),
 }
 
@@ -58,9 +58,9 @@ DEFAULT_SESSION_SELECTION_LIMIT = 25
 
 # Master model configuration: tier -> [primary, fallback1, fallback2]
 MODEL_TIERS = {
-    "high": ["anthropic/claude-sonnet-4-5", "gemini/gemini-2.5-pro", "openai/gpt-5"],
-    "medium": ["anthropic/claude-sonnet-4-5", "gemini/gemini-2.5-flash", "openai/gpt-4o"],
-    "low": ["anthropic/claude-3-5-haiku-latest", "openai/gpt-5-nano", "openai/gpt-4o-mini"]
+    "high": ["claude-sonnet-4-5-20250929", "gemini/gemini-2.5-pro", "openai/gpt-5"],
+    "medium": ["claude-sonnet-4-5-20250929", "gemini/gemini-2.5-flash", "openai/gpt-4o"],
+    "low": ["claude-3-5-haiku-latest", "openai/gpt-5-nano", "openai/gpt-4o-mini"]
 }
 
 async def build_llm_config_from_agent_settings(
