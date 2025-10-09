@@ -527,6 +527,7 @@ class Tool(Document, ABC):
                     if agent.owner_pays == "full" or (agent.owner_pays == "deployments" and is_client_platform):
                         paying_user = User.from_mongo(agent.owner)
                 
+                print("THE PAYING USER...")
                 paying_user.check_manna(cost)
 
             except Exception as e:

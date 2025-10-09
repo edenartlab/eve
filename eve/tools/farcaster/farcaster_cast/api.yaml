@@ -1,9 +1,7 @@
 name: farcaster_cast
 description: Post a cast to Farcaster
 tip: |-
-  This tool allows an agent to post casts to Farcaster.
-  Only use this tool when the user explicitly requests to post a cast to Farcaster.
-  Do not use this tool for other purposes.
+  This tool allows an agent to cast to Farcaster. If you want to directly reply to a message labeled <<Farcaster Hash: {hash}, FID: {fid}>>, then use hash and fid as the parent_hash and parent_fid arguments.
 cost_estimate: 0
 output_type: string
 active: true
@@ -16,7 +14,8 @@ parameters:
     required: true
   embeds:
     type: array
-    description: Optional array of URLs to embed in the cast (images, links, etc.)
+    description: Optional array of media URLs to embed in the cast
+    tip: No more than 4 embeds are allowed. 
     required: false
     items:
       type: string

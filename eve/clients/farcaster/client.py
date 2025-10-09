@@ -176,6 +176,7 @@ async def process_webhook(
     db: str,
     base_url: str,
 ):
+    raise Exception("Not implemented")
     """Process the webhook data in the background"""
     logger.info(f"Processing webhook for cast {cast_data['hash']}")
     try:

@@ -167,7 +167,7 @@ class EdenMessageData(BaseModel):
 
 @Collection("channels")
 class Channel(Document):
-    type: Literal["eden", "discord", "telegram", "twitter"]
+    type: Literal["eden", "discord", "telegram", "twitter", "farcaster"]
     key: Optional[str] = None
 
 

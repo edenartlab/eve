@@ -196,6 +196,7 @@ async def async_prompt_litellm(
     context: LLMContext,
 ) -> LLMResponse:
     thinking = True if context.config.reasoning_effort else False
+
     messages = prepare_messages(
         context.messages, context.config.model, include_thoughts=thinking
     )

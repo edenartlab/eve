@@ -58,8 +58,6 @@ The query should be constructed using these operators when applicable."""
 
     print("Parsed query", parsed_query)
 
-    # raise Exception("Not implemented")
-
     x = X(deployment)
     params = {
         "query": parsed_query.query,

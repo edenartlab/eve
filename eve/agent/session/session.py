@@ -25,6 +25,7 @@ from eve.agent.session.models import (
     LLMTraceMetadata,
     LLMConfig, 
     PromptSessionContext,
+    Channel,
     Session,
     SessionUpdate,
     ToolCall,
@@ -186,7 +187,9 @@ def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
 
     converted_messages = []
     for message in messages:
-        if message.sender == actor_id:
+        if message.role == "system":
+            converted_messages.append(message)
+        elif message.sender == actor_id:
             converted_messages.append(message.as_assistant_message())
         else:
             user_message = message.as_user_message()
@@ -198,6 +201,34 @@ def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
             converted_messages.append(user_message)
 
     return converted_messages
+
+
+def label_message_channels(messages: List[ChatMessage]):
+    """
+    Prepends channel metadata to message content for Farcaster messages
+    """
+    # Collect all unique sender IDs from messages
+    sender_ids = list({msg.sender for msg in messages if msg.sender})
+
+    if not sender_ids:
+        return messages
+
+    # Efficiently load all users in one operation
+    users = User.find({"_id": {"$in": sender_ids}})
+    user_map = {user.id: user for user in users}
+    # Process messages and prepend channel info for Farcaster messages
+    labeled_messages = []
+    for message in messages:
+        if message.channel and message.channel.type == "farcaster" and message.sender:
+            sender = user_map.get(message.sender)
+            sender_farcaster_fid = sender.farcasterId if sender else "Unknown"
+            # Prepend the Farcaster metadata to the message content
+            prepend_text = f"<<Farcaster Hash: {message.channel.key}, FID: {sender_farcaster_fid}>>"
+            message.content = f"{prepend_text} {message.content}"
+        labeled_messages.append(message)
+
+    return labeled_messages
+
 
 
 async def build_system_message(
@@ -257,15 +288,15 @@ async def build_system_extras(
     extras = []
 
     # deprecated when we move to new farcaster gateway (wip in abraham)
-    if context.update_config and context.update_config.farcaster_hash:
-        extras.append(
-            ChatMessage(
-                session=session.id,
-                role="system",
-                content="You are currently replying to a Farcaster cast. The maximum length before the fold is 320 characters, and the maximum length is 1024 characters, so attempt to be concise in your response.",
-            )
-        )
-        config.max_tokens = 1024
+    # if context.update_config and context.update_config.farcaster_hash:
+    #     extras.append(
+    #         ChatMessage(
+    #             session=session.id,
+    #             role="system",
+    #             content="You are currently replying to a Farcaster cast. The maximum length before the fold is 320 characters, and the maximum length is 1024 characters, so attempt to be concise in your response.",
+    #         )
+    #     )
+    #     config.max_tokens = 1024
 
     # add trigger context
     if session.trigger:
@@ -284,7 +315,9 @@ async def build_system_extras(
 
 
 async def add_chat_message(
-    session: Session, context: PromptSessionContext, pin: bool = False
+    session: Session, 
+    context: PromptSessionContext, 
+    pin: bool = False
 ):
     new_message = ChatMessage(
         session=session.id,
@@ -293,21 +326,24 @@ async def add_chat_message(
         content=context.message.content,
         attachments=context.message.attachments or [],
     )
+
+    # save farcaster origin info
+    # todo: other platforms
+    if context.update_config:
+        if context.update_config.farcaster_hash:
+            new_message.channel = Channel(
+                type="farcaster",
+                key=context.update_config.farcaster_hash
+            )
     if pin:
         new_message.pinned = True
     new_message.save()
-    # No longer storing message IDs on session to avoid race conditions
-    # session.messages.append(new_message.id)
-    
-    # session.memory_context.last_activity = datetime.now(timezone.utc)
-    # session.memory_context.messages_since_memory_formation += 1
-    # session.save()
+
     memory_context = session.memory_context
     memory_context.last_activity = datetime.now(timezone.utc)
     memory_context.messages_since_memory_formation += 1
     session.update(memory_context=memory_context.model_dump())
     session.memory_context = SessionMemoryContext(**session.memory_context)
-
 
     # Broadcast user message to SSE connections for real-time updates
     try:
@@ -380,6 +416,7 @@ async def build_llm_context(
 
     # build messages first to have context for thinking routing
     system_message = await build_system_message(session, actor, context, tools)
+
     messages = [system_message]
     context, base_config, system_extras = await build_system_extras(
         session, context, context.llm_config or get_default_session_llm_config(tier)
@@ -388,6 +425,7 @@ async def build_llm_context(
         messages.extend(system_extras)
     existing_messages = select_messages(session)
     messages.extend(existing_messages)
+    messages = label_message_channels(messages)
     messages = convert_message_roles(messages, actor.id)
 
     # Use agent's llm_settings if available, otherwise fallback to context or default
@@ -863,6 +901,7 @@ async def async_prompt_session(
             if system_extras:
                 refreshed_messages.extend(system_extras)
             refreshed_messages.extend(fresh_messages)
+            refreshed_messages = label_message_channels(refreshed_messages)
             refreshed_messages = convert_message_roles(refreshed_messages, actor.id)
 
             # Update the context with refreshed messages

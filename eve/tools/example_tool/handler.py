@@ -1,7 +1,8 @@
 from ...utils import download_file
 
 async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
-    # print("args", args)
+    print("args", args)
+    print("session", session)
     
     # you can download files
     path = "https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/62946527441201f82e0e3d667fda480e176e9940a2e04f4e54c5230665dfc6f6.jpg"

@@ -19,7 +19,7 @@ class FarcasterEvent(Document):
     reply_fid: Optional[int] = None
 
 
-# TODO: save message id too?
+# TODO: save message id to FarcasterEvent
 
 
 async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
@@ -64,6 +64,13 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
             text=text, embeds=embeds1 or None, parent=parent
         )
         cast_hash = result.cast.hash
+        
+        
+        thread_hash = result.cast.thread_hash
+
+        print("--- == ==  thread_hash", thread_hash)
+
+
         cast_url = f"https://warpcast.com/{user_info.username}/{cast_hash}"
         outputs.append({"url": cast_url, "cast_hash": cast_hash, "success": True})
 
@@ -80,20 +87,27 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         if session and outputs:
             session = Session.from_mongo(session)
             cast_hash = outputs[0].get('cast_hash')
-            session.update(session_key=f"FC-{cast_hash}")
-        
+            session.update(session_key=f"FC-{thread_hash}")
+
+
+
+            # NEXT TRY: shouldn't this be using thread_hash
+
+        TARGET_FID = agent.farcasterId
+
         # save casts as farcaster events
         for output in outputs:
             event = FarcasterEvent(
                 session_id=session.id,
                 # message_id=new_messages[0].id,
                 cast_hash=output.get('cast_hash'),
+                reply_cast=output,
+                reply_fid=TARGET_FID,
                 status="completed",
                 event=None
             )
             event.save()
 
-        
         return {"output": outputs}
 
     except Exception as e:
