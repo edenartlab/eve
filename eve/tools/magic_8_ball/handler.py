@@ -90,7 +90,7 @@ The mandatory elements should feel integral to the story, not just mentioned in 
                 ChatMessage(role="user", content=inner_user),
             ],
             config=LLMConfig(
-                model="claude-sonnet-4-5",
+                model="claude-sonnet-4-5-20250929",
                 fallback_models=["claude-3-7-sonnet-20250219", "gpt-4o"],
                 reasoning_effort="medium"
             ),

@@ -262,12 +262,8 @@ class Agent(User):
 
     # @profile_method("get_tools")
     def get_tools(self, cache=True, auth_user: str = None, extra_tools: list[str] = []):
-        print("RELOAD")
         self._reload(extra_tools)
         tools = self.tools_
-
-        print("the tools 1 now are ", tools.keys())
-        print("the tools extra now are ", extra_tools)
 
         # update tools with platform-specific args
         # update discord post tool with allowed channels
@@ -315,8 +311,6 @@ class Agent(User):
             _log_tool_operation_error(
                 self, "telegram_channel_update", e, platform="telegram"
             )
-
-        print("the deployments now are ", self.deployments)
 
         # if a platform is not deployed, remove all tools for that platform
         if "discord" not in self.deployments:

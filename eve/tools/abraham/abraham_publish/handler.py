@@ -74,7 +74,7 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     )
 
     result = await session_post.async_run({
-        "role": "system",
+        "role": "user",
         "agent_id": str(agent.id),
         "title": args.get("title"),
         "content": user_message,
@@ -84,13 +84,8 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         "extra_tools": ["farcaster_cast"],
     })
 
-    print("HERE IS THE RESULT OF THE SESSION POST")
+    print("abraham_publish result")
     print(result)
-    if isinstance(result, dict):
-        session_id = result["session"]
-    elif isinstance(result, list):
-        session_id = result[0]["session"]
-    else:
-        session_id = "123"
+    session_id = result["output"][0]["session"]
 
-    return {"session": session_id}
+    return {"output": [{"session": session_id}]}

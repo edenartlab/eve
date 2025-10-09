@@ -13,6 +13,22 @@ from safetensors.torch import load_file, save_file
 from .constants import USE_MEDIA_CACHE
 
 
+def get_filename_from_url(url: str) -> str:
+    """
+    Extract a clean filename from a URL, stripping query parameters.
+
+    Args:
+        url: URL to extract filename from
+
+    Returns:
+        str: Filename without query parameters
+    """
+    filename = pathlib.Path(url).name
+    # Remove query parameters and URL fragments
+    filename = re.sub(r"[?#].*$", "", filename)
+    return filename
+
+
 def _check_volume_cache(url, local_filepath, overwrite=False):
     """
     Check if file exists in Modal Volume cache and copy it if found.

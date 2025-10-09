@@ -21,7 +21,7 @@ logging.getLogger("LiteLLM").setLevel(logging.WARNING)
 
 
 supported_models = [
-    "claude-sonnet-4-5",
+    "claude-sonnet-4-5-20250929",
     "claude-3-7-sonnet-20250219",
     "claude-opus-4-1-20250805",
     "gpt-4o-mini",
@@ -32,8 +32,8 @@ supported_models = [
     "gemini-2.5-pro",
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
-    "anthropic/claude-sonnet-4-5",
-    "anthropic/claude-3-7-sonnet-20250219",
+    "claude-sonnet-4-5-20250929",
+    "claude-3-7-sonnet-20250219",
     "openai/gpt-4o-mini",
     "openai/gpt-4o",
     "openai/gpt-5",
@@ -195,8 +195,9 @@ def prepare_messages(
 async def async_prompt_litellm(
     context: LLMContext,
 ) -> LLMResponse:
+    print("THE MODEL TO USE IS -->", context.config.model)
+    
     thinking = True if context.config.reasoning_effort else False
-
     messages = prepare_messages(
         context.messages, context.config.model, include_thoughts=thinking
     )
@@ -231,8 +232,7 @@ async def async_prompt_litellm(
         litellm.success_callback = []
 
     # add web search options for Anthropic models
-    # todo: does this fail in fallback models?
-    if "claude" in context.config.model:
+    if "claude" in context.config.model or "anthropic" in context.config.model:
         completion_kwargs["web_search_options"] = {"search_context_size": "medium"}
 
     # Use finalized reasoning_effort from config if available
