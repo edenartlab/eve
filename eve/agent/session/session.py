@@ -23,7 +23,7 @@ from eve.agent.session.models import (
     ChatMessage,
     ChatMessageObservability,
     LLMTraceMetadata,
-    LLMConfig, 
+    LLMConfig,
     PromptSessionContext,
     Channel,
     Session,
@@ -31,7 +31,7 @@ from eve.agent.session.models import (
     ToolCall,
     UpdateType,
     SessionBudget,
-    SessionMemoryContext
+    SessionMemoryContext,
 )
 from eve.agent.session.session_llm import (
     LLMContext,
@@ -170,8 +170,8 @@ async def determine_actors(
 
     # Update last_actor_id to the first actor for backwards compatibility
     if actors:
-        #session.last_actor_id = actors[0].id
-        #session.save()
+        # session.last_actor_id = actors[0].id
+        # session.save()
         session.update(last_actor_id=actors[0].id)
 
     return actors
@@ -237,7 +237,6 @@ async def build_system_message(
     user: User,
     tools: Dict[str, Tool],
 ):  # Get the last speaker ID for memory prioritization
-
     # Get concepts
     concepts = Concept.find({"agent": actor.id})
 
@@ -246,10 +245,14 @@ async def build_system_message(
 
     # Get loras
     lora_dict = {m["lora"]: m for m in actor.models or []}
-    lora_docs = Model.find({"_id": {"$in": list(lora_dict.keys())}, "deleted": {"$ne": True}})
+    lora_docs = Model.find(
+        {"_id": {"$in": list(lora_dict.keys())}, "deleted": {"$ne": True}}
+    )
     loras = [doc.model_dump() for doc in lora_docs]
     for doc in loras:
-        doc["use_when"] = lora_dict[doc["id"]].get("use_when", "This is your default Lora model")
+        doc["use_when"] = lora_dict[doc["id"]].get(
+            "use_when", "This is your default Lora model"
+        )
 
     # Get memory
     memory = await assemble_memory_context(
@@ -270,20 +273,14 @@ async def build_system_message(
         concepts=concepts,
         loras=lora_docs,
         voice=actor.voice,
-        memory=memory
+        memory=memory,
     )
 
-    return ChatMessage(
-        session=session.id, 
-        role="system", 
-        content=content
-    )
+    return ChatMessage(session=session.id, role="system", content=content)
 
 
 async def build_system_extras(
-    session: Session, 
-    context: PromptSessionContext, 
-    config: LLMConfig
+    session: Session, context: PromptSessionContext, config: LLMConfig
 ):
     extras = []
 
@@ -301,13 +298,14 @@ async def build_system_extras(
     # add trigger context
     if session.trigger:
         from eve.trigger import Trigger
+
         trigger = Trigger.from_mongo(session.trigger)
         extras.append(
             ChatMessage(
                 session=session.id,
                 role="user",
                 sender=ObjectId(str(context.initiating_user_id)),
-                content=trigger.context
+                content=trigger.context,
             )
         )
 
@@ -402,7 +400,7 @@ async def build_llm_context(
         tools = context.tools
     else:
         tools = actor.get_tools(cache=False, auth_user=auth_user_id)
-    
+
     if context.extra_tools:
         tools.update(context.extra_tools)
 
@@ -1024,9 +1022,9 @@ async def async_prompt_session(
 
             # No longer storing message IDs on session to avoid race conditions
             # session.messages.append(assistant_message.id)
-            
-            #session.memory_context.last_activity = datetime.now(timezone.utc)
-            #session.memory_context.messages_since_memory_formation += 1
+
+            # session.memory_context.last_activity = datetime.now(timezone.utc)
+            # session.memory_context.messages_since_memory_formation += 1
             memory_context = session.memory_context
             memory_context.last_activity = datetime.now(timezone.utc)
             memory_context.messages_since_memory_formation += 1
@@ -1050,6 +1048,42 @@ async def async_prompt_session(
                 },
                 session_run_id=session_run_id,
             )
+
+            # Create notification if user is not actively viewing the session
+            # This runs in the background and won't block message delivery
+            try:
+                print(
+                    f"[NOTIFICATION] Checking if user {session.owner} is viewing session {session.id}"
+                )
+                is_active_response = await check_if_session_active(
+                    str(session.owner), str(session.id)
+                )
+
+                redis_available = is_active_response.get("redis_available", False)
+                is_active = is_active_response.get("is_active", False)
+
+                print(
+                    f"[NOTIFICATION] Response: is_active={is_active}, redis_available={redis_available}"
+                )
+
+                # Only create notification if user is NOT viewing
+                if not is_active:
+                    print(f"[NOTIFICATION] 🔔 Creating notification (user not viewing)")
+                    await create_session_message_notification(
+                        user_id=str(session.owner),
+                        session_id=str(session.id),
+                        agent_id=str(actor.id),
+                    )
+                    print(f"[NOTIFICATION] ✓ Notification created successfully")
+                else:
+                    print(
+                        f"[NOTIFICATION] ⏭️  Skipping notification (user is actively viewing)"
+                    )
+            except Exception as e:
+                # Log but don't fail - notifications are non-critical
+                print(
+                    f"[NOTIFICATION] ❌ Failed to create session message notification: {e}"
+                )
 
             if assistant_message.tool_calls:
                 async for update in process_tool_calls(
@@ -1299,7 +1333,7 @@ async def _run_prompt_session_internal(
 
         # Generate session run ID for this prompt session
         session_run_id = str(uuid.uuid4())
-        debugger.log(f"Session run ID", {"id": session_run_id[:8]}, emoji="info")
+        debugger.log("Session run ID", {"id": session_run_id[:8]}, emoji="info")
 
         # Start typing indicator
         if context.update_config:
@@ -1554,6 +1588,112 @@ async def _queue_session_action_fastify_background_task(session: Session):
         capture_exception(e)
 
 
+async def check_if_session_active(user_id: str, session_id: str) -> dict:
+    """Check if user is actively viewing a session via the API"""
+    import httpx
+
+    try:
+        api_url = os.getenv("EDEN_FASTIFY_API_URL")
+        if not api_url:
+            print(
+                "[NOTIFICATION] EDEN_FASTIFY_API_URL not set - assuming user not active"
+            )
+            return {"is_active": False, "redis_available": False}
+
+        print(f"[NOTIFICATION] Calling {api_url}/v2/sessions/is-active")
+
+        async with httpx.AsyncClient() as client:
+            headers = {
+                "x-api-key": f"{os.getenv('EDEN_FASTIFY_ADMIN_KEY')}",
+                "Content-Type": "application/json",
+            }
+            print(
+                f"[NOTIFICATION] Calling {api_url}/v2/sessions/is-active with headers: {headers}"
+            )
+            response = await client.get(
+                f"{api_url}/v2/sessions/is-active",
+                params={"user_id": user_id, "session_id": session_id},
+                headers=headers,
+                timeout=2.0,  # Quick timeout to avoid blocking
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                print(f"[NOTIFICATION] API response: {result}")
+                return result
+            else:
+                print(
+                    f"[NOTIFICATION] API returned status {response.status_code} - assuming not active"
+                )
+                return {"is_active": False, "redis_available": False}
+
+    except Exception as e:
+        print(f"[NOTIFICATION] Error checking session activity: {str(e)}")
+        # Fail open - assume not active so notification gets created
+        return {"is_active": False, "redis_available": False}
+
+
+async def create_session_message_notification(
+    user_id: str, session_id: str, agent_id: str
+):
+    """Create a notification for a new session message via the Fastify API"""
+    import httpx
+
+    try:
+        api_url = os.getenv("EDEN_FASTIFY_API_URL")
+        if not api_url:
+            print(
+                "[NOTIFICATION] EDEN_FASTIFY_API_URL not set - cannot create notification"
+            )
+            return
+
+        notification_data = {
+            "user_id": user_id,
+            "type": "session_message",
+            "title": "New message",
+            "message": "You have a new message in your session",
+            "priority": "normal",
+            "session_id": session_id,
+            "agent_id": agent_id,
+            "action_url": f"/sessions/{session_id}",
+        }
+
+        print(f"[NOTIFICATION] Creating notification via API: {notification_data}")
+
+        async with httpx.AsyncClient() as client:
+            headers = {
+                "x-api-key": os.getenv("EDEN_FASTIFY_ADMIN_KEY"),
+                "Content-Type": "application/json",
+            }
+            print(
+                f"[NOTIFICATION] POST {api_url}/v2/notifications with x-api-key: {os.getenv('EDEN_FASTIFY_ADMIN_KEY')[:10]}..."
+            )
+            response = await client.post(
+                f"{api_url}/v2/notifications",
+                headers=headers,
+                json=notification_data,
+                timeout=5.0,
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                print(f"[NOTIFICATION] ✓ Notification created: {result.get('id')}")
+            else:
+                error_text = response.text
+                print(
+                    f"[NOTIFICATION] ❌ Failed to create notification (status {response.status_code}): {error_text}"
+                )
+
+    except Exception as e:
+        print(
+            f"[NOTIFICATION] ❌ Error creating session message notification: {str(e)}"
+        )
+        import traceback
+
+        traceback.print_exc()
+        # Don't re-raise - notification creation shouldn't block message delivery
+
+
 async def _send_session_notification(
     notification_config, session: Session, success: bool = True, error: str = None
 ):
@@ -1605,7 +1745,7 @@ async def _send_session_notification(
 
         async with httpx.AsyncClient() as client:
             response = await client.post(
-                f"{api_url}/notifications/create",
+                f"{api_url}/v2/notifications",
                 headers={
                     "Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}",
                     "Content-Type": "application/json",
@@ -1697,18 +1837,18 @@ async def async_title_session(
 
                 title_data = json.loads(result.content)
                 if isinstance(title_data, dict) and "title" in title_data:
-                    #session.title = title_data["title"]
+                    # session.title = title_data["title"]
                     session.update(title=title_data["title"])
                 else:
                     # Fallback to using content directly
-                    #session.title = result.content[:30]  # Limit to 30 chars
+                    # session.title = result.content[:30]  # Limit to 30 chars
                     session.update(title=result.content[:30])
             except (json.JSONDecodeError, TypeError):
                 # If JSON parsing fails, use content directly
-                #session.title = result.content[:30]  # Limit to 30 chars
+                # session.title = result.content[:30]  # Limit to 30 chars
                 session.update(title=result.content[:30])
 
-            #session.save()
+            # session.save()
 
     except Exception as e:
         capture_exception(e)
