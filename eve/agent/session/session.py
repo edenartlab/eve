@@ -1293,7 +1293,7 @@ async def _run_prompt_session_internal(
 
         # Generate session run ID for this prompt session
         session_run_id = str(uuid.uuid4())
-        debugger.log(f"Session run ID", {"id": session_run_id[:8]}, emoji="info")
+        debugger.log("Session run ID", {"id": session_run_id[:8]}, emoji="info")
 
         # Start typing indicator
         if context.update_config:
