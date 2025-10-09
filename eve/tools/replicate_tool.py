@@ -239,6 +239,11 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
         task.refund_manna()
         return {"status": "failed", "error": error}
 
+    elif status == "aborted":
+        task.update(status="failed")
+        task.refund_manna()
+        return {"status": "failed", "error": f"Replicate aborted: {error}"}
+
     elif status == "canceled":
         task.update(status="cancelled")
         task.refund_manna()
