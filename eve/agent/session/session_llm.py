@@ -195,6 +195,8 @@ def prepare_messages(
 async def async_prompt_litellm(
     context: LLMContext,
 ) -> LLMResponse:
+    print("THE MODEL TO USE IS -->", context.config.model)
+    
     thinking = True if context.config.reasoning_effort else False
     messages = prepare_messages(
         context.messages, context.config.model, include_thoughts=thinking

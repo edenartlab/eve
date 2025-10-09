@@ -74,7 +74,7 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     )
 
     result = await session_post.async_run({
-        "role": "system",
+        "role": "user",
         "agent_id": str(agent.id),
         "title": args.get("title"),
         "content": user_message,
