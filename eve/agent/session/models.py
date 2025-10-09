@@ -957,6 +957,7 @@ class NotificationType(Enum):
     TRIGGER_STARTED = "trigger_started"
     SESSION_COMPLETE = "session_complete"
     SESSION_FAILED = "session_failed"
+    SESSION_MESSAGE = "session_message"
     AGENT_MENTIONED = "agent_mentioned"
     SYSTEM_ALERT = "system_alert"
     AGENT_PERMISSION_ADDED = "agent_permission_added"
