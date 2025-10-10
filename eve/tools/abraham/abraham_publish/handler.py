@@ -70,7 +70,7 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
 
     user_message = Template(init_message).render(
         title=args.get("title"),
-        proposal=args.get("text"),
+        proposal=args.get("proposal"),
     )
 
     result = await session_post.async_run({
