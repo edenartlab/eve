@@ -28,12 +28,13 @@ async def emit_update(update_config: Optional[SessionUpdateConfig], data: dict):
 async def emit_http_update(update_config: SessionUpdateConfig, data: dict):
     async with aiohttp.ClientSession() as session:
         try:
+            # Spread the data dict and add update_config at top level
+            # This ensures the structure matches DeploymentEmissionRequest
+            payload = {**data, "update_config": update_config.model_dump()}
+
             async with session.post(
                 f"{os.getenv('EDEN_API_URL')}/v2/deployments/emission",
-                json={
-                    "update_config": update_config.model_dump(),
-                    "data": data,
-                },
+                json=payload,
                 headers={"Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}"},
             ) as response:
                 if response.status != 200:
