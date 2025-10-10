@@ -238,12 +238,18 @@ class FarcasterClient(PlatformClient):
         try:
             session = Session.load(session_key=session_key)
 
-            # Check if the session is deleted - if so, treat it as non-existent
+            # Check if the session is deleted or archived - if so, reactivate it
+            needs_reactivation = False
+
             if hasattr(session, 'deleted') and session.deleted:
-                logger.info(
-                    f"Found deleted session {session.id} for key {session_key}, treating as non-existent"
-                )
-                session = None
+                needs_reactivation = True
+            elif hasattr(session, 'status') and session.status == "archived":
+                needs_reactivation = True
+
+            if needs_reactivation:
+                session.deleted = False
+                session.status = "active"
+                session.save()
         except Exception as e:
             if isinstance(e, eve.mongo.MongoDocumentNotFound):
                 session = None

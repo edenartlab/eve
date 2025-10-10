@@ -510,15 +510,19 @@ class DiscordGatewayClient:
 
         try:
             session = Session.load(session_key=session_key)
+            # Check if the session is deleted or archived - if so, reactivate it
+            needs_reactivation = False
 
-            # Check if the session is deleted - if so, treat it as non-existent
             if hasattr(session, 'deleted') and session.deleted:
-                logger.info(
-                    f"[{trace_id}] Found deleted session {session.id} for key {session_key}, treating as non-existent"
-                )
-                return None
+                needs_reactivation = True
+            elif hasattr(session, 'status') and session.status == "archived":
+                needs_reactivation = True
 
-            logger.info(f"[{trace_id}] Found existing session: {session.id}")
+            if needs_reactivation:
+                session.deleted = False
+                session.status = "active"
+                session.save()
+
             return session
         except Exception as e:
             if isinstance(e, eve.mongo.MongoDocumentNotFound):
