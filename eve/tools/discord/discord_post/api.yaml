@@ -1,9 +1,10 @@
 name: discord_post
-description: Post a message to a Discord channel or send a direct message to a Discord user
+description: Post a message (max 2000 chars) to a Discord channel or send a direct message to a Discord user
 tip: |-
   This tool allows an agent to post messages to Discord channels or send DMs to users.
 
-  IMPORTANT: Messages are truncated at 2000 characters (Discord's limit). Keep messages concise.
+  IMPORTANT: Messages are always truncated at 2000 characters (Discord's limit). Keep messages concise.
+  If you really need to post a longer message, you MUST subdivide it into multiple calls to discord_post, each call having less than 2000 characters.
 
   For channel posting:
   - Requires exact channel_id from the deployment's channel allowlist
