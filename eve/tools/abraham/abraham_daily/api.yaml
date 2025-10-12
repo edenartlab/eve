@@ -1,0 +1,10 @@
+name: abraham_daily
+description: Abraham run daily practice
+tip: |-
+  This tool allows Abraham to identify the top Seed and add it to the Covenant.
+cost_estimate: 0
+output_type: string
+active: true
+handler: local
+visible: false
+parameters:

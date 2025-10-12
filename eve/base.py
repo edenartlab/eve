@@ -418,7 +418,7 @@ def parse_props(field: str, props: dict) -> Tuple[Type, dict, dict]:
 def parse_schema(schema: dict) -> Tuple[Dict[str, Tuple[Type, Any]], dict]:
     fields = {}
 
-    for field, props in schema.get("parameters", {}).items():
+    for field, props in (schema.get("parameters") or {}).items():
         # anyOf makes a Union of its types
         if props.get("anyOf"):
             types = []
