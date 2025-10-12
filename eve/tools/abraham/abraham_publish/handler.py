@@ -1,9 +1,20 @@
 from jinja2 import Template
+from eve.mongo import Collection, Document
+from bson import ObjectId
+from typing import Literal
 
 from eve.tool import Tool
 from eve.agent.deployments import Deployment
 from eve.agent import Agent
 
+
+
+@Collection("abraham_creations")
+class AbrahamCreation(Document):
+    session_id: ObjectId
+    title: str
+    proposal: str
+    # status: Literal["active", "closed"]
 
 
 init_message = """
@@ -39,10 +50,10 @@ You should mostly be using the "create" tool. Choose one of your Concepts to inc
 The title of this project and a short proposal are given below.
 
 Title:
-{{title}}
+ {{title}}
 
 Proposal:
-{{proposal}}
+ {{proposal}}
 
 </Title_and_Proposal>
 
@@ -66,17 +77,19 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         raise Exception("No valid Farcaster deployments found")
 
     session_post = Tool.load("session_post")
-    farcaster_post = Tool.load("farcaster_cast")
+
+    title = args.get("title")
+    proposal = args.get("proposal")
 
     user_message = Template(init_message).render(
-        title=args.get("title"),
-        proposal=args.get("proposal"),
+        title=title,
+        proposal=proposal,
     )
 
     result = await session_post.async_run({
         "role": "user",
         "agent_id": str(agent.id),
-        "title": args.get("title"),
+        "title": title,
         "content": user_message,
         "attachments": [],
         "pin": True,
@@ -88,4 +101,14 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     print(result)
     session_id = result["output"][0]["session"]
 
+    creation = AbrahamCreation(
+        session_id=ObjectId(session_id),
+        title=title,
+        proposal=proposal,
+        # status="active"
+    )
+    creation.save()
+
+    # session_post already spawns run_session_prompt in a Modal container
+    # so we just return the session_id
     return {"output": [{"session": session_id}]}
