@@ -89,7 +89,6 @@ from eve.api.api_functions import (
     run,
     run_task,
     run_task_replicate,
-    run_session_prompt,
     cleanup_stale_busy_states,
 )
 from eve.api.runner_tasks import download_clip_models
@@ -607,13 +606,6 @@ run_task_replicate = app.function(
     timeout=3600,
     volumes={"/data/media-cache": media_cache_vol},
 )(modal.concurrent(max_inputs=4)(run_task_replicate))
-
-
-run_session_prompt = app.function(
-    image=image,
-    max_containers=10,
-    timeout=3600,  # 1 hour timeout
-)(run_session_prompt)
 
 
 cleanup_stale_busy_states_modal = app.function(

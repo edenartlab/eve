@@ -7,21 +7,20 @@ from eve.agent import Agent
 from eve.user import User
 from eve.tool import Tool
 from eve.api.handlers import setup_session
-from eve.api.api import run_session_prompt
 from eve.api.api_requests import (
-    PromptSessionRequest,
+    PromptSessionRequest, 
     SessionCreationArgs
 )
 from eve.agent.session.models import (
-    PromptSessionContext,
-    ChatMessageRequestInput,
-    LLMConfig,
-    Session,
+    PromptSessionContext, 
+    ChatMessageRequestInput, 
+    LLMConfig, 
+    Session, 
     ChatMessage
 )
 from eve.agent.session.session import (
-    add_chat_message,
-    build_llm_context,
+    add_chat_message, 
+    build_llm_context, 
     async_prompt_session
 )
 
@@ -113,26 +112,18 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
             }
 
         await add_chat_message(session, context)
-
+    
     if args.get("prompt") and args.get("role") in ["system", "user"]:
-        try:
-            # Spawn the session prompt in a remote Modal container
-            run_session_prompt.spawn(
-                session_id=session_id,
-                agent_id=str(agent.id),
-                extra_tools=args.get("extra_tools"),
-            )
-        except Exception as e:
-            # Fallback for local testing without Modal
-            print(f"Modal spawn failed ({e}), running session prompt inline for local testing")
-            context = await build_llm_context(
-                session,
-                agent,
-                context,
-                trace_id=trace_id,
-            )
-            async for m in async_prompt_session(session, context, agent):
-                pass
+        context = await build_llm_context(
+            session, 
+            agent, 
+            context, 
+            trace_id=str(uuid.uuid4()), 
+        )
+        
+        # set this up in a remote container
+        async for m in async_prompt_session(session, context, agent):
+            pass
     
     return {
         "output": [{"session": session_id}]
