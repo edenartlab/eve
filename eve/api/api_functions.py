@@ -96,6 +96,71 @@ async def run_task_replicate(task: Task):
     return result
 
 
+async def run_session_prompt(
+    session_id: str,
+    agent_id: str,
+    extra_tools: list = None,
+):
+    """
+    Run async_prompt_session for a session in a remote Modal container.
+    This allows session_post to return immediately while the session runs in background.
+
+    Args:
+        session_id: The session ID to prompt
+        agent_id: The agent ID
+        extra_tools: List of tool names to load as extra tools
+    """
+    from eve.agent import Agent
+    from eve.agent.session.models import Session, PromptSessionContext, LLMConfig
+    from eve.agent.session.session import async_prompt_session, build_llm_context
+
+    try:
+        # Load session and agent from MongoDB
+        session = Session.from_mongo(session_id)
+        agent = Agent.from_mongo(agent_id)
+
+        # Get the last message from the session to build context
+        messages = list(session.messages)
+        if not messages:
+            raise Exception("No messages in session")
+
+        last_message = messages[-1]
+
+        # Build a fresh context
+        context = PromptSessionContext(
+            session=session,
+            initiating_user_id=str(last_message.sender),
+            message=last_message,
+            llm_config=LLMConfig(model="claude-sonnet-4-5-20250929"),
+        )
+
+        # Load extra_tools if provided
+        if extra_tools:
+            context.extra_tools = {
+                k: Tool.load(k) for k in extra_tools
+            }
+
+        # Build the full LLM context
+        context = await build_llm_context(
+            session,
+            agent,
+            context,
+        )
+
+        # Run the session prompt
+        async for update in async_prompt_session(session, context, agent):
+            # Just consume the updates - they're already being saved to the session
+            pass
+
+        logger.info(f"Session {session_id} completed successfully")
+        return {"status": "completed", "session_id": session_id}
+
+    except Exception as e:
+        logger.error(f"Error running session {session_id}: {e}")
+        sentry_sdk.capture_exception(e)
+        return {"status": "failed", "session_id": session_id, "error": str(e)}
+
+
 async def cleanup_stale_busy_states():
     """Clean up any stale busy states in the shared modal.Dict"""
     try:
