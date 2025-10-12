@@ -105,7 +105,7 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         session_id=ObjectId(session_id),
         title=title,
         proposal=proposal,
-        # status="active"
+        status="seed"
     )
     creation.save()
 
