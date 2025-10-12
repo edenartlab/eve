@@ -99,7 +99,7 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         "role": "user",
         "session": str(winner["session"].id),
         "agent_id": str(agent.id),
-        "content": user_message,
+        "content": daily_message,
         "attachments": [],
         # "pin": True,
         "prompt": True,
