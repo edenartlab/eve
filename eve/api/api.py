@@ -509,6 +509,7 @@ app = modal.App(
     secrets=[
         modal.Secret.from_name("eve-secrets"),
         modal.Secret.from_name(f"eve-secrets-{db}"),
+        modal.Secret.from_name("abraham-secrets"),
     ],
 )
 
@@ -518,15 +519,8 @@ workflows_dir = root_dir / ".." / "workflows"
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .env({"DB": db, "MODAL_SERVE": os.getenv("MODAL_SERVE", "False")})
-    .apt_install(
-        "git",
-        "libmagic1",
-        "ffmpeg",
-        "wget",
-    )
+    .apt_install("git", "libmagic1", "ffmpeg", "wget")
     .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
-    # .pip_install("numpy<2.0", "torch==2.0.1", "torchvision", "transformers", "Pillow")
-    # .run_function(download_nsfw_models)
     .run_function(download_clip_models)
     .add_local_dir(str(workflows_dir), "/workflows")
     .add_local_file(str(root_dir / "pyproject.toml"), "/eve/pyproject.toml")

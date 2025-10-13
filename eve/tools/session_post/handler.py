@@ -114,6 +114,7 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         await add_chat_message(session, context)
     
     if args.get("prompt") and args.get("role") in ["system", "user"]:
+        
         context = await build_llm_context(
             session, 
             agent, 
