@@ -1,6 +1,7 @@
 import logging
 import os
 import json
+import uuid
 import modal
 import replicate
 import sentry_sdk
@@ -14,6 +15,8 @@ from fastapi.exceptions import RequestValidationError
 from datetime import datetime, timezone
 
 from eve import auth, db
+from eve.agent import Agent
+from eve.user import User
 
 from eve.agent.session.models import Session
 from eve.api.handlers import (
@@ -668,6 +671,99 @@ async def run_scheduled_triggers_fn():
 
     logger.info(f"Ran {len(triggers)} triggers")
     logger.info(sessions)
+
+
+########################################################
+## Remote Session Prompting
+########################################################
+
+
+@app.function(image=image, max_containers=10, timeout=3600)
+async def remote_prompt_session_with_message(
+    session_id: str,
+    agent_id: str,
+    user_id: str,
+    message_content: str
+):
+    """
+    Add a user message to a session and prompt the agent to respond.
+
+    This is a general-purpose function for remotely triggering session prompts.
+
+    Args:
+        session_id: The session ID
+        agent_id: The agent ID
+        user_id: The user ID
+        message_content: The user message content
+
+    Returns:
+        dict with session_id
+    """
+    from eve.agent.session.models import (
+        PromptSessionContext,
+        ChatMessage,
+        LLMConfig,
+    )
+    from eve.agent.session.session import (
+        add_chat_message,
+        build_llm_context,
+        async_prompt_session
+    )
+
+    logger.info(f"Remote prompt: session={session_id}, agent={agent_id}, user={user_id}")
+
+    # Load models
+    session = Session.from_mongo(session_id)
+    agent = Agent.from_mongo(agent_id)
+    user = User.from_mongo(user_id)
+
+    # Create user message
+    new_message = ChatMessage(
+        role="user",
+        sender=user.id,
+        session=session.id,
+        content=message_content,
+        attachments=[],
+    )
+
+    # Build context
+    context = PromptSessionContext(
+        session=session,
+        initiating_user_id=str(user.id),
+        message=new_message,
+        llm_config=LLMConfig(model="claude-sonnet-4-5-20250929"),
+    )
+
+    # Add message to session
+    await add_chat_message(session, context)
+
+    # Build LLM context and prompt
+    context = await build_llm_context(
+        session,
+        agent,
+        context,
+        trace_id=str(uuid.uuid4()),
+    )
+
+    # Run the prompt
+    async for m in async_prompt_session(session, context, agent):
+        pass
+
+    logger.info(f"Remote prompt completed for session {session_id}")
+
+    return {"session_id": session_id}
+
+
+@app.local_entrypoint()
+async def local_entrypoint():
+    """Test the remote_prompt_session_with_message function"""
+    result = await remote_prompt_session_with_message.remote.aio(
+        session_id="68ec5c2de3c978d796a53962",
+        agent_id="675f880479e00297cd9b4688",
+        user_id="65284b18f8bbb9bff13ebe65",
+        message_content="Repeat what you just said"
+    )
+    logger.info(f"Test result: {result}")
 
 
 # @app.local_entrypoint()

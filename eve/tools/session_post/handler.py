@@ -2,27 +2,29 @@ import os
 import json
 import requests
 import uuid
+import modal
 
 from eve.agent import Agent
 from eve.user import User
 from eve.tool import Tool
 from eve.api.handlers import setup_session
 from eve.api.api_requests import (
-    PromptSessionRequest, 
+    PromptSessionRequest,
     SessionCreationArgs
 )
 from eve.agent.session.models import (
-    PromptSessionContext, 
-    ChatMessageRequestInput, 
-    LLMConfig, 
-    Session, 
+    PromptSessionContext,
+    ChatMessageRequestInput,
+    LLMConfig,
+    Session,
     ChatMessage
 )
 from eve.agent.session.session import (
-    add_chat_message, 
-    build_llm_context, 
+    add_chat_message,
+    build_llm_context,
     async_prompt_session
 )
+from eve.api.api import remote_prompt_session_with_message, cleanup_stale_busy_states_modal
 
 
 async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
@@ -91,40 +93,43 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         new_message.save()
 
     elif args.get("role") in ["system", "user"]:
-        new_message = ChatMessage(
-            role=args.get("role"),
-            sender=user.id,
-            session=session.id,
-            content=args.get("content"),
-            attachments=args.get("attachments") or [],
-        )
+        # If we're going to prompt, let the remote function handle message addition
+        if args.get("prompt"):
+            
+            # Use remote Modal function to handle message addition and prompting
+            await remote_prompt_session_with_message.spawn(
+                session_id=session_id,
+                agent_id=str(agent.id),
+                user_id=str(user.id),
+                message_content=args.get("content")
+            )
 
-        context = PromptSessionContext(
-            session=session,
-            initiating_user_id=initiating_user_id,
-            message=new_message,
-            llm_config=LLMConfig(model="claude-sonnet-4-5-20250929"),
-        )
+            # print("fdsosafdisdfkijsfd --- cleanup_stale_busy_states_modal")
+            # cleanup_stale_busy_states_modal.spawn()
 
-        if args.get("extra_tools"):
-            context.extra_tools = {
-                k: Tool.load(k) for k in args.get("extra_tools")
-            }
+        else:
+            # Just add the message without prompting
+            new_message = ChatMessage(
+                role=args.get("role"),
+                sender=user.id,
+                session=session.id,
+                content=args.get("content"),
+                attachments=args.get("attachments") or [],
+            )
 
-        await add_chat_message(session, context)
-    
-    if args.get("prompt") and args.get("role") in ["system", "user"]:
-        
-        context = await build_llm_context(
-            session, 
-            agent, 
-            context, 
-            trace_id=str(uuid.uuid4()), 
-        )
-        
-        # set this up in a remote container
-        async for m in async_prompt_session(session, context, agent):
-            pass
+            context = PromptSessionContext(
+                session=session,
+                initiating_user_id=initiating_user_id,
+                message=new_message,
+                llm_config=LLMConfig(model="claude-sonnet-4-5-20250929"),
+            )
+
+            if args.get("extra_tools"):
+                context.extra_tools = {
+                    k: Tool.load(k) for k in args.get("extra_tools")
+                }
+
+            await add_chat_message(session, context)
     
     return {
         "output": [{"session": session_id}]
