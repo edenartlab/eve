@@ -747,6 +747,10 @@ async def remote_prompt_session_with_message(
 
     # Run the prompt
     async for m in async_prompt_session(session, context, agent):
+
+
+        #if m.update_type == UpdateType.TOOL_COMPLETE:
+
         pass
 
     logger.info(f"Remote prompt completed for session {session_id}")
