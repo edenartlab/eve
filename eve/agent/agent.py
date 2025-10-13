@@ -254,6 +254,8 @@ class Agent(User):
         # todo: systemize this for other agents
         if self.username == "abraham":
             tools_to_load.append("abraham_publish")
+            tools_to_load.append("abraham_daily")
+            tools_to_load.append("abraham_covenant")
 
         if tools_to_load:
             self.tools_ = get_tools_from_mongo(tools_to_load)

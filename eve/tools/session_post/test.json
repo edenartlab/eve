@@ -1,9 +1,11 @@
 {
     "agent_id": "675f880479e00297cd9b4688",
+    "user_id": "65284b18f8bbb9bff13ebe65",
+    "session": "68ec631e2c2d83fdf5bd3836",
     "title": "Test new assistant session",
-    "role": "assistant",
-    "prompt": false,
-    "content": "This is a test assistant message from Abraham to a new a session",
+    "role": "user",
+    "prompt": true,
+    "content": "This is a test assistant message from me. Just say hello world, don't make any images or post anywhere. and describe what you see in the attachment.",
     "attachments": [
         "https://edenartlab-prod-data.s3.us-east-1.amazonaws.com/bb88e857586a358ce3f02f92911588207fbddeabff62a3d6a479517a646f053c.jpg"
     ]

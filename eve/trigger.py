@@ -155,10 +155,8 @@ async def handle_trigger_stop(request: DeleteTriggerRequest):
     trigger = Trigger.from_mongo(request.id)
     if not trigger or trigger.deleted:
         raise APIError(f"Trigger not found: {request.id}", status_code=404)
-    # await stop_trigger(trigger.trigger_id)
     trigger.status = "finished"
     trigger.save()
-
     return {"id": str(request.id)}
 
 
@@ -167,20 +165,15 @@ async def handle_trigger_delete(request: DeleteTriggerRequest):
     trigger = Trigger.from_mongo(request.id)
     if not trigger:
         raise APIError(f"Trigger not found: {request.id}", status_code=404)
- 
-    # if trigger.status != "finished":
-    #     await stop_trigger(trigger.trigger_id)
-
     # Soft delete by setting deleted flag
     trigger.deleted = True
     trigger.save()
-
     return {"id": str(trigger.id)}
 
 
 @handle_errors
 async def handle_trigger_get(trigger_id: str):
-    trigger = Trigger.load(trigger_id=trigger_id)
+    trigger = Trigger.from_mongo(trigger_id)
     if not trigger or trigger.deleted:
         raise APIError(f"Trigger not found: {trigger_id}", status_code=404)
 

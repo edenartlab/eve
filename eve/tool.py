@@ -230,7 +230,7 @@ class Tool(Document, ABC):
     @classmethod
     def convert_to_mongo(cls, schema: dict) -> dict:
         parameters = []
-        for k, v in schema["parameters"].items():
+        for k, v in (schema["parameters"] or {}).items():
             v["schema"] = {
                 key: v.pop(key) for key in ["type", "items", "anyOf"] if key in v
             }

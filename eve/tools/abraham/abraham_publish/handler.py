@@ -14,7 +14,7 @@ class AbrahamCreation(Document):
     session_id: ObjectId
     title: str
     proposal: str
-    # status: Literal["active", "closed"]
+    status: Literal["seed", "creation"]
 
 
 init_message = """
@@ -105,10 +105,8 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         session_id=ObjectId(session_id),
         title=title,
         proposal=proposal,
-        # status="active"
+        status="seed"
     )
     creation.save()
 
-    # session_post already spawns run_session_prompt in a Modal container
-    # so we just return the session_id
     return {"output": [{"session": session_id}]}

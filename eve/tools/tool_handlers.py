@@ -257,5 +257,15 @@ def load_handler(name):
             from .abraham.abraham_publish.handler import handler
 
             handlers[name] = handler
+        
+        elif name == "abraham_daily":
+            from .abraham.abraham_daily.handler import handler
+
+            handlers[name] = handler
+        
+        elif name == "abraham_covenant":
+            from .abraham.abraham_covenant.handler import handler
+
+            handlers[name] = handler
 
     return handlers[name]

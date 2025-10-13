@@ -1,0 +1,27 @@
+name: abraham_covenant
+description: Abraham add Creation to Covenant
+tip: |-
+  This tool allows Abraham to publish a Creation to the Covenant.
+cost_estimate: 0
+output_type: string
+active: true
+handler: local
+visible: false
+parameters:
+  title:
+    type: string
+    description: Title of the creation
+    required: true
+  tagline:
+    type: string
+    description: Tagline of the creation
+    required: true
+  poster_image:
+    type: image
+    description: Poster image of the creation
+    required: true
+  post:
+    type: string
+    description: Blog post
+    tip: Use markdown with typical media embeds including images and/or video
+    required: true
