@@ -1,20 +1,31 @@
 from jinja2 import Template
 from eve.mongo import Collection, Document
 from bson import ObjectId
-from typing import Literal
+from typing import Literal, Optional
+from pydantic import BaseModel
 
 from eve.tool import Tool
 from eve.agent.deployments import Deployment
 from eve.agent import Agent
 
 
+class AbrahamCreation(BaseModel):
+    index: int
+    title: str
+    tagline: str
+    poster_image: str
+    blog_post: str
+    tx_hash: str
+    ipfs_hash: str
+    explorer_url: str    
 
-@Collection("abraham_creations")
-class AbrahamCreation(Document):
+@Collection("abraham_seeds")
+class AbrahamSeed(Document):
     session_id: ObjectId
     title: str
     proposal: str
     status: Literal["seed", "creation"]
+    creation: Optional[AbrahamCreation] = None
 
 
 init_message = """
@@ -101,12 +112,12 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     print(result)
     session_id = result["output"][0]["session"]
 
-    creation = AbrahamCreation(
+    seed = AbrahamSeed(
         session_id=ObjectId(session_id),
         title=title,
         proposal=proposal,
         status="seed"
     )
-    creation.save()
+    seed.save()
 
     return {"output": [{"session": session_id}]}

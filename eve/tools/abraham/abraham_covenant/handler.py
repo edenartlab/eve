@@ -1,5 +1,6 @@
 import os
 import logging
+import asyncio
 from jinja2 import Template
 from eve.mongo import Collection, Document
 from bson import ObjectId
@@ -9,8 +10,7 @@ from eve.tool import Tool
 from eve.agent.deployments import Deployment
 from eve.agent import Agent
 from eve.agent.session.models import Session
-from eve.tools.abraham.abraham_publish.handler import AbrahamCreation
-import asyncio
+from eve.tools.abraham.abraham_publish.handler import AbrahamSeed, AbrahamCreation
 
 from eve.utils.chain_utils import (
     safe_send,
@@ -38,7 +38,7 @@ def commit_daily_work(
     index: int,
     title: str,
     tagline: str,
-    poster_image_url: str,
+    poster_image: str,
     blog_post: str
 ):
     """
@@ -48,7 +48,7 @@ def commit_daily_work(
         index: Work index number
         title: Title of the work
         tagline: Short description/tagline
-        poster_image_url: URL to the poster image
+        poster_image: URL to the poster image
         blog_post: Full blog post content
     """
     try:
@@ -65,8 +65,8 @@ def commit_daily_work(
         )
 
         # Upload poster image to IPFS
-        logger.info(f"Uploading poster image to IPFS: {poster_image_url}")
-        image_cid = ipfs_pin(poster_image_url)
+        logger.info(f"Uploading poster image to IPFS: {poster_image}")
+        image_cid = ipfs_pin(poster_image)
         poster_image_hash = image_cid.split("/")[-1]
 
         # Create metadata JSON
@@ -137,7 +137,7 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     poster_image = args.get("poster_image")
     blog_post = args.get("post")
 
-    abraham_creation = AbrahamCreation.find_one({
+    abraham_seed = AbrahamSeed.find_one({
         "session_id": ObjectId(session)
     })
 
@@ -153,12 +153,24 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
             index=1,  # Using index 1 as specified
             title=title,
             tagline=tagline,
-            poster_image_url=poster_image,
+            poster_image=poster_image,
             blog_post=blog_post
         )
 
         # Update creation status
-        abraham_creation.update(status="committed")
+        abraham_seed.update(
+            status="creation",
+            creation=AbrahamCreation(
+                index=1,
+                title=title,
+                tagline=tagline,
+                poster_image=poster_image,
+                blog_post=blog_post,
+                tx_hash=result["tx_hash"],
+                ipfs_hash=result["ipfs_hash"],
+                explorer_url=result["explorer_url"]
+            )
+        )
 
         return {
             "output": [{
@@ -170,6 +182,5 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         }
     except Exception as e:
         logger.error(f"Failed to commit daily work: {e}")
-        # abraham_creation.update(status="failed")
         raise
 

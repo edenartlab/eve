@@ -7,7 +7,7 @@ from eve.tool import Tool
 from eve.agent.deployments import Deployment
 from eve.agent import Agent
 from eve.agent.session.models import Session
-from eve.tools.abraham.abraham_publish.handler import AbrahamCreation
+from eve.tools.abraham.abraham_publish.handler import AbrahamSeed
 import asyncio
 
 
@@ -53,20 +53,32 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
 
     session_post = Tool.load("session_post")
 
-    abraham_sessions = AbrahamCreation.find({"status": "seed"})
-    sessions = Session.find({"_id": {"$in": [a.session_id for a in abraham_sessions]}})
+    abraham_seeds = AbrahamSeed.find({"status": "seed"})
+
+    print("seeds", abraham_seeds)
+    print([a.session_id for a in abraham_seeds])
+    sessions = Session.find({"_id": {"$in": [a.session_id for a in abraham_seeds]}})
+
+    print("sessions", sessions)
+
 
     candidates = []
     for session in sessions:
         messages = session.get_messages()
+        print("len messages", len(messages))
         num_user_messages = len([m for m in messages if m.role == "user"])
-        if num_user_messages < 10:
-            candidates.append({
-                "session": session,
-                "num_user_messages": num_user_messages,
-            })
-    
+        # if num_user_messages < 10:
+        candidates.append({
+            "session": session,
+            "num_user_messages": num_user_messages,
+        })
+
     candidates = sorted(candidates, key=lambda x: x["num_user_messages"], reverse=True)
+
+    print("---")
+    for candidate in candidates:
+        print(candidate["session"].id, candidate["num_user_messages"])
+    print("---")
 
     winner = candidates[0]
 
