@@ -104,11 +104,20 @@ def commit_daily_work(
             network=Network.ETH_SEPOLIA,
         )
 
-        logger.info(f"✅ Daily work committed successfully: {tx_hash.hex()}")
+        # Build explorer URL for ETH Sepolia
+        tx_hash_hex = tx_hash.hex()
+        if not tx_hash_hex.startswith('0x'):
+            tx_hash_hex = f"0x{tx_hash_hex}"
+        explorer_url = f"https://sepolia.etherscan.io/tx/{tx_hash_hex}"
+
+        logger.info(f"✅ Daily work committed successfully: {tx_hash_hex}")
+        logger.info(f"Explorer: {explorer_url}")
+
         return {
-            "tx_hash": tx_hash.hex(),
+            "tx_hash": tx_hash_hex,
             "ipfs_hash": ipfs_hash,
-            "image_hash": poster_image_hash
+            "image_hash": poster_image_hash,
+            "explorer_url": explorer_url
         }
 
     except BlockchainError as e:
@@ -155,11 +164,12 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
             "output": [{
                 "session": session,
                 "tx_hash": result["tx_hash"],
-                "ipfs_hash": result["ipfs_hash"]
+                "ipfs_hash": result["ipfs_hash"],
+                "explorer_url": result["explorer_url"]
             }]
         }
     except Exception as e:
         logger.error(f"Failed to commit daily work: {e}")
-        abraham_creation.update(status="failed")
+        # abraham_creation.update(status="failed")
         raise
 
