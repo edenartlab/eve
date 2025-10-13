@@ -24,7 +24,7 @@ from eve.agent.session.session import (
     build_llm_context,
     async_prompt_session
 )
-from eve.api.api import remote_prompt_session_with_message, cleanup_stale_busy_states_modal
+from eve import db
 
 
 async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
@@ -95,17 +95,18 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     elif args.get("role") in ["system", "user"]:
         # If we're going to prompt, let the remote function handle message addition
         if args.get("prompt"):
-            
-            # Use remote Modal function to handle message addition and prompting
-            await remote_prompt_session_with_message.spawn(
+            # Use Modal's from_name API to get the remote function from the running app
+            # This works from anywhere - inside or outside Modal context
+            app_name = f"api-{db.lower()}"
+            remote_fn = modal.Function.from_name(app_name, "remote_prompt_session_with_message")
+
+            # Spawn the remote function asynchronously (spawn is synchronous, not awaitable)
+            remote_fn.spawn(
                 session_id=session_id,
                 agent_id=str(agent.id),
                 user_id=str(user.id),
                 message_content=args.get("content")
             )
-
-            # print("fdsosafdisdfkijsfd --- cleanup_stale_busy_states_modal")
-            # cleanup_stale_busy_states_modal.spawn()
 
         else:
             # Just add the message without prompting
