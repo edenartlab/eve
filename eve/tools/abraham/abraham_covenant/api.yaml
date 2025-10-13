@@ -12,6 +12,14 @@ parameters:
     type: string
     description: Title of the creation
     required: true
+  tagline:
+    type: string
+    description: Tagline of the creation
+    required: true
+  poster_image:
+    type: image
+    description: Poster image of the creation
+    required: true
   post:
     type: string
     description: Blog post

@@ -19,10 +19,13 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         raise Exception("Agent is not Abraham")
 
     title = args.get("title")
+    tagline = args.get("tagline")
+    poster_image = args.get("poster_image")
     post = args.get("post")
 
-
-    abraham_creation = AbrahamCreation.from_mongo(session)
+    abraham_creation = AbrahamCreation.find_one({
+        "session_id": ObjectId(session)
+    })
 
     print("THIS IS THE ABRAHAM CREATION")
     print(abraham_creation)
@@ -31,6 +34,8 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     print(title)
     print("post")
     print(post)
+
+    abraham_creation.update(status="creation")
 
     return {"output": [{"session": session}]}
 

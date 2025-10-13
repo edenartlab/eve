@@ -8,3 +8,8 @@ active: true
 handler: local
 visible: false
 parameters:
+  comments:
+    type: string
+    description: Comments
+    tip: Optional comments on the daily practice
+    required: false

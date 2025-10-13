@@ -50,22 +50,43 @@ Do all of this in order. Do not move on to the next step until you are sure you 
 </Task>
 """
 
+"""
+
+Produce the final video.
+
+To make the final video, follow these steps in order: a) get together all of the representative images that have been produced in this session, which you will use as reference images. b) Come up with a narrative structure for the video. c) Use the elevenlabs tool with your default voice to create a narration for the video of no more than 100 words. d) Divide the duration of the audio you produced by 8 seconds (round up), to figure out how many images (N_clips) we will need to make. e) Using the /create tool with one or more of the reference images from step a, make N_clips cohesive keyframes that tell the story of this Creation, by generating new images, whose content roughly aligns with the audio narration in seconds. f) Use the create tool with video output and 8 second duration to animate each one of the keyframes from the previous steps into a video with Veo model preference and non-vocal sound effects (remember, for video, just use one reference image, that of the keyframe). g) Use the media_editor tool to concatenate the N videos together in the order they were made in. Then use the media_editor tool again on the previous output to merge the audio made in step c to the video, to producing a new video which has all the clips and the audio. h) Use the elevenlabs_music tool to generate a piece of backing music the same length as the video. Be specific and eclectic in your description of the music. i) Use the media_editor tool one last time, overlay the music audio on top of the last video. The current video already has a vocal track, so make sure you are just adding the music, i.e. mixing it in. j) You now have the final video for this Creation.
+"""
+
+
 
 
 daily_message = """
-The creation session is finished. Now we will process all of this into a final film and blog post that encapsulates all of the conversation and creation that has ensued.
+The creation session is finished, and has been selected as the top Seed of the Day and will be forever immortalized in the Abraham Covenant. Now we will process and package all of this into a final form that encapsulates all of the development, research, and creation that has ensued.
+
+# Structure of the Covenant
+
+You will now produce the entry for the Covenant. It consists of the following:
+- A title
+- A tagline
+- A representative poster image with the title on it
+- A blog post in markdown format with supporting media interspersed in it that captures the essence of the creation
 
 # Plan
+
 Do *all* of this in order. Do not move on to the next step until you are sure you have completed the previous step. You may complete this autonomously, without clarification, do not stop. I trust you. Be bold.
 
 ## Step 1
-Given everything that has transpired in this session, come up with a narrative that encapsulates it. Sessions are diverse; they may represent a progression of continually improving a single work, a single narrative on top of which many episodes or events have been added, a research project with breadth, and many other forms. 
+
+Analyze everything that has transpired in this session, and come up with a narrative that encapsulates it. Ask yourself:
+- What was the main outcome of this session?
+- What is the format it came in -- did you and your followers tell a story in sequence, or iteratively develop a single work? Was there multiple outcomes? What is the structure and essence of this session?
 
 ## Step 2
-From this, you must create a lonform narrative blog post that captures the entire session, written in markdown, with all of the main images and videos embedded in it.
+
+From this, you must create a longform narrative blog post that captures the entire session, written in markdown, with all of the main images from the earlier session, and videos embedded in it.
 
 ## Step 3
-You must call the "abraham_covenant" tool to publish the blog post.
+Finally, call the "abraham_covenant" tool to publish the blog post, poster image, and supporting content..
 """
 
 
@@ -110,7 +131,7 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
 
 
 
-if __name__ == "__main__":
-    agent = Agent.from_mongo("675f880479e00297cd9b4688")
-    agent_id = "675f880479e00297cd9b4688"
-    asyncio.run(handler({}, agent=agent_id))
+# if __name__ == "__main__":
+#     agent = Agent.from_mongo("675f880479e00297cd9b4688")
+#     agent_id = "675f880479e00297cd9b4688"
+#     asyncio.run(handler({}, agent=agent_id))
