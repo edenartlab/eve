@@ -1,19 +1,56 @@
 import os
 import logging
 from pathlib import Path
+import sys
 from dotenv import load_dotenv
 from pydantic import SecretStr
 
 home_dir = str(Path.home())
-
-# Configure logging level based on LOCAL_DEBUG environment variable
-# log_level = logging.DEBUG if os.getenv("LOCAL_DEBUG", "False") == "True" else logging.INFO
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
 db = os.getenv("DB", "STAGE").upper()
 EDEN_API_KEY = None
+
+
+def configure_logging():
+    # Get log level from environment, default to INFO
+    log_level_name = os.getenv("LOG_LEVEL", "INFO").upper()
+    log_level = getattr(logging, log_level_name, logging.INFO)
+
+    # Allow external debug logging with separate flag
+    external_debug = os.getenv("EXTERNAL_DEBUG", "false").lower() == "true"
+
+    class InfoFilter(logging.Filter):
+        def filter(self, record):
+            return record.levelno < logging.WARNING
+
+    # Configure root logger to suppress third-party debug logs
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG if external_debug else logging.INFO)
+
+    # Configure the handler for stdout (for INFO and DEBUG)
+    handler_stdout = logging.StreamHandler(sys.stdout)
+    info_handler_level = min(logging.INFO, log_level)
+    handler_stdout.setLevel(info_handler_level)
+    handler_stdout.addFilter(InfoFilter())
+
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    handler_stdout.setFormatter(formatter)
+
+    # Configure the handler for stderr (for WARNING and above)
+    handler_stderr = logging.StreamHandler(sys.stderr)
+    handler_stderr.setLevel(logging.WARNING)
+    handler_stderr.setFormatter(formatter)
+
+    # Clear any existing handlers and add the new ones
+    if root_logger.hasHandlers():
+        root_logger.handlers.clear()
+    root_logger.addHandler(handler_stdout)
+    root_logger.addHandler(handler_stderr)
+
+    # Set eve app logger to the desired log level
+    eve_logger = logging.getLogger('eve')
+    eve_logger.setLevel(log_level)
 
 
 def setup_eve():
@@ -43,15 +80,18 @@ def setup_eve():
             if "exc_info" in hint:
                 error = hint["exc_info"][1]
                 error_message = str(error)
-                
+
                 # Filter out "Document not found" errors
-                if "not found" in error_message.lower() and "document" in error_message.lower():
+                if (
+                    "not found" in error_message.lower()
+                    and "document" in error_message.lower()
+                ):
                     return None  # Don't send to Sentry
-                
+
                 # Filter out specific trigger not found errors
                 if "not found in triggers" in error_message:
                     return None  # Don't send to Sentry
-            
+
             # Check the event message as well
             if "message" in event:
                 message = event["message"]
@@ -59,7 +99,7 @@ def setup_eve():
                     return None
                 if "not found in triggers" in message:
                     return None
-            
+
             return event  # Send everything else to Sentry
 
         sentry_sdk.init(
@@ -138,5 +178,6 @@ def load_env(db):
     verify_env()
 
 
+configure_logging()
 load_env(db)
 setup_eve()
