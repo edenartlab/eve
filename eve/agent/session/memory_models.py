@@ -109,8 +109,12 @@ def get_sender_id_to_sender_name_map(messages: List[ChatMessage]) -> Dict[Object
         traceback.print_exc()
         return {}
 
-def messages_to_text(messages: List[ChatMessage]) -> tuple[str, dict[str, int]]:
+def messages_to_text(messages: List[ChatMessage], skip_trigger_messages: bool = True) -> tuple[str, dict[str, int]]:
     """Convert messages to readable text for LLM processing
+
+    Args:
+        messages: List of ChatMessage objects to convert
+        skip_trigger_messages: If True, skip messages that originated from triggers (default: True)
 
     Returns:
         tuple: (formatted_text, char_counts_by_source)
@@ -124,6 +128,10 @@ def messages_to_text(messages: List[ChatMessage]) -> tuple[str, dict[str, int]]:
     for msg in messages:
         # Skip system messages (e.g., periodic task instructions)
         if msg.role == "system":
+            continue
+
+        # Skip trigger messages if requested
+        if skip_trigger_messages and msg.trigger:
             continue
         speaker = sender_id_to_sender_name_map.get(msg.sender) or msg.name or msg.role
         content = msg.content
