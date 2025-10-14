@@ -10,7 +10,7 @@ from eve.tool import Tool
 from eve.agent.deployments import Deployment
 from eve.agent import Agent
 from eve.agent.session.models import Session
-from eve.tools.abraham.abraham_publish.handler import AbrahamSeed, AbrahamCreation
+from eve.tools.abraham.abraham_seed.handler import AbrahamSeed, AbrahamCreation
 
 from eve.utils.chain_utils import (
     safe_send,
