@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 from dotenv import load_dotenv
 from pydantic import SecretStr
+from loguru import logger
 
 home_dir = str(Path.home())
 db = os.getenv("DB", "STAGE").upper()
@@ -57,7 +58,6 @@ def setup_eve():
     def setup_sentry():
         sentry_dsn = os.getenv("SENTRY_DSN")
         if not sentry_dsn:
-            # print("Skipping sentry setup because SENTRY_DSN is not set")
             return
 
         import sentry_sdk
@@ -66,13 +66,10 @@ def setup_eve():
         sentry_env = os.getenv(
             "SENTRY_ENV", "production" if db == "PROD" else "staging"
         )
-        # print(f"Setting up sentry for {sentry_env}")
 
         # Set sampling rates
         base_sample_rate = 1.0 if os.getenv("SENTRY_ENV") else 0.01
         profiles_sample_rate = 1.0 if os.getenv("SENTRY_ENV") else 0.01
-        # print(f"Traces sample rate: {base_sample_rate}")
-        # print(f"Profiles sample rate: {profiles_sample_rate}")
 
         def before_send(event, hint):
             """Filter out certain errors before sending to Sentry"""
@@ -135,7 +132,7 @@ def setup_eve():
         )
 
     if os.getenv("SETUP_SENTRY") == "no":
-        print("Skipping sentry setup because SETUP_SENTRY is no")
+        logger.debug("Skipping sentry setup because SETUP_SENTRY is no")
         pass
     else:
         setup_sentry()
@@ -148,12 +145,12 @@ def verify_env():
     MONGO_URI = os.getenv("MONGO_URI")
 
     if not all([AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION_NAME]):
-        print(
-            "WARNING: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and AWS_REGION_NAME must be set in the environment"
+        logger.warning(
+            "AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and AWS_REGION_NAME must be set in the environment"
         )
 
     if not MONGO_URI:
-        print("WARNING: MONGO_URI must be set in the environment")
+        logger.warning("MONGO_URI must be set in the environment")
 
 
 if db not in ["STAGE", "PROD", "WEB3-STAGE", "WEB3-PROD"]:
@@ -189,7 +186,7 @@ def load_env(db):
     EDEN_API_KEY = str(os.getenv("EDEN_API_KEY", ""))
 
     if not EDEN_API_KEY:
-        print("WARNING: EDEN_API_KEY is not set")
+        logger.warning("EDEN_API_KEY is not set")
     else:
         EDEN_API_KEY = SecretStr(EDEN_API_KEY)
 
