@@ -9,6 +9,7 @@ import subprocess
 import blurhash
 import numpy as np
 import requests
+from typing import List
 from PIL import Image, ImageFont, ImageDraw
 from io import BytesIO
 from loguru import logger

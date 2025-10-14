@@ -3,3 +3,19 @@ repos:
     rev: v2.3.0
     hooks:
     - id: check-yaml
+
+  - repo: https://github.com/pre-commit/pygrep-hooks
+    rev: v1.10.0
+    hooks:
+    - id: python-no-eval
+    - id: python-check-blanket-noqa
+    - id: python-use-type-annotations
+    - id: text-unicode-replacement-char
+
+  - repo: local
+    hooks:
+    - id: no-print-statements
+      name: Check for print statements
+      entry: '^\s*print\('
+      language: pygrep
+      types: [python]
