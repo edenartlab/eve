@@ -25,7 +25,6 @@ from .user import User
 from .task import Task
 from .mongo import Document, Collection, get_collection
 from .api.rate_limiter import RateLimiter
-from sentry_sdk import trace
 
 
 class RateLimit(BaseModel):
@@ -67,7 +66,6 @@ class Tool(Document, ABC):
     rate_limits: Optional[Dict[str, RateLimit]] = None
 
     @classmethod
-    @trace
     def _get_schema(cls, key, from_yaml=False) -> dict:
         """Get schema for a tool, with detailed performance logging."""
 
@@ -90,7 +88,6 @@ class Tool(Document, ABC):
         return schema
 
     @classmethod
-    @trace
     def get_sub_class(cls, schema, from_yaml=False) -> type:
         """Lazy load tool classes only when needed"""
 
@@ -319,7 +316,9 @@ class Tool(Document, ABC):
         schema = {
             "key": key or model.__name__,
             "name": name or model.__name__,
-            "description": description or model.__doc__ or f"Tool generated from {model.__name__}",
+            "description": description
+            or model.__doc__
+            or f"Tool generated from {model.__name__}",
             "tip": tip,
             "thumbnail": thumbnail,
             "output_type": output_type,
@@ -348,6 +347,7 @@ class Tool(Document, ABC):
     @classmethod
     def register_new(cls, tool: BaseModel, handler: Callable):
         from eve.tools.tool_handlers import handlers
+
         custom_tool = Tool.from_pydantic(tool)
         handlers[custom_tool.key] = handler
         return custom_tool
@@ -389,7 +389,6 @@ class Tool(Document, ABC):
             return super().from_mongo(document_id)
 
     @classmethod
-    @trace
     def load(cls, key, cache=False):
         if cache:
             if key not in _tool_cache:
@@ -430,8 +429,7 @@ class Tool(Document, ABC):
         if not self.cost_estimate:
             return 0
         cost_estimate = utils.eval_cost(
-            self.cost_estimate, 
-            **self.prepare_args(args.copy())
+            self.cost_estimate, **self.prepare_args(args.copy())
         )
         return cost_estimate
 
@@ -469,26 +467,27 @@ class Tool(Document, ABC):
     def handle_run(run_function):
         """Wrapper for calling a tool directly and waiting for the result"""
 
-        async def async_wrapper(self, args: Dict, mock: bool = False, save_thumbnails: bool = False):
+        async def async_wrapper(
+            self, args: Dict, mock: bool = False, save_thumbnails: bool = False
+        ):
             try:
                 user_id = args.pop("user_id", None) or str(get_my_eden_user().id)
-                agent_id = args.pop("agent_id", None) 
+                agent_id = args.pop("agent_id", None)
                 session_id = args.pop("session_id", None)
                 args = self.prepare_args(args)
                 sentry_sdk.add_breadcrumb(category="handle_run", data=args)
                 if mock:
                     result = {"output": utils.mock_image(args)}
                 else:
-                    result = await run_function(self, args, user_id, agent_id, session_id)
+                    result = await run_function(
+                        self, args, user_id, agent_id, session_id
+                    )
                 result["output"] = (
                     result["output"]
                     if isinstance(result["output"], list)
                     else [result["output"]]
                 )
-                result = utils.upload_result(
-                    result, 
-                    save_thumbnails=save_thumbnails
-                )
+                result = utils.upload_result(result, save_thumbnails=save_thumbnails)
                 result["status"] = "completed"
                 sentry_sdk.add_breadcrumb(category="handle_run", data=result)
 
@@ -501,7 +500,6 @@ class Tool(Document, ABC):
 
         return async_wrapper
 
-    @trace
     def handle_start_task(start_task_function):
         """Wrapper for starting a task process and returning a task"""
 
@@ -520,13 +518,15 @@ class Tool(Document, ABC):
                 args = self.prepare_args(args)
                 sentry_sdk.add_breadcrumb(category="handle_start_task", data=args)
                 cost = self.calculate_cost(args)
-                
+
                 paying_user = user
                 if agent_id:
                     agent = Agent.from_mongo(agent_id)
-                    if agent.owner_pays == "full" or (agent.owner_pays == "deployments" and is_client_platform):
+                    if agent.owner_pays == "full" or (
+                        agent.owner_pays == "deployments" and is_client_platform
+                    ):
                         paying_user = User.from_mongo(agent.owner)
-                
+
                 print("THE PAYING USER....")
                 print(paying_user)
                 paying_user.check_manna(cost)
@@ -564,7 +564,9 @@ class Tool(Document, ABC):
             # start task
             try:
                 if mock:
-                    handler_id = "".join(random.choices("abcdefghijklmnopqrstuvwxyz0123456789", k=28))
+                    handler_id = "".join(
+                        random.choices("abcdefghijklmnopqrstuvwxyz0123456789", k=28)
+                    )
 
                     output = [{"output": [utils.mock_image(args)]}]
                     result = utils.upload_result(output, save_thumbnails=True)
@@ -660,7 +662,9 @@ class Tool(Document, ABC):
         mock: bool = False,
         public: bool = False,
     ):
-        return asyncio.run(self.async_start_task(user_id, agent_id, session_id, args, mock, public))
+        return asyncio.run(
+            self.async_start_task(user_id, agent_id, session_id, args, mock, public)
+        )
 
     def wait(self, task: Task):
         return asyncio.run(self.async_wait(task))
@@ -736,7 +740,6 @@ def get_tools_from_mongo(
     return found_tools
 
 
-@trace
 def get_api_files(root_dir: str = None) -> List[str]:
     """Get all api.yaml files inside a directory"""
 

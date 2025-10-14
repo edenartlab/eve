@@ -17,8 +17,9 @@ from .tool_constants import (
     EDEN_DB_TOOLS,
     SOCIAL_MEDIA_TOOLS,
     CONTEXT7_MCP_TOOLS,
-    CALCULATOR_MCP_TOOLS
+    CALCULATOR_MCP_TOOLS,
 )
+
 NON_CREATION_TOOLS = [
     *EDEN_DB_TOOLS,
     *SOCIAL_MEDIA_TOOLS,
@@ -105,7 +106,7 @@ class CreationsCollection(Document):
 class Task(Document):
     user: ObjectId
     agent: Optional[ObjectId] = None
-    #thread: Optional[ObjectId] = None
+    # thread: Optional[ObjectId] = None
     session: Optional[ObjectId] = None
     tool: str
     parent_tool: Optional[str] = None
@@ -232,9 +233,7 @@ async def _task_handler(func, *args, **kwargs):
                     else [result["output"]]
                 )
                 result = utils.upload_result(
-                    result, 
-                    save_thumbnails=True, 
-                    save_blurhash=True
+                    result, save_thumbnails=True, save_blurhash=True
                 )
 
                 for output in result["output"]:
@@ -290,16 +289,19 @@ async def _task_handler(func, *args, **kwargs):
             scope.set_tag("task_tool_key", task.tool)
             if task.parent_tool:
                 scope.set_tag("task_parent_tool", task.parent_tool)
-            scope.set_context("task_failure", {
-                "task_id": str(task.id),
-                "tool": task.tool,
-                "parent_tool": task.parent_tool,
-                "user": str(task.user),
-                "agent": str(task.agent) if task.agent else None,
-                "args_keys": list(task.args.keys()) if task.args else [],
-                "n_samples": task.args.get("n_samples", 1),
-                "output_type": task.output_type,
-            })
+            scope.set_context(
+                "task_failure",
+                {
+                    "task_id": str(task.id),
+                    "tool": task.tool,
+                    "parent_tool": task.parent_tool,
+                    "user": str(task.user),
+                    "agent": str(task.agent) if task.agent else None,
+                    "args_keys": list(task.args.keys()) if task.args else [],
+                    "n_samples": task.args.get("n_samples", 1),
+                    "output_type": task.output_type,
+                },
+            )
         sentry_sdk.capture_exception(error)
         print(traceback.format_exc())
 

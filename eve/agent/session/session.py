@@ -14,7 +14,6 @@ from sentry_sdk import capture_exception
 from eve.utils import dumps_json
 from eve.agent.agent import Agent
 from eve.tool import Tool
-from eve.mongo import get_collection
 from eve.models import Model
 from eve.agent.session.debug_logger import SessionDebugger
 from eve.concepts import Concept
@@ -54,6 +53,10 @@ from eve.agent.session.config import (
     get_default_session_llm_config,
 )
 from eve.user import User
+from eve.agent.session.tracing import (
+    trace_async_operation,
+    add_breadcrumb,
+)
 
 
 class SessionCancelledException(Exception):
@@ -137,6 +140,11 @@ def parse_mentions(content: str) -> List[str]:
 async def determine_actors(
     session: Session, context: PromptSessionContext
 ) -> List[Agent]:
+    add_breadcrumb(
+        "Determining actors for session",
+        category="session",
+        data={"session_id": str(session.id)},
+    )
     actor_ids = []
 
     if context.actor_agent_ids:
@@ -230,7 +238,6 @@ def label_message_channels(messages: List[ChatMessage]):
     return labeled_messages
 
 
-
 async def build_system_message(
     session: Session,
     actor: Agent,
@@ -313,9 +320,7 @@ async def build_system_extras(
 
 
 async def add_chat_message(
-    session: Session, 
-    context: PromptSessionContext, 
-    pin: bool = False
+    session: Session, context: PromptSessionContext, pin: bool = False
 ):
     new_message = ChatMessage(
         session=session.id,
@@ -330,8 +335,7 @@ async def add_chat_message(
     if context.update_config:
         if context.update_config.farcaster_hash:
             new_message.channel = Channel(
-                type="farcaster",
-                key=context.update_config.farcaster_hash
+                type="farcaster", key=context.update_config.farcaster_hash
             )
     if pin:
         new_message.pinned = True
@@ -555,6 +559,13 @@ async def process_tool_call(
     is_client_platform: bool = False,
     session_run_id: str = None,
 ):
+    # Add breadcrumb for tool execution
+    add_breadcrumb(
+        f"Processing tool: {tool_call.tool}",
+        category="tool",
+        data={"tool_name": tool_call.tool, "tool_index": tool_call_index},
+    )
+
     # Update the tool call status to running
     tool_call.status = "running"
 
@@ -799,6 +810,25 @@ async def async_prompt_session(
     if session_run_id is None:
         session_run_id = str(uuid.uuid4())
 
+    # Start distributed tracing transaction and set as active in scope
+    import sentry_sdk
+    transaction = sentry_sdk.start_transaction(
+        name="prompt_session",
+        op="session.prompt",
+    )
+
+    # Set tags on the transaction
+    if transaction:
+        transaction.set_tag("session_id", str(session.id))
+        if llm_context.metadata and llm_context.metadata.trace_metadata:
+            transaction.set_tag("user_id", str(llm_context.metadata.trace_metadata.user_id))
+        transaction.set_tag("agent_id", str(actor.id))
+        transaction.set_tag("session_run_id", session_run_id)
+        transaction.set_tag("stream", str(stream))
+
+        # Set as active span (correct API - direct assignment, not set_span())
+        sentry_sdk.Hub.current.scope.span = transaction
+
     # Set up cancellation handling via Ably
     cancellation_event = asyncio.Event()
     tool_cancellation_events = {}  # Dict to track individual tool cancellations
@@ -915,42 +945,45 @@ async def async_prompt_session(
                 stop_reason = None
                 tokens_spent = 0  # Initialize tokens_spent for streaming
 
-                async for chunk in async_prompt_stream(llm_context):
-                    # Check for cancellation during streaming
-                    if cancellation_event.is_set():
-                        raise SessionCancelledException("Session cancelled by user")
+                async with trace_async_operation(
+                    "llm.stream", model=llm_context.config.model
+                ):
+                    async for chunk in async_prompt_stream(llm_context):
+                        # Check for cancellation during streaming
+                        if cancellation_event.is_set():
+                            raise SessionCancelledException("Session cancelled by user")
 
-                    if hasattr(chunk, "choices") and chunk.choices:
-                        choice = chunk.choices[0]
-                        # Only yield content tokens, not tool call chunks
-                        if choice.delta and choice.delta.content:
-                            content += choice.delta.content
-                            yield SessionUpdate(
-                                type=UpdateType.ASSISTANT_TOKEN,
-                                text=choice.delta.content,
-                                session_run_id=session_run_id,
-                            )
-                        # Process tool calls silently (don't yield anything)
-                        if choice.delta and choice.delta.tool_calls:
-                            for tc in choice.delta.tool_calls:
-                                if tc.index not in tool_calls_dict:
-                                    tool_calls_dict[tc.index] = {
-                                        "id": tc.id,
-                                        "name": tc.function.name
-                                        if tc.function
-                                        else None,
-                                        "arguments": "",
-                                    }
-                                if tc.function and tc.function.arguments:
-                                    tool_calls_dict[tc.index]["arguments"] += (
-                                        tc.function.arguments
-                                    )
-                        if choice.finish_reason:
-                            stop_reason = choice.finish_reason
+                        if hasattr(chunk, "choices") and chunk.choices:
+                            choice = chunk.choices[0]
+                            # Only yield content tokens, not tool call chunks
+                            if choice.delta and choice.delta.content:
+                                content += choice.delta.content
+                                yield SessionUpdate(
+                                    type=UpdateType.ASSISTANT_TOKEN,
+                                    text=choice.delta.content,
+                                    session_run_id=session_run_id,
+                                )
+                            # Process tool calls silently (don't yield anything)
+                            if choice.delta and choice.delta.tool_calls:
+                                for tc in choice.delta.tool_calls:
+                                    if tc.index not in tool_calls_dict:
+                                        tool_calls_dict[tc.index] = {
+                                            "id": tc.id,
+                                            "name": tc.function.name
+                                            if tc.function
+                                            else None,
+                                            "arguments": "",
+                                        }
+                                    if tc.function and tc.function.arguments:
+                                        tool_calls_dict[tc.index]["arguments"] += (
+                                            tc.function.arguments
+                                        )
+                            if choice.finish_reason:
+                                stop_reason = choice.finish_reason
 
-                    # Capture token usage from streaming response
-                    if hasattr(chunk, "usage") and chunk.usage:
-                        tokens_spent = chunk.usage.total_tokens
+                        # Capture token usage from streaming response
+                        if hasattr(chunk, "usage") and chunk.usage:
+                            tokens_spent = chunk.usage.total_tokens
 
                 # Convert accumulated tool calls to ToolCall objects
                 tool_calls = None
@@ -996,7 +1029,10 @@ async def async_prompt_session(
                 )
             else:
                 # Non-streaming path
-                response = await async_prompt(llm_context)
+                async with trace_async_operation(
+                    "llm.prompt", model=llm_context.config.model
+                ):
+                    response = await async_prompt(llm_context)
                 assistant_message = ChatMessage(
                     session=session.id,
                     sender=ObjectId(llm_context.metadata.trace_metadata.agent_id),
@@ -1036,6 +1072,19 @@ async def async_prompt_session(
             # print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
 
             update_session_budget(session, tokens_spent=tokens_spent, turns_spent=1)
+
+            # Add tracing data and capture Sentry trace ID
+            if transaction:
+                transaction.set_data("tokens_spent", tokens_spent)
+                transaction.set_data("stop_reason", stop_reason)
+                if assistant_message.tool_calls:
+                    transaction.set_data("tool_calls_count", len(assistant_message.tool_calls))
+
+                # Capture Sentry trace ID for cross-system correlation
+                if assistant_message.observability and hasattr(transaction, 'trace_id'):
+                    assistant_message.observability.sentry_trace_id = transaction.trace_id
+                    assistant_message.save()  # Update with Sentry trace ID
+
             # No longer appending to llm_context.messages since we refresh from DB each iteration
             yield SessionUpdate(
                 type=UpdateType.ASSISTANT_MESSAGE,
@@ -1086,19 +1135,22 @@ async def async_prompt_session(
                 )
 
             if assistant_message.tool_calls:
-                async for update in process_tool_calls(
-                    session,
-                    assistant_message,
-                    llm_context,
-                    cancellation_event,
-                    tool_cancellation_events,
-                    is_client_platform,
-                    session_run_id,
+                async with trace_async_operation(
+                    "tools.process_all", tool_count=len(assistant_message.tool_calls)
                 ):
-                    # Check for cancellation during tool execution
-                    if cancellation_event.is_set():
-                        raise SessionCancelledException("Session cancelled by user")
-                    yield update
+                    async for update in process_tool_calls(
+                        session,
+                        assistant_message,
+                        llm_context,
+                        cancellation_event,
+                        tool_cancellation_events,
+                        is_client_platform,
+                        session_run_id,
+                    ):
+                        # Check for cancellation during tool execution
+                        if cancellation_event.is_set():
+                            raise SessionCancelledException("Session cancelled by user")
+                        yield update
 
             if stop_reason in ["stop", "completed"]:
                 prompt_session_finished = True
@@ -1200,6 +1252,10 @@ async def async_prompt_session(
                 await ably_client.close()
             except Exception as e:
                 print(f"Error closing Ably client: {e}")
+
+        # Finish transaction
+        if transaction:
+            transaction.finish()
 
 
 def format_session_update(update: SessionUpdate, context: PromptSessionContext) -> dict:

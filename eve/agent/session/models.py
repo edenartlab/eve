@@ -174,9 +174,10 @@ class Channel(Document):
 class ChatMessageObservability(BaseModel):
     provider: Literal["langfuse"] = "langfuse"
     session_id: Optional[str] = None
-    trace_id: Optional[str] = None
-    generation_id: Optional[str] = None
+    trace_id: Optional[str] = None  # Langfuse trace ID
+    generation_id: Optional[str] = None  # Langfuse generation ID
     tokens_spent: Optional[int] = None
+    sentry_trace_id: Optional[str] = None  # Sentry distributed trace ID for correlation
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 

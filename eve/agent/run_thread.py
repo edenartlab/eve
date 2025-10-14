@@ -8,7 +8,7 @@ from bson import ObjectId
 from typing import Optional, Dict, Any, List, Union, Literal
 from pydantic import BaseModel
 from pydantic.config import ConfigDict
-from sentry_sdk import trace, start_transaction, add_breadcrumb, capture_exception
+from sentry_sdk import add_breadcrumb, capture_exception
 
 from ..utils import load_template
 from ..mongo import get_collection
@@ -44,15 +44,13 @@ class ThreadUpdate(BaseModel):
 
 def sentry_transaction(op: str, name: str):
     def decorator(func):
-        @trace
         @functools.wraps(func)
         async def wrapper(*args, **kwargs):
-            transaction = start_transaction(op=op, name=name)
             try:
                 async for item in func(*args, **kwargs):
                     yield item
             finally:
-                transaction.finish()
+                pass
 
         return wrapper
 
@@ -84,7 +82,7 @@ async def process_tool_call(
             args=tool_call.args,
             mock=False,
             public=True,
-            is_client_platform=is_client_platform
+            is_client_platform=is_client_platform,
         )
 
         # Update tool call with task id and status
@@ -97,11 +95,7 @@ async def process_tool_call(
         # Wait for task to complete
         result = await tool.async_wait(task)
 
-        thread.update_tool_call(
-            assistant_message.id, 
-            tool_call_index, 
-            result
-        )
+        thread.update_tool_call(assistant_message.id, tool_call_index, result)
 
         # Task completed
         if result["status"] == "completed":
@@ -142,7 +136,6 @@ async def process_tool_call(
         )
 
 
-@sentry_transaction(op="llm.prompt", name="async_prompt_thread")
 async def async_prompt_thread(
     user: User,
     agent: Agent,
@@ -168,9 +161,7 @@ async def async_prompt_thread(
 
     # Check mentions
     agent_mentioned = any(
-        re.search(
-            rf"\b{re.escape(agent.name.lower())}\b", (msg.content or "").lower()
-        )
+        re.search(rf"\b{re.escape(agent.name.lower())}\b", (msg.content or "").lower())
         for msg in user_messages
     )
 
@@ -214,7 +205,7 @@ async def async_prompt_thread(
         model_docs = list(model_docs or [])
         for doc in model_docs:
             doc["use_when"] = (
-                f'\n<use_when>{models[ObjectId(doc["_id"])].get("use_when", "This is the default Lora model")}</use_when>'
+                f"\n<use_when>{models[ObjectId(doc['_id'])].get('use_when', 'This is the default Lora model')}</use_when>"
             )
         models_list = "\n".join(model_template.render(doc) for doc in model_docs)
         models_instructions = models_instructions_template.render(models=models_list)
@@ -263,8 +254,7 @@ async def async_prompt_thread(
                             continue
                         content_chunks.append(content)
                         yield ThreadUpdate(
-                            type=UpdateType.ASSISTANT_TOKEN, 
-                            text=content
+                            type=UpdateType.ASSISTANT_TOKEN, text=content
                         )
 
                     # Tool call
@@ -314,8 +304,7 @@ async def async_prompt_thread(
             # Yield update
             if not agent.mute:
                 yield ThreadUpdate(
-                    type=UpdateType.ASSISTANT_MESSAGE, 
-                    message=assistant_message
+                    type=UpdateType.ASSISTANT_MESSAGE, message=assistant_message
                 )
 
         except Exception as e:
@@ -336,9 +325,7 @@ async def async_prompt_thread(
 
             # Yield error message
             yield ThreadUpdate(
-                type=UpdateType.ERROR, 
-                message=assistant_message, 
-                error=str(e)
+                type=UpdateType.ERROR, message=assistant_message, error=str(e)
             )
 
             # Stop thread

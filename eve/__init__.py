@@ -49,7 +49,7 @@ def configure_logging():
     root_logger.addHandler(handler_stderr)
 
     # Set eve app logger to the desired log level
-    eve_logger = logging.getLogger('eve')
+    eve_logger = logging.getLogger("eve")
     eve_logger.setLevel(log_level)
 
 
@@ -69,9 +69,9 @@ def setup_eve():
         # print(f"Setting up sentry for {sentry_env}")
 
         # Set sampling rates
-        traces_sample_rate = 1.0 if os.getenv("SENTRY_ENV") else 0.01
+        base_sample_rate = 1.0 if os.getenv("SENTRY_ENV") else 0.01
         profiles_sample_rate = 1.0 if os.getenv("SENTRY_ENV") else 0.01
-        # print(f"Traces sample rate: {traces_sample_rate}")
+        # print(f"Traces sample rate: {base_sample_rate}")
         # print(f"Profiles sample rate: {profiles_sample_rate}")
 
         def before_send(event, hint):
@@ -102,18 +102,36 @@ def setup_eve():
 
             return event  # Send everything else to Sentry
 
+        # Only import integrations needed for ERROR tracking, not performance tracing
+        from sentry_sdk.integrations.logging import LoggingIntegration
+        from sentry_sdk.integrations.stdlib import StdlibIntegration
+        from sentry_sdk.integrations.excepthook import ExcepthookIntegration
+        from sentry_sdk.integrations.dedupe import DedupeIntegration
+        from sentry_sdk.integrations.atexit import AtexitIntegration
+        from sentry_sdk.integrations.modules import ModulesIntegration
+        from sentry_sdk.integrations.argv import ArgvIntegration
+        from sentry_sdk.integrations.threading import ThreadingIntegration
+
         sentry_sdk.init(
             dsn=sentry_dsn,
-            traces_sample_rate=traces_sample_rate,
+            traces_sample_rate=base_sample_rate,  # Simple sampling, we control transactions manually
             profiles_sample_rate=profiles_sample_rate,
             environment=sentry_env,
             debug=True if os.getenv("SENTRY_ENV") == "jmill-dev" else False,
             before_send=before_send,
-            _experiments={
-                "continuous_profiling_auto_start": True
-                if os.getenv("SENTRY_ENV")
-                else False,
-            },
+            # Disable ALL auto-instrumentation - we manually instrument what we need
+            default_integrations=False,
+            # Only enable basic error tracking integrations (NO performance/tracing integrations)
+            integrations=[
+                LoggingIntegration(level=None, event_level=None),
+                StdlibIntegration(),
+                ExcepthookIntegration(),
+                DedupeIntegration(),
+                AtexitIntegration(),
+                ModulesIntegration(),
+                ArgvIntegration(),
+                ThreadingIntegration(),
+            ],
         )
 
     if os.getenv("SETUP_SENTRY") == "no":
