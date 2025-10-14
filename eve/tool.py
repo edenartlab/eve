@@ -10,6 +10,7 @@ from typing import Optional, List, Dict, Any, Type, Callable
 from datetime import datetime, timezone
 from instructor.function_calls import openai_schema
 import sentry_sdk
+from loguru import logger
 
 # Import Tool constants from the new module
 from .tool_constants import (
@@ -436,8 +437,7 @@ class Tool(Document, ABC):
     def prepare_args(self, args: dict):
         unrecognized_args = set(args.keys()) - set(self.model.model_fields.keys())
         if unrecognized_args:
-            # raise ValueError(
-            print(
+            logger.warning(
                 f"Warning: Unrecognized arguments provided for {self.key}: {', '.join(unrecognized_args)}"
             )
 
@@ -458,7 +458,7 @@ class Tool(Document, ABC):
             self.model(**prepared_args)
 
         except ValidationError as e:
-            print(traceback.format_exc())
+            logger.error(traceback.format_exc())
             error_str = utils.get_human_readable_error(e.errors())
             raise ValueError(error_str)
 
@@ -492,7 +492,7 @@ class Tool(Document, ABC):
                 sentry_sdk.add_breadcrumb(category="handle_run", data=result)
 
             except Exception as e:
-                print(traceback.format_exc())
+                logger.error(traceback.format_exc())
                 result = {"status": "failed", "error": str(e)}
                 sentry_sdk.capture_exception(e)
 
@@ -527,12 +527,10 @@ class Tool(Document, ABC):
                     ):
                         paying_user = User.from_mongo(agent.owner)
 
-                print("THE PAYING USER....")
-                print(paying_user)
                 paying_user.check_manna(cost)
 
             except Exception as e:
-                print(traceback.format_exc())
+                logger.error(traceback.format_exc())
                 raise Exception(f"Task submission failed: {str(e)}. No manna deducted.")
 
             # Check rate limit before creating the task
@@ -588,7 +586,7 @@ class Tool(Document, ABC):
                     task.spend_manna()
 
             except Exception as e:
-                print(traceback.format_exc())
+                logger.error(traceback.format_exc())
                 task.update(status="failed", error=str(e))
                 sentry_sdk.capture_exception(e)
                 raise Exception(f"Task failed: {e}. No manna deducted.")
@@ -609,7 +607,7 @@ class Tool(Document, ABC):
                 else:
                     result = await wait_function(self, task)
             except Exception as e:
-                print(traceback.format_exc())
+                logger.error(traceback.format_exc())
                 result = {"status": "failed", "error": str(e)}
             return result
 
@@ -722,7 +720,7 @@ def get_tools_from_mongo(
                     raise ValueError(f"Duplicate tool {tool.key} found.")
                 found_tools[tool.key] = tool
         except Exception as e:
-            print(traceback.format_exc())
+            logger.error(traceback.format_exc())
             # Graceful failure with Sentry tracking
             with sentry_sdk.push_scope() as scope:
                 scope.set_tag("component", "tool_loading")

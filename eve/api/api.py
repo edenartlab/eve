@@ -140,7 +140,6 @@ _shutdown_event = asyncio.Event()
 
 def handle_shutdown_signal(signum, frame):
     """Handle SIGINT/SIGTERM to close SSE connections immediately"""
-    print(f"\n🛑 Received signal {signum}, closing all SSE connections...")
     from eve.api.sse_manager import sse_manager
 
     # Run async close in the event loop
@@ -149,7 +148,6 @@ def handle_shutdown_signal(signum, frame):
         loop.create_task(sse_manager.close_all())
     _shutdown_event.set()
     # Force exit after a short delay
-    import sys
     import os
 
     os._exit(0)
@@ -211,7 +209,6 @@ async def replicate_webhook(request: Request):
         replicate.webhooks.validate(body=body, headers=headers, secret=secret)
 
     except Exception as e:
-        print(f"Webhook validation failed: {str(e)}")
         return {"status": "error", "message": f"Invalid webhook signature: {str(e)}"}
 
     return await handle_replicate_webhook(data)
@@ -223,7 +220,6 @@ async def chat(
     background_tasks: BackgroundTasks,
     _: dict = Depends(auth.authenticate_admin),
 ):
-    print("CHAT", request)
     return await handle_chat(request, background_tasks)
 
 
@@ -432,6 +428,7 @@ async def embedsearch(
 ):
     return await handle_embedsearch(request)
 
+
 # Agent creation - extract prompts from conversation session
 @web_app.post("/agent_creation/extract_prompts")
 async def extract_agent_prompts(
@@ -452,8 +449,7 @@ async def embed(request: Request, _: dict = Depends(auth.authenticate_admin)):
     query = body.get("query")
     if not query:
         return JSONResponse(
-            status_code=400,
-            content={"error": "query parameter is required"}
+            status_code=400, content={"error": "query parameter is required"}
         )
 
     MODEL_NAME = "openai/clip-vit-large-patch14"
@@ -476,15 +472,15 @@ async def embed(request: Request, _: dict = Depends(auth.authenticate_admin)):
         logger.error(f"Error generating embedding: {e}")
         return JSONResponse(
             status_code=500,
-            content={"error": f"Failed to generate embedding: {str(e)}"}
+            content={"error": f"Failed to generate embedding: {str(e)}"},
         )
 
 
 @web_app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    print(f"Validation error on {request.url}:")
-    print(f"Request body: {await request.body()}")
-    print(f"Validation errors: {exc.errors()}")
+    logger.error(f"Validation error on {request.url}:")
+    logger.error(f"Request body: {await request.body()}")
+    logger.error(f"Validation errors: {exc.errors()}")
 
     return JSONResponse(
         status_code=422,
@@ -549,21 +545,6 @@ def fastapi_app():
 cancel_stuck_tasks_modal = app.function(
     image=image, max_containers=1, schedule=modal.Period(minutes=15), timeout=3600
 )(cancel_stuck_tasks_fn)
-
-
-# @app.function(
-#     image=image,
-#     max_containers=1,
-#     schedule=modal.Period(minutes=15),
-#     timeout=3600
-# )
-# async def run_nsfw_detection_fn():
-#     try:
-#         await run_nsfw_detection()
-#     except Exception as e:
-#         print(f"Error running nsfw detection: {e}")
-#         sentry_sdk.capture_exception(e)
-
 
 generate_lora_thumbnails_modal = app.function(
     image=image, max_containers=1, schedule=modal.Period(minutes=15), timeout=3600
@@ -680,10 +661,7 @@ async def run_scheduled_triggers_fn():
 
 @app.function(image=image, max_containers=10, timeout=3600)
 async def remote_prompt_session_with_message(
-    session_id: str,
-    agent_id: str,
-    user_id: str,
-    message_content: str
+    session_id: str, agent_id: str, user_id: str, message_content: str
 ):
     """
     Add a user message to a session and prompt the agent to respond.
@@ -707,10 +685,12 @@ async def remote_prompt_session_with_message(
     from eve.agent.session.session import (
         add_chat_message,
         build_llm_context,
-        async_prompt_session
+        async_prompt_session,
     )
 
-    logger.info(f"Remote prompt: session={session_id}, agent={agent_id}, user={user_id}")
+    logger.info(
+        f"Remote prompt: session={session_id}, agent={agent_id}, user={user_id}"
+    )
 
     # Load models
     session = Session.from_mongo(session_id)
@@ -761,21 +741,6 @@ async def local_entrypoint():
         session_id="68ec5c2de3c978d796a53962",
         agent_id="675f880479e00297cd9b4688",
         user_id="65284b18f8bbb9bff13ebe65",
-        message_content="Repeat what you just said"
+        message_content="Repeat what you just said",
     )
     logger.info(f"Test result: {result}")
-
-
-# @app.local_entrypoint()
-# async def local_entrypoint():
-#     # run_scheduled_triggers_fn.remote()
-#     embed_recent_creations_modal.remote()
-
-
-# @app.local_entrypoint()
-# async def local_entrypoint():
-#     # run_scheduled_triggers_fn_new.remote()
-#     from eve.s3 import get_full_url
-#     results = await handle_embedsearch(EmbedSearchRequest(query="cats"))
-#     for hit in results["results"]:
-#         print(hit["score"], get_full_url(hit["filename"]))

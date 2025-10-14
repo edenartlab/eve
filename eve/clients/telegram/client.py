@@ -15,6 +15,7 @@ from telegram.ext import (
     Application,
 )
 import asyncio
+from loguru import logger
 
 from ...clients import common
 from ...agent import Agent
@@ -201,18 +202,14 @@ class EdenTG:
         """Initialize Ably client and subscribe to updates"""
 
         async def async_callback(message):
-            print(f"Received update in Telegram client: {message.data}")
-
             data = message.data
             if not isinstance(data, dict):
-                print("Invalid message format:", data)
                 return
 
             update_type = data["type"]
 
             # Handle deployment reload messages
             if update_type == "RELOAD_DEPLOYMENT":
-                print("Reloading deployment configuration")
                 self.load_deployment_config()
                 return
 
@@ -222,10 +219,7 @@ class EdenTG:
             telegram_thread_id = update_config.get("telegram_thread_id")
 
             if not telegram_chat_id:
-                print("No telegram_chat_id in update_config:", data)
                 return
-
-            print(f"Processing update type: {update_type} for chat: {telegram_chat_id}")
 
             if update_type == UpdateType.START_PROMPT:
                 # Start continuous typing
@@ -256,7 +250,6 @@ class EdenTG:
                     )
 
             elif update_type == UpdateType.TOOL_COMPLETE:
-                print(f"Tool complete: {data}")
                 result = data.get("result", {})
                 result["result"] = prepare_result(result["result"])
                 outputs = result["result"][0]["output"]
@@ -289,7 +282,6 @@ class EdenTG:
 
         # Subscribe using the async callback
         await self.channel.subscribe(async_callback)
-        print(f"Subscribed to Ably channel: {self.channel_name}")
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
@@ -393,14 +385,14 @@ class EdenTG:
             cleaned_text = replace_bot_mentions(
                 message_text, me_bot.username, self.agent.name
             )
-            
+
         # Make API request
         request_data = {
             "user_id": str(user.id),
             "agent_id": str(self.agent.id),
             "thread_id": str(thread.id),
             "force_reply": force_reply,
-            "user_is_bot": message.from_user.is_bot, 
+            "user_is_bot": message.from_user.is_bot,
             "user_message": {
                 "content": cleaned_text,
                 "name": username,
@@ -417,7 +409,6 @@ class EdenTG:
         }
 
         async with aiohttp.ClientSession() as session:
-            print(f"Sending request to {self.api_url}/chat")
             async with session.post(
                 f"{self.api_url}/chat",
                 json=request_data,
@@ -427,9 +418,7 @@ class EdenTG:
                     "X-Client-Agent": self.agent.username,
                 },
             ) as response:
-                print(f"Response from {self.api_url}/chat: {response.status}")
                 # json
-                print(await response.json())
                 if response.status != 200:
                     await send_response(
                         message_type,
@@ -446,11 +435,11 @@ class EdenTG:
                 chat_id=chat_id, action="typing", message_thread_id=message_thread_id
             )
         except Exception as e:
-            print(f"Error sending typing indicator: {e}")
+            logger.error(f"Error sending typing indicator: {e}")
 
 
 def start(env: str, local: bool = False) -> None:
-    print("Starting Telegram client...")
+    logger.info("Starting Telegram client...")
     load_dotenv(env)
 
     agent_id = os.getenv("AGENT_ID")

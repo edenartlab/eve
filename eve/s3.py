@@ -115,8 +115,6 @@ def upload_buffer(buffer, name=None, file_type=None):
     if isinstance(buffer, Iterator):
         buffer = b"".join(buffer)
 
-    # print(f"Uploading file to S3: {name}{file_type}")
-
     # Get file extension from mimetype
     mime_type = magic.from_buffer(buffer, mime=True)
     originial_file_type = (

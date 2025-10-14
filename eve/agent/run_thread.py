@@ -9,6 +9,7 @@ from typing import Optional, Dict, Any, List, Union, Literal
 from pydantic import BaseModel
 from pydantic.config import ConfigDict
 from sentry_sdk import add_breadcrumb, capture_exception
+from loguru import logger
 
 from ..utils import load_template
 from ..mongo import get_collection
@@ -156,7 +157,7 @@ async def async_prompt_thread(
 
     # Apply bot-specific limits
     if user_is_bot:
-        print("Bot message, stopping")
+        logger.info("Bot message, stopping")
         return
 
     # Check mentions

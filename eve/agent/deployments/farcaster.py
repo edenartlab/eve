@@ -46,8 +46,7 @@ class FarcasterClient(PlatformClient):
             client = Warpcast(mnemonic=secrets.farcaster.mnemonic)
 
             # Test the credentials by getting user info
-            user_info = client.get_me()
-            print(f"Verified Farcaster credentials for user: {user_info}")
+            client.get_me()
         except Exception as e:
             raise APIError(f"Invalid Farcaster credentials: {str(e)}", status_code=400)
 
@@ -77,9 +76,6 @@ class FarcasterClient(PlatformClient):
             and self.deployment.config.farcaster
             and self.deployment.config.farcaster.auto_reply
         ):
-            print(
-                f"Skipping webhook registration for deployment {self.deployment.id} - auto_reply disabled"
-            )
             return
 
         # Get webhook configuration from environment
@@ -94,9 +90,6 @@ class FarcasterClient(PlatformClient):
         user_info = client.get_me()
 
         await self._update_webhook_fids(webhook_id, add_fid=user_info.fid)
-        print(
-            f"Added FID {user_info.fid} to webhook {webhook_id} for deployment {self.deployment.id}"
-        )
 
     async def stop(self) -> None:
         """Stop Farcaster client by removing FID from webhook"""
@@ -188,9 +181,6 @@ class FarcasterClient(PlatformClient):
 
                     # Skip if this cast is from the agent itself (prevent loops)
                     if user_info.fid == cast_author_fid:
-                        print(
-                            f"Ignoring cast from agent FID {cast_author_fid} to prevent loops"
-                        )
                         return JSONResponse(status_code=200, content={"ok": True})
 
                     # Check if agent was mentioned or parent author
@@ -241,9 +231,9 @@ class FarcasterClient(PlatformClient):
             # Check if the session is deleted or archived - if so, reactivate it
             needs_reactivation = False
 
-            if hasattr(session, 'deleted') and session.deleted:
+            if hasattr(session, "deleted") and session.deleted:
                 needs_reactivation = True
-            elif hasattr(session, 'status') and session.status == "archived":
+            elif hasattr(session, "status") and session.status == "archived":
                 needs_reactivation = True
 
             if needs_reactivation:
@@ -330,14 +320,18 @@ class FarcasterClient(PlatformClient):
                     )
 
                 webhook_data = await response.json()
-                
+
                 current_subscription = webhook_data.get("webhook", {}).get(
                     "subscription", {}
                 )
-                
+
                 # Handle both possible structures - filters.cast.created or cast.created
                 filters = current_subscription.get("filters", {})
-                cast_created = filters.get("cast.created", {}) if filters else current_subscription.get("cast.created", {})
+                cast_created = (
+                    filters.get("cast.created", {})
+                    if filters
+                    else current_subscription.get("cast.created", {})
+                )
 
                 # Get current FID lists
                 mentioned_fids = set(cast_created.get("mentioned_fids", []))

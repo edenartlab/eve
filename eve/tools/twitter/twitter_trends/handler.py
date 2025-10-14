@@ -34,6 +34,7 @@ import pprint
 from eve.agent.agent import Agent
 from eve.tools.twitter import X
 from eve.agent.session.models import Deployment
+from loguru import logger
 
 
 # ---------------------------------------------------------------------------
@@ -195,7 +196,7 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     save_baseline(baseline)
 
     if not spikes:
-        print("No tech spikes detected this run.")
+        logger.info("No tech spikes detected this run.")
         return {"output": {"spikes": [], "tweets": []}}
 
     # ----- B.  fetch influential tweets for each spike ---------------------
@@ -248,12 +249,9 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
             {"spikes": spikes, "tweets": tweets_out}, indent=2, ensure_ascii=False
         )
     )
-    print(f"📄  Spike report saved to: {out.resolve()}")
+    logger.info(f"📄  Spike report saved to: {out.resolve()}")
 
     # ----- D.  Pretty summary ----------------------------------------------
-    print("\n=== spikes this run ===")
-    print(", ".join(spikes))
-    print("\n=== top tweets ===")
     pprint.pprint(tweets_out[:5], width=120, compact=True)
 
     return {"output": {"spikes": spikes, "tweets": tweets_out}}

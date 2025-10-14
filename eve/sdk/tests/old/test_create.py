@@ -1,4 +1,5 @@
 from eden.client import EdenClient
+from loguru import logger
 
 client = EdenClient(stage=True)
 
@@ -26,4 +27,4 @@ result = client.create("flux_dev", {
 })
 
 
-print(result)
+logger.info(result)

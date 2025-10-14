@@ -4,6 +4,8 @@ import random
 import requests
 from datetime import datetime
 
+from loguru import logger
+
 
 def save_test_results(tools, results):
     if not results:
@@ -48,7 +50,7 @@ def save_test_results(tools, results):
                     response = requests.get(v.get("url"))
                     with open(file_path, "wb") as f:
                         f.write(response.content)
-    print(f"Test results saved to {results_dir}")
+    logger.info(f"Test results saved to {results_dir}")
 
 
 def random_string(length=28):

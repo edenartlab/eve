@@ -26,14 +26,16 @@ MODELS = [
     "o1-mini",
     "o1",
     "o3",
-    "google/gemini-2.0-flash-001"
+    "google/gemini-2.0-flash-001",
 ]
 
 DEFAULT_MODEL = os.getenv("DEFAULT_AGENT_MODEL", "claude-sonnet-4-5-20250929")
 
+
 def get_anthropic_api_key():
     """Get the Anthropic API key from ANTHROPIC_API_KEY environment variable"""
     return os.getenv("ANTHROPIC_API_KEY")
+
 
 class UpdateType(str, Enum):
     START_PROMPT = "start_prompt"
@@ -85,24 +87,14 @@ async def async_anthropic_prompt(
         #         "max_uses": 2
         # }
         # tool_schemas.append(websearch_tool)
-        
+
         # cache all tools by checkpointing only the last tool
         tool_schemas[-1]["cache_control"] = {"type": "ephemeral"}
 
         prompt["tools"] = tool_schemas
-        tool_names = [tool["name"] for tool in tool_schemas]
-
-    import time
-
-    start_time = time.time()
 
     # call Anthropic
     response = await anthropic_client.messages.create(**prompt)
-
-    print("-----------RESPONSE USAGE---------------------")
-    print(f"Time taken: {time.time() - start_time} seconds")
-    print(response.usage)
-    print("--------------------------------")
 
     if response_model:
         return response_model(**response.content[0].input)
@@ -140,7 +132,7 @@ async def async_anthropic_prompt_stream(
         if response_model:
             tool_schemas.append(openai_schema(response_model).anthropic_schema)
             prompt["tool_choice"] = {"type": "tool", "name": response_model.__name__}
-            
+
         # Add websearch tool:
         # websearch_tool = {
         #         "type": "web_search_20250305",
@@ -148,11 +140,11 @@ async def async_anthropic_prompt_stream(
         #         "max_uses": 2
         # }
         # tool_schemas.append(websearch_tool)
-        
+
         # cache all tools - apply cache_control to each tool for full context caching
         for tool_schema in tool_schemas:
             tool_schema["cache_control"] = {"type": "ephemeral"}
-            
+
         prompt["tools"] = tool_schemas
 
     tool_calls = []
@@ -333,18 +325,15 @@ async def async_prompt(
     Non-streaming LLM call => returns (content, tool_calls, stop).
     """
     if ("claude" in model) or ("anthropic" in model):
-        print("Anthropic -> async_anthropic_prompt")
         return await async_anthropic_prompt(
             messages, system_message, model, response_model, tools
         )
     elif "gemini" in model:
-        print("gemini -> async_openrouter_prompt")
         return await async_openrouter_prompt(
             messages, system_message, model, response_model, tools
         )
     else:
         # Use existing OpenAI path
-        print("OpenAI -> async_openai_prompt")
         return await async_openai_prompt(
             messages, system_message, model, response_model, tools
         )
@@ -441,8 +430,6 @@ async def async_openrouter_prompt(
     response_model: Optional[type[BaseModel]] = None,
     tools: Dict[str, Tool] = {},
 ):
-    print("Use openrouter", model)
-
     if not os.getenv("OPENROUTER_API_KEY"):
         raise ValueError("OPENROUTER_API_KEY env is not set")
 

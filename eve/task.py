@@ -7,9 +7,9 @@ from datetime import datetime, timezone
 
 from .user import Manna, Transaction
 from .mongo import Document, Collection
-from .models import Model
 from . import utils
 import sentry_sdk
+from loguru import logger
 
 
 # A list of tools that output media but do not result in new Creations
@@ -215,8 +215,6 @@ async def _task_handler(func, *args, **kwargs):
                 task_args["seed"] = task_args["seed"] + i
 
             # Run both functions concurrently
-            print("THE TASK?")
-            print(task.id)
             result = await func(
                 *args[:-1],
                 task.parent_tool or task.tool,
@@ -303,7 +301,7 @@ async def _task_handler(func, *args, **kwargs):
                 },
             )
         sentry_sdk.capture_exception(error)
-        print(traceback.format_exc())
+        logger.error(traceback.format_exc())
 
         task_update = {
             "status": "failed",

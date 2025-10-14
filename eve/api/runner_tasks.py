@@ -13,6 +13,7 @@ from io import BytesIO
 import aiohttp
 import os
 import sentry_sdk
+from loguru import logger
 
 from eve import utils
 from eve.agent import Agent, refresh_agent
@@ -50,10 +51,10 @@ async def cancel_stuck_tasks():
     # Convert cursor to list since we can't async iterate directly
     expired_tasks_list = list(expired_tasks)
 
-    print("Cancelling expired tasks", expired_tasks_list)
+    logger.debug("Cancelling expired tasks", expired_tasks_list)
 
     for task in expired_tasks_list:
-        print(f"Cancelling expired task {task['_id']}")
+        logger.debug(f"Cancelling expired task {task['_id']}")
 
         task = Task.from_schema(task)
 
@@ -62,7 +63,7 @@ async def cancel_stuck_tasks():
             await tool.async_cancel(task, force=True)
 
         except Exception as e:
-            print(f"Error canceling task {str(task.id)} {task.tool}", e)
+            logger.error(f"Error canceling task {str(task.id)} {task.tool}", e)
             task.update(status="failed", error="Tool not found")
             sentry_sdk.capture_exception(e)
             traceback.print_exc()
@@ -109,13 +110,13 @@ async def run_nsfw_detection():
         outputs = model(**inputs)
         logits = outputs.logits
 
-    print(logits)
+    logger.debug(logits)
     predicted_labels = logits.argmax(-1).tolist()
-    print(predicted_labels)
+    logger.debug(predicted_labels)
     output = [
         model.config.id2label[predicted_label] for predicted_label in predicted_labels
     ]
-    print(output)
+    logger.debug(output)
 
     # Sort image paths based on safe logit values
     first_logits = logits[:, 0].tolist()
@@ -124,9 +125,9 @@ async def run_nsfw_detection():
     )
     sorted_image_paths = [pair[0] for pair in sorted_pairs]
 
-    print("\nImage paths sorted by first logit value (highest to lowest):")
+    logger.debug("\nImage paths sorted by first logit value (highest to lowest):")
     for i, path in enumerate(sorted_image_paths):
-        print(f"{i+1}. {path} (logit: {sorted_pairs[i][1]:.4f})")
+        logger.debug(f"{i + 1}. {path} (logit: {sorted_pairs[i][1]:.4f})")
 
 
 async def generate_lora_thumbnails():
@@ -148,7 +149,7 @@ async def generate_lora_thumbnails():
     # models_with_no_thumbnails = list(models_with_no_thumbnails)
 
     for model in models_with_no_thumbnails:
-        print(f"Making thumbnails for model {model['_id']}")
+        logger.debug(f"Making thumbnails for model {model['_id']}")
 
         try:
             # Flux-dev - generate thumbnail and upload
@@ -159,7 +160,7 @@ async def generate_lora_thumbnails():
                 thumbnails = []
 
                 for prompt in prompts:
-                    print(f"Generating thumbnail: {prompt}")
+                    logger.debug(f"Generating thumbnail: {prompt}")
 
                     async def generate_thumbnail():
                         result = await tool.async_run(
@@ -185,11 +186,11 @@ async def generate_lora_thumbnails():
                     )
                     thumbnails.append(thumbnail)
 
-                assert (
-                    len(thumbnails) == 4
-                ), f"Expected 4 thumbnails, got {len(thumbnails)}"
+                assert len(thumbnails) == 4, (
+                    f"Expected 4 thumbnails, got {len(thumbnails)}"
+                )
 
-                print("Thumbnails", thumbnails)
+                logger.debug("Thumbnails", thumbnails)
 
                 # Create blank canvas for 2x2 grid
                 dim = thumbnails[0].size[0]  # All images are same size
@@ -217,7 +218,7 @@ async def generate_lora_thumbnails():
                 )
                 thumbnail = output.get("filename")
 
-            print("final", thumbnail)
+            logger.debug("final", thumbnail)
 
             if thumbnail:
                 task_id = ObjectId(model["task"])
@@ -233,10 +234,10 @@ async def generate_lora_thumbnails():
                     },
                     {"$set": {"result.0.output.0.thumbnail": thumbnail}},
                 )
-                print(f"updated task {task_id}")
+                logger.debug(f"updated task {task_id}")
 
         except Exception as e:
-            print("Error generating thumbnails", e)
+            logger.error("Error generating thumbnails", e)
             sentry_sdk.capture_exception(e)
             traceback.print_exc()
 
@@ -288,7 +289,7 @@ async def generate_prompts(lora_mode: str = None):
         prompts = result.prompts
 
     except Exception:
-        print("failed to sample new prompts, falling back to old prompts")
+        logger.error("failed to sample new prompts, falling back to old prompts")
         prompts = random.sample(sampled_prompts, 4)
 
     return prompts
@@ -369,46 +370,6 @@ STYLE_PROMPTS = [
 ALL_PROMPTS = FACE_PROMPTS + OBJECT_PROMPTS + STYLE_PROMPTS
 
 
-# async def run_twitter_replybots(start_time=None):
-#     # Get all Twitter deployments
-#     deployments = Deployment.find({"platform": "twitter"})
-
-#     for deployment in deployments:
-#         try:
-#             # Get the agent for this deployment
-#             agent = Agent.from_mongo(deployment.agent)
-
-#             # Initialize Twitter client
-#             twitter = X(agent)
-
-#             # Fetch mentions
-#             mentions = twitter.fetch_mentions(start_time=start_time)
-#             if not mentions.get("data"):
-#                 continue
-
-#             # Get newest tweet from each unique user
-#             user_tweets = {}
-#             for tweet in mentions.get("data", []):
-#                 author_id = tweet["author_id"]
-#                 if author_id not in user_tweets:
-#                     user_tweets[author_id] = tweet
-
-#             # Reply to each user's newest tweet
-#             for tweet in user_tweets.values():
-#                 try:
-#                     twitter.post(
-#                         tweet_text=f"👋 Hello! This is a placeholder reply from {agent.name}.",
-#                         reply_to_tweet_id=tweet["id"],
-#                     )
-#                 except Exception as e:
-#                     print(f"Error replying to tweet {tweet['id']}: {e}")
-#                     sentry_sdk.capture_exception(e)
-
-#         except Exception as e:
-#             print(f"Error processing deployment {deployment.id}: {e}")
-#             sentry_sdk.capture_exception(e)
-
-
 async def run_twitter_automation():
     """
     Periodically generate tweets for Twitter deployments via chat endpoint
@@ -451,7 +412,7 @@ async def run_twitter_automation():
                         raise Exception(f"Chat request failed: {error_text}")
 
             except Exception as e:
-                print(f"Error processing deployment {deployment.id}: {e}")
+                logger.error(f"Error processing deployment {deployment.id}: {e}")
                 sentry_sdk.capture_exception(e)
 
 
@@ -476,7 +437,6 @@ async def rotate_agent_metadata(since_hours=6):
 
     for agent in agents.find(filter):
         agent = Agent(**agent)
-        print("rotate", agent.username)
         updated_at = (agent.updatedAt or agent.createdAt).replace(tzinfo=timezone.utc)
         refreshed_at = agent.refreshed_at
         if refreshed_at:
@@ -488,5 +448,5 @@ async def rotate_agent_metadata(since_hours=6):
         try:
             await refresh_agent(agent)
         except Exception as e:
-            print(f"Error refreshing agent {agent.username}: {e}")
+            logger.error(f"Error refreshing agent {agent.username}: {e}")
             sentry_sdk.capture_exception(e)
