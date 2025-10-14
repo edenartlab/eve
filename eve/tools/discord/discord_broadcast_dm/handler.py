@@ -487,7 +487,7 @@ async def create_dm_session_task(
         "user_id": str(eden_user.id),
         "actor_agent_ids": [agent],
         "message": {
-            "role": "system",
+            "role": "user",
             "content": f"""## DM Task
 
 You are going to send a direct message to Discord user @{discord_user.discord_username}.

@@ -1,31 +1,8 @@
 from jinja2 import Template
-from eve.mongo import Collection, Document
-from bson import ObjectId
-from typing import Literal, Optional
-from pydantic import BaseModel
 
 from eve.tool import Tool
 from eve.agent.deployments import Deployment
 from eve.agent import Agent
-
-
-class AbrahamCreation(BaseModel):
-    index: int
-    title: str
-    tagline: str
-    poster_image: str
-    blog_post: str
-    tx_hash: str
-    ipfs_hash: str
-    explorer_url: str    
-
-@Collection("abraham_seeds")
-class AbrahamSeed(Document):
-    session_id: ObjectId
-    title: str
-    proposal: str
-    status: Literal["seed", "creation"]
-    creation: Optional[AbrahamCreation] = None
 
 
 init_message = """
@@ -69,7 +46,12 @@ Proposal:
 </Title_and_Proposal>
 
 <Task>
-Start by making the initial creation and starting a new Cast on Farcaster with the resulting work using the farcaster_cast tool.
+Start by making the initial creation and starting a new Cast on Farcaster with the resulting work using the farcaster_cast tool. After casting, you must call the abraham_seed tool to save the seed with the following information:
+* title: {{title}}
+* proposal: {{proposal}}
+* tagline: A short, catchy tagline for this seed
+* cast_hash: The hash returned from the farcaster_cast tool
+* image: Select one representative/main image URL from the images you created, if there are any.
 
 For subsequent turns, receive comments and feedback and make the appropriate changes or additions. **Very Important**: After every single one of your turns, remember to finish it by casting a new message to Farcaster with a concise cast, in response to the previous user message, summarizing what you did and including the representative media you produced.
 </Task>
@@ -105,19 +87,11 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         "attachments": [],
         "pin": True,
         "prompt": True,
-        "extra_tools": ["farcaster_cast"],
+        "extra_tools": ["farcaster_cast", "abraham_seed"],
     })
 
     print("abraham_publish result")
     print(result)
     session_id = result["output"][0]["session"]
-
-    seed = AbrahamSeed(
-        session_id=ObjectId(session_id),
-        title=title,
-        proposal=proposal,
-        status="seed"
-    )
-    seed.save()
 
     return {"output": [{"session": session_id}]}
