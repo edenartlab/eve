@@ -17,3 +17,7 @@ parameters:
     description: Creation proposal
     tip: This describes the creative research project or artwork in detail; what to research, what to make, and how to structure the creation.
     required: true
+  reference_images:
+    type: string
+    description: A description of the reference images to include, and how to tailor them towards the creation.
+    required: true
