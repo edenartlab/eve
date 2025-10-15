@@ -43,12 +43,13 @@ parameters:
         • Be explicit about what stays unchanged (e.g., “keep pose and background”).
         • Be surgical: specify exactly what to change and what must remain unchanged.
         • Avoid pronouns; reference the object directly (“the woman’s jacket”, not “her jacket”).
-      
+
       Reference usage:
-        • Combine by role: “Use the composition from Image 1, the character from Image 2, and the ink style from Image 3.”
+        • Do not re-describe the visual content of references; the model sees the pixels. State each reference’s **role and constraints** only (e.g., “Image 1 = style guide (palette + linework); do not copy text/icons”).
+        • Combine by role: “Use the composition from Image 1, the character/identity from Image 2, and the ink style from Image 3.”
         • For identity/style transfer, specify what to extract (“maintain character identity from Image 2”) and where to apply it.
         • If multiple references are provided, name each and state its function to avoid ambiguity.
-      
+
       Video-specific:
         • If init/end images or a reference video are provided, describe only motion/camera/dynamics, timing, and transitions.
         • Include camera moves (“slow dolly-in”, “handheld sway”), pacing (“2‑second hold”, “quick cut”), and action beats.
@@ -78,7 +79,7 @@ parameters:
     tip: |-
       Use for editing, identity/style transfer, composition borrowing, or other image-to-image tasks.
       - Label references in the prompt as Image 1, Image 2, … (Image 1 = reference_images[0]).
-      - When multiple references are used, state each image’s role (e.g., Image 1: base subject; Image 2: outfit; Image 3: art style).
+      - When multiple references are used, state each image’s role (e.g., Image 1: base subject; Image 2: outfit; Image 3: art style). **Avoid prose descriptions of the images; list roles/constraints (what to copy and what to ignore).**
       - For video interpolation: reference_images[0] = init frame, reference_images[1] = end frame.
       - If aspect_ratio is set to auto, it will follow the last reference image’s aspect ratio; set aspect_ratio explicitly to control it.
   n_samples:
