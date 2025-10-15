@@ -360,6 +360,7 @@ async def execute_trigger(
             # thinking_override=trigger.think,
             thinking_override=False,
             extra_tools=extra_tools,
+            trigger=trigger.id,
         )
 
         # Add user message to session

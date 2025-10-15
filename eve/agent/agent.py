@@ -234,6 +234,7 @@ class Agent(User):
             tools_to_load.append("abraham_publish")
             tools_to_load.append("abraham_daily")
             tools_to_load.append("abraham_covenant")
+            tools_to_load.append("abraham_seed")
 
         if tools_to_load:
             self.tools_ = get_tools_from_mongo(tools_to_load)

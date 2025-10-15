@@ -23,6 +23,7 @@ logging.getLogger("LiteLLM").setLevel(logging.WARNING)
 
 supported_models = [
     "claude-sonnet-4-5-20250929",
+    "claude-3-5-haiku-latest",
     "claude-3-7-sonnet-20250219",
     "claude-opus-4-1-20250805",
     "gpt-4o-mini",

@@ -208,12 +208,11 @@ class ChatMessage(Document):
     tool_calls: Optional[List[ToolCall]] = []
     cost: Optional[float] = None  # todo: add cost
 
+    trigger: Optional[ObjectId] = None  # monitor if message the result of a trigger
     observability: Optional[ChatMessageObservability] = None
     finish_reason: Optional[str] = None
     thought: Optional[List[Dict[str, Any]]] = None
-    llm_config: Optional[Dict[str, Any]] = (
-        None  # Final LLM config used for assistant messages
-    )
+    llm_config: Optional[Dict[str, Any]] = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -925,10 +924,10 @@ class PromptSessionContext:
     tool_choice: Optional[str] = None
 
     notification_config: Optional[NotificationConfig] = None
-    thinking_override: Optional[bool] = (
-        None  # Override agent's thinking policy per-message
-    )
+    # Override agent's thinking policy per-message
+    thinking_override: Optional[bool] = None
     acting_user_id: Optional[str] = None
+    trigger: Optional[ObjectId] = None
 
     # The user whose permissions are used for tool authorization (defaults to initiating_user_id if not provided)
     # trigger: Optional[Any] = None

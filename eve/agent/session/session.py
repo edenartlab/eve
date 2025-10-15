@@ -329,6 +329,7 @@ async def add_chat_message(
         role=context.message.role,
         content=context.message.content,
         attachments=context.message.attachments or [],
+        trigger=context.trigger,
     )
 
     # save farcaster origin info
