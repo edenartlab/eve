@@ -23,15 +23,16 @@ DB=PROD PYTHONPATH=/Users/xandersteenbrugge/Documents/GitHub/Eden python -m eve.
 """
 
 import sys
-import os
 import json
 import argparse
 import traceback
 from typing import Dict, Any, Optional, Union
-from bson import ObjectId
+
+from loguru import logger
 
 # Import MongoDB utilities
 from eve.mongo import get_collection
+
 
 def update_field_in_collection(
     collection_name: str,
@@ -39,7 +40,7 @@ def update_field_in_collection(
     field_value: Union[str, int, float, bool, dict, list],
     update_existing: bool = False,
     filter_query: Optional[Dict[str, Any]] = None,
-    dry_run: bool = True
+    dry_run: bool = True,
 ) -> None:
     """
     Update or add a field in all documents of a collection.
@@ -53,12 +54,12 @@ def update_field_in_collection(
         dry_run: If True, only show what would be updated without making changes
     """
     try:
-        print(f"Processing collection: {collection_name}")
-        print(f"Field: {field_name} = {field_value}")
-        print(f"Update existing: {update_existing}")
-        print(f"Filter query: {filter_query}")
-        print(f"Dry run: {dry_run}")
-        print("-" * 50)
+        logger.info(f"Processing collection: {collection_name}")
+        logger.info(f"Field: {field_name} = {field_value}")
+        logger.info(f"Update existing: {update_existing}")
+        logger.info(f"Filter query: {filter_query}")
+        logger.info(f"Dry run: {dry_run}")
+        logger.info("-" * 50)
 
         # Get the collection
         collection = get_collection(collection_name)
@@ -72,36 +73,40 @@ def update_field_in_collection(
 
         # Count documents that match
         total_docs = collection.count_documents(query)
-        print(f"Found {total_docs} documents to update")
+        logger.info(f"Found {total_docs} documents to update")
 
         if total_docs == 0:
-            print("No documents match the criteria. Nothing to update.")
+            logger.info("No documents match the criteria. Nothing to update.")
             return
 
         if dry_run:
             # Show sample documents that would be updated
-            print("\nSample documents that would be updated:")
+            logger.info("\nSample documents that would be updated:")
             sample_docs = collection.find(query).limit(5)
             for i, doc in enumerate(sample_docs, 1):
-                print(f"  {i}. _id: {doc.get('_id')}, current {field_name}: {doc.get(field_name, 'NOT SET')}")
-            print(f"\n[DRY RUN] Would update {total_docs} documents")
+                logger.info(
+                    f"  {i}. _id: {doc.get('_id')}, current {field_name}: {doc.get(field_name, 'NOT SET')}"
+                )
+            logger.info(f"\n[DRY RUN] Would update {total_docs} documents")
             return
 
         # Perform the update
         update_operation = {"$set": {field_name: field_value}}
 
-        print(f"Updating {total_docs} documents...")
+        logger.info(f"Updating {total_docs} documents...")
         result = collection.update_many(query, update_operation)
 
-        print(f"Successfully updated {result.modified_count} documents")
-        print(f"Matched {result.matched_count} documents")
+        logger.info(f"Successfully updated {result.modified_count} documents")
+        logger.info(f"Matched {result.matched_count} documents")
 
         if result.modified_count != result.matched_count:
-            print(f"Note: {result.matched_count - result.modified_count} documents already had the same value")
+            logger.info(
+                f"Note: {result.matched_count - result.modified_count} documents already had the same value"
+            )
 
     except Exception as e:
-        print(f"Error updating field in collection {collection_name}: {e}")
-        traceback.print_exc()
+        logger.info(f"Error updating field in collection {collection_name}: {e}")
+        traceback.logger.info_exc()
         raise
 
 
@@ -136,43 +141,39 @@ Examples:
   # Set complex object value (actually perform the update)
   python field_updater.py --collection users3 --field metadata --value '{"version": 1, "migrated": true}' --dry-run=false
 
-        """
+        """,
     )
 
     parser.add_argument(
-        "--collection", "-c",
+        "--collection", "-c", required=True, help="MongoDB collection name"
+    )
+
+    parser.add_argument("--field", "-f", required=True, help="Field name to add/update")
+
+    parser.add_argument(
+        "--value",
+        "-v",
         required=True,
-        help="MongoDB collection name"
+        help="Value to set (supports JSON format for complex types)",
     )
 
     parser.add_argument(
-        "--field", "-f",
-        required=True,
-        help="Field name to add/update"
-    )
-
-    parser.add_argument(
-        "--value", "-v",
-        required=True,
-        help="Value to set (supports JSON format for complex types)"
-    )
-
-    parser.add_argument(
-        "--update-existing", "-u",
+        "--update-existing",
+        "-u",
         action="store_true",
-        help="Update existing fields (default: only add missing fields)"
+        help="Update existing fields (default: only add missing fields)",
     )
 
     parser.add_argument(
         "--filter",
-        help="MongoDB query filter as JSON string (e.g., '{\"type\": \"user\"}')"
+        help='MongoDB query filter as JSON string (e.g., \'{"type": "user"}\')',
     )
 
     parser.add_argument(
         "--dry-run",
-        type=lambda x: x.lower() == 'true',
+        type=lambda x: x.lower() == "true",
         default=True,
-        help="Run in dry-run mode (default: true). Use --dry-run=false to actually perform updates"
+        help="Run in dry-run mode (default: true). Use --dry-run=false to actually perform updates",
     )
 
     args = parser.parse_args()
@@ -186,19 +187,19 @@ Examples:
         try:
             filter_query = json.loads(args.filter)
         except json.JSONDecodeError as e:
-            print(f"Error: Invalid JSON in filter query: {e}")
+            logger.info(f"Error: Invalid JSON in filter query: {e}")
             sys.exit(1)
 
-    print(f"Starting field update process...")
-    print(f"Collection: {args.collection}")
-    print(f"Field: {args.field}")
-    print(f"Value: {field_value} (type: {type(field_value).__name__})")
+    logger.info(f"Starting field update process...")
+    logger.info(f"Collection: {args.collection}")
+    logger.info(f"Field: {args.field}")
+    logger.info(f"Value: {field_value} (type: {type(field_value).__name__})")
 
     # Confirm operation unless it's a dry run
     if not args.dry_run:
         response = input("\nProceed with the update? [y/N]: ")
-        if response.lower() != 'y':
-            print("Operation cancelled.")
+        if response.lower() != "y":
+            logger.info("Operation cancelled.")
             sys.exit(0)
 
     # Execute the update
@@ -208,10 +209,10 @@ Examples:
         field_value=field_value,
         update_existing=args.update_existing,
         filter_query=filter_query,
-        dry_run=args.dry_run
+        dry_run=args.dry_run,
     )
 
-    print("Field update completed!")
+    logger.info("Field update completed!")
 
 
 if __name__ == "__main__":

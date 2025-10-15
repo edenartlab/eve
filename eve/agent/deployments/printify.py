@@ -19,17 +19,15 @@ class PrintifyClient(PlatformClient):
         # Validate that required fields are present
         if not secrets:
             raise ValueError("Deployment secrets are required")
-            
+
         if not secrets.printify:
             raise ValueError("Printify secrets are required")
-        
+
         if not secrets.printify.api_token:
             raise ValueError("api_token is required")
-        
+
         if not secrets.printify.shop_id:
             raise ValueError("shop_id is required")
-
-        print(f"Verified Printify credentials for shop ID: {secrets.printify.shop_id}")
 
         # Add Printify tools to agent
         self.add_tools()

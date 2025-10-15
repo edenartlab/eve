@@ -32,24 +32,19 @@ async def async_chat(agent_name, new_thread=True, debug=False):
     thread = agent.request_thread(key=key)
     tools = agent.get_tools()
 
-    chat_string = f"Chat with {agent.name}".center(36)
     console = Console()
-    console.print("\n[bold blue]╭────────────────────────────────────╮")
-    console.print(f"[bold blue]│{chat_string}│")
-    console.print("[bold blue]╰────────────────────────────────────╯\n")
-    # console.print("[dim]Type 'escape' to exit the chat[/dim]\n")
 
     while True:
         try:
             console.print("[bold yellow]You [dim]→[/dim] ", end="")
             message_input = input("\033[93m")
 
-            print()
-
             metadata_pattern = r"\{.*?\}"
             attachments_pattern = r"\[.*?\]"
             attachments_match = re.search(attachments_pattern, message_input)
-            attachments = json.loads(attachments_match.group(0)) if attachments_match else []
+            attachments = (
+                json.loads(attachments_match.group(0)) if attachments_match else []
+            )
             content = re.sub(metadata_pattern, "", message_input)
             content = re.sub(attachments_pattern, "", content).strip()
 
@@ -63,7 +58,7 @@ async def async_chat(agent_name, new_thread=True, debug=False):
 
                 with open(os.devnull, "w") as devnull:
                     original_stdout = sys.stdout
-                    if not debug:                        
+                    if not debug:
                         sys.stdout = devnull
 
                     async for update in async_prompt_thread(
@@ -71,8 +66,7 @@ async def async_chat(agent_name, new_thread=True, debug=False):
                         agent=agent,
                         thread=thread,
                         user_messages=UserMessage(
-                            content=content, 
-                            attachments=attachments
+                            content=content, attachments=attachments
                         ),
                         tools=tools,
                         force_reply=True,
@@ -124,17 +118,8 @@ async def async_chat(agent_name, new_thread=True, debug=False):
     default="STAGE",
     help="DB to save against",
 )
-@click.option(
-    "--thread", 
-    type=str, 
-    help="Thread id"
-)
-@click.option(
-    "--debug", 
-    is_flag=True, 
-    default=False, 
-    help="Debug mode"
-)
+@click.option("--thread", type=str, help="Thread id")
+@click.option("--debug", is_flag=True, default=False, help="Debug mode")
 @click.argument("agent", required=True, default="eve")
 def chat(db: str, thread: str, agent: str, debug: bool):
     """Chat with an agent"""

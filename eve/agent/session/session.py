@@ -14,7 +14,6 @@ from sentry_sdk import capture_exception
 from eve.utils import dumps_json
 from eve.agent.agent import Agent
 from eve.tool import Tool
-from eve.mongo import get_collection
 from eve.models import Model
 from eve.agent.session.debug_logger import SessionDebugger
 from eve.concepts import Concept
@@ -54,6 +53,11 @@ from eve.agent.session.config import (
     get_default_session_llm_config,
 )
 from eve.user import User
+from eve.agent.session.tracing import (
+    trace_async_operation,
+    add_breadcrumb,
+)
+from loguru import logger
 
 
 class SessionCancelledException(Exception):
@@ -137,6 +141,11 @@ def parse_mentions(content: str) -> List[str]:
 async def determine_actors(
     session: Session, context: PromptSessionContext
 ) -> List[Agent]:
+    add_breadcrumb(
+        "Determining actors for session",
+        category="session",
+        data={"session_id": str(session.id)},
+    )
     actor_ids = []
 
     if context.actor_agent_ids:
@@ -230,7 +239,6 @@ def label_message_channels(messages: List[ChatMessage]):
     return labeled_messages
 
 
-
 async def build_system_message(
     session: Session,
     actor: Agent,
@@ -313,9 +321,7 @@ async def build_system_extras(
 
 
 async def add_chat_message(
-    session: Session, 
-    context: PromptSessionContext, 
-    pin: bool = False
+    session: Session, context: PromptSessionContext, pin: bool = False
 ):
     new_message = ChatMessage(
         session=session.id,
@@ -331,8 +337,7 @@ async def add_chat_message(
     if context.update_config:
         if context.update_config.farcaster_hash:
             new_message.channel = Channel(
-                type="farcaster",
-                key=context.update_config.farcaster_hash
+                type="farcaster", key=context.update_config.farcaster_hash
             )
     if pin:
         new_message.pinned = True
@@ -373,12 +378,8 @@ async def add_chat_message(
         session_id = str(session.id)
         await sse_manager.broadcast(session_id, user_message_update)
     except Exception as e:
-        print(f"Failed to broadcast user message to SSE: {e}")
+        logger.error(f"Failed to broadcast user message to SSE: {e}")
 
-    # Print the most recent message:
-    # print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
-    # print(f"--- {new_message.content[:30]} ---")
-    # print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
     return new_message
 
 
@@ -520,7 +521,7 @@ async def async_run_tool_call_with_cancellation(
                 try:
                     await tool.async_cancel(task)
                 except Exception as e:
-                    print(f"Failed to cancel task {task.id}: {e}")
+                    logger.error(f"Failed to cancel task {task.id}: {e}")
 
                 return {"status": "cancelled", "error": "Task cancelled by user"}
             else:
@@ -556,6 +557,13 @@ async def process_tool_call(
     is_client_platform: bool = False,
     session_run_id: str = None,
 ):
+    # Add breadcrumb for tool execution
+    add_breadcrumb(
+        f"Processing tool: {tool_call.tool}",
+        category="tool",
+        data={"tool_name": tool_call.tool, "tool_index": tool_call_index},
+    )
+
     # Update the tool call status to running
     tool_call.status = "running"
 
@@ -574,7 +582,7 @@ async def process_tool_call(
                 {"$set": {f"tool_calls.{tool_call_index}.status": "running"}},
             )
         except Exception as e:
-            print(f"Failed to update tool status to running: {e}")
+            logger.error(f"Failed to update tool status to running: {e}")
             # Try regular save as fallback
             assistant_message.save()
 
@@ -596,9 +604,6 @@ async def process_tool_call(
                     result = messages_collection.update_one(
                         {"_id": assistant_message.id},
                         {"$set": {f"tool_calls.{tool_call_index}.status": "cancelled"}},
-                    )
-                    print(
-                        f"Direct MongoDB update for tool {tool_call_index}: {result.modified_count} modified"
                     )
                 except Exception:
                     assistant_message.save()
@@ -640,7 +645,7 @@ async def process_tool_call(
                         {"$set": {f"tool_calls.{tool_call_index}.status": "cancelled"}},
                     )
                 except Exception as e:
-                    print(f"Direct update failed, trying regular save: {e}")
+                    logger.warning(f"Direct update failed, trying regular save: {e}")
                     assistant_message.save()
             return SessionUpdate(
                 type=UpdateType.TOOL_CANCELLED,
@@ -693,7 +698,7 @@ async def process_tool_call(
                         {"$set": {f"tool_calls.{tool_call_index}.status": "cancelled"}},
                     )
                 except Exception as e:
-                    print(f"Direct update failed, trying regular save: {e}")
+                    logger.warning(f"Direct update failed, trying regular save: {e}")
                     assistant_message.save()
 
             return SessionUpdate(
@@ -800,6 +805,28 @@ async def async_prompt_session(
     if session_run_id is None:
         session_run_id = str(uuid.uuid4())
 
+    # Start distributed tracing transaction and set as active in scope
+    import sentry_sdk
+
+    transaction = sentry_sdk.start_transaction(
+        name="prompt_session",
+        op="session.prompt",
+    )
+
+    # Set tags on the transaction
+    if transaction:
+        transaction.set_tag("session_id", str(session.id))
+        if llm_context.metadata and llm_context.metadata.trace_metadata:
+            transaction.set_tag(
+                "user_id", str(llm_context.metadata.trace_metadata.user_id)
+            )
+        transaction.set_tag("agent_id", str(actor.id))
+        transaction.set_tag("session_run_id", session_run_id)
+        transaction.set_tag("stream", str(stream))
+
+        # Set as active span (correct API - direct assignment, not set_span())
+        sentry_sdk.Hub.current.scope.span = transaction
+
     # Set up cancellation handling via Ably
     cancellation_event = asyncio.Event()
     tool_cancellation_events = {}  # Dict to track individual tool cancellations
@@ -819,7 +846,6 @@ async def async_prompt_session(
                 if isinstance(data, dict) and data.get("session_id") == str(session.id):
                     # Check if this is a tool-specific cancellation
                     tool_call_id = data.get("tool_call_id")
-                    tool_call_index = data.get("tool_call_index")
 
                     if tool_call_id is not None:
                         # Cancel specific tool call
@@ -833,12 +859,12 @@ async def async_prompt_session(
                             # or if the trace_id matches this session_run_id
                             cancellation_event.set()
             except Exception as e:
-                print(f"Error in cancellation handler: {e}")
+                logger.error(f"Error in cancellation handler: {e}")
 
         await channel.subscribe("cancel", cancellation_handler)
 
     except Exception as e:
-        print(f"Failed to setup Ably cancellation for session {session.id}: {e}")
+        logger.error(f"Failed to setup Ably cancellation for session {session.id}: {e}")
         # Continue without cancellation support if Ably fails
 
     async def prompt_session_generator():
@@ -916,42 +942,45 @@ async def async_prompt_session(
                 stop_reason = None
                 tokens_spent = 0  # Initialize tokens_spent for streaming
 
-                async for chunk in async_prompt_stream(llm_context):
-                    # Check for cancellation during streaming
-                    if cancellation_event.is_set():
-                        raise SessionCancelledException("Session cancelled by user")
+                async with trace_async_operation(
+                    "llm.stream", model=llm_context.config.model
+                ):
+                    async for chunk in async_prompt_stream(llm_context):
+                        # Check for cancellation during streaming
+                        if cancellation_event.is_set():
+                            raise SessionCancelledException("Session cancelled by user")
 
-                    if hasattr(chunk, "choices") and chunk.choices:
-                        choice = chunk.choices[0]
-                        # Only yield content tokens, not tool call chunks
-                        if choice.delta and choice.delta.content:
-                            content += choice.delta.content
-                            yield SessionUpdate(
-                                type=UpdateType.ASSISTANT_TOKEN,
-                                text=choice.delta.content,
-                                session_run_id=session_run_id,
-                            )
-                        # Process tool calls silently (don't yield anything)
-                        if choice.delta and choice.delta.tool_calls:
-                            for tc in choice.delta.tool_calls:
-                                if tc.index not in tool_calls_dict:
-                                    tool_calls_dict[tc.index] = {
-                                        "id": tc.id,
-                                        "name": tc.function.name
-                                        if tc.function
-                                        else None,
-                                        "arguments": "",
-                                    }
-                                if tc.function and tc.function.arguments:
-                                    tool_calls_dict[tc.index]["arguments"] += (
-                                        tc.function.arguments
-                                    )
-                        if choice.finish_reason:
-                            stop_reason = choice.finish_reason
+                        if hasattr(chunk, "choices") and chunk.choices:
+                            choice = chunk.choices[0]
+                            # Only yield content tokens, not tool call chunks
+                            if choice.delta and choice.delta.content:
+                                content += choice.delta.content
+                                yield SessionUpdate(
+                                    type=UpdateType.ASSISTANT_TOKEN,
+                                    text=choice.delta.content,
+                                    session_run_id=session_run_id,
+                                )
+                            # Process tool calls silently (don't yield anything)
+                            if choice.delta and choice.delta.tool_calls:
+                                for tc in choice.delta.tool_calls:
+                                    if tc.index not in tool_calls_dict:
+                                        tool_calls_dict[tc.index] = {
+                                            "id": tc.id,
+                                            "name": tc.function.name
+                                            if tc.function
+                                            else None,
+                                            "arguments": "",
+                                        }
+                                    if tc.function and tc.function.arguments:
+                                        tool_calls_dict[tc.index]["arguments"] += (
+                                            tc.function.arguments
+                                        )
+                            if choice.finish_reason:
+                                stop_reason = choice.finish_reason
 
-                    # Capture token usage from streaming response
-                    if hasattr(chunk, "usage") and chunk.usage:
-                        tokens_spent = chunk.usage.total_tokens
+                        # Capture token usage from streaming response
+                        if hasattr(chunk, "usage") and chunk.usage:
+                            tokens_spent = chunk.usage.total_tokens
 
                 # Convert accumulated tool calls to ToolCall objects
                 tool_calls = None
@@ -997,7 +1026,10 @@ async def async_prompt_session(
                 )
             else:
                 # Non-streaming path
-                response = await async_prompt(llm_context)
+                async with trace_async_operation(
+                    "llm.prompt", model=llm_context.config.model
+                ):
+                    response = await async_prompt(llm_context)
                 assistant_message = ChatMessage(
                     session=session.id,
                     sender=ObjectId(llm_context.metadata.trace_metadata.agent_id),
@@ -1032,11 +1064,24 @@ async def async_prompt_session(
             session.update(memory_context=memory_context.model_dump())
             session.memory_context = SessionMemoryContext(**session.memory_context)
 
-            # print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
-            # print(f"--- {assistant_message.content[:30]} ---")
-            # print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
-
             update_session_budget(session, tokens_spent=tokens_spent, turns_spent=1)
+
+            # Add tracing data and capture Sentry trace ID
+            if transaction:
+                transaction.set_data("tokens_spent", tokens_spent)
+                transaction.set_data("stop_reason", stop_reason)
+                if assistant_message.tool_calls:
+                    transaction.set_data(
+                        "tool_calls_count", len(assistant_message.tool_calls)
+                    )
+
+                # Capture Sentry trace ID for cross-system correlation
+                if assistant_message.observability and hasattr(transaction, "trace_id"):
+                    assistant_message.observability.sentry_trace_id = (
+                        transaction.trace_id
+                    )
+                    assistant_message.save()  # Update with Sentry trace ID
+
             # No longer appending to llm_context.messages since we refresh from DB each iteration
             yield SessionUpdate(
                 type=UpdateType.ASSISTANT_MESSAGE,
@@ -1053,53 +1098,41 @@ async def async_prompt_session(
             # Create notification if user is not actively viewing the session
             # This runs in the background and won't block message delivery
             try:
-                print(
-                    f"[NOTIFICATION] Checking if user {session.owner} is viewing session {session.id}"
-                )
                 is_active_response = await check_if_session_active(
                     str(session.owner), str(session.id)
                 )
 
-                redis_available = is_active_response.get("redis_available", False)
                 is_active = is_active_response.get("is_active", False)
-
-                print(
-                    f"[NOTIFICATION] Response: is_active={is_active}, redis_available={redis_available}"
-                )
 
                 # Only create notification if user is NOT viewing
                 if not is_active:
-                    print(f"[NOTIFICATION] 🔔 Creating notification (user not viewing)")
                     await create_session_message_notification(
                         user_id=str(session.owner),
                         session_id=str(session.id),
                         agent_id=str(actor.id),
                     )
-                    print(f"[NOTIFICATION] ✓ Notification created successfully")
-                else:
-                    print(
-                        f"[NOTIFICATION] ⏭️  Skipping notification (user is actively viewing)"
-                    )
             except Exception as e:
-                # Log but don't fail - notifications are non-critical
-                print(
+                logger.warning(
                     f"[NOTIFICATION] ❌ Failed to create session message notification: {e}"
                 )
 
             if assistant_message.tool_calls:
-                async for update in process_tool_calls(
-                    session,
-                    assistant_message,
-                    llm_context,
-                    cancellation_event,
-                    tool_cancellation_events,
-                    is_client_platform,
-                    session_run_id,
+                async with trace_async_operation(
+                    "tools.process_all", tool_count=len(assistant_message.tool_calls)
                 ):
-                    # Check for cancellation during tool execution
-                    if cancellation_event.is_set():
-                        raise SessionCancelledException("Session cancelled by user")
-                    yield update
+                    async for update in process_tool_calls(
+                        session,
+                        assistant_message,
+                        llm_context,
+                        cancellation_event,
+                        tool_cancellation_events,
+                        is_client_platform,
+                        session_run_id,
+                    ):
+                        # Check for cancellation during tool execution
+                        if cancellation_event.is_set():
+                            raise SessionCancelledException("Session cancelled by user")
+                        yield update
 
             if stop_reason in ["stop", "completed"]:
                 prompt_session_finished = True
@@ -1183,7 +1216,7 @@ async def async_prompt_session(
             )
 
         except Exception as e:
-            print(f"Error during session cancellation cleanup: {e}")
+            logger.error(f"Error during session cancellation cleanup: {e}")
             yield SessionUpdate(
                 type=UpdateType.END_PROMPT, session_run_id=session_run_id
             )
@@ -1200,7 +1233,11 @@ async def async_prompt_session(
             try:
                 await ably_client.close()
             except Exception as e:
-                print(f"Error closing Ably client: {e}")
+                logger.error(f"Error closing Ably client: {e}")
+
+        # Finish transaction
+        if transaction:
+            transaction.finish()
 
 
 def format_session_update(update: SessionUpdate, context: PromptSessionContext) -> dict:
@@ -1227,25 +1264,11 @@ def format_session_update(update: SessionUpdate, context: PromptSessionContext) 
         data["content"] = update.message.content
         message_dict = update.message.model_dump(by_alias=True)
 
-        print(f"DEBUG format_session_update: update.agent = {update.agent}")
-        print(
-            f"DEBUG format_session_update: message_dict sender before = {message_dict.get('sender')}"
-        )
-
         # Populate sender with full agent data if available
         if update.agent and message_dict.get("sender"):
-            print(f"DEBUG: Replacing sender with agent data")
             message_dict["sender"] = update.agent
             # Also add agent to top-level for debugging
             data["agent"] = update.agent
-        else:
-            print(
-                f"DEBUG: NOT replacing - update.agent={update.agent}, has sender={bool(message_dict.get('sender'))}"
-            )
-
-        print(
-            f"DEBUG format_session_update: message_dict sender after = {message_dict.get('sender')}"
-        )
 
         data["message"] = message_dict
         if update.message.tool_calls:
@@ -1482,10 +1505,6 @@ async def _run_prompt_session_internal(
                     session,
                     success=True,
                 )
-        else:
-            print(
-                f"⚠️  Warning: No background_tasks available, skipping memory formation and auto-reply"
-            )
 
     except Exception as e:
         # Send failure notification if configured
@@ -1526,7 +1545,7 @@ async def run_prompt_session_stream(
                     await sse_manager.broadcast(session_id, data)
                 except Exception as sse_error:
                     debugger.log_error(f"Failed to broadcast to SSE", sse_error)
-                    print(f"Failed to broadcast to SSE: {sse_error}")
+                    logger.error(f"Failed to broadcast to SSE: {sse_error}")
             yield data
     except Exception as e:
         traceback.print_exc()
@@ -1585,7 +1604,7 @@ async def _queue_session_action_fastify_background_task(session: Session):
             response = await client.post(url, headers=headers, json=payload)
             response.raise_for_status()
     except Exception as e:
-        print("HTTP request failed:", str(e))
+        logger.error(f"HTTP request failed: {str(e)}")
         capture_exception(e)
 
 
@@ -1596,21 +1615,17 @@ async def check_if_session_active(user_id: str, session_id: str) -> dict:
     try:
         api_url = os.getenv("EDEN_FASTIFY_API_URL")
         if not api_url:
-            print(
+            logger.warning(
                 "[NOTIFICATION] EDEN_FASTIFY_API_URL not set - assuming user not active"
             )
             return {"is_active": False, "redis_available": False}
-
-        print(f"[NOTIFICATION] Calling {api_url}/v2/sessions/is-active")
 
         async with httpx.AsyncClient() as client:
             headers = {
                 "x-api-key": f"{os.getenv('EDEN_FASTIFY_ADMIN_KEY')}",
                 "Content-Type": "application/json",
             }
-            print(
-                f"[NOTIFICATION] Calling {api_url}/v2/sessions/is-active with headers: {headers}"
-            )
+
             response = await client.get(
                 f"{api_url}/v2/sessions/is-active",
                 params={"user_id": user_id, "session_id": session_id},
@@ -1620,16 +1635,15 @@ async def check_if_session_active(user_id: str, session_id: str) -> dict:
 
             if response.status_code == 200:
                 result = response.json()
-                print(f"[NOTIFICATION] API response: {result}")
                 return result
             else:
-                print(
+                logger.warning(
                     f"[NOTIFICATION] API returned status {response.status_code} - assuming not active"
                 )
                 return {"is_active": False, "redis_available": False}
 
     except Exception as e:
-        print(f"[NOTIFICATION] Error checking session activity: {str(e)}")
+        logger.error(f"[NOTIFICATION] Error checking session activity: {str(e)}")
         # Fail open - assume not active so notification gets created
         return {"is_active": False, "redis_available": False}
 
@@ -1643,7 +1657,7 @@ async def create_session_message_notification(
     try:
         api_url = os.getenv("EDEN_FASTIFY_API_URL")
         if not api_url:
-            print(
+            logger.warning(
                 "[NOTIFICATION] EDEN_FASTIFY_API_URL not set - cannot create notification"
             )
             return
@@ -1659,16 +1673,11 @@ async def create_session_message_notification(
             "action_url": f"/sessions/{session_id}",
         }
 
-        print(f"[NOTIFICATION] Creating notification via API: {notification_data}")
-
         async with httpx.AsyncClient() as client:
             headers = {
                 "x-api-key": os.getenv("EDEN_FASTIFY_ADMIN_KEY"),
                 "Content-Type": "application/json",
             }
-            print(
-                f"[NOTIFICATION] POST {api_url}/v2/notifications with x-api-key: {os.getenv('EDEN_FASTIFY_ADMIN_KEY')[:10]}..."
-            )
             response = await client.post(
                 f"{api_url}/v2/notifications",
                 headers=headers,
@@ -1676,17 +1685,14 @@ async def create_session_message_notification(
                 timeout=5.0,
             )
 
-            if response.status_code == 200:
-                result = response.json()
-                print(f"[NOTIFICATION] ✓ Notification created: {result.get('id')}")
-            else:
+            if response.status_code != 200:
                 error_text = response.text
-                print(
+                logger.error(
                     f"[NOTIFICATION] ❌ Failed to create notification (status {response.status_code}): {error_text}"
                 )
 
     except Exception as e:
-        print(
+        logger.error(
             f"[NOTIFICATION] ❌ Error creating session message notification: {str(e)}"
         )
         import traceback
@@ -1755,10 +1761,10 @@ async def _send_session_notification(
             )
             if response.status_code != 200:
                 error_text = await response.aread()
-                print(f"Failed to create notification: {error_text}")
+                logger.error(f"Failed to create notification: {error_text}")
 
     except Exception as e:
-        print(f"Error creating session notification: {str(e)}")
+        logger.error(f"Error creating session notification: {str(e)}")
         capture_exception(e)
 
 

@@ -16,6 +16,7 @@ from eve.agent.session.models import (
     LLMTraceMetadata,
     ToolCall,
 )
+from loguru import logger
 
 logging.getLogger("LiteLLM").setLevel(logging.WARNING)
 
@@ -196,8 +197,6 @@ def prepare_messages(
 async def async_prompt_litellm(
     context: LLMContext,
 ) -> LLMResponse:
-    print("THE MODEL TO USE IS -->", context.config.model)
-    
     thinking = True if context.config.reasoning_effort else False
     messages = prepare_messages(
         context.messages, context.config.model, include_thoughts=thinking
@@ -208,7 +207,9 @@ async def async_prompt_litellm(
     completion_kwargs = {
         "model": context.config.model,
         "messages": messages,
-        "metadata": construct_observability_metadata(context) if context.enable_tracing else {},
+        "metadata": construct_observability_metadata(context)
+        if context.enable_tracing
+        else {},
         "tools": tools,
         "tool_choice": tool_choice,
         "response_format": context.config.response_format,
@@ -403,15 +404,17 @@ async def async_prompt_litellm_responses(
             # Log what we're removing for debugging
             removed_fields = [k for k in msg.keys() if k in fields_to_remove]
             if removed_fields:
-                print(f"🧠 [DEBUG] Removing fields from message: {removed_fields}")
+                logger.debug(
+                    f"🧠 [DEBUG] Removing fields from message: {removed_fields}"
+                )
 
             cleaned_msg = {k: v for k, v in msg.items() if k not in fields_to_remove}
             cleaned_messages.append(cleaned_msg)
         else:
             cleaned_messages.append(msg)
 
-    print(f"🧠 [DEBUG] Cleaned {len(messages)} messages for responses API")
-    print(
+    logger.debug(f"🧠 [DEBUG] Cleaned {len(messages)} messages for responses API")
+    logger.debug(
         f"🧠 [DEBUG] Sample cleaned message: {cleaned_messages[0] if cleaned_messages else 'No messages'}"
     )
 
@@ -419,9 +422,9 @@ async def async_prompt_litellm_responses(
 
     # Debug tool format
     if tools and len(tools) > 0:
-        print(f"🧠 [DEBUG] Tool format from construct_tools:")
-        print(f"🧠 [DEBUG] First tool: {tools[0]}")
-        print(
+        logger.debug(f"🧠 [DEBUG] Tool format from construct_tools:")
+        logger.debug(f"🧠 [DEBUG] First tool: {tools[0]}")
+        logger.debug(
             f"🧠 [DEBUG] Tool keys: {tools[0].keys() if isinstance(tools[0], dict) else 'Not a dict'}"
         )
 
@@ -457,24 +460,28 @@ async def async_prompt_litellm_responses(
 
         if responses_tools:
             response_kwargs["tools"] = responses_tools
-            print(f"🧠 [DEBUG] Added {len(responses_tools)} tools to responses API")
-            print(
+            logger.debug(
+                f"🧠 [DEBUG] Added {len(responses_tools)} tools to responses API"
+            )
+            logger.debug(
                 f"🧠 [DEBUG] Converted tool format: {json.dumps(responses_tools[0] if responses_tools else {}, indent=2)[:500]}"
             )
         else:
-            print(f"🧠 [DEBUG] No valid tools to add to responses API")
+            logger.debug(f"🧠 [DEBUG] No valid tools to add to responses API")
     else:
-        print(f"🧠 [DEBUG] No tools provided for responses API")
+        logger.debug(f"🧠 [DEBUG] No tools provided for responses API")
 
     # Add response format if present
     if context.config.response_format:
         response_kwargs["response_format"] = context.config.response_format
-        print(f"🧠 [DEBUG] Added response format: {context.config.response_format}")
+        logger.debug(
+            f"🧠 [DEBUG] Added response format: {context.config.response_format}"
+        )
 
     # Add fallbacks
     if context.config.fallback_models:
         response_kwargs["fallbacks"] = context.config.fallback_models
-        print(f"🧠 [DEBUG] Added fallbacks: {context.config.fallback_models}")
+        logger.debug(f"🧠 [DEBUG] Added fallbacks: {context.config.fallback_models}")
 
     # Add reasoning configuration
     if context.config.reasoning_effort:
@@ -485,11 +492,11 @@ async def async_prompt_litellm_responses(
 
         # Check if model supports reasoning
         supports_reasoning = litellm.supports_reasoning(model=context.config.model)
-        print(
+        logger.debug(
             f"🧠 [REASONING] Model {context.config.model} supports reasoning: {supports_reasoning}"
         )
 
-    print(f"🧠 [DEBUG] Final RESPONSE_KWARGS: {response_kwargs}")
+    logger.debug(f"🧠 [DEBUG] Final RESPONSE_KWARGS: {response_kwargs}")
 
     logging.info(
         f"Attempting responses with model: {context.config.model}, reasoning_effort: {context.config.reasoning_effort}"
@@ -497,10 +504,10 @@ async def async_prompt_litellm_responses(
 
     try:
         t0 = time.time()
-        print("start responses...", response_kwargs.get("reasoning"))
+        logger.debug("start responses...", response_kwargs.get("reasoning"))
         response = await aresponses(**response_kwargs)
         t1 = time.time()
-        print(f"responses done in {t1 - t0} seconds")
+        logger.debug(f"responses done in {t1 - t0} seconds")
 
         actual_model = getattr(response, "model", context.config.model)
 
@@ -511,15 +518,15 @@ async def async_prompt_litellm_responses(
         logging.error(f"Responses API failed. Error: {str(e)}")
         raise
 
-    print(f"🧠 [DEBUG] RAW RESPONSE: {response}")
-    print(f"🧠 [DEBUG] Response type: {type(response)}")
-    print(f"🧠 [DEBUG] Response dir: {dir(response)}")
+    logger.debug(f"🧠 [DEBUG] RAW RESPONSE: {response}")
+    logger.debug(f"🧠 [DEBUG] Response type: {type(response)}")
+    logger.debug(f"🧠 [DEBUG] Response dir: {dir(response)}")
 
     # Check for reasoning traces in the response
     if hasattr(response, "reasoning"):
-        print(f"🧠 [REASONING] Found reasoning attribute: {response.reasoning}")
+        logger.debug(f"🧠 [REASONING] Found reasoning attribute: {response.reasoning}")
     if hasattr(response, "summary"):
-        print(f"🧠 [REASONING] Found summary attribute: {response.summary}")
+        logger.debug(f"🧠 [REASONING] Found summary attribute: {response.summary}")
 
     # Parse responses API output
     tool_calls = []

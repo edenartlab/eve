@@ -19,17 +19,15 @@ class ShopifyClient(PlatformClient):
         # For now, just validate that required fields are present
         if not secrets.shopify:
             raise ValueError("Shopify secrets are required")
-        
+
         if not secrets.shopify.store_name:
             raise ValueError("store_name is required")
-        
+
         if not secrets.shopify.access_token:
             raise ValueError("access_token is required")
-        
+
         if not secrets.shopify.location_id:
             raise ValueError("location_id is required")
-
-        print(f"Verified Shopify credentials for store: {secrets.shopify.store_name}")
 
         # Add Shopify tools to agent
         self.add_tools()

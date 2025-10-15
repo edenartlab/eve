@@ -9,6 +9,7 @@ import magic
 import pdfplumber
 from bson import ObjectId
 from pydantic import ConfigDict, Field, BaseModel, field_serializer
+from loguru import logger
 
 from eve.utils import download_file, image_to_base64, prepare_result, dumps_json
 from eve.mongo import Collection, Document
@@ -16,6 +17,7 @@ from eve.tool import Tool
 
 # Maximum character limit for text attachments (both .txt and .pdf files)
 TEXT_ATTACHMENT_MAX_LENGTH = 20000
+
 
 class ToolCall(BaseModel):
     id: str
@@ -112,7 +114,7 @@ class ToolCall(BaseModel):
                     content = dumps_json(content)
 
             except Exception as e:
-                print("Warning: Can not inject image results:", e)
+                logger.warning("Warning: Can not inject image results:", e)
                 content = dumps_json(content)
 
         # For Anthropic: if content is a list (text + images), use it directly
@@ -174,9 +176,10 @@ class Channel(Document):
 class ChatMessageObservability(BaseModel):
     provider: Literal["langfuse"] = "langfuse"
     session_id: Optional[str] = None
-    trace_id: Optional[str] = None
-    generation_id: Optional[str] = None
+    trace_id: Optional[str] = None  # Langfuse trace ID
+    generation_id: Optional[str] = None  # Langfuse generation ID
     tokens_spent: Optional[int] = None
+    sentry_trace_id: Optional[str] = None  # Sentry distributed trace ID for correlation
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
@@ -289,9 +292,7 @@ class ChatMessage(Document):
                         ),
                         overwrite=False,
                     )
-                    print("downloaded attachment", attachment_file)
                     mime_type = magic.from_file(attachment_file, mime=True)
-                    print("mime type", mime_type)
 
                     # Handle text files (.txt, .md, .plain)
                     if mime_type in [
@@ -325,7 +326,7 @@ class ChatMessage(Document):
                                     }
                                 )
                         except Exception as read_error:
-                            print(
+                            logger.error(
                                 f"Error reading text file {attachment_file}: {read_error}"
                             )
                             attachment_lines.append(
@@ -333,7 +334,9 @@ class ChatMessage(Document):
                             )
 
                     # Handle PDF files
-                    elif mime_type == "application/pdf" or attachment.lower().endswith(".pdf"):
+                    elif mime_type == "application/pdf" or attachment.lower().endswith(
+                        ".pdf"
+                    ):
                         try:
                             with pdfplumber.open(attachment_file) as pdf:
                                 # Extract text from all pages
@@ -370,7 +373,7 @@ class ChatMessage(Document):
                                         f"* {attachment}: (PDF file with no extractable text)"
                                     )
                         except Exception as read_error:
-                            print(
+                            logger.error(
                                 f"Error reading PDF file {attachment_file}: {read_error}"
                             )
                             attachment_lines.append(
@@ -390,7 +393,7 @@ class ChatMessage(Document):
                             f"* {attachment}: (Mime type: {mime_type})"
                         )
                 except Exception as e:
-                    print("error downloading attachment", e)
+                    logger.error("error downloading attachment", e)
                     attachment_errors.append(f"* {attachment}: {str(e)}")
 
             attachments = ""
@@ -446,7 +449,7 @@ class ChatMessage(Document):
                             }
                         )
                     except Exception as e:
-                        print(f"Error processing image {file_path}: {e}")
+                        logger.error(f"Error processing image {file_path}: {e}")
                         # Skip this image and continue with others
                         continue
             elif schema == "openai":
@@ -468,7 +471,7 @@ class ChatMessage(Document):
                             }
                         )
                     except Exception as e:
-                        print(f"Error processing image {file_path}: {e}")
+                        logger.error(f"Error processing image {file_path}: {e}")
                         # Skip this image and continue with others
                         continue
 
@@ -665,7 +668,7 @@ class ChatMessage(Document):
                                     image_urls.append(image_url)
 
                             except Exception as e:
-                                print(f"Error processing image {image_url}: {e}")
+                                logger.error(f"Error processing image {image_url}: {e}")
                                 continue
 
                 # Create single synthetic user message if we have any images
@@ -913,7 +916,7 @@ class PromptSessionContext:
     update_config: Optional[SessionUpdateConfig] = None
     actor_agent_ids: Optional[List[str]] = None
     llm_config: Optional[LLMConfig] = None
-    
+
     # overrides all tools if set, otherwise uses actor's tools
     tools: Optional[Dict[str, Any]] = None
     # extra tools added to the base or actor's tools
@@ -925,7 +928,7 @@ class PromptSessionContext:
     thinking_override: Optional[bool] = None
     acting_user_id: Optional[str] = None
     trigger: Optional[ObjectId] = None
-    
+
     # The user whose permissions are used for tool authorization (defaults to initiating_user_id if not provided)
     # trigger: Optional[Any] = None
 

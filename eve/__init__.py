@@ -1,26 +1,63 @@
 import os
 import logging
 from pathlib import Path
+import sys
 from dotenv import load_dotenv
 from pydantic import SecretStr
+from loguru import logger
 
 home_dir = str(Path.home())
-
-# Configure logging level based on LOCAL_DEBUG environment variable
-# log_level = logging.DEBUG if os.getenv("LOCAL_DEBUG", "False") == "True" else logging.INFO
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
 db = os.getenv("DB", "STAGE").upper()
 EDEN_API_KEY = None
+
+
+def configure_logging():
+    # Get log level from environment, default to INFO
+    log_level_name = os.getenv("LOG_LEVEL", "INFO").upper()
+    log_level = getattr(logging, log_level_name, logging.INFO)
+
+    # Allow external debug logging with separate flag
+    external_debug = os.getenv("EXTERNAL_DEBUG", "false").lower() == "true"
+
+    class InfoFilter(logging.Filter):
+        def filter(self, record):
+            return record.levelno < logging.WARNING
+
+    # Configure root logger to suppress third-party debug logs
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG if external_debug else logging.INFO)
+
+    # Configure the handler for stdout (for INFO and DEBUG)
+    handler_stdout = logging.StreamHandler(sys.stdout)
+    info_handler_level = min(logging.INFO, log_level)
+    handler_stdout.setLevel(info_handler_level)
+    handler_stdout.addFilter(InfoFilter())
+
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    handler_stdout.setFormatter(formatter)
+
+    # Configure the handler for stderr (for WARNING and above)
+    handler_stderr = logging.StreamHandler(sys.stderr)
+    handler_stderr.setLevel(logging.WARNING)
+    handler_stderr.setFormatter(formatter)
+
+    # Clear any existing handlers and add the new ones
+    if root_logger.hasHandlers():
+        root_logger.handlers.clear()
+    root_logger.addHandler(handler_stdout)
+    root_logger.addHandler(handler_stderr)
+
+    # Set eve app logger to the desired log level
+    eve_logger = logging.getLogger("eve")
+    eve_logger.setLevel(log_level)
 
 
 def setup_eve():
     def setup_sentry():
         sentry_dsn = os.getenv("SENTRY_DSN")
         if not sentry_dsn:
-            # print("Skipping sentry setup because SENTRY_DSN is not set")
             return
 
         import sentry_sdk
@@ -29,13 +66,10 @@ def setup_eve():
         sentry_env = os.getenv(
             "SENTRY_ENV", "production" if db == "PROD" else "staging"
         )
-        # print(f"Setting up sentry for {sentry_env}")
 
         # Set sampling rates
-        traces_sample_rate = 1.0 if os.getenv("SENTRY_ENV") else 0.01
+        base_sample_rate = 1.0 if os.getenv("SENTRY_ENV") else 0.01
         profiles_sample_rate = 1.0 if os.getenv("SENTRY_ENV") else 0.01
-        # print(f"Traces sample rate: {traces_sample_rate}")
-        # print(f"Profiles sample rate: {profiles_sample_rate}")
 
         def before_send(event, hint):
             """Filter out certain errors before sending to Sentry"""
@@ -43,15 +77,18 @@ def setup_eve():
             if "exc_info" in hint:
                 error = hint["exc_info"][1]
                 error_message = str(error)
-                
+
                 # Filter out "Document not found" errors
-                if "not found" in error_message.lower() and "document" in error_message.lower():
+                if (
+                    "not found" in error_message.lower()
+                    and "document" in error_message.lower()
+                ):
                     return None  # Don't send to Sentry
-                
+
                 # Filter out specific trigger not found errors
                 if "not found in triggers" in error_message:
                     return None  # Don't send to Sentry
-            
+
             # Check the event message as well
             if "message" in event:
                 message = event["message"]
@@ -59,25 +96,43 @@ def setup_eve():
                     return None
                 if "not found in triggers" in message:
                     return None
-            
+
             return event  # Send everything else to Sentry
+
+        # Only import integrations needed for ERROR tracking, not performance tracing
+        from sentry_sdk.integrations.logging import LoggingIntegration
+        from sentry_sdk.integrations.stdlib import StdlibIntegration
+        from sentry_sdk.integrations.excepthook import ExcepthookIntegration
+        from sentry_sdk.integrations.dedupe import DedupeIntegration
+        from sentry_sdk.integrations.atexit import AtexitIntegration
+        from sentry_sdk.integrations.modules import ModulesIntegration
+        from sentry_sdk.integrations.argv import ArgvIntegration
+        from sentry_sdk.integrations.threading import ThreadingIntegration
 
         sentry_sdk.init(
             dsn=sentry_dsn,
-            traces_sample_rate=traces_sample_rate,
+            traces_sample_rate=base_sample_rate,  # Simple sampling, we control transactions manually
             profiles_sample_rate=profiles_sample_rate,
             environment=sentry_env,
             debug=True if os.getenv("SENTRY_ENV") == "jmill-dev" else False,
             before_send=before_send,
-            _experiments={
-                "continuous_profiling_auto_start": True
-                if os.getenv("SENTRY_ENV")
-                else False,
-            },
+            # Disable ALL auto-instrumentation - we manually instrument what we need
+            default_integrations=False,
+            # Only enable basic error tracking integrations (NO performance/tracing integrations)
+            integrations=[
+                LoggingIntegration(level=None, event_level=None),
+                StdlibIntegration(),
+                ExcepthookIntegration(),
+                DedupeIntegration(),
+                AtexitIntegration(),
+                ModulesIntegration(),
+                ArgvIntegration(),
+                ThreadingIntegration(),
+            ],
         )
 
     if os.getenv("SETUP_SENTRY") == "no":
-        print("Skipping sentry setup because SETUP_SENTRY is no")
+        logger.debug("Skipping sentry setup because SETUP_SENTRY is no")
         pass
     else:
         setup_sentry()
@@ -90,12 +145,12 @@ def verify_env():
     MONGO_URI = os.getenv("MONGO_URI")
 
     if not all([AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION_NAME]):
-        print(
-            "WARNING: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and AWS_REGION_NAME must be set in the environment"
+        logger.warning(
+            "AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and AWS_REGION_NAME must be set in the environment"
         )
 
     if not MONGO_URI:
-        print("WARNING: MONGO_URI must be set in the environment")
+        logger.warning("MONGO_URI must be set in the environment")
 
 
 if db not in ["STAGE", "PROD", "WEB3-STAGE", "WEB3-PROD"]:
@@ -131,12 +186,13 @@ def load_env(db):
     EDEN_API_KEY = str(os.getenv("EDEN_API_KEY", ""))
 
     if not EDEN_API_KEY:
-        print("WARNING: EDEN_API_KEY is not set")
+        logger.warning("EDEN_API_KEY is not set")
     else:
         EDEN_API_KEY = SecretStr(EDEN_API_KEY)
 
     verify_env()
 
 
+configure_logging()
 load_env(db)
 setup_eve()

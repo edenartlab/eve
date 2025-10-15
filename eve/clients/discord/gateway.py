@@ -623,7 +623,6 @@ class DiscordGatewayClient:
         )
 
         # Skip messages from the bot itself
-        print("AUTHOR ID", data.get("author", {}).get("id"))
         if (
             data.get("author", {}).get("id")
             == self.deployment.secrets.discord.application_id
@@ -693,13 +692,6 @@ class DiscordGatewayClient:
         user_is_bot = data.get("author", {}).get("bot", False)
 
         # Check if the bot is mentioned in the message
-        print("MENTIONS", data.get("mentions"))
-        print(
-            "MY APPLICATION ID",
-            self.deployment.secrets.discord.application_id,
-            "AND MY USERNAME",
-            data.get("author", {}).get("username"),
-        )
         if data.get("mentions") and any(
             mention.get("id") == self.deployment.secrets.discord.application_id
             for mention in data.get("mentions", [])

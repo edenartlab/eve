@@ -89,7 +89,7 @@ def compute_llm_cost_simple(input_text: str, output_text: str) -> float:
     # Make sure output_text is a str (sometimes it's a dict)
     if isinstance(output_text, dict):
         output_text = json.dumps(output_text)
-    
+
     # Estimate token count (4 chars ≈ 1 token)
     input_tokens = len(input_text) / 4
     output_tokens = len(output_text) / 4
@@ -114,22 +114,11 @@ def compute_llm_cost_simple(input_text: str, output_text: str) -> float:
 async def handle_create(request: TaskRequest):
     tool = Tool.load(key=request.tool)
 
-    print("#### create ####")
-    print(request)
-
-    # if USE_RATE_LIMITS:
-    #     await RateLimiter().check_create_rate_limit(user, tool)
-
-    print("### run the tool ###")
     result = await tool.async_start_task(
         user_id=request.user_id, agent_id=None, args=request.args, public=request.public
     )
 
-    print("### return the result ###")
-    print(result)
-
     return serialize_json(result.model_dump(by_alias=True))
-    # return dumps_json(result.model_dump(by_alias=True))
 
 
 @handle_errors
@@ -191,7 +180,6 @@ async def run_chat_request(
             stream=False,
             is_client_platform=is_client_platform,
         ):
-            print("UPDATE", update)
             data = {
                 "type": update.type.value,
                 "update_config": update_config.model_dump() if update_config else {},
@@ -503,7 +491,6 @@ async def handle_farcaster_emission(request: Request):
     """Handle updates from async_prompt_thread for Farcaster"""
     try:
         data = await request.json()
-        print("FARCASTER EMISSION DATA:", data)
 
         update_type = data.get("type")
         update_config = data.get("update_config", {})
@@ -590,7 +577,6 @@ async def handle_telegram_emission(request: Request):
     """Handle updates from async_prompt_thread for Telegram"""
     try:
         data = await request.json()
-        print("TELEGRAM EMISSION DATA:", data)
 
         update_type = data.get("type")
         update_config = data.get("update_config", {})
@@ -628,10 +614,8 @@ async def handle_telegram_emission(request: Request):
 
         # Verify bot info
         try:
-            me = await bot.get_me()
-            print("BOT INFO:", me.to_dict())
+            await bot.get_me()
         except Exception as e:
-            print("Failed to get bot info:", str(e))
             return JSONResponse(
                 status_code=500,
                 content={"error": f"Bot authentication failed: {str(e)}"},
@@ -648,10 +632,7 @@ async def handle_telegram_emission(request: Request):
                         message_thread_id=thread_id,
                     )
                 except Exception as e:
-                    print(f"Failed to send message: {str(e)}")
-                    print(
-                        f"Params: chat_id={chat_id}, text={content}, reply_to={message_id}, thread_id={thread_id}"
-                    )
+                    logger.error(f"Failed to send message: {str(e)}")
                     raise
 
         elif update_type == UpdateType.TOOL_COMPLETE:
@@ -697,7 +678,6 @@ async def handle_telegram_update(request: Request):
 
     try:
         update_data = await request.json()
-        print("TELEGRAM UPDATE DATA:", update_data)
 
         # Find deployment by webhook secret
         deployment = next(
@@ -731,10 +711,8 @@ async def handle_telegram_update(request: Request):
                     "Content-Type": "application/json",
                 },
             ) as response:
-                print("CHAT RESPONSE:", response.status)
                 if response.status != 200:
                     error_text = await response.text()
-                    print("CHAT ERROR:", error_text)
                     return JSONResponse(
                         status_code=500,
                         content={
@@ -1358,7 +1336,6 @@ async def handle_create_notification(request: CreateNotificationRequest):
     return {"id": str(notification.id), "message": "Notification created successfully"}
 
 
-
 import torch, torch.nn.functional as F
 from transformers import CLIPProcessor, CLIPModel
 
@@ -1368,11 +1345,12 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # Only load model on Modal, not on localhost
 # MODAL_IS_REMOTE is automatically set by Modal when running remotely
 if os.getenv("MODAL_IS_REMOTE") == "1":
-    model  = CLIPModel.from_pretrained(MODEL_NAME).to(device).eval()
-    proc   = CLIPProcessor.from_pretrained(MODEL_NAME)
+    model = CLIPModel.from_pretrained(MODEL_NAME).to(device).eval()
+    proc = CLIPProcessor.from_pretrained(MODEL_NAME)
 else:
     model = None
     proc = None
+
 
 # Embed handler
 @handle_errors
@@ -1381,11 +1359,14 @@ async def handle_embed(request):
 
     creations = get_collection("creations3")
 
-    inputs = proc(text=[request.query], return_tensors="pt", padding=True, truncation=True).to(device)
+    inputs = proc(
+        text=[request.query], return_tensors="pt", padding=True, truncation=True
+    ).to(device)
     v = model.get_text_features(**inputs)
     qv = F.normalize(v, p=2, dim=-1)[0].cpu().tolist()
 
     return {"embedding": qv}
+
 
 # Embed search handler
 @handle_errors
@@ -1443,6 +1424,7 @@ async def handle_embedsearch(request):
 
     return {"results": results}
 
+
 @handle_errors
 async def handle_extract_agent_prompts(request):
     """
@@ -1458,9 +1440,13 @@ async def handle_extract_agent_prompts(request):
     from eve.agent.session.models import Session
 
     class AgentPromptsResponse(BaseModel):
-        agent_instructions: str = Field(description="Core personality traits and characteristics")
+        agent_instructions: str = Field(
+            description="Core personality traits and characteristics"
+        )
         agent_description: str = Field(description="Short summary of agent's purpose")
-        memory_instructions: str = Field(description="Instructions for memory extraction")
+        memory_instructions: str = Field(
+            description="Instructions for memory extraction"
+        )
 
     # Get user_id and verify user exists
     user_id = request.user_id
@@ -1473,7 +1459,7 @@ async def handle_extract_agent_prompts(request):
     if not session:
         raise APIError(f"Session not found: {request.session_id}", status_code=404)
 
-    session_messages = select_messages(session, selection_limit = 50)
+    session_messages = select_messages(session, selection_limit=50)
     conversation_text, _ = messages_to_text(session_messages)
 
     # Get agent name from request, default to "<agent-name>" if not provided
