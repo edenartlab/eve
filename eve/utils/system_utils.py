@@ -5,6 +5,8 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pprint import pformat
 
+from loguru import logger
+
 
 def log_memory_info():
     """
@@ -13,8 +15,6 @@ def log_memory_info():
     import psutil
     import shutil
     import subprocess
-
-    print("\n=== Memory Usage ===")
 
     # GPU VRAM using nvidia-smi
     try:
@@ -27,19 +27,18 @@ def log_memory_info():
         )
         total_mem, used_mem = map(int, result.decode("utf-8").strip().split(","))
         gpu_percent = (used_mem / total_mem) * 100
-        print(f"GPU Memory: {gpu_percent:.1f}% of {total_mem / 1024:.1f}GB")
+        logger.info(f"GPU Memory: {gpu_percent:.1f}% of {total_mem / 1024:.1f}GB")
     except (subprocess.CalledProcessError, FileNotFoundError):
-        print("GPU info not available")
+        logger.warning("GPU info not available")
 
     # System RAM
     ram = psutil.virtual_memory()
-    print(f"RAM Usage: {ram.percent}% of {ram.total / (1024**3):.1f}GB")
+    logger.info(f"RAM Usage: {ram.percent}% of {ram.total / (1024**3):.1f}GB")
 
     # Disk usage (root directory)
     usage = shutil.disk_usage("/root")
     disk_percent = (usage.used / usage.total) * 100
-    print(f"Disk Usage: {disk_percent:.1f}% of {usage.total / (1024**3):.1f}GB")
-    print("==================\n")
+    logger.info(f"Disk Usage: {disk_percent:.1f}% of {usage.total / (1024**3):.1f}GB")
 
 
 def exponential_backoff(
@@ -56,7 +55,7 @@ def exponential_backoff(
             if attempt == max_attempts:
                 raise e
             jitter = random.uniform(-max_jitter, max_jitter)
-            print(
+            logger.warning(
                 f"Attempt {attempt} failed because: {e}. Retrying in {delay} seconds..."
             )
             time.sleep(delay + jitter)
@@ -77,7 +76,7 @@ async def async_exponential_backoff(
             if attempt == max_attempts:
                 raise e
             jitter = random.uniform(-max_jitter, max_jitter)
-            print(
+            logger.warning(
                 f"Attempt {attempt} failed because: {e}. Retrying in {delay} seconds..."
             )
             await asyncio.sleep(delay + jitter)
@@ -96,7 +95,7 @@ def process_in_parallel(array, func, max_workers=3):
                 index = futures[future]
                 results[index] = future.result()
             except Exception as e:
-                print(f"Task error: {e}")
+                logger.error(f"Task error: {e}")
                 for f in futures:
                     f.cancel()
                 raise e
@@ -119,4 +118,4 @@ def pprint(*args, color=None, indent=4):
     for arg in args:
         string = pformat(arg, indent=indent)
         colored_output = f"{colors[color]}{string}\033[0m"
-        print(colored_output)
+        logger.info(colored_output)

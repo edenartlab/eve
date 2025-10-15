@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from .agent import Agent
 from .mongo import Collection, Document, get_collection
+from loguru import logger
 
 
 REPO_URL = "https://github.com/edenartlab/eve.git"
@@ -193,11 +194,10 @@ class Deployment(Document):
 def authenticate_modal_key() -> bool:
     token_id = os.getenv("MODAL_DEPLOYER_TOKEN_ID")
     token_secret = os.getenv("MODAL_DEPLOYER_TOKEN_SECRET")
-    
+
     if not token_id or not token_secret:
-        print("Warning: Modal deployer token not found in environment variables")
         return False
-        
+
     subprocess.run(
         [
             "modal",
@@ -226,7 +226,6 @@ def check_environment_exists(env_name: str) -> bool:
 
 
 def create_environment(env_name: str):
-    print(f"Creating environment {env_name}")
     subprocess.run(["modal", "environment", "create", env_name])
 
 
@@ -248,7 +247,6 @@ def create_modal_secrets(secrets_dict: Dict[str, str], group_name: str):
 def clone_repo(temp_dir: str, branch: str = None):
     """Clone the eve repository to a temporary directory"""
     branch = branch or REPO_BRANCH
-    print(f"Cloning repo {REPO_URL} to {temp_dir} on branch {branch}")
     subprocess.run(
         ["git", "clone", "-b", branch, "--single-branch", REPO_URL, temp_dir],
         check=True,
@@ -308,8 +306,6 @@ def prepare_client_file(
         pass
     elif platform == "twitter":
         pass
-
-    print(modified_content)
 
     temp_dir = tempfile.mkdtemp()
     temp_file = Path(temp_dir) / "modal_client.py"
@@ -394,10 +390,9 @@ async def stop_client_discord(deployment: Deployment):
                 "command",
                 {"command": "stop", "deployment_id": str(deployment.id)},
             )
-            print(f"Sent stop command for deployment {deployment.id} via Ably")
 
         except Exception as e:
-            print(f"Failed to notify gateway service: {e}")
+            logger.error(f"Failed to notify gateway service: {e}")
 
 
 async def stop_client_modal(agent: Agent, platform: ClientType):
@@ -423,6 +418,7 @@ async def stop_client_modal(agent: Agent, platform: ClientType):
 async def stop_client_twitter(agent: Agent):
     pass
 
+
 # Add the new function for stopping Telegram client
 async def stop_client_telegram(deployment: Deployment):
     if deployment:
@@ -434,11 +430,10 @@ async def stop_client_telegram(deployment: Deployment):
                 "command",
                 {"command": "unregister_telegram", "deployment_id": str(deployment.id)},
             )
-            print(
-                f"Sent unregister command for Telegram deployment {deployment.id} via Ably"
-            )
         except Exception as e:
-            print(f"Failed to notify gateway service for Telegram unregistration: {e}")
+            logger.error(
+                f"Failed to notify gateway service for Telegram unregistration: {e}"
+            )
 
 
 async def stop_client_farcaster(deployment: Deployment):
@@ -462,15 +457,12 @@ async def stop_client_farcaster(deployment: Deployment):
                         json=webhook_data,
                     ) as response:
                         if response.status == 200:
-                            print(
-                                f"Successfully unregistered Neynar webhook {webhook_id}"
-                            )
                             # Clear the webhook_id from config after successful deletion
                             deployment.config.farcaster.webhook_id = None
                             deployment.save()
                         else:
                             error_text = await response.text()
-                            print(f"Failed to unregister webhook: {error_text}")
+                            logger.error(f"Failed to unregister webhook: {error_text}")
 
             except Exception as e:
-                print(f"Error unregistering Neynar webhook: {e}")
+                logger.error(f"Error unregistering Neynar webhook: {e}")

@@ -1,4 +1,3 @@
-import time
 import json
 import traceback
 from elevenlabs import Model
@@ -7,15 +6,13 @@ import instructor
 import sentry_sdk
 from datetime import timezone
 
-# from pathlib import Path
+from loguru import logger
+
 from bson import ObjectId
 from typing import Optional, Literal, Any, Dict, List
 from datetime import datetime
 
-# from dotenv import dotenv_values
 from pydantic import Field, BaseModel, ConfigDict
-from functools import wraps
-# from pydantic.json_schema import SkipJsonSchema
 
 from ..tool_constants import (
     TWITTER_TOOLS,
@@ -26,32 +23,12 @@ from ..tool_constants import (
     PRINTIFY_TOOLS,
     CAPTIONS_TOOLS,
     TIKTOK_TOOLS,
-    SOCIAL_MEDIA_TOOLS,
     TOOL_SETS,
 )
 from ..mongo import Collection, get_collection
 from ..models import Model
 from ..user import User, Manna
-from ..utils import load_template
 from .thread import Thread
-
-
-def profile_method(method_name):
-    """Decorator to profile method execution time"""
-
-    def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            start_time = time.time()
-            result = func(*args, **kwargs)
-            end_time = time.time()
-            elapsed = end_time - start_time
-            print(f"PERF_PROFILE: {method_name} took {elapsed:.3f}s")
-            return result
-
-        return wrapper
-
-    return decorator
 
 
 class Suggestion(BaseModel):
@@ -70,7 +47,7 @@ class Suggestion(BaseModel):
 @Collection("agent_permissions")
 class AgentPermission(BaseModel):
     """Permissions for agents stored in agent_permissions collection."""
-    
+
     agent: ObjectId
     user: ObjectId
     level: Literal["editor", "owner"]
@@ -97,12 +74,14 @@ class AgentPermissions(BaseModel):
 
 class AgentLLMSettings(BaseModel):
     """LLM configuration and thinking settings for an agent."""
-    
+
     model_profile: Optional[str] = "medium"  # "low", "medium", "high"
     thinking_policy: Optional[str] = "auto"  # "auto", "off", "always"
     thinking_effort_cap: Optional[str] = "medium"  # "low", "medium", "high"
-    thinking_effort_instructions: Optional[str] = None  # Custom instructions when thinking_policy == "auto"
-    
+    thinking_effort_instructions: Optional[str] = (
+        None  # Custom instructions when thinking_policy == "auto"
+    )
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
@@ -155,8 +134,8 @@ class Agent(User):
     agent_extras: Optional[AgentExtras] = None
 
     user_memory_enabled: Optional[bool] = False
-    agent_memory_enabled: Optional[bool] = False # Not yet used anywhere yet
-    
+    agent_memory_enabled: Optional[bool] = False  # Not yet used anywhere yet
+
     @classmethod
     def convert_from_yaml(cls, schema: dict, file_path: str = None) -> dict:
         """
@@ -210,7 +189,6 @@ class Agent(User):
         thread.save()
         return thread
 
-    # @profile_method("_reload")
     def _reload(self, extra_tools: list[str] = []):
         """Reload all tools, loras, and deployments from mongo"""
         from ..tool import get_tools_from_mongo
@@ -263,7 +241,6 @@ class Agent(User):
         else:
             self.tools_ = {}
 
-    # @profile_method("get_tools")
     def get_tools(self, cache=True, auth_user: str = None, extra_tools: list[str] = []):
         self._reload(extra_tools)
         tools = self.tools_
@@ -350,14 +327,16 @@ class Agent(User):
             else:
                 # Check agent_permissions collection for owner-level access
                 permissions_collection = get_collection("agent_permissions")
-                permission = permissions_collection.find_one({
-                    "agent": self.id,
-                    "user": ObjectId(str(auth_user)),
-                    "level": "owner"
-                })
+                permission = permissions_collection.find_one(
+                    {
+                        "agent": self.id,
+                        "user": ObjectId(str(auth_user)),
+                        "level": "owner",
+                    }
+                )
                 if permission:
                     has_owner_permission = True
-        
+
         # if not has_owner_permission:
         #     for tool in SOCIAL_MEDIA_TOOLS:
         #         tools.pop(tool, None)
@@ -419,8 +398,7 @@ class Agent(User):
 
 
 def get_agents_from_mongo(
-    agents: List[str] = None, 
-    include_inactive: bool = False
+    agents: List[str] = None, include_inactive: bool = False
 ) -> Dict[str, Agent]:
     """Get all agents from mongo"""
 
@@ -436,8 +414,8 @@ def get_agents_from_mongo(
                     raise ValueError(f"Duplicate agent {agent.key} found.")
                 agents[agent.key] = agent
         except Exception as e:
-            print(f"Error loading agent {agent.key}: {e}")
-            print(traceback.format_exc())
+            logger.error(f"Error loading agent {agent.key}: {e}")
+            logger.error(traceback.format_exc())
 
     return agents
 
@@ -544,8 +522,6 @@ async def refresh_agent(agent: Agent):
         "updatedAt": time,
     }
 
-    print(update)
-
     agents = get_collection(Agent.collection_name)
     agents.update_one({"_id": agent.id}, {"$set": update})
 
@@ -554,7 +530,7 @@ def _log_tool_operation_error(
     agent: Agent, operation_name: str, error: Exception, **context
 ):
     """Helper to log tool operation errors with Sentry"""
-    print(f"Error in {operation_name}: {error}")
+    logger.error(f"Error in {operation_name}: {error}")
     with sentry_sdk.push_scope() as scope:
         scope.set_tag("component", "tool_operation")
         scope.set_tag("operation", operation_name)

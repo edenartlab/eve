@@ -1,4 +1,3 @@
-import logging
 import os
 import subprocess
 from typing import Dict, Optional
@@ -20,8 +19,8 @@ from eve.agent.thread import Thread
 from eve.agent.tasks import async_title_thread
 from eve.api.api_requests import ChatRequest, UpdateConfig
 from eve.agent.session.models import Deployment, ClientType
+from loguru import logger
 
-logger = logging.getLogger(__name__)
 
 db = os.getenv("DB", "STAGE").upper()
 busy_state_dict = modal.Dict.from_name(
@@ -77,47 +76,63 @@ async def setup_chat(
     return user, agent, thread, tools
 
 
-async def emit_update(update_config: Optional[UpdateConfig], data: dict, session_id: Optional[str] = None):
+async def emit_update(
+    update_config: Optional[UpdateConfig], data: dict, session_id: Optional[str] = None
+):
     """
     Emit updates through configured channels (HTTP, Ably) and also broadcast to SSE connections.
-    
+
     Args:
         update_config: Configuration for update channels
         data: The update data to emit
         session_id: Optional session ID for SSE broadcasting
     """
     from eve.agent.session.debug_logger import SessionDebugger
+
     debugger = SessionDebugger(session_id)
-    
+
     if not update_config and not session_id:
         return
 
     # Emit through configured channels (HTTP or Ably)
     if update_config:
         if update_config.update_endpoint:
-            debugger.log(f"HTTP emit", {"endpoint": update_config.update_endpoint.split('/')[-1]}, emoji='update')
+            debugger.log(
+                f"HTTP emit",
+                {"endpoint": update_config.update_endpoint.split("/")[-1]},
+                emoji="update",
+            )
             await emit_http_update(update_config, data)
         elif update_config.sub_channel_name:
             try:
-                debugger.log(f"Ably emit", {"channel": update_config.sub_channel_name}, emoji='update')
+                debugger.log(
+                    f"Ably emit",
+                    {"channel": update_config.sub_channel_name},
+                    emoji="update",
+                )
                 client = AblyRest(os.getenv("ABLY_PUBLISHER_KEY"))
                 channel = client.channels.get(update_config.sub_channel_name)
                 await channel.publish(update_config.sub_channel_name, data)
             except Exception as e:
                 debugger.log_error("Ably failed", e)
                 logger.error(f"Failed to publish to Ably: {str(e)}")
-    
+
     # Also broadcast to SSE connections if session_id is provided
     if session_id:
         try:
             from eve.api.sse_manager import sse_manager
+
             connection_count = sse_manager.get_connection_count(session_id)
-            
+
             if connection_count > 0:
-                debugger.log(f"SSE broadcast", {"connections": connection_count, "type": data.get("type", "?")}, emoji='broadcast')
+                debugger.log(
+                    f"SSE broadcast",
+                    {"connections": connection_count, "type": data.get("type", "?")},
+                    emoji="broadcast",
+                )
                 await sse_manager.broadcast(session_id, data)
             else:
-                debugger.log(f"No SSE connections", emoji='warning')
+                debugger.log(f"No SSE connections", emoji="warning")
         except Exception as e:
             debugger.log_error("SSE failed", e)
             logger.error(f"Failed to broadcast to SSE connections: {str(e)}")
@@ -322,17 +337,19 @@ async def publish_busy_state(key: str, is_busy: bool, context: dict):
 
 async def update_busy_state(update_config, request_id: str, is_busy: bool):
     """Update busy state using the new typing coordinator."""
-    logger.info(f"[Helpers] update_busy_state called - request: {request_id}, busy: {is_busy}")
-    
+    logger.info(
+        f"[Helpers] update_busy_state called - request: {request_id}, busy: {is_busy}"
+    )
+
     from eve.api.typing_coordinator import update_busy_state as coord_update_busy_state
-    
+
     # Convert to dict if it's a Pydantic model
     config_dict = None
     if hasattr(update_config, "model_dump"):
         config_dict = update_config.model_dump(exclude_unset=True)
     elif isinstance(update_config, dict):
         config_dict = update_config
-    
+
     logger.info(f"[Helpers] config_dict: {config_dict}")
     return await coord_update_busy_state(config_dict, request_id, is_busy)
 
@@ -520,15 +537,15 @@ def check_environment_exists(env_name: str) -> bool:
 
 
 def create_environment(env_name: str):
-    print(f"Creating environment {env_name}")
     subprocess.run(["modal", "environment", "create", env_name])
 
 
 def pre_modal_setup():
     if not authenticate_modal_key():
-        print("Skipping Modal environment setup due to missing credentials")
-        return    
+        logger.warning("Skipping Modal environment setup due to missing credentials")
+        return
     from eve import DEPLOYMENT_ENV_NAME
+
     TRIGGER_ENV_NAME = "triggers"
     if not check_environment_exists(DEPLOYMENT_ENV_NAME):
         create_environment(DEPLOYMENT_ENV_NAME)

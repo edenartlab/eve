@@ -7,6 +7,7 @@ from .mongo import (
     MongoDocumentNotFound,
     get_collection,
 )
+from loguru import logger
 
 
 @Collection("mannas")
@@ -28,7 +29,7 @@ class Manna(Document):
             manna.save()
             return manna
         except Exception as e:
-            print(e)
+            logger.error(e)
             raise e
 
     def spend(self, amount: float):
@@ -91,14 +92,12 @@ class User(Document):
     farcasterId: Optional[str] = None
     farcasterUsername: Optional[str] = None
 
-
     @classmethod
     def load(cls, username, cache=False):
         return super().load(username=username)
 
     def check_manna(self, amount: float):
         if "free_tools" in (self.featureFlags or []):
-            print("free manna for user", self.id)
             return
         manna = Manna.load(self.id)
         total_balance = manna.balance + manna.subscriptionBalance

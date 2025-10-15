@@ -11,7 +11,7 @@ DEPLOYMENT COMMANDS:
 cd /Users/xandersteenbrugge/Documents/GitHub/Eden/eve
 DB=STAGE modal deploy eve/agent/session/memory_cold_sessions_processor.py
 
-# Deploy to production  
+# Deploy to production
 cd /Users/xandersteenbrugge/Documents/GitHub/Eden/eve
 DB=PROD modal deploy eve/agent/session/memory_cold_sessions_processor.py
 
@@ -29,8 +29,15 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import modal
 import sentry_sdk
+from loguru import logger
 
-from eve.agent.session.memory_constants import NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES, CONSIDER_COLD_AFTER_MINUTES, CLEANUP_COLD_SESSIONS_EVERY_MINUTES, LOCAL_DEV
+from eve.agent.session.memory_constants import (
+    NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES,
+    CONSIDER_COLD_AFTER_MINUTES,
+    CLEANUP_COLD_SESSIONS_EVERY_MINUTES,
+    LOCAL_DEV,
+)
+
 
 async def process_cold_sessions():
     """
@@ -39,11 +46,11 @@ async def process_cold_sessions():
     """
 
     if LOCAL_DEV:
-        print("Cold session processing is disabled in local development mode.")
+        logger.debug("Cold session processing is disabled in local development mode.")
         return
-    
-    print("🧠 Processing cold sessions for memory formation...")
-    
+
+    logger.debug("🧠 Processing cold sessions for memory formation...")
+
     try:
         from eve.agent.session.models import Session, ChatMessage
         from eve.agent.session.memory import form_memories
@@ -51,11 +58,11 @@ async def process_cold_sessions():
         current_time = datetime.now(timezone.utc)
         cutoff_time = current_time - timedelta(minutes=CONSIDER_COLD_AFTER_MINUTES)
         hard_filter_date = current_time - timedelta(days=2)
-        
+
         # Query for cold sessions that need memory processing with pagination
         # Handle cases where memory_context may not exist
         MAX_SESSIONS_TO_PROCESS = 100  # Process in batches to avoid memory issues
-        
+
         # Simplified query with compound index optimization
         base_query = {
             "updatedAt": {"$gte": hard_filter_date, "$lt": cutoff_time},
@@ -66,10 +73,12 @@ async def process_cold_sessions():
         query_with_context = {
             **base_query,
             "memory_context.last_activity": {"$lt": cutoff_time},
-            "memory_context.messages_since_memory_formation": {"$gte": NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES}
+            "memory_context.messages_since_memory_formation": {
+                "$gte": NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES
+            },
         }
 
-        print(f"Running queries...")
+        logger.debug(f"Running queries...")
         cold_sessions_with_context = Session.find(
             query_with_context, limit=MAX_SESSIONS_TO_PROCESS // 2
         )
@@ -107,7 +116,7 @@ async def process_cold_sessions():
             if doc.get("_id")
         ]
 
-        print(
+        logger.debug(
             f"Aggregation found {len(candidate_session_ids)} candidate sessions without context"
         )
 
@@ -118,7 +127,7 @@ async def process_cold_sessions():
             if session_id not in processed_session_ids
         ][: MAX_SESSIONS_TO_PROCESS // 2]
 
-        print(
+        logger.debug(
             f"Considering {len(candidate_session_ids)} candidate sessions after filtering processed ones"
         )
 
@@ -137,42 +146,50 @@ async def process_cold_sessions():
             )
 
         # Combine results
-        cold_sessions = list(cold_sessions_with_context) + list(cold_sessions_without_context)
-        print(f"Found {len(cold_sessions_with_context)} cold sessions with context")
-        print(f"Found {len(cold_sessions_without_context)} cold sessions without context")
-        print(f"Found {len(cold_sessions)} total cold sessions to process")
-        
+        cold_sessions = list(cold_sessions_with_context) + list(
+            cold_sessions_without_context
+        )
+        logger.debug(
+            f"Found {len(cold_sessions_with_context)} cold sessions with context"
+        )
+        logger.debug(
+            f"Found {len(cold_sessions_without_context)} cold sessions without context"
+        )
+        logger.debug(f"Found {len(cold_sessions)} total cold sessions to process")
+
         processed_count = 0
         skipped_count = 0
         error_count = 0
-        
+
         for session in cold_sessions:
             try:
                 # Get the primary agent for this session
                 if not session.agents or len(session.agents) == 0:
                     skipped_count += 1
                     continue
-                
+
                 agent_id = session.agents[0]
-                
+
                 # Process memory formation
                 success = await form_memories(agent_id, session)
-                
+
                 if success:
                     processed_count += 1
                 else:
                     error_count += 1
-                    
+
             except Exception as e:
-                print(f"❌ Error processing session {session.id}: {e}")
+                logger.error(f"❌ Error processing session {session.id}: {e}")
                 traceback.print_exc()
                 error_count += 1
-        
+
         total_sessions = processed_count + skipped_count + error_count
-        print(f"✓ Cold session processing complete: {processed_count} processed, {skipped_count} skipped, {error_count} errors, {total_sessions} total")
-        
+        logger.debug(
+            f"✓ Cold session processing complete: {processed_count} processed, {skipped_count} skipped, {error_count} errors, {total_sessions} total"
+        )
+
     except Exception as e:
-        print(f"❌ Error in process_cold_sessions: {e}")
+        logger.error(f"❌ Error in process_cold_sessions: {e}")
         traceback.print_exc()
         sentry_sdk.capture_exception(e)
 
@@ -203,30 +220,32 @@ app = modal.App(
     ],
 )
 
+
 @app.function(
-    image=image, 
+    image=image,
     min_containers=0,
     max_containers=1,
     scaledown_window=10,
-    schedule=modal.Period(minutes=CLEANUP_COLD_SESSIONS_EVERY_MINUTES), 
-    timeout=3600
+    schedule=modal.Period(minutes=CLEANUP_COLD_SESSIONS_EVERY_MINUTES),
+    timeout=3600,
 )
 async def process_cold_sessions_fn():
     """Scheduled function to process cold sessions every CLEANUP_COLD_SESSIONS_EVERY_MINUTES minutes"""
     try:
         await process_cold_sessions()
     except Exception as e:
-        print(f"Error processing cold sessions: {e}")
+        logger.error(f"Error processing cold sessions: {e}")
         sentry_sdk.capture_exception(e)
 
 
 # Utility function for manual triggering (for debugging)
 async def manually_process_cold_sessions():
     """Manually trigger cold session processing for debugging"""
-    print("Manually triggering cold session processing...")
+    logger.debug("Manually triggering cold session processing...")
     await process_cold_sessions()
 
 
 if __name__ == "__main__":
     import asyncio
+
     asyncio.run(manually_process_cold_sessions())

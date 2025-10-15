@@ -3,12 +3,10 @@ Non-route functions for the API module.
 These are Modal functions and helper utilities that are not FastAPI routes.
 """
 
-import logging
 import os
 import time
 import replicate
 import sentry_sdk
-from bson import ObjectId
 
 from eve import utils
 from eve.mongo import get_collection
@@ -23,8 +21,8 @@ from eve.api.runner_tasks import (
     rotate_agent_metadata,
 )
 from eve.api.helpers import busy_state_dict
+from loguru import logger
 
-logger = logging.getLogger(__name__)
 db = os.getenv("DB", "STAGE").upper()
 
 
@@ -35,7 +33,7 @@ async def cancel_stuck_tasks_fn():
     try:
         await cancel_stuck_tasks()
     except Exception as e:
-        print(f"Error cancelling stuck tasks: {e}")
+        logger.error(f"Error cancelling stuck tasks: {e}")
         sentry_sdk.capture_exception(e)
 
 
@@ -43,7 +41,7 @@ async def generate_lora_thumbnails_fn():
     try:
         await generate_lora_thumbnails()
     except Exception as e:
-        print(f"Error generating lora thumbnails: {e}")
+        logger.error(f"Error generating lora thumbnails: {e}")
         sentry_sdk.capture_exception(e)
 
 
@@ -51,22 +49,25 @@ async def rotate_agent_metadata_fn():
     try:
         await rotate_agent_metadata()
     except Exception as e:
-        print(f"Error generating lora thumbnails: {e}")
+        logger.error(f"Error generating lora thumbnails: {e}")
         sentry_sdk.capture_exception(e)
-
 
 
 # Modal task functions
 
 
-async def run(tool_key: str, args: dict, user: str = None, agent: str = None, session: str = None):
+async def run(
+    tool_key: str, args: dict, user: str = None, agent: str = None, session: str = None
+):
     handler = load_handler(tool_key)
     result = await handler(args, user, agent, session)
     return utils.upload_result(result)
 
 
 @task_handler_func
-async def run_task(tool_key: str, args: dict, user: str = None, agent: str = None, session: str = None):
+async def run_task(
+    tool_key: str, args: dict, user: str = None, agent: str = None, session: str = None
+):
     handler = load_handler(tool_key)
     return await handler(args, user, agent, session)
 
@@ -90,7 +91,7 @@ async def run_task_replicate(task: Task):
         outputs = flatten_list(outputs)
         result = replicate_update_task(task, "succeeded", None, outputs, "normal")
     except Exception as e:
-        print(f"Error running replicate: {e}")
+        logger.error(f"Error running replicate: {e}")
         sentry_sdk.capture_exception(e)
         result = replicate_update_task(task, "failed", str(e), None, "normal")
     return result
@@ -170,9 +171,6 @@ async def cleanup_stale_busy_states():
 
         # Get all keys from the dictionary first
         all_keys = list(busy_state_dict.keys())  # This is not atomic but necessary
-        all_values = list(busy_state_dict.values())
-        print(f"Checking keys: {all_keys}")
-        print(f"Checking values: {all_values}")
 
         for key in all_keys:
             try:
@@ -286,10 +284,12 @@ async def embed_recent_creations():
 
         # ---- Settings ----
         MODEL_NAME = "openai/clip-vit-large-patch14"
-        IMAGE_BATCH = 8                      # how many images to embed at once
-        VIDEO_FRAMES = 8                    # how many frames to sample per video
-        VIDEO_POOLING = "mean"              # "mean" | "self_sim" | "max"
-        INCLUDE_THUMBNAIL_FRAME = True      # include stored first-frame thumbnail if present
+        IMAGE_BATCH = 8  # how many images to embed at once
+        VIDEO_FRAMES = 8  # how many frames to sample per video
+        VIDEO_POOLING = "mean"  # "mean" | "self_sim" | "max"
+        INCLUDE_THUMBNAIL_FRAME = (
+            True  # include stored first-frame thumbnail if present
+        )
         HTTP_TIMEOUT = 15
 
         col = get_collection("creations3")
@@ -298,13 +298,15 @@ async def embed_recent_creations():
         cursor = col.find(
             {
                 "embedding": {"$exists": False},
-                "createdAt": {"$gte": datetime.now(timezone.utc) - timedelta(minutes=30)},
+                "createdAt": {
+                    "$gte": datetime.now(timezone.utc) - timedelta(minutes=30)
+                },
                 "$or": [
                     {"mediaAttributes.mimeType": {"$regex": "^image/"}},
-                    {"mediaAttributes.mimeType": {"$regex": "^video/"}}
-                ]
+                    {"mediaAttributes.mimeType": {"$regex": "^video/"}},
+                ],
             },
-            {"_id": 1, "filename": 1, "mediaAttributes": 1, "thumbnail": 1}
+            {"_id": 1, "filename": 1, "mediaAttributes": 1, "thumbnail": 1},
         ).limit(64)  # small batch for “recent” job
 
         docs = list(cursor)
@@ -324,14 +326,25 @@ async def embed_recent_creations():
         def embed_pil_batch(pil_images):
             if not pil_images:
                 return None
-            inputs = proc(images=pil_images, return_tensors="pt", padding=True).to(device)
+            inputs = proc(images=pil_images, return_tensors="pt", padding=True).to(
+                device
+            )
             feats = model.get_image_features(**inputs)
             feats = F.normalize(feats, p=2, dim=-1).detach().cpu()  # [N, D]
             return feats
 
         def _ffprobe_duration(url: str) -> float:
             try:
-                cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "json", url]
+                cmd = [
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-show_entries",
+                    "format=duration",
+                    "-of",
+                    "json",
+                    url,
+                ]
                 cp = subprocess.run(cmd, capture_output=True, text=True, check=True)
                 return float(json.loads(cp.stdout)["format"]["duration"])
             except Exception as e:
@@ -341,9 +354,20 @@ async def embed_recent_creations():
         def _ffmpeg_frame_at(url: str, t: float):
             try:
                 cmd = [
-                    "ffmpeg", "-ss", f"{t:.3f}", "-i", url,
-                    "-frames:v", "1", "-f", "image2pipe", "-vcodec", "mjpeg",
-                    "-loglevel", "error", "-"
+                    "ffmpeg",
+                    "-ss",
+                    f"{t:.3f}",
+                    "-i",
+                    url,
+                    "-frames:v",
+                    "1",
+                    "-f",
+                    "image2pipe",
+                    "-vcodec",
+                    "mjpeg",
+                    "-loglevel",
+                    "error",
+                    "-",
                 ]
                 cp = subprocess.run(cmd, capture_output=True, check=True)
                 return Image.open(io.BytesIO(cp.stdout)).convert("RGB")
@@ -355,14 +379,18 @@ async def embed_recent_creations():
             frames = []
             if INCLUDE_THUMBNAIL_FRAME and thumb_url:
                 try:
-                    im = Image.open(io.BytesIO(requests.get(thumb_url, timeout=HTTP_TIMEOUT).content)).convert("RGB")
+                    im = Image.open(
+                        io.BytesIO(
+                            requests.get(thumb_url, timeout=HTTP_TIMEOUT).content
+                        )
+                    ).convert("RGB")
                     frames.append(im)
                 except Exception as e:
                     logger.warning(f"Failed to load thumbnail {thumb_url}: {e}")
 
             dur = _ffprobe_duration(url)
             if dur <= 0:
-                times = [0.5, 1.5, 2.5, 3.5][:max(0, k)]
+                times = [0.5, 1.5, 2.5, 3.5][: max(0, k)]
             else:
                 if k == 1:
                     times = [0.5 * dur]
@@ -386,7 +414,7 @@ async def embed_recent_creations():
                 return None
 
             if VIDEO_POOLING == "self_sim" and feats.shape[0] > 1:
-                sims = feats @ feats.T   # [N, N]
+                sims = feats @ feats.T  # [N, N]
                 w = sims.sum(dim=1)
                 w = w / (w.sum() + 1e-9)
                 pooled = (feats * w.unsqueeze(1)).sum(dim=0)
@@ -399,10 +427,15 @@ async def embed_recent_creations():
 
         # ---- Partition docs ----
         def is_image_doc(d):
-            mt = d.get("mediaAttributes", {}).get("mimeType", d.get("mediaAttributes", {}).get("type", ""))
+            mt = d.get("mediaAttributes", {}).get(
+                "mimeType", d.get("mediaAttributes", {}).get("type", "")
+            )
             return isinstance(mt, str) and mt.startswith("image/")
+
         def is_video_doc(d):
-            mt = d.get("mediaAttributes", {}).get("mimeType", d.get("mediaAttributes", {}).get("type", ""))
+            mt = d.get("mediaAttributes", {}).get(
+                "mimeType", d.get("mediaAttributes", {}).get("type", "")
+            )
             return isinstance(mt, str) and mt.startswith("video/")
 
         image_docs = [d for d in docs if is_image_doc(d)]
@@ -415,19 +448,23 @@ async def embed_recent_creations():
             for d in image_docs:
                 url = get_full_url(d["filename"])
                 try:
-                    im = Image.open(io.BytesIO(requests.get(url, timeout=HTTP_TIMEOUT).content)).convert("RGB")
+                    im = Image.open(
+                        io.BytesIO(requests.get(url, timeout=HTTP_TIMEOUT).content)
+                    ).convert("RGB")
                     pil_images.append(im)
                     ids.append(d["_id"])
                 except Exception as e:
                     logger.warning(f"Failed to load image {url}: {e}")
 
             if pil_images:
-                feats = embed_pil_batch(pil_images)   # [M, D]
+                feats = embed_pil_batch(pil_images)  # [M, D]
                 if feats is not None:
                     for _id, f in zip(ids, feats):
                         v = f.tolist()
                         bindata_v = Binary.from_vector(v, BinaryVectorDtype.FLOAT32)
-                        img_ops.append(UpdateOne({"_id": _id}, {"$set": {"embedding": bindata_v}}))
+                        img_ops.append(
+                            UpdateOne({"_id": _id}, {"$set": {"embedding": bindata_v}})
+                        )
                     if img_ops:
                         result = col.bulk_write(img_ops, ordered=False)
                         img_done = result.modified_count
@@ -443,7 +480,9 @@ async def embed_recent_creations():
                     if v is None:
                         continue
                     bindata_v = Binary.from_vector(v, BinaryVectorDtype.FLOAT32)
-                    vid_ops.append(UpdateOne({"_id": d["_id"]}, {"$set": {"embedding": bindata_v}}))
+                    vid_ops.append(
+                        UpdateOne({"_id": d["_id"]}, {"$set": {"embedding": bindata_v}})
+                    )
                 except Exception as e:
                     logger.warning(f"Video embed failed for {vurl}: {e}")
 

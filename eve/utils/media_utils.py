@@ -9,8 +9,10 @@ import subprocess
 import blurhash
 import numpy as np
 import requests
+from typing import List
 from PIL import Image, ImageFont, ImageDraw
 from io import BytesIO
+from loguru import logger
 
 try:
     # MoviePy 2.x
@@ -36,6 +38,7 @@ def get_media_attributes(file):
         is_url = file.startswith("http://") or file.startswith("https://")
         if is_url:
             from .file_utils import get_filename_from_url
+
             temp_file_path = "/tmp/eden_file_cache/" + get_filename_from_url(file)
             file = download_file(file, temp_file_path, overwrite=False)
         mime_type = magic.from_file(file, mime=True)
@@ -97,7 +100,7 @@ def upload_media(output, save_thumbnails=True, save_blurhash=True):
             img.thumbnail((100, 100), Image.LANCZOS)
             media_attributes["blurhash"] = blurhash.encode(np.array(img), 4, 4)
         except Exception as e:
-            print(f"Error encoding blurhash: {e}")
+            logger.error(f"Error encoding blurhash: {e}")
 
     return {"filename": filename, "mediaAttributes": media_attributes}
 
@@ -498,7 +501,9 @@ def video_textbox(
     return output_file.name
 
 
-def center_crop_resize(image: Image.Image, target_width: int, target_height: int) -> Image.Image:
+def center_crop_resize(
+    image: Image.Image, target_width: int, target_height: int
+) -> Image.Image:
     """
     Resize and center crop an image to exact dimensions while preserving aspect ratio.
     """
@@ -547,7 +552,7 @@ def create_thumbnail(images: List[str]) -> str:
     num_images = len(images_to_use)
 
     # Create 1024x1024 canvas
-    canvas = Image.new('RGB', (1024, 1024), 'white')
+    canvas = Image.new("RGB", (1024, 1024), "white")
 
     if num_images == 1:
         # Single image - center crop and resize to 1024x1024
@@ -580,9 +585,15 @@ def create_thumbnail(images: List[str]) -> str:
         img3 = download_image_to_PIL(images_to_use[2])
 
         # Calculate average aspect ratio
-        avg_aspect = (img1.width / img1.height + img2.width / img2.height + img3.width / img3.height) / 3
+        avg_aspect = (
+            img1.width / img1.height
+            + img2.width / img2.height
+            + img3.width / img3.height
+        ) / 3
 
-        if avg_aspect > 1.0:  # Wider images - horizontal main split, then vertical subdivision
+        if (
+            avg_aspect > 1.0
+        ):  # Wider images - horizontal main split, then vertical subdivision
             img1_resized = center_crop_resize(img1, 1024, 512)
             img2_resized = center_crop_resize(img2, 512, 512)
             img3_resized = center_crop_resize(img3, 512, 512)
@@ -605,8 +616,8 @@ def create_thumbnail(images: List[str]) -> str:
             canvas.paste(img_resized, positions[i])
 
     # Save to temporary file
-    temp_file = tempfile.NamedTemporaryFile(suffix='.webp', delete=False)
-    canvas.save(temp_file.name, 'WEBP', quality=95)
+    temp_file = tempfile.NamedTemporaryFile(suffix=".webp", delete=False)
+    canvas.save(temp_file.name, "WEBP", quality=95)
 
     # Upload the thumbnail
     result = upload_media(temp_file.name, save_thumbnails=False)
@@ -614,5 +625,4 @@ def create_thumbnail(images: List[str]) -> str:
     # Clean up temp file
     os.unlink(temp_file.name)
 
-    return result['filename']
-
+    return result["filename"]

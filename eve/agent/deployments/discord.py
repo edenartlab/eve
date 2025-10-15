@@ -1,10 +1,10 @@
 import os
 import json
-import logging
 
 import aiohttp
 from ably import AblyRest
 from fastapi import Request
+from loguru import logger
 
 from eve.api.errors import APIError
 from eve.agent.deployments import PlatformClient
@@ -13,7 +13,6 @@ from eve.agent.llm import UpdateType
 from eve.utils import prepare_result
 from eve.api.helpers import get_eden_creation_url
 
-logger = logging.getLogger(__name__)
 db = os.getenv("DB", "STAGE").upper()
 
 
@@ -37,23 +36,30 @@ class DiscordClient(PlatformClient):
                     if response.status != 200:
                         raise Exception(f"Invalid token: {await response.text()}")
                     bot_info = await response.json()
-                    print(f"Verified Discord bot: {bot_info['username']}")
-                    
+
                     # Get application ID and construct OAuth URL
                     application_id = bot_info.get("id")
                     if application_id:
                         # Initialize config if it doesn't exist
                         if config is None:
-                            from eve.agent.session.models import DeploymentSettingsDiscord
-                            config = DeploymentConfig(discord=DeploymentSettingsDiscord())
+                            from eve.agent.session.models import (
+                                DeploymentSettingsDiscord,
+                            )
+
+                            config = DeploymentConfig(
+                                discord=DeploymentSettingsDiscord()
+                            )
                         elif config.discord is None:
-                            from eve.agent.session.models import DeploymentSettingsDiscord
+                            from eve.agent.session.models import (
+                                DeploymentSettingsDiscord,
+                            )
+
                             config.discord = DeploymentSettingsDiscord()
-                        
+
                         # Set the OAuth client ID and URL
                         config.discord.oauth_client_id = application_id
                         config.discord.oauth_url = f"https://discord.com/oauth2/authorize?client_id={application_id}&permissions=274877958144&integration_type=0&scope=bot"
-                        
+
                         # Also store application_id in secrets if needed
                         if secrets.discord and not secrets.discord.application_id:
                             secrets.discord.application_id = application_id
@@ -82,7 +88,6 @@ class DiscordClient(PlatformClient):
                 "command",
                 {"command": "start", "deployment_id": str(self.deployment.id)},
             )
-            print(f"Sent start command for deployment {self.deployment.id} via Ably")
         except Exception as e:
             raise Exception(f"Failed to notify gateway service: {e}")
 
@@ -99,13 +104,12 @@ class DiscordClient(PlatformClient):
                 "command",
                 {"command": "stop", "deployment_id": str(self.deployment.id)},
             )
-            print(f"Sent stop command for deployment {self.deployment.id} via Ably")
 
             # Remove Discord tools
             self.remove_tools()
 
         except Exception as e:
-            print(f"Failed to notify gateway service: {e}")
+            logger.error(f"Failed to notify gateway service: {e}")
 
     async def interact(self, request: Request) -> None:
         """Handle session interactions for Discord"""

@@ -6,6 +6,7 @@ import logging
 import requests
 from dotenv import load_dotenv
 from requests_oauthlib import OAuth1Session
+from loguru import logger
 # from eve.sdk.eden import EdenClient
 # from eve.sdk.eden.client import EdenApiUrls
 
@@ -214,7 +215,7 @@ class EdenX:
         # get tweets from @elonmusk
         user_id = self.get_user_id_by_username("god")
         tweets = self.fetch_user_tweets(user_id)
-        print(tweets)
+        logger.info(tweets)
 
     def run_tweet(self):
         """Continuously fetches mentions and replies to them if necessary."""

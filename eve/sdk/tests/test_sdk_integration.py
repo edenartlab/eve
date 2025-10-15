@@ -37,34 +37,6 @@ def increase_timeout():
     httpx._config.DEFAULT_TIMEOUT_CONFIG.write = 5.0
 
 
-# @pytest.mark.integration
-# @pytest.mark.asyncio
-# async def test_async_create_image(api_urls):
-#     async with EdenClient(api_urls=api_urls) as client:
-#         result = await client.async_create(
-#             workflow="txt2img",
-#             args={
-#                 "prompt": "A beautiful sunset over mountains",
-#             },
-#         )
-#         print(result)
-#         assert "image_url" in result
-#         assert result["image_url"].startswith("https://")
-
-
-# @pytest.mark.integration
-# def test_sync_create_image(client):
-#     result = client.create(
-#         workflow="musicgen",
-#         args={
-#             "prompt": "drum n bass",
-#             "duration": 1,
-#         },
-#     )
-#     print(result)
-#     assert result is not None
-
-
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_async_chat(api_urls):

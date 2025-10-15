@@ -3,3 +3,10 @@ repos:
     rev: v2.3.0
     hooks:
     - id: check-yaml
+  - repo: local
+    hooks:
+    - id: no-print-statements
+      name: Check for print statements
+      entry: '^\s*print\('
+      language: pygrep
+      types: [python]
