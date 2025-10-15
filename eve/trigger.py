@@ -1,28 +1,22 @@
 import logging
-import aiohttp
 import os
 import pytz
-import uuid
 import sentry_sdk
-import time
-import modal
 from jinja2 import Template
 from typing import Optional, Dict, Any, Literal, List
 from bson import ObjectId
 from datetime import datetime, timezone
 from apscheduler.triggers.cron import CronTrigger
-from fastapi import FastAPI, Depends, BackgroundTasks, Request
+from fastapi import BackgroundTasks
 
 from eve.agent import Agent
 from eve.user import User
-from eve.tool import Tool
 from eve.mongo import Collection, Document
 from eve.api.errors import handle_errors, APIError
 from eve.api.api_requests import (
     CreateTriggerRequest,
     DeleteTriggerRequest,
     RunTriggerRequest,
-    CronSchedule,
     PromptSessionRequest,
     SessionCreationArgs,
 )
@@ -33,10 +27,13 @@ from eve.agent.session.session import (
 )
 from eve.agent.session.models import (
     ChatMessageRequestInput,
-    LLMConfig,
     PromptSessionContext,
     Session,
     NotificationConfig,
+)
+from eve.agent.session.tracing import (
+    trace_async_operation,
+    add_breadcrumb,
 )
 
 
@@ -198,6 +195,7 @@ Post the result of your last task to the following channels:
 {% endif %}
 """)
 
+
 async def prepare_trigger_prompt(
     trigger: Trigger,
     agent: Agent,
@@ -235,13 +233,16 @@ async def prepare_trigger_prompt(
             raise APIError(f"Invalid post_to: {post_to}", status_code=400)
 
     trigger_prompt = trigger_prompt_template.render(
-        trigger_prompt=trigger.trigger_prompt,
-        posting_instructions=posting_instructions
+        trigger_prompt=trigger.trigger_prompt, posting_instructions=posting_instructions
     )
 
     # load posting tools even if they are not active by default in the agent
     tools = agent.get_tools(auth_user=user_id, extra_tools=extra_tools)
-    posting_tools = {k: v for k, v in tools.items() if k in ["discord_post", "telegram_post", "farcaster_post", "tweet"]}
+    posting_tools = {
+        k: v
+        for k, v in tools.items()
+        if k in ["discord_post", "telegram_post", "farcaster_post", "tweet"]
+    }
 
     return trigger_prompt, posting_tools
 
@@ -251,6 +252,18 @@ async def execute_trigger(
     trigger_id: str,
     # background_tasks: BackgroundTasks,
 ) -> Session:
+    # Start distributed tracing transaction
+    import sentry_sdk
+    transaction = sentry_sdk.start_transaction(
+        name="trigger_execution",
+        op="trigger.execute",
+    )
+
+    if transaction:
+        transaction.set_tag("trigger_id", trigger_id)
+        # Set as active span (correct API)
+        sentry_sdk.Hub.current.scope.span = transaction
+
     try:
         from eve.api.handlers import setup_session
 
@@ -265,7 +278,14 @@ async def execute_trigger(
         session = None
         user = User.from_mongo(trigger.user)
         agent = Agent.from_mongo(trigger.agent)
-        
+
+        # Add context to transaction
+        if transaction:
+            transaction.set_data("trigger_name", trigger.name)
+            transaction.set_tag("user_id", str(user.id))
+            transaction.set_tag("agent_id", str(agent.id))
+        add_breadcrumb(f"Executing trigger: {trigger.name}", category="trigger")
+
         current_time = datetime.now(timezone.utc)
 
         if trigger.session:
@@ -299,7 +319,7 @@ async def execute_trigger(
         request.notification_config = NotificationConfig(
             user_id=str(user.id),
             notification_type="trigger_complete",
-            title=f"Task Completed",
+            title="Task Completed",
             message=f'Your task "{trigger.name}" has completed successfully',
             trigger_id=str(trigger.id),
             agent_id=str(trigger.agent),
@@ -307,25 +327,27 @@ async def execute_trigger(
             # metadata={"trigger_id": trigger.trigger_id},
             success_notification=True,
             failure_notification=True,
-            failure_title=f"Task Failed",
+            failure_title="Task Failed",
             failure_message=f'Your task "{trigger.name}" has failed',
         )
 
         # Setup session
-        session = setup_session(
-            # background_tasks,
-            None,
-            request.session_id,
-            request.user_id,
-            request,
-        )
+        async with trace_async_operation("trigger.setup_session", session_id=str(request.session_id) if request.session_id else None):
+            session = setup_session(
+                # background_tasks,
+                None,
+                request.session_id,
+                request.user_id,
+                request,
+            )
+            if transaction:
+                transaction.set_data("session_id", str(session.id))
 
-        trigger_prompt, extra_tools = await prepare_trigger_prompt(
-            trigger, 
-            agent, 
-            session, 
-            request.user_id
-        )
+        # Prepare trigger prompt
+        async with trace_async_operation("trigger.prepare_prompt"):
+            trigger_prompt, extra_tools = await prepare_trigger_prompt(
+                trigger, agent, session, request.user_id
+            )
 
         # Create artwork generation message
         message = ChatMessageRequestInput(role="user", content=trigger_prompt)
@@ -342,16 +364,19 @@ async def execute_trigger(
         )
 
         # Add user message to session
-        await add_chat_message(session, context)
+        async with trace_async_operation("trigger.add_message"):
+            await add_chat_message(session, context)
 
         # Build LLM context
-        context = await build_llm_context(
-            session,
-            agent,
-            context,
-        )
+        async with trace_async_operation("trigger.build_context"):
+            context = await build_llm_context(
+                session,
+                agent,
+                context,
+            )
 
-        # Execute the prompt session
+        # Execute the prompt session (this will have its own transaction)
+        add_breadcrumb("Starting prompt session", category="trigger")
         async for _ in async_prompt_session(session, context, agent):
             pass
 
@@ -371,6 +396,10 @@ async def execute_trigger(
             trigger.update(status="active", next_scheduled_run=next_run)
         else:
             trigger.update(status="finished", next_scheduled_run=None)
+
+        # Finish transaction
+        if transaction:
+            transaction.finish()
 
 
 @handle_errors
@@ -411,7 +440,6 @@ async def handle_trigger_run(
 
     except Exception as e:
         raise APIError(f"Failed to execute trigger: {str(e)}", status_code=500)
-
 
 
 # TODO

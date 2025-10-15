@@ -51,7 +51,6 @@ class UserMessage(ChatMessage):
             attachment_files = []
             attachment_errors = []
             for attachment in self.attachments:
-                print("downloading attachment", attachment)
                 try:
                     attachment_file = download_file(
                         attachment,
@@ -60,9 +59,7 @@ class UserMessage(ChatMessage):
                         ),
                         overwrite=False,
                     )
-                    print("downloaded attachment", attachment_file)
                     mime_type = magic.from_file(attachment_file, mime=True)
-                    print("mime type", mime_type)
                     if "video" in mime_type:
                         attachment_lines.append(
                             f"* {attachment} (The asset is a video, the corresponding image attachment is its first frame.)"
@@ -76,7 +73,6 @@ class UserMessage(ChatMessage):
                             f"* {attachment}: (Mime type: {mime_type})"
                         )
                 except Exception as e:
-                    print("error downloading attachment", e)
                     attachment_errors.append(f"* {attachment}: {str(e)}")
 
             attachments = ""
@@ -110,7 +106,6 @@ class UserMessage(ChatMessage):
                             }
                         )
                     except Exception as e:
-                        print(f"Error processing image {file_path}: {e}")
                         # Skip this image and continue with others
                         continue
             elif schema == "openai":
@@ -121,17 +116,18 @@ class UserMessage(ChatMessage):
                             {
                                 "type": "image_url",
                                 "image_url": {
-                                    "url": f"""data:image/jpeg;base64,{image_to_base64(
-                                file_path, 
-                                max_size=512, 
-                                quality=95, 
-                                truncate=truncate_images
-                            )}"""
+                                    "url": f"""data:image/jpeg;base64,{
+                                        image_to_base64(
+                                            file_path,
+                                            max_size=512,
+                                            quality=95,
+                                            truncate=truncate_images,
+                                        )
+                                    }"""
                                 },
                             }
                         )
                     except Exception as e:
-                        print(f"Error processing image {file_path}: {e}")
                         # Skip this image and continue with others
                         continue
 
@@ -224,12 +220,14 @@ class ToolCall(BaseModel):
                         {
                             "type": "image_url",
                             "image_url": {
-                                "url": f"""data:image/jpeg;base64,{image_to_base64(
-                                file_path, 
-                                max_size=512, 
-                                quality=95, 
-                                truncate=truncate_images
-                            )}"""
+                                "url": f"""data:image/jpeg;base64,{
+                                    image_to_base64(
+                                        file_path,
+                                        max_size=512,
+                                        quality=95,
+                                        truncate=truncate_images,
+                                    )
+                                }"""
                             },
                         }
                         for file_path in files
@@ -245,7 +243,6 @@ class ToolCall(BaseModel):
                     result = dumps_json(result)
 
             except Exception as e:
-                # print("Warning: Can not inject image results:", e)
                 result = dumps_json(result)
 
         elif self.status == "failed":

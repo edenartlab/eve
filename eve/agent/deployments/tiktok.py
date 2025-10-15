@@ -1,13 +1,9 @@
-import os
-import logging
-
 from fastapi import Request
 
+from loguru import logger
 from eve.api.errors import APIError
 from eve.agent.deployments import PlatformClient
 from eve.agent.session.models import DeploymentSecrets, DeploymentConfig
-
-logger = logging.getLogger(__name__)
 
 
 class TiktokClient(PlatformClient):
@@ -41,7 +37,7 @@ class TiktokClient(PlatformClient):
             # Remove TikTok tools
             self.remove_tools()
         except Exception as e:
-            print(f"Failed to remove TikTok tools: {e}")
+            logger.error(f"Failed to remove TikTok tools: {e}")
 
     async def interact(self, request: Request) -> None:
         """Handle session interactions for TikTok"""

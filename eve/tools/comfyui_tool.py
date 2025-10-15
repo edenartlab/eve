@@ -2,7 +2,6 @@ import os
 import modal
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
-from sentry_sdk import trace
 
 from ..mongo import get_collection
 from ..tool import Tool, tool_context
@@ -51,7 +50,13 @@ class ComfyUITool(Tool):
         return super().convert_from_yaml(schema, file_path)
 
     @Tool.handle_run
-    async def async_run(self, args: Dict, user_id: str = None, agent_id: str = None, session_id: str = None):
+    async def async_run(
+        self,
+        args: Dict,
+        user_id: str = None,
+        agent_id: str = None,
+        session_id: str = None,
+    ):
         db = os.getenv("DB", "STAGE")
         print(f"ComfyUI: comfyui-{self.workspace}-{db}")
         cls = modal.Cls.from_name(
@@ -61,7 +66,6 @@ class ComfyUITool(Tool):
         return result
 
     @Tool.handle_start_task
-    @trace
     async def async_start_task(self, task: Task):
         user = User.from_mongo(task.user)
         special_class = self.handle_exception_routing(user)

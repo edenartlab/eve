@@ -16,6 +16,7 @@ from eve.api.api_requests import ChatRequest, PromptSessionRequest
 from eve.api.errors import APIError
 from eve.agent.deployments import PlatformClient
 from eve.user import User
+from loguru import logger
 
 db = os.getenv("DB", "STAGE").upper()
 
@@ -35,8 +36,7 @@ class TelegramClient(PlatformClient):
         # Validate bot token
         try:
             bot = Bot(secrets.telegram.token)
-            bot_info = await bot.get_me()
-            print(f"Verified Telegram bot: {bot_info.username}")
+            await bot.get_me()
         except Exception as e:
             raise APIError(f"Invalid Telegram token: {str(e)}", status_code=400)
 
@@ -81,9 +81,6 @@ class TelegramClient(PlatformClient):
                     "token": self.deployment.secrets.telegram.token,
                 },
             )
-            print(
-                f"Sent Telegram registration command for deployment {self.deployment.id} via Ably"
-            )
         except Exception as e:
             raise Exception(f"Failed to notify gateway service for Telegram: {e}")
 
@@ -103,13 +100,12 @@ class TelegramClient(PlatformClient):
                     "deployment_id": str(self.deployment.id),
                 },
             )
-            print(
-                f"Sent unregister command for Telegram deployment {self.deployment.id} via Ably"
-            )
 
             self.remove_tools()
         except Exception as e:
-            print(f"Failed to notify gateway service for Telegram unregistration: {e}")
+            logger.error(
+                f"Failed to notify gateway service for Telegram unregistration: {e}"
+            )
 
 
 async def create_telegram_session_request(

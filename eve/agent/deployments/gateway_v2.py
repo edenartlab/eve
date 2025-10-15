@@ -19,7 +19,10 @@ from eve.agent.session.models import (
     Deployment,
     ClientType,
 )
-from eve.agent.deployments.typing_manager import DiscordTypingManager, TelegramTypingManager
+from eve.agent.deployments.typing_manager import (
+    DiscordTypingManager,
+    TelegramTypingManager,
+)
 from eve.api.api_requests import SessionCreationArgs, PromptSessionRequest
 import eve.mongo
 from fastapi import FastAPI
@@ -93,7 +96,6 @@ class GatewayEvent:
     MESSAGE_CREATE = "MESSAGE_CREATE"
 
 
-
 class DiscordGatewayClient:
     GATEWAY_VERSION = 10
     GATEWAY_URL = f"wss://gateway.discord.gg/?v={GATEWAY_VERSION}&encoding=json"
@@ -128,15 +130,21 @@ class DiscordGatewayClient:
         try:
             while self._reconnect:
                 if not self.ws:
-                    logger.warning(f"Heartbeat loop: WebSocket is None for {self.deployment.id}")
+                    logger.warning(
+                        f"Heartbeat loop: WebSocket is None for {self.deployment.id}"
+                    )
                     break
                 try:
                     await self.ws.send(
-                        json.dumps({"op": GatewayOpCode.HEARTBEAT, "d": self._last_sequence})
+                        json.dumps(
+                            {"op": GatewayOpCode.HEARTBEAT, "d": self._last_sequence}
+                        )
                     )
                     await asyncio.sleep(self.heartbeat_interval / 1000)
                 except websockets.exceptions.ConnectionClosed as e:
-                    logger.info(f"Heartbeat loop: Connection closed for {self.deployment.id}: {e}")
+                    logger.info(
+                        f"Heartbeat loop: Connection closed for {self.deployment.id}: {e}"
+                    )
                     break
                 except Exception as e:
                     logger.error(f"Heartbeat loop error for {self.deployment.id}: {e}")
@@ -153,7 +161,9 @@ class DiscordGatewayClient:
                     "op": GatewayOpCode.IDENTIFY,
                     "d": {
                         "token": self.token,
-                        "intents": 1 << 9 | 1 << 12 | 1 << 15,  # GUILD_MESSAGES | DIRECT_MESSAGES | MESSAGE_CONTENT
+                        "intents": 1 << 9
+                        | 1 << 12
+                        | 1 << 15,  # GUILD_MESSAGES | DIRECT_MESSAGES | MESSAGE_CONTENT
                         "properties": {
                             "$os": "linux",
                             "$browser": "eve",
@@ -387,7 +397,9 @@ class DiscordGatewayClient:
         chat_url = (
             construct_agent_chat_url(agent_username)
             if agent_username
-            else (f"https://{os.getenv('DB', 'STAGE') == 'PROD' and 'app.eden.art' or 'staging.app.eden.art'}/chat")
+            else (
+                f"https://{os.getenv('DB', 'STAGE') == 'PROD' and 'app.eden.art' or 'staging.app.eden.art'}/chat"
+            )
         )
 
         channel_mentions = []
@@ -408,7 +420,9 @@ class DiscordGatewayClient:
             channels_text = ", ".join(channel_mentions)
             message_lines.append(f"Or ping me in: {channels_text}")
         else:
-            message_lines.append("Or say hi in the public Discord channels I'm active in.")
+            message_lines.append(
+                "Or say hi in the public Discord channels I'm active in."
+            )
 
         payload = {
             "content": "\n".join(message_lines),
@@ -426,7 +440,9 @@ class DiscordGatewayClient:
                             f"[{trace_id}] Failed to send DM redirect message: {error_text}"
                         )
                     else:
-                        logger.info(f"[{trace_id}] DM redirect message sent successfully")
+                        logger.info(
+                            f"[{trace_id}] DM redirect message sent successfully"
+                        )
         except Exception as exc:
             logger.error(
                 f"[{trace_id}] Error sending DM redirect message: {exc}",
@@ -447,7 +463,7 @@ class DiscordGatewayClient:
         logger.info("Processing message content", extra={"message_data": message_data})
         content = message_data["content"]
         mentioned_agent_ids = []
-        print(f"message_data: {message_data}")
+        logger.debug(f"message_data: {message_data}")
 
         # Handle mentions
         if "mentions" in message_data:
@@ -513,9 +529,9 @@ class DiscordGatewayClient:
             # Check if the session is deleted or archived - if so, reactivate it
             needs_reactivation = False
 
-            if hasattr(session, 'deleted') and session.deleted:
+            if hasattr(session, "deleted") and session.deleted:
                 needs_reactivation = True
-            elif hasattr(session, 'status') and session.status == "archived":
+            elif hasattr(session, "status") and session.status == "archived":
                 needs_reactivation = True
 
             if needs_reactivation:
@@ -637,13 +653,11 @@ class DiscordGatewayClient:
     ) -> PromptSessionRequest:
         """Create a PromptSessionRequest object"""
         # If specific agents are mentioned, use those; otherwise use this deployment's agent
-        print(f"mentioned_agent_ids: {mentioned_agent_ids}")
 
         if mentioned_agent_ids:
             actor_agent_ids = mentioned_agent_ids
         else:
             actor_agent_ids = []
-        print(f"actor_agent_ids: {actor_agent_ids}")
 
         return PromptSessionRequest(
             user_id=str(user.id),
@@ -805,18 +819,30 @@ class DiscordGatewayClient:
 
                     # Only proceed if is_busy is explicitly True or False
                     if is_busy is True:
-                        channel_id_int = int(channel_id) if isinstance(channel_id, str) else channel_id
+                        channel_id_int = (
+                            int(channel_id)
+                            if isinstance(channel_id, str)
+                            else channel_id
+                        )
                         logger.info(
                             f"[{trace_id}] Starting typing - channel: {channel_id_int}, request: {request_id}"
                         )
-                        await self.typing_manager.start_typing(str(channel_id_int), request_id)
+                        await self.typing_manager.start_typing(
+                            str(channel_id_int), request_id
+                        )
                     elif is_busy is False:
-                        channel_id_int = int(channel_id) if isinstance(channel_id, str) else channel_id
+                        channel_id_int = (
+                            int(channel_id)
+                            if isinstance(channel_id, str)
+                            else channel_id
+                        )
                         logger.info(
                             f"[{trace_id}] Stopping typing - channel: {channel_id_int}, request: {request_id}"
                         )
                         await self.typing_manager.stop_typing(
-                            str(channel_id_int), reason="ably_signal", request_id=request_id
+                            str(channel_id_int),
+                            reason="ably_signal",
+                            request_id=request_id,
                         )
                     else:
                         logger.warning(
@@ -874,7 +900,9 @@ class DiscordGatewayClient:
                         if data.get("op") == GatewayOpCode.INVALID_SESSION:
                             # Check the close code if available
                             d_data = data.get("d", {})
-                            close_code = d_data.get("code", 0) if isinstance(d_data, dict) else 0
+                            close_code = (
+                                d_data.get("code", 0) if isinstance(d_data, dict) else 0
+                            )
                             if close_code == 4004 or "Authentication failed" in str(
                                 data
                             ):
@@ -919,7 +947,11 @@ class DiscordGatewayClient:
                                     f"Gateway connected for deployment {self.deployment.id}"
                                 )
 
-            except (websockets.exceptions.ConnectionClosed, websockets.exceptions.ConnectionClosedError, websockets.exceptions.ConnectionClosedOK) as e:
+            except (
+                websockets.exceptions.ConnectionClosed,
+                websockets.exceptions.ConnectionClosedError,
+                websockets.exceptions.ConnectionClosedOK,
+            ) as e:
                 logger.error(
                     f"Gateway connection closed for {self.deployment.id}: Code={e.code}, Reason={e.reason}"
                 )
@@ -969,9 +1001,15 @@ class DiscordGatewayClient:
                 if self.ws:
                     try:
                         # Check if websocket is still open using state property
-                        if hasattr(self.ws, 'state') and self.ws.state.name in ['OPEN', 'CLOSING']:
+                        if hasattr(self.ws, "state") and self.ws.state.name in [
+                            "OPEN",
+                            "CLOSING",
+                        ]:
                             await self.ws.close()
-                        elif hasattr(self.ws, 'close_code') and self.ws.close_code is None:
+                        elif (
+                            hasattr(self.ws, "close_code")
+                            and self.ws.close_code is None
+                        ):
                             # Alternative check - if no close code, might still be open
                             await self.ws.close()
                     except Exception as e:
@@ -1036,17 +1074,21 @@ class DiscordGatewayClient:
             try:
                 # Check if websocket is still open
                 ws_is_open = False
-                if hasattr(self.ws, 'state'):
+                if hasattr(self.ws, "state"):
                     # websockets library uses state property
-                    ws_is_open = self.ws.state.name in ['OPEN', 'CLOSING']
-                elif hasattr(self.ws, 'close_code'):
+                    ws_is_open = self.ws.state.name in ["OPEN", "CLOSING"]
+                elif hasattr(self.ws, "close_code"):
                     # Check if close_code is None (still open)
                     ws_is_open = self.ws.close_code is None
-                
+
                 if ws_is_open:
-                    logger.info(f"Closing WebSocket connection for {self.deployment.id}")
+                    logger.info(
+                        f"Closing WebSocket connection for {self.deployment.id}"
+                    )
                     # Schedule the close, don't block here
-                    asyncio.create_task(self.ws.close(code=1000, reason="Client stopping"))
+                    asyncio.create_task(
+                        self.ws.close(code=1000, reason="Client stopping")
+                    )
                 else:
                     logger.info(f"WebSocket already closed for {self.deployment.id}")
                     # Trigger cleanup since WS is already closed
@@ -1057,7 +1099,9 @@ class DiscordGatewayClient:
                     except Exception as e:
                         logger.error(f"Error scheduling cleanup: {e}")
             except Exception as e:
-                logger.error(f"Error checking WebSocket state for {self.deployment.id}: {e}")
+                logger.error(
+                    f"Error checking WebSocket state for {self.deployment.id}: {e}"
+                )
                 # Try to trigger cleanup anyway
                 try:
                     loop = asyncio.get_event_loop()
@@ -1268,7 +1312,9 @@ class GatewayManager:
                                 deployment_id, str(chat_id), request_id, thread_id
                             )
                         elif is_busy is False:
-                            channel_key = f"{deployment_id}:{chat_id}:{thread_id or 'main'}"
+                            channel_key = (
+                                f"{deployment_id}:{chat_id}:{thread_id or 'main'}"
+                            )
                             await self.telegram_typing_manager.stop_typing(
                                 channel_key, reason="ably_signal", request_id=request_id
                             )
@@ -1355,22 +1401,23 @@ async def lifespan(app: FastAPI):
     stop_tasks = []
     for deployment_id in list(manager.clients.keys()):
         stop_tasks.append(manager.stop_client(deployment_id))
-    
+
     if stop_tasks:
         await asyncio.gather(*stop_tasks, return_exceptions=True)
-    
+
     # Clean up Ably connections
     try:
         if manager.ably_client:
             await manager.ably_client.close()
     except Exception as e:
         logger.error(f"Error closing Ably client: {e}")
-    
+
     # Give tasks a moment to clean up
     await asyncio.sleep(0.5)
 
 
 web_app = FastAPI(lifespan=lifespan)
+
 
 @app.function(
     image=image,

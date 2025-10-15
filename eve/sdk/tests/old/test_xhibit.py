@@ -82,18 +82,13 @@ class EdenClient:
 
     async def async_create(self, workflow: str, args: Optional[dict] = None) -> dict:
         uri = f"{self.api_urls.tools_api_url}/create"
-        print(uri)
         headers = {"X-Api-Key": self.api_key.get_secret_value()}
-        print(headers)
         payload = {"workflow": workflow, "args": args or {}}
-        print(payload)
 
         async with httpx.AsyncClient() as client:
-            print("POST TO", uri)
             response = await client.post(uri, json=payload, headers=headers)
             response.raise_for_status()
             response_json = response.json()
-            print("response", response_json)
             task_id = response_json.get("_id")
 
         async for event in self._subscribe(task_id):
@@ -149,21 +144,14 @@ def get_api_key() -> SecretStr:
         )
 
 
-
-
 eden_client = EdenClient()
 
-args = {   
+args = {
     "prompt": "A professional photo of <concept> as a fashion model looking fresh, beautiful, youthful, easeful, bright.",
     "lora": "66904ec042b902d8eb3b41e6",
     "look_image": "https://storage.googleapis.com/public-assets-xander/Random/remove/xhibit/test2.jpeg",
     "face_image": "https://storage.googleapis.com/public-assets-xander/Random/remove/xhibit/face.jpeg",
-    "resolution": 1152
+    "resolution": 1152,
 }
 
-response = eden_client.create(
-    workflow="xhibit_vton",
-    args=args
-)
-
-print(response)
+response = eden_client.create(workflow="xhibit_vton", args=args)

@@ -9,6 +9,7 @@ import boto3
 from io import BytesIO
 from tqdm import tqdm
 from safetensors.torch import load_file, save_file
+from loguru import logger
 
 from .constants import USE_MEDIA_CACHE
 
@@ -55,7 +56,7 @@ def _check_volume_cache(url, local_filepath, overwrite=False):
         cache_filepath = volume_cache_dir / cache_filename
 
         if cache_filepath.exists():
-            print(
+            logger.info(
                 f"<**> Found {cache_filename} in volume cache, copying to {local_filepath}"
             )
             # Copy from cache to target location
@@ -66,7 +67,7 @@ def _check_volume_cache(url, local_filepath, overwrite=False):
 
     except Exception as e:
         # If volume access fails, silently continue with normal download
-        print(f"Volume cache check failed: {e}")
+        logger.error(f"Volume cache check failed: {e}")
 
     return None
 
@@ -95,7 +96,7 @@ def _save_to_volume_cache(url, local_filepath):
         cache_filepath = volume_cache_dir / cache_filename
 
         if not cache_filepath.exists():
-            print(f"<**> Saving {cache_filename} to volume cache")
+            logger.info(f"<**> Saving {cache_filename} to volume cache")
             import shutil
 
             shutil.copy2(str(local_filepath), str(cache_filepath))
@@ -111,7 +112,7 @@ def _save_to_volume_cache(url, local_filepath):
 
     except Exception as e:
         # If volume access fails, silently continue
-        print(f"Volume cache save failed: {e}")
+        logger.error(f"Volume cache save failed: {e}")
 
 
 def url_exists(url: str, timeout: int = 5) -> bool:
@@ -140,7 +141,6 @@ def download_file(url, local_filepath, overwrite=False):
     local_filepath.parent.mkdir(parents=True, exist_ok=True)
 
     if local_filepath.exists() and not overwrite:
-        # print(f"File {local_filepath} already exists. Skipping download.")
         return str(local_filepath)
 
     # Check for Modal Volume cache
@@ -160,10 +160,6 @@ def download_file(url, local_filepath, overwrite=False):
             region = s3_match.group(2) or os.getenv("AWS_REGION_NAME", "us-east-1")
             key = s3_match.group(3)
 
-            # print(
-            #     f"Detected S3 URL - Bucket: {bucket_name}, Region: {region}, Key: {key}"
-            # )
-
             # Use boto3 to download with credentials
             s3_client = boto3.client(
                 "s3",
@@ -173,14 +169,13 @@ def download_file(url, local_filepath, overwrite=False):
             )
 
             try:
-                # print(f"Downloading {key} from S3 bucket {bucket_name}")
                 s3_client.download_file(bucket_name, key, str(local_filepath))
                 if USE_MEDIA_CACHE:
                     # Save to volume cache after successful download
                     _save_to_volume_cache(url, local_filepath)
                 return str(local_filepath)
             except Exception as s3_error:
-                print(f"S3 download error: {s3_error}")
+                logger.error(f"S3 download error: {s3_error}")
                 # Fall back to standard HTTP request below
 
         # For CloudFront or standard HTTP requests
@@ -245,7 +240,7 @@ def convert_pti_to_safetensors(input_path: str, output_path: str):
     try:
         data = load_file(input_path)
     except Exception as e:
-        print(f"❌ Failed to load {input_path} with safetensors: {e}")
+        logger.error(f"❌ Failed to load {input_path} with safetensors: {e}")
         return False
 
     # Expected mapping from .pti → .safetensors SDXL format
@@ -257,7 +252,7 @@ def convert_pti_to_safetensors(input_path: str, output_path: str):
     remapped = {}
     for k, v in data.items():
         if k not in key_map:
-            print(
+            logger.warning(
                 f"⚠️ Unexpected key '{k}' in {input_path}. Expected only {list(key_map.keys())}. Skipping this key."
             )
             continue
@@ -266,17 +261,17 @@ def convert_pti_to_safetensors(input_path: str, output_path: str):
         remapped[new_key] = v
 
     if not remapped:
-        print(
+        logger.error(
             f"❌ No valid keys found for conversion in {input_path}. Output file not saved."
         )
         return False
 
     try:
         save_file(remapped, output_path)
-        print(f"✅ Converted {input_path} → {output_path}")
+        logger.info(f"✅ Converted {input_path} → {output_path}")
         for k, v in remapped.items():
-            print(f"  {k}: shape {v.shape}, dtype {v.dtype}")
+            logger.info(f"  {k}: shape {v.shape}, dtype {v.dtype}")
         return True
     except Exception as e:
-        print(f"❌ Failed to save converted file to {output_path}: {e}")
+        logger.error(f"❌ Failed to save converted file to {output_path}: {e}")
         return False

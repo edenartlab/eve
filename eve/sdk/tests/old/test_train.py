@@ -1,4 +1,5 @@
 from eden import EdenClient
+from loguru import logger
 
 client = EdenClient(stage=True)
 
@@ -20,4 +21,4 @@ result = client.create("lora_trainer", {
     "max_train_steps": 220
 })
 
-print(result)
+logger.info(result)
