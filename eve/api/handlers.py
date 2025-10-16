@@ -911,7 +911,6 @@ def setup_session(
         if not session:
             raise APIError(f"Session not found: {session_id}", status_code=404)
 
-        # TODO: titling
         if background_tasks:
             generate_session_title(session, request, background_tasks)
         return session
@@ -968,23 +967,41 @@ def setup_session(
 async def handle_prompt_session(
     request: PromptSessionRequest, background_tasks: BackgroundTasks
 ):
-    session = setup_session(
-        background_tasks, request.session_id, request.user_id, request
-    )
+    """
+    Minimal API handler that just builds the context and delegates to session.py
+    Session setup/loading now happens internally in session.py
+    """
     # Convert notification_config dict to NotificationConfig object if present
     notification_config = None
     if request.notification_config:
         notification_config = NotificationConfig(**request.notification_config)
 
+    # Build creation args if provided
+    session_creation_args = None
+    if request.creation_args:
+        from eve.agent.session.models import SessionCreationArgs
+        session_creation_args = SessionCreationArgs(
+            owner_id=request.creation_args.owner_id,
+            agents=request.creation_args.agents,
+            title=request.creation_args.title,
+            scenario=request.creation_args.scenario,
+            budget=request.creation_args.budget,
+            trigger=request.creation_args.trigger,
+            session_key=request.creation_args.session_key,
+            platform=request.creation_args.platform,
+        )
+
+    # Build context with session_id or creation_args (session setup happens internally)
     context = PromptSessionContext(
-        session=session,
+        session_id=request.session_id,
+        session_creation_args=session_creation_args,
         initiating_user_id=request.user_id,
         actor_agent_ids=request.actor_agent_ids,
         message=request.message,
         update_config=request.update_config,
         llm_config=request.llm_config,
         notification_config=notification_config,
-        thinking_override=request.thinking,  # Pass thinking override
+        thinking_override=request.thinking,
         acting_user_id=request.acting_user_id or request.user_id,
     )
 
@@ -1016,7 +1033,12 @@ async def handle_prompt_session(
         background_tasks=background_tasks,
     )
 
-    return {"session_id": str(session.id)}
+    # Return session_id if provided, otherwise return a placeholder
+    # The actual session_id will be available in the session updates
+    return {
+        "session_id": request.session_id if request.session_id else None,
+        "session_run_id": context.session_run_id,
+    }
 
 
 @handle_errors
