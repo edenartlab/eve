@@ -136,7 +136,7 @@ async def _assemble_agent_memories(agent: Agent) -> List[Dict[str, str]]:
 
     try:
         query_start = time.time()
-        active_shards = AgentMemory.find({"agent_id": str(agent.id), "is_active": True})
+        active_shards = AgentMemory.find({"agent_id": agent.id, "is_active": True})
 
         for shard in active_shards:
             # Check if fully_formed_memory exists and is non-empty
@@ -152,7 +152,7 @@ async def _assemble_agent_memories(agent: Agent) -> List[Dict[str, str]]:
                 from eve.agent.session.memory import (
                     _regenerate_fully_formed_agent_memory,
                 )
-
+                
                 await _regenerate_fully_formed_agent_memory(shard)
 
                 # Use the regenerated content if it's non-empty
