@@ -16,7 +16,6 @@ from eve.agent2.handlers import async_playout_session
 
 from typing import Literal
 from bson import ObjectId
-from eve.agent.llm import UpdateType
 from eve.api.api_requests import UpdateConfig
 from eve.auth import get_my_eden_user
 from eve.agent2.handlers import MessageRequest, async_receive_message

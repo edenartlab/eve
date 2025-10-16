@@ -10,7 +10,8 @@ import traceback
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from ..agent.llm import UserMessage, UpdateType
+from ..agent.llm import UserMessage
+from eve.agent.session.models import UpdateType
 from ..agent.run_thread import async_prompt_thread
 from ..agent import Agent
 from ..utils import prepare_result, dumps_json
@@ -79,7 +80,6 @@ async def async_chat(agent_name, new_thread=True, debug=False):
                                 f"[bold green]{agent.name} [dim]→[/dim] [green]"
                                 + update.message.content
                             )
-                            print()
                         elif update.type == UpdateType.TOOL_COMPLETE:
                             result = prepare_result(update.result.get("result"))
                             console.print(
@@ -93,13 +93,10 @@ async def async_chat(agent_name, new_thread=True, debug=False):
                                 formatted_result,
                             )
                             console.print("[cyan]" + formatted_result)
-                            print()
                         elif update.type == UpdateType.ERROR:
-                            print(update)
                             console.print(
                                 f"[bold red]❌ Error: [red]{str(update.error)}[/red]"
                             )
-                            print()
 
                         if not debug:
                             sys.stdout = devnull

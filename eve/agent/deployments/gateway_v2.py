@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from typing import Dict, Optional, Tuple
 import websockets
 import aiohttp
@@ -25,7 +26,7 @@ from eve.agent.deployments.typing_manager import (
 )
 from eve.api.api_requests import SessionCreationArgs, PromptSessionRequest
 import eve.mongo
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, HTTPException, Header
 from contextlib import asynccontextmanager
 
 
@@ -1417,6 +1418,38 @@ async def lifespan(app: FastAPI):
 
 
 web_app = FastAPI(lifespan=lifespan)
+
+
+@web_app.post("/telegram/webhook")
+async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: str = Header(None)):
+    """Handle incoming Telegram webhook updates"""
+    try:
+        # Find deployment by matching webhook secret
+        deployment = None
+        for dep in Deployment.find({"platform": ClientType.TELEGRAM.value, "valid": {"$ne": False}}):
+            if (
+                dep.secrets
+                and dep.secrets.telegram
+                and dep.secrets.telegram.webhook_secret == x_telegram_bot_api_secret_token
+            ):
+                deployment = dep
+                break
+
+        if not deployment:
+            logger.warning("No deployment found for webhook secret")
+            raise HTTPException(status_code=401, detail="Unauthorized")
+
+        # Instantiate TelegramClient and call interact
+        from eve.agent.deployments.telegram import TelegramClient
+
+        telegram_client = TelegramClient(deployment=deployment)
+        await telegram_client.interact(request)
+
+        return {"ok": True}
+
+    except Exception as e:
+        logger.error(f"Error handling Telegram webhook: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.function(

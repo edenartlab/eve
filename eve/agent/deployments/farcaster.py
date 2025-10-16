@@ -18,7 +18,7 @@ from eve.agent.session.models import (
 from eve.api.api_requests import SessionCreationArgs
 from eve.api.errors import APIError
 from eve.agent.deployments import PlatformClient
-from eve.agent.llm import UpdateType
+from eve.agent.session.models import UpdateType
 from eve.utils import prepare_result
 from eve.user import User
 import eve.mongo
