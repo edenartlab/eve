@@ -87,17 +87,18 @@ REGULAR_MEMORY_EXTRACTION_PROMPT = f"""Task: Extract persistent memories from th
   - Avoid commentary or analysis, create memories that stand on their own without context
 
 2. DIRECTIVE: {MEMORY_TYPES['directive'].custom_prompt}
-  Create {MEMORY_TYPES['directive'].min_items}-{MEMORY_TYPES['directive'].max_items} permanent directives (maximum {SESSION_DIRECTIVE_MEMORY_MAX_WORDS} words each) ONLY if there are clear, long-lasting rules, preferences, or personal context that should be remembered consistently in all future interactions with this user. If none exist (highly likely), return empty array.
+  Create {MEMORY_TYPES['directive'].min_items}-{MEMORY_TYPES['directive'].max_items} user memories (maximum {SESSION_DIRECTIVE_MEMORY_MAX_WORDS} words each) if there are personal updates (like progress on projects), long-lasting rules, preferences, or personal context that should be remembered consistently in all future interactions with this user. If none exist (very likely), just return an empty array.
    
   INCLUDE as directives:
   - Explicit behavioral rules ("always ask before X", "never do Y")
   - Personal preferences ("when creating/discussing Z, Xander prefers...")
+  - Personal updates on projects, tasks, ... especially those related to collective memory shards (if active)
   - Personal context and background information that is atomic and unchanging ("Xander is a clockmaker", "Xander is an introvert and hates to speak in public")
 
   DO NOT include:
-  - One-time requests or specific current tasks
-  - Ad hoc instructions relevant for the current conversation context only that don't apply broadly
-  - Random facts about the user that are not actionable
+  - One-time requests or ephemeral tasks / states that will change very shortly (eg 'there's a small bug on staging, i'll fix that today')
+  - Ad hoc instructions relevant for the current conversation context only that don't apply broadly (eg "can you make that image again in black and white pls")
+  - Random facts about the user that are not actionable (eg "I had an amazing breakfast this morning")
 
   Good examples: 
   - "Always ask Jack for permission before generating videos"
@@ -108,7 +109,7 @@ REGULAR_MEMORY_EXTRACTION_PROMPT = f"""Task: Extract persistent memories from th
   - "The deadline is next Friday" (ephemeral temporal fact, not behavioral rule)
    
 CRITICAL REQUIREMENTS: 
-- BE VERY STRICT about directives - most conversations will have NO directives (empty array), only episodes
+- BE VERY STRICT about directives - conversations will often have NO directives (empty array), only an episode
 - ALWAYS use specific user names from the conversation (NEVER use "User", "the user", or "they")
 - Episodes should capture both WHAT happened and WHY it matters (avoid interpretations or commentary but preserve emotional context when relevant)
 - Directives can include CONDITIONAL rules ("when X, then Y")

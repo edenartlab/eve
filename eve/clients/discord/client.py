@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 
 from ...clients import common
 from ...agent import Agent
-from ...agent.llm import UpdateType
+from eve.agent.session.models import UpdateType
 from ...user import User
 from ...utils import prepare_result
 from ...deploy import ClientType, Deployment, DeploymentConfig
@@ -75,7 +75,9 @@ class Eden2Cog(commands.Cog):
         self.deployment_config = self._get_deployment_config(self.agent)
         if self.deployment_config.discord.channel_allowlist:
             self.discord_channel_allowlist = [
-                int(item.id) for item in self.deployment_config.discord.channel_allowlist if item.id
+                int(item.id)
+                for item in self.deployment_config.discord.channel_allowlist
+                if item.id
             ]
 
     def _get_deployment_config(self, agent: Agent) -> DeploymentConfig:
@@ -177,12 +179,18 @@ class Eden2Cog(commands.Cog):
                         result = data.get("result", {})
                         result["result"] = prepare_result(result["result"])
                         urls = [
-                            output["url"] for output in result["result"] for output in output["output"] if "url" in output
+                            output["url"]
+                            for output in result["result"]
+                            for output in output["output"]
+                            if "url" in output
                         ]  # Get all URLs from all elements in result["result"]
 
                         # Get creation ID from the first output
                         creation_id = None
-                        if isinstance(result["result"], list) and len(result["result"]) > 0:
+                        if (
+                            isinstance(result["result"], list)
+                            and len(result["result"]) > 0
+                        ):
                             creation_id = str(result["result"][0].get("creation"))
 
                         if creation_id:
