@@ -464,6 +464,7 @@ class FarcasterClient(PlatformClient):
                     # Don't re-raise for error posts to avoid infinite loops
 
             else:
+                logger.debug(f"update_type: {update_type}")
                 logger.debug(f"Ignoring emission type: {update_type}")
 
         except Exception as e:

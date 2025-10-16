@@ -244,6 +244,7 @@ class DiscordClient(PlatformClient):
                     payload["content"] = f"Error: {error_msg}"
 
                 else:
+                    logger.debug(f"update_type: {update_type}")
                     logger.debug(f"Ignoring emission type: {update_type}")
                     return
 
