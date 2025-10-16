@@ -1,0 +1,23 @@
+name: verdelis_story
+description: Verdelis initiate a new Story
+tip: |-
+  This tool allows Verdelis to create and publish a new Story. Do not use this tool unless explicitly requested to use the verdelis_story tool.
+cost_estimate: 0
+output_type: string
+active: true
+handler: local
+visible: false
+parameters:
+  title:
+    type: string
+    description: Title of the creation
+    required: true
+  description:
+    type: string
+    description: Story description
+    tip: This describes the story or artwork in detail; characters, setting, plot, etc.
+    required: true
+  reference_images:
+    type: string
+    description: A description of the reference images to include, and how to tailor them towards the creation.
+    required: true

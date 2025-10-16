@@ -273,4 +273,9 @@ def load_handler(name):
 
             handlers[name] = handler
 
+        elif name == "verdelis_story":
+            from .verdelis.verdelis_story.handler import handler
+
+            handlers[name] = handler
+
     return handlers[name]
