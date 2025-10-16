@@ -3,7 +3,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
 
 from eve.agent.thread import UserMessage
-from eve.agent.llm import UpdateType
+from eve.agent.session.models import UpdateType
 from eve.agent.session.models import (
     ChatMessageRequestInput,
     LLMConfig,
@@ -175,7 +175,9 @@ class PromptSessionRequest(BaseModel):
     session_id: Optional[str] = None
     message: Optional[ChatMessageRequestInput] = None
     user_id: Optional[str] = None  # The user who owns/initiates the session
-    acting_user_id: Optional[str] = None  # The user whose permissions are used for tool authorization (defaults to user_id if not provided)
+    acting_user_id: Optional[str] = (
+        None  # The user whose permissions are used for tool authorization (defaults to user_id if not provided)
+    )
     actor_agent_ids: Optional[List[str]] = None
     update_config: Optional[SessionUpdateConfig] = None
     llm_config: Optional[LLMConfig] = None
