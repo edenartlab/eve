@@ -163,8 +163,8 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     if not agent:
         raise Exception("Agent is required")
     agent = Agent.from_mongo(agent)
-    if agent.username != "abraham":
-        raise Exception("Agent is not Abraham")
+    if agent.username != "verdelis":
+        raise Exception("Agent is not Verdelis")
 
     session_post = Tool.load("session_post")
 
