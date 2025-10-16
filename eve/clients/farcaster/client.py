@@ -12,7 +12,7 @@ import aiohttp
 import traceback
 
 from ...agent import Agent
-from ...agent.llm import UpdateType
+from eve.agent.session.models import UpdateType
 from ...user import User
 from ...utils import prepare_result
 
