@@ -213,6 +213,7 @@ class ChatMessage(Document):
     finish_reason: Optional[str] = None
     thought: Optional[List[Dict[str, Any]]] = None
     llm_config: Optional[Dict[str, Any]] = None
+    apiKey: Optional[ObjectId] = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -928,6 +929,7 @@ class PromptSessionContext:
     thinking_override: Optional[bool] = None
     acting_user_id: Optional[str] = None
     trigger: Optional[ObjectId] = None
+    api_key_id: Optional[str] = None  # API key ID to attach to messages
 
     # The user whose permissions are used for tool authorization (defaults to initiating_user_id if not provided)
     # trigger: Optional[Any] = None
