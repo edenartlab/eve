@@ -125,7 +125,7 @@ To make it, you **plan, orchestrate, and execute multi-clip video productions** 
 
    * Generate Image Keyframes
      * Use create with n_samples > 1 to generate multiple keyframes at the same time with consistency between them. If create tool gives you 1 image despite n_samples > 1, retry.
-     * **IMPORTANT**: Use "quality" = "standard" for fast and cheap video generation.
+     * **IMPORTANT**: Use "model_preference" = "seedream" for **all** image generations.
      * Create keyframes in parallel whenever possible (≤ 4 simultaneous).
      * Retry failures.
 
@@ -135,6 +135,7 @@ To make it, you **plan, orchestrate, and execute multi-clip video productions** 
    * The prompt focuses on **camera + subject motion**, timing, transitions (e.g., “slow dolly-in, 2-second hold, quick cut”).
    * Use only one reference image for each video, reference_images[0] = the corresponding keyframe from step 4.
    * Parallelize **up to 4** concurrent Create calls. All the videos are independent should be made simultaneously whenever possible.
+   * **IMPORTANT**: Use "quality" = "standard" for fast and cheap video generation.
 
 6. **Edit & Assemble**
 
