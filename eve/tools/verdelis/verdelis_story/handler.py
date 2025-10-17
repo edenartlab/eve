@@ -125,6 +125,7 @@ To make it, you **plan, orchestrate, and execute multi-clip video productions** 
 
    * Generate Image Keyframes
      * Use create with n_samples > 1 to generate multiple keyframes at the same time with consistency between them. If create tool gives you 1 image despite n_samples > 1, retry.
+     * **IMPORTANT**: Use "quality" = "standard" for fast and cheap video generation.
      * Create keyframes in parallel whenever possible (≤ 4 simultaneous).
      * Retry failures.
 
