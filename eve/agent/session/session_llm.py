@@ -204,27 +204,10 @@ async def async_prompt_litellm(
     tools = construct_tools(context)
     tool_choice = context.tool_choice
 
-    completion_kwargs = {
-        "model": context.config.model,
-        "messages": messages,
-        "metadata": construct_observability_metadata(context)
-        if context.enable_tracing
-        else {},
-        "tools": tools,
-        "tool_choice": tool_choice,
-        "response_format": context.config.response_format,
-        "fallbacks": context.config.fallback_models,
-        "drop_params": True,
-        "num_retries": 2,
-        "timeout": 600,
-        "context_window_fallback_dict": {
-            "gpt-4o-mini": "gpt-4o",
-            "gpt-5-mini": "gpt-5",
-            "gpt-5-nano": "gpt-5",
-            "gemini-2.5-flash": "gemini-2.5-pro",
-            "gemini-2.5-flash-lite": "gemini-2.5-flash",
-        },
-    }
+    # Build list of models to try: primary + fallbacks
+    models_to_try = [context.config.model]
+    if context.config.fallback_models:
+        models_to_try.extend(context.config.fallback_models)
 
     # Set success callback per-request instead of globally
     original_callback = litellm.success_callback
@@ -233,31 +216,66 @@ async def async_prompt_litellm(
     else:
         litellm.success_callback = []
 
-    # add web search options for Anthropic models
-    if "claude" in context.config.model or "anthropic" in context.config.model:
-        completion_kwargs["web_search_options"] = {"search_context_size": "medium"}
-
-    # Use finalized reasoning_effort from config if available
-    if thinking:
-        completion_kwargs["reasoning_effort"] = context.config.reasoning_effort
-
     logging.info(
-        f"Attempting completion with model: {context.config.model}, fallbacks: {context.config.fallback_models}, reasoning_effort: {context.config.reasoning_effort}"
+        f"Attempting completion with models: {models_to_try}, reasoning_effort: {context.config.reasoning_effort}"
     )
 
-    try:
-        t0 = time.time()
-        response = await acompletion(**completion_kwargs)
-        t1 = time.time()
+    last_error = None
+    response = None
+    t0 = time.time()
+    t1 = None
 
-        actual_model = getattr(response, "model", context.config.model)
+    for model_idx, model in enumerate(models_to_try):
+        try:
+            completion_kwargs = {
+                "model": model,
+                "messages": messages,
+                "metadata": construct_observability_metadata(context)
+                if context.enable_tracing
+                else {},
+                "tools": tools,
+                "tool_choice": tool_choice,
+                "response_format": context.config.response_format,
+                "drop_params": True,
+                "num_retries": 2,
+                "timeout": 600,
+                "context_window_fallback_dict": {
+                    "gpt-4o-mini": "gpt-4o",
+                    "gpt-5-mini": "gpt-5",
+                    "gpt-5-nano": "gpt-5",
+                    "gemini-2.5-flash": "gemini-2.5-pro",
+                    "gemini-2.5-flash-lite": "gemini-2.5-flash",
+                },
+            }
 
-        if actual_model != context.config.model and context.config.fallback_models:
-            logging.info("Actual model used: %s", actual_model)
+            # add web search options for Anthropic models
+            if "claude" in model or "anthropic" in model:
+                completion_kwargs["web_search_options"] = {"search_context_size": "medium"}
 
-    except Exception as e:
-        logging.error(f"All models failed. Error: {str(e)}")
-        raise
+            # Use finalized reasoning_effort from config if available
+            if thinking:
+                completion_kwargs["reasoning_effort"] = context.config.reasoning_effort
+
+            logging.info(f"Trying model {model_idx + 1}/{len(models_to_try)}: {model}")
+            response = await acompletion(**completion_kwargs)
+            t1 = time.time()
+
+            if model != context.config.model:
+                logging.info(f"Successfully used fallback model: {model}")
+
+            break  # Exit loop on success
+
+        except Exception as e:
+            last_error = e
+            logging.warning(f"Model {model} failed: {str(e)}")
+            if model_idx == len(models_to_try) - 1:
+                # This was the last model, re-raise
+                logging.error(f"All models failed. Last error: {str(e)}")
+                raise
+
+    if response is None:
+        logging.error(f"All models failed. Last error: {str(last_error)}")
+        raise last_error if last_error else Exception("Unknown error: no response received")
 
     tool_calls = []
 
