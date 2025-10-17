@@ -261,13 +261,52 @@ class DiscordClient(PlatformClient):
 
         return payload
 
+    def _chunk_message(self, content: str, max_length: int = 2000) -> list[str]:
+        """
+        Split a message into chunks that fit within Discord's character limit.
+        Tries to split at newlines to keep formatting intact.
+        """
+        if len(content) <= max_length:
+            return [content]
+
+        chunks = []
+        remaining = content
+
+        while remaining:
+            if len(remaining) <= max_length:
+                chunks.append(remaining)
+                break
+
+            # Try to find a good break point (newline) within the limit
+            chunk = remaining[:max_length]
+
+            # Look for the last newline in this chunk
+            last_newline = chunk.rfind('\n')
+
+            if last_newline > 0 and last_newline > max_length * 0.5:
+                # Use newline as break point if it's not too early
+                split_point = last_newline + 1
+            else:
+                # Otherwise, try to break at a space
+                last_space = chunk.rfind(' ')
+                if last_space > 0 and last_space > max_length * 0.5:
+                    split_point = last_space + 1
+                else:
+                    # Hard break at max_length
+                    split_point = max_length
+
+            chunks.append(remaining[:split_point])
+            remaining = remaining[split_point:]
+
+        return chunks
+
     async def _send_dm_message(
         self,
         discord_user_id: str,
         payload: dict,
         headers: dict
     ) -> None:
-        """Send a message via Discord DM"""
+        """Send a message via Discord DM, chunking if necessary"""
         async with aiohttp.ClientSession() as session:
             # Create DM channel
             dm_channel_response = await session.post(
@@ -283,15 +322,29 @@ class DiscordClient(PlatformClient):
             dm_channel_data = await dm_channel_response.json()
             dm_channel_id = dm_channel_data["id"]
 
-            # Send message to DM channel
+            # Send message to DM channel, chunking if necessary
             url = f"https://discord.com/api/v10/channels/{dm_channel_id}/messages"
-            async with session.post(url, headers=headers, json=payload) as response:
-                if response.status == 200:
-                    logger.info(f"Successfully sent Discord DM to user {discord_user_id}")
-                else:
-                    error_text = await response.text()
-                    logger.error(f"Failed to send Discord message: {error_text}")
-                    raise Exception(f"Failed to send Discord message: {error_text}")
+
+            content = payload.get("content", "")
+            chunks = self._chunk_message(content)
+
+            # Send each chunk
+            for i, chunk in enumerate(chunks):
+                chunk_payload = payload.copy()
+                chunk_payload["content"] = chunk
+
+                # Only include message_reference and components in the first chunk
+                if i > 0:
+                    chunk_payload.pop("message_reference", None)
+                    chunk_payload.pop("components", None)
+
+                async with session.post(url, headers=headers, json=chunk_payload) as response:
+                    if response.status == 200:
+                        logger.info(f"Successfully sent Discord DM chunk {i+1}/{len(chunks)} to user {discord_user_id}")
+                    else:
+                        error_text = await response.text()
+                        logger.error(f"Failed to send Discord message chunk {i+1}: {error_text}")
+                        raise Exception(f"Failed to send Discord message: {error_text}")
 
     async def _send_channel_message(
         self,
@@ -299,16 +352,30 @@ class DiscordClient(PlatformClient):
         payload: dict,
         headers: dict
     ) -> None:
-        """Send a message to a Discord channel"""
+        """Send a message to a Discord channel, chunking if necessary"""
         url = f"https://discord.com/api/v10/channels/{channel_id}/messages"
+
+        content = payload.get("content", "")
+        chunks = self._chunk_message(content)
+
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, headers=headers, json=payload) as response:
-                if response.status == 200:
-                    logger.info(f"Successfully sent Discord message to channel {channel_id}")
-                else:
-                    error_text = await response.text()
-                    logger.error(f"Failed to send Discord message: {error_text}")
-                    raise Exception(f"Failed to send Discord message: {error_text}")
+            # Send each chunk
+            for i, chunk in enumerate(chunks):
+                chunk_payload = payload.copy()
+                chunk_payload["content"] = chunk
+
+                # Only include message_reference and components in the first chunk
+                if i > 0:
+                    chunk_payload.pop("message_reference", None)
+                    chunk_payload.pop("components", None)
+
+                async with session.post(url, headers=headers, json=chunk_payload) as response:
+                    if response.status == 200:
+                        logger.info(f"Successfully sent Discord message chunk {i+1}/{len(chunks)} to channel {channel_id}")
+                    else:
+                        error_text = await response.text()
+                        logger.error(f"Failed to send Discord message chunk {i+1}: {error_text}")
+                        raise Exception(f"Failed to send Discord message: {error_text}")
 
     async def handle_emission(self, emission) -> None:
         """Handle an emission from the platform client"""
