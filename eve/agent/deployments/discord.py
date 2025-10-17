@@ -155,8 +155,17 @@ class DiscordClient(PlatformClient):
             # Extract context from update_config
             channel_id = emission.update_config.discord_channel_id
             message_id = emission.update_config.discord_message_id
+            discord_user_id = getattr(emission.update_config, 'discord_user_id', None)
 
-            if not channel_id:
+            # Check if this is a DM (has user_id but no channel_id)
+            is_dm = discord_user_id is not None and channel_id is None
+
+            # Validate we have the required IDs
+            if is_dm and not discord_user_id:
+                logger.error("Missing discord_user_id for DM")
+                return
+
+            if not is_dm and not channel_id:
                 logger.error("Missing discord_channel_id in update_config")
                 return
 
@@ -170,7 +179,8 @@ class DiscordClient(PlatformClient):
                 }
 
                 payload = {}
-                if message_id:
+                # Only add message_reference for non-DM messages where we have a channel_id
+                if message_id and not is_dm and channel_id:
                     payload["message_reference"] = {
                         "message_id": message_id,
                         "channel_id": channel_id,
@@ -250,23 +260,33 @@ class DiscordClient(PlatformClient):
 
                 # Send the message if we have content
                 if payload.get("content"):
-                    async with session.post(
-                        f"https://discord.com/api/v10/channels/{channel_id}/messages",
-                        headers=headers,
-                        json=payload,
-                    ) as response:
+                    # Determine the URL based on whether this is a DM or channel message
+                    if is_dm:
+                        # For DMs, create a DM channel first, then send
+                        dm_channel_response = await session.post(
+                            f"https://discord.com/api/v10/users/@me/channels",
+                            headers=headers,
+                            json={"recipient_id": discord_user_id},
+                        )
+                        if dm_channel_response.status != 200:
+                            error_text = await dm_channel_response.text()
+                            logger.error(f"Failed to create DM channel: {error_text}")
+                            raise Exception(f"Failed to create DM channel: {error_text}")
+
+                        dm_channel_data = await dm_channel_response.json()
+                        dm_channel_id = dm_channel_data["id"]
+                        url = f"https://discord.com/api/v10/channels/{dm_channel_id}/messages"
+                    else:
+                        url = f"https://discord.com/api/v10/channels/{channel_id}/messages"
+
+                    async with session.post(url, headers=headers, json=payload) as response:
                         if response.status == 200:
-                            logger.info(
-                                f"Successfully sent Discord message to channel {channel_id}"
-                            )
+                            target = f"DM to user {discord_user_id}" if is_dm else f"channel {channel_id}"
+                            logger.info(f"Successfully sent Discord message to {target}")
                         else:
                             error_text = await response.text()
-                            logger.error(
-                                f"Failed to send Discord message: {error_text}"
-                            )
-                            raise Exception(
-                                f"Failed to send Discord message: {error_text}"
-                            )
+                            logger.error(f"Failed to send Discord message: {error_text}")
+                            raise Exception(f"Failed to send Discord message: {error_text}")
 
         except Exception as e:
             logger.error(f"Error handling Discord emission: {str(e)}", exc_info=True)

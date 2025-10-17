@@ -511,7 +511,8 @@ class DiscordGatewayClient:
         """Create a session key based on Discord channel"""
         is_dm = message_data.get("guild_id") is None
         if is_dm:
-            return f"discord-dm-{user_id}"
+            # Use consistent key format: discord-dm-{agent_id}-{user_id}
+            return f"discord-dm-{self.deployment.agent}-{user_id}"
         else:
             guild_id = message_data.get("guild_id")
             channel_id = message_data.get("channel_id")
@@ -651,6 +652,7 @@ class DiscordGatewayClient:
         channel_id: str,
         message_id: str,
         mentioned_agent_ids: list = None,
+        is_dm: bool = False,
     ) -> PromptSessionRequest:
         """Create a PromptSessionRequest object"""
         # If specific agents are mentioned, use those; otherwise use this deployment's agent
@@ -671,8 +673,9 @@ class DiscordGatewayClient:
             update_config=SessionUpdateConfig(
                 deployment_id=str(self.deployment.id),
                 update_endpoint=f"{self.api_url}/v2/deployments/emission",
-                discord_channel_id=channel_id,
+                discord_channel_id=channel_id if not is_dm else None,
                 discord_message_id=message_id,
+                discord_user_id=str(user.id) if is_dm else None,
             ),
         )
 
@@ -724,13 +727,33 @@ class DiscordGatewayClient:
         if not deployment:
             return
 
-        if not data.get("guild_id"):
-            await self._handle_direct_message(data, trace_id, deployment)
-            return
+        # Check if this is a DM
+        is_dm = not data.get("guild_id")
+
+        if is_dm:
+            # Check if enable_discord_dm flag is set (defaults to False if not present)
+            enable_dm = (
+                deployment.config
+                and deployment.config.discord
+                and deployment.config.discord.enable_discord_dm
+            )
+
+            if not enable_dm:
+                # Old behavior: send canned response and exit
+                logger.info(f"[{trace_id}] DM responses disabled for this agent, sending canned reply")
+                await self._handle_direct_message(data, trace_id, deployment)
+                return
+
+            # New behavior: continue to process DM like a channel message
+            logger.info(f"[{trace_id}] DM responses enabled for this agent, processing as normal message")
+            # Fall through to normal message processing below
 
         channel_id = str(data["channel_id"])
-        if not await self._check_channel_permissions(channel_id, deployment, trace_id):
-            return
+
+        # Skip channel permissions check for DMs
+        if not is_dm:
+            if not await self._check_channel_permissions(channel_id, deployment, trace_id):
+                return
 
         # Extract message information
         user_id, username, user = self._extract_user_info(data)
@@ -744,14 +767,15 @@ class DiscordGatewayClient:
             f"[{trace_id}] Session key: {session_key}, force_reply: {force_reply}, mentioned_agents: {mentioned_agent_ids}"
         )
 
-        # Check for agent conflicts before proceeding
-        relevant_deployments = await self._find_relevant_deployments(
-            channel_id, trace_id
-        )
-        if self._should_skip_for_agent_conflict(
-            relevant_deployments, force_reply, trace_id
-        ):
-            return
+        # Check for agent conflicts before proceeding (skip for DMs - no multi-agent conflicts in DMs)
+        if not is_dm:
+            relevant_deployments = await self._find_relevant_deployments(
+                channel_id, trace_id
+            )
+            if self._should_skip_for_agent_conflict(
+                relevant_deployments, force_reply, trace_id
+            ):
+                return
 
         # Handle session creation/reuse
         session = await self._load_existing_session(session_key, trace_id)
@@ -763,6 +787,7 @@ class DiscordGatewayClient:
             channel_id,
             str(data["id"]),
             mentioned_agent_ids,
+            is_dm,
         )
 
         if session:

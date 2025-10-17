@@ -716,6 +716,7 @@ class SessionUpdateConfig(BaseModel):
     deployment_id: Optional[str] = None
     discord_channel_id: Optional[str] = None
     discord_message_id: Optional[str] = None
+    discord_user_id: Optional[str] = None
     telegram_chat_id: Optional[str] = None
     telegram_message_id: Optional[str] = None
     telegram_thread_id: Optional[str] = None
@@ -996,6 +997,7 @@ class DeploymentSettingsDiscord(BaseModel):
     oauth_url: Optional[str] = None
     channel_allowlist: Optional[List[DiscordAllowlistItem]] = None
     read_access_channels: Optional[List[DiscordAllowlistItem]] = None
+    enable_discord_dm: Optional[bool] = False
 
 
 class DeploymentSecretsDiscord(BaseModel):

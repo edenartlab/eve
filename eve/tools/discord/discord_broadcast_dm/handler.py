@@ -448,8 +448,8 @@ async def create_dm_session_task(
     """
     Create or reuse a DM session for a specific user and send the instruction.
     """
-    # Create consistent session key for DM sessions
-    session_key = f"dm_{agent}_{discord_user.discord_id}"
+    # Create consistent session key for DM sessions: discord-dm-{agent_id}-{user_id}
+    session_key = f"discord-dm-{agent}-{discord_user.discord_id}"
     print(f"Searching for existing session with key: {session_key}")
 
     # Check if DM session already exists (limit to 1 for efficiency)
