@@ -146,128 +146,198 @@ class DiscordClient(PlatformClient):
             logger.error(f"Error handling Discord interaction: {str(e)}", exc_info=True)
             raise
 
+    def _validate_emission_context(self, emission) -> tuple:
+        """
+        Validate and extract emission context.
+        Returns: (is_dm, channel_id, message_id, discord_user_id)
+        """
+        channel_id = emission.update_config.discord_channel_id
+        message_id = emission.update_config.discord_message_id
+        discord_user_id = getattr(emission.update_config, 'discord_user_id', None)
+
+        is_dm = discord_user_id is not None and channel_id is None
+
+        # Validate required IDs based on message type
+        if is_dm and not discord_user_id:
+            logger.error("Missing discord_user_id for DM")
+            return None, None, None, None
+
+        if not is_dm and not channel_id:
+            logger.error("Missing discord_channel_id in update_config")
+            return None, None, None, None
+
+        return is_dm, channel_id, message_id, discord_user_id
+
+    def _build_message_payload(
+        self,
+        emission,
+        is_dm: bool,
+        channel_id: str,
+        message_id: str
+    ) -> dict:
+        """Build the message payload based on emission type"""
+        payload = {}
+
+        # Only add message_reference for non-DM channel messages
+        if message_id and not is_dm and channel_id:
+            payload["message_reference"] = {
+                "message_id": message_id,
+                "channel_id": channel_id,
+                "fail_if_not_exists": False,
+            }
+
+        update_type = emission.type
+
+        if update_type == UpdateType.ASSISTANT_MESSAGE:
+            content = emission.content
+            if content:
+                payload["content"] = content
+
+        elif update_type == UpdateType.TOOL_COMPLETE:
+            result = emission.result
+            if not result:
+                logger.debug("No tool result to post")
+                return None
+
+            # Process result to extract media URLs
+            processed_result = prepare_result(json.loads(result))
+
+            if (
+                processed_result.get("result")
+                and len(processed_result["result"]) > 0
+                and "output" in processed_result["result"][0]
+            ):
+                outputs = processed_result["result"][0]["output"]
+
+                # Extract URLs from outputs
+                urls = []
+                for output in outputs[:4]:  # Discord supports up to 4 embeds
+                    if isinstance(output, dict) and "url" in output:
+                        urls.append(output["url"])
+
+                if urls:
+                    # Prepare message content with URLs
+                    content = "\n".join(urls)
+                    payload["content"] = content
+
+                    # Get creation ID from the first output for Eden link
+                    creation_id = None
+                    if isinstance(outputs, list) and len(outputs) > 0:
+                        creation_id = str(outputs[0].get("creation"))
+
+                    # Add components for Eden link if creation_id exists
+                    if creation_id:
+                        eden_url = get_eden_creation_url(creation_id)
+                        payload["components"] = [
+                            {
+                                "type": 1,  # Action Row
+                                "components": [
+                                    {
+                                        "type": 2,  # Button
+                                        "style": 5,  # Link
+                                        "label": "View on Eden",
+                                        "url": eden_url,
+                                    }
+                                ],
+                            }
+                        ]
+                else:
+                    logger.warning(
+                        "No valid URLs found in tool result for Discord"
+                    )
+            else:
+                logger.warning(
+                    "Unexpected tool result structure for Discord emission"
+                )
+
+        elif update_type == UpdateType.ERROR:
+            error_msg = emission.error or "Unknown error occurred"
+            payload["content"] = f"Error: {error_msg}"
+
+        else:
+            logger.debug(f"update_type: {update_type}")
+            logger.debug(f"Ignoring emission type: {update_type}")
+            return None
+
+        return payload
+
+    async def _send_dm_message(
+        self,
+        discord_user_id: str,
+        payload: dict,
+        headers: dict
+    ) -> None:
+        """Send a message via Discord DM"""
+        async with aiohttp.ClientSession() as session:
+            # Create DM channel
+            dm_channel_response = await session.post(
+                "https://discord.com/api/v10/users/@me/channels",
+                headers=headers,
+                json={"recipient_id": discord_user_id},
+            )
+            if dm_channel_response.status != 200:
+                error_text = await dm_channel_response.text()
+                logger.error(f"Failed to create DM channel: {error_text}")
+                raise Exception(f"Failed to create DM channel: {error_text}")
+
+            dm_channel_data = await dm_channel_response.json()
+            dm_channel_id = dm_channel_data["id"]
+
+            # Send message to DM channel
+            url = f"https://discord.com/api/v10/channels/{dm_channel_id}/messages"
+            async with session.post(url, headers=headers, json=payload) as response:
+                if response.status == 200:
+                    logger.info(f"Successfully sent Discord DM to user {discord_user_id}")
+                else:
+                    error_text = await response.text()
+                    logger.error(f"Failed to send Discord message: {error_text}")
+                    raise Exception(f"Failed to send Discord message: {error_text}")
+
+    async def _send_channel_message(
+        self,
+        channel_id: str,
+        payload: dict,
+        headers: dict
+    ) -> None:
+        """Send a message to a Discord channel"""
+        url = f"https://discord.com/api/v10/channels/{channel_id}/messages"
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, headers=headers, json=payload) as response:
+                if response.status == 200:
+                    logger.info(f"Successfully sent Discord message to channel {channel_id}")
+                else:
+                    error_text = await response.text()
+                    logger.error(f"Failed to send Discord message: {error_text}")
+                    raise Exception(f"Failed to send Discord message: {error_text}")
+
     async def handle_emission(self, emission) -> None:
         """Handle an emission from the platform client"""
         try:
             if not self.deployment:
                 raise ValueError("Deployment is required for handle_emission")
 
-            # Extract context from update_config
-            channel_id = emission.update_config.discord_channel_id
-            message_id = emission.update_config.discord_message_id
-
-            if not channel_id:
-                logger.error("Missing discord_channel_id in update_config")
+            # Validate and extract context
+            is_dm, channel_id, message_id, discord_user_id = self._validate_emission_context(emission)
+            if is_dm is None:  # Validation failed
                 return
 
-            update_type = emission.type
+            # Build message payload
+            payload = self._build_message_payload(emission, is_dm, channel_id, message_id)
+            if not payload or not payload.get("content"):
+                logger.debug("No content to send")
+                return
 
-            # Initialize Discord REST client
-            async with aiohttp.ClientSession() as session:
-                headers = {
-                    "Authorization": f"Bot {self.deployment.secrets.discord.token}",
-                    "Content-Type": "application/json",
-                }
+            # Send message
+            headers = {
+                "Authorization": f"Bot {self.deployment.secrets.discord.token}",
+                "Content-Type": "application/json",
+            }
 
-                payload = {}
-                if message_id:
-                    payload["message_reference"] = {
-                        "message_id": message_id,
-                        "channel_id": channel_id,
-                        "fail_if_not_exists": False,
-                    }
-
-                if update_type == UpdateType.ASSISTANT_MESSAGE:
-                    content = emission.content
-                    if content:
-                        payload["content"] = content
-
-                elif update_type == UpdateType.TOOL_COMPLETE:
-                    result = emission.result
-                    if not result:
-                        logger.debug("No tool result to post")
-                        return
-
-                    # Process result to extract media URLs
-                    processed_result = prepare_result(json.loads(result))
-
-                    if (
-                        processed_result.get("result")
-                        and len(processed_result["result"]) > 0
-                        and "output" in processed_result["result"][0]
-                    ):
-                        outputs = processed_result["result"][0]["output"]
-
-                        # Extract URLs from outputs
-                        urls = []
-                        for output in outputs[:4]:  # Discord supports up to 4 embeds
-                            if isinstance(output, dict) and "url" in output:
-                                urls.append(output["url"])
-
-                        if urls:
-                            # Prepare message content with URLs
-                            content = "\n".join(urls)
-                            payload["content"] = content
-
-                            # Get creation ID from the first output for Eden link
-                            creation_id = None
-                            if isinstance(outputs, list) and len(outputs) > 0:
-                                creation_id = str(outputs[0].get("creation"))
-
-                            # Add components for Eden link if creation_id exists
-                            if creation_id:
-                                eden_url = get_eden_creation_url(creation_id)
-                                payload["components"] = [
-                                    {
-                                        "type": 1,  # Action Row
-                                        "components": [
-                                            {
-                                                "type": 2,  # Button
-                                                "style": 5,  # Link
-                                                "label": "View on Eden",
-                                                "url": eden_url,
-                                            }
-                                        ],
-                                    }
-                                ]
-                        else:
-                            logger.warning(
-                                "No valid URLs found in tool result for Discord"
-                            )
-                    else:
-                        logger.warning(
-                            "Unexpected tool result structure for Discord emission"
-                        )
-
-                elif update_type == UpdateType.ERROR:
-                    error_msg = emission.error or "Unknown error occurred"
-                    payload["content"] = f"Error: {error_msg}"
-
-                else:
-                    logger.debug(f"update_type: {update_type}")
-                    logger.debug(f"Ignoring emission type: {update_type}")
-                    return
-
-                # Send the message if we have content
-                if payload.get("content"):
-                    async with session.post(
-                        f"https://discord.com/api/v10/channels/{channel_id}/messages",
-                        headers=headers,
-                        json=payload,
-                    ) as response:
-                        if response.status == 200:
-                            logger.info(
-                                f"Successfully sent Discord message to channel {channel_id}"
-                            )
-                        else:
-                            error_text = await response.text()
-                            logger.error(
-                                f"Failed to send Discord message: {error_text}"
-                            )
-                            raise Exception(
-                                f"Failed to send Discord message: {error_text}"
-                            )
+            if is_dm:
+                await self._send_dm_message(discord_user_id, payload, headers)
+            else:
+                await self._send_channel_message(channel_id, payload, headers)
 
         except Exception as e:
-            logger.error(f"Error handling Discord emission: {str(e)}", exc_info=True)
+            logger.error("Error handling Discord emission: {error}", error=str(e), exc_info=True)
             raise

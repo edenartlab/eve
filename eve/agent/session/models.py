@@ -213,6 +213,7 @@ class ChatMessage(Document):
     finish_reason: Optional[str] = None
     thought: Optional[List[Dict[str, Any]]] = None
     llm_config: Optional[Dict[str, Any]] = None
+    apiKey: Optional[ObjectId] = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -716,6 +717,7 @@ class SessionUpdateConfig(BaseModel):
     deployment_id: Optional[str] = None
     discord_channel_id: Optional[str] = None
     discord_message_id: Optional[str] = None
+    discord_user_id: Optional[str] = None
     telegram_chat_id: Optional[str] = None
     telegram_message_id: Optional[str] = None
     telegram_thread_id: Optional[str] = None
@@ -841,6 +843,14 @@ class SessionMemoryContext(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
+class SessionExtras(BaseModel):
+    """Additional session configuration flags"""
+
+    exclude_memory: Optional[bool] = False  # If True, memory won't be passed to system prompt
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
 @Collection("sessions")
 class Session(Document):
     owner: ObjectId
@@ -862,6 +872,7 @@ class Session(Document):
     platform: Optional[Literal["discord", "telegram", "twitter", "farcaster"]] = None
     trigger: Optional[ObjectId] = None
     active_requests: Optional[List[str]] = []
+    extras: Optional[SessionExtras] = None  # Additional session configuration flags
 
     def get_messages(self):
         messages = ChatMessage.find({"session": self.id})
@@ -928,6 +939,7 @@ class PromptSessionContext:
     thinking_override: Optional[bool] = None
     acting_user_id: Optional[str] = None
     trigger: Optional[ObjectId] = None
+    api_key_id: Optional[str] = None  # API key ID to attach to messages
 
     # The user whose permissions are used for tool authorization (defaults to initiating_user_id if not provided)
     # trigger: Optional[Any] = None
@@ -996,6 +1008,7 @@ class DeploymentSettingsDiscord(BaseModel):
     oauth_url: Optional[str] = None
     channel_allowlist: Optional[List[DiscordAllowlistItem]] = None
     read_access_channels: Optional[List[DiscordAllowlistItem]] = None
+    enable_discord_dm: Optional[bool] = False
 
 
 class DeploymentSecretsDiscord(BaseModel):
