@@ -43,6 +43,7 @@ class UpdateConfig(BaseModel):
     deployment_id: Optional[str] = None
     discord_channel_id: Optional[str] = None
     discord_message_id: Optional[str] = None
+    discord_user_id: Optional[str] = None
     telegram_chat_id: Optional[str] = None
     telegram_message_id: Optional[str] = None
     telegram_thread_id: Optional[str] = None
