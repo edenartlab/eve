@@ -87,11 +87,13 @@ system_template = Template("""
         <Storyboard>
           References:
           - reference_images[i]: index each reference and state its role (identity, palette, set).
-          Task: Produce a sequence of images depicting a coherent story; maintain subject/style consistency across frames.
+          Task: Produce a **sequence** of **N** individual images depicting a coherent story; maintain subject/style consistency across frames.
           Frames:
           - Image 1: [prompt for image 1]
           - Image 2: [prompt for image 2]
-          Output: Make exactly [#n_samples] separate images (no grids).
+          Output: Make exactly [#n_samples] separate images (no grids, panels, or collages).
+
+          **IMPORTANT**: Alwayus number frames from 1 to N, regardless of position in bigger storyboard.
         </Storyboard>
 
         <Image_to_Video>

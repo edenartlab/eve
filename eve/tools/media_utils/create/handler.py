@@ -597,9 +597,13 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
         if n_samples > 1:
             args["sequential_image_generation"] = "auto"
             args["max_images"] = min(15, n_samples)
+            args["prompt"] = f"Use sequential_image_generation to generate exactly **{n_samples}** individual images in sequence. Do **NOT** make a grid/contact sheet/collage/panel layout. Make {n_samples} images. {prompt}"
 
         print("Running Seedream4", args)
         result = await seedream4.async_run(args, save_thumbnails=True)
+
+        if len(result["output"]) != n_samples:
+            result = await seedream4.async_run(args, save_thumbnails=True)
 
     else:
         raise Exception("Invalid args", args, image_tool)
