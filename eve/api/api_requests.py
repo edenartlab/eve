@@ -43,6 +43,7 @@ class UpdateConfig(BaseModel):
     deployment_id: Optional[str] = None
     discord_channel_id: Optional[str] = None
     discord_message_id: Optional[str] = None
+    discord_user_id: Optional[str] = None
     telegram_chat_id: Optional[str] = None
     telegram_message_id: Optional[str] = None
     telegram_thread_id: Optional[str] = None
@@ -169,6 +170,7 @@ class SessionCreationArgs(BaseModel):
     trigger: Optional[str] = None
     session_key: Optional[str] = None
     platform: Optional[str] = None
+    extras: Optional[Dict[str, Any]] = None
 
 
 class PromptSessionRequest(BaseModel):
@@ -184,6 +186,7 @@ class PromptSessionRequest(BaseModel):
     stream: bool = False
     notification_config: Optional[Dict[str, Any]] = None
     thinking: Optional[bool] = None  # Override agent's thinking policy per-message
+    api_key_id: Optional[str] = None  # API key ID to attach to messages
 
     # Session creation fields (used when session_id is not provided)
     creation_args: Optional[SessionCreationArgs] = None

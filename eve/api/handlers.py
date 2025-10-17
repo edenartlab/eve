@@ -986,6 +986,7 @@ async def handle_prompt_session(
         notification_config=notification_config,
         thinking_override=request.thinking,  # Pass thinking override
         acting_user_id=request.acting_user_id or request.user_id,
+        api_key_id=request.api_key_id,  # Pass API key ID to context
     )
 
     if request.stream:

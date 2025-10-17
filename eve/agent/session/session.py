@@ -262,13 +262,15 @@ async def build_system_message(
             "use_when", "This is your default Lora model"
         )
 
-    # Get memory
-    memory = await assemble_memory_context(
-        session,
-        actor,
-        user,
-        reason="build_system_message",
-    )
+    # Get memory (unless excluded by session extras)
+    memory = None
+    if not (session.extras and session.extras.exclude_memory):
+        memory = await assemble_memory_context(
+            session,
+            actor,
+            user,
+            reason="build_system_message",
+        )
 
     # Build system prompt with memory context
     content = system_template.render(
@@ -330,6 +332,7 @@ async def add_chat_message(
         content=context.message.content,
         attachments=context.message.attachments or [],
         trigger=context.trigger,
+        apiKey=ObjectId(context.api_key_id) if context.api_key_id else None,
     )
 
     # save farcaster origin info
@@ -800,6 +803,7 @@ async def async_prompt_session(
     stream: bool = False,
     is_client_platform: bool = False,
     session_run_id: Optional[str] = None,
+    api_key_id: Optional[str] = None,
 ):
     # Generate session_run_id if not provided to prevent None from being added to active_requests
     if session_run_id is None:
@@ -1023,6 +1027,7 @@ async def async_prompt_session(
                         generation_id=llm_context.metadata.generation_id,
                         tokens_spent=tokens_spent,
                     ),
+                    apiKey=ObjectId(api_key_id) if api_key_id else None,
                 )
             else:
                 # Non-streaming path
@@ -1047,6 +1052,7 @@ async def async_prompt_session(
                         generation_id=llm_context.metadata.generation_id,
                         tokens_spent=response.tokens_spent,
                     ),
+                    apiKey=ObjectId(api_key_id) if api_key_id else None,
                 )
                 stop_reason = response.stop
                 tokens_spent = response.tokens_spent
@@ -1398,6 +1404,7 @@ async def _run_prompt_session_internal(
                     stream=stream,
                     is_client_platform=is_client_platform,
                     session_run_id=session_run_id,
+                    api_key_id=context.api_key_id,
                 ):
                     formatted_update = format_session_update(update, context)
                     debugger.log_update(
@@ -1427,6 +1434,7 @@ async def _run_prompt_session_internal(
                             stream=stream,
                             is_client_platform=is_client_platform,
                             session_run_id=actor_session_run_id,
+                            api_key_id=context.api_key_id,
                         ):
                             formatted_update = format_session_update(update, context)
                             await queue.put(formatted_update)
