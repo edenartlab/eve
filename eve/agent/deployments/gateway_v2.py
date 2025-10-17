@@ -379,6 +379,14 @@ class DiscordGatewayClient:
             logger.info(f"[{trace_id}] Channel {channel_id} not in allowlist")
         return is_allowed
 
+    def _check_dm_enabled(self, deployment: Deployment) -> bool:
+        """Check if DM responses are enabled for this deployment"""
+        return (
+            deployment.config
+            and deployment.config.discord
+            and deployment.config.discord.enable_discord_dm
+        )
+
     async def _handle_direct_message(
         self, data: dict, trace_id: str, deployment: Deployment
     ) -> None:
@@ -511,7 +519,8 @@ class DiscordGatewayClient:
         """Create a session key based on Discord channel"""
         is_dm = message_data.get("guild_id") is None
         if is_dm:
-            return f"discord-dm-{user_id}"
+            # Use consistent key format: discord-dm-{agent_id}-{user_id}
+            return f"discord-dm-{self.deployment.agent}-{user_id}"
         else:
             guild_id = message_data.get("guild_id")
             channel_id = message_data.get("channel_id")
@@ -642,6 +651,53 @@ class DiscordGatewayClient:
         )
         return False
 
+    async def _handle_dm_routing(
+        self,
+        data: dict,
+        trace_id: str,
+        deployment: Deployment
+    ) -> bool:
+        """
+        Handle DM-specific routing logic.
+        Returns True if we should continue processing, False if we should exit.
+        """
+        if not self._check_dm_enabled(deployment):
+            # Send canned response and exit
+            logger.info(f"[{trace_id}] DM responses disabled, sending canned reply")
+            await self._handle_direct_message(data, trace_id, deployment)
+            return False
+
+        # DM enabled, continue processing
+        logger.info(f"[{trace_id}] DM responses enabled, processing as normal message")
+        return True
+
+    async def _should_process_channel_logic(
+        self,
+        is_dm: bool,
+        channel_id: str,
+        deployment: Deployment,
+        force_reply: bool,
+        trace_id: str
+    ) -> bool:
+        """
+        Determine if we should process channel-specific logic.
+        Returns True if we should continue, False if we should skip.
+        """
+        # Skip all channel logic for DMs
+        if is_dm:
+            return True
+
+        # Check channel permissions
+        if not await self._check_channel_permissions(channel_id, deployment, trace_id):
+            return False
+
+        # Check for agent conflicts
+        relevant_deployments = await self._find_relevant_deployments(channel_id, trace_id)
+        if self._should_skip_for_agent_conflict(relevant_deployments, force_reply, trace_id):
+            return False
+
+        return True
+
     def _create_session_request(
         self,
         user: User,
@@ -651,6 +707,7 @@ class DiscordGatewayClient:
         channel_id: str,
         message_id: str,
         mentioned_agent_ids: list = None,
+        is_dm: bool = False,
     ) -> PromptSessionRequest:
         """Create a PromptSessionRequest object"""
         # If specific agents are mentioned, use those; otherwise use this deployment's agent
@@ -671,8 +728,9 @@ class DiscordGatewayClient:
             update_config=SessionUpdateConfig(
                 deployment_id=str(self.deployment.id),
                 update_endpoint=f"{self.api_url}/v2/deployments/emission",
-                discord_channel_id=channel_id,
+                discord_channel_id=channel_id if not is_dm else None,
                 discord_message_id=message_id,
+                discord_user_id=str(user.id) if is_dm else None,
             ),
         )
 
@@ -724,15 +782,16 @@ class DiscordGatewayClient:
         if not deployment:
             return
 
-        if not data.get("guild_id"):
-            await self._handle_direct_message(data, trace_id, deployment)
-            return
+        # Determine if this is a DM
+        is_dm = not data.get("guild_id")
 
+        # Handle DM routing
+        if is_dm:
+            if not await self._handle_dm_routing(data, trace_id, deployment):
+                return
+
+        # Extract message details
         channel_id = str(data["channel_id"])
-        if not await self._check_channel_permissions(channel_id, deployment, trace_id):
-            return
-
-        # Extract message information
         user_id, username, user = self._extract_user_info(data)
         content, attachments, force_reply, mentioned_agent_ids = (
             self._process_message_content(data)
@@ -744,16 +803,11 @@ class DiscordGatewayClient:
             f"[{trace_id}] Session key: {session_key}, force_reply: {force_reply}, mentioned_agents: {mentioned_agent_ids}"
         )
 
-        # Check for agent conflicts before proceeding
-        relevant_deployments = await self._find_relevant_deployments(
-            channel_id, trace_id
-        )
-        if self._should_skip_for_agent_conflict(
-            relevant_deployments, force_reply, trace_id
-        ):
+        # Channel-specific logic (skipped for DMs)
+        if not await self._should_process_channel_logic(is_dm, channel_id, deployment, force_reply, trace_id):
             return
 
-        # Handle session creation/reuse
+        # Load or create session
         session = await self._load_existing_session(session_key, trace_id)
         request = self._create_session_request(
             user,
@@ -763,6 +817,7 @@ class DiscordGatewayClient:
             channel_id,
             str(data["id"]),
             mentioned_agent_ids,
+            is_dm,
         )
 
         if session:
