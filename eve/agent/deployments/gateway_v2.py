@@ -753,7 +753,7 @@ class DiscordGatewayClient:
                 update_endpoint=f"{self.api_url}/v2/deployments/emission",
                 discord_channel_id=channel_id if not is_dm else None,
                 discord_message_id=message_id,
-                discord_user_id=str(user.id) if is_dm else None,
+                discord_user_id=user.discordId if is_dm else None,
             ),
         )
 

@@ -339,5 +339,5 @@ class DiscordClient(PlatformClient):
                 await self._send_channel_message(channel_id, payload, headers)
 
         except Exception as e:
-            logger.error(f"Error handling Discord emission: {str(e)}", exc_info=True)
+            logger.error("Error handling Discord emission: {error}", error=str(e), exc_info=True)
             raise
