@@ -262,13 +262,15 @@ async def build_system_message(
             "use_when", "This is your default Lora model"
         )
 
-    # Get memory
-    memory = await assemble_memory_context(
-        session,
-        actor,
-        user,
-        reason="build_system_message",
-    )
+    # Get memory (unless excluded by session extras)
+    memory = None
+    if not (session.extras and session.extras.exclude_memory):
+        memory = await assemble_memory_context(
+            session,
+            actor,
+            user,
+            reason="build_system_message",
+        )
 
     # Build system prompt with memory context
     content = system_template.render(

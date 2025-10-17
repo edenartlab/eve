@@ -842,6 +842,14 @@ class SessionMemoryContext(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
+class SessionExtras(BaseModel):
+    """Additional session configuration flags"""
+
+    exclude_memory: Optional[bool] = False  # If True, memory won't be passed to system prompt
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
 @Collection("sessions")
 class Session(Document):
     owner: ObjectId
@@ -863,6 +871,7 @@ class Session(Document):
     platform: Optional[Literal["discord", "telegram", "twitter", "farcaster"]] = None
     trigger: Optional[ObjectId] = None
     active_requests: Optional[List[str]] = []
+    extras: Optional[SessionExtras] = None  # Additional session configuration flags
 
     def get_messages(self):
         messages = ChatMessage.find({"session": self.id})

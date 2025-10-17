@@ -169,6 +169,7 @@ class SessionCreationArgs(BaseModel):
     trigger: Optional[str] = None
     session_key: Optional[str] = None
     platform: Optional[str] = None
+    extras: Optional[Dict[str, Any]] = None
 
 
 class PromptSessionRequest(BaseModel):
