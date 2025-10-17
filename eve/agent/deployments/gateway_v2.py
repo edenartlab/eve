@@ -466,7 +466,7 @@ class DiscordGatewayClient:
         return user_id, username, user
 
     def _process_message_content(
-        self, message_data: dict
+        self, message_data: dict, is_dm: bool = False
     ) -> Tuple[str, list, bool, list]:
         """Process message content, mentions, and attachments"""
         logger.info("Processing message content", extra={"message_data": message_data})
@@ -502,15 +502,32 @@ class DiscordGatewayClient:
         force_reply = False
         app_id = self.deployment.secrets.discord.application_id
 
-        # Check user mentions
-        if message_data.get("mentions") and any(
-            mention.get("id") == app_id for mention in message_data.get("mentions", [])
-        ):
+        # For DMs, always force reply (no mention required)
+        if is_dm:
             force_reply = True
+        else:
+            # Check user mentions
+            if message_data.get("mentions") and any(
+                mention.get("id") == app_id for mention in message_data.get("mentions", [])
+            ):
+                force_reply = True
 
-        # Check role mentions
-        if not force_reply and app_id in message_data.get("mention_roles", []):
-            force_reply = True
+            # Check role mentions
+            if not force_reply and app_id in message_data.get("mention_roles", []):
+                force_reply = True
+
+            # Also check raw message content for mention patterns (handles improperly formatted tags)
+            # This catches cases where users type mentions without autocomplete
+            if not force_reply and app_id:
+                mention_patterns = [
+                    f"<@{app_id}>",      # User mention
+                    f"<@!{app_id}>",     # User mention with nickname
+                    f"<@&{app_id}>",     # Role mention
+                ]
+                original_content = message_data.get("content", "")
+                if any(pattern in original_content for pattern in mention_patterns):
+                    force_reply = True
+                    logger.info(f"Detected mention in raw content for app_id {app_id}")
 
         content = content or "..."
         return content, attachments, force_reply, mentioned_agent_ids
@@ -710,11 +727,17 @@ class DiscordGatewayClient:
         is_dm: bool = False,
     ) -> PromptSessionRequest:
         """Create a PromptSessionRequest object"""
-        # If specific agents are mentioned, use those; otherwise use this deployment's agent
+        # For DMs, always include this deployment's agent
+        # For channels, if specific agents are mentioned, use those; otherwise empty list
 
-        if mentioned_agent_ids:
-            actor_agent_ids = mentioned_agent_ids
+        if is_dm:
+            # For DMs, always ensure the deployment's agent responds
+            actor_agent_ids = [str(self.deployment.agent)]
+        elif mentioned_agent_ids:
+            # For channels, use mentioned agents if any (deduplicate just in case)
+            actor_agent_ids = list(dict.fromkeys(mentioned_agent_ids))
         else:
+            # For channels with no mentions, use empty list
             actor_agent_ids = []
 
         return PromptSessionRequest(
@@ -794,7 +817,7 @@ class DiscordGatewayClient:
         channel_id = str(data["channel_id"])
         user_id, username, user = self._extract_user_info(data)
         content, attachments, force_reply, mentioned_agent_ids = (
-            self._process_message_content(data)
+            self._process_message_content(data, is_dm=is_dm)
         )
         logger.info(f"[{trace_id}] mentioned_agent_ids: {mentioned_agent_ids}")
         session_key = self._create_session_key(data, user_id)
