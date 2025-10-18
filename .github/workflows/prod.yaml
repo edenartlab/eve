@@ -35,35 +35,6 @@ jobs:
         working-directory: eve
         run: rye sync
 
-      - name: Update changed tools in database
-        working-directory: eve
-        env:
-          MONGO_URI: ${{ secrets.MONGO_URI_PROD }}
-        run: |
-          # Get list of changed files
-          if [ "${{ github.event.before }}" == "0000000000000000000000000000000000000000" ]; then
-            # For initial pushes, check all tools
-            echo "Initial push detected, skipping tool updates (run manually if needed)"
-          else
-            # Get changed api.yaml files
-            CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep 'eve/tools/.*/api.yaml' || true)
-
-            if [ -n "$CHANGED_FILES" ]; then
-              echo "Changed api.yaml files detected:"
-              echo "$CHANGED_FILES"
-
-              # Extract tool names from paths and update each
-              for file in $CHANGED_FILES; do
-                # Extract tool name: get the directory containing api.yaml
-                TOOL_NAME=$(dirname "$file" | xargs basename)
-                echo "Updating tool: $TOOL_NAME"
-                rye run eve tool update --db PROD "$TOOL_NAME"
-              done
-            else
-              echo "No api.yaml files changed, skipping tool updates"
-            fi
-          fi
-
       - name: Configure Modal token
         working-directory: eve
         run: rye run modal token set --token-id ${{ secrets.MODAL_TOKEN_ID }} --token-secret ${{ secrets.MODAL_TOKEN_SECRET }}
