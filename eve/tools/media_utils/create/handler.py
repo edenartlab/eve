@@ -602,7 +602,12 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
         print("Running Seedream4", args)
         result = await seedream4.async_run(args, save_thumbnails=True)
 
-        if len(result["output"]) != n_samples:
+        # throw exception if there was an error
+        if result.get("status") == "failed" or not "output" in result:
+            raise Exception(f"Error in Seedream4: {result.get('error')}")
+
+        # retry once if n_samples not satisfied
+        if len(result.get("output", [])) != n_samples:
             result = await seedream4.async_run(args, save_thumbnails=True)
 
     else:
