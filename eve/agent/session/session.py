@@ -486,19 +486,37 @@ async def async_run_tool_call_with_cancellation(
     tool = llm_context.tools[tool_call.tool]
 
     # Start the task
-    task = await tool.async_start_task(
-        user_id=user_id,
-        agent_id=agent_id,
-        session_id=session_id,
-        args=tool_call.args,
-        mock=False,
-        public=public,
-        is_client_platform=is_client_platform,
-    )
+    try:
+        task = await tool.async_start_task(
+            user_id=user_id,
+            agent_id=agent_id,
+            session_id=session_id,
+            args=tool_call.args,
+            mock=False,
+            public=public,
+            is_client_platform=is_client_platform,
+        )
+    except Exception as e:
+        # If task creation fails, return error without task reference
+        return {
+            "status": "failed",
+            "error": f"Failed to start task: {str(e)}",
+            "cost": 0,
+            "task": None,
+        }
 
     # If no cancellation event, fall back to normal behavior
     if not cancellation_event:
-        result = await tool.async_wait(task)
+        try:
+            result = await tool.async_wait(task)
+        except Exception as e:
+            # If task waiting fails, return error with task reference
+            return {
+                "status": "failed",
+                "error": str(e),
+                "cost": getattr(task, "cost", 0),
+                "task": getattr(task, "id", None),
+            }
     else:
         # Race between task completion and cancellation
         wait_task = asyncio.create_task(tool.async_wait(task))
@@ -526,7 +544,12 @@ async def async_run_tool_call_with_cancellation(
                 except Exception as e:
                     logger.error(f"Failed to cancel task {task.id}: {e}")
 
-                return {"status": "cancelled", "error": "Task cancelled by user"}
+                return {
+                    "status": "cancelled",
+                    "error": "Task cancelled by user",
+                    "cost": getattr(task, "cost", 0),
+                    "task": getattr(task, "id", None),
+                }
             else:
                 # Task completed normally
                 result = wait_task.result()
@@ -539,7 +562,13 @@ async def async_run_tool_call_with_cancellation(
                     await tool.async_cancel(task)
             except:
                 pass
-            raise e
+            # Return failed result with task reference instead of raising
+            return {
+                "status": "failed",
+                "error": str(e),
+                "cost": getattr(task, "cost", 0),
+                "task": getattr(task, "id", None),
+            }
 
     # Add task.cost and task.id to the result object
     if isinstance(result, dict):
@@ -691,6 +720,8 @@ async def process_tool_call(
                 assistant_message.tool_calls
             ):
                 assistant_message.tool_calls[tool_call_index].status = "cancelled"
+                assistant_message.tool_calls[tool_call_index].cost = result.get("cost", 0)
+                assistant_message.tool_calls[tool_call_index].task = result.get("task")
                 try:
                     # Force save with direct MongoDB update
                     from eve.mongo import get_collection
@@ -698,7 +729,11 @@ async def process_tool_call(
                     messages_collection = get_collection("messages")
                     result = messages_collection.update_one(
                         {"_id": assistant_message.id},
-                        {"$set": {f"tool_calls.{tool_call_index}.status": "cancelled"}},
+                        {"$set": {
+                            f"tool_calls.{tool_call_index}.status": "cancelled",
+                            f"tool_calls.{tool_call_index}.cost": assistant_message.tool_calls[tool_call_index].cost,
+                            f"tool_calls.{tool_call_index}.task": assistant_message.tool_calls[tool_call_index].task,
+                        }},
                     )
                 except Exception as e:
                     logger.warning(f"Direct update failed, trying regular save: {e}")
@@ -720,6 +755,10 @@ async def process_tool_call(
                 assistant_message.tool_calls[tool_call_index].error = result.get(
                     "error"
                 )
+                assistant_message.tool_calls[tool_call_index].cost = result.get(
+                    "cost", 0
+                )
+                assistant_message.tool_calls[tool_call_index].task = result.get("task")
                 assistant_message.save()
 
             return SessionUpdate(
