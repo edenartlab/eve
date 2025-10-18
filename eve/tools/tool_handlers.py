@@ -268,6 +268,11 @@ def load_handler(name):
 
             handlers[name] = handler
 
+        elif name == "abraham_rest":
+            from .abraham.abraham_rest.handler import handler
+
+            handlers[name] = handler
+
         elif name == "abraham_seed":
             from .abraham.abraham_seed.handler import handler
 

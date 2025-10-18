@@ -44,13 +44,8 @@ Finally, call the **`abraham_covenant`** tool to publish the blog post, poster i
 """
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
-    if not agent:
-        raise Exception("Agent is required")
-    agent = Agent.from_mongo(agent)
-    if agent.username != "abraham":
-        raise Exception("Agent is not Abraham")
 
+async def commit_daily_work(agent: Agent, session: str):
     session_post = Tool.load("session_post")
 
     abraham_seeds = AbrahamSeed.find({"status": "seed"})
@@ -60,7 +55,6 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     sessions = Session.find({"_id": {"$in": [a.session_id for a in abraham_seeds]}})
 
     print("sessions", sessions)
-
 
     candidates = []
     for session in sessions:
@@ -95,6 +89,38 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
 
     return {"output": [{"session": str(winner["session"].id)}]}
 
+
+async def rest(agent: Agent):
+    if not agent:
+        raise Exception("Agent is required")
+    agent = Agent.from_mongo(agent)
+    if agent.username != "abraham":
+        raise Exception("Agent is not Abraham")
+
+    tool = Tool.load("abraham_rest")
+    result = await tool.async_run({}) # todo: maybe some nice Abraham comments here
+
+    return {
+        "output": [{
+            "tx_hash": result["tx_hash"],
+            "ipfs_hash": result["ipfs_hash"],
+            "explorer_url": result["explorer_url"]
+        }]
+    }
+
+
+async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
+    if not agent:
+        raise Exception("Agent is required")
+    agent = Agent.from_mongo(agent)
+    if agent.username != "abraham":
+        raise Exception("Agent is not Abraham")
+
+    # check if UTC hour is 2, 4, 6, etc
+    if datetime.now(timezone.utc).hour % 2 != 0:
+        return await rest(agent)
+    else:
+        return await commit_daily_work(agent, session)
 
 
 # if __name__ == "__main__":
