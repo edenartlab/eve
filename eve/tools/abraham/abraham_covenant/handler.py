@@ -39,7 +39,8 @@ def commit_daily_work(
     title: str,
     tagline: str,
     poster_image: str,
-    blog_post: str
+    blog_post: str,
+    session_id: str
 ):
     """
     Commit Abraham's daily work to the blockchain.
@@ -50,6 +51,7 @@ def commit_daily_work(
         tagline: Short description/tagline
         poster_image: URL to the poster image
         blog_post: Full blog post content
+        session_id: Eden session ID
     """
     try:
         if not ABRAHAM_PRIVATE_KEY:
@@ -75,9 +77,10 @@ def commit_daily_work(
             "description": tagline,
             "post": blog_post,
             "external_url": f"https://abraham.ai/creation/{index}",
+            "eden_session_id": session_id,
             "image": f"ipfs://{poster_image_hash}",
             "attributes": [
-                {"trait_type": "Artist", "value": "Abraham"},
+                # {"trait_type": "Artist", "value": "Abraham"},
             ],
         }
 
@@ -131,6 +134,8 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     agent = Agent.from_mongo(agent)
     if agent.username != "abraham":
         raise Exception("Agent is not Abraham")
+    if not session:
+        raise Exception("Session is required")
 
     title = args.get("title")
     tagline = args.get("tagline")
@@ -154,7 +159,8 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
             title=title,
             tagline=tagline,
             poster_image=poster_image,
-            blog_post=blog_post
+            blog_post=blog_post,
+            session_id=session
         )
 
         # Update creation status
@@ -166,6 +172,7 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
                 tagline=tagline,
                 poster_image=poster_image,
                 blog_post=blog_post,
+
                 tx_hash=result["tx_hash"],
                 ipfs_hash=result["ipfs_hash"],
                 explorer_url=result["explorer_url"]
