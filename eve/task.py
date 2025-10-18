@@ -285,6 +285,7 @@ async def _task_handler(func, *args, **kwargs):
         with sentry_sdk.configure_scope() as scope:
             scope.set_tag("task_failure", "true")
             scope.set_tag("task_tool_key", task.tool)
+            scope.set_tag("task_id", str(task.id))
             if task.parent_tool:
                 scope.set_tag("task_parent_tool", task.parent_tool)
             scope.set_context(
