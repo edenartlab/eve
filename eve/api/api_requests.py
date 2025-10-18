@@ -187,6 +187,7 @@ class PromptSessionRequest(BaseModel):
     notification_config: Optional[Dict[str, Any]] = None
     thinking: Optional[bool] = None  # Override agent's thinking policy per-message
     api_key_id: Optional[str] = None  # API key ID to attach to messages
+    trigger: Optional[str] = None  # Mark message as coming from a trigger (for memory skip)
 
     # Session creation fields (used when session_id is not provided)
     creation_args: Optional[SessionCreationArgs] = None

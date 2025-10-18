@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from jinja2 import Template
 from eve.mongo import Collection, Document
 from bson import ObjectId
@@ -118,9 +119,10 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
 
     # check if UTC hour is 2, 4, 6, etc
     if datetime.now(timezone.utc).hour % 2 != 0:
-        return await rest(agent)
-    else:
         return await commit_daily_work(agent, session)
+    else:
+        return await rest(agent)
+        
 
 
 # if __name__ == "__main__":
