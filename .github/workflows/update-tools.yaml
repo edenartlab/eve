@@ -1,0 +1,54 @@
+name: Update Tool Specs in Database
+
+on:
+  push:
+    branches:
+      - staging
+      - main
+    paths:
+      - 'eve/tools/**/api.yaml'
+
+jobs:
+  update-tools:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2  # Fetch current and previous commit
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install the latest version of rye
+        uses: eifinger/setup-rye@v4
+
+      - name: Install dependencies
+        run: rye sync
+
+      - name: Update changed tools
+        env:
+          MONGO_URI: ${{ github.ref == 'refs/heads/main' && secrets.MONGO_URI_PROD || secrets.MONGO_URI_STG }}
+          MONGO_DB_NAME: ${{ github.ref == 'refs/heads/main' && 'eden-prod' || 'eden-stg' }}
+          DB: ${{ github.ref == 'refs/heads/main' && 'PROD' || 'STAGE' }}
+        run: |
+          # Get changed api.yaml files
+          CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD | grep 'eve/tools/.*/api.yaml' || true)
+
+          if [ -n "$CHANGED_FILES" ]; then
+            echo "Changed api.yaml files detected:"
+            echo "$CHANGED_FILES"
+
+            # Extract tool names from paths and update each
+            for file in $CHANGED_FILES; do
+              # Extract tool name: get the directory containing api.yaml
+              TOOL_NAME=$(dirname "$file" | xargs basename)
+              echo "Updating tool: $TOOL_NAME in $DB"
+              rye run eve tool update --db $DB "$TOOL_NAME"
+            done
+          else
+            echo "No api.yaml files changed"
+          fi

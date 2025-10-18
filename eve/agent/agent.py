@@ -234,6 +234,7 @@ class Agent(User):
             tools_to_load.append("abraham_publish")
             tools_to_load.append("abraham_daily")
             tools_to_load.append("abraham_covenant")
+            tools_to_load.append("abraham_rest")
             tools_to_load.append("abraham_seed")
         elif self.username == "verdelis":
             tools_to_load.append("verdelis_story")

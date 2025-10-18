@@ -184,11 +184,10 @@ def update(db: str, names: tuple):
             f"\nUpdated {updated} of {len(api_files)} tools", fg="blue", bold=True
         )
     )
-    click.echo(
-        click.style(
-            f"\nUpdated {updated} of {len(api_files)} tools", fg="blue", bold=True
-        )
-    )
+
+    # Exit with error code if any updates failed
+    if updated < len(api_files):
+        raise click.ClickException(f"Failed to update {len(api_files) - updated} tool(s)")
 
 
 @tool.command()
