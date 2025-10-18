@@ -38,7 +38,7 @@ else:
 
     # Collective memory settings:
     MAX_AGENT_MEMORIES_BEFORE_CONSOLIDATION = 16 # Number of suggestions to store before consolidating them into the agent's collective memory blob
-    MAX_FACTS_PER_SHARD = 50 # Max number of facts to store per agent shard (fifo)
+    MAX_FACTS_PER_SHARD = 100 # Max number of facts to store per agent shard (fifo)
     
 # Configuration for cold session processing
 CONSIDER_COLD_AFTER_MINUTES = 10  # Consider a session cold if no activity for this many minutes
