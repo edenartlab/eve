@@ -32,6 +32,7 @@ jobs:
       - name: Update changed tools
         env:
           MONGO_URI: ${{ github.ref == 'refs/heads/main' && secrets.MONGO_URI_PROD || secrets.MONGO_URI_STG }}
+          MONGO_DB_NAME: ${{ github.ref == 'refs/heads/main' && 'eden-prod' || 'eden-stg' }}
           DB: ${{ github.ref == 'refs/heads/main' && 'PROD' || 'STAGE' }}
         run: |
           # Get changed api.yaml files
