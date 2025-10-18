@@ -987,6 +987,7 @@ async def handle_prompt_session(
         thinking_override=request.thinking,  # Pass thinking override
         acting_user_id=request.acting_user_id or request.user_id,
         api_key_id=request.api_key_id,  # Pass API key ID to context
+        trigger=ObjectId(request.trigger) if request.trigger else None,  # Pass trigger ID to mark automated messages
     )
 
     if request.stream:
