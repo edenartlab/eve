@@ -1,7 +1,7 @@
 name: discord_broadcast_dm
 description: Send DMs to all recently active users from a Discord channel. Creates or reuses DM sessions for each user and sends personalized messages through the agent.
 tip: |-
-  This tool sends DMs to discord users who have been active in a Discord channel within a specified timeframe.
+  This tool sends DMs to users who have been active in a Discord channel within a specified timeframe.
 
   The tool:
   1. Discovers active users from the specified Discord channel
