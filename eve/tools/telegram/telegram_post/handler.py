@@ -40,14 +40,14 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
             for i, url in enumerate(media_urls[:10]):  # Telegram allows up to 10 media items
                 # Determine media type based on extension
                 video_extensions = (".mp4", ".avi", ".mov", ".mkv", ".webm")
-                if any(url.lower().endswith(ext) for ext in video_extensions):
-                    media = InputMediaVideo(media=url)
-                else:
-                    media = InputMediaPhoto(media=url)
 
-                # Add caption to first media item
-                if i == 0 and content:
-                    media.caption = content
+                # Add caption to first media item only
+                caption = content if i == 0 and content else None
+
+                if any(url.lower().endswith(ext) for ext in video_extensions):
+                    media = InputMediaVideo(media=url, caption=caption)
+                else:
+                    media = InputMediaPhoto(media=url, caption=caption)
 
                 media_group.append(media)
 
@@ -57,7 +57,7 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
             # Send text message
             message = await bot.send_message(chat_id=channel_id, text=content)
 
-        return {
+        result = {
             "output": [{
                 "message_id": message.message_id,
                 "chat_id": message.chat.id,
@@ -65,5 +65,12 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
             }]
         }
 
-    finally:
         await bot.close()
+        return result
+
+    except Exception as e:
+        try:
+            await bot.close()
+        except:
+            pass  # Ignore errors closing bot
+        raise e
