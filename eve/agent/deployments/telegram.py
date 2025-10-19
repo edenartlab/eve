@@ -86,7 +86,7 @@ class TelegramClient(PlatformClient):
 
         logger.info(f"Setting webhook via direct HTTP call to Telegram API")
         async with aiohttp.ClientSession() as session:
-            async with session.post(telegram_api_url, json=payload) as response:
+            async with session.post(telegram_api_url, data=payload) as response:
                 response_data = await response.json()
                 logger.info(f"Telegram API response: {response_data}")
 
