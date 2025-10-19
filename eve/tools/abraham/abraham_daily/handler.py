@@ -125,10 +125,10 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         raise Exception("Agent is not Abraham")
 
     # check if UTC hour is 2, 4, 6, etc
-    if datetime.now(timezone.utc).hour % 2 == 0:
-        return await commit_daily_work(agent, session)
-    else:
+    if datetime.now(timezone.utc).weekday() == 5:  # Saturday is 5 (Monday is 0)
         return await abraham_rest(agent)
+    else:
+        return await commit_daily_work(agent, session)
 
 
 # if __name__ == "__main__":
