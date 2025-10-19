@@ -2,6 +2,7 @@ from eve.mongo import Collection, Document
 from bson import ObjectId
 from typing import Literal, Optional
 from pydantic import BaseModel
+from datetime import datetime
 
 
 class AbrahamCreation(BaseModel):
@@ -10,9 +11,12 @@ class AbrahamCreation(BaseModel):
     tagline: str
     poster_image: str
     blog_post: str
+    session_id: str
+    contract_address: str
     tx_hash: str
     ipfs_hash: str
     explorer_url: str
+    minted_at: datetime
 
 
 @Collection("abraham_seeds")
