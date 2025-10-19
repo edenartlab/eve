@@ -72,44 +72,15 @@ class TelegramClient(PlatformClient):
         # Update bot webhook
         bot = Bot(self.deployment.secrets.telegram.token)
 
-        # First check the bot is valid
-        try:
-            bot_info = await bot.get_me()
-            logger.info(f"Bot info: {bot_info}")
-        except Exception as e:
-            logger.error(f"Failed to get bot info: {e}")
-            raise Exception(f"Invalid bot token: {e}")
+        # Update bot webhook
+        response = await bot.set_webhook(
+            url=webhook_url,
+            secret_token=self.deployment.secrets.telegram.webhook_secret,
+            drop_pending_updates=True,
+            max_connections=100,
+        )
 
-        # Try to get current webhook info
-        try:
-            current_webhook = await bot.get_webhook_info()
-            logger.info(f"Current webhook: {current_webhook}")
-        except Exception as e:
-            logger.warning(f"Failed to get current webhook info: {e}")
-
-        # Set webhook with detailed error logging
-        try:
-            # Try with minimal parameters first
-            logger.info("Attempting to set webhook with minimal parameters...")
-            response = await bot.set_webhook(url=webhook_url)
-            logger.info(f"Set webhook response (minimal): {response}")
-
-            # If that worked, update with full parameters
-            if response:
-                logger.info("Updating webhook with full parameters...")
-                response = await bot.set_webhook(
-                    url=webhook_url,
-                    secret_token=self.deployment.secrets.telegram.webhook_secret,
-                    drop_pending_updates=True,
-                    max_connections=100,
-                )
-                logger.info(f"Set webhook response (full): {response}")
-        except Exception as e:
-            logger.error(f"Failed to set webhook: {e}")
-            logger.error(f"Webhook URL: {webhook_url}")
-            logger.error(f"URL length: {len(webhook_url)}")
-            logger.error(f"Secret token length: {len(self.deployment.secrets.telegram.webhook_secret) if self.deployment.secrets.telegram.webhook_secret else 0}")
-            raise
+        logger.info(f"Response: {response}")
 
         if not response:
             raise Exception("Failed to set Telegram webhook")
