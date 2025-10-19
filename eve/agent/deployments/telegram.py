@@ -38,9 +38,6 @@ class TelegramClient(PlatformClient):
         import secrets as python_secrets
 
         # Validate bot token
-        logger.info(f"Validating Telegram token (length: {len(secrets.telegram.token) if secrets.telegram.token else 0})")
-        logger.info(f"Token first 10 chars: {secrets.telegram.token[:10] if secrets.telegram.token else 'None'}...")
-
         try:
             bot = Bot(secrets.telegram.token)
             await bot.get_me()
@@ -61,8 +58,6 @@ class TelegramClient(PlatformClient):
         if not self.deployment:
             raise ValueError("Deployment is required for postdeploy")
 
-        from telegram import Bot
-
         # Point webhook to the Modal gateway service
         # Modal URL format: https://edenartlab--discord-gateway-v2-{db}-gateway-app.modal.run
         gateway_url = os.getenv("GATEWAY_URL")
@@ -77,14 +72,22 @@ class TelegramClient(PlatformClient):
         import aiohttp
 
         telegram_api_url = f"https://api.telegram.org/bot{self.deployment.secrets.telegram.token}/setWebhook"
+
+        # Hardcode the URL to test
+        hardcoded_url = "https://edenartlab--discord-gateway-v2-prod-gateway-app.modal.run/telegram/webhook"
+
         payload = {
-            "url": webhook_url,
+            "url": hardcoded_url,
             "secret_token": self.deployment.secrets.telegram.webhook_secret,
-            "drop_pending_updates": True,
-            "max_connections": 100,
+            "drop_pending_updates": "true",
+            "max_connections": "100",
         }
 
         logger.info(f"Setting webhook via direct HTTP call to Telegram API")
+        logger.info(f"Constructed URL: {webhook_url}")
+        logger.info(f"Hardcoded URL: {hardcoded_url}")
+        logger.info(f"URLs match: {webhook_url == hardcoded_url}")
+        logger.info(f"Payload: {payload}")
         async with aiohttp.ClientSession() as session:
             async with session.post(telegram_api_url, data=payload) as response:
                 response_data = await response.json()
