@@ -54,8 +54,8 @@ SESSION_DIRECTIVE_MEMORY_MAX_WORDS  = 25  # Target word length for session direc
 SESSION_SUGGESTION_MEMORY_MAX_WORDS = 35  # Target word length for session suggestion memory
 SESSION_FACT_MEMORY_MAX_WORDS       = 30  # Target word length for session fact memory
 # Consolidated memory blobs:
-USER_MEMORY_BLOB_MAX_WORDS  = 250  # Target word count for consolidated user memory blob
-AGENT_MEMORY_BLOB_MAX_WORDS = 750  # Target word count for consolidated agent memory blob (shard)
+USER_MEMORY_BLOB_MAX_WORDS  = 250   # Target word count for consolidated user memory blob
+AGENT_MEMORY_BLOB_MAX_WORDS = 1000  # Target word count for consolidated agent memory blob (shard)
 
 # Define different memory types and their extraction limits:
 MEMORY_TYPES = {

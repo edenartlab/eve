@@ -24,8 +24,9 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     if not discord_user_id and not channel_id:
         raise Exception("Either channel_id or discord_user_id must be provided")
 
-    if not content or not content.strip():
-        raise Exception("Content cannot be empty")
+    # Content can be empty only if media URLs are provided
+    if (not content or not content.strip()) and not media_urls:
+        raise Exception("Either content or media_urls must be provided")
 
     # Create Discord client
     client = discord.Client(intents=discord.Intents.default())

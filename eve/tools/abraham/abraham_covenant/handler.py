@@ -1,12 +1,14 @@
 import os
 import logging
 import asyncio
+from datetime import datetime
 from jinja2 import Template
 from eve.mongo import Collection, Document
 from bson import ObjectId
 from typing import Literal
 
 from eve.tool import Tool
+from eve.utils import is_valid_image_url
 from eve.agent.deployments import Deployment
 from eve.agent import Agent
 from eve.agent.session.models import Session
@@ -46,7 +48,7 @@ def commit_daily_work(
     Commit Abraham's daily work to the blockchain.
 
     Args:
-        index: Work index number
+        # index: Work index number
         title: Title of the work
         tagline: Short description/tagline
         poster_image: URL to the poster image
@@ -70,6 +72,8 @@ def commit_daily_work(
         logger.info(f"Uploading poster image to IPFS: {poster_image}")
         image_cid = ipfs_pin(poster_image)
         poster_image_hash = image_cid.split("/")[-1]
+
+        # index = 5 #AbrahamSeed.count({"status": "creation"}) + 1
 
         # Create metadata JSON
         json_data = {
@@ -129,6 +133,11 @@ def commit_daily_work(
 
 
 async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
+
+    print("RUN ABRAHAM_COVENANT")
+    print("agent", agent)
+    print(type(agent))
+
     if not agent:
         raise Exception("Agent is required")
     agent = Agent.from_mongo(agent)
@@ -137,13 +146,18 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     if not session:
         raise Exception("Session is required")
 
+    print("RUN ABRAHAM_COVENANT")
+    print("session", session)
+    print(type(session))
+
     title = args.get("title")
     tagline = args.get("tagline")
     poster_image = args.get("poster_image")
     blog_post = args.get("post")
+    session_id = str(session)
 
     abraham_seed = AbrahamSeed.find_one({
-        "session_id": ObjectId(session)
+        "session_id": ObjectId(session_id)
     })
 
     logger.info("Processing Abraham creation")
@@ -152,15 +166,28 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     logger.info(f"Post: {blog_post}")
     logger.info(f"Poster image: {poster_image}")
 
+
+    # Safety checks
+    # check if poster image downloads and loads as image
+    ok, info = is_valid_image_url(poster_image)
+    print("poster image is valid", ok, info)
+    if not ok:
+        raise Exception("Poster image is not a valid image")
+    
+    # check blog post at least 10 chars 
+    if len(blog_post) < 10:
+        raise Exception("Blog post must be at least 10 characters long")
+
+
     # Commit to blockchain
     try:
         result = commit_daily_work(
-            index=1,  # Using index 1 as specified
+            index=2,
             title=title,
             tagline=tagline,
             poster_image=poster_image,
             blog_post=blog_post,
-            session_id=session
+            session_id=session_id
         )
 
         # Update creation status
@@ -172,16 +199,18 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
                 tagline=tagline,
                 poster_image=poster_image,
                 blog_post=blog_post,
-
+                session_id=session_id,
+                contract_address=CONTRACT_ADDRESS_COVENANT,
                 tx_hash=result["tx_hash"],
                 ipfs_hash=result["ipfs_hash"],
-                explorer_url=result["explorer_url"]
+                explorer_url=result["explorer_url"],
+                minted_at=datetime.now()
             ).model_dump()
         )
 
         return {
             "output": [{
-                "session": session,
+                "session": session_id,
                 "tx_hash": result["tx_hash"],
                 "ipfs_hash": result["ipfs_hash"],
                 "explorer_url": result["explorer_url"]

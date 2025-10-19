@@ -1,5 +1,6 @@
 from __future__ import annotations
 import os
+import io
 import re
 import pathlib
 import tempfile
@@ -10,6 +11,7 @@ from io import BytesIO
 from tqdm import tqdm
 from safetensors.torch import load_file, save_file
 from loguru import logger
+from PIL import Image, UnidentifiedImageError
 
 from .constants import USE_MEDIA_CACHE
 
@@ -275,3 +277,59 @@ def convert_pti_to_safetensors(input_path: str, output_path: str):
     except Exception as e:
         logger.error(f"❌ Failed to save converted file to {output_path}: {e}")
         return False
+
+
+def is_valid_image_url(url: str, *, timeout=(5, 15), max_bytes=8 * 1024 * 1024):
+    """
+    Returns (ok: bool, info: dict). Keeps it simple:
+    - checks HTTP status
+    - ensures Content-Type starts with image/
+    - downloads with a size cap
+    - opens with Pillow and verifies
+    """
+    try:
+        # Quick HEAD (best effort)
+        try:
+            h = requests.head(url, timeout=timeout, allow_redirects=True)
+            if h.status_code >= 400:
+                return False, {"reason": f"HTTP {h.status_code} on HEAD"}
+            ct = (h.headers.get("Content-Type") or "").lower().split(";")[0].strip()
+            if ct and not ct.startswith("image/"):
+                return False, {"reason": f"Not an image Content-Type: {ct}"}
+            cl = h.headers.get("Content-Length")
+            if cl and int(cl) > max_bytes:
+                return False, {"reason": "Too large by Content-Length"}
+        except requests.RequestException:
+            # If HEAD fails, we’ll still try GET.
+            pass
+
+        # Streamed GET with byte cap
+        r = requests.get(url, stream=True, timeout=timeout)
+        r.raise_for_status()
+        buf = io.BytesIO()
+        total = 0
+        for chunk in r.iter_content(8192):
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > max_bytes:
+                return False, {"reason": "Downloaded bytes exceed limit"}
+            buf.write(chunk)
+        data = buf.getvalue()
+
+        # Try decoding with Pillow
+        try:
+            img = Image.open(io.BytesIO(data))
+            img.verify()  # quick consistency check
+            # reopen to read size and format after verify()
+            img2 = Image.open(io.BytesIO(data))
+            img2.load()
+            w, h = img2.size
+            return True, {"format": img2.format, "size": (w, h)}
+        except UnidentifiedImageError:
+            return False, {"reason": "Unrecognized image format"}
+    except requests.RequestException as e:
+        return False, {"reason": f"Network error: {e.__class__.__name__}"}
+    except Exception as e:
+        return False, {"reason": f"Other error: {e.__class__.__name__}"}
+

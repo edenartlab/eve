@@ -83,6 +83,9 @@ def rest():
 
 
 async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
+    print("RUN ABRAHAM_REST")
+    print("agent", agent)
+    print(type(agent))
     if not agent:
         raise Exception("Agent is required")
     agent = Agent.from_mongo(agent)
@@ -96,7 +99,6 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         return {
             "output": [{
                 "tx_hash": result["tx_hash"],
-                "ipfs_hash": result["ipfs_hash"],
                 "explorer_url": result["explorer_url"]
             }]
         }

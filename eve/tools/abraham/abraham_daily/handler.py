@@ -21,7 +21,7 @@ You will now produce the Covenant entry. It must include:
 
 * A title
 * A tagline
-* A representative poster image with the title on it
+* A representative 16:9 poster image with the title on it
 * A Markdown blog post with supporting media embedded throughout that captures the essence of the creation
 
 # Plan
@@ -41,7 +41,7 @@ From that narrative, write a long-form Markdown blog post that captures the enti
 
 ## Step 3
 
-Finally, call the **`abraham_covenant`** tool to publish the blog post, poster image, and supporting content.
+Finally, call the **`abraham_covenant`** tool to publish the blog post, poster image, and supporting content. Make sure the poster image is 16:9, regardless of the original content you made.
 """
 
 
@@ -91,26 +91,33 @@ async def commit_daily_work(agent: Agent, session: str):
     return {"output": [{"session": str(winner["session"].id)}]}
 
 
-async def rest(agent: Agent):
-    if not agent:
-        raise Exception("Agent is required")
-    agent = Agent.from_mongo(agent)
-    if agent.username != "abraham":
-        raise Exception("Agent is not Abraham")
+async def abraham_rest(agent: Agent):
+    print("RUN ABRAHAM_REST !!")
+    print("agent", agent)
+    print(type(agent))
+    # tool = Tool.load("abraham_rest")
+    # result = await tool.async_run({"agent_id": str(agent.id)}) # todo: maybe some nice Abraham comments here
 
-    tool = Tool.load("abraham_rest")
-    result = await tool.async_run({}) # todo: maybe some nice Abraham comments here
+    from eve.tools.abraham.abraham_rest.handler import rest
+
+    result = rest()
+    print("result rest", result)
 
     return {
         "output": [{
             "tx_hash": result["tx_hash"],
-            "ipfs_hash": result["ipfs_hash"],
             "explorer_url": result["explorer_url"]
         }]
     }
 
 
 async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
+    print("RUN ABRAHAM_DAILY")
+    print("agent", agent)
+    print(type(agent))
+    print("session", session)
+    print(type(session))
+
     if not agent:
         raise Exception("Agent is required")
     agent = Agent.from_mongo(agent)
@@ -118,11 +125,10 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         raise Exception("Agent is not Abraham")
 
     # check if UTC hour is 2, 4, 6, etc
-    if datetime.now(timezone.utc).hour % 2 != 0:
+    if datetime.now(timezone.utc).hour % 2 == 0:
         return await commit_daily_work(agent, session)
     else:
-        return await rest(agent)
-        
+        return await abraham_rest(agent)
 
 
 # if __name__ == "__main__":
