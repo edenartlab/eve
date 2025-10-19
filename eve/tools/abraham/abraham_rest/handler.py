@@ -45,8 +45,8 @@ def rest():
             address=CONTRACT_ADDRESS_COVENANT,
             abi_path=CONTRACT_ABI_COVENANT,
             private_key=ABRAHAM_PRIVATE_KEY,
-            network=Network.ETH_SEPOLIA,
-            #network=Network.ETH_MAINNET
+            # network=Network.ETH_SEPOLIA,
+            network=Network.ETH_MAINNET
         )
 
         # Prepare contract function call
@@ -61,15 +61,16 @@ def rest():
             nonce=None,
             value=0,
             abi=abi,
-            network=Network.ETH_SEPOLIA,
-            #network=Network.ETH_MAINNET,
+            # network=Network.ETH_SEPOLIA,
+            network=Network.ETH_MAINNET,
         )
 
         # Build explorer URL for ETH Sepolia
         tx_hash_hex = tx_hash.hex()
         if not tx_hash_hex.startswith('0x'):
             tx_hash_hex = f"0x{tx_hash_hex}"
-        explorer_url = f"https://sepolia.etherscan.io/tx/{tx_hash_hex}"
+        # explorer_url = f"https://sepolia.etherscan.io/tx/{tx_hash_hex}"
+        explorer_url = f"https://etherscan.io/tx/{tx_hash_hex}"
 
         logger.info(f"✅ Rest committed successfully: {tx_hash_hex}")
         logger.info(f"Explorer: {explorer_url}")

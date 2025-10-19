@@ -108,8 +108,8 @@ def commit_daily_work(
             nonce=None,
             value=0,
             abi=abi,
-            network=Network.ETH_SEPOLIA,
-            #network=Network.ETH_MAINNET,
+            # network=Network.ETH_SEPOLIA,
+            network=Network.ETH_MAINNET,
         )
 
         # Build explorer URL
@@ -117,8 +117,8 @@ def commit_daily_work(
         if not tx_hash_hex.startswith('0x'):
             tx_hash_hex = f"0x{tx_hash_hex}"
         
-        explorer_url = f"https://sepolia.etherscan.io/tx/{tx_hash_hex}"
-        #explorer_url = f"https://etherscan.io/tx/{tx_hash_hex}"
+        # explorer_url = f"https://sepolia.etherscan.io/tx/{tx_hash_hex}"
+        explorer_url = f"https://etherscan.io/tx/{tx_hash_hex}"
 
         logger.info(f"✅ Daily work committed successfully: {tx_hash_hex}")
         logger.info(f"Explorer: {explorer_url}")
@@ -153,6 +153,8 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     print("session", session)
     print(type(session))
 
+    index = 0
+    
     title = args.get("title")
     tagline = args.get("tagline")
     poster_image = args.get("poster_image")
@@ -185,7 +187,7 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     # Commit to blockchain
     try:
         result = commit_daily_work(
-            index=2,
+            index=index,
             title=title,
             tagline=tagline,
             poster_image=poster_image,
@@ -197,7 +199,7 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         abraham_seed.update(
             status="creation",
             creation=AbrahamCreation(
-                index=1,
+                index=index,
                 title=title,
                 tagline=tagline,
                 poster_image=poster_image,
