@@ -5,6 +5,7 @@ from enum import Enum
 from typing import List, Optional, Dict, Any, Literal
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import uuid
 
 import magic
 import pdfplumber
@@ -1046,10 +1047,27 @@ class NotificationConfig:
 
 
 @dataclass
+class SessionCreationArgs:
+    """Arguments for creating a new session"""
+    owner_id: Optional[str] = None
+    agents: Optional[List[str]] = None
+    title: Optional[str] = None
+    scenario: Optional[str] = None
+    budget: Optional[float] = None
+    trigger: Optional[str] = None
+    session_key: Optional[str] = None
+    platform: Optional[str] = None
+
+
+@dataclass
 class PromptSessionContext:
-    session: Session
-    initiating_user_id: str  # The user who owns/initiates the session
-    message: ChatMessageRequestInput
+    # Session can be provided directly, or will be loaded/created based on session_id/creation_args
+    session: Optional[Session] = None
+    session_id: Optional[str] = None
+    session_creation_args: Optional[SessionCreationArgs] = None
+
+    initiating_user_id: str = None  # The user who owns/initiates the session
+    message: Optional[ChatMessageRequestInput] = None
     update_config: Optional[SessionUpdateConfig] = None
     actor_agent_ids: Optional[List[str]] = None
     llm_config: Optional[LLMConfig] = None
@@ -1061,14 +1079,12 @@ class PromptSessionContext:
     tool_choice: Optional[str] = None
 
     notification_config: Optional[NotificationConfig] = None
-    # Override agent's thinking policy per-message
     thinking_override: Optional[bool] = None
     acting_user_id: Optional[str] = None
     trigger: Optional[ObjectId] = None
     api_key_id: Optional[str] = None  # API key ID to attach to messages
 
-    # The user whose permissions are used for tool authorization (defaults to initiating_user_id if not provided)
-    # trigger: Optional[Any] = None
+    session_run_id: Optional[str] = field(default_factory=lambda: str(uuid.uuid4()))
 
 
 @dataclass

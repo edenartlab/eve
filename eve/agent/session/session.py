@@ -6,6 +6,7 @@ import random
 import re
 import pytz
 import uuid
+import logging
 from fastapi import BackgroundTasks
 from typing import List, Optional, Dict
 from datetime import datetime, timezone
@@ -15,7 +16,6 @@ from eve.utils import dumps_json
 from eve.agent.agent import Agent
 from eve.tool import Tool
 from eve.models import Model
-from eve.agent.session.debug_logger import SessionDebugger
 from eve.concepts import Concept
 from eve.agent.session.models import (
     ActorSelectionMethod,
@@ -57,7 +57,45 @@ from eve.agent.session.tracing import (
     trace_async_operation,
     add_breadcrumb,
 )
-from loguru import logger
+
+logger = logging.getLogger(__name__)
+
+# Check if session logging is enabled via environment variable
+SESSION_LOGGING_ENABLED = os.getenv("SESSION_LOGGING_ENABLED", "true").lower() == "true"
+
+
+def log_session_step(
+    message: str,
+    session_run_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    **kwargs
+):
+    """Log a session step with session_run_id context"""
+    if not SESSION_LOGGING_ENABLED:
+        return
+
+    context_parts = []
+    if session_run_id:
+        context_parts.append(f"run_id={session_run_id}")
+    if session_id:
+        context_parts.append(f"session_id={session_id}")
+
+    context = f"[{' '.join(context_parts)}]" if context_parts else ""
+
+    # Format additional kwargs with better formatting
+    if kwargs:
+        kwargs_parts = []
+        for k, v in kwargs.items():
+            if isinstance(v, (dict, list)):
+                # For complex objects, format them nicely
+                kwargs_parts.append(f"{k}={json.dumps(v, default=str)}")
+            else:
+                kwargs_parts.append(f"{k}={v}")
+        kwargs_str = " | " + " | ".join(kwargs_parts)
+    else:
+        kwargs_str = ""
+
+    logger.info(f"{context} {message}{kwargs_str}")
 
 
 class SessionCancelledException(Exception):
@@ -141,6 +179,18 @@ def parse_mentions(content: str) -> List[str]:
 async def determine_actors(
     session: Session, context: PromptSessionContext
 ) -> List[Agent]:
+    """Determine which agents should act in this session"""
+    session_run_id = context.session_run_id
+    session_id = str(session.id)
+
+    log_session_step(
+        "Determining actors",
+        session_run_id=session_run_id,
+        session_id=session_id,
+        total_agents_in_session=len(session.agents) if session.agents else 0,
+        actor_agent_ids_specified=context.actor_agent_ids,
+        has_auto_reply=bool(session.autonomy_settings and session.autonomy_settings.auto_reply),
+    )
     add_breadcrumb(
         "Determining actors for session",
         category="session",
@@ -182,6 +232,18 @@ async def determine_actors(
         # session.last_actor_id = actors[0].id
         # session.save()
         session.update(last_actor_id=actors[0].id)
+        log_session_step(
+            f"✓ Determined {len(actors)} actor(s)",
+            session_run_id=session_run_id,
+            session_id=session_id,
+            actors=[{"id": str(a.id), "name": a.name, "username": a.username} for a in actors],
+        )
+    else:
+        log_session_step(
+            "⚠ No actors determined - session has no agents",
+            session_run_id=session_run_id,
+            session_id=session_id,
+        )
 
     return actors
 
@@ -392,6 +454,19 @@ async def build_llm_context(
     context: PromptSessionContext,
     trace_id: Optional[str] = str(uuid.uuid4()),
 ):
+    """Build the LLM context for a session prompt"""
+    session_run_id = context.session_run_id
+    session_id = str(session.id)
+
+    log_session_step(
+        "Building LLM context",
+        session_run_id=session_run_id,
+        session_id=session_id,
+        actor_id=str(actor.id),
+        actor_name=actor.name,
+        trace_id=trace_id,
+    )
+
     if context.initiating_user_id:
         user = User.from_mongo(context.initiating_user_id)
         tier = (
@@ -399,6 +474,15 @@ async def build_llm_context(
         )
     else:
         tier = "free"
+
+    log_session_step(
+        "Loading tools for actor",
+        session_run_id=session_run_id,
+        session_id=session_id,
+        user_tier=tier,
+        tools_override=bool(context.tools),
+        extra_tools=bool(context.extra_tools),
+    )
 
     auth_user_id = context.acting_user_id or context.initiating_user_id
     if context.tools:
@@ -444,7 +528,7 @@ async def build_llm_context(
     else:
         config = context.llm_config or get_default_session_llm_config(tier)
 
-    return LLMContext(
+    llm_context = LLMContext(
         messages=messages,
         tools=tools,
         tool_choice=tool_choice,
@@ -464,6 +548,28 @@ async def build_llm_context(
             ),
         ),
     )
+
+    # Count message types
+    message_counts = {}
+    for msg in messages:
+        role = msg.role if hasattr(msg, 'role') else 'unknown'
+        message_counts[role] = message_counts.get(role, 0) + 1
+
+    log_session_step(
+        "✓ LLM context built successfully",
+        session_run_id=session_run_id,
+        session_id=session_id,
+        total_messages=len(messages),
+        message_breakdown=message_counts,
+        num_tools=len(tools) if tools else 0,
+        tool_names=list(tools.keys()) if tools else [],
+        tool_choice=tool_choice,
+        model=config.model if config else "default",
+        max_tokens=config.max_tokens if config and hasattr(config, 'max_tokens') else None,
+        temperature=config.temperature if config and hasattr(config, 'temperature') else None,
+    )
+
+    return llm_context
 
 
 async def async_run_tool_call_with_cancellation(
@@ -912,6 +1018,12 @@ async def async_prompt_session(
 
     async def prompt_session_generator():
         """Generator function that yields session updates and can be cancelled."""
+        log_session_step(
+            "Starting prompt session generator",
+            session_run_id=session_run_id,
+            session_id=str(session.id)[:8],
+        )
+
         active_requests = session.active_requests or []
         active_requests.append(session_run_id)
         # session.active_requests = active_requests
@@ -933,8 +1045,15 @@ async def async_prompt_session(
 
         prompt_session_finished = False
         tokens_spent = 0
+        turn_count = 0
 
         while not prompt_session_finished:
+            turn_count += 1
+            log_session_step(
+                f"🔄 Starting turn {turn_count}",
+                session_run_id=session_run_id,
+                session_id=str(session.id),
+            )
             # Check for cancellation before each iteration
             if cancellation_event.is_set():
                 raise SessionCancelledException("Session cancelled by user")
@@ -979,6 +1098,14 @@ async def async_prompt_session(
             llm_context.metadata.generation_id = str(uuid.uuid4())
 
             if stream:
+                log_session_step(
+                    "🤖 Starting LLM streaming call",
+                    session_run_id=session_run_id,
+                    session_id=str(session.id),
+                    model=llm_context.config.model,
+                    generation_id=llm_context.metadata.generation_id,
+                    turn_number=turn_count,
+                )
                 # For streaming, we need to collect the content as it comes in
                 content = ""
                 tool_calls_dict = {}  # Track tool calls by index to accumulate arguments
@@ -1069,11 +1196,32 @@ async def async_prompt_session(
                     apiKey=ObjectId(api_key_id) if api_key_id else None,
                 )
             else:
+                log_session_step(
+                    "🤖 Starting LLM prompt (non-streaming)",
+                    session_run_id=session_run_id,
+                    session_id=str(session.id),
+                    model=llm_context.config.model,
+                    generation_id=llm_context.metadata.generation_id,
+                    turn_number=turn_count,
+                )
                 # Non-streaming path
                 async with trace_async_operation(
                     "llm.prompt", model=llm_context.config.model
                 ):
                     response = await async_prompt(llm_context)
+
+                log_session_step(
+                    "✓ LLM response received",
+                    session_run_id=session_run_id,
+                    session_id=str(session.id),
+                    has_tool_calls=bool(response.tool_calls),
+                    num_tool_calls=len(response.tool_calls) if response.tool_calls else 0,
+                    tokens_spent=response.tokens_spent,
+                    stop_reason=response.stop,
+                    content_length=len(response.content) if response.content else 0,
+                    has_thought=bool(response.thought),
+                )
+
                 assistant_message = ChatMessage(
                     session=session.id,
                     sender=ObjectId(llm_context.metadata.trace_metadata.agent_id),
@@ -1162,6 +1310,16 @@ async def async_prompt_session(
                 )
 
             if assistant_message.tool_calls:
+                tool_info = [
+                    {"tool": tc.tool, "id": tc.id, "args": tc.args}
+                    for tc in assistant_message.tool_calls
+                ]
+                log_session_step(
+                    f"🔧 Processing {len(assistant_message.tool_calls)} tool call(s)",
+                    session_run_id=session_run_id,
+                    session_id=str(session.id),
+                    tool_calls=tool_info,
+                )
                 async with trace_async_operation(
                     "tools.process_all", tool_count=len(assistant_message.tool_calls)
                 ):
@@ -1178,8 +1336,21 @@ async def async_prompt_session(
                         if cancellation_event.is_set():
                             raise SessionCancelledException("Session cancelled by user")
                         yield update
+                log_session_step(
+                    "✓ All tool calls completed",
+                    session_run_id=session_run_id,
+                    session_id=str(session.id),
+                )
 
             if stop_reason in ["stop", "completed"]:
+                log_session_step(
+                    "✅ Session prompt finished successfully",
+                    session_run_id=session_run_id,
+                    session_id=str(session.id),
+                    stop_reason=stop_reason,
+                    total_turns=turn_count,
+                    total_tokens_spent=tokens_spent,
+                )
                 prompt_session_finished = True
 
             # if tool choice was previously set to something specific, set it to None for follow-up messages
@@ -1285,6 +1456,238 @@ async def async_prompt_session(
             transaction.finish()
 
 
+async def setup_session_internal(
+    context: PromptSessionContext,
+    background_tasks: Optional[BackgroundTasks] = None,
+) -> Session:
+    """
+    Internal session setup - loads or creates a session based on context.
+    Moved from handlers.py to keep API route minimal.
+    """
+    from eve.trigger import Trigger
+
+    session_run_id = context.session_run_id
+
+    # If session is already provided, use it
+    if context.session:
+        log_session_step(
+            "Using provided session object",
+            session_run_id=session_run_id,
+            session_id=str(context.session.id),
+            status=context.session.status,
+        )
+        return context.session
+
+    # If session_id is provided, load existing session
+    if context.session_id:
+        log_session_step(
+            "Loading existing session from MongoDB",
+            session_run_id=session_run_id,
+            session_id=context.session_id,
+        )
+        from eve.agent.session.models import Session
+        from eve.api.errors import APIError
+
+        session = Session.from_mongo(ObjectId(context.session_id))
+        if not session:
+            raise APIError(f"Session not found: {context.session_id}", status_code=404)
+
+        log_session_step(
+            "✓ Session loaded",
+            session_run_id=session_run_id,
+            session_id=str(session.id),
+            owner=str(session.owner),
+            status=session.status,
+            num_agents=len(session.agents) if session.agents else 0,
+            has_title=bool(session.title),
+            has_scenario=bool(session.scenario),
+        )
+
+        # Generate title if needed
+        if background_tasks and context.message:
+            log_session_step(
+                "Scheduling title generation task",
+                session_run_id=session_run_id,
+                session_id=str(session.id),
+            )
+            background_tasks.add_task(generate_session_title, session, context.message.content)
+
+        return session
+
+    # Create new session from creation_args
+    if not context.session_creation_args:
+        raise ValueError("Session creation requires session_id or session_creation_args")
+
+    creation_args = context.session_creation_args
+    log_session_step(
+        "Creating new session",
+        session_run_id=session_run_id,
+        num_agents=len(creation_args.agents) if creation_args.agents else 0,
+        agent_ids=creation_args.agents,
+        owner_id=creation_args.owner_id or context.initiating_user_id,
+        has_title=bool(creation_args.title),
+        has_scenario=bool(creation_args.scenario),
+        has_budget=creation_args.budget is not None,
+        has_trigger=bool(creation_args.trigger),
+    )
+
+    from eve.agent.session.models import Session, SessionBudget, EdenMessageType
+    from eve.agent.agent import Agent
+
+    creation_args = context.session_creation_args
+    agent_object_ids = [ObjectId(agent_id) for agent_id in creation_args.agents] if creation_args.agents else []
+
+    session_kwargs = {
+        "owner": ObjectId(creation_args.owner_id or context.initiating_user_id),
+        "agents": agent_object_ids,
+        "title": creation_args.title,
+        "scenario": creation_args.scenario,
+        "session_key": creation_args.session_key,
+        "platform": creation_args.platform,
+        "status": "active",
+        "trigger": ObjectId(creation_args.trigger) if creation_args.trigger else None,
+    }
+
+    # Only include budget if it's not None, so default factory can work
+    if creation_args.budget is not None:
+        session_kwargs["budget"] = creation_args.budget
+
+    session = Session(**session_kwargs)
+    session.save()
+
+    log_session_step(
+        "✓ New session created",
+        session_run_id=session_run_id,
+        session_id=str(session.id),
+        owner=str(session.owner),
+        num_agents=len(agent_object_ids),
+        title=session.title,
+    )
+
+    # Update trigger with session ID
+    if creation_args.trigger:
+        log_session_step(
+            "Updating trigger with session_id",
+            session_run_id=session_run_id,
+            session_id=str(session.id),
+            trigger_id=creation_args.trigger,
+        )
+        trigger = Trigger.from_mongo(ObjectId(creation_args.trigger))
+        if trigger and not trigger.deleted:
+            trigger.session = session.id
+            trigger.save()
+            log_session_step(
+                "✓ Trigger updated",
+                session_run_id=session_run_id,
+                session_id=str(session.id),
+            )
+
+    # Create eden message for initial agent additions
+    if agent_object_ids:
+        log_session_step(
+            "Creating agent addition message",
+            session_run_id=session_run_id,
+            session_id=str(session.id),
+            num_agents=len(agent_object_ids),
+        )
+        agents = [Agent.from_mongo(agent_id) for agent_id in agent_object_ids]
+        agents = [agent for agent in agents if agent]  # Filter out None values
+        if agents:
+            # Import create_eden_message from handlers to avoid circular import
+            from eve.api.handlers import create_eden_message
+            create_eden_message(session.id, EdenMessageType.AGENT_ADD, agents)
+            log_session_step(
+                "✓ Agent addition message created",
+                session_run_id=session_run_id,
+                session_id=str(session.id),
+            )
+
+    # Generate title for new sessions if needed
+    if background_tasks and context.message and not creation_args.title:
+        log_session_step(
+            "Scheduling title generation for new session",
+            session_run_id=session_run_id,
+            session_id=str(session.id),
+        )
+        background_tasks.add_task(generate_session_title, session, context.message.content)
+
+    return session
+
+
+async def generate_session_title(session: Session, initial_message_content: str):
+    """Generate a title for a session based on the initial message content (background task)"""
+    from eve.agent.session.session_llm import async_prompt, LLMConfig, LLMContext
+    from pydantic import BaseModel, Field
+
+    if session.title:
+        return
+
+    class TitleResponse(BaseModel):
+        """A title for a session of chat messages."""
+        title: str = Field(
+            description="a phrase of 2-5 words (or up to 30 characters) that conveys the subject of the chat session. It should be concise and terse, and not include any special characters or punctuation."
+        )
+
+    try:
+        if not initial_message_content:
+            return
+
+        # Add a system message and the initial user message for title generation
+        system_message = ChatMessage(
+            session=session.id,
+            sender=ObjectId("000000000000000000000000"),
+            role="system",
+            content="You are an expert at creating concise titles for chat sessions.",
+        )
+
+        user_message = ChatMessage(
+            session=session.id,
+            sender=ObjectId("000000000000000000000000"),
+            role="user",
+            content=initial_message_content,
+        )
+
+        request_message = ChatMessage(
+            session=session.id,
+            sender=ObjectId("000000000000000000000000"),
+            role="user",
+            content="Come up with a title for this session based on the user's message.",
+        )
+
+        messages = [system_message, user_message, request_message]
+
+        llm_context = LLMContext(
+            messages=messages,
+            tools={},
+            config=LLMConfig(model="gpt-4o-mini", response_format=TitleResponse),
+            metadata=LLMContextMetadata(
+                session_id=f"{os.getenv('DB')}-{str(session.id)}",
+                trace_name="FN_title_session",
+                trace_id=str(uuid.uuid4()),
+                generation_name="FN_title_session",
+                trace_metadata=LLMTraceMetadata(session_id=str(session.id)),
+            ),
+            enable_tracing=False,
+        )
+
+        result = await async_prompt(llm_context)
+
+        if hasattr(result, "content") and result.content:
+            try:
+                import json
+                title_data = json.loads(result.content)
+                if isinstance(title_data, dict) and "title" in title_data:
+                    session.update(title=title_data["title"])
+                else:
+                    session.update(title=result.content[:30])
+            except (json.JSONDecodeError, TypeError):
+                session.update(title=result.content[:30])
+
+    except Exception as e:
+        capture_exception(e)
+        traceback.print_exc()
+
+
 def format_session_update(update: SessionUpdate, context: PromptSessionContext) -> dict:
     """Convert SessionUpdate to the format expected by handlers"""
     data = {
@@ -1348,65 +1751,65 @@ async def _run_prompt_session_internal(
     stream: bool = False,
 ):
     """Internal function that handles both streaming and non-streaming"""
-    session = context.session
-    session_id = str(session.id) if session else None
-    debugger = SessionDebugger(session_id)
+    session_run_id = context.session_run_id
 
-    debugger.start_section("_run_prompt_session_internal")
-    debugger.log(
-        f"Starting prompt session",
-        {
-            "session_id": session_id,
-            "stream": stream,
-            "initiating_user_id": context.initiating_user_id,
-            "message": context.message.content if context.message else None,
-            "has_update_config": context.update_config is not None,
-            "actor_agent_ids": context.actor_agent_ids,
-        },
+    log_session_step(
+        "━━━━━ Starting Prompt Session ━━━━━",
+        session_run_id=session_run_id,
+        stream=stream,
+        initiating_user_id=str(context.initiating_user_id) if context.initiating_user_id else None,
+        has_update_config=context.update_config is not None,
+        num_actors_specified=len(context.actor_agent_ids) if context.actor_agent_ids else 0,
+        has_message=bool(context.message),
+        message_content_length=len(context.message.content) if context.message and context.message.content else 0,
+        has_llm_config_override=bool(context.llm_config),
+    )
+
+    # Setup session (load or create)
+    log_session_step("⚙ Setting up session", session_run_id=session_run_id)
+    session = await setup_session_internal(context, background_tasks)
+    context.session = session  # Update context with the session
+    session_id = str(session.id)
+
+    log_session_step(
+        "✓ Session ready",
+        session_run_id=session_run_id,
+        session_id=session_id,
+        session_status=session.status,
     )
 
     try:
-        debugger.log("Validating prompt session", emoji="info")
+        log_session_step("Validating session", session_run_id=session_run_id, session_id=session_id)
         validate_prompt_session(session, context)
 
         # Create user message first, regardless of whether actors are determined
         if context.initiating_user_id:
-            debugger.log(
-                f"Adding user message",
-                {"user_id": str(context.initiating_user_id)[:8]},
-                emoji="message",
+            log_session_step(
+                "💬 Adding user message to session",
+                session_run_id=session_run_id,
+                session_id=session_id,
+                user_id=str(context.initiating_user_id),
+                message_content=context.message.content if context.message else None,
+                has_attachments=bool(context.message.attachments) if context.message else False,
             )
             await add_chat_message(session, context)
 
-        debugger.log("Determining actors", emoji="actor")
         actors = await determine_actors(session, context)
-        debugger.log(
-            f"Found {len(actors)} actor(s)",
-            {
-                "actors": [str(actor.id)[:8] for actor in actors] if actors else [],
-                "agent_count": len(session.agents) if session.agents else 0,
-            },
-            emoji="actor" if actors else "warning",
-        )
 
         is_client_platform = context.update_config is not None
 
         if not actors:
-            debugger.log(
-                "No actors found - session has no agents assigned",
-                level="warning",
-                emoji="warning",
+            log_session_step(
+                "⚠ No actors found - session has no agents assigned",
+                session_run_id=session_run_id,
+                session_id=session_id,
             )
-            debugger.end_section("_run_prompt_session_internal")
+            logger.warning(f"[run_id={session_run_id} session_id={session_id}] Session has no agents assigned")
             return
-
-        # Generate session run ID for this prompt session
-        session_run_id = str(uuid.uuid4())
-        debugger.log("Session run ID", {"id": session_run_id[:8]}, emoji="info")
 
         # Start typing indicator
         if context.update_config:
-            debugger.log("Starting typing indicator", emoji="info")
+            log_session_step("Starting typing indicator", session_run_id=session_run_id, session_id=session_id)
             from eve.api.typing_coordinator import update_busy_state
 
             await update_busy_state(
@@ -1421,13 +1824,15 @@ async def _run_prompt_session_internal(
             # For single actor, maintain backwards compatibility
             if len(actors) == 1:
                 actor = actors[0]
-                debugger.log(
-                    f"Single actor mode",
-                    {"name": actor.name, "id": str(actor.id)[:8]},
-                    emoji="actor",
+                log_session_step(
+                    "👤 Single actor mode",
+                    session_run_id=session_run_id,
+                    session_id=session_id,
+                    actor_id=str(actor.id),
+                    actor_name=actor.name,
+                    actor_username=actor.username,
                 )
 
-                debugger.log("Building LLM context", emoji="llm")
                 llm_context = await build_llm_context(
                     session,
                     actor,
@@ -1435,7 +1840,11 @@ async def _run_prompt_session_internal(
                     trace_id=session_run_id,
                 )
 
-                debugger.log("Starting prompt session", emoji="llm")
+                log_session_step(
+                    "▶ Starting async prompt session",
+                    session_run_id=session_run_id,
+                    session_id=session_id,
+                )
                 async for update in async_prompt_session(
                     session,
                     llm_context,
@@ -1446,13 +1855,15 @@ async def _run_prompt_session_internal(
                     api_key_id=context.api_key_id,
                 ):
                     formatted_update = format_session_update(update, context)
-                    debugger.log_update(
-                        update.type.value if hasattr(update, "type") else "unknown",
-                        formatted_update,
-                    )
                     yield formatted_update
             else:
                 # Multiple actors - run them in parallel with streaming
+                log_session_step(
+                    "👥 Multiple actors mode - running in parallel",
+                    session_run_id=session_run_id,
+                    session_id=session_id,
+                    num_actors=len(actors),
+                )
                 update_queue = asyncio.Queue()
                 tasks = []
 
@@ -1575,9 +1986,13 @@ async def run_prompt_session_stream(
     context: PromptSessionContext, background_tasks: BackgroundTasks
 ):
     session_id = str(context.session.id) if context.session else None
-    debugger = SessionDebugger(session_id)
+    session_run_id = context.session_run_id
 
-    debugger.start_section("run_prompt_session_stream")
+    log_session_step(
+        "🌊 Starting streaming session",
+        session_run_id=session_run_id,
+        session_id=session_id,
+    )
     try:
         async for data in _run_prompt_session_internal(
             context, background_tasks, stream=True
@@ -1588,13 +2003,25 @@ async def run_prompt_session_stream(
                     from eve.api.sse_manager import sse_manager
 
                     connection_count = sse_manager.get_connection_count(session_id)
-                    debugger.log_sse_broadcast(session_id, data, connection_count)
+                    if connection_count > 0:
+                        log_session_step(
+                            f"📡 Broadcasting to {connection_count} SSE connection(s)",
+                            session_run_id=session_run_id,
+                            session_id=session_id,
+                            data_type=data.get("type", "unknown"),
+                        )
                     await sse_manager.broadcast(session_id, data)
                 except Exception as sse_error:
-                    debugger.log_error(f"Failed to broadcast to SSE", sse_error)
-                    logger.error(f"Failed to broadcast to SSE: {sse_error}")
+                    logger.error(f"[run_id={session_run_id} session_id={session_id}] Failed to broadcast to SSE: {sse_error}")
             yield data
+
+        log_session_step(
+            "✓ Streaming session completed",
+            session_run_id=session_run_id,
+            session_id=session_id,
+        )
     except Exception as e:
+        logger.error(f"[run_id={session_run_id} session_id={session_id}] Error in streaming session: {e}")
         traceback.print_exc()
         error_data = {
             "type": UpdateType.ERROR.value,
@@ -1620,20 +2047,31 @@ async def run_prompt_session(
     context: PromptSessionContext, background_tasks: BackgroundTasks
 ):
     session_id = str(context.session.id) if context.session else None
-    debugger = SessionDebugger(session_id)
+    session_run_id = context.session_run_id
 
-    debugger.start_section("run_prompt_session")
-    debugger.log("Non-streaming mode", emoji="info")
+    log_session_step(
+        "📤 Starting non-streaming session (background mode)",
+        session_run_id=session_run_id,
+        session_id=session_id,
+    )
 
     async for data in _run_prompt_session_internal(
         context, background_tasks, stream=False
     ):
         # Pass session_id for SSE broadcasting
         update_type = data.get("type", "unknown")
-        debugger.log(f"Emitting update: {update_type}", emoji="update")
+        log_session_step(
+            f"📨 Emitting update: {update_type}",
+            session_run_id=session_run_id,
+            session_id=session_id,
+        )
         await emit_update(context.update_config, data, session_id=session_id)
 
-    debugger.end_section("run_prompt_session")
+    log_session_step(
+        "✓ Non-streaming session completed",
+        session_run_id=session_run_id,
+        session_id=session_id,
+    )
 
 
 async def _queue_session_action_fastify_background_task(session: Session):
@@ -1813,98 +2251,3 @@ async def _send_session_notification(
     except Exception as e:
         logger.error(f"Error creating session notification: {str(e)}")
         capture_exception(e)
-
-
-async def async_title_session(
-    session: Session, initial_message_content: str, metadata: Optional[Dict] = None
-):
-    """
-    Generate a title for a session based on the initial message content
-    """
-
-    from pydantic import BaseModel, Field
-
-    class TitleResponse(BaseModel):
-        """A title for a session of chat messages. It must entice a user to click on the session when they are interested in the subject."""
-
-        title: str = Field(
-            description="a phrase of 2-5 words (or up to 30 characters) that conveys the subject of the chat session. It should be concise and terse, and not include any special characters or punctuation."
-        )
-
-    try:
-        if not initial_message_content:
-            # If no message content, return without setting a title
-            return
-
-        # Add a system message and the initial user message for title generation
-        system_message = ChatMessage(
-            session=session.id,
-            sender=ObjectId("000000000000000000000000"),  # System sender
-            role="system",
-            content="You are an expert at creating concise titles for chat sessions.",
-        )
-
-        # Add the initial user message
-        user_message = ChatMessage(
-            session=session.id,
-            sender=ObjectId("000000000000000000000000"),  # System sender (placeholder)
-            role="user",
-            content=initial_message_content,
-        )
-
-        # Add request message for title generation
-        request_message = ChatMessage(
-            session=session.id,
-            sender=ObjectId("000000000000000000000000"),  # System sender
-            role="user",
-            content="Come up with a title for this session based on the user's message.",
-        )
-
-        # Build message list
-        messages = [system_message, user_message, request_message]
-
-        # Create LLM context
-        llm_context = LLMContext(
-            messages=messages,
-            tools={},  # No tools needed for title generation
-            config=LLMConfig(model="gpt-4o-mini", response_format=TitleResponse),
-            metadata=LLMContextMetadata(
-                session_id=f"{os.getenv('DB')}-{str(session.id)}",
-                trace_name="FN_title_session",
-                trace_id=str(uuid.uuid4()),
-                generation_name="FN_title_session",
-                trace_metadata=LLMTraceMetadata(
-                    session_id=str(session.id),
-                ),
-            ),
-            enable_tracing=False,
-        )
-
-        # Generate title using async_prompt
-        result = await async_prompt(llm_context)
-
-        # Parse the response
-        if hasattr(result, "content") and result.content:
-            try:
-                # Try to parse as JSON if response_format was used
-                import json
-
-                title_data = json.loads(result.content)
-                if isinstance(title_data, dict) and "title" in title_data:
-                    # session.title = title_data["title"]
-                    session.update(title=title_data["title"])
-                else:
-                    # Fallback to using content directly
-                    # session.title = result.content[:30]  # Limit to 30 chars
-                    session.update(title=result.content[:30])
-            except (json.JSONDecodeError, TypeError):
-                # If JSON parsing fails, use content directly
-                # session.title = result.content[:30]  # Limit to 30 chars
-                session.update(title=result.content[:30])
-
-            # session.save()
-
-    except Exception as e:
-        capture_exception(e)
-        traceback.print_exc()
-        return
