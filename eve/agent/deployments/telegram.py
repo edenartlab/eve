@@ -69,21 +69,28 @@ class TelegramClient(PlatformClient):
         webhook_url = f"{gateway_url}/telegram/webhook"
         logger.info(f"Webhook URL: {webhook_url}")
 
-        # Update bot webhook
-        bot = Bot(self.deployment.secrets.telegram.token)
+        # Set webhook directly via HTTP instead of using telegram library
+        import aiohttp
 
-        # Update bot webhook
-        response = await bot.set_webhook(
-            url=webhook_url,
-            secret_token=self.deployment.secrets.telegram.webhook_secret,
-            drop_pending_updates=True,
-            max_connections=100,
-        )
+        telegram_api_url = f"https://api.telegram.org/bot{self.deployment.secrets.telegram.token}/setWebhook"
+        payload = {
+            "url": webhook_url,
+            "secret_token": self.deployment.secrets.telegram.webhook_secret,
+            "drop_pending_updates": True,
+            "max_connections": 100,
+        }
 
-        logger.info(f"Response: {response}")
+        logger.info(f"Setting webhook via direct HTTP call to Telegram API")
+        async with aiohttp.ClientSession() as session:
+            async with session.post(telegram_api_url, json=payload) as response:
+                response_data = await response.json()
+                logger.info(f"Telegram API response: {response_data}")
 
-        if not response:
-            raise Exception("Failed to set Telegram webhook")
+                if not response_data.get("ok"):
+                    error_msg = response_data.get("description", "Unknown error")
+                    raise Exception(f"Failed to set Telegram webhook: {error_msg}")
+
+                logger.info("Webhook set successfully via HTTP")
 
         # Notify gateway about the new deployment
         try:
