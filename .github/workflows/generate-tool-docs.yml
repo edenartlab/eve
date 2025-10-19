@@ -22,7 +22,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: edenartlab/mintlify-docs
-          token: ${{ secrets.GHA_PAT }}
+          token: ${{ secrets.GITHUB_TOKEN }}
           path: mintlify-docs
 
       - name: Setup Python

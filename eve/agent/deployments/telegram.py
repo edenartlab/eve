@@ -67,6 +67,7 @@ class TelegramClient(PlatformClient):
 
         logger.info(f"Gateway URL: {gateway_url}")
         webhook_url = f"{gateway_url}/telegram/webhook"
+        logger.info(f"Webhook URL: {webhook_url}")
 
         # Update bot webhook
         response = await Bot(self.deployment.secrets.telegram.token).set_webhook(
@@ -75,6 +76,8 @@ class TelegramClient(PlatformClient):
             drop_pending_updates=True,
             max_connections=100,
         )
+
+        logger.info(f"Response: {response}")
 
         if not response:
             raise Exception("Failed to set Telegram webhook")
