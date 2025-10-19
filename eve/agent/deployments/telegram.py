@@ -42,6 +42,7 @@ class TelegramClient(PlatformClient):
             bot = Bot(secrets.telegram.token)
             await bot.get_me()
         except Exception as e:
+            logger.error(f"Token validation failed: {e}")
             raise APIError(f"Invalid Telegram token: {str(e)}", status_code=400)
 
         webhook_secret = python_secrets.token_urlsafe(32)
@@ -57,33 +58,36 @@ class TelegramClient(PlatformClient):
         if not self.deployment:
             raise ValueError("Deployment is required for postdeploy")
 
-        from telegram import Bot
-
         # Point webhook to the Modal gateway service
         # Modal URL format: https://edenartlab--discord-gateway-v2-{db}-gateway-app.modal.run
         gateway_url = os.getenv("GATEWAY_URL")
         if not gateway_url:
             raise Exception("GATEWAY_URL is not set")
 
-        logger.info(f"Gateway URL: {gateway_url}")
         webhook_url = f"{gateway_url}/telegram/webhook"
-        logger.info(f"Webhook URL: {webhook_url}")
 
-        # Update bot webhook
-        bot = Bot(self.deployment.secrets.telegram.token)
+        # Set webhook directly via HTTP instead of using telegram library
+        import aiohttp
 
-        # Update bot webhook
-        response = await bot.set_webhook(
-            url=webhook_url,
-            secret_token=self.deployment.secrets.telegram.webhook_secret,
-            drop_pending_updates=True,
-            max_connections=100,
-        )
+        telegram_api_url = f"https://api.telegram.org/bot{self.deployment.secrets.telegram.token}/setWebhook"
 
-        logger.info(f"Response: {response}")
+        payload = {
+            "url": webhook_url,
+            "secret_token": self.deployment.secrets.telegram.webhook_secret,
+            "drop_pending_updates": "true",
+            "max_connections": "100",
+        }
 
-        if not response:
-            raise Exception("Failed to set Telegram webhook")
+        async with aiohttp.ClientSession() as session:
+            async with session.post(telegram_api_url, data=payload) as response:
+                response_data = await response.json()
+                logger.info(f"Telegram API response: {response_data}")
+
+                if not response_data.get("ok"):
+                    error_msg = response_data.get("description", "Unknown error")
+                    raise Exception(f"Failed to set Telegram webhook: {error_msg}")
+
+                logger.info("Webhook set successfully via HTTP")
 
         # Notify gateway about the new deployment
         try:
