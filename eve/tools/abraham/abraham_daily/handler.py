@@ -60,22 +60,52 @@ async def commit_daily_work(agent: Agent, session: str):
     candidates = []
     for session in sessions:
         messages = session.get_messages()
-        print("len messages", len(messages))
-        num_user_messages = len([m for m in messages if m.role == "user"])
-        # if num_user_messages < 10:
+        user_messages = [m for m in messages if m.role == "user"]
+
+        # Count messages per unique user
+        messages_per_user = {}
+        for msg in user_messages:
+            user_id = msg.sender  # sender is an ObjectId field on ChatMessage
+            if user_id:
+                user_id = str(user_id)
+                messages_per_user[user_id] = messages_per_user.get(user_id, 0) + 1
+
+        # Quadratic voting: score = sum of sqrt(messages) for each unique user
+        # This creates diminishing returns - 1 user with 16 messages = 4 points,
+        # but 4 users with 4 messages each = 8 points
+        score = sum(msg_count ** 0.5 for msg_count in messages_per_user.values())
+
+        unique_users = len(messages_per_user)
+        total_messages = len(user_messages)
+
+        print("session", session.id)
+        print("score", score)
+        print("unique_users", unique_users)
+        print("total_messages", total_messages)
+        print("--------------------------------")
+
         candidates.append({
             "session": session,
-            "num_user_messages": num_user_messages,
+            "score": score,
+            "unique_users": unique_users,
+            "total_messages": total_messages,
         })
 
-    candidates = sorted(candidates, key=lambda x: x["num_user_messages"], reverse=True)
+    candidates = sorted(candidates, key=lambda x: x["score"], reverse=True)
 
     print("---")
+    print("Session Scores (Quadratic Voting):")
     for candidate in candidates:
-        print(candidate["session"].id, candidate["num_user_messages"])
+        print(f"  {candidate['session'].id}: score={candidate['score']:.2f}, "
+              f"unique_users={candidate['unique_users']}, "
+              f"total_messages={candidate['total_messages']}")
     print("---")
 
     winner = candidates[0]
+
+    print("THE WINNER IS", winner["session"].id)
+
+    # raise Exception("Stop here")
 
     result = await session_post.async_run({
         "role": "user",
