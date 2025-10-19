@@ -1508,6 +1508,19 @@ async def telegram_webhook_validate():
 async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: str = Header(None)):
     """Handle incoming Telegram webhook updates"""
     try:
+        # Parse request body to check if it's a validation request
+        try:
+            body = await request.json()
+        except:
+            # Empty body - likely validation request
+            logger.info("Received POST with no body - validation request")
+            return {"ok": True}
+
+        # If body is empty dict, it's also a validation request
+        if not body:
+            logger.info("Received POST with empty body - validation request")
+            return {"ok": True}
+
         # Find deployment by matching webhook secret
         deployment = None
         for dep in Deployment.find({"platform": ClientType.TELEGRAM.value, "valid": {"$ne": False}}):
@@ -1520,8 +1533,10 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
                 break
 
         if not deployment:
-            logger.warning("No deployment found for webhook secret")
-            raise HTTPException(status_code=401, detail="Unauthorized")
+            # During webhook setup, Telegram may send test requests without secret token
+            # Return 200 OK to allow webhook validation to succeed
+            logger.info("No deployment found for webhook secret - returning OK for validation")
+            return {"ok": True}
 
         # Instantiate TelegramClient and call interact
         from eve.agent.deployments.telegram import TelegramClient
