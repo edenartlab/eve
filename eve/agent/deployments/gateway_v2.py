@@ -1498,6 +1498,7 @@ async def lifespan(app: FastAPI):
 web_app = FastAPI(lifespan=lifespan)
 
 
+
 @web_app.post("/telegram/webhook")
 async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: str = Header(None)):
     """Handle incoming Telegram webhook updates"""
