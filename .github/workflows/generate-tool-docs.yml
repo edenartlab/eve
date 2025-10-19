@@ -37,7 +37,7 @@ jobs:
       - name: Generate tool documentation
         working-directory: eve/scripts
         run: |
-          python generate_tool_docs.py --all --eve-dir ../eve --docs-dir ../../mintlify-docs
+          python generate_tool_docs.py --all --eve-dir .. --docs-dir ../../mintlify-docs
 
       - name: Commit and push to mintlify-docs
         working-directory: mintlify-docs
