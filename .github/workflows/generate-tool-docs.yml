@@ -22,7 +22,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: edenartlab/mintlify-docs
-          token: ${{ secrets.MINTLIFY_DOCS_TOKEN }}
+          token: ${{ secrets.MINTLIFY_PAT }}
           path: mintlify-docs
 
       - name: Setup Python
@@ -37,7 +37,7 @@ jobs:
       - name: Generate tool documentation
         working-directory: eve/scripts
         run: |
-          python generate_tool_docs.py --all --eve-dir ../eve --docs-dir ../../mintlify-docs
+          python generate_tool_docs.py --all --eve-dir .. --docs-dir ../../mintlify-docs
 
       - name: Commit and push to mintlify-docs
         working-directory: mintlify-docs
