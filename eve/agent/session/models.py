@@ -1,5 +1,6 @@
 import json
 import os
+import csv
 from enum import Enum
 from typing import List, Optional, Dict, Any, Literal
 from dataclasses import dataclass, field
@@ -15,8 +16,36 @@ from eve.utils import download_file, image_to_base64, prepare_result, dumps_json
 from eve.mongo import Collection, Document
 from eve.tool import Tool
 
-# Maximum character limit for text attachments (both .txt and .pdf files)
-TEXT_ATTACHMENT_MAX_LENGTH = 20000
+# File attachment configuration
+TEXT_ATTACHMENT_MAX_LENGTH = 20000  # Maximum character limit for text attachments
+CSV_DIALECT_SAMPLE_SIZE = 4096  # Number of bytes to sample for CSV dialect detection
+FILE_CACHE_DIR = "/tmp/eden_file_cache/"  # Temporary directory for cached files
+
+# Image processing configuration
+IMAGE_MAX_SIZE = 512  # Maximum dimension (width/height) for image resizing
+IMAGE_QUALITY = 90  # JPEG quality (0-100)
+
+# Supported file extensions
+SUPPORTED_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
+SUPPORTED_VIDEO_EXTENSIONS = (".mp4", ".webm")
+SUPPORTED_MEDIA_EXTENSIONS = SUPPORTED_IMAGE_EXTENSIONS + SUPPORTED_VIDEO_EXTENSIONS
+SUPPORTED_TEXT_EXTENSIONS = (".txt", ".md", ".markdown", ".plain")
+SUPPORTED_PDF_EXTENSION = (".pdf",)
+
+# Unsupported file types with conversion instructions
+UNSUPPORTED_FILE_FORMATS = {
+    "xlsx": "Excel file - Please convert to CSV format and re-upload",
+    "xls": "Excel file - Please convert to CSV format and re-upload",
+    "xlsm": "Excel macro file - Please convert to CSV format and re-upload",
+    "ods": "OpenDocument Spreadsheet - Please convert to CSV format and re-upload",
+    "doc": "Word document - Please save as PDF or plain text and re-upload",
+    "docx": "Word document - Please save as PDF or plain text and re-upload",
+    "ppt": "PowerPoint presentation - Please convert to PDF and re-upload",
+    "pptx": "PowerPoint presentation - Please convert to PDF and re-upload",
+    "zip": "Compressed archive - Please extract and upload individual files",
+    "rar": "Compressed archive - Please extract and upload individual files",
+    "7z": "Compressed archive - Please extract and upload individual files",
+}
 
 
 class ToolCall(BaseModel):
@@ -61,7 +90,7 @@ class ToolCall(BaseModel):
             "input": self.args,
         }
 
-    def anthropic_result_schema(self, truncate_images=False):
+    def anthropic_result_schema(self, truncate_images=False, include_thoughts=False):
         content = {"status": self.status}
 
         if self.status == "completed":
@@ -75,16 +104,13 @@ class ToolCall(BaseModel):
             file_outputs = [
                 o
                 for o in file_outputs
-                if o
-                and o.lower().endswith(
-                    (".jpg", ".jpeg", ".png", ".webp", ".mp4", ".webm")
-                )
+                if o and o.lower().endswith(SUPPORTED_MEDIA_EXTENSIONS)
             ]
             try:
                 files = [
                     download_file(
                         url,
-                        os.path.join("/tmp/eden_file_cache/", url.split("/")[-1]),
+                        os.path.join(FILE_CACHE_DIR, url.split("/")[-1]),
                         overwrite=False,
                     )
                     for url in file_outputs
@@ -97,8 +123,8 @@ class ToolCall(BaseModel):
                             "media_type": "image/jpeg",
                             "data": image_to_base64(
                                 file_path,
-                                max_size=512,
-                                quality=95,
+                                max_size=IMAGE_MAX_SIZE,
+                                quality=IMAGE_QUALITY,
                                 truncate=truncate_images,
                             ),
                         },
@@ -288,21 +314,118 @@ class ChatMessage(Document):
                 try:
                     attachment_file = download_file(
                         attachment,
-                        os.path.join(
-                            "/tmp/eden_file_cache/", attachment.split("/")[-1]
-                        ),
+                        os.path.join(FILE_CACHE_DIR, attachment.split("/")[-1]),
                         overwrite=False,
                     )
                     mime_type = magic.from_file(attachment_file, mime=True)
 
+                    # Handle CSV files first (before text/plain check, since CSVs can be detected as text/plain)
+                    if mime_type == "text/csv" or attachment.lower().endswith(".csv"):
+                        try:
+                            file_name = attachment.split("/")[-1]
+
+                            # Read the file once with appropriate encoding
+                            try:
+                                with open(attachment_file, "r", encoding="utf-8") as f:
+                                    file_content = f.read()
+                            except UnicodeDecodeError:
+                                with open(attachment_file, "r", encoding="latin-1") as f:
+                                    file_content = f.read()
+
+                            # Check if file is empty or whitespace-only
+                            if not file_content or not file_content.strip():
+                                attachment_lines.append(
+                                    f"* {attachment}: (CSV file is empty)"
+                                )
+                                continue
+
+                            # Detect CSV dialect and parse
+                            try:
+                                sample = file_content[:CSV_DIALECT_SAMPLE_SIZE]
+                                dialect = csv.Sniffer().sniff(sample)
+                                csv_reader = csv.reader(file_content.splitlines(), dialect=dialect)
+                            except (csv.Error, Exception):
+                                # Fall back to default CSV reader if dialect detection fails
+                                csv_reader = csv.reader(file_content.splitlines())
+
+                            rows = list(csv_reader)
+
+                            # Check if CSV has meaningful content (non-empty cells)
+                            has_content = any(
+                                any(cell.strip() for cell in row)
+                                for row in rows
+                            )
+
+                            if not has_content:
+                                attachment_lines.append(
+                                    f"* {attachment}: (CSV file is empty)"
+                                )
+                            else:
+                                # Helper function to sanitize cell content for markdown tables
+                                def sanitize_cell(cell):
+                                    if cell is None:
+                                        return ""
+                                    # Replace pipes and newlines that would break markdown tables
+                                    cell_str = str(cell).replace("|", "\\|").replace("\n", " ").replace("\r", " ")
+                                    return cell_str.strip()
+
+                                # Find the maximum number of columns
+                                max_cols = max(len(row) for row in rows) if rows else 0
+
+                                # Normalize all rows to have the same number of columns
+                                normalized_rows = []
+                                for row in rows:
+                                    normalized_row = [sanitize_cell(cell) for cell in row]
+                                    # Pad with empty strings if row is shorter
+                                    while len(normalized_row) < max_cols:
+                                        normalized_row.append("")
+                                    normalized_rows.append(normalized_row)
+
+                                # Format CSV data as a readable table
+                                csv_content = ""
+                                if normalized_rows:
+                                    # Add header
+                                    csv_content += "| " + " | ".join(normalized_rows[0]) + " |\n"
+                                    csv_content += "|" + "|".join(["---"] * max_cols) + "|\n"
+
+                                    # Add data rows
+                                    for row in normalized_rows[1:]:
+                                        csv_content += "| " + " | ".join(row) + " |\n"
+
+                                was_truncated = False
+
+                                # Limit content using the constant
+                                if len(csv_content) > TEXT_ATTACHMENT_MAX_LENGTH:
+                                    csv_content = (
+                                        csv_content[:TEXT_ATTACHMENT_MAX_LENGTH]
+                                        + "\n\n[Content truncated...]"
+                                    )
+                                    was_truncated = True
+                                    truncated_files.append(file_name)
+
+                                if csv_content.strip():
+                                    text_attachments.append(
+                                        {
+                                            "name": file_name,
+                                            "content": csv_content,
+                                            "url": attachment,
+                                            "truncated": was_truncated,
+                                        }
+                                    )
+                        except Exception as read_error:
+                            logger.error(
+                                f"Error reading CSV file {attachment_file}: {read_error}"
+                            )
+                            attachment_lines.append(
+                                f"* {attachment}: (CSV file, but could not read: {str(read_error)})"
+                            )
+
                     # Handle text files (.txt, .md, .plain)
-                    if mime_type in [
+                    elif mime_type in [
                         "text/plain",
                         "text/markdown",
                         "text/x-markdown",
-                    ] or attachment.lower().endswith(
-                        (".txt", ".md", ".markdown", ".plain")
-                    ):
+                    ] or attachment.lower().endswith(SUPPORTED_TEXT_EXTENSIONS):
                         try:
                             with open(attachment_file, "r", encoding="utf-8") as f:
                                 text_content = f.read()
@@ -335,9 +458,7 @@ class ChatMessage(Document):
                             )
 
                     # Handle PDF files
-                    elif mime_type == "application/pdf" or attachment.lower().endswith(
-                        ".pdf"
-                    ):
+                    elif mime_type == "application/pdf" or attachment.lower().endswith(SUPPORTED_PDF_EXTENSION):
                         try:
                             with pdfplumber.open(attachment_file) as pdf:
                                 # Extract text from all pages
@@ -390,9 +511,17 @@ class ChatMessage(Document):
                         attachment_lines.append(f"* {attachment}")
                         attachment_files.append(attachment_file)
                     else:
-                        attachment_lines.append(
-                            f"* {attachment}: (Mime type: {mime_type})"
-                        )
+                        # Handle unsupported file types with helpful messages
+                        file_name = attachment.split("/")[-1]
+                        file_ext = file_name.lower().split(".")[-1] if "." in file_name else ""
+
+                        if file_ext in UNSUPPORTED_FILE_FORMATS:
+                            warning_msg = f"⚠️ UNSUPPORTED FILE TYPE: {file_name} - {UNSUPPORTED_FILE_FORMATS[file_ext]}"
+                            attachment_lines.append(f"* {attachment}: {warning_msg}")
+                        else:
+                            attachment_lines.append(
+                                f"* {attachment}: (Unsupported file type - Mime type: {mime_type})"
+                            )
                 except Exception as e:
                     logger.error("error downloading attachment", e)
                     attachment_errors.append(f"* {attachment}: {str(e)}")
@@ -442,8 +571,8 @@ class ChatMessage(Document):
                                     "media_type": "image/jpeg",
                                     "data": image_to_base64(
                                         file_path,
-                                        max_size=512,
-                                        quality=95,
+                                        max_size=IMAGE_MAX_SIZE,
+                                        quality=IMAGE_QUALITY,
                                         truncate=truncate_images,
                                     ),
                                 },
@@ -463,8 +592,8 @@ class ChatMessage(Document):
                                     "url": f"""data:image/jpeg;base64,{
                                         image_to_base64(
                                             file_path,
-                                            max_size=512,
-                                            quality=95,
+                                            max_size=IMAGE_MAX_SIZE,
+                                            quality=IMAGE_QUALITY,
                                             truncate=truncate_images,
                                         )
                                     }"""
@@ -635,10 +764,7 @@ class ChatMessage(Document):
                         image_outputs = [
                             o
                             for o in file_outputs
-                            if o
-                            and o.lower().endswith(
-                                (".jpg", ".jpeg", ".png", ".webp", ".mp4", ".webm")
-                            )
+                            if o and o.lower().endswith(SUPPORTED_MEDIA_EXTENSIONS)
                         ]
 
                         for image_url in image_outputs:
@@ -646,7 +772,7 @@ class ChatMessage(Document):
                                 image_path = download_file(
                                     image_url,
                                     os.path.join(
-                                        "/tmp/eden_file_cache/",
+                                        FILE_CACHE_DIR,
                                         image_url.split("/")[-1],
                                     ),
                                     overwrite=False,
@@ -656,7 +782,7 @@ class ChatMessage(Document):
                                     {
                                         "type": "image_url",
                                         "image_url": {
-                                            "url": f"data:image/jpeg;base64,{image_to_base64(image_path, max_size=512, quality=95, truncate=truncate_images)}"
+                                            "url": f"data:image/jpeg;base64,{image_to_base64(image_path, max_size=IMAGE_MAX_SIZE, quality=IMAGE_QUALITY, truncate=truncate_images)}"
                                         },
                                     }
                                 )
