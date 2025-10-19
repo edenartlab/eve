@@ -45,7 +45,8 @@ def rest():
             address=CONTRACT_ADDRESS_COVENANT,
             abi_path=CONTRACT_ABI_COVENANT,
             private_key=ABRAHAM_PRIVATE_KEY,
-            network=Network.ETH_SEPOLIA
+            network=Network.ETH_SEPOLIA,
+            #network=Network.ETH_MAINNET
         )
 
         # Prepare contract function call
@@ -61,6 +62,7 @@ def rest():
             value=0,
             abi=abi,
             network=Network.ETH_SEPOLIA,
+            #network=Network.ETH_MAINNET,
         )
 
         # Build explorer URL for ETH Sepolia

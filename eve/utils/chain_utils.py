@@ -16,11 +16,13 @@ logger = logging.getLogger(__name__)
 # Get RPC endpoints from environment variables
 BASE_SEPOLIA_RPC = os.getenv("BASE_SEPOLIA_RPC")
 ETH_SEPOLIA_RPC = os.getenv("ETH_SEPOLIA_RPC")
+ETH_MAINNET_RPC = os.getenv("ETH_MAINNET_RPC")
 
 
 class Network(Enum):
     BASE_SEPOLIA = "base_sepolia"
     ETH_SEPOLIA = "eth_sepolia"
+    ETH_MAINNET = "eth_mainnet"
 
 
 # ---------- Errors ----------
@@ -38,12 +40,22 @@ def _fmt_gwei(wei: int) -> str:
 def _explorer_url(tx_hash_hex: str, network: Network = Network.BASE_SEPOLIA) -> str:
     if network == Network.BASE_SEPOLIA:
         return f"https://sepolia.basescan.org/tx/{tx_hash_hex}"
-    else:  # ETH_SEPOLIA
+    elif network == Network.ETH_SEPOLIA:
         return f"https://sepolia.etherscan.io/tx/{tx_hash_hex}"
-
+    elif network == Network.ETH_MAINNET:
+        return f"https://etherscan.io/tx/{tx_hash_hex}"
+    else:
+        raise ValueError(f"Unknown network: {network}")
 
 def make_w3(network: Network = Network.BASE_SEPOLIA) -> Web3:
-    rpc = BASE_SEPOLIA_RPC if network == Network.BASE_SEPOLIA else ETH_SEPOLIA_RPC
+    if network == Network.BASE_SEPOLIA:
+        rpc = BASE_SEPOLIA_RPC
+    elif network == Network.ETH_SEPOLIA:
+        rpc = ETH_SEPOLIA_RPC
+    elif network == Network.ETH_MAINNET:
+        rpc = ETH_MAINNET_RPC
+    else:
+        raise ValueError(f"Unknown network: {network}")
     if not rpc:
         raise BlockchainError(f"RPC endpoint not configured for {network.value}")
     w3 = Web3(Web3.HTTPProvider(rpc, request_kwargs={"timeout": 60}))
