@@ -1498,7 +1498,6 @@ async def lifespan(app: FastAPI):
 web_app = FastAPI(lifespan=lifespan)
 
 
-
 @web_app.get("/telegram/webhook")
 async def telegram_webhook_validate():
     """Handle Telegram webhook validation requests"""
