@@ -65,15 +65,22 @@ class TelegramClient(PlatformClient):
         if not gateway_url:
             raise Exception("GATEWAY_URL is not set")
 
+        logger.info(f"Gateway URL: {gateway_url}")
         webhook_url = f"{gateway_url}/telegram/webhook"
+        logger.info(f"Webhook URL: {webhook_url}")
 
         # Update bot webhook
-        response = await Bot(self.deployment.secrets.telegram.token).set_webhook(
+        bot = Bot(self.deployment.secrets.telegram.token)
+
+        # Update bot webhook
+        response = await bot.set_webhook(
             url=webhook_url,
             secret_token=self.deployment.secrets.telegram.webhook_secret,
             drop_pending_updates=True,
             max_connections=100,
         )
+
+        logger.info(f"Response: {response}")
 
         if not response:
             raise Exception("Failed to set Telegram webhook")
@@ -296,7 +303,9 @@ class TelegramClient(PlatformClient):
                 return
 
             update_type = emission.type
-            logger.debug(f"Handling emission type: {update_type} (type: {type(update_type)})")
+            logger.debug(
+                f"Handling emission type: {update_type} (type: {type(update_type)})"
+            )
 
             # Initialize Telegram Bot
             from telegram import Bot
@@ -315,13 +324,19 @@ class TelegramClient(PlatformClient):
                 message_kwargs["message_thread_id"] = int(thread_id)
 
             # Compare with string value instead of enum
-            if update_type == UpdateType.ASSISTANT_MESSAGE.value or update_type == UpdateType.ASSISTANT_MESSAGE:
+            if (
+                update_type == UpdateType.ASSISTANT_MESSAGE.value
+                or update_type == UpdateType.ASSISTANT_MESSAGE
+            ):
                 content = emission.content
                 if content:
                     await bot.send_message(text=content, **message_kwargs)
                     logger.info(f"Sent Telegram message to chat {chat_id}")
 
-            elif update_type == UpdateType.TOOL_COMPLETE.value or update_type == UpdateType.TOOL_COMPLETE:
+            elif (
+                update_type == UpdateType.TOOL_COMPLETE.value
+                or update_type == UpdateType.TOOL_COMPLETE
+            ):
                 result = emission.result
                 if not result:
                     logger.debug("No tool result to post")
@@ -356,7 +371,9 @@ class TelegramClient(PlatformClient):
                         "Unexpected tool result structure for Telegram emission"
                     )
 
-            elif update_type == UpdateType.ERROR.value or update_type == UpdateType.ERROR:
+            elif (
+                update_type == UpdateType.ERROR.value or update_type == UpdateType.ERROR
+            ):
                 error_msg = emission.error or "Unknown error occurred"
                 await bot.send_message(text=f"Error: {error_msg}", **message_kwargs)
                 logger.info(f"Sent Telegram error message to chat {chat_id}")
