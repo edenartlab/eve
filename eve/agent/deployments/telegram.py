@@ -64,30 +64,20 @@ class TelegramClient(PlatformClient):
         if not gateway_url:
             raise Exception("GATEWAY_URL is not set")
 
-        logger.info(f"Gateway URL: {gateway_url}")
         webhook_url = f"{gateway_url}/telegram/webhook"
-        logger.info(f"Webhook URL: {webhook_url}")
 
         # Set webhook directly via HTTP instead of using telegram library
         import aiohttp
 
         telegram_api_url = f"https://api.telegram.org/bot{self.deployment.secrets.telegram.token}/setWebhook"
 
-        # Hardcode the URL to test
-        hardcoded_url = "https://edenartlab--discord-gateway-v2-prod-gateway-app.modal.run/telegram/webhook"
-
         payload = {
-            "url": hardcoded_url,
+            "url": webhook_url,
             "secret_token": self.deployment.secrets.telegram.webhook_secret,
             "drop_pending_updates": "true",
             "max_connections": "100",
         }
 
-        logger.info(f"Setting webhook via direct HTTP call to Telegram API")
-        logger.info(f"Constructed URL: {webhook_url}")
-        logger.info(f"Hardcoded URL: {hardcoded_url}")
-        logger.info(f"URLs match: {webhook_url == hardcoded_url}")
-        logger.info(f"Payload: {payload}")
         async with aiohttp.ClientSession() as session:
             async with session.post(telegram_api_url, data=payload) as response:
                 response_data = await response.json()
