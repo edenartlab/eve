@@ -1513,6 +1513,7 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
             body = await request.json()
         except:
             # Empty body - likely validation request
+            
             logger.info("Received POST with no body - validation request")
             return {"ok": True}
 
