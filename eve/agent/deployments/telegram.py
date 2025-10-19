@@ -38,10 +38,14 @@ class TelegramClient(PlatformClient):
         import secrets as python_secrets
 
         # Validate bot token
+        logger.info(f"Validating Telegram token (length: {len(secrets.telegram.token) if secrets.telegram.token else 0})")
+        logger.info(f"Token first 10 chars: {secrets.telegram.token[:10] if secrets.telegram.token else 'None'}...")
+
         try:
             bot = Bot(secrets.telegram.token)
             await bot.get_me()
         except Exception as e:
+            logger.error(f"Token validation failed: {e}")
             raise APIError(f"Invalid Telegram token: {str(e)}", status_code=400)
 
         webhook_secret = python_secrets.token_urlsafe(32)
