@@ -1,8 +1,9 @@
 {   
-    "instructions": "combine these two videos into one longer video, and then overlay the audio from the mp3 on to the video. lastly, use ffmpeg multitool to re-extract the audio from the video and export it as a new mp3 file.",
+    "instructions": "combine these three videos into one longer video, and then overlay the audio from the mp3 on to the video. output the final video as a mp4 file.",
     "media_files": [
-        "https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/3608913c752a81048db37fd7efb117dca8f4eea6f31844d7f9413b9e59e445cd.mp4",
-        "https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/4814492417fd08833447ba18861fb5aa48adfcfce695beed2c2fc05d600ce7c9.mp4",
+        "https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/3af6a5aca2a5b9edf0154f0f527eaedc06025f0ce4af9ca3794b5e44aef89b1a.mp4",
+        "https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/97468b465a993c272b8d12990095027ec67f86ddfea6093c36be8925503d41a4.mp4",
+        "https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/74f4eb185727c3f289d08b07094302b822d0b3ca3b12050517797c2cc339fe98.mp4",
         "https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/8a23c248f3119713267730ce44a7b5c67eca2a6747a629b9fe2a8bc3ac2f03ec.mp3"
     ]
 }

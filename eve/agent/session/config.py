@@ -55,7 +55,7 @@ def get_default_session_llm_config(tier: Literal["premium", "free"] = "free"):
         return DEFAULT_SESSION_LLM_CONFIG_STAGE[tier]
 
 
-DEFAULT_SESSION_SELECTION_LIMIT = 25
+DEFAULT_SESSION_SELECTION_LIMIT = 100
 
 # Master model configuration: tier -> [primary, fallback1, fallback2]
 MODEL_TIERS = {

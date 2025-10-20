@@ -107,6 +107,10 @@ async def commit_daily_work(agent: Agent, session: str):
 
     # raise Exception("Stop here")
 
+
+    # DB = os.getenv()
+
+
     result = await session_post.async_run({
         "role": "user",
         "session": str(winner["session"].id),
@@ -115,6 +119,7 @@ async def commit_daily_work(agent: Agent, session: str):
         "attachments": [],
         # "pin": True,
         "prompt": True,
+        "async": True,
         "extra_tools": ["abraham_covenant"],
     })
 

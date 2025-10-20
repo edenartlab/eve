@@ -24,3 +24,8 @@ parameters:
     description: Media URLs
     tip: These are URLs to downloadable media files. Only accepts videos, audio, and images.
     required: true
+  title:
+    type: string
+    label: Title
+    description: A very short descriptive title for the media editing operation to be done.
+    required: false

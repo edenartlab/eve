@@ -5,6 +5,7 @@ import uuid
 import modal
 import replicate
 import sentry_sdk
+from typing import Optional, List
 from pathlib import Path
 from fastapi.responses import JSONResponse
 from fastapi import FastAPI, Depends, BackgroundTasks, Request
@@ -17,6 +18,7 @@ from datetime import datetime, timezone
 from eve import auth, db
 from eve.agent import Agent
 from eve.user import User
+from eve.tool import Tool
 
 from eve.agent.session.models import Session
 from eve.api.handlers import (
@@ -660,8 +662,31 @@ async def run_scheduled_triggers_fn():
 
 
 @app.function(image=image, max_containers=10, timeout=3600)
-async def remote_prompt_session_with_message(
-    session_id: str, agent_id: str, user_id: str, message_content: str
+async def remote_prompt_session_fn(
+    session_id: str, 
+    agent_id: str, 
+    user_id: str, 
+    content: str,
+    attachments: Optional[List[str]] = [],
+    extra_tools: Optional[List[str]] = [],
+):
+    return await remote_prompt_session(
+        session_id=session_id,
+        agent_id=agent_id,
+        user_id=user_id,
+        content=content,
+        attachments=attachments,
+        extra_tools=extra_tools,
+    )
+
+
+async def remote_prompt_session(
+    session_id: str, 
+    agent_id: str, 
+    user_id: str, 
+    content: str,
+    attachments: Optional[List[str]] = [], 
+    extra_tools: Optional[List[str]] = [],
 ):
     """
     Add a user message to a session and prompt the agent to respond.
@@ -672,16 +697,18 @@ async def remote_prompt_session_with_message(
         session_id: The session ID
         agent_id: The agent ID
         user_id: The user ID
-        message_content: The user message content
+        content: The user message content
 
     Returns:
         dict with session_id
     """
+    
     from eve.agent.session.models import (
         PromptSessionContext,
         ChatMessage,
         LLMConfig,
     )
+
     from eve.agent.session.session import (
         add_chat_message,
         build_llm_context,
@@ -702,8 +729,8 @@ async def remote_prompt_session_with_message(
         role="user",
         sender=user.id,
         session=session.id,
-        content=message_content,
-        attachments=[],
+        content=content,
+        attachments=attachments,
     )
 
     # Build context
@@ -711,8 +738,13 @@ async def remote_prompt_session_with_message(
         session=session,
         initiating_user_id=str(user.id),
         message=new_message,
-        llm_config=LLMConfig(model="claude-sonnet-4-5-20250929"),
+        llm_config=LLMConfig(model="claude-sonnet-4-5-20250929")
     )
+
+    if extra_tools:
+        context.extra_tools = {
+            k: Tool.load(k) for k in extra_tools
+        }
 
     # Add message to session
     await add_chat_message(session, context)
@@ -727,8 +759,6 @@ async def remote_prompt_session_with_message(
 
     # Run the prompt
     async for m in async_prompt_session(session, context, agent):
-
-
         pass
 
     logger.info(f"Remote prompt completed for session {session_id}")
@@ -743,6 +773,6 @@ async def local_entrypoint():
         session_id="68ec5c2de3c978d796a53962",
         agent_id="675f880479e00297cd9b4688",
         user_id="65284b18f8bbb9bff13ebe65",
-        message_content="Repeat what you just said",
+        content="Repeat what you just said",
     )
     logger.info(f"Test result: {result}")
