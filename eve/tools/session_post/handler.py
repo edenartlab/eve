@@ -7,7 +7,7 @@ import modal
 from eve.agent import Agent
 from eve.user import User
 from eve.tool import Tool
-from eve.api.api import prompt_session
+from eve.api.api import remote_prompt_session
 from eve.api.handlers import setup_session
 from eve.api.api_requests import (
     PromptSessionRequest,
@@ -107,7 +107,7 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
             # Run asynchronously
             if args.get("async"):
                 app_name = f"api-{db.lower()}"
-                remote_fn = modal.Function.from_name(app_name, "remote_prompt_session")
+                remote_fn = modal.Function.from_name(app_name, "remote_prompt_session_fn")
                 remote_fn.spawn(
                     session_id=session_id,
                     agent_id=str(agent.id),
@@ -119,7 +119,7 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
 
             # Run and wait for the result
             else:
-                result = await prompt_session(
+                result = await remote_prompt_session(
                     session_id=session_id,
                     agent_id=str(agent.id),
                     user_id=str(user.id),

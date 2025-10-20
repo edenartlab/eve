@@ -661,7 +661,7 @@ async def run_scheduled_triggers_fn():
 
 
 @app.function(image=image, max_containers=10, timeout=3600)
-async def remote_prompt_session(
+async def remote_prompt_session_fn(
     session_id: str, 
     agent_id: str, 
     user_id: str, 
@@ -669,7 +669,7 @@ async def remote_prompt_session(
     attachments: Optional[List[str]] = [],
     extra_tools: Optional[List[str]] = [],
 ):
-    return await prompt_session(
+    return await remote_prompt_session(
         session_id=session_id,
         agent_id=agent_id,
         user_id=user_id,
@@ -679,7 +679,7 @@ async def remote_prompt_session(
     )
 
 
-async def prompt_session(
+async def remote_prompt_session(
     session_id: str, 
     agent_id: str, 
     user_id: str, 
@@ -701,11 +701,13 @@ async def prompt_session(
     Returns:
         dict with session_id
     """
+    
     from eve.agent.session.models import (
         PromptSessionContext,
         ChatMessage,
         LLMConfig,
     )
+
     from eve.agent.session.session import (
         add_chat_message,
         build_llm_context,
@@ -735,9 +737,13 @@ async def prompt_session(
         session=session,
         initiating_user_id=str(user.id),
         message=new_message,
-        llm_config=LLMConfig(model="claude-sonnet-4-5-20250929"),
-        extra_tools=extra_tools,
+        llm_config=LLMConfig(model="claude-sonnet-4-5-20250929")
     )
+
+    if extra_tools:
+        context.extra_tools = {
+            k: Tool.load(k) for k in extra_tools
+        }
 
     # Add message to session
     await add_chat_message(session, context)
