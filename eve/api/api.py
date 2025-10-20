@@ -660,8 +660,25 @@ async def run_scheduled_triggers_fn():
 
 
 @app.function(image=image, max_containers=10, timeout=3600)
-async def remote_prompt_session_with_message(
-    session_id: str, agent_id: str, user_id: str, message_content: str
+async def remote_prompt_session(
+    session_id: str, 
+    agent_id: str, 
+    user_id: str, 
+    message_content: str
+):
+    return await prompt_session(
+        session_id=session_id,
+        agent_id=agent_id,
+        user_id=user_id,
+        message_content=message_content
+    )
+
+
+async def prompt_session(
+    session_id: str, 
+    agent_id: str, 
+    user_id: str, 
+    message_content: str
 ):
     """
     Add a user message to a session and prompt the agent to respond.
@@ -727,8 +744,6 @@ async def remote_prompt_session_with_message(
 
     # Run the prompt
     async for m in async_prompt_session(session, context, agent):
-
-
         pass
 
     logger.info(f"Remote prompt completed for session {session_id}")

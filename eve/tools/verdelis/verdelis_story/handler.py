@@ -188,6 +188,7 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         "attachments": [],
         "pin": True,
         "prompt": True,
+        "async": True,
         "extra_tools": ["discord_post", "add_to_collection"],
     })
 

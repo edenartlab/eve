@@ -7,6 +7,7 @@ import modal
 from eve.agent import Agent
 from eve.user import User
 from eve.tool import Tool
+from eve.api.api import prompt_session
 from eve.api.handlers import setup_session
 from eve.api.api_requests import (
     PromptSessionRequest,
@@ -33,7 +34,13 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     if not user:
         raise Exception("User is required")
 
-    agent = Agent.from_mongo(agent)
+    # note: if agent is provided in args, it is a subagent being called by the originating agent (which is just "agent" in the handler args)
+    if args.get("agent"):
+        agent = args.get("agent")
+        agent = Agent.load(agent)
+    else:
+        agent = Agent.from_mongo(agent)
+        
     user = User.from_mongo(user)
 
     # note: session in handler args refers to the originating session (if there is one), not the session that is being posted to. session to post to is args.get("session")
@@ -93,20 +100,30 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         new_message.save()
 
     elif args.get("role") in ["system", "user"]:
+        
         # If we're going to prompt, let the remote function handle message addition
         if args.get("prompt"):
-            # Use Modal's from_name API to get the remote function from the running app
-            # This works from anywhere - inside or outside Modal context
-            app_name = f"api-{db.lower()}"
-            remote_fn = modal.Function.from_name(app_name, "remote_prompt_session_with_message")
 
-            # Spawn the remote function asynchronously (spawn is synchronous, not awaitable)
-            remote_fn.spawn(
-                session_id=session_id,
-                agent_id=str(agent.id),
-                user_id=str(user.id),
-                message_content=args.get("content")
-            )
+            # Run asynchronously
+            if args.get("async"):
+                app_name = f"api-{db.lower()}"
+                remote_fn = modal.Function.from_name(app_name, "remote_prompt_session")
+                remote_fn.spawn(
+                    session_id=session_id,
+                    agent_id=str(agent.id),
+                    user_id=str(user.id),
+                    message_content=args.get("content")
+                )
+
+            # Run and wait for the result
+            else:
+                result = await prompt_session(
+                    session_id=session_id,
+                    agent_id=str(agent.id),
+                    user_id=str(user.id),
+                    message_content=args.get("content")
+                )
+                session_id = result["session_id"]
 
         else:
             # Just add the message without prompting

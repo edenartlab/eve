@@ -1,18 +1,12 @@
-from typing import Optional, List
-from pydantic import BaseModel, Field
 from jinja2 import Template
 
-from ....auth import get_my_eden_user
-from ....user import User
-from ....tool import Tool
-from ....agent import Agent
-from ....agent.run_thread import async_prompt_thread
-from ....agent.thread import UserMessage
-from ....agent.llm import async_prompt
+from eve.tool import Tool
+from eve.agent.deployments import Deployment
+from eve.agent import Agent
 
-MODEL = "gpt-4o"
 
-prompt_template = Template("""You have been provided a set of attachments (URLs to media files), along with a request to perform certain media editing tasks. You have access to three specialized tools:
+init_message = """
+You have been provided a set of attachments (URLs to media files), along with a request to perform certain media editing tasks. You have access to three specialized tools:
 
 video_concat – Concatenate two or more videos into a longer video.
 
@@ -36,88 +30,38 @@ Instructions from the user:
 {{ instructions }}
 
 In your response, outline how you will solve the user’s request using the available tools, ensuring you respect the preferences and constraints described above.
-</Task>""")
+</Task>
+"""
 
-
-class MediaResults(BaseModel):
-    """Represents the outcome of a media editing process."""
-
-    results: Optional[List[str]] = Field(
-        ...,
-        description="A list of URLs referencing the output media files."
-    )
-    error: Optional[str] = Field(
-        None,
-        description="An error message if the media editing process fails, otherwise None."
-    )
 
 async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
-    
-    if not user:
-        user = get_my_eden_user()
-    else:
-        user = User.from_mongo(user)
-    
-    agent = Agent.load("media-editor")
-    
-    ## this causes an infinite recursion because the media-editor agent has access to the media_editor tool!! instead just give it the tools it needs
-    # tools = agent.get_tools(cache=True)
+    if not agent:
+        raise Exception("Agent is required")
 
-    # just use these!
-    tools = {
-        "video_concat": Tool.load("video_concat"),
-        "audio_video_combine": Tool.load("audio_video_combine"),
-        "ffmpeg_multitool": Tool.load("ffmpeg_multitool"),
-    }
+    session_post = Tool.load("session_post")
 
-    thread = agent.request_thread()
+    instructions = args.get("instructions")
+    media_files = args.get("media_files") or []
 
-    instruction_prompt = prompt_template.render(
-        instructions=args["instructions"],
+    user_message = Template(init_message).render(
+        instructions=instructions,
     )
 
-    message = UserMessage(
-        content=instruction_prompt,
-        attachments=args["media_files"]
-    )
+    result = await session_post.async_run({
+        "role": "user",
+        "agent_id": agent,
+        "agent": "media-editor",
+        "title": "Media Editor Session",
+        "content": user_message,
+        "attachments": media_files,
+        "pin": True,
+        "prompt": True,
+        "async": True,
+        "extra_tools": ["video_concat", "audio_video_combine", "ffmpeg_multitool"],
+    })
 
-    print("\n\n\n========= init message ========")
-    print(message)
-    print("--------------------------------")
-    print(message.anthropic_schema(truncate_images=True))
-    
-    async for _ in async_prompt_thread(
-        user, 
-        agent, 
-        thread, 
-        message,
-        tools, 
-        force_reply=True, 
-        model="claude-sonnet-4-5-20250929"
-    ):
-        pass
+    print("media_editor result")
+    print(result)
+    session_id = result["output"][0]["session"]
 
-
-    prompt = "Based on the initial instructions and the editor's output, please provide one of the following:\n\n1. A JSON-compatible list of the resulting media file URLs, if successful.\n2. A string describing the error, if the process failed."
-
-    print("\n\n\n=================")
-    all_messages = thread.get_messages() + [UserMessage(content=prompt)]
-    for m in all_messages:
-        print(m)
-
-    media_results = await async_prompt(
-        messages=all_messages,
-        system_message=agent.persona,
-        model=MODEL,
-        response_model=MediaResults,
-    )
-
-    print("======= media results")
-    print(media_results)
-
-    if media_results.error:
-        raise Exception(media_results.error)
-    else:
-        return {
-            "output": media_results.results
-        }
+    return {"output": [{"session": session_id}]}
