@@ -112,7 +112,8 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
                     session_id=session_id,
                     agent_id=str(agent.id),
                     user_id=str(user.id),
-                    message_content=args.get("content")
+                    content=args.get("content"),
+                    attachments=args.get("attachments") or [],
                 )
 
             # Run and wait for the result
@@ -121,7 +122,8 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
                     session_id=session_id,
                     agent_id=str(agent.id),
                     user_id=str(user.id),
-                    message_content=args.get("content")
+                    content=args.get("content"),
+                    attachments=args.get("attachments") or [],
                 )
                 session_id = result["session_id"]
 

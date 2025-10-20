@@ -664,13 +664,15 @@ async def remote_prompt_session(
     session_id: str, 
     agent_id: str, 
     user_id: str, 
-    message_content: str
+    content: str,
+    attachments: Optional[List[str]] = [],
 ):
     return await prompt_session(
         session_id=session_id,
         agent_id=agent_id,
         user_id=user_id,
-        message_content=message_content
+        content=content,
+        attachments=attachments,
     )
 
 
@@ -678,7 +680,8 @@ async def prompt_session(
     session_id: str, 
     agent_id: str, 
     user_id: str, 
-    message_content: str
+    content: str,
+    attachments: Optional[List[str]] = [],    
 ):
     """
     Add a user message to a session and prompt the agent to respond.
@@ -689,7 +692,7 @@ async def prompt_session(
         session_id: The session ID
         agent_id: The agent ID
         user_id: The user ID
-        message_content: The user message content
+        content: The user message content
 
     Returns:
         dict with session_id
@@ -719,8 +722,8 @@ async def prompt_session(
         role="user",
         sender=user.id,
         session=session.id,
-        content=message_content,
-        attachments=[],
+        content=content,
+        attachments=attachments,
     )
 
     # Build context
@@ -758,6 +761,6 @@ async def local_entrypoint():
         session_id="68ec5c2de3c978d796a53962",
         agent_id="675f880479e00297cd9b4688",
         user_id="65284b18f8bbb9bff13ebe65",
-        message_content="Repeat what you just said",
+        content="Repeat what you just said",
     )
     logger.info(f"Test result: {result}")
