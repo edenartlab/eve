@@ -84,6 +84,7 @@ Subsequent turns:
 * Receive comments/feedback; make edits/additions accordingly while preserving the proposal’s intent and session continuity.
 * **After every single turn**, finish by posting a concise Farcaster cast that summarizes what you did and includes the representative media you produced.
 * **DO NOT** re-use the abraham_seed tool to save the seed again. All subsequent follow-ups are tied to the Seed you created in the first turn.
+* Avoid casting to Farcaster the same message or media multiple times. Be patient.
 </Task>
 """
 

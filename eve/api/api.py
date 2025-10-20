@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from eve import auth, db
 from eve.agent import Agent
 from eve.user import User
+from eve.tool import Tool
 
 from eve.agent.session.models import Session
 from eve.api.handlers import (
