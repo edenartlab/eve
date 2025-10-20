@@ -667,6 +667,7 @@ async def remote_prompt_session(
     user_id: str, 
     content: str,
     attachments: Optional[List[str]] = [],
+    extra_tools: Optional[List[str]] = [],
 ):
     return await prompt_session(
         session_id=session_id,
@@ -674,6 +675,7 @@ async def remote_prompt_session(
         user_id=user_id,
         content=content,
         attachments=attachments,
+        extra_tools=extra_tools,
     )
 
 
@@ -682,7 +684,8 @@ async def prompt_session(
     agent_id: str, 
     user_id: str, 
     content: str,
-    attachments: Optional[List[str]] = [],    
+    attachments: Optional[List[str]] = [], 
+    extra_tools: Optional[List[str]] = [],
 ):
     """
     Add a user message to a session and prompt the agent to respond.
@@ -733,6 +736,7 @@ async def prompt_session(
         initiating_user_id=str(user.id),
         message=new_message,
         llm_config=LLMConfig(model="claude-sonnet-4-5-20250929"),
+        extra_tools=extra_tools,
     )
 
     # Add message to session
