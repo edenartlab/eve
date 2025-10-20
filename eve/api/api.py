@@ -5,6 +5,7 @@ import uuid
 import modal
 import replicate
 import sentry_sdk
+from typing import Optional, List
 from pathlib import Path
 from fastapi.responses import JSONResponse
 from fastapi import FastAPI, Depends, BackgroundTasks, Request
