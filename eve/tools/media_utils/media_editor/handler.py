@@ -51,7 +51,7 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         "role": "user",
         "agent_id": agent,
         "agent": "media-editor",
-        "title": "Media Editor Session",
+        "title": args.get("title") or "Media Editor Session",
         "content": user_message,
         "attachments": media_files,
         "pin": True,
