@@ -1,9 +1,9 @@
 from bson import ObjectId
 from typing import Optional, Dict, Any, Literal
-from farcaster import Warpcast
 
 from eve.mongo import Collection, Document
 from eve.agent.deployments import Deployment
+from eve.agent.deployments.farcaster import post_cast, get_fid
 from eve.agent import Agent
 from eve.agent.session.models import Session
 
@@ -41,10 +41,6 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         raise Exception("Either text content or embeds must be provided")
 
     try:
-        # Initialize Farcaster client
-        client = Warpcast(mnemonic=deployment.secrets.farcaster.mnemonic)
-        user_info = client.get_me()
-
         # Prepare parent parameter if replying
         parent = None
         if parent_hash and parent_fid:
@@ -59,28 +55,31 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         else:
             embeds1, embeds2 = embeds[:2], embeds[2:]
 
-        # Post the main cast
-        result = client.post_cast(
-            text=text, embeds=embeds1 or None, parent=parent
+        # Post the main cast using the reusable helper function
+        result = await post_cast(
+            secrets=deployment.secrets,
+            text=text,
+            embeds=embeds1 or None,
+            parent=parent
         )
-        cast_hash = result.cast.hash
-        
-        
-        thread_hash = result.cast.thread_hash
+        cast_hash = result["hash"]
+        cast_url = result["url"]
+        thread_hash = result.get("thread_hash")
 
-        print("--- == ==  thread_hash", thread_hash)
-
-
-        cast_url = f"https://warpcast.com/{user_info.username}/{cast_hash}"
         outputs.append({"url": cast_url, "cast_hash": cast_hash, "success": True})
 
         if embeds2:
-            parent1 = {"hash": cast_hash, "fid": int(user_info.fid)}
-            result2 = client.post_cast(
-                text="", embeds=embeds2, parent=parent1
+            # Get FID for the parent parameter
+            fid = await get_fid(deployment.secrets)
+            parent1 = {"hash": cast_hash, "fid": int(fid)}
+            result2 = await post_cast(
+                secrets=deployment.secrets,
+                text="",
+                embeds=embeds2,
+                parent=parent1
             )
-            cast_hash2 = result2.cast.hash
-            cast_url2 = f"https://warpcast.com/{user_info.username}/{cast_hash2}"
+            cast_hash2 = result2["hash"]
+            cast_url2 = result2["url"]
             outputs.append({"url": cast_url2, "cast_hash": cast_hash2, "success": True})
 
         # update session key to the hash

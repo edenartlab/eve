@@ -2,7 +2,7 @@ import json
 import os
 import aiohttp
 import logging
-from typing import TYPE_CHECKING, Optional, Dict, Any
+from typing import TYPE_CHECKING, Optional, Dict, Any, List
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
@@ -30,6 +30,76 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def uses_managed_signer(secrets: DeploymentSecrets) -> bool:
+    """Check if deployment uses managed signer or mnemonic"""
+    return bool(secrets.farcaster.signer_uuid)
+
+
+async def get_fid(secrets: DeploymentSecrets) -> int:
+    """Get FID based on auth method (managed signer or mnemonic)"""
+    if uses_managed_signer(secrets):
+        neynar_client = NeynarClient()
+        user_info = await neynar_client.get_user_info_by_signer(
+            secrets.farcaster.signer_uuid
+        )
+        return user_info.get("fid")
+    else:
+        from farcaster import Warpcast
+
+        client = Warpcast(mnemonic=secrets.farcaster.mnemonic)
+        user_info = client.get_me()
+        return user_info.fid
+
+
+async def post_cast(
+    secrets: DeploymentSecrets,
+    text: str = "",
+    embeds: Optional[List[str]] = None,
+    parent: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Post a cast using either managed signer or mnemonic
+
+    Returns dict with cast info including hash, url, thread_hash
+    """
+    if uses_managed_signer(secrets):
+        # Use Neynar API for managed signer
+        neynar_client = NeynarClient()
+        result = await neynar_client.post_cast(
+            signer_uuid=secrets.farcaster.signer_uuid,
+            text=text,
+            embeds=embeds,
+            parent=parent,
+        )
+
+        # Normalize Neynar response format
+        cast_data = result.get("cast", {})
+        cast_hash = cast_data.get("hash")
+        author = cast_data.get("author", {})
+        username = author.get("username")
+        thread_hash = cast_data.get("thread_hash")
+
+        return {
+            "hash": cast_hash,
+            "url": f"https://warpcast.com/{username}/{cast_hash}" if username and cast_hash else None,
+            "thread_hash": thread_hash,
+        }
+    else:
+        # Use Warpcast client for mnemonic
+        from farcaster import Warpcast
+
+        client = Warpcast(mnemonic=secrets.farcaster.mnemonic)
+        result = client.post_cast(text=text, embeds=embeds, parent=parent)
+
+        # Convert to dict format for consistency
+        user_info = client.get_me()
+        cast_hash = result.cast.hash
+        return {
+            "hash": cast_hash,
+            "url": f"https://warpcast.com/{user_info.username}/{cast_hash}",
+            "thread_hash": result.cast.thread_hash,
+        }
+
+
 class FarcasterClient(PlatformClient):
     TOOLS = [
         "farcaster_cast",
@@ -39,7 +109,7 @@ class FarcasterClient(PlatformClient):
 
     def _uses_managed_signer(self, secrets: DeploymentSecrets) -> bool:
         """Check if deployment uses managed signer or mnemonic"""
-        return bool(secrets.farcaster.signer_uuid)
+        return uses_managed_signer(secrets)
 
     async def _get_fid_from_managed_signer(self, signer_uuid: str) -> int:
         """Get FID from managed signer"""
@@ -57,36 +127,24 @@ class FarcasterClient(PlatformClient):
 
     async def _get_fid(self, secrets: DeploymentSecrets) -> int:
         """Get FID based on auth method"""
-        if self._uses_managed_signer(secrets):
-            return await self._get_fid_from_managed_signer(secrets.farcaster.signer_uuid)
-        else:
-            return await self._get_fid_from_mnemonic(secrets.farcaster.mnemonic)
+        return await get_fid(secrets)
 
     async def _post_cast(
         self,
         text: str = "",
         embeds: Optional[List[str]] = None,
         parent: Optional[Dict[str, Any]] = None,
-    ) -> None:
+    ) -> Dict[str, Any]:
         """Post a cast using either managed signer or mnemonic"""
         if not self.deployment:
             raise ValueError("Deployment is required for _post_cast")
 
-        if self._uses_managed_signer(self.deployment.secrets):
-            # Use Neynar API for managed signer
-            neynar_client = NeynarClient()
-            await neynar_client.post_cast(
-                signer_uuid=self.deployment.secrets.farcaster.signer_uuid,
-                text=text,
-                embeds=embeds,
-                parent=parent,
-            )
-        else:
-            # Use Warpcast client for mnemonic
-            from farcaster import Warpcast
-
-            client = Warpcast(mnemonic=self.deployment.secrets.farcaster.mnemonic)
-            client.post_cast(text=text, embeds=embeds, parent=parent)
+        return await post_cast(
+            secrets=self.deployment.secrets,
+            text=text,
+            embeds=embeds,
+            parent=parent,
+        )
 
     async def predeploy(
         self, secrets: DeploymentSecrets, config: DeploymentConfig
@@ -254,10 +312,7 @@ class FarcasterClient(PlatformClient):
                         else None
                     )
 
-                    if (
-                        fid in mentioned_fid_list
-                        or fid == parent_author_fid
-                    ):
+                    if fid in mentioned_fid_list or fid == parent_author_fid:
                         deployment = d
                         break
 
