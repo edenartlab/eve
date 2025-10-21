@@ -56,12 +56,17 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         "attachments": media_files,
         "pin": True,
         "prompt": True,
-        "async": True,
+        "async": False,
         "extra_tools": ["video_concat", "audio_video_combine", "ffmpeg_multitool"],
     })
 
     print("media_editor result")
     print(result)
-    session_id = result["output"][0]["session"]
+    # session_id = result["output"][0]["session"]
 
-    return {"output": [{"session": session_id}]}
+    # return {"output": [{"session": session_id}]}
+
+    print("---- HERE IS THE RESULT ----")
+    print(result)
+    print("---- HERE IS THE RESULT ----")
+    return {"output": result}

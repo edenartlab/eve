@@ -73,7 +73,12 @@ def commit_daily_work(
         image_cid = ipfs_pin(poster_image)
         poster_image_hash = image_cid.split("/")[-1]
 
-        # index = 5 #AbrahamSeed.count({"status": "creation"}) + 1
+        num_creations = len(AbrahamSeed.find({"status": "creation"}))
+
+        if num_creations != 2:
+            raise Exception("Abraham has already committed 2 creations")
+        
+        index = num_creations
 
         # Create metadata JSON
         json_data = {
@@ -95,27 +100,33 @@ def commit_daily_work(
         logger.info(f"Metadata uploaded to IPFS: {ipfs_hash}")
 
         # Prepare contract function call
-        contract_function = contract.functions.commitDailyWork(
-            f"ipfs://{ipfs_hash}"
-        )
+        if False:
+            
+            raise Exception("Dont go here!")
+            
+            contract_function = contract.functions.commitDailyWork(
+                f"ipfs://{ipfs_hash}"
+            )
 
-        # Send transaction
-        tx_hash, receipt = safe_send(
-            w3,
-            contract_function,
-            ABRAHAM_PRIVATE_KEY,
-            op_name="ABRAHAM_DAILY_WORK",
-            nonce=None,
-            value=0,
-            abi=abi,
-            # network=Network.ETH_SEPOLIA,
-            network=Network.ETH_MAINNET,
-        )
+            # Send transaction
+            tx_hash, receipt = safe_send(
+                w3,
+                contract_function,
+                ABRAHAM_PRIVATE_KEY,
+                op_name="ABRAHAM_DAILY_WORK",
+                nonce=None,
+                value=0,
+                abi=abi,
+                # network=Network.ETH_SEPOLIA,
+                network=Network.ETH_MAINNET,
+            )
+            # Build explorer URL
+            tx_hash_hex = tx_hash.hex()
+            if not tx_hash_hex.startswith('0x'):
+                tx_hash_hex = f"0x{tx_hash_hex}"
 
-        # Build explorer URL
-        tx_hash_hex = tx_hash.hex()
-        if not tx_hash_hex.startswith('0x'):
-            tx_hash_hex = f"0x{tx_hash_hex}"
+        else:
+            tx_hash_hex = "test-tx-hash-tbd"
         
         # explorer_url = f"https://sepolia.etherscan.io/tx/{tx_hash_hex}"
         explorer_url = f"https://etherscan.io/tx/{tx_hash_hex}"
@@ -153,8 +164,8 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     print("session", session)
     print(type(session))
 
-    index = 0
-    
+    index = 2
+
     title = args.get("title")
     tagline = args.get("tagline")
     poster_image = args.get("poster_image")

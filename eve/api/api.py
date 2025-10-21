@@ -680,6 +680,20 @@ async def remote_prompt_session_fn(
     )
 
 
+
+
+import asyncio
+import json
+import pytz
+from pydantic import BaseModel, Field
+from typing import Literal
+from datetime import datetime
+from eve.agent.agent import Agent
+from eve.agent.session.models import ChatMessage, LLMContext, LLMConfig
+from eve.agent.session.session_llm import async_prompt
+from eve.agent.session.session_prompts import system_template
+
+
 async def remote_prompt_session(
     session_id: str, 
     agent_id: str, 
@@ -763,7 +777,73 @@ async def remote_prompt_session(
 
     logger.info(f"Remote prompt completed for session {session_id}")
 
-    return {"session_id": session_id}
+
+
+    # structured output
+    # Define a custom tool as a pydantic model
+    class RemoteSessionResponse(BaseModel):
+        """All relevant results (or error report) from the remote session prompt"""    
+        
+        outputs: List[str] = Field(description="A list of all requested successful media outputs, given the original request")
+        error: Optional[str] = Field(description="A human-readable error message that explains why the session failed to produce the requested outputs. Mutually exclusive with outputs.")
+        
+
+    system_message = """
+    You are a helpful assistant that summarizes the results of a remote session prompt.
+
+    Given the original request and the subsequent response to it, identify if the session was successful or not.
+    If it was successful, list all the successful outputs.
+    If it was not successful, provide a human-readable error message that explains why the session failed to produce the requested outputs.
+    """
+        
+    from bson import ObjectId
+    messages = ChatMessage.find({"session": ObjectId(session_id)})
+
+    print("---33--")
+    for message in messages:
+        print(message.content)
+        print("-")
+    print("---333--")
+
+    # Build LLM context with custom tools
+    context = LLMContext(
+        messages=[
+            ChatMessage(role="system", content=system_message), 
+            *messages,
+            ChatMessage(role="user", content="Summarize the results of the session.")
+        ],
+        config=LLMConfig(
+            # model="claude-haiku-4-5-latest",
+            model="gpt-4o-mini",
+            response_format=RemoteSessionResponse
+        ),
+    )
+
+
+    # Do a single turn prompt with forced tool usage
+    response = await async_prompt(context)
+
+    print(response)
+
+    output = RemoteSessionResponse(**json.loads(response.content))
+
+
+    if output.error:
+        # result = {"status": "error", "error": output.error}
+        pass
+    else:
+        # result = {"status": "success", "output": output.outputs}
+        print("---- 111 HERE IS THE OUTPUT ----")
+        print(output.outputs)
+        print("---- 222 HERE IS THE OUTPUT ----")
+
+
+        return output.outputs
+
+
+    # result.update({"session": session_id})
+
+    # return result
 
 
 @app.local_entrypoint()
