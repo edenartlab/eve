@@ -1552,6 +1552,7 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
         raise HTTPException(status_code=500, detail=str(e))
 
 
+
 @app.function(
     image=image,
     min_containers=1,
