@@ -153,6 +153,7 @@ class TelegramClient(PlatformClient):
 
             chat_id = message.get("chat", {}).get("id")
             message_thread_id = message.get("message_thread_id")
+            is_dm = message.get("chat", {}).get("type") == "private"
 
             # Check allowlist if it exists
             if self.deployment.config and self.deployment.config.telegram:
@@ -173,6 +174,68 @@ class TelegramClient(PlatformClient):
             username = from_user.get("username", "unknown")
             user = User.from_telegram(user_id, username)
 
+            # Get agent and bot info for mention checking
+            agent = Agent.from_mongo(self.deployment.agent)
+
+            # Get bot ID to check if replies are to this bot
+            from telegram import Bot
+            bot = Bot(self.deployment.secrets.telegram.token)
+            bot_info = await bot.get_me()
+            bot_id = bot_info.id
+
+            # Check if we should reply (similar to Discord logic)
+            force_reply = False
+
+            if is_dm:
+                # Always reply in DMs
+                force_reply = True
+            else:
+                # In groups/channels, only reply to:
+                # 1. Replies to the bot's messages
+                # 2. @mentions of the bot's username
+
+                # Check if this is a reply to bot's message
+                reply_to = message.get("reply_to_message")
+                if reply_to:
+                    replied_to_user = reply_to.get("from", {})
+                    if replied_to_user.get("is_bot") and replied_to_user.get("id") == bot_id:
+                        force_reply = True
+                        logger.debug("Message is reply to bot, will respond")
+
+                # Check if bot is mentioned via @username
+                if not force_reply:
+                    bot_username = f"@{agent.username.lower()}_bot"
+                    text = message.get("text") or message.get("caption") or ""
+                    if bot_username.lower() in text.lower():
+                        force_reply = True
+                        logger.debug("Bot mentioned via @username, will respond")
+
+                # Also check entities for mentions
+                if not force_reply:
+                    entities = message.get("entities", [])
+                    for entity in entities:
+                        if entity.get("type") == "mention":
+                            # Extract the mentioned username from text
+                            offset = entity.get("offset", 0)
+                            length = entity.get("length", 0)
+                            mentioned = text[offset:offset + length].lower()
+                            if mentioned == bot_username.lower():
+                                force_reply = True
+                                logger.debug("Bot mentioned in entities, will respond")
+                                break
+                        elif entity.get("type") == "text_mention":
+                            # Direct user mention (not via @username)
+                            mentioned_user = entity.get("user", {})
+                            if mentioned_user.get("id") == bot_id:
+                                force_reply = True
+                                logger.debug("Bot mentioned via text_mention, will respond")
+                                break
+
+            # Skip if not force_reply (not a DM, not a reply to bot, not mentioned)
+            if not force_reply:
+                logger.debug("Not a DM, reply to bot, or mention - skipping")
+                return
+
             # Process text and attachments
             text = message.get("text", "")
             attachments = []
@@ -184,10 +247,6 @@ class TelegramClient(PlatformClient):
                 largest_photo = photos[-1]
                 file_id = largest_photo.get("file_id")
 
-                # Initialize bot to get file path
-                from telegram import Bot
-
-                bot = Bot(self.deployment.secrets.telegram.token)
                 file = await bot.get_file(file_id)
                 photo_url = file.file_path
                 attachments.append(photo_url)
@@ -197,7 +256,6 @@ class TelegramClient(PlatformClient):
                     text = message.get("caption")
 
             # Clean message text (remove bot mention)
-            agent = Agent.from_mongo(self.deployment.agent)
             cleaned_text = text
             if text:
                 bot_username = f"@{agent.username.lower()}_bot"
