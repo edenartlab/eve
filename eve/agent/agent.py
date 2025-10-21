@@ -327,7 +327,7 @@ class Agent(User):
             and "tool_access_premium_social_media" not in self.featureFlags
         ):
             for tool in TWITTER_TOOLS:
-                if tool != "twitter_post":
+                if tool != "tweet":
                     tools.pop(tool, None)
 
         # remove tools that only the owner can use
