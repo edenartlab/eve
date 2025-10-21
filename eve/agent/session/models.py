@@ -973,6 +973,7 @@ class SessionExtras(BaseModel):
     """Additional session configuration flags"""
 
     exclude_memory: Optional[bool] = False  # If True, memory won't be passed to system prompt
+    is_public: Optional[bool] = False  # If True, session is publicly accessible
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
