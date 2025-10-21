@@ -321,6 +321,15 @@ class Agent(User):
             for tool in TIKTOK_TOOLS:
                 tools.pop(tool, None)
 
+        # remove non-spirit tools from general agents
+        if (
+            self.featureFlags
+            and "tool_access_premium_social_media" not in self.featureFlags
+        ):
+            for tool in TWITTER_TOOLS:
+                if tool != "twitter_post":
+                    tools.pop(tool, None)
+
         # remove tools that only the owner can use
         # Check if user is the owner or has owner-level permissions
         has_owner_permission = False
