@@ -61,13 +61,6 @@ def commit_daily_work(
         if not CONTRACT_ADDRESS_COVENANT:
             raise BlockchainError("CONTRACT_ADDRESS_COVENANT not configured")
 
-        w3, owner, contract, abi = load_contract(
-            address=CONTRACT_ADDRESS_COVENANT,
-            abi_path=CONTRACT_ABI_COVENANT,
-            private_key=ABRAHAM_PRIVATE_KEY,
-            network=Network.ETH_MAINNET
-        )
-
         # Upload poster image to IPFS
         logger.info(f"Uploading poster image to IPFS: {poster_image}")
         image_cid = ipfs_pin(poster_image)
@@ -103,7 +96,14 @@ def commit_daily_work(
         if False:
             
             raise Exception("Dont go here!")
-            
+
+            w3, owner, contract, abi = load_contract(
+                address=CONTRACT_ADDRESS_COVENANT,
+                abi_path=CONTRACT_ABI_COVENANT,
+                private_key=ABRAHAM_PRIVATE_KEY,
+                network=Network.ETH_MAINNET
+            )
+
             contract_function = contract.functions.commitDailyWork(
                 f"ipfs://{ipfs_hash}"
             )
@@ -120,6 +120,7 @@ def commit_daily_work(
                 # network=Network.ETH_SEPOLIA,
                 network=Network.ETH_MAINNET,
             )
+            
             # Build explorer URL
             tx_hash_hex = tx_hash.hex()
             if not tx_hash_hex.startswith('0x'):

@@ -1,11 +1,14 @@
-import logging
 import os
+import logging
+import asyncio
+import signal
 import json
 import uuid
 import modal
 import replicate
 import sentry_sdk
 from typing import Optional, List
+from bson import ObjectId
 from pathlib import Path
 from fastapi.responses import JSONResponse
 from fastapi import FastAPI, Depends, BackgroundTasks, Request
@@ -14,13 +17,14 @@ from fastapi.security import APIKeyHeader, HTTPBearer
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.exceptions import RequestValidationError
 from datetime import datetime, timezone
+from contextlib import asynccontextmanager
+from pydantic import BaseModel, Field
 
 from eve import auth, db
 from eve.agent import Agent
 from eve.user import User
 from eve.tool import Tool
-
-from eve.agent.session.models import Session
+from eve.api.runner_tasks import download_clip_models
 from eve.api.handlers import (
     handle_create,
     handle_cancel,
@@ -96,7 +100,19 @@ from eve.api.api_functions import (
     run_task_replicate,
     cleanup_stale_busy_states,
 )
-from eve.api.runner_tasks import download_clip_models
+from eve.agent.session.models import (
+    Session,
+    ChatMessage,
+    LLMContext,
+    LLMConfig,
+    PromptSessionContext,
+)
+from eve.agent.session.session import (
+    add_chat_message, 
+    build_llm_context, 
+    async_prompt_session,
+)
+from eve.agent.session.session_llm import async_prompt
 
 
 app_name = f"api-{db.lower()}"
@@ -132,13 +148,9 @@ class SentryContextMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
-from contextlib import asynccontextmanager
-import signal
-import asyncio
 
 # Global flag for shutdown
 _shutdown_event = asyncio.Event()
-
 
 def handle_shutdown_signal(signum, frame):
     """Handle SIGINT/SIGTERM to close SSE connections immediately"""
@@ -656,10 +668,10 @@ async def run_scheduled_triggers_fn():
     logger.info(sessions)
 
 
+
 ########################################################
 ## Remote Session Prompting
 ########################################################
-
 
 @app.function(image=image, max_containers=10, timeout=3600)
 async def remote_prompt_session_fn(
@@ -679,21 +691,6 @@ async def remote_prompt_session_fn(
         extra_tools=extra_tools,
     )
 
-
-
-
-import asyncio
-import json
-import pytz
-from pydantic import BaseModel, Field
-from typing import Literal
-from datetime import datetime
-from eve.agent.agent import Agent
-from eve.agent.session.models import ChatMessage, LLMContext, LLMConfig
-from eve.agent.session.session_llm import async_prompt
-from eve.agent.session.session_prompts import system_template
-
-
 async def remote_prompt_session(
     session_id: str, 
     agent_id: str, 
@@ -702,33 +699,6 @@ async def remote_prompt_session(
     attachments: Optional[List[str]] = [], 
     extra_tools: Optional[List[str]] = [],
 ):
-    """
-    Add a user message to a session and prompt the agent to respond.
-
-    This is a general-purpose function for remotely triggering session prompts.
-
-    Args:
-        session_id: The session ID
-        agent_id: The agent ID
-        user_id: The user ID
-        content: The user message content
-
-    Returns:
-        dict with session_id
-    """
-    
-    from eve.agent.session.models import (
-        PromptSessionContext,
-        ChatMessage,
-        LLMConfig,
-    )
-
-    from eve.agent.session.session import (
-        add_chat_message,
-        build_llm_context,
-        async_prompt_session,
-    )
-
     logger.info(
         f"Remote prompt: session={session_id}, agent={agent_id}, user={user_id}"
     )
@@ -777,17 +747,14 @@ async def remote_prompt_session(
 
     logger.info(f"Remote prompt completed for session {session_id}")
 
-
-
     # structured output
     # Define a custom tool as a pydantic model
     class RemoteSessionResponse(BaseModel):
         """All relevant results (or error report) from the remote session prompt"""    
         
-        outputs: List[str] = Field(description="A list of all requested successful media outputs, given the original request")
-        error: Optional[str] = Field(description="A human-readable error message that explains why the session failed to produce the requested outputs. Mutually exclusive with outputs.")
+        outputs: List[str] = Field(description="A list of all requested successful media outputs, given the original request. Do not include intermediate results -- only the desired output given the task.")
+        error: Optional[str] = Field(description="A human-readable error message that explains why the session failed to produce the requested outputs. Mutually exclusive with outputs -- **ONLY** set this if there was an error or the requested output was not successfully generated.")
         
-
     system_message = """
     You are a helpful assistant that summarizes the results of a remote session prompt.
 
@@ -795,15 +762,14 @@ async def remote_prompt_session(
     If it was successful, list all the successful outputs.
     If it was not successful, provide a human-readable error message that explains why the session failed to produce the requested outputs.
     """
-        
-    from bson import ObjectId
+    
     messages = ChatMessage.find({"session": ObjectId(session_id)})
 
-    print("---33--")
-    for message in messages:
-        print(message.content)
-        print("-")
-    print("---333--")
+    # print("---33--")
+    # for message in messages:
+    #     print(message.content)
+    #     print("-")
+    # print("---333--")
 
     # Build LLM context with custom tools
     context = LLMContext(
@@ -819,26 +785,13 @@ async def remote_prompt_session(
         ),
     )
 
-
-    # Do a single turn prompt with forced tool usage
     response = await async_prompt(context)
-
-    print(response)
-
+    
     output = RemoteSessionResponse(**json.loads(response.content))
-
-
     if output.error:
-        # result = {"status": "error", "error": output.error}
-        pass
-    else:
-        # result = {"status": "success", "output": output.outputs}
-        print("---- 111 HERE IS THE OUTPUT ----")
-        print(output.outputs)
-        print("---- 222 HERE IS THE OUTPUT ----")
-
-
-        return output.outputs
+        raise Exception(output.error)
+    
+    return output.outputs
 
 
     # result.update({"session": session_id})

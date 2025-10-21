@@ -133,6 +133,7 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
                 print("remote_prompt_session result")
                 print(result)
                 return {"output": result}
+                # return result
 
 
 

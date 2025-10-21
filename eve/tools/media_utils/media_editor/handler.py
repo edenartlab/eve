@@ -60,8 +60,17 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         "extra_tools": ["video_concat", "audio_video_combine", "ffmpeg_multitool"],
     })
 
+    if "error" in result:
+        raise Exception(result["error"])
+    
+    
     print("media_editor result")
     print(result)
+
+    #if "output" in result:
+    output = result["output"]
+    
+
     # session_id = result["output"][0]["session"]
 
     # return {"output": [{"session": session_id}]}
@@ -69,4 +78,4 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     print("---- HERE IS THE RESULT ----")
     print(result)
     print("---- HERE IS THE RESULT ----")
-    return {"output": result}
+    return {"output": output}
