@@ -1150,6 +1150,7 @@ class TelegramAllowlistItem(AllowlistItem):
 
 class DeploymentSettingsTelegram(BaseModel):
     topic_allowlist: Optional[List[TelegramAllowlistItem]] = None
+    bot_username: Optional[str] = None
 
 
 class DeploymentSecretsTelegram(BaseModel):

@@ -37,10 +37,19 @@ class TelegramClient(PlatformClient):
         from telegram import Bot
         import secrets as python_secrets
 
-        # Validate bot token
+        # Validate bot token and get bot info
         try:
             bot = Bot(secrets.telegram.token)
-            await bot.get_me()
+            bot_info = await bot.get_me()
+
+            # Store the actual bot username in config
+            if not config.telegram:
+                from eve.agent.session.models import DeploymentSettingsTelegram
+                config.telegram = DeploymentSettingsTelegram()
+
+            config.telegram.bot_username = bot_info.username
+            logger.info(f"[TELEGRAM-PREDEPLOY] Bot username set to: {bot_info.username}")
+
         except Exception as e:
             logger.error(f"Token validation failed: {e}")
             raise APIError(f"Invalid Telegram token: {str(e)}", status_code=400)
@@ -198,7 +207,23 @@ class TelegramClient(PlatformClient):
             bot = Bot(self.deployment.secrets.telegram.token)
             bot_info = await bot.get_me()
             bot_id = bot_info.id
-            bot_username = f"@{agent.username.lower()}_bot"
+
+            # Get bot username from config (stored during deployment)
+            bot_username = None
+            if self.deployment.config and self.deployment.config.telegram:
+                bot_username = self.deployment.config.telegram.bot_username
+
+            # Fallback to fetched bot info if not in config
+            if not bot_username:
+                bot_username = bot_info.username
+                logger.warning(f"[TELEGRAM-INTERACT] Bot username not in config, using fetched: {bot_username}")
+            else:
+                logger.info(f"[TELEGRAM-INTERACT] Bot username from config: {bot_username}")
+
+            # Ensure bot_username has @ prefix for comparison
+            if bot_username and not bot_username.startswith("@"):
+                bot_username = f"@{bot_username}"
+
             logger.info(f"[TELEGRAM-INTERACT] Bot ID: {bot_id}, Bot username: {bot_username}")
 
             # Check if we should reply (only in groups/channels)
@@ -561,7 +586,22 @@ async def create_telegram_session_request(
     # Clean message text (remove bot mention)
     cleaned_text = text
     if text:
-        bot_username = f"@{agent.username.lower()}_bot"
+        # Get bot username from config (stored during deployment)
+        bot_username = None
+        if deployment.config and deployment.config.telegram:
+            bot_username = deployment.config.telegram.bot_username
+
+        # Fallback to fetching bot info if not in config
+        if not bot_username:
+            from telegram import Bot
+            bot = Bot(deployment.secrets.telegram.token)
+            bot_info = await bot.get_me()
+            bot_username = bot_info.username
+
+        # Ensure bot_username has @ prefix for comparison
+        if bot_username and not bot_username.startswith("@"):
+            bot_username = f"@{bot_username}"
+
         pattern = rf"\s*{re.escape(bot_username)}\b"
         cleaned_text = re.sub(pattern, "", text, flags=re.IGNORECASE).strip()
 
