@@ -127,7 +127,15 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
                     attachments=args.get("attachments") or [],
                     extra_tools=args.get("extra_tools") or [],
                 )
-                session_id = result["session_id"]
+
+                # session_id = result["session_id"]
+
+                print("remote_prompt_session result")
+                print(result)
+                return {"output": result}
+
+
+
 
         else:
             # Just add the message without prompting

@@ -3,6 +3,7 @@ from jinja2 import Template
 from eve.mongo import Collection, Document
 from bson import ObjectId
 from typing import Literal
+import math
 
 from eve.tool import Tool
 from eve.agent.deployments import Deployment
@@ -10,6 +11,31 @@ from eve.agent import Agent
 from eve.agent.session.models import Session
 from eve.tools.abraham.abraham_seed.handler import AbrahamSeed
 import asyncio
+
+
+def user_score(msg_count: int) -> float:
+    """
+    Calculate score for a user's message count with anti-spam measures.
+
+    First 5 messages get full quadratic voting weight (sqrt),
+    messages 6-20 get logarithmic attenuation,
+    messages beyond 20 are capped (hard cutoff).
+
+    Examples:
+        1 message  = 1.00 points
+        5 messages = 2.24 points
+        10 messages = 2.24 + log(6) * 0.3 = 2.78 points
+        20 messages = 2.24 + log(16) * 0.3 = 3.07 points
+        25+ messages = 3.07 points (capped at 20)
+    """
+    # Cap at 20 messages max
+    msg_count = min(msg_count, 20)
+
+    if msg_count <= 5:
+        return msg_count ** 0.5
+    else:
+        # First 5 get full sqrt weight, rest get logarithmic
+        return (5 ** 0.5) + math.log(msg_count - 4) * 0.3
 
 
 daily_message = """
@@ -70,10 +96,10 @@ async def commit_daily_work(agent: Agent, session: str):
                 user_id = str(user_id)
                 messages_per_user[user_id] = messages_per_user.get(user_id, 0) + 1
 
-        # Quadratic voting: score = sum of sqrt(messages) for each unique user
-        # This creates diminishing returns - 1 user with 16 messages = 4 points,
-        # but 4 users with 4 messages each = 8 points
-        score = sum(msg_count ** 0.5 for msg_count in messages_per_user.values())
+        # Quadratic voting with anti-spam: first 5 messages get sqrt weight,
+        # messages 6-20 get logarithmic attenuation, hard cap at 20 messages.
+        # Example: 4 users with 4 messages each = 8 points vs 1 user with 100 messages = 3.07 points
+        score = sum(user_score(msg_count) for msg_count in messages_per_user.values())
 
         unique_users = len(messages_per_user)
         total_messages = len(user_messages)
@@ -104,6 +130,9 @@ async def commit_daily_work(agent: Agent, session: str):
     winner = candidates[0]
 
     print("THE WINNER IS", winner["session"].id)
+
+    if str(winner["session"].id) != "68f615d74bd332166b766ec5":
+        raise Exception("Stop here, it's", str(winner["session"].id))
 
     # raise Exception("Stop here")
 
