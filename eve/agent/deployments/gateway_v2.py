@@ -508,7 +508,8 @@ class DiscordGatewayClient:
         else:
             # Check user mentions
             if message_data.get("mentions") and any(
-                mention.get("id") == app_id for mention in message_data.get("mentions", [])
+                mention.get("id") == app_id
+                for mention in message_data.get("mentions", [])
             ):
                 force_reply = True
 
@@ -520,9 +521,9 @@ class DiscordGatewayClient:
             # This catches cases where users type mentions without autocomplete
             if not force_reply and app_id:
                 mention_patterns = [
-                    f"<@{app_id}>",      # User mention
-                    f"<@!{app_id}>",     # User mention with nickname
-                    f"<@&{app_id}>",     # Role mention
+                    f"<@{app_id}>",  # User mention
+                    f"<@!{app_id}>",  # User mention with nickname
+                    f"<@&{app_id}>",  # Role mention
                 ]
                 original_content = message_data.get("content", "")
                 if any(pattern in original_content for pattern in mention_patterns):
@@ -669,10 +670,7 @@ class DiscordGatewayClient:
         return False
 
     async def _handle_dm_routing(
-        self,
-        data: dict,
-        trace_id: str,
-        deployment: Deployment
+        self, data: dict, trace_id: str, deployment: Deployment
     ) -> bool:
         """
         Handle DM-specific routing logic.
@@ -694,7 +692,7 @@ class DiscordGatewayClient:
         channel_id: str,
         deployment: Deployment,
         force_reply: bool,
-        trace_id: str
+        trace_id: str,
     ) -> bool:
         """
         Determine if we should process channel-specific logic.
@@ -709,8 +707,12 @@ class DiscordGatewayClient:
             return False
 
         # Check for agent conflicts
-        relevant_deployments = await self._find_relevant_deployments(channel_id, trace_id)
-        if self._should_skip_for_agent_conflict(relevant_deployments, force_reply, trace_id):
+        relevant_deployments = await self._find_relevant_deployments(
+            channel_id, trace_id
+        )
+        if self._should_skip_for_agent_conflict(
+            relevant_deployments, force_reply, trace_id
+        ):
             return False
 
         return True
@@ -827,7 +829,9 @@ class DiscordGatewayClient:
         )
 
         # Channel-specific logic (skipped for DMs)
-        if not await self._should_process_channel_logic(is_dm, channel_id, deployment, force_reply, trace_id):
+        if not await self._should_process_channel_logic(
+            is_dm, channel_id, deployment, force_reply, trace_id
+        ):
             return
 
         # Load or create session
@@ -1505,7 +1509,9 @@ async def telegram_webhook_validate():
 
 
 @web_app.post("/telegram/webhook")
-async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: str = Header(None)):
+async def telegram_webhook(
+    request: Request, x_telegram_bot_api_secret_token: str = Header(None)
+):
     """Handle incoming Telegram webhook updates"""
     try:
         # Parse request body to check if it's a validation request
@@ -1513,7 +1519,7 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
             body = await request.json()
         except:
             # Empty body - likely validation request
-            
+
             logger.info("Received POST with no body - validation request")
             return {"ok": True}
 
@@ -1524,11 +1530,14 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
 
         # Find deployment by matching webhook secret
         deployment = None
-        for dep in Deployment.find({"platform": ClientType.TELEGRAM.value, "valid": {"$ne": False}}):
+        for dep in Deployment.find(
+            {"platform": ClientType.TELEGRAM.value, "valid": {"$ne": False}}
+        ):
             if (
                 dep.secrets
                 and dep.secrets.telegram
-                and dep.secrets.telegram.webhook_secret == x_telegram_bot_api_secret_token
+                and dep.secrets.telegram.webhook_secret
+                == x_telegram_bot_api_secret_token
             ):
                 deployment = dep
                 break
@@ -1536,7 +1545,9 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
         if not deployment:
             # During webhook setup, Telegram may send test requests without secret token
             # Return 200 OK to allow webhook validation to succeed
-            logger.info("No deployment found for webhook secret - returning OK for validation")
+            logger.info(
+                "No deployment found for webhook secret - returning OK for validation"
+            )
             return {"ok": True}
 
         # Instantiate TelegramClient and call interact
@@ -1550,7 +1561,6 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
     except Exception as e:
         logger.error(f"Error handling Telegram webhook: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
-
 
 
 @app.function(
