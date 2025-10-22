@@ -1,12 +1,13 @@
+from eve.tool import ToolContext
 from .. import veo_handler
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
-    if args.get("fast"):
+async def handler(context: ToolContext):
+    if context.args.get("fast"):
         model = "veo-3.0-fast-generate-preview"
     else:
         model = "veo-3.0-generate-preview"
 
     return await veo_handler(
-        args, 
+        context.args, 
         model=model
     )

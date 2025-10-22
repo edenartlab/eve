@@ -3,22 +3,23 @@ import aiohttp
 from datetime import datetime, timedelta
 from eve.agent.deployments import Deployment
 from eve.agent import Agent
+from eve.tool import ToolContext
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
-    if not agent:
+async def handler(context: ToolContext):
+    if not context.agent:
         raise Exception("Agent is required")
-    agent = Agent.from_mongo(agent)
+    agent = Agent.from_mongo(context.agent)
     deployment = Deployment.load(agent=agent.id, platform="farcaster")
     if not deployment:
         raise Exception("No valid Farcaster deployments found")
 
     # Get search parameters
-    query = args.get("query")
-    author = args.get("author")
-    channel = args.get("channel")
-    limit = min(args.get("limit", 10), 100)  # Cap at 100
-    time_range_hours = args.get("time_range_hours")
+    query = context.args.get("query")
+    author = context.args.get("author")
+    channel = context.args.get("channel")
+    limit = min(context.args.get("limit", 10), 100)  # Cap at 100
+    time_range_hours = context.args.get("time_range_hours")
 
     # Validate that at least one search parameter is provided
     if not any([query, author, channel]):

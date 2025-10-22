@@ -1,9 +1,9 @@
+from eve.tool import ToolContext
 from ....task import CreationsCollection, Creation
-from ....tool import Tool
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
-    # query = args.get("query")
+async def handler(context: ToolContext):
+    # query = context.args.get("query")
     # tool = Tool.load("search_collections")
     # results = await tool.async_run({
     #     "query": query,
@@ -14,8 +14,8 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     # assert len(results) >= 1, "No collections found for this query"
 
     # collection_id = results[0]["collection_id"]
-    collection_id = args.get("collection_id")
-    creation_id = args.get("creation_id")
+    collection_id = context.args.get("collection_id")
+    creation_id = context.args.get("creation_id")
     
 
     collection = CreationsCollection.from_mongo(collection_id)

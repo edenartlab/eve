@@ -34,6 +34,14 @@ class RateLimit(BaseModel):
     feature_flag: Optional[str] = None
 
 
+class ToolContext(BaseModel):
+    """Context object for tool execution."""
+    args: Dict[str, Any]
+    user: Optional[str] = None
+    agent: Optional[str] = None
+    session: Optional[str] = None
+
+
 @Collection("tools3")
 class Tool(Document, ABC):
     """

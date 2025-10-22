@@ -1,16 +1,8 @@
 import os
 import logging
-import asyncio
-from jinja2 import Template
-from eve.mongo import Collection, Document
-from bson import ObjectId
-from typing import Literal
 
-from eve.tool import Tool
-from eve.agent.deployments import Deployment
+from eve.tool import ToolContext
 from eve.agent import Agent
-from eve.agent.session.models import Session
-from eve.tools.abraham.abraham_seed.handler import AbrahamSeed, AbrahamCreation
 
 from eve.utils.chain_utils import (
     safe_send,
@@ -18,7 +10,6 @@ from eve.utils.chain_utils import (
     load_contract,
     Network,
 )
-from eve.utils.ipfs_utils import pin as ipfs_pin
 
 # Initialize logger
 logger = logging.getLogger(__name__)
@@ -85,13 +76,10 @@ def rest():
         raise
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
-    print("RUN ABRAHAM_REST")
-    print("agent", agent)
-    print(type(agent))
-    if not agent:
+async def handler(context: ToolContext):
+    if not context.agent:
         raise Exception("Agent is required")
-    agent = Agent.from_mongo(agent)
+    agent = Agent.from_mongo(context.agent)
     if agent.username != "abraham":
         raise Exception("Agent is not Abraham")
 

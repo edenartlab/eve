@@ -1,12 +1,13 @@
+from eve.tool import ToolContext
 from PIL import Image
 # from ... import utils
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
+async def handler(context: ToolContext):
     from .... import utils
 
-    image_urls = args.get("images")
-    height = args.get("height")
+    image_urls = context.args.get("images")
+    height = context.args.get("height")
 
     images = []
     for image_url in image_urls:

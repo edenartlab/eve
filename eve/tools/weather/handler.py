@@ -1,9 +1,10 @@
 import json
 import requests
+from eve.tool import ToolContext
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
-    lat = args["lat"]
-    lon = args["lon"]
+async def handler(context: ToolContext):
+    lat = context.args["lat"]
+    lon = context.args["lon"]
     
     points_url = f"https://api.weather.gov/points/{lat},{lon}"
     # Provide a descriptive User-Agent per NOAA policy

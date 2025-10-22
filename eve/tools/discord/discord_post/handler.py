@@ -1,24 +1,26 @@
 from eve.agent.agent import Agent
 from eve.agent.session.models import Deployment
+from eve.tool import ToolContext
 import discord
 import aiohttp
 import io
 import os
+from loguru import logger
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
-    if not agent:
+async def handler(context: ToolContext):
+    if not context.agent:
         raise Exception("Agent is required")
-    agent = Agent.from_mongo(agent)
+    agent = Agent.from_mongo(context.agent)
     deployment = Deployment.load(agent=agent.id, platform="discord")
     if not deployment:
         raise Exception("No valid Discord deployments found")
 
     # Get parameters
-    channel_id = args.get("channel_id")
-    discord_user_id = args.get("discord_user_id")
-    content = args["content"]
-    media_urls = args.get("media_urls", [])
+    channel_id = context.args.get("channel_id")
+    discord_user_id = context.args.get("discord_user_id")
+    content = context.args["content"]
+    media_urls = context.args.get("media_urls", [])
 
     # Validate parameters
     if not discord_user_id and not channel_id:
@@ -84,7 +86,7 @@ async def download_media_files(media_urls: list) -> list:
                         files.append(file_obj)
             except Exception as e:
                 # If any file fails to download, return empty list to trigger fallback
-                print(f"Failed to download media from {url}: {str(e)}")
+                logger.error(f"Failed to download media from {url}: {str(e)}")
                 return []
 
     return files

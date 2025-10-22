@@ -1,3 +1,4 @@
+from eve.tool import ToolContext
 import anthropic
 import json
 import shutil
@@ -14,7 +15,6 @@ from .... import utils
 
 class CommandSecurityError(Exception):
     """Custom exception for command security validation errors"""
-    pass
 
 class FFmpegError(Exception):
     """Custom exception for FFmpeg-related errors"""
@@ -224,11 +224,6 @@ async def generate_ffmpeg_command(
 
         messages = [{"role": "user", "content": "\n\n".join(prompt_parts)}]
 
-        print("---------------------------------------------------------------------")
-        print("LLM Prompt:")
-        print("\n\n".join(prompt_parts))
-        print("---------------------------------------------------------------------")
-
         prompt = {
             "model": "claude-sonnet-4-5-20250929",
             "max_tokens": 2048,
@@ -292,7 +287,7 @@ async def execute_ffmpeg_command(command: str, timeout: int = 60) -> None:
             except ProcessLookupError:
                 pass
 
-def validate_and_prepare_media(args: Dict[str, Any], tmp_dir: Optional[str] = None) -> MediaFiles:
+def validate_and_prepare_media(context.args: Dict[str, Any], tmp_dir: Optional[str] = None) -> MediaFiles:
     """Validate and prepare media files from input arguments"""
     if tmp_dir is None:
         tmp_dir = f"tmp_{uuid.uuid4().hex[:8]}"
@@ -301,7 +296,7 @@ def validate_and_prepare_media(args: Dict[str, Any], tmp_dir: Optional[str] = No
     
     try:
         image_paths = []
-        for idx, image_url in enumerate(args.get("images", []), start=1):
+        for idx, image_url in enumerate(context.args.get("images", []), start=1):
             if not image_url:
                 continue
                 
@@ -319,7 +314,7 @@ def validate_and_prepare_media(args: Dict[str, Any], tmp_dir: Optional[str] = No
         media_handlers = {}
         for media_type in ["video1", "video2", "video3", "video4", "video5", 
                           "audio1", "audio2", "audio3", "audio4", "audio5"]:
-            if url := args.get(media_type):
+            if url := context.args.get(media_type):
                 try:
                     extension = Path(url).suffix.lstrip('.')
                     original_handler = utils.get_file_handler(extension, url)
@@ -339,24 +334,24 @@ def validate_and_prepare_media(args: Dict[str, Any], tmp_dir: Optional[str] = No
         shutil.rmtree(tmp_dir, ignore_errors=True)
         raise
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
+async def handler(context: ToolContext):
     """Main handler function for processing media files and generating FFmpeg commands"""
-    if not isinstance(args, dict):
+    if not isinstance(context.args, dict):
         raise TypeError("Args must be a dictionary")
         
-    n_retries = max(1, int(args.get("n_retries", 4)))
-    timeout = max(1, int(args.get("timeout", 60)))
+    n_retries = max(1, int(context.args.get("n_retries", 4)))
+    timeout = max(1, int(context.args.get("timeout", 60)))
     
     tmp_dir = None
     output_path = None
     preserved_output = None
     
     try:
-        if not args.get("task_instruction"):
+        if not context.args.get("task_instruction"):
             raise ValueError("Task instruction is required")
 
         tmp_dir = f"tmp_{uuid.uuid4().hex[:8]}"
-        media = validate_and_prepare_media(args, tmp_dir)
+        media = validate_and_prepare_media(context.args, tmp_dir)
         
         if not media.has_media():
             raise ValueError("At least one media file (image, video, or audio) must be provided")
@@ -367,12 +362,11 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         for attempt in range(n_retries):
             try:
                 ffmpeg_response = await generate_ffmpeg_command(
-                    args["task_instruction"], 
+                    context.args["task_instruction"], 
                     media,
                     previous_attempt
                 )
                 
-                print(f"Attempt {attempt + 1}/{n_retries}: Executing command: {ffmpeg_response.command}")
                 
                 # Store the output path
                 output_path = ffmpeg_response.output_path
@@ -395,7 +389,6 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
                     **({"stderr": e.stderr} if e.stderr else {})
                 }
                 
-                print(f"Attempt {attempt + 1}/{n_retries} failed: {str(e)}")
                 continue
                 
         if last_error:

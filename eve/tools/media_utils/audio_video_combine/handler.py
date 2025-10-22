@@ -1,13 +1,14 @@
+from eve.tool import ToolContext
 import tempfile
 import subprocess
 # from ... import utils
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
+async def handler(context: ToolContext):
     from .... import utils
     
-    video_url = args.get("video")
-    audio_url = args.get("audio")
+    video_url = context.args.get("video")
+    audio_url = context.args.get("audio")
 
     video_file = utils.get_file_handler(".mp4", video_url)
     output_file = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)

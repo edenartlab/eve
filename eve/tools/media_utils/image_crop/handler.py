@@ -1,12 +1,13 @@
+from eve.tool import ToolContext
 import os
 from PIL import Image
 # from ... import utils
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
+async def handler(context: ToolContext):
     from .... import utils
     
-    image_url = args.get("image")
+    image_url = context.args.get("image")
 
     image_filename = image_url.split("/")[-1]
     image = utils.download_file(image_url, image_filename)
@@ -14,8 +15,8 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     image = Image.open(image)
     width, height = image.size
     
-    left, right = width * args.get("left"), width * (1.0 - args.get("right"))
-    top, bottom = height * args.get("top"), height * (1.0 - args.get("bottom"))
+    left, right = width * context.args.get("left"), width * (1.0 - context.args.get("right"))
+    top, bottom = height * context.args.get("top"), height * (1.0 - context.args.get("bottom"))
 
     image_edited_filename = f"{image_filename}_crop{left}_{right}_{top}_{bottom}.png"
     if not os.path.exists(image_edited_filename):

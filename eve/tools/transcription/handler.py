@@ -1,10 +1,10 @@
+from eve.tool import ToolContext
 import openai
-import os
 import json
 import tempfile
 from ... import utils
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
+async def handler(context: ToolContext):
     """
     Handles audio transcription using the OpenAI API.
     """
@@ -13,17 +13,17 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     client = openai.AsyncOpenAI()
 
     temp_audio = tempfile.NamedTemporaryFile(suffix='.mp3', delete=False)
-    file_path_str = utils.download_file(args["audio"], temp_audio.name, overwrite=True)
-    selected_model_arg = args.get("model", "gpt-4o-transcribe")
-    enable_timestamps = args.get("use_timestamps", False)
-    prompt_text = args.get("prompt")
+    file_path_str = utils.download_file(context.args["audio"], temp_audio.name, overwrite=True)
+    selected_model_arg = context.args.get("model", "gpt-4o-transcribe")
+    enable_timestamps = context.args.get("use_timestamps", False)
+    prompt_text = context.args.get("prompt")
     api_call_params = {}
 
     if enable_timestamps:
         # Timestamps require whisper-1 and verbose_json format
         api_call_params["model"] = "whisper-1"
         api_call_params["response_format"] = "verbose_json"
-        api_call_params["timestamp_granularities"] = [args.get("timestamp_granularity", "segment")]
+        api_call_params["timestamp_granularities"] = [context.args.get("timestamp_granularity", "segment")]
     else:
         api_call_params["model"] = selected_model_arg
         # "json" format is supported by gpt-4o models and whisper-1,

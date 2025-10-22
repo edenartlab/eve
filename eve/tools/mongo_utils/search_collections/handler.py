@@ -1,3 +1,4 @@
+from eve.tool import ToolContext
 import openai
 import instructor
 from jinja2 import Template
@@ -5,7 +6,6 @@ from pydantic import BaseModel, Field
 from typing import List
 
 from ....task import CreationsCollection, Creation
-from ....mongo import get_collection
 # from ... import utils
 
 
@@ -39,39 +39,39 @@ Explain why each result matches the query criteria.
 </Task>""")
 
 
-
 class SearchResult(BaseModel):
     """A matching result from the database search."""
-    
+
     id: str = Field(..., description="The MongoDB ID of the result")
     name: str = Field(..., description="The name/title of the result")
     description: str = Field(..., description="A brief description of the result")
     relevance: str = Field(
-        ..., 
-        description="A brief explanation of why this result matches the search query"
+        ...,
+        description="A brief explanation of why this result matches the search query",
     )
+
 
 class SearchResults(BaseModel):
     """Results from searching the database."""
-    
+
     results: List[SearchResult] = Field(
         ...,
-        description="The matching results, ordered by relevance. Include only truly relevant results."
+        description="The matching results, ordered by relevance. Include only truly relevant results.",
     )
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
-    searcher = user
-    query = args.get("query")
-    num_results = args.get("results", 5)
-    
+async def handler(context: ToolContext):
+    searcher = context.user
+    query = context.args.get("query")
+    num_results = context.args.get("results", 5)
+
     # Get all documents
     counter = 1
     docs = {}
     collection = CreationsCollection.get_collection()
     for doc in collection.find({"deleted": {"$ne": True}}):
         id = str(doc["_id"])
-        doc["_id"] = counter       
+        doc["_id"] = counter
         docs[str(counter)] = {
             "id": id,
             "owned": str(searcher) == str(doc["user"]),
@@ -80,32 +80,30 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
             "doc": doc,
         }
         counter += 1
-    
+
     docs_owned = sorted(
         (doc for doc in docs.values() if doc["owned"]),
-        key=lambda x: x["used"], 
-        reverse=True
+        key=lambda x: x["used"],
+        reverse=True,
     )
     docs_public = sorted(
         (doc for doc in docs.values() if not doc["owned"] and doc["public"]),
-        key=lambda x: x["used"], 
-        reverse=True
+        key=lambda x: x["used"],
+        reverse=True,
     )
 
     docs_owned = "\n".join(collection_template.render(doc["doc"]) for doc in docs_owned)
-    docs_public = "\n".join(collection_template.render(doc["doc"]) for doc in docs_public)
+    docs_public = "\n".join(
+        collection_template.render(doc["doc"]) for doc in docs_public
+    )
 
     # Create context for LLM
     prompt = search_collections_template.render(
-        docs_owned=docs_owned, 
-        docs_public=docs_public, 
+        docs_owned=docs_owned,
+        docs_public=docs_public,
         query=query,
-        num_results=num_results
+        num_results=num_results,
     )
-
-    print("--------------------------------")
-    print(prompt[:500])
-    print("--------------------------------")
 
     # Make LLM call
     system_message = f"""You are a search assistant that helps find relevant Collections based on natural language queries. Analyze the provided items and return only the most relevant matches for the query. Be selective - only return items that truly match the query's intent."""
@@ -141,8 +139,4 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
                 }
             matches.append(r)
 
-    print(matches)
-
-    return {
-        "output": matches
-    }
+    return {"output": matches}

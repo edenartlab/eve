@@ -1,5 +1,4 @@
 import re
-import json
 import math
 from operator import itemgetter
 from typing import List, Dict, Tuple
@@ -9,6 +8,7 @@ from pydantic import BaseModel, Field, validator
 from eve.agent import Agent
 from eve.agent.session.models import Deployment
 from eve.tools.twitter import X
+from eve.tool import ToolContext
 
 
 # ───────────────────────────────────────────────
@@ -201,15 +201,15 @@ def process_payload(
 
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
-    if not agent:
+async def handler(context: ToolContext):
+    if not context.agent:
         raise Exception("Agent is required")
-    agent = Agent.from_mongo(agent)
+    agent = Agent.from_mongo(context.agent)
     deployment = Deployment.load(agent=agent.id, platform="twitter")
     if not deployment:
         raise RuntimeError("No valid Twitter deployments found")
 
-    user_query = args["query"]
+    user_query = context.args["query"]
     parsed: TwitterSearchQuery = await async_prompt(
         messages=[
             UserMessage(
@@ -229,7 +229,7 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
 
     # strict pass
     raw_strict = twitter_search(
-        x, parsed.query, start=args.get("start_time"), end=args.get("end_time")
+        x, parsed.query, start=context.args.get("start_time"), end=context.args.get("end_time")
     )
     tweets = process_payload(
         raw_strict,
@@ -246,7 +246,7 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         )
         # print("relaxed_q", relaxed_q)
         raw_relaxed = twitter_search(
-            x, relaxed_q, start=args.get("start_time"), end=args.get("end_time")
+            x, relaxed_q, start=context.args.get("start_time"), end=context.args.get("end_time")
         )
         tweets = process_payload(
             raw_relaxed,
@@ -265,7 +265,7 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         )
         # print("relaxed_q 2", relaxed_q)
         raw_very_relaxed = twitter_search(
-            x, relaxed_q, start=args.get("start_time"), end=args.get("end_time")
+            x, relaxed_q, start=context.args.get("start_time"), end=context.args.get("end_time")
         )
         tweets = process_payload(
             raw_very_relaxed,

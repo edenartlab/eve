@@ -3,21 +3,23 @@ import aiohttp
 from datetime import datetime, timedelta
 from eve.agent.deployments import Deployment
 from eve.agent import Agent
+from eve.tool import ToolContext
+from loguru import logger
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
-    if not agent:
+async def handler(context: ToolContext):
+    if not context.agent:
         raise Exception("Agent is required")
-    agent = Agent.from_mongo(agent)
+    agent = Agent.from_mongo(context.agent)
     deployment = Deployment.load(agent=agent.id, platform="farcaster")
     if not deployment:
         raise Exception("No valid Farcaster deployments found")
 
     # Get parameters
-    username = args.get("username")
-    additional_query = args.get("additional_query")
-    limit = min(args.get("limit", 10), 100)  # Cap at 100
-    time_range_hours = args.get("time_range_hours", 24)  # Default 24 hours
+    username = context.args.get("username")
+    additional_query = context.args.get("additional_query")
+    limit = min(context.args.get("limit", 10), 100)  # Cap at 100
+    time_range_hours = context.args.get("time_range_hours", 24)  # Default 24 hours
 
     # Get Neynar API key
     neynar_api_key = os.getenv("NEYNAR_API_KEY")
@@ -200,5 +202,5 @@ def format_hub_mention_result(message, target_username=None):
         return result
 
     except Exception as e:
-        print(f"Error formatting mention result: {str(e)}")
+        logger.error(f"Error formatting mention result: {str(e)}")
         return None

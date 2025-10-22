@@ -3,6 +3,7 @@ from eve.agent.session.models import Deployment
 import requests
 from datetime import datetime, timedelta
 from eve.utils import file_utils as utils
+from eve.tool import ToolContext
 from typing import Dict, Any
 import tempfile
 import asyncio
@@ -11,20 +12,20 @@ import re
 from loguru import logger
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
-    if not agent:
+async def handler(context: ToolContext):
+    if not context.agent:
         raise Exception("Agent is required")
 
-    agent = Agent.from_mongo(agent)
+    agent = Agent.from_mongo(context.agent)
 
     deployment = Deployment.load(agent=agent.id, platform="tiktok")
     if not deployment:
         raise Exception("No valid TikTok deployments found")
 
     # Get parameters from args
-    video_url = args["video_url"]
-    caption = args["caption"]
-    privacy_level = args.get("privacy_level", "PUBLIC_TO_EVERYONE")
+    video_url = context.args["video_url"]
+    caption = context.args["caption"]
+    privacy_level = context.args.get("privacy_level", "PUBLIC_TO_EVERYONE")
 
     # Note: In test/private setups, posts may be forced to SELF_ONLY
     # In production with audited API clients, PUBLIC_TO_EVERYONE should work

@@ -1,4 +1,5 @@
 from eve.mongo import Collection, Document
+from eve.tool import ToolContext
 from bson import ObjectId
 from typing import Literal, Optional
 from pydantic import BaseModel
@@ -32,7 +33,7 @@ class AbrahamSeed(Document):
     creation: Optional[AbrahamCreation] = None
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
+async def handler(context: ToolContext):
     """
     Save an Abraham seed after a creation has been made and cast.
 
@@ -48,11 +49,11 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     if not session:
         raise ValueError("Session ID is required")
 
-    title = args.get("title")
-    proposal = args.get("proposal")
-    tagline = args.get("tagline")
-    cast_hash = args.get("cast_hash")
-    image = args.get("image")
+    title = context.args.get("title")
+    proposal = context.args.get("proposal")
+    tagline = context.args.get("tagline")
+    cast_hash = context.args.get("cast_hash")
+    image = context.args.get("image")
 
     # Validate required fields
     if not all([title, proposal, tagline, cast_hash, image]):

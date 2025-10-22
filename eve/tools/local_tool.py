@@ -3,7 +3,7 @@ import uuid
 from typing import Dict
 
 from ..task import Task, task_handler_func
-from ..tool import Tool, tool_context
+from ..tool import Tool, ToolContext, tool_context
 from .tool_handlers import load_handler
 
 
@@ -16,7 +16,8 @@ class LocalTool(Tool):
     @Tool.handle_run
     async def async_run(self, args: Dict, user_id: str = None, agent_id: str = None, session_id: str = None):
         handler = load_handler(self.parent_tool or self.key)
-        result = await handler(args, user_id, agent_id, session_id)
+        context = ToolContext(args=args, user=user_id, agent=agent_id, session=session_id)
+        result = await handler(context)
         return result
 
     @Tool.handle_start_task
@@ -52,4 +53,5 @@ class LocalTool(Tool):
 
 @task_handler_func
 async def run_task(tool_key: str, args: dict, user: str = None, agent: str = None, session: str = None):
-    return await load_handler(tool_key)(args, user, agent, session)
+    context = ToolContext(args=args, user=user, agent=agent, session=session)
+    return await load_handler(tool_key)(context)

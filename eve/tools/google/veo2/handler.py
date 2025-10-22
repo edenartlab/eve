@@ -1,7 +1,8 @@
+from eve.tool import ToolContext
 from .. import veo_handler
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
+async def handler(context: ToolContext):
     return await veo_handler(
-        args, 
+        context.args, 
         model="veo-2.0-generate-001"
     )

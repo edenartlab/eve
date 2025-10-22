@@ -1,18 +1,19 @@
 from eve.agent.agent import Agent
 from eve.tools.twitter import X
 from eve.agent.session.models import Deployment
+from eve.tool import ToolContext
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
-    if not agent:
+async def handler(context: ToolContext):
+    if not context.agent:
         raise Exception("Agent is required")
-    agent = Agent.from_mongo(agent)
+    agent = Agent.from_mongo(context.agent)
     deployment = Deployment.load(agent=agent.id, platform="twitter")
     if not deployment:
         raise Exception("No valid twitter deployments found")
 
     x = X(deployment)
-    start_time = args.get("start_time")
+    start_time = context.args.get("start_time")
     
     response = x.fetch_mentions(start_time=start_time)
 

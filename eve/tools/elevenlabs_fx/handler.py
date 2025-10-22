@@ -6,7 +6,8 @@ from typing import Iterator
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from eve import utils
-
+from eve.tool import ToolContext
+from loguru import logger
 
 
 eleven = ElevenLabs(
@@ -14,20 +15,19 @@ eleven = ElevenLabs(
 )
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
-    prompt = args["prompt"]
+async def handler(context: ToolContext):
+    prompt = context.args["prompt"]
     
-    if args.get("enhance_prompt"):
+    if context.args.get("enhance_prompt"):
         try:
             prompt = enhance_prompt(prompt)
         except Exception as e:
-            print(f"Error enhancing prompt: {e}")
+            logger.error(f"Error enhancing prompt: {e}")
 
     async def generate_with_params():
-        print(f"Prompt to generate: {prompt}")
         audio_generator = eleven.text_to_sound_effects.convert(
             text=prompt,
-            duration_seconds=args["duration"],
+            duration_seconds=context.args["duration"],
         )
         return audio_generator
 

@@ -5,13 +5,14 @@ import base64
 
 from eve.agent.agent import Agent
 from eve.agent.session.models import Deployment
+from eve.tool import ToolContext
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
-    if not agent:
+async def handler(context: ToolContext):
+    if not context.agent:
         raise Exception("Agent is required")
     
-    agent_obj = Agent.from_mongo(agent)
+    agent_obj = Agent.from_mongo(context.agent)
     deployment = Deployment.load(agent=agent_obj.id, platform="shopify")
     if not deployment:
         raise Exception("No valid shopify deployments found")
@@ -96,14 +97,14 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     # ---- 1. create skeleton product + hero image ----
     draft = _gql(PRODUCT_CREATE, {
         "product": {
-            "title": args.get("title"),
-            "descriptionHtml": args.get("description"),
+            "title": context.args.get("title"),
+            "descriptionHtml": context.args.get("description"),
             "status": "ACTIVE"
         },
         "media": [{
-            "alt": args.get("alt_text"),
+            "alt": context.args.get("alt_text"),
             "mediaContentType": "IMAGE",
-            "originalSource": args.get("image")
+            "originalSource": context.args.get("image")
         }]
     })["productCreate"]
 
@@ -117,7 +118,7 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     store_url = f"https://{store_name}.myshopify.com/products/{handle}"
     
     # make a sku from the slug
-    base = ''.join(e for e in args.get("title") if e.isalnum() or e == " ")
+    base = ''.join(e for e in context.args.get("title") if e.isalnum() or e == " ")
     base = base.upper().replace(" ", "-")[:10]
     sku = base64.b32encode(uuid.uuid4().bytes)[:4].decode("ascii")
     sku = f"{base}-{sku}"
@@ -127,7 +128,7 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         "productId": product_id,
         "variants": [{
             "id": variant_id,
-            "price": args.get("price"),
+            "price": context.args.get("price"),
             "inventoryItem": {
                 "sku": sku
             }
@@ -144,7 +145,7 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
             "quantities": [{
                 "inventoryItemId": item_id,
                 "locationId": location_id,
-                "quantity": args.get("quantity")
+                "quantity": context.args.get("quantity")
                 # "compareQuantity": 0  # optional: CAS check
             }]
         }
@@ -152,7 +153,7 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
 
 
     # ---- 4. publish to Online Store, so no manual merch action is needed ----
-    if args.get("auto_publish") == True:
+    if context.args.get("auto_publish") == True:
         online_pub = _gql(PUBS)["publications"]["nodes"][0]["id"]
         _gql(PUBLISH, {"id": product_id, "pub": online_pub})
     

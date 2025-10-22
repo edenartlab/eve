@@ -1,5 +1,5 @@
+from eve.tool import ToolContext
 import os
-import time
 import logging
 import requests
 import tempfile
@@ -46,7 +46,7 @@ def get_audio_duration(audio_file_path: str) -> float:
         return None
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
+async def handler(context: ToolContext):
     HEDRA_API_KEY = os.getenv("HEDRA_API_KEY")
     session = Session(api_key=HEDRA_API_KEY)
 
@@ -56,9 +56,9 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
 
     try:
         # Download files using utils
-        image = utils.download_file(args["image"], temp_image.name, overwrite=True)
+        image = utils.download_file(context.args["image"], temp_image.name, overwrite=True)
         audio_file = utils.download_file(
-            args["audio"], temp_audio.name, overwrite=True
+            context.args["audio"], temp_audio.name, overwrite=True
         )
 
         logger.info("testing against %s", session.base_url)
@@ -109,15 +109,15 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
 
         # Build generated_video_inputs matching the official starter structure
         generated_video_inputs = {
-            "text_prompt": args["prompt"],
-            "resolution": args.get("resolution", "540p"),  # Default to 540p if not provided
-            "aspect_ratio": args.get("aspectRatio", "1:1"),  # Default to 1:1 if not provided
+            "text_prompt": context.args["prompt"],
+            "resolution": context.args.get("resolution", "540p"),  # Default to 540p if not provided
+            "aspect_ratio": context.args.get("aspectRatio", "1:1"),  # Default to 1:1 if not provided
         }
 
         # Add duration if explicitly provided (in seconds), otherwise get it from audio
         logger.info(f"Args: {args}")
-        if args.get("duration") is not None:
-            duration_seconds = args["duration"]
+        if context.args.get("duration") is not None:
+            duration_seconds = context.args["duration"]
             logger.info(f"Using explicit duration: {duration_seconds}s")
         else:
             # Get audio duration
@@ -150,8 +150,8 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
             logger.info("Skipping duration_ms - model will auto-detect from audio")
 
         # Add optional seed if provided
-        if args.get("seed") is not None:
-            generated_video_inputs["seed"] = args["seed"]
+        if context.args.get("seed") is not None:
+            generated_video_inputs["seed"] = context.args["seed"]
 
         generation_request_data = {
             "type": "video",

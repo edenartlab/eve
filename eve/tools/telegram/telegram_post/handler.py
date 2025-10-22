@@ -1,12 +1,13 @@
 from eve.agent.deployments import Deployment
 from eve.agent import Agent
+from eve.tool import ToolContext
 from telegram import Bot
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
-    if not agent:
+async def handler(context: ToolContext):
+    if not context.agent:
         raise Exception("Agent is required")
-    agent = Agent.from_mongo(agent)
+    agent = Agent.from_mongo(context.agent)
     deployment = Deployment.load(agent=agent.id, platform="telegram")
     if not deployment:
         raise Exception("No valid Telegram deployments found")
@@ -17,9 +18,9 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         raise Exception("No chats configured for this deployment")
 
     # Get channel ID and content from args (using channel_id to match discord_post)
-    channel_id = args.get("channel_id")
-    content = args.get("content")
-    media_urls = args.get("media_urls", [])
+    channel_id = context.args.get("channel_id")
+    content = context.args.get("content")
+    media_urls = context.args.get("media_urls", [])
 
     if not channel_id:
         raise Exception("channel_id is required")

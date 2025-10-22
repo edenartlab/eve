@@ -1,3 +1,4 @@
+from eve.tool import ToolContext
 import asyncio
 import runwayml
 from jinja2 import Template
@@ -109,14 +110,14 @@ async def enhance_prompt(prompt_text: str):
     return result.prompt
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
+async def handler(context: ToolContext):
     client = AsyncRunwayML()
     unsafe_content_error = False
 
-    prompt_text = args["prompt_text"]
+    prompt_text = context.args["prompt_text"]
     
     # Todo: this needs to be updated to use Session
-    # if args.get("prompt_enhance") == True:
+    # if context.args.get("prompt_enhance") == True:
     #     try:
     #         prompt_text = await enhance_prompt(prompt_text)
     #         print("enhanced prompt:", prompt_text)
@@ -133,37 +134,37 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     async def create_image_to_video():
         nonlocal unsafe_content_error
         try:
-            model = args.get("model", "gen3a_turbo")
+            model = context.args.get("model", "gen3a_turbo")
 
             prompt_image = []
-            if args.get("start_image"):
+            if context.args.get("start_image"):
                 prompt_image.append({
                     "position": "first",
-                    "uri": args["start_image"]
+                    "uri": context.args["start_image"]
                 })
-            if args.get("end_image"):
+            if context.args.get("end_image"):
                 prompt_image.append({
                     "position": "last",
-                    "uri": args["end_image"]
+                    "uri": context.args["end_image"]
                 })
                 # last frame only works with gen3a_turbo
                 model = "gen3a_turbo"
 
             if model == "gen3a_turbo":
-                ratio = "1280:768" if args["ratio"] in ["21:9", "16:9", "4:3", "1:1"] else "768:1280"
+                ratio = "1280:768" if context.args["ratio"] in ["21:9", "16:9", "4:3", "1:1"] else "768:1280"
             
             elif model == "gen4_turbo":
-                if args["ratio"] == "21:9":
+                if context.args["ratio"] == "21:9":
                     ratio = "1584:672"
-                elif args["ratio"] == "16:9":
+                elif context.args["ratio"] == "16:9":
                     ratio = "1280:720"
-                elif args["ratio"] == "4:3":
+                elif context.args["ratio"] == "4:3":
                     ratio = "1104:832"
-                elif args["ratio"] == "1:1":
+                elif context.args["ratio"] == "1:1":
                     ratio = "960:960"
-                elif args["ratio"] == "3:4":
+                elif context.args["ratio"] == "3:4":
                     ratio = "832:1104"
-                elif args["ratio"] == "9:16":
+                elif context.args["ratio"] == "9:16":
                     ratio = "720:1280"
 
             # run Runway client command
@@ -171,7 +172,7 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
                 model=model,
                 prompt_image=prompt_image or None,
                 prompt_text=prompt_text[:512],
-                duration=int(args["duration"]),
+                duration=int(context.args["duration"]),
                 ratio=ratio,
                 content_moderation={
                     "public_figure_threshold": "low"
