@@ -1,12 +1,13 @@
+from eve.tool import ToolContext
 from PIL import Image
 # from ... import utils
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
+async def handler(context: ToolContext):
     from .... import utils
 
-    image_urls = args.get("images")
-    height = args.get("height")
+    image_urls = context.args.get("images")
+    height = context.args.get("height")
 
     images = []
     for image_url in image_urls:
@@ -20,8 +21,8 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     # Calculate total width for the final image
     total_width = sum(img.size[0] for img in images)
     # Create new image with combined width and specified height
-    combined_image = Image.new('RGB', (total_width, height))
-    
+    combined_image = Image.new("RGB", (total_width, height))
+
     # Paste images horizontally
     x_offset = 0
     for img in images:
@@ -32,6 +33,4 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     result_filename = f"combined_{height}px.png"
     combined_image.save(result_filename)
 
-    return {
-        "output": result_filename
-    }
+    return {"output": result_filename}

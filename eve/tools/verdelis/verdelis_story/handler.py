@@ -1,6 +1,6 @@
 from jinja2 import Template
 
-from eve.tool import Tool
+from eve.tool import Tool, ToolContext
 from eve.agent import Agent
 
 
@@ -160,18 +160,18 @@ To make it, you **plan, orchestrate, and execute multi-clip video productions** 
 """
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
-    if not agent:
+async def handler(context: ToolContext):
+    if not context.agent:
         raise Exception("Agent is required")
-    agent = Agent.from_mongo(agent)
+    agent = Agent.from_mongo(context.agent)
     if agent.username != "verdelis":
         raise Exception("Agent is not Verdelis")
 
     session_post = Tool.load("session_post")
 
-    title = args.get("title")
-    description = args.get("description")
-    reference_images = args.get("reference_images")
+    title = context.args.get("title")
+    description = context.args.get("description")
+    reference_images = context.args.get("reference_images")
 
     user_message = Template(init_message).render(
         title=title,
@@ -179,17 +179,19 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         reference_images=reference_images,
     )
 
-    result = await session_post.async_run({
-        "role": "user",
-        "agent_id": str(agent.id),
-        "title": title,
-        "content": user_message,
-        "attachments": [],
-        "pin": True,
-        "prompt": True,
-        "async": True,
-        "extra_tools": ["discord_post", "add_to_collection"],
-    })
+    result = await session_post.async_run(
+        {
+            "role": "user",
+            "agent_id": str(agent.id),
+            "title": title,
+            "content": user_message,
+            "attachments": [],
+            "pin": True,
+            "prompt": True,
+            "async": True,
+            "extra_tools": ["discord_post", "add_to_collection"],
+        }
+    )
 
     session_id = result["output"][0]["session"]
 

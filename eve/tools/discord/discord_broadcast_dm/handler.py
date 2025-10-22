@@ -2,14 +2,15 @@ import os
 import asyncio
 import aiohttp
 from datetime import datetime, timedelta, timezone
-from typing import List, Dict, Set, Optional, Tuple
+from typing import List, Dict, Optional, Tuple
 import discord
-from bson import ObjectId
+from loguru import logger
 
 from eve.agent.agent import Agent
 from eve.agent.session.models import Deployment, Session
 from eve.user import User
 from eve.utils import serialize_json
+from eve.tool import ToolContext
 from pydantic import BaseModel
 
 
@@ -35,7 +36,7 @@ class DiscordUser(BaseModel):
     last_seen: str
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
+async def handler(context: ToolContext):
     """
     Main handler for discord_broadcast_dm tool.
 
@@ -45,10 +46,10 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         active_days: Days to look back for activity (default 3)
         message_limit: Max messages to check per user
     """
-    if not agent:
+    if not context.agent:
         raise Exception("Agent is required")
 
-    agent_obj = Agent.from_mongo(agent)
+    agent_obj = Agent.from_mongo(context.agent)
     deployment = Deployment.load(agent=agent_obj.id, platform="discord")
     if not deployment:
         raise Exception("No valid Discord deployment found")
@@ -56,11 +57,11 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     agent_owner_id = str(agent_obj.owner) if agent_obj.owner else None
 
     # Extract parameters
-    channel_id = args["channel_id"]
-    instruction = args["instruction"]
-    active_days = args.get("active_days", 3)
-    message_limit = args.get("message_limit", 100)
-    rate_limit_delay = args.get("rate_limit_delay", 1.0)
+    channel_id = context.args["channel_id"]
+    instruction = context.args["instruction"]
+    active_days = context.args.get("active_days", 3)
+    message_limit = context.args.get("message_limit", 100)
+    rate_limit_delay = context.args.get("rate_limit_delay", 1.0)
 
     # Validate parameters
     if not channel_id or not instruction:
@@ -72,7 +73,9 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         if channel_id_int <= 0 or len(channel_id) < 15 or len(channel_id) > 20:
             raise ValueError("Invalid snowflake")
     except ValueError:
-        raise Exception(f"channel_id must be a valid Discord snowflake, got: {channel_id}")
+        raise Exception(
+            f"channel_id must be a valid Discord snowflake, got: {channel_id}"
+        )
 
     if active_days <= 0 or active_days > 30:
         raise Exception("active_days must be between 1 and 30")
@@ -83,9 +86,6 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     if rate_limit_delay < 0.1 or rate_limit_delay > 10.0:
         raise Exception("rate_limit_delay must be between 0.1 and 10.0 seconds")
 
-    print(f"Starting discord_broadcast_dm for agent {agent} in channel {channel_id}")
-    print(f"Looking for users active in last {active_days} days")
-
     try:
         # Step 1: Validate channel access
         await validate_channel_access(deployment, channel_id)
@@ -94,18 +94,18 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         active_users = await discover_active_users(
             deployment, channel_id, active_days, message_limit
         )
-        print(f"Found {len(active_users)} active users")
 
         if not active_users:
-            return {"output": "No active users found in the specified channel and timeframe"}
+            return {
+                "output": "No active users found in the specified channel and timeframe"
+            }
 
         # Step 3: Map Discord users to Eden users
         eden_users = await map_discord_to_eden_users(active_users)
-        print(f"Mapped to {len(eden_users)} Eden users")
 
         # Step 4: Create/find DM sessions and send messages with rate limiting
         results = await orchestrate_dm_sessions(
-            agent,
+            context.agent,
             deployment,
             eden_users,
             instruction,
@@ -117,8 +117,7 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         return {"output": results}
 
     except Exception as e:
-        error_msg = f"Error in discord_broadcast_dm handler for agent {agent} in channel {channel_id}: {e}"
-        print(error_msg)
+        error_msg = f"Error in discord_broadcast_dm handler for agent {context.agent} in channel {channel_id}: {e}"
         raise Exception(error_msg) from e
 
 
@@ -144,7 +143,9 @@ async def validate_channel_access(deployment: Deployment, channel_id: str):
     # Check if the requested channel is in the allowed list
     allowed_channel_ids = {str(channel.id) for channel in all_channels}
     if channel_id not in allowed_channel_ids:
-        available_channels = {f"{channel.note}: {channel.id}" for channel in all_channels}
+        available_channels = {
+            f"{channel.note}: {channel.id}" for channel in all_channels
+        }
         raise Exception(
             f"Channel {channel_id} is not in the configured channel access list. "
             f"Available channels: {available_channels}"
@@ -156,7 +157,7 @@ async def discover_active_users(
     channel_id: str,
     active_days: int,
     message_limit: int,
-    include_threads: bool = True
+    include_threads: bool = True,
 ) -> List[DiscordUser]:
     """
     Discover active users from a Discord channel within the specified timeframe.
@@ -178,7 +179,9 @@ async def discover_active_users(
             raise Exception(f"Failed to access channel {channel_id}: {str(e)}")
 
         if channel_data.get("type") not in [0, 5, 10, 11, 12]:  # Text channel types
-            raise Exception(f"Channel {channel_id} is not a text channel (type: {channel_data.get('type')})")
+            raise Exception(
+                f"Channel {channel_id} is not a text channel (type: {channel_data.get('type')})"
+            )
 
         # Calculate time window
         after_time = datetime.now(timezone.utc) - timedelta(days=active_days)
@@ -186,9 +189,7 @@ async def discover_active_users(
 
         # Get messages from the channel
         message_data = await http.logs_from(
-            int(channel_id),
-            limit=message_limit,
-            after=after_snowflake
+            int(channel_id), limit=message_limit, after=after_snowflake
         )
 
         # Count user activity
@@ -209,7 +210,7 @@ async def discover_active_users(
                 user_activity[author_id] = {
                     "username": author_username,
                     "message_count": 0,
-                    "last_seen": timestamp
+                    "last_seen": timestamp,
                 }
 
             user_activity[author_id]["message_count"] += 1
@@ -221,24 +222,33 @@ async def discover_active_users(
         active_users = []
         for user_id, data in user_activity.items():
             if data["message_count"] > 0:  # Only users with at least 1 message
-                active_users.append(DiscordUser(
-                    discord_id=user_id,
-                    discord_username=data["username"],
-                    message_count=data["message_count"],
-                    last_seen=data["last_seen"]
-                ))
+                active_users.append(
+                    DiscordUser(
+                        discord_id=user_id,
+                        discord_username=data["username"],
+                        message_count=data["message_count"],
+                        last_seen=data["last_seen"],
+                    )
+                )
 
         # Include thread messages if enabled
         if include_threads:
             try:
                 thread_users = await discover_thread_users(
-                    http, channel_data, active_days, min(message_limit // 2, 100)  # Limit thread messages
+                    http,
+                    channel_data,
+                    active_days,
+                    min(message_limit // 2, 100),  # Limit thread messages
                 )
                 # Merge thread activity into main user activity
                 for thread_user in thread_users:
                     existing_user = next(
-                        (u for u in active_users if u.discord_id == thread_user.discord_id),
-                        None
+                        (
+                            u
+                            for u in active_users
+                            if u.discord_id == thread_user.discord_id
+                        ),
+                        None,
                     )
                     if existing_user:
                         existing_user.message_count += thread_user.message_count
@@ -247,7 +257,9 @@ async def discover_active_users(
                     else:
                         active_users.append(thread_user)
             except Exception as e:
-                print(f"Warning: Failed to get thread messages for channel {channel_id}: {e}")
+                logger.warning(
+                    f"Failed to get thread messages for channel {channel_id}: {e}"
+                )
 
         # Sort by message count (most active first)
         active_users.sort(key=lambda x: x.message_count, reverse=True)
@@ -262,7 +274,7 @@ async def discover_thread_users(
     http: discord.http.HTTPClient,
     channel_data: dict,
     active_days: int,
-    message_limit: int
+    message_limit: int,
 ) -> List[DiscordUser]:
     """
     Discover active users from threads in the channel.
@@ -284,9 +296,7 @@ async def discover_thread_users(
         all_threads = active_threads_response.get("threads", [])
 
         # Filter threads that belong to this channel
-        channel_threads = [
-            t for t in all_threads if t.get("parent_id") == channel_id
-        ]
+        channel_threads = [t for t in all_threads if t.get("parent_id") == channel_id]
 
         # Calculate time window using UTC
         after_time = datetime.now(timezone.utc) - timedelta(days=active_days)
@@ -300,7 +310,7 @@ async def discover_thread_users(
                 thread_messages = await http.logs_from(
                     int(thread_id),
                     limit=min(message_limit, 50),  # Further limit per thread
-                    after=after_snowflake
+                    after=after_snowflake,
                 )
 
                 # Process thread messages
@@ -320,7 +330,7 @@ async def discover_thread_users(
                         user_activity[author_id] = {
                             "username": author_username,
                             "message_count": 0,
-                            "last_seen": timestamp
+                            "last_seen": timestamp,
                         }
 
                     user_activity[author_id]["message_count"] += 1
@@ -330,24 +340,28 @@ async def discover_thread_users(
                 # Convert to DiscordUser objects
                 for user_id, data in user_activity.items():
                     if data["message_count"] > 0:
-                        thread_users.append(DiscordUser(
-                            discord_id=user_id,
-                            discord_username=data["username"],
-                            message_count=data["message_count"],
-                            last_seen=data["last_seen"]
-                        ))
+                        thread_users.append(
+                            DiscordUser(
+                                discord_id=user_id,
+                                discord_username=data["username"],
+                                message_count=data["message_count"],
+                                last_seen=data["last_seen"],
+                            )
+                        )
 
             except Exception as e:
-                print(f"Warning: Failed to get messages from thread {thread_id}: {e}")
+                logger.warning(f"Failed to get messages from thread {thread_id}: {e}")
                 continue
 
     except Exception as e:
-        print(f"Warning: Failed to get threads: {e}")
+        logger.warning(f"Failed to get threads: {e}")
 
     return thread_users
 
 
-async def map_discord_to_eden_users(discord_users: List[DiscordUser]) -> List[Tuple[DiscordUser, User]]:
+async def map_discord_to_eden_users(
+    discord_users: List[DiscordUser],
+) -> List[Tuple[DiscordUser, User]]:
     """
     Map Discord users to Eden users, creating shadow users if needed.
     Returns list of (discord_user, eden_user) tuples.
@@ -358,14 +372,12 @@ async def map_discord_to_eden_users(discord_users: List[DiscordUser]) -> List[Tu
         try:
             # Use existing User.from_discord method
             eden_user = User.from_discord(
-                discord_user.discord_id,
-                discord_user.discord_username
+                discord_user.discord_id, discord_user.discord_username
             )
             mapped_users.append((discord_user, eden_user))
-            print(f"Mapped Discord user {discord_user.discord_username} to Eden user {eden_user.username}")
         except Exception as e:
             error_msg = f"Failed to map Discord user {discord_user.discord_username} (ID: {discord_user.discord_id}): {e}"
-            print(error_msg)
+            logger.error(error_msg)
             continue
 
     return mapped_users
@@ -377,7 +389,9 @@ async def orchestrate_dm_sessions(
     eden_users: List[Tuple[DiscordUser, User]],
     instruction: str,
     rate_limit_delay: float = 1.0,
-    acting_user_id: Optional[str] = None,  # The user whose permissions are used for tool authorization (defaults to session owner if not provided)
+    acting_user_id: Optional[
+        str
+    ] = None,  # The user whose permissions are used for tool authorization (defaults to session owner if not provided)
     agent_username: Optional[str] = None,
 ) -> List[Dict]:
     """
@@ -415,23 +429,27 @@ async def orchestrate_dm_sessions(
 
         if isinstance(result, Exception):
             error_detail = f"DM failed for user {discord_user.discord_username} (Discord ID: {discord_user.discord_id}, Eden user: {eden_user.username}): {str(result)}"
-            print(error_detail)
-            results.append({
-                "discord_user": discord_user.discord_username,
-                "discord_id": discord_user.discord_id,
-                "eden_user": eden_user.username,
-                "status": "failed",
-                "error": str(result)
-            })
+            logger.error(error_detail)
+            results.append(
+                {
+                    "discord_user": discord_user.discord_username,
+                    "discord_id": discord_user.discord_id,
+                    "eden_user": eden_user.username,
+                    "status": "failed",
+                    "error": str(result),
+                }
+            )
         else:
-            results.append({
-                "discord_user": discord_user.discord_username,
-                "discord_id": discord_user.discord_id,
-                "eden_user": eden_user.username,
-                "status": "success",
-                "session_id": result.get("session_id"),
-                "dm_sent": result.get("dm_sent", False)
-            })
+            results.append(
+                {
+                    "discord_user": discord_user.discord_username,
+                    "discord_id": discord_user.discord_id,
+                    "eden_user": eden_user.username,
+                    "status": "success",
+                    "session_id": result.get("session_id"),
+                    "dm_sent": result.get("dm_sent", False),
+                }
+            )
 
     return results
 
@@ -442,7 +460,9 @@ async def create_dm_session_task(
     discord_user: DiscordUser,
     eden_user: User,
     instruction: str,
-    acting_user_id: Optional[str] = None,  # The user whose permissions are used for tool authorization (defaults to session owner if not provided)
+    acting_user_id: Optional[
+        str
+    ] = None,  # The user whose permissions are used for tool authorization (defaults to session owner if not provided)
     agent_username: Optional[str] = None,
 ) -> Dict:
     """
@@ -450,17 +470,17 @@ async def create_dm_session_task(
     """
     # Create consistent session key for DM sessions: discord-dm-{agent_id}-{user_id}
     session_key = f"discord-dm-{agent}-{discord_user.discord_id}"
-    print(f"Searching for existing session with key: {session_key}")
 
     # Check if DM session already exists (limit to 1 for efficiency)
-    existing_session = Session.find_one({"session_key": session_key, "status": "active"})
+    existing_session = Session.find_one(
+        {"session_key": session_key, "status": "active"}
+    )
 
     session_id = None
     if existing_session:
         session_id = str(existing_session.id)
-        print(f"Found existing DM session {session_id} for user {discord_user.discord_username} (key: {session_key})")
     else:
-        print(f"No existing session found for key {session_key}, will create new DM session for user {discord_user.discord_username}")
+        session_id = None
 
     # Get channel mentions from deployment config (similar to gateway_v2.py)
     channel_mentions = []
@@ -511,13 +531,11 @@ Important:
             "agents": [agent],
             "session_key": session_key,
             "users": [str(eden_user.id)],  # Restrict session to this user
-            "platform": "discord"
+            "platform": "discord",
         }
 
     # Send request to session prompt endpoint
     api_url = os.getenv("EDEN_API_URL")
-    print(f"Sending session prompt request for user {discord_user.discord_username} (session_id: {session_id})")
-    print(f"Request data: {request_data}")
 
     # Serialize request_data to properly handle ObjectId fields
     serialized_data = serialize_json(request_data)
@@ -542,40 +560,30 @@ Important:
                 result = await response.json()
                 returned_session_id = result.get("session_id")
                 if not returned_session_id:
-                    raise Exception(f"No session_id returned from API for user {discord_user.discord_username}")
-
-                print(f"Session prompt completed for user {discord_user.discord_username}, returned session_id: {returned_session_id}")
+                    raise Exception(
+                        f"No session_id returned from API for user {discord_user.discord_username}"
+                    )
 
                 # Check if the session actually completed and sent a DM
                 # The /sessions/prompt endpoint waits for completion, so if we get here the session has processed
                 # We need to check if discord_post was actually called by looking at tool_calls in the result
                 dm_sent = False
-                tool_calls_count = 0
                 discord_post_calls = 0
 
                 if "tool_calls" in result:
-                    tool_calls_count = len(result["tool_calls"])
-                    print(f"Session {returned_session_id} made {tool_calls_count} tool calls")
-
                     for tool_call in result["tool_calls"]:
                         tool_name = tool_call.get("tool")
-                        print(f"  - Tool call: {tool_name}")
                         if tool_name == "discord_post":
                             discord_post_calls += 1
-                            user_id_arg = tool_call.get("args", {}).get("discord_user_id")
-                            print(f"    - discord_user_id: {user_id_arg} (target: {discord_user.discord_id})")
+                            user_id_arg = tool_call.get("args", {}).get(
+                                "discord_user_id"
+                            )
                             if user_id_arg == discord_user.discord_id:
                                 dm_sent = True
-                                print(f"    - ✓ DM sent successfully to {discord_user.discord_username}")
-                else:
-                    print(f"Session {returned_session_id} made no tool calls")
-
-                print(f"Final result for {discord_user.discord_username}: dm_sent={dm_sent}, discord_post_calls={discord_post_calls}")
-
                 return {
                     "session_id": returned_session_id,
                     "dm_sent": dm_sent,
-                    "user": discord_user.discord_username
+                    "user": discord_user.discord_username,
                 }
             except Exception as json_error:
                 error_text = await response.text()

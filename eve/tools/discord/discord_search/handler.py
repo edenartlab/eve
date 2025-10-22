@@ -2,12 +2,14 @@ from eve.agent.session.models import ChatMessage, LLMConfig, LLMContext
 from eve.agent.session.session_llm import ToolMetadataBuilder, async_prompt
 from eve.agent.agent import Agent
 from eve.agent.session.models import Deployment
+from eve.tool import ToolContext
 from pydantic import BaseModel
 import discord
 from datetime import datetime, timedelta, timezone
 import re
 import traceback
 from typing import Any, Dict, List, Optional
+from loguru import logger
 
 
 DISCORD_EPOCH_MS = 1420070400000
@@ -24,20 +26,19 @@ class DiscordSearchQuery(BaseModel):
     channels: list[ChannelSearchParams]
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
-    if not agent:
+async def handler(context: ToolContext):
+    if not context.agent:
         raise Exception("Agent is required")
-    agent = Agent.from_mongo(agent)
+    agent = Agent.from_mongo(context.agent)
     deployment = Deployment.load(agent=agent.id, platform="discord")
     if not deployment:
         raise Exception("No valid discord deployments found")
 
-    query = args.get("query")
+    query = context.args.get("query")
     if not query:
         raise Exception("Query parameter is required")
 
-    include_thread_messages = args.get("include_thread_messages", True)
-    print(f"include_thread_messages: {include_thread_messages}")
+    include_thread_messages = context.args.get("include_thread_messages", True)
 
     # Get allowed channels from deployment config
     allowed_channels = deployment.config.discord.channel_allowlist or []
@@ -91,8 +92,8 @@ Behavior:
             messages=messages,
             metadata=ToolMetadataBuilder(
                 tool_name="discord_search",
-                user_id=args.get("user"),
-                agent_id=args.get("agent"),
+                user_id=context.args.get("user"),
+                agent_id=context.args.get("agent"),
             )(),
             config=LLMConfig(
                 response_format=DiscordSearchQuery,
@@ -126,7 +127,9 @@ Behavior:
             )
 
         if messages:
-            messages = await _replace_user_mentions(http=http, messages=messages)
+            messages = await _replace_user_mentions(
+                http=http, messages=messages, user=context.user
+            )
 
         formatted_messages = _format_output_messages(messages)
         return {"output": formatted_messages, "_skip_upload_processing": True}
@@ -195,9 +198,6 @@ async def _collect_channel_messages(
     raw_channel_messages: List[Dict[str, Any]]
 
     if has_message_limit:
-        print(
-            f"Fetching channel {channel_name} ({channel_id}) with limit={per_request_limit}"
-        )
         raw_channel_messages = await http.logs_from(
             int(channel_id), limit=per_request_limit
         )
@@ -207,16 +207,9 @@ async def _collect_channel_messages(
             hours=channel_params.time_window_hours
         )
         after_snowflake = _datetime_to_snowflake(cutoff_dt)
-        print(
-            f"Fetching channel {channel_name} ({channel_id}) after={after_snowflake} cutoff={cutoff_dt.isoformat()} limit={per_request_limit}"
-        )
         raw_channel_messages = await http.logs_from(
             int(channel_id), limit=per_request_limit, after=after_snowflake
         )
-
-    print(
-        f"Retrieved {len(raw_channel_messages)} channel messages for {channel_name} ({channel_id})"
-    )
 
     channel_messages = _transform_messages(
         raw_messages=raw_channel_messages,
@@ -231,9 +224,6 @@ async def _collect_channel_messages(
         channel_messages = [
             msg for msg in channel_messages if msg["_created_at_dt"] >= cutoff_dt
         ]
-        print(
-            f"Channel {channel_name} ({channel_id}) retained {len(channel_messages)} messages after cutoff"
-        )
 
     if include_thread_messages and guild_id and cutoff_dt:
         thread_messages = await _collect_thread_messages(
@@ -246,18 +236,12 @@ async def _collect_channel_messages(
             guild_thread_cache=guild_thread_cache,
         )
         channel_messages.extend(thread_messages)
-        print(
-            f"Channel {channel_name} ({channel_id}) total after threads: {len(channel_messages)}"
-        )
 
     # Sort ascending (oldest first)
     channel_messages.sort(key=lambda msg: msg["_created_at_dt"])
 
     if has_message_limit and message_limit is not None:
         channel_messages = channel_messages[-message_limit:]
-        print(
-            f"Channel {channel_name} ({channel_id}) trimmed to final {len(channel_messages)} messages"
-        )
 
     # Strip helper field before returning
     for msg in channel_messages:
@@ -301,9 +285,7 @@ def _transform_messages(
         resolved_guild_id = guild_id or message.get("guild_id")
         guild = str(resolved_guild_id) if resolved_guild_id is not None else None
         channel_identifier = (
-            str(resolved_channel_id)
-            if thread_parent_id is None
-            else message_channel_id
+            str(resolved_channel_id) if thread_parent_id is None else message_channel_id
         )
         target_channel_id = (
             message_channel_id
@@ -312,17 +294,13 @@ def _transform_messages(
         )
         author_info = message.get("author", {})
         author_name = (
-            author_info.get("global_name")
-            or author_info.get("username")
-            or "Unknown"
+            author_info.get("global_name") or author_info.get("username") or "Unknown"
         )
         message_id = str(message.get("id"))
 
         message_url = None
         if guild and channel_identifier and message_id:
-            message_url = (
-                f"https://discord.com/channels/{guild}/{channel_identifier}/{message_id}"
-            )
+            message_url = f"https://discord.com/channels/{guild}/{channel_identifier}/{message_id}"
 
         transformed.append(
             {
@@ -426,10 +404,6 @@ async def _collect_thread_messages(
             continue
         relevant_threads.append(thread)
 
-    print(
-        f"Channel {parent_channel_id} has {len(relevant_threads)} active threads within cutoff"
-    )
-
     thread_messages: List[Dict[str, Any]] = []
 
     for thread in relevant_threads:
@@ -437,15 +411,12 @@ async def _collect_thread_messages(
         thread_name = thread.get("name", "Unknown Thread")
 
         try:
-            print(
-                f"Fetching thread {thread_name} ({thread_id}) for parent {parent_channel_id} limit={per_request_limit}"
-            )
             raw_thread_messages = await http.logs_from(
                 int(thread_id), limit=per_request_limit
             )
         except Exception as exc:
-            print(f"Error processing thread {thread_id}: {exc}")
-            print(traceback.format_exc())
+            logger.error(f"Error processing thread {thread_id}: {exc}")
+            logger.error(traceback.format_exc())
             continue
 
         thread_channel_name = f"{channel_name} > {thread_name}"
@@ -457,19 +428,14 @@ async def _collect_thread_messages(
             thread_parent_id=parent_channel_id,
         )
 
-        filtered = [
-            msg for msg in transformed if msg["_created_at_dt"] >= cutoff_dt
-        ]
-        print(
-            f"Retrieved {len(filtered)} messages from thread {thread_name} ({thread_id}) within cutoff"
-        )
+        filtered = [msg for msg in transformed if msg["_created_at_dt"] >= cutoff_dt]
         thread_messages.extend(filtered)
 
     return thread_messages
 
 
 async def _replace_user_mentions(
-    http: discord.http.HTTPClient, messages: List[Dict[str, Any]]
+    http: discord.http.HTTPClient, messages: List[Dict[str, Any]], user: str
 ) -> List[Dict[str, Any]]:
     user_ids: set[str] = set()
     for message in messages:
@@ -487,7 +453,7 @@ async def _replace_user_mentions(
         try:
             user = await http.get_user(int(user_id))
         except Exception as exc:
-            print(f"Failed to resolve user {user_id}: {exc}")
+            logger.error(f"Failed to resolve user {user_id}: {exc}")
             continue
         if user:
             username = user.get("global_name") or user.get("username")

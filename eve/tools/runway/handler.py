@@ -1,9 +1,14 @@
+from eve.tool import ToolContext
 import asyncio
 import runwayml
 from jinja2 import Template
-from pydantic import BaseModel, Field
 from runwayml import AsyncRunwayML
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+)
 
 
 prompt_enhance_prompt = Template("""<PromptGuide>
@@ -79,91 +84,65 @@ Now convert this prompt to fit the style guide. Aim for 12-25 words.
 </UserPrompt>""")
 
 
-
-########################################################
-## Todo: this needs to be updated to use Session
-## It is currently unused here
-########################################################
-
-async def enhance_prompt(prompt_text: str):
-    class PromptText(BaseModel):
-        """An enhanced prompt text for video generation."""
-
-        prompt: str = Field(
-            ...,
-            description="Generated prompt conforming to Runway prompting guide.",
-        )
-
-    prompt = prompt_enhance_prompt.render(
-        user_prompt=prompt_text
-    )
-
-    # async_prompt no longer exists
-    result = await async_prompt(
-        [UserMessage(content=prompt)],
-        system_message=f"You are a prompt engineer who enhances prompts for video generation. You convert possibly faulty instructions into better prompts.",
-        model="gpt-4o", # "gpt-4o-mini"
-        response_model=PromptText,
-    )
-
-    return result.prompt
-
-
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
+async def handler(context: ToolContext):
     client = AsyncRunwayML()
     unsafe_content_error = False
 
-    prompt_text = args["prompt_text"]
-    
+    prompt_text = context.args["prompt_text"]
+
     # Todo: this needs to be updated to use Session
-    # if args.get("prompt_enhance") == True:
+    # if context.args.get("prompt_enhance") == True:
     #     try:
     #         prompt_text = await enhance_prompt(prompt_text)
     #         print("enhanced prompt:", prompt_text)
     #     except Exception as e:
     #         print(f"Error enhancing prompt: {e}")
     #         print("falling back to original prompt")
-        
+
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=0, max=15),
-        retry=retry_if_exception_type((runwayml.APIConnectionError, runwayml.APIStatusError)),
-        retry_error_callback=lambda retry_state: retry_state.outcome.result()
+        retry=retry_if_exception_type(
+            (runwayml.APIConnectionError, runwayml.APIStatusError)
+        ),
+        retry_error_callback=lambda retry_state: retry_state.outcome.result(),
     )
     async def create_image_to_video():
         nonlocal unsafe_content_error
         try:
-            model = args.get("model", "gen3a_turbo")
+            model = context.args.get("model", "gen3a_turbo")
 
             prompt_image = []
-            if args.get("start_image"):
-                prompt_image.append({
-                    "position": "first",
-                    "uri": args["start_image"]
-                })
-            if args.get("end_image"):
-                prompt_image.append({
-                    "position": "last",
-                    "uri": args["end_image"]
-                })
+            if context.args.get("start_image"):
+                prompt_image.append(
+                    {"position": "first", "uri": context.args["start_image"]}
+                )
+            if context.args.get("end_image"):
+                prompt_image.append(
+                    {"position": "last", "uri": context.args["end_image"]}
+                )
                 # last frame only works with gen3a_turbo
                 model = "gen3a_turbo"
 
             if model == "gen3a_turbo":
-                ratio = "1280:768" if args["ratio"] in ["21:9", "16:9", "4:3", "1:1"] else "768:1280"
-            
+                ratio = (
+                    "1280:768"
+                    if context.args["ratio"] in ["21:9", "16:9", "4:3", "1:1"]
+                    else "768:1280"
+                )
+
             elif model == "gen4_turbo":
-                if args["ratio"] == "21:9":
+                if context.args["ratio"] == "21:9":
                     ratio = "1584:672"
-                elif args["ratio"] == "16:9":
+                elif context.args["ratio"] == "16:9":
                     ratio = "1280:720"
-                elif args["ratio"] == "4:3":
+                elif context.args["ratio"] == "4:3":
                     ratio = "1104:832"
-                elif args["ratio"] == "1:1":
+                elif context.args["ratio"] == "1:1":
                     ratio = "960:960"
-                elif args["ratio"] == "3:4":
+                elif context.args["ratio"] == "3:4":
                     ratio = "832:1104"
-                elif args["ratio"] == "9:16":
+                elif context.args["ratio"] == "9:16":
                     ratio = "720:1280"
 
             # run Runway client command
@@ -171,62 +150,57 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
                 model=model,
                 prompt_image=prompt_image or None,
                 prompt_text=prompt_text[:512],
-                duration=int(args["duration"]),
+                duration=int(context.args["duration"]),
                 ratio=ratio,
-                content_moderation={
-                    "public_figure_threshold": "low"
-                }
+                content_moderation={"public_figure_threshold": "low"},
                 # watermark=False,
             )
 
-        except runwayml.APIConnectionError as e:
+        except runwayml.APIConnectionError:
             raise Exception("The server could not be reached")
 
-        except runwayml.RateLimitError as e:
+        except runwayml.RateLimitError:
             raise Exception("A 429 status code was received; we should back off a bit.")
 
         except runwayml.APIStatusError as e:
             # Don't retry client errors (4xx)
             if 400 <= e.status_code < 500:
-                
                 # Check if this is a safety/unsafe content error
                 error_text = str(e.response.text).lower()
-                if ("safety" in error_text or 
-                    "unsafe content" in error_text or 
-                    "input.text" in error_text or
-                    "safety.input" in error_text):
+                if (
+                    "safety" in error_text
+                    or "unsafe content" in error_text
+                    or "input.text" in error_text
+                    or "safety.input" in error_text
+                ):
                     unsafe_content_error = True
-                    raise Exception(f"Content moderation rejected the request: {e.response.text}")
+                    raise Exception(
+                        f"Content moderation rejected the request: {e.response.text}"
+                    )
 
                 raise Exception(
-                    "Client error received",
-                    e.status_code,
-                    e.response,
-                    e.response.text
+                    "Client error received", e.status_code, e.response, e.response.text
                 )
             # For 5xx errors, let the retry mechanism handle it
             raise Exception(
-                "Server error received",
-                e.status_code,
-                e.response,
-                e.response.text
+                "Server error received", e.status_code, e.response, e.response.text
             )
-        
+
         except Exception as e:
             raise Exception("An unexpected error occurred", e)
 
     try:
-        task = await create_image_to_video()    
+        task = await create_image_to_video()
     except Exception as e:
         # print(f"Failed after retries: {e}")
         # print(f"Failed due to unsafe content: {unsafe_content_error}")
 
         task = None
-        
+
         # if unsafe_content_error:
         #     print("Retrying...")
         #     task = await create_image_to_video()
-    
+
         # if the error is still there, raise it
         if unsafe_content_error:
             raise e
@@ -248,11 +222,13 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
 
     if task.status == "FAILED":
         # Check for unsafe content in task failure
-        if (task.failure_code and 
-            ("SAFETY" in task.failure_code or "INPUT_PREPROCESSING.SAFETY" in task.failure_code)):
+        if task.failure_code and (
+            "SAFETY" in task.failure_code
+            or "INPUT_PREPROCESSING.SAFETY" in task.failure_code
+        ):
             unsafe_content_error = True
             # print(f"Content safety check failed: {task.failure_code}")
-        
+
         # print("Error", task.failure)
         raise Exception(task.failure)
 

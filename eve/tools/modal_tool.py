@@ -9,7 +9,13 @@ from ..tool import Tool, tool_context
 @tool_context("modal")
 class ModalTool(Tool):
     @Tool.handle_run
-    async def async_run(self, args: Dict, user_id: str = None, agent_id: str = None, session_id: str = None):
+    async def async_run(
+        self,
+        args: Dict,
+        user_id: str = None,
+        agent_id: str = None,
+        session_id: str = None,
+    ):
         db = os.getenv("DB", "STAGE").upper()
         func = modal.Function.from_name(
             f"api-{db.lower()}", "run", environment_name="main"

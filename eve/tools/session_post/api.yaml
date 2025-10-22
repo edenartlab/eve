@@ -60,7 +60,6 @@ parameters:
     required: false
     items:
       type: string
-    required: false
   pin:
     type: boolean
     label: Pin

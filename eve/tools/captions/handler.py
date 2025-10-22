@@ -5,13 +5,14 @@ from typing import Dict, Any
 
 from eve.agent.agent import Agent
 from eve.agent.session.models import Deployment
+from eve.tool import ToolContext
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
-    if not agent:
+async def handler(context: ToolContext):
+    if not context.agent:
         raise Exception("Agent is required")
 
-    agent_obj = Agent.from_mongo(agent)
+    agent_obj = Agent.from_mongo(context.agent)
     deployment = Deployment.load(agent=agent_obj.id, platform="captions")
     if not deployment:
         raise Exception("No valid Captions deployments found")
@@ -66,16 +67,16 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
             raise RuntimeError(f"API request failed: {str(e)}")
 
     # Validate inputs
-    script = args.get("script")
+    script = context.args.get("script")
     if not script or len(script) < 10 or len(script) > 800:
         raise ValueError("Script must be between 10 and 800 characters long")
 
-    media_urls = args.get("media_urls")
+    media_urls = context.args.get("media_urls")
     if not media_urls or not isinstance(media_urls, list) or len(media_urls) == 0:
         raise ValueError("At least one media URL is required")
 
     # Select creator
-    creator_name = args.get("creator_name")
+    creator_name = context.args.get("creator_name")
     if not creator_name:
         # Fetch available creators from API and select random one
         try:
@@ -83,10 +84,9 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
             available_creators = creators_response.get("supportedCreators", [])
             if available_creators:
                 creator_name = random.choice(available_creators)
-                print(f"Selected random creator: {creator_name}")
             else:
                 raise RuntimeError("No creators available from API")
-        except Exception as e:
+        except Exception:
             # Fallback to a few known creators if API fails
             fallback_creators = [
                 "Jason",
@@ -98,11 +98,10 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
                 "Olivia",
             ]
             creator_name = random.choice(fallback_creators)
-            print(f"API failed to fetch creators ({e}), using fallback: {creator_name}")
 
-    resolution = args.get("resolution", "fhd")
-    webhook_id = args.get("webhook_id")
-    wait_for_completion = args.get("wait_for_completion", True)
+    resolution = context.args.get("resolution", "fhd")
+    webhook_id = context.args.get("webhook_id")
+    wait_for_completion = context.args.get("wait_for_completion", True)
 
     # Prepare payload
     payload = {
@@ -121,8 +120,6 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
 
     if not operation_id:
         raise RuntimeError("No operation ID received from API")
-
-    print(f"Video generation started with operation ID: {operation_id}")
 
     # If not waiting for completion, return operation ID
     if not wait_for_completion:
@@ -144,14 +141,12 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         status_response = _api_request("POST", "/api/ads/poll", status_payload)
 
         state = status_response.get("state", "unknown")
-        print(f"Job status: {state} (attempt {attempt + 1}/{max_attempts})")
 
         if state == "COMPLETE":
             video_url = status_response.get("url")
             if video_url:
                 # Clean URL - remove query parameters for display
-                clean_url = video_url.split("?")[0] if "?" in video_url else video_url
-                print(f"Video generation completed: {clean_url}")
+                video_url.split("?")[0] if "?" in video_url else video_url
                 return {"output": video_url}
             else:
                 raise RuntimeError("Job completed but no video URL found")

@@ -6,13 +6,12 @@ import mimetypes
 from urllib.parse import urlparse
 from google import genai
 from google.oauth2 import service_account
-from google.genai.types import GenerateVideosConfig
 
 
 async def veo_handler(args: dict, model: str):
     if not args.get("prompt") and not args.get("image"):
         raise ValueError("At least one of prompt or image is required")
-    
+
     # --- setup gcp client ----
     service_account_info = {
         "type": os.environ["GCP_TYPE"],
@@ -24,14 +23,13 @@ async def veo_handler(args: dict, model: str):
         "auth_uri": os.environ["GCP_AUTH_URI"],
         "token_uri": os.environ["GCP_TOKEN_URI"],
         "auth_provider_x509_cert_url": os.environ["GCP_AUTH_PROVIDER_X509_CERT_URL"],
-        "client_x509_cert_url": os.environ["GCP_CLIENT_X509_CERT_URL"]
+        "client_x509_cert_url": os.environ["GCP_CLIENT_X509_CERT_URL"],
     }
 
     credentials = service_account.Credentials.from_service_account_info(
-        service_account_info,
-        scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        service_account_info, scopes=["https://www.googleapis.com/auth/cloud-platform"]
     )
-    
+
     client = genai.Client(
         vertexai=True,
         project=os.environ["GCP_PROJECT_ID"],
@@ -39,15 +37,10 @@ async def veo_handler(args: dict, model: str):
         credentials=credentials,
     )
 
-    print("client", client)
-
-    # ---- list models ----
-    # for m in client.models.list(): print(m.name)
-
     # ---- get image and setup args ----
     config_dict = {
-        "duration_seconds": args.get("duration"),         # 5-8 seconds
-        "number_of_videos": args.get("n_samples"),        # 1-4
+        "duration_seconds": args.get("duration"),  # 5-8 seconds
+        "number_of_videos": args.get("n_samples"),  # 1-4
         "enhance_prompt": True,
         # enhance_prompt=args.get("prompt_enhance"),
         # person_generation="dont_allow",   # safety switch
@@ -62,7 +55,7 @@ async def veo_handler(args: dict, model: str):
 
     if args.get("generate_audio"):
         config_dict["generate_audio"] = True if args.get("generate_audio") else False
-    
+
     args_dict = {
         "model": model,
         "config": genai.types.GenerateVideosConfig(**config_dict),
@@ -72,30 +65,24 @@ async def veo_handler(args: dict, model: str):
     if image:
         response = requests.get(image)
         response.raise_for_status()
-        mime_type = response.headers.get('content-type')
+        mime_type = response.headers.get("content-type")
         if not mime_type:
             mime_type = mimetypes.guess_type(urlparse(image).path)[0]
         image = genai.types.Image(image_bytes=response.content, mime_type=mime_type)
         args_dict["image"] = image
-            
+
     if args.get("prompt"):
         args_dict["prompt"] = args.get("prompt")
 
     # ---- start generation ----
-    operation = client.models.generate_videos(
-        **args_dict
-    )
-    print("operation", operation)
+    operation = client.models.generate_videos(**args_dict)
 
-    # ---- poll until done ----    
+    # ---- poll until done ----
     while not operation.done:
         await asyncio.sleep(2)
         operation = client.operations.get(operation)
 
     if not operation.response or not operation.response.generated_videos:
-        print("No videos generated")
-        print(operation.response)
-        print(operation)
         raise ValueError("No videos generated")
     # ---- download the video(s) ----
     videos = []
@@ -103,6 +90,5 @@ async def veo_handler(args: dict, model: str):
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmpfile:
             tmpfile.write(result.video.video_bytes)
             videos.append(tmpfile.name)
-    
-    return {"output": videos}
 
+    return {"output": videos}

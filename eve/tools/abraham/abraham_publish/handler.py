@@ -1,6 +1,6 @@
 from jinja2 import Template
 
-from eve.tool import Tool
+from eve.tool import Tool, ToolContext
 from eve.agent.deployments import Deployment
 from eve.agent import Agent
 
@@ -89,10 +89,10 @@ Subsequent turns:
 """
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
-    if not agent:
+async def handler(context: ToolContext):
+    if not context.agent:
         raise Exception("Agent is required")
-    agent = Agent.from_mongo(agent)
+    agent = Agent.from_mongo(context.agent)
     if agent.username != "abraham":
         raise Exception("Agent is not Abraham")
 
@@ -102,9 +102,9 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
 
     session_post = Tool.load("session_post")
 
-    title = args.get("title")
-    proposal = args.get("proposal")
-    reference_images = args.get("reference_images")
+    title = context.args.get("title")
+    proposal = context.args.get("proposal")
+    reference_images = context.args.get("reference_images")
 
     user_message = Template(init_message).render(
         title=title,
@@ -124,8 +124,6 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         "extra_tools": ["farcaster_cast", "abraham_seed"],
     })
 
-    print("abraham_publish result")
-    print(result)
     session_id = result["output"][0]["session"]
 
     return {"output": [{"session": session_id}]}

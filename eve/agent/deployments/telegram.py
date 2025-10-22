@@ -14,7 +14,7 @@ from eve.agent.session.models import (
     DeploymentSecrets,
     DeploymentConfig,
 )
-from eve.api.api_requests import ChatRequest, PromptSessionRequest
+from eve.api.api_requests import PromptSessionRequest
 from eve.api.errors import APIError
 from eve.agent.deployments import PlatformClient
 from eve.agent.session.models import UpdateType
@@ -45,10 +45,13 @@ class TelegramClient(PlatformClient):
             # Store the actual bot username in config
             if not config.telegram:
                 from eve.agent.session.models import DeploymentSettingsTelegram
+
                 config.telegram = DeploymentSettingsTelegram()
 
             config.telegram.bot_username = bot_info.username
-            logger.info(f"[TELEGRAM-PREDEPLOY] Bot username set to: {bot_info.username}")
+            logger.info(
+                f"[TELEGRAM-PREDEPLOY] Bot username set to: {bot_info.username}"
+            )
 
         except Exception as e:
             logger.error(f"Token validation failed: {e}")
@@ -148,7 +151,9 @@ class TelegramClient(PlatformClient):
             logger.info(
                 f"[TELEGRAM-INTERACT] Processing Telegram webhook update: {update_data.get('update_id')}"
             )
-            logger.info(f"[TELEGRAM-INTERACT] Full update data: {json.dumps(update_data, indent=2)}")
+            logger.info(
+                f"[TELEGRAM-INTERACT] Full update data: {json.dumps(update_data, indent=2)}"
+            )
 
             # Extract message data
             message = update_data.get("message")
@@ -166,30 +171,44 @@ class TelegramClient(PlatformClient):
             message_thread_id = message.get("message_thread_id")
             is_dm = chat_type == "private"
 
-            logger.info(f"[TELEGRAM-INTERACT] Chat ID: {chat_id}, Type: {chat_type}, Thread ID: {message_thread_id}, Is DM: {is_dm}")
+            logger.info(
+                f"[TELEGRAM-INTERACT] Chat ID: {chat_id}, Type: {chat_type}, Thread ID: {message_thread_id}, Is DM: {is_dm}"
+            )
 
             # NEVER respond to DMs - only groups and topics
             if is_dm:
-                logger.info(f"[TELEGRAM-INTERACT] Skipping DM from user {message.get('from', {}).get('username')} - bot does not respond to DMs")
+                logger.info(
+                    f"[TELEGRAM-INTERACT] Skipping DM from user {message.get('from', {}).get('username')} - bot does not respond to DMs"
+                )
                 return
 
             # Check allowlist if it exists
             if self.deployment.config and self.deployment.config.telegram:
                 allowlist = self.deployment.config.telegram.topic_allowlist or []
-                logger.info(f"[TELEGRAM-INTERACT] Topic allowlist configured: {[item.id for item in allowlist] if allowlist else 'None'}")
+                logger.info(
+                    f"[TELEGRAM-INTERACT] Topic allowlist configured: {[item.id for item in allowlist] if allowlist else 'None'}"
+                )
                 if allowlist:
                     current_id = (
                         f"{chat_id}_{message_thread_id}"
                         if message_thread_id
                         else str(chat_id)
                     )
-                    logger.info(f"[TELEGRAM-INTERACT] Checking current_id '{current_id}' against allowlist")
+                    logger.info(
+                        f"[TELEGRAM-INTERACT] Checking current_id '{current_id}' against allowlist"
+                    )
                     if not any(item.id == current_id for item in allowlist):
-                        logger.info(f"[TELEGRAM-INTERACT] Chat {current_id} not in allowlist - skipping")
+                        logger.info(
+                            f"[TELEGRAM-INTERACT] Chat {current_id} not in allowlist - skipping"
+                        )
                         return
-                    logger.info(f"[TELEGRAM-INTERACT] Chat {current_id} IS in allowlist - continuing")
+                    logger.info(
+                        f"[TELEGRAM-INTERACT] Chat {current_id} IS in allowlist - continuing"
+                    )
             else:
-                logger.info("[TELEGRAM-INTERACT] No allowlist configured, accepting all chats")
+                logger.info(
+                    "[TELEGRAM-INTERACT] No allowlist configured, accepting all chats"
+                )
 
             # Get user info
             from_user = message.get("from", {})
@@ -204,6 +223,7 @@ class TelegramClient(PlatformClient):
 
             # Get bot ID to check if replies are to this bot
             from telegram import Bot
+
             bot = Bot(self.deployment.secrets.telegram.token)
             bot_info = await bot.get_me()
             bot_id = bot_info.id
@@ -216,15 +236,21 @@ class TelegramClient(PlatformClient):
             # Fallback to fetched bot info if not in config
             if not bot_username:
                 bot_username = bot_info.username
-                logger.warning(f"[TELEGRAM-INTERACT] Bot username not in config, using fetched: {bot_username}")
+                logger.warning(
+                    f"[TELEGRAM-INTERACT] Bot username not in config, using fetched: {bot_username}"
+                )
             else:
-                logger.info(f"[TELEGRAM-INTERACT] Bot username from config: {bot_username}")
+                logger.info(
+                    f"[TELEGRAM-INTERACT] Bot username from config: {bot_username}"
+                )
 
             # Ensure bot_username has @ prefix for comparison
             if bot_username and not bot_username.startswith("@"):
                 bot_username = f"@{bot_username}"
 
-            logger.info(f"[TELEGRAM-INTERACT] Bot ID: {bot_id}, Bot username: {bot_username}")
+            logger.info(
+                f"[TELEGRAM-INTERACT] Bot ID: {bot_id}, Bot username: {bot_username}"
+            )
 
             # Check if we should reply (only in groups/channels)
             # Reply to:
@@ -238,13 +264,19 @@ class TelegramClient(PlatformClient):
                 replied_to_user = reply_to.get("from", {})
                 replied_to_bot_id = replied_to_user.get("id")
                 replied_to_is_bot = replied_to_user.get("is_bot")
-                logger.info(f"[TELEGRAM-INTERACT] This is a reply to message from user ID: {replied_to_bot_id}, is_bot: {replied_to_is_bot}")
+                logger.info(
+                    f"[TELEGRAM-INTERACT] This is a reply to message from user ID: {replied_to_bot_id}, is_bot: {replied_to_is_bot}"
+                )
 
                 if replied_to_is_bot and replied_to_bot_id == bot_id:
                     force_reply = True
-                    logger.info(f"[TELEGRAM-INTERACT] ✓ Message is reply to THIS bot (ID {bot_id}) - WILL RESPOND")
+                    logger.info(
+                        f"[TELEGRAM-INTERACT] ✓ Message is reply to THIS bot (ID {bot_id}) - WILL RESPOND"
+                    )
                 else:
-                    logger.info(f"[TELEGRAM-INTERACT] ✗ Message is reply to different user (ID {replied_to_bot_id}) - will not respond based on reply")
+                    logger.info(
+                        f"[TELEGRAM-INTERACT] ✗ Message is reply to different user (ID {replied_to_bot_id}) - will not respond based on reply"
+                    )
             else:
                 logger.info("[TELEGRAM-INTERACT] Not a reply to any message")
 
@@ -252,18 +284,26 @@ class TelegramClient(PlatformClient):
             if not force_reply:
                 text = message.get("text") or message.get("caption") or ""
                 logger.info(f"[TELEGRAM-INTERACT] Message text: '{text}'")
-                logger.info(f"[TELEGRAM-INTERACT] Checking if '{bot_username}' is in text")
+                logger.info(
+                    f"[TELEGRAM-INTERACT] Checking if '{bot_username}' is in text"
+                )
 
                 if bot_username.lower() in text.lower():
                     force_reply = True
-                    logger.info(f"[TELEGRAM-INTERACT] ✓ Bot username '{bot_username}' found in text - WILL RESPOND")
+                    logger.info(
+                        f"[TELEGRAM-INTERACT] ✓ Bot username '{bot_username}' found in text - WILL RESPOND"
+                    )
                 else:
-                    logger.info(f"[TELEGRAM-INTERACT] ✗ Bot username '{bot_username}' NOT found in text")
+                    logger.info(
+                        f"[TELEGRAM-INTERACT] ✗ Bot username '{bot_username}' NOT found in text"
+                    )
 
             # Also check entities for mentions
             if not force_reply:
                 entities = message.get("entities", [])
-                logger.info(f"[TELEGRAM-INTERACT] Checking {len(entities)} entities for mentions")
+                logger.info(
+                    f"[TELEGRAM-INTERACT] Checking {len(entities)} entities for mentions"
+                )
 
                 for i, entity in enumerate(entities):
                     entity_type = entity.get("type")
@@ -274,31 +314,45 @@ class TelegramClient(PlatformClient):
                         offset = entity.get("offset", 0)
                         length = entity.get("length", 0)
                         text = message.get("text") or message.get("caption") or ""
-                        mentioned = text[offset:offset + length].lower()
-                        logger.info(f"[TELEGRAM-INTERACT] Mention entity found: '{mentioned}'")
+                        mentioned = text[offset : offset + length].lower()
+                        logger.info(
+                            f"[TELEGRAM-INTERACT] Mention entity found: '{mentioned}'"
+                        )
 
                         if mentioned == bot_username.lower():
                             force_reply = True
-                            logger.info(f"[TELEGRAM-INTERACT] ✓ Bot mentioned in entities ('{mentioned}') - WILL RESPOND")
+                            logger.info(
+                                f"[TELEGRAM-INTERACT] ✓ Bot mentioned in entities ('{mentioned}') - WILL RESPOND"
+                            )
                             break
                         else:
-                            logger.info(f"[TELEGRAM-INTERACT] ✗ Different user mentioned: '{mentioned}'")
+                            logger.info(
+                                f"[TELEGRAM-INTERACT] ✗ Different user mentioned: '{mentioned}'"
+                            )
                     elif entity_type == "text_mention":
                         # Direct user mention (not via @username)
                         mentioned_user = entity.get("user", {})
                         mentioned_user_id = mentioned_user.get("id")
-                        logger.info(f"[TELEGRAM-INTERACT] Text mention entity found for user ID: {mentioned_user_id}")
+                        logger.info(
+                            f"[TELEGRAM-INTERACT] Text mention entity found for user ID: {mentioned_user_id}"
+                        )
 
                         if mentioned_user_id == bot_id:
                             force_reply = True
-                            logger.info(f"[TELEGRAM-INTERACT] ✓ Bot mentioned via text_mention (ID {bot_id}) - WILL RESPOND")
+                            logger.info(
+                                f"[TELEGRAM-INTERACT] ✓ Bot mentioned via text_mention (ID {bot_id}) - WILL RESPOND"
+                            )
                             break
                         else:
-                            logger.info(f"[TELEGRAM-INTERACT] ✗ Different user mentioned via text_mention: {mentioned_user_id}")
+                            logger.info(
+                                f"[TELEGRAM-INTERACT] ✗ Different user mentioned via text_mention: {mentioned_user_id}"
+                            )
 
             # Skip if not force_reply (not a reply to bot, not mentioned)
             if not force_reply:
-                logger.info("[TELEGRAM-INTERACT] ✗✗✗ NOT responding - message is neither a reply to bot nor a mention of bot - SKIPPING")
+                logger.info(
+                    "[TELEGRAM-INTERACT] ✗✗✗ NOT responding - message is neither a reply to bot nor a mention of bot - SKIPPING"
+                )
                 return
 
             logger.info("[TELEGRAM-INTERACT] ✓✓✓ WILL RESPOND to this message")
@@ -323,7 +377,9 @@ class TelegramClient(PlatformClient):
                 # Use caption as text if available
                 if message.get("caption"):
                     text = message.get("caption")
-                    logger.info(f"[TELEGRAM-INTERACT] Using photo caption as text: '{text}'")
+                    logger.info(
+                        f"[TELEGRAM-INTERACT] Using photo caption as text: '{text}'"
+                    )
 
             # Clean message text (remove bot mention)
             cleaned_text = text
@@ -346,23 +402,30 @@ class TelegramClient(PlatformClient):
 
             session = None
             try:
-                logger.info(f"[TELEGRAM-INTERACT] Attempting to load session with key: {session_key}")
+                logger.info(
+                    f"[TELEGRAM-INTERACT] Attempting to load session with key: {session_key}"
+                )
                 session = Session.load(session_key=session_key)
                 logger.info(f"[TELEGRAM-INTERACT] Found existing session: {session.id}")
 
                 # Reactivate if needed
                 if hasattr(session, "deleted") and session.deleted:
-                    logger.info(f"[TELEGRAM-INTERACT] Session was deleted, reactivating")
+                    logger.info(
+                        f"[TELEGRAM-INTERACT] Session was deleted, reactivating"
+                    )
                     session.deleted = False
                     session.status = "active"
                     session.save()
                 elif hasattr(session, "status") and session.status == "archived":
-                    logger.info(f"[TELEGRAM-INTERACT] Session was archived, reactivating")
+                    logger.info(
+                        f"[TELEGRAM-INTERACT] Session was archived, reactivating"
+                    )
                     session.status = "active"
                     session.save()
             except eve.mongo.MongoDocumentNotFound:
-                logger.info(f"[TELEGRAM-INTERACT] No existing session found, will create new one")
-                pass
+                logger.info(
+                    f"[TELEGRAM-INTERACT] No existing session found, will create new one"
+                )
 
             # Build session request
             from eve.api.api_requests import SessionCreationArgs
@@ -389,7 +452,9 @@ class TelegramClient(PlatformClient):
 
             if session:
                 session_request.session_id = str(session.id)
-                logger.info(f"[TELEGRAM-INTERACT] Using existing session ID: {session.id}")
+                logger.info(
+                    f"[TELEGRAM-INTERACT] Using existing session ID: {session.id}"
+                )
             else:
                 session_request.creation_args = SessionCreationArgs(
                     owner_id=str(user.id),
@@ -398,12 +463,18 @@ class TelegramClient(PlatformClient):
                     session_key=session_key,
                     platform="telegram",
                 )
-                logger.info(f"[TELEGRAM-INTERACT] Creating new session with key: {session_key}")
+                logger.info(
+                    f"[TELEGRAM-INTERACT] Creating new session with key: {session_key}"
+                )
 
-            logger.info(f"[TELEGRAM-INTERACT] Session request payload: {json.dumps(session_request.model_dump(), indent=2)}")
+            logger.info(
+                f"[TELEGRAM-INTERACT] Session request payload: {json.dumps(session_request.model_dump(), indent=2)}"
+            )
 
             # Send to sessions API
-            logger.info(f"[TELEGRAM-INTERACT] Sending request to {api_url}/sessions/prompt")
+            logger.info(
+                f"[TELEGRAM-INTERACT] Sending request to {api_url}/sessions/prompt"
+            )
             async with aiohttp.ClientSession() as http_session:
                 async with http_session.post(
                     f"{api_url}/sessions/prompt",
@@ -415,10 +486,14 @@ class TelegramClient(PlatformClient):
                         "X-Client-Deployment-Id": str(self.deployment.id),
                     },
                 ) as response:
-                    logger.info(f"[TELEGRAM-INTERACT] Response status: {response.status}")
+                    logger.info(
+                        f"[TELEGRAM-INTERACT] Response status: {response.status}"
+                    )
                     if response.status != 200:
                         error_text = await response.text()
-                        logger.error(f"[TELEGRAM-INTERACT] Session request failed: {error_text}")
+                        logger.error(
+                            f"[TELEGRAM-INTERACT] Session request failed: {error_text}"
+                        )
                         raise Exception(f"Failed to process message: {error_text}")
 
                     response_data = await response.text()
@@ -429,7 +504,8 @@ class TelegramClient(PlatformClient):
 
         except Exception as e:
             logger.error(
-                f"[TELEGRAM-INTERACT] ✗✗✗ ERROR handling Telegram interaction: {str(e)}", exc_info=True
+                f"[TELEGRAM-INTERACT] ✗✗✗ ERROR handling Telegram interaction: {str(e)}",
+                exc_info=True,
             )
             raise
 
@@ -534,7 +610,7 @@ class TelegramClient(PlatformClient):
 
 async def create_telegram_session_request(
     update_data: dict, deployment: Deployment
-) -> Optional[ChatRequest]:
+) -> Optional[PromptSessionRequest]:
     message = update_data.get("message", {})
     if not message:
         return None
@@ -551,8 +627,6 @@ async def create_telegram_session_request(
             )
             if not any(item.id == current_id for item in allowlist):
                 return None
-
-    agent = Agent.from_mongo(deployment.agent)
 
     # Get user info
     from_user = message.get("from", {})
@@ -594,6 +668,7 @@ async def create_telegram_session_request(
         # Fallback to fetching bot info if not in config
         if not bot_username:
             from telegram import Bot
+
             bot = Bot(deployment.secrets.telegram.token)
             bot_info = await bot.get_me()
             bot_username = bot_info.username

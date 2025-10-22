@@ -1,3 +1,4 @@
+from eve.tool import ToolContext
 # TODO: auto ratio based on the reference video
 
 # Aleph (video style transfer) — async handler using Runway SDK
@@ -6,7 +7,13 @@
 import asyncio
 import runwayml
 from runwayml import AsyncRunwayML
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+)
+from loguru import logger
 
 
 ASYNC_POLL_INTERVAL_SECS = 5
@@ -30,7 +37,7 @@ def _ratio_to_resolution(ratio_str: str) -> str:
     return "1280:720"
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
+async def handler(context: ToolContext):
     """
     Expected args:
       - input_video: str (required)  # URI to the source video to stylize
@@ -46,18 +53,20 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
 
     # Build references array for Aleph style conditioning.
     references = []
-    if args.get("style_image"):
-        references.append({"type": "image", "uri": args["style_image"]})
-    if args.get("style_video"):
-        references.append({"type": "video", "uri": args["style_video"]})
+    if context.args.get("style_image"):
+        references.append({"type": "image", "uri": context.args["style_image"]})
+    if context.args.get("style_video"):
+        references.append({"type": "video", "uri": context.args["style_video"]})
     # Keep as empty array, not None - API expects an array
 
-    ratio = _ratio_to_resolution(args.get("ratio", "16:9"))
+    ratio = _ratio_to_resolution(context.args.get("ratio", "16:9"))
 
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=0, max=15),
-        retry=retry_if_exception_type((runwayml.APIConnectionError, runwayml.APIStatusError)),
+        retry=retry_if_exception_type(
+            (runwayml.APIConnectionError, runwayml.APIStatusError)
+        ),
         retry_error_callback=lambda retry_state: retry_state.outcome.result(),
     )
     async def create_video_to_video():
@@ -67,13 +76,15 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
             # Only pass documented params to avoid undefined behavior.
             return await client.video_to_video.create(
                 model="gen4_aleph",
-                video_uri=args["input_video"],
-                prompt_text=(args.get("prompt_text") or "")[:512],
+                video_uri=context.args["input_video"],
+                prompt_text=(context.args.get("prompt_text") or "")[:512],
                 ratio=ratio,
                 references=references,
-                seed=args.get("seed"),
+                seed=context.args.get("seed"),
                 content_moderation={
-                    "public_figure_threshold": args.get("public_figure_threshold", "low")
+                    "public_figure_threshold": context.args.get(
+                        "public_figure_threshold", "low"
+                    )
                 },
             )
 
@@ -87,7 +98,9 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
             # Don't retry client errors (4xx)
             if 400 <= e.status_code < 500:
                 # Check for safety/unsafe content
-                error_text = (str(getattr(e, "response", "") and e.response.text) or "").lower()
+                error_text = (
+                    str(getattr(e, "response", "") and e.response.text) or ""
+                ).lower()
                 if (
                     "safety" in error_text
                     or "unsafe content" in error_text
@@ -95,8 +108,15 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
                     or "safety.input" in error_text
                 ):
                     unsafe_content_error = True
-                    raise Exception(f"Content moderation rejected the request: {getattr(e, 'response', None) and e.response.text}")
-                raise Exception("Client error received", e.status_code, getattr(e, "response", None), getattr(e, "response", None) and e.response.text)
+                    raise Exception(
+                        f"Content moderation rejected the request: {getattr(e, 'response', None) and e.response.text}"
+                    )
+                raise Exception(
+                    "Client error received",
+                    e.status_code,
+                    getattr(e, "response", None),
+                    getattr(e, "response", None) and e.response.text,
+                )
             # For 5xx errors, let the retry mechanism handle it
             raise Exception(
                 "Server error received",
@@ -111,8 +131,8 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     try:
         task = await create_video_to_video()
     except Exception as e:
-        print(f"Failed after retries: {e}")
-        print(f"Failed due to unsafe content: {unsafe_content_error}")
+        logger.error(f"Failed after retries: {e}")
+        logger.error(f"Failed due to unsafe content: {unsafe_content_error}")
         if unsafe_content_error:
             raise e
         # Re-raise the exception if the API call failed
@@ -122,27 +142,24 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         raise Exception("No task was returned")
 
     task_id = task.id
-    print("task id", task_id)
 
     # Poll until completion
     await asyncio.sleep(ASYNC_POLL_INTERVAL_SECS)
     task = await client.tasks.retrieve(task_id)
     while task.status not in ["SUCCEEDED", "FAILED"]:
-        print("status", task.status)
         await asyncio.sleep(ASYNC_POLL_INTERVAL_SECS)
         task = await client.tasks.retrieve(task_id)
 
-    print(task)
-
     if task.status == "FAILED":
         # Inspect for safety-related failure codes
-        if task.failure_code and ("SAFETY" in task.failure_code or "INPUT_PREPROCESSING.SAFETY" in task.failure_code):
+        if task.failure_code and (
+            "SAFETY" in task.failure_code
+            or "INPUT_PREPROCESSING.SAFETY" in task.failure_code
+        ):
             unsafe_content_error = True
-            print(f"Content safety check failed: {task.failure_code}")
-        print("Error", task.failure)
+            logger.error(f"Content safety check failed: {task.failure_code}")
+        logger.error(f"Error: {task.failure}")
         raise Exception(task.failure)
-
-    print("task output", task.output)
 
     # Aleph returns one or more output URLs
     return {"output": task.output[0]}

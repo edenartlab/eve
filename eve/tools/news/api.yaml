@@ -5,11 +5,11 @@ output_type: string
 active: true
 handler: modal
 visible: false
-handler: modal
 parameters:
   subject:
     type: string
     label: Subject
     description: Which topic do you want to know about?
-    choices: [business, entertainment, general, health, science, sports, technology]
+    choices:
+      [business, entertainment, general, health, science, sports, technology]
     required: true
