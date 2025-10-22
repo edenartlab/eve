@@ -1,9 +1,7 @@
 import json
 import traceback
-from elevenlabs import Model
 import openai
 import instructor
-import sentry_sdk
 from datetime import timezone
 
 from loguru import logger
@@ -14,17 +12,7 @@ from datetime import datetime
 
 from pydantic import Field, BaseModel, ConfigDict
 
-from ..tool_constants import (
-    TWITTER_TOOLS,
-    DISCORD_TOOLS,
-    FARCASTER_TOOLS,
-    TELEGRAM_TOOLS,
-    SHOPIFY_TOOLS,
-    PRINTIFY_TOOLS,
-    CAPTIONS_TOOLS,
-    TIKTOK_TOOLS,
-    TOOL_SETS,
-)
+from ..tool_constants import TOOL_SETS
 from ..mongo import Collection, get_collection
 from ..models import Model
 from ..user import User, Manna
@@ -187,30 +175,18 @@ class Agent(User):
         """Reload all tools, loras, and deployments from mongo"""
         from ..tool import get_tools_from_mongo
         from ..agent.session.models import Deployment
+        from .tool_loaders import (
+            load_deployments,
+            load_lora_docs,
+            get_agent_specific_tools,
+        )
 
-        # load deployments to memory
-        self.deployments = {
-            deployment.platform.value: deployment
-            for deployment in Deployment.find({"agent": ObjectId(str(self.id))})
-        }
+        # Load deployments to memory
+        self.deployments = load_deployments(self.id, Deployment)
 
-        # load loras to memory
+        # Load loras to memory
         models_collection = get_collection(Model.collection_name)
-        loras_dict = {m["lora"]: m for m in self.models or []}
-
-        # load loras to memory
-        if self.models:
-            lora_ids = list(loras_dict.keys())
-
-            # Single batch query for all loras
-            lora_docs = list(
-                models_collection.find(
-                    {"_id": {"$in": lora_ids}, "deleted": {"$ne": True}}
-                )
-            )
-            self.lora_docs = lora_docs
-        else:
-            self.lora_docs = []
+        self.lora_docs = load_lora_docs(self.models, models_collection)
 
         # Collect all tools needed
         tools_to_load = []
@@ -219,19 +195,11 @@ class Agent(User):
                 continue
             tools_to_load.extend(set_tools)
 
-        # load extra tools
+        # Load extra tools
         tools_to_load.extend(extra_tools)
 
-        # agent-specific tools
-        # todo: systemize this for other agents
-        if self.username == "abraham":
-            tools_to_load.append("abraham_publish")
-            tools_to_load.append("abraham_daily")
-            tools_to_load.append("abraham_covenant")
-            tools_to_load.append("abraham_rest")
-            tools_to_load.append("abraham_seed")
-        elif self.username == "verdelis":
-            tools_to_load.append("verdelis_story")
+        # Load agent-specific tools
+        tools_to_load.extend(get_agent_specific_tools(self.username))
 
         if tools_to_load:
             self.tools_ = get_tools_from_mongo(tools_to_load)
@@ -239,166 +207,33 @@ class Agent(User):
             self.tools_ = {}
 
     def get_tools(self, cache=True, auth_user: str = None, extra_tools: list[str] = []):
+        from .tool_loaders import (
+            inject_deployment_parameters,
+            remove_non_deployed_platform_tools,
+            filter_tools_by_feature_flags,
+            inject_lora_parameters,
+            inject_voice_parameters,
+        )
+
         self._reload(extra_tools)
         tools = self.tools_
 
-        # update tools with platform-specific args
-        # update discord post tool with allowed channels
-        try:
-            if "discord" in self.deployments:
-                if "discord_post" in tools:
-                    allowed_channels = self.deployments[
-                        "discord"
-                    ].get_allowed_channels()
-                    channels_description = " | ".join(
-                        [f"ID {c.id} ({c.note})" for c in allowed_channels]
-                    )
-                    tools["discord_post"].update_parameters(
-                        {
-                            "channel_id": {
-                                "choices": [c.id for c in allowed_channels],
-                                "tip": f"Some hints about the available channels: {channels_description}",
-                            },
-                        }
-                    )
-        except Exception as e:
-            _log_tool_operation_error(
-                self, "discord_channel_update", e, platform="discord"
-            )
+        # Inject deployment-specific parameters (channels, etc.)
+        tools = inject_deployment_parameters(tools, self.deployments, self.username)
 
-        # update telegram post tool with allowed channels
-        try:
-            if "telegram" in self.deployments:
-                if "telegram_post" in tools:
-                    allowed_channels = self.deployments[
-                        "telegram"
-                    ].get_allowed_channels()
-                    channels_description = " | ".join(
-                        [f"ID {c.id} ({c.note})" for c in allowed_channels]
-                    )
-                    tools["telegram_post"].update_parameters(
-                        {
-                            "channel_id": {
-                                "choices": [c.id for c in allowed_channels],
-                                "tip": f"Some hints about the available topics: {channels_description}",
-                            },
-                        }
-                    )
-        except Exception as e:
-            _log_tool_operation_error(
-                self, "telegram_channel_update", e, platform="telegram"
-            )
+        # Remove tools for non-deployed platforms
+        tools = remove_non_deployed_platform_tools(tools, self.deployments)
 
-        # if a platform is not deployed, remove all tools for that platform
-        if "discord" not in self.deployments:
-            for tool in DISCORD_TOOLS:
-                tools.pop(tool, None)
-        if "telegram" not in self.deployments:
-            for tool in TELEGRAM_TOOLS:
-                tools.pop(tool, None)
-        if "twitter" not in self.deployments:
-            for tool in TWITTER_TOOLS:
-                tools.pop(tool, None)
-        if "farcaster" not in self.deployments:
-            for tool in FARCASTER_TOOLS:
-                tools.pop(tool, None)
-        if "shopify" not in self.deployments:
-            for tool in SHOPIFY_TOOLS:
-                tools.pop(tool, None)
-        if "printify" not in self.deployments:
-            for tool in PRINTIFY_TOOLS:
-                tools.pop(tool, None)
-        if "captions" not in self.deployments:
-            for tool in CAPTIONS_TOOLS:
-                tools.pop(tool, None)
-        if "tiktok" not in self.deployments:
-            for tool in TIKTOK_TOOLS:
-                tools.pop(tool, None)
+        # Filter tools based on feature flags
+        tools = filter_tools_by_feature_flags(tools, self.featureFlags, {})
 
-        # remove non-spirit tools from general agents
-        if (
-            self.featureFlags
-            and "tool_access_premium_social_media" not in self.featureFlags
-        ):
-            for tool in TWITTER_TOOLS:
-                if tool != "tweet":
-                    tools.pop(tool, None)
+        # Inject LoRA parameters for tools that use loras
+        tools = inject_lora_parameters(
+            tools, self.lora_docs, self.models or [], self.username
+        )
 
-        # remove tools that only the owner can use
-        # Check if user is the owner or has owner-level permissions
-        has_owner_permission = False
-        if auth_user:
-            if str(auth_user) == str(self.owner):
-                has_owner_permission = True
-            else:
-                # Check agent_permissions collection for owner-level access
-                permissions_collection = get_collection("agent_permissions")
-                permission = permissions_collection.find_one(
-                    {
-                        "agent": self.id,
-                        "user": ObjectId(str(auth_user)),
-                        "level": "owner",
-                    }
-                )
-                if permission:
-                    has_owner_permission = True
-
-        # if not has_owner_permission:
-        #     for tool in SOCIAL_MEDIA_TOOLS:
-        #         tools.pop(tool, None)
-
-        # if models are found, inject them as defaults for any tools that use lora
-        for tool in tools:
-            try:
-                if "lora" not in tools[tool].parameters:
-                    continue
-
-                lora_docs = self.lora_docs
-
-                if not lora_docs:
-                    continue
-
-                # Build LoRA information for the tip
-                lora_info = []
-                for m in lora_docs:
-                    lora_id = m["_id"]
-                    lora_doc = {m["lora"]: m for m in self.models}[lora_id]
-                    lora_info.append(
-                        f"{{ ID: {lora_id}, Name: {m['name']}, Description: {m['lora_trigger_text']}, Use When: {lora_doc['use_when']} }}"
-                    )
-
-                params = {
-                    "lora": {
-                        "default": str(lora_docs[0]["_id"]),
-                        "tip": "Users may request one of your known LoRAs, or a different unknown one, or no LoRA at all. When referring to a LoRA, strictly use its name, not its description. Notes on when to use the known LoRAs: "
-                        + " | ".join(lora_info),
-                    },
-                }
-                if "use_lora" in tools[tool].parameters:
-                    params["use_lora"] = {"default": True}
-
-                # if len(lora_docs) > 1 and "lora2" in tools[tool].parameters:
-                #     params["lora2"] = {"default": str(lora_docs[1]["_id"])}
-                #     if "use_lora2" in tools[tool].parameters:
-                #         params["use_lora2"] = {
-                #             "default": True,
-                #             "tip": "Same behavior as first lora"
-                #         }
-
-                tools[tool].update_parameters(params)
-
-            except Exception as e:
-                _log_tool_operation_error(self, "lora_parameter_injection", e)
-
-        try:
-            if "elevenlabs" in tools and self.voice:
-                tools["elevenlabs"].update_parameters(
-                    {"voice": {"default": self.voice}}
-                )
-        except Exception as e:
-            _log_tool_operation_error(
-                self, "elevenlabs_voice_update", e, voice=self.voice
-            )
+        # Inject voice parameter for elevenlabs
+        tools = inject_voice_parameters(tools, self.voice, self.username)
 
         return tools
 
@@ -530,27 +365,3 @@ async def refresh_agent(agent: Agent):
 
     agents = get_collection(Agent.collection_name)
     agents.update_one({"_id": agent.id}, {"$set": update})
-
-
-def _log_tool_operation_error(
-    agent: Agent, operation_name: str, error: Exception, **context
-):
-    """Helper to log tool operation errors with Sentry"""
-    logger.error(f"Error in {operation_name}: {error}")
-    with sentry_sdk.push_scope() as scope:
-        scope.set_tag("component", "tool_operation")
-        scope.set_tag("operation", operation_name)
-        scope.set_tag("agent_username", agent.username)
-        scope.set_tag("agent_id", str(agent.id))
-        scope.set_context(
-            "tool_operation_context",
-            {
-                "operation": operation_name,
-                "agent_username": agent.username,
-                "agent_id": str(agent.id),
-                "error_message": str(error),
-                "traceback": traceback.format_exc(),
-                **context,
-            },
-        )
-        sentry_sdk.capture_exception(error)
