@@ -242,8 +242,9 @@ class FarcasterClient(PlatformClient):
             if not webhook_id:
                 raise Exception("NEYNAR_WEBHOOK_ID not found in environment")
 
-            # Get FID
-            fid = await self._get_fid(self.deployment.secrets)
+            # Use new_secrets parameter (not self.deployment.secrets which is stale)
+            secrets = new_secrets or self.deployment.secrets
+            fid = await self._get_fid(secrets)
 
             if new_auto_reply and not old_auto_reply:
                 # Enable auto-reply: add FID to webhook

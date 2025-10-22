@@ -491,7 +491,7 @@ async def handle_v2_deployment_update(request: UpdateDeploymentRequestV2):
         )
 
     # Store old config and secrets for platform update hook
-    # Convert to proper objects if they're dicts (MongoDB stores as dicts)
+    # MongoDB returns nested objects as dicts, convert to proper Pydantic models
     old_config = DeploymentConfig(**deployment.config) if isinstance(deployment.config, dict) else deployment.config
     old_secrets = DeploymentSecrets(**deployment.secrets) if isinstance(deployment.secrets, dict) else deployment.secrets
 
@@ -546,15 +546,19 @@ async def handle_v2_deployment_update(request: UpdateDeploymentRequestV2):
                 agent=agent, platform=deployment.platform, deployment=deployment
             )
 
-            # Reload deployment to get updated values
+            # Reload deployment to get updated values from MongoDB
             deployment.reload()
 
-            # Call update hook with old and new configs
+            # Convert reloaded config/secrets to proper objects (MongoDB returns dicts)
+            new_config = DeploymentConfig(**deployment.config) if isinstance(deployment.config, dict) else deployment.config
+            new_secrets = DeploymentSecrets(**deployment.secrets) if isinstance(deployment.secrets, dict) else deployment.secrets
+
+            # Call platform-specific update hook
             await client.update(
                 old_config=old_config,
-                new_config=deployment.config,
+                new_config=new_config,
                 old_secrets=old_secrets,
-                new_secrets=deployment.secrets,
+                new_secrets=new_secrets,
             )
         except Exception as e:
             logger.error(f"Error calling platform update hook: {e}")
