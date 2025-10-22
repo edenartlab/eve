@@ -91,7 +91,7 @@ async def handler(context: ToolContext):
         # save casts as farcaster events
         for output in outputs:
             event = FarcasterEvent(
-                session_id=context.session.id,
+                session_id=ObjectId(context.session),
                 # message_id=new_messages[0].id,
                 cast_hash=output.get("cast_hash"),
                 reply_cast=output,
