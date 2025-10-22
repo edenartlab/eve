@@ -1,3 +1,4 @@
+from eve.tool import ToolContext
 from playwright.async_api import async_playwright
 import asyncio
 from collections import Counter
@@ -11,7 +12,7 @@ async def wait_for_content(page) -> bool:
         # Wait a bit for dynamic content
         await page.wait_for_timeout(1000)
         return True
-    except:
+    except Exception:
         return False
 
 
@@ -102,17 +103,17 @@ async def get_text_content(page) -> str:
     """
     try:
         return await page.evaluate(script)
-    except:
+    except Exception:
         return ""
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
+async def handler(context: ToolContext):
     """
     Performance-optimized web scraper using Playwright.
     """
-    url = args["url"]
-    max_links = int(args.get("max_links", 5))
-    max_chars = int(args.get("max_chars", 20000))
+    url = context.args["url"]
+    max_links = int(context.args.get("max_links", 5))
+    max_chars = int(context.args.get("max_chars", 20000))
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(
@@ -120,13 +121,13 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
             args=["--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage"],
         )
 
-        context = await browser.new_context(
+        browser_context = await browser.new_context(
             viewport={"width": 1280, "height": 800},
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
         )
 
         try:
-            page = await context.new_page()
+            page = await browser_context.new_page()
             await page.goto(url, wait_until="networkidle", timeout=10000)
 
             # Wait for content to load

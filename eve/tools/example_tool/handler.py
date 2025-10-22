@@ -1,9 +1,7 @@
 from ...utils import download_file
+from ...tool import ToolContext
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
-    print("args", args)
-    print("session", session)
-    
+async def handler(context: ToolContext):
     # you can download files
     path = "https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/62946527441201f82e0e3d667fda480e176e9940a2e04f4e54c5230665dfc6f6.jpg"
     image_path = download_file(path, "myimg1.jpg")

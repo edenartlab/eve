@@ -1,4 +1,5 @@
 from eve.mongo import Collection, Document
+from eve.tool import ToolContext
 from bson import ObjectId
 from typing import Literal, Optional
 from pydantic import BaseModel
@@ -32,7 +33,7 @@ class AbrahamSeed(Document):
     creation: Optional[AbrahamCreation] = None
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
+async def handler(context: ToolContext):
     """
     Save an Abraham seed after a creation has been made and cast.
 
@@ -45,34 +46,34 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
             - image: A representative/main image URL from the creation
         session: The session ID where the creation was made (provided automatically)
     """
-    if not session:
+    if not context.session:
         raise ValueError("Session ID is required")
 
-    title = args.get("title")
-    proposal = args.get("proposal")
-    tagline = args.get("tagline")
-    cast_hash = args.get("cast_hash")
-    image = args.get("image")
+    title = context.args.get("title")
+    proposal = context.args.get("proposal")
+    tagline = context.args.get("tagline")
+    cast_hash = context.args.get("cast_hash")
+    image = context.args.get("image")
 
     # Validate required fields
     if not all([title, proposal, tagline, cast_hash, image]):
-        raise ValueError("All parameters are required: title, proposal, tagline, cast_hash, image")
+        raise ValueError(
+            "All parameters are required: title, proposal, tagline, cast_hash, image"
+        )
 
     # Generate URL
-    url = f"https://abraham.ai/seeds/{session}"
+    url = f"https://abraham.ai/seeds/{context.session}"
 
     seed = AbrahamSeed(
-        session_id=ObjectId(session),
+        session_id=ObjectId(context.session),
         title=title,
         proposal=proposal,
         tagline=tagline,
         cast_hash=cast_hash,
         image=image,
         url=url,
-        status="seed"
+        status="seed",
     )
     seed.save()
 
-    return {
-        "output": {"url": url, "seed_id": str(seed.id)}
-    }
+    return {"output": {"url": url, "seed_id": str(seed.id)}}

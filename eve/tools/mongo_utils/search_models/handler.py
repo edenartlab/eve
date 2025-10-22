@@ -1,3 +1,4 @@
+from eve.tool import ToolContext
 import openai
 import instructor
 from jinja2 import Template
@@ -7,8 +8,6 @@ from typing import List
 from ....utils import load_template
 from ....models import Model
 from ....mongo import get_collection
-
-
 
 
 model_template = load_template("model_doc")
@@ -37,31 +36,31 @@ Explain why each result matches the query criteria.
 search_models_template = Template(search_models_template)
 
 
-
 class SearchResult(BaseModel):
     """A matching result from the database search."""
-    
+
     id: str = Field(..., description="The MongoDB ID of the result")
     name: str = Field(..., description="The name/title of the result")
     description: str = Field(..., description="A brief description of the result")
     relevance: str = Field(
-        ..., 
-        description="A brief explanation of why this result matches the search query"
+        ...,
+        description="A brief explanation of why this result matches the search query",
     )
+
 
 class SearchResults(BaseModel):
     """Results from searching the database."""
-    
+
     results: List[SearchResult] = Field(
         ...,
-        description="The matching results, ordered by relevance. Include only truly relevant results."
+        description="The matching results, ordered by relevance. Include only truly relevant results.",
     )
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
-    searcher = user
-    query = args.get("query")
-    
+async def handler(context: ToolContext):
+    searcher = context.user
+    query = context.args.get("query")
+
     # Get all documents
     counter = 1
     docs = {}
@@ -69,7 +68,7 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     # for doc in collection.find({"base_model": "flux-dev", "deleted": {"$ne": True}}):
     for doc in collection.find({"deleted": {"$ne": True}}):
         id = str(doc["_id"])
-        doc["_id"] = counter        
+        doc["_id"] = counter
         docs[str(counter)] = {
             "id": id,
             "owned": str(searcher) == str(doc["user"]),
@@ -78,16 +77,16 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
             "doc": doc,
         }
         counter += 1
-    
+
     docs_owned = sorted(
         (doc for doc in docs.values() if doc["owned"]),
-        key=lambda x: x["used"], 
-        reverse=True
+        key=lambda x: x["used"],
+        reverse=True,
     )
     docs_public = sorted(
         (doc for doc in docs.values() if not doc["owned"] and doc["public"]),
-        key=lambda x: x["used"], 
-        reverse=True
+        key=lambda x: x["used"],
+        reverse=True,
     )[:10]  # limit to only 10 public docs
 
     docs_owned = "\n".join(model_template.render(doc["doc"]) for doc in docs_owned)
@@ -95,17 +94,11 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
 
     # Create context for LLM
     prompt = search_models_template.render(
-        docs_owned=docs_owned, 
-        docs_public=docs_public, 
-        query=query
+        docs_owned=docs_owned, docs_public=docs_public, query=query
     )
 
-    print("--------------------------------")
-    print(prompt[:500])
-    print("--------------------------------")
-
     # Make LLM call
-    system_message = f"""You are a search assistant that helps find relevant Models based on natural language queries. Analyze the provided items and return only the most relevant matches for the query.
+    system_message = """You are a search assistant that helps find relevant Models based on natural language queries. Analyze the provided items and return only the most relevant matches for the query.
     Be selective - only return items that truly match the query's intent."""
 
     client = instructor.from_openai(openai.AsyncOpenAI())
@@ -136,9 +129,7 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
                     "width": 2048,
                     "height": 2048,
                     "aspectRatio": 1,
-                }            
+                }
             matches.append(r)
 
-    return {
-        "output": matches
-    }
+    return {"output": matches}

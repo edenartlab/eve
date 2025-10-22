@@ -1,16 +1,10 @@
 from datetime import datetime, timezone
-from jinja2 import Template
-from eve.mongo import Collection, Document
-from bson import ObjectId
-from typing import Literal
 import math
 
-from eve.tool import Tool
-from eve.agent.deployments import Deployment
+from eve.tool import Tool, ToolContext
 from eve.agent import Agent
 from eve.agent.session.models import Session
 from eve.tools.abraham.abraham_seed.handler import AbrahamSeed
-import asyncio
 
 
 def user_score(msg_count: int) -> float:
@@ -32,10 +26,10 @@ def user_score(msg_count: int) -> float:
     msg_count = min(msg_count, 20)
 
     if msg_count <= 5:
-        return msg_count ** 0.5
+        return msg_count**0.5
     else:
         # First 5 get full sqrt weight, rest get logarithmic
-        return (5 ** 0.5) + math.log(msg_count - 4) * 0.3
+        return (5**0.5) + math.log(msg_count - 4) * 0.3
 
 
 daily_message = """
@@ -69,7 +63,6 @@ From that narrative, write a long-form Markdown blog post that captures the enti
 
 Finally, call the **`abraham_covenant`** tool to publish the blog post, poster image, and supporting content. Make sure the poster image is 16:9, regardless of the original content you made.
 """
-
 
 
 async def commit_daily_work(agent: Agent, session: str):
@@ -134,23 +127,19 @@ async def commit_daily_work(agent: Agent, session: str):
     if str(winner["session"].id) != "68f8a0c84484da83b1711341":
         raise Exception("Stop here, it's", str(winner["session"].id))
 
-    # raise Exception("Stop here")
-
-
-    # DB = os.getenv()
-
-
-    result = await session_post.async_run({
-        "role": "user",
-        "session": str(winner["session"].id),
-        "agent_id": str(agent.id),
-        "content": daily_message,
-        "attachments": [],
-        # "pin": True,
-        "prompt": True,
-        "async": True,
-        "extra_tools": ["abraham_covenant"],
-    })
+    await session_post.async_run(
+        {
+            "role": "user",
+            "session": str(winner["session"].id),
+            "agent_id": str(agent.id),
+            "content": daily_message,
+            "attachments": [],
+            # "pin": True,
+            "prompt": True,
+            "async": True,
+            "extra_tools": ["abraham_covenant"],
+        }
+    )
 
     return {"output": [{"session": str(winner["session"].id)}]}
 
@@ -168,23 +157,16 @@ async def abraham_rest(agent: Agent):
     # print("result rest", result)
 
     return {
-        "output": [{
-            "tx_hash": result["tx_hash"],
-            "explorer_url": result["explorer_url"]
-        }]
+        "output": [
+            {"tx_hash": result["tx_hash"], "explorer_url": result["explorer_url"]}
+        ]
     }
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
-    # print("RUN ABRAHAM_DAILY")
-    # print("agent", agent)
-    # print(type(agent))
-    # print("session", session)
-    # print(type(session))
-
-    if not agent:
+async def handler(context: ToolContext):
+    if not context.agent:
         raise Exception("Agent is required")
-    agent = Agent.from_mongo(agent)
+    agent = Agent.from_mongo(context.agent)
     if agent.username != "abraham":
         raise Exception("Agent is not Abraham")
 
@@ -192,7 +174,7 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     if datetime.now(timezone.utc).weekday() == 5:  # Saturday is 5 (Monday is 0)
         return await abraham_rest(agent)
     else:
-        return await commit_daily_work(agent, session)
+        return await commit_daily_work(agent, context.session)
 
 
 # if __name__ == "__main__":

@@ -28,8 +28,9 @@ from ...agent import Agent
 # from ...tools import load_tool
 # from ... import voice
 from ...tools.elevenlabs.handler import select_random_voice
-from ...tool import Tool
+from ...tool import Tool, ToolContext
 from ...mongo import get_collection
+from loguru import logger
 
 # Suppress verbose httpx logging - only show warnings and errors
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -56,16 +57,12 @@ class Reel(BaseModel):
 # send agent
 
 
-def write_reel(args: dict, agent: Agent = None):
+def write_reel(context.args: dict, agent: Agent = None):
     system_prompt = "You are a critically acclaimed video producer who writes incredibly captivating and original short-length single-scene reels of 30-60 seconds in length which are widely praised."
 
     #It should be a single coherent scene for a commercial, movie trailer, tiny film, advertisement, or some other short time format.
 
     if agent:
-        print("=====")
-        print("AGENT", agent)
-        print("AGENT", agent.model_dump())
-        print("=====")
         system_prompt = f"""You are {agent.name}. The following is a description of your persona.
         <Persona>
         {agent.persona}
@@ -75,9 +72,9 @@ def write_reel(args: dict, agent: Agent = None):
         system_prompt = f"""You are a critically acclaimed creative writer who writes incredibly captivating and original short-length single-scene reels of 30-60 seconds in length which are widely praised.
         """
 
-    prompt = args.get("prompt")
-    voiceover = args.get("voiceover")
-    music_prompt = args.get("music_prompt")
+    prompt = context.args.get("prompt")
+    voiceover = context.args.get("voiceover")
+    music_prompt = context.args.get("music_prompt")
 
     if voiceover:
         prompt += f'\nUse exactly this for the voiceover text: "{voiceover}"'
@@ -110,12 +107,6 @@ def write_reel(args: dict, agent: Agent = None):
     #     ],
     # )
 
-    print("=====")
-    print("system_prompt", system_prompt)
-    print("=====")
-    print("prompt", prompt)
-    print("=====")
-
     client = instructor.from_anthropic(Anthropic())
     reel = client.messages.create(
         model="claude-opus-4-1-20250805",
@@ -130,7 +121,6 @@ def write_reel(args: dict, agent: Agent = None):
         ],
         response_model=Reel,
     )
-    print("reel", reel)
 
     return reel
     
@@ -157,7 +147,6 @@ def write_visual_prompts(
     if instructions:
         prompt += f"\n\nAdditional instructions: {instructions}"
 
-    print("visual prompt", prompt)
     class VisualPrompts(BaseModel):
         """A sequence of visual prompts which retell the story of the Reel"""
         prompts: List[str] = Field(..., description="A sequence of visual prompts, containing a content description, and a set of self-similar stylistic modifiers and aesthetic elements, mirroring the style of the original visual prompt.")
@@ -186,15 +175,12 @@ def write_visual_prompts(
         response_model=VisualPrompts,
     )
     
-    print("result^^^", result)
     return result.prompts
     
 
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
-    print("args", args)
-
+async def handler(context: ToolContext):
     elevenlabs = Tool.load("elevenlabs")
     musicgen = Tool.load("musicgen")
     flux = Tool.load("flux_dev")
@@ -206,34 +192,30 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
 
     instructions = None
 
-    use_lora = args.get("use_lora", False)
+    use_lora = context.args.get("use_lora", False)
     if use_lora:
-        lora = args.get("lora")
+        lora = context.args.get("lora")
         loras = get_collection("models3")
         lora_doc = loras.find_one({"_id": ObjectId(lora)})
         lora_name  = lora_doc.get("name")
         lora_trigger_text = lora_doc.get("lora_trigger_text")
-        lora_strength = args.get("lora_strength")
+        lora_strength = context.args.get("lora_strength")
         instructions = f'In the visual prompts, *all* mentions of {lora_name} should be replaced with "{lora_trigger_text}". So for example, instead of "A photo of {lora_name} on the beach", always write "A photo of {lora_trigger_text} on the beach".'
-        print(lora_doc)
 
-    agent = args.get("agent")
+    agent = context.args.get("agent")
     if agent:
-        agent = Agent.from_mongo(agent)
+        agent = Agent.from_mongo(context.agent)
 
-    reel = write_reel(args, agent)
-
-    print("reel", reel)
+    reel = write_reel(context.args, agent)
 
     audio = None    
     duration = 30 # default duration
 
-    if args.get("use_voiceover") and reel.voiceover:
-        print("==== voiceover ====")
+    if context.args.get("use_voiceover") and reel.voiceover:
         
         # if voice is provided, use it
-        if args.get("voice"):
-            voice = args.get("voice")
+        if context.args.get("voice"):
+            voice = context.args.get("voice")
         # otherwise, if agent has a voice, use it
         elif agent and agent.voice:
             eleven = ElevenLabs(api_key=os.getenv("ELEVEN_API_KEY"))
@@ -241,14 +223,12 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
                 voice = eleven.voices.get(agent.voice)
                 voice = voice.id
             except Exception as e:
-                print("Error getting voice", e)
+                logger.error(f"Error getting voice: {e}")
                 voice = select_random_voice("Voice of a narrator")
         # otherwise, select a random voice
         else:
-            print("no voice provided, selecting random voice")
             voice = select_random_voice("Voice of a narrator")
 
-        print("selected voice", voice)
         
         speech_audio = await elevenlabs.async_run({
             "text": reel.voiceover,
@@ -280,15 +260,12 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         duration = len(speech_audio) / 1000
 
         audio_url, _ = s3.upload_audio_segment(speech_audio)
-        print("audio_url", audio_url)
 
         audio = speech_audio
 
-    print("Duration is", duration)
     
-    if args.get("use_music"):
-        music_prompt = args.get("music_prompt") or reel.music_prompt
-        print("music_prompt", music_prompt)
+    if context.args.get("use_music"):
+        music_prompt = context.args.get("music_prompt") or reel.music_prompt
         music_audio = await musicgen.async_run({
             "prompt": music_prompt,
             "duration": int(duration)
@@ -317,19 +294,16 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
 
     if audio:
         audio_url, _ = s3.upload_audio_segment(audio)
-        print("audio_url", audio_url)
     
     # get resolution
-    orientation = args.get("orientation")
-    print("Orientation", orientation)
+    orientation = context.args.get("orientation")
     if orientation == "landscape":
         width, height = 1280, 768
     else:
         width, height = 768, 1280
-    print("width x height", width, height)
 
     # get sequence lengths
-    video_model = args.get("video_model").lower()
+    video_model = context.args.get("video_model").lower()
     if video_model in ["low", "medium"]:
         tens, fives = duration // 10, (duration - (duration // 10) * 10) // 5
         durations = [10] * int(tens) + [5] * int(fives)    
@@ -341,19 +315,11 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     num_clips = len(durations)
     durations = durations[:num_clips]
 
-    print("total duration", sum(durations), duration)
-    print("durations", durations)
-    print("num_clips", num_clips)
-
     # get visual prompt sequence
-    print("==== get visual prompt sequence ====")
-    print("Visual direction", reel.visual_prompt)
-    print("Instructions", instructions)
     visual_prompts = write_visual_prompts(reel, num_clips, instructions)
-    pprint(visual_prompts)
     
 
-    async def generate_clip_with_retry(args, prompt, duration, ratio):
+    async def generate_clip_with_retry(context.args, prompt, duration, ratio):
         async def _generate():
             from datetime import datetime
             from eve.agent.session.models import LLMContextMetadata, LLMTraceMetadata
@@ -377,15 +343,13 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
             
             t1 = datetime.now()
             # Generate image
-            print(f"---> Generating image for clip with prompt: {prompt}: {args}")
             
             if video_model == "high" and not use_lora:
                 image_url = None
             else:
-                image = await flux.async_run(args)
+                image = await flux.async_run(context.args)
                 image = utils.prepare_result(image)
                 image_url = image['output'][0]["url"]
-                print(f"--> Completed image generation: {image_url}")
 
             # Generate video with fallback logic
             fallback_map = {
@@ -396,7 +360,6 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
             
             async def generate_video_with_model(model_type, prompt, duration, ratio, image_url):
                 """Generate video with specified model type"""
-                print(f" --> Generating video with model: {model_type}")
                 
                 if model_type == "low":
                     return await runway.async_run({
@@ -436,15 +399,12 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
                 
                 # Check if video generation was successful
                 if video and "output" in video and video["output"]:
-                    print(f" --> {current_model} model succeeded")
                     break
                 else:
                     error_msg = video.get("error", "Unknown error") if video else "No response"
-                    print(f" --> {current_model} model failed: {error_msg}")
                     
                     if attempt == 0 and current_model in fallback_map:
                         current_model = fallback_map[current_model]
-                        print(f" --> Falling back to {current_model} model")
                     else:
                         raise Exception(f"All video generation attempts failed. Last error: {error_msg}")
             
@@ -456,16 +416,10 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
             duration_seconds = (t2 - t1).total_seconds()
             
             # Log with proper session context
-            print(f"*** Completed clip generation in {duration_seconds:.1f} seconds")
-            # print(f"    Trace ID: {metadata.trace_id}")
-            print(f"    Started: {t1.strftime('%H:%M:%S')}")
-            print(f"    Ended: {t2.strftime('%H:%M:%S')}")
-            print(f"    Model: {video_model}")
-            
             try:
                 return video['output'][0]['url']
             except Exception as e:
-                print("Error preparing video", e)
+                logger.error(f"Error preparing video: {e}")
                 raise Exception(f"Failed to generate video: {str(e)}")
         
         return await utils.async_exponential_backoff(
@@ -478,9 +432,9 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     # Create a semaphore to limit concurrent tasks
     sem = asyncio.Semaphore(NUM_PARALLEL_GENERATIONS)
     
-    async def bounded_generate_clip(args, prompt, duration, ratio):
+    async def bounded_generate_clip(context.args, prompt, duration, ratio):
         async with sem:
-            return await generate_clip_with_retry(args, prompt, duration, ratio)
+            return await generate_clip_with_retry(context.args, prompt, duration, ratio)
 
     # Create tasks for all clips
     ratio = "16:9" if orientation == "landscape" else "9:16"
@@ -509,14 +463,12 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     
     try:
         videos = await asyncio.gather(*tasks)
-        print("&& the final videos are", videos)
     except Exception as e:
-        print(f"Error generating clips: {e}")
+        logger.error(f"Error generating clips: {e}")
         raise Exception(f"Failed to generate all clips: {str(e)}")
 
     video = await video_concat.async_run({"videos": videos})
     video = utils.prepare_result(video)
-    print("video ^^", video)
     video_url = video['output'][0]['url']
     
     if audio_url:

@@ -12,7 +12,7 @@ from eve import utils
 from eve.mongo import get_collection
 from eve.s3 import get_full_url
 from eve.task import task_handler_func, Task
-from eve.tool import Tool
+from eve.tool import Tool, ToolContext
 from eve.tools.tool_handlers import load_handler
 from eve.tools.replicate_tool import replicate_update_task
 from eve.api.runner_tasks import (
@@ -60,7 +60,13 @@ async def run(
     tool_key: str, args: dict, user: str = None, agent: str = None, session: str = None
 ):
     handler = load_handler(tool_key)
-    result = await handler(args, user, agent, session)
+    context = ToolContext(
+        args=args,
+        user=str(user) if user else None,
+        agent=str(agent) if agent else None,
+        session=str(session) if session else None,
+    )
+    result = await handler(context)
     return utils.upload_result(result)
 
 
@@ -69,7 +75,8 @@ async def run_task(
     tool_key: str, args: dict, user: str = None, agent: str = None, session: str = None
 ):
     handler = load_handler(tool_key)
-    return await handler(args, user, agent, session)
+    context = ToolContext(args=args, user=user, agent=agent, session=session)
+    return await handler(context)
 
 
 async def run_task_replicate(task: Task):

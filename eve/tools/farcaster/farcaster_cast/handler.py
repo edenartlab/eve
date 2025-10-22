@@ -6,6 +6,8 @@ from eve.agent.deployments import Deployment
 from eve.agent.deployments.farcaster import post_cast, get_fid
 from eve.agent import Agent
 from eve.agent.session.models import Session
+from eve.tool import ToolContext
+
 
 @Collection("farcaster_events")
 class FarcasterEvent(Document):
@@ -22,19 +24,19 @@ class FarcasterEvent(Document):
 # TODO: save message id to FarcasterEvent
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
-    if not agent:
+async def handler(context: ToolContext):
+    if not context.agent:
         raise Exception("Agent is required")
-    agent = Agent.from_mongo(agent)
+    agent = Agent.from_mongo(context.agent)
     deployment = Deployment.load(agent=agent.id, platform="farcaster")
     if not deployment:
         raise Exception("No valid Farcaster deployments found")
 
     # Get parameters from args
-    text = args.get("text", "")
-    embeds = args.get("embeds") or []
-    parent_hash = args.get("parent_hash")
-    parent_fid = args.get("parent_fid")
+    text = context.args.get("text", "")
+    embeds = context.args.get("embeds") or []
+    parent_hash = context.args.get("parent_hash")
+    parent_fid = context.args.get("parent_fid")
 
     # Validate required parameters
     if not text and not embeds:
@@ -50,17 +52,14 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         embeds = embeds[:4]  # limit to 4 embeds
 
         # break into 2 casts if there are more than 2 embeds
-        if agent.username == "abraham": # pro subscription allows 4 embeds
+        if agent.username == "abraham":  # pro subscription allows 4 embeds
             embeds1, embeds2 = embeds[:4], embeds[4:]
         else:
             embeds1, embeds2 = embeds[:2], embeds[2:]
 
         # Post the main cast using the reusable helper function
         result = await post_cast(
-            secrets=deployment.secrets,
-            text=text,
-            embeds=embeds1 or None,
-            parent=parent
+            secrets=deployment.secrets, text=text, embeds=embeds1 or None, parent=parent
         )
         cast_hash = result["hash"]
         cast_url = result["url"]
@@ -73,22 +72,17 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
             fid = await get_fid(deployment.secrets)
             parent1 = {"hash": cast_hash, "fid": int(fid)}
             result2 = await post_cast(
-                secrets=deployment.secrets,
-                text="",
-                embeds=embeds2,
-                parent=parent1
+                secrets=deployment.secrets, text="", embeds=embeds2, parent=parent1
             )
             cast_hash2 = result2["hash"]
             cast_url2 = result2["url"]
             outputs.append({"url": cast_url2, "cast_hash": cast_hash2, "success": True})
 
         # update session key to the hash
-        if session and outputs:
-            session = Session.from_mongo(session)
-            cast_hash = outputs[0].get('cast_hash')
+        if context.session and outputs:
+            session = Session.from_mongo(context.session)
+            cast_hash = outputs[0].get("cast_hash")
             session.update(session_key=f"FC-{thread_hash}")
-
-
 
             # NEXT TRY: shouldn't this be using thread_hash
 
@@ -97,13 +91,13 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         # save casts as farcaster events
         for output in outputs:
             event = FarcasterEvent(
-                session_id=session.id,
+                session_id=context.session.id,
                 # message_id=new_messages[0].id,
-                cast_hash=output.get('cast_hash'),
+                cast_hash=output.get("cast_hash"),
                 reply_cast=output,
                 reply_fid=TARGET_FID,
                 status="completed",
-                event=None
+                event=None,
             )
             event.save()
 

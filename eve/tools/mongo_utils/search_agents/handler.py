@@ -1,3 +1,4 @@
+from eve.tool import ToolContext
 import openai
 import instructor
 from jinja2 import Template
@@ -41,38 +42,38 @@ Explain why each result matches the query criteria.
 </Task>""")
 
 
-
 class SearchResult(BaseModel):
     """A matching result from the database search."""
-    
+
     id: str = Field(..., description="The MongoDB ID of the result")
     name: str = Field(..., description="The name/title of the result")
     description: str = Field(..., description="A brief description of the result")
     relevance: str = Field(
-        ..., 
-        description="A brief explanation of why this result matches the search query"
+        ...,
+        description="A brief explanation of why this result matches the search query",
     )
+
 
 class SearchResults(BaseModel):
     """Results from searching the database."""
-    
+
     results: List[SearchResult] = Field(
         ...,
-        description="The matching results, ordered by relevance. Include only truly relevant results."
+        description="The matching results, ordered by relevance. Include only truly relevant results.",
     )
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
-    searcher = user
-    query = args.get("query")
-    
+async def handler(context: ToolContext):
+    searcher = context.user
+    query = context.args.get("query")
+
     # Get all documents
     counter = 1
     docs = {}
     collection = get_collection(Agent.collection_name)
     for doc in collection.find({"type": "agent", "deleted": {"$ne": True}}):
         id = str(doc["_id"])
-        doc["_id"] = counter        
+        doc["_id"] = counter
         docs[str(counter)] = {
             "id": id,
             "owned": str(searcher) == str(doc["owner"]),
@@ -81,16 +82,16 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
             "doc": doc,
         }
         counter += 1
-    
+
     docs_owned = sorted(
         (doc for doc in docs.values() if doc["owned"]),
-        key=lambda x: x["used"], 
-        reverse=True
+        key=lambda x: x["used"],
+        reverse=True,
     )
     docs_public = sorted(
         (doc for doc in docs.values() if not doc["owned"] and doc["public"]),
-        key=lambda x: x["used"], 
-        reverse=True
+        key=lambda x: x["used"],
+        reverse=True,
     )
 
     docs_owned = "\n".join(agent_template.render(doc["doc"]) for doc in docs_owned)
@@ -98,14 +99,8 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
 
     # Create context for LLM
     prompt = search_agents_template.render(
-        docs_owned=docs_owned, 
-        docs_public=docs_public, 
-        query=query
+        docs_owned=docs_owned, docs_public=docs_public, query=query
     )
-
-    print("--------------------------------")
-    print(prompt[:500])
-    print("--------------------------------")
 
     # Make LLM call
     system_message = f"""You are a search assistant that helps find relevant Agents based on natural language queries. Analyze the provided items and return only the most relevant matches for the query.
@@ -142,10 +137,4 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
                 }
             matches.append(r)
 
-
-    print("AGENT MATCHES")
-    print(matches)
-
-    return {
-        "output": matches
-    }
+    return {"output": matches}

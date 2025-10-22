@@ -4,38 +4,29 @@ import instructor
 from tempfile import NamedTemporaryFile
 from typing import List, Literal
 from elevenlabs.client import ElevenLabs
+
 # from elevenlabs.types.voice_settings import VoiceSettings
 from openai import OpenAI
 from typing import Iterator
 
 
-import elevenlabs
-print("versio", elevenlabs.__version__)
-
-
 from eve import utils
+from eve.tool import ToolContext
 
-eleven = ElevenLabs(
-    api_key=os.getenv("ELEVEN_API_KEY")
-)
+eleven = ElevenLabs(api_key=os.getenv("ELEVEN_API_KEY"))
 
 DEFAULT_VOICE = "XB0fDUnXU5powFXDhCwa"
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
-    # print("args", args)
+async def handler(context: ToolContext):
+    args = context.args
     args["stability"] = args.get("stability", 0.5)
     args["style"] = args.get("style", 0.0)
     args["speed"] = args.get("speed", 1.0)
-    # args["similarity_boost"] = args.get("similarity_boost", 0.75)
-    # args["use_speaker_boost"] = args.get("use_speaker_boost", True)
-    # args["max_attempts"] = args.get("max_attempts", 3)
-    # args["initial_delay"] = args.get("initial_delay", 1)
 
     # get voice
     response = eleven.voices.get_all()
     voices = {v.name: v.voice_id for v in response.voices}
-    # voice_id = voices.get(args["voice"], DEFAULT_VOICE)
     voice_ids = [v.voice_id for v in response.voices]
     voice_id = args.get("voice", DEFAULT_VOICE)
     if voice_id not in voice_ids:
@@ -43,8 +34,10 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         if voice_id in voices:
             voice_id = voices[voice_id]
         else:
-            raise ValueError(f"Voice ID {voice_id} not found, try another one (DEFAULT_VOICE: {DEFAULT_VOICE})")
-    
+            raise ValueError(
+                f"Voice ID {voice_id} not found, try another one (DEFAULT_VOICE: {DEFAULT_VOICE})"
+            )
+
     async def generate_with_params():
         audio_generator = eleven.text_to_speech.convert(
             text=args["text"],
@@ -53,7 +46,7 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
                 "stability": args["stability"],
                 "style": args["style"],
                 "speed": args["speed"],
-                "use_speaker_boost": True, #args["use_speaker_boost"],
+                "use_speaker_boost": True,  # args["use_speaker_boost"],
                 # similarity_boost=args["similarity_boost"],
             },
             model_id="eleven_multilingual_v2",
@@ -63,8 +56,8 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
 
     audio_generator = await utils.async_exponential_backoff(
         generate_with_params,
-        max_attempts=3, #args["max_attempts"],
-        initial_delay=1 #args["initial_delay"],
+        max_attempts=3,  # args["max_attempts"],
+        initial_delay=1,  # args["initial_delay"],
     )
 
     if isinstance(audio_generator, Iterator):
@@ -91,7 +84,7 @@ def clone_voice(name, description, voice_files):
                 cloning_files.append(file)
         else:
             cloning_files.append(file)
-    voice = eleven.clone(name, cloning_files, description)    
+    voice = eleven.clone(name, cloning_files, description)
     for file in cloning_files:
         if file.endswith(".tmp"):
             os.remove(file)
@@ -100,7 +93,7 @@ def clone_voice(name, description, voice_files):
 
 def select_random_voice(
     description: str = None,
-    gender: str = None, 
+    gender: str = None,
     autofilter_by_gender: bool = False,
     exclude: List[str] = None,
 ):
@@ -118,7 +111,7 @@ def select_random_voice(
         ---
 
         Predict the most likely gender of this person."""
-        
+
         gender = client.chat.completions.create(
             model="gpt-4o-mini",
             response_model=Literal["male", "female"],
@@ -137,16 +130,21 @@ def select_random_voice(
 
     if gender:
         assert gender in ["male", "female"], "Gender must be either 'male' or 'female'"
-        voices = [v for v in voices if v.labels.get('gender') == gender]
+        voices = [v for v in voices if v.labels.get("gender") == gender]
 
     if exclude:
         voices = [v for v in voices if v.voice_id not in exclude]
-        
+
     if not description:
         return random.choice(voices)
 
     voice_ids = {v.name: v.voice_id for v in voices}
-    voice_descriptions = "\n".join([f"{v.name}: {', '.join(v.labels.values())}, {v.description or ''}" for v in voices])
+    voice_descriptions = "\n".join(
+        [
+            f"{v.name}: {', '.join(v.labels.values())}, {v.description or ''}"
+            for v in voices
+        ]
+    )
 
     prompt = f"""You are given the follow list of voices and their descriptions.
 
@@ -184,33 +182,30 @@ def select_random_voice(
 def get_voice_summary():
     response = eleven.voices.get_all(show_legacy=False)
     full_description = ""
-    
+
     ids, names = [], []
     for voice in response.voices:
         id = voice.voice_id
         name = voice.name
         description = voice.description or ""
         labels = voice.labels or {}
-        description = ", ".join([v for k, v in labels.items() if v])    
+        description = ", ".join([v for k, v in labels.items() if v])
         full_description += f"{id} :: {name}, {description}\n"
         ids.append(id)
         names.append(name)
-    
-    print(", ".join(ids))
-    print(", ".join(names))
-    print(full_description)
 
     return ids, names, full_description
 
 
 def save_to_mongo():
     from eve.mongo import get_collection
+
     response = eleven.voices.get_all()
     collection = get_collection("voices")
     data = [
-        {"key": voice.name, "elevenlabs_id": voice.voice_id} 
+        {"key": voice.name, "elevenlabs_id": voice.voice_id}
         for voice in response.voices
-    ]    
+    ]
     collection.insert_many(data)
 
 
@@ -238,4 +233,3 @@ def save_to_mongo():
 # audio_file = NamedTemporaryFile(delete=False)
 # audio_file.write(audio)
 # audio_file.close()
-

@@ -5,13 +5,15 @@ from typing import Dict, Any
 
 from eve.agent.agent import Agent
 from eve.agent.session.models import Deployment
+from eve.tool import ToolContext
+from loguru import logger
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
-    if not agent:
+async def handler(context: ToolContext):
+    if not context.agent:
         raise Exception("Agent is required")
 
-    agent_obj = Agent.from_mongo(agent)
+    agent_obj = Agent.from_mongo(context.agent)
     deployment = Deployment.load(agent=agent_obj.id, platform="printify")
     if not deployment:
         raise Exception("No valid Printify deployments found")
@@ -65,32 +67,32 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     enabled_variants = [
         {
             "id": 32918,  # Small (S)
-            "price": int(args.get("price") * 100),  # Convert to cents
+            "price": int(context.args.get("price") * 100),  # Convert to cents
             "is_enabled": True,
             "is_default": True,  # Make S the default
         },
         {
             "id": 32919,  # Medium (M)
-            "price": int(args.get("price") * 100),  # Convert to cents
+            "price": int(context.args.get("price") * 100),  # Convert to cents
             "is_enabled": True,
             "is_default": False,
         },
         {
             "id": 32920,  # Large (L)
-            "price": int(args.get("price") * 100),  # Convert to cents
+            "price": int(context.args.get("price") * 100),  # Convert to cents
             "is_enabled": True,
             "is_default": False,
         },
         {
             "id": 32921,  # Extra Large (XL)
-            "price": int(args.get("price") * 100),  # Convert to cents
+            "price": int(context.args.get("price") * 100),  # Convert to cents
             "is_enabled": True,
             "is_default": False,
         },
     ]
 
     # Upload image to Printify first
-    image_url = args.get("image")
+    image_url = context.args.get("image")
     upload_data = {"file_name": f"design_{uuid.uuid4().hex}.png", "url": image_url}
 
     uploaded_image = _api_request("POST", "/uploads/images.json", upload_data)
@@ -121,8 +123,8 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
 
     # Create the product
     product_data = {
-        "title": args.get("title"),
-        "description": args.get("description"),
+        "title": context.args.get("title"),
+        "description": context.args.get("description"),
         "blueprint_id": blueprint_id,
         "print_provider_id": print_provider_id,
         "variants": enabled_variants,
@@ -136,7 +138,7 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
 
     # Auto-publish if requested
     published = False
-    if args.get("auto_publish"):
+    if context.args.get("auto_publish"):
         try:
             _api_request(
                 "POST",
@@ -151,7 +153,7 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
             )
             published = True
         except Exception as e2:
-            print(
+            logger.error(
                 f"Auto-publish failed: {e2}. Product created but remains in draft state."
             )
 
@@ -217,7 +219,9 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
                         )
 
                         # Generate slug from product title
-                        title = product_details.get("title", args.get("title", ""))
+                        title = product_details.get(
+                            "title", context.args.get("title", "")
+                        )
                         # Convert title to slug: lowercase, replace spaces with hyphens, remove special chars
                         slug = "".join(
                             c if c.isalnum() or c == " " else "" for c in title.lower()
@@ -227,15 +231,15 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
                         # Construct the Shopify URL
                         product_url = f"https://{shopify_store_name}.myshopify.com/products/{slug}"
                     else:
-                        print(
+                        logger.error(
                             "No Shopify deployment found for this agent, using Printify URL"
                         )
                 except Exception as e:
-                    print(f"Could not get Shopify deployment: {e}")
+                    logger.error(f"Could not get Shopify deployment: {e}")
         except Exception as e:
             # If we can't get the Shopify URL, fall back to Printify URL
-            print(f"Could not construct Shopify URL: {e}")
-            print(f"Full traceback:\n{traceback.format_exc()}")
+            logger.error(f"Could not construct Shopify URL: {e}")
+            logger.error(f"Full traceback:\n{traceback.format_exc()}")
 
     return {
         "output": [
@@ -243,7 +247,7 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
                 "url": product_url,
                 "product_id": product_id,
                 "images": product_images,
-                "title": product_details.get("title", args.get("title")),
+                "title": product_details.get("title", context.args.get("title")),
                 "status": "published" if published else "draft",
             }
         ]
