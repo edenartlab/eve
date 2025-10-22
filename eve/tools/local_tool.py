@@ -23,7 +23,10 @@ class LocalTool(Tool):
     ):
         handler = load_handler(self.parent_tool or self.key)
         context = ToolContext(
-            args=args, user=user_id, agent=agent_id, session=session_id
+            args=args,
+            user=str(user_id) if user_id else None,
+            agent=str(agent_id) if agent_id else None,
+            session=str(session_id) if session_id else None,
         )
         result = await handler(context)
         return result
@@ -63,5 +66,10 @@ class LocalTool(Tool):
 async def run_task(
     tool_key: str, args: dict, user: str = None, agent: str = None, session: str = None
 ):
-    context = ToolContext(args=args, user=user, agent=agent, session=session)
+    context = ToolContext(
+        args=args,
+        user=str(user) if user else None,
+        agent=str(agent) if agent else None,
+        session=str(session) if session else None,
+    )
     return await load_handler(tool_key)(context)
