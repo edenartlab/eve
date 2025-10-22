@@ -1,13 +1,10 @@
 import json
 import os
-import csv
 from enum import Enum
 from typing import List, Optional, Dict, Any, Literal
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-import magic
-import pdfplumber
 from bson import ObjectId
 from pydantic import ConfigDict, Field, BaseModel, field_serializer
 from loguru import logger
@@ -15,37 +12,15 @@ from loguru import logger
 from eve.utils import download_file, image_to_base64, prepare_result, dumps_json
 from eve.mongo import Collection, Document
 from eve.tool import Tool
-
-# File attachment configuration
-TEXT_ATTACHMENT_MAX_LENGTH = 20000  # Maximum character limit for text attachments
-CSV_DIALECT_SAMPLE_SIZE = 4096  # Number of bytes to sample for CSV dialect detection
-FILE_CACHE_DIR = "/tmp/eden_file_cache/"  # Temporary directory for cached files
-
-# Image processing configuration
-IMAGE_MAX_SIZE = 512  # Maximum dimension (width/height) for image resizing
-IMAGE_QUALITY = 90  # JPEG quality (0-100)
-
-# Supported file extensions
-SUPPORTED_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
-SUPPORTED_VIDEO_EXTENSIONS = (".mp4", ".webm")
-SUPPORTED_MEDIA_EXTENSIONS = SUPPORTED_IMAGE_EXTENSIONS + SUPPORTED_VIDEO_EXTENSIONS
-SUPPORTED_TEXT_EXTENSIONS = (".txt", ".md", ".markdown", ".plain")
-SUPPORTED_PDF_EXTENSION = (".pdf",)
-
-# Unsupported file types with conversion instructions
-UNSUPPORTED_FILE_FORMATS = {
-    "xlsx": "Excel file - Please convert to CSV format and re-upload",
-    "xls": "Excel file - Please convert to CSV format and re-upload",
-    "xlsm": "Excel macro file - Please convert to CSV format and re-upload",
-    "ods": "OpenDocument Spreadsheet - Please convert to CSV format and re-upload",
-    "doc": "Word document - Please save as PDF or plain text and re-upload",
-    "docx": "Word document - Please save as PDF or plain text and re-upload",
-    "ppt": "PowerPoint presentation - Please convert to PDF and re-upload",
-    "pptx": "PowerPoint presentation - Please convert to PDF and re-upload",
-    "zip": "Compressed archive - Please extract and upload individual files",
-    "rar": "Compressed archive - Please extract and upload individual files",
-    "7z": "Compressed archive - Please extract and upload individual files",
-}
+from eve.agent.session.file_config import (
+    IMAGE_MAX_SIZE,
+    IMAGE_QUALITY,
+    FILE_CACHE_DIR,
+    SUPPORTED_MEDIA_EXTENSIONS,
+    TEXT_ATTACHMENT_MAX_LENGTH,
+    _url_has_extension,
+)
+from eve.agent.session.file_parser import process_attachments_for_message
 
 
 class ToolCall(BaseModel):
@@ -105,7 +80,7 @@ class ToolCall(BaseModel):
             file_outputs = [
                 o
                 for o in file_outputs
-                if o and o.lower().endswith(SUPPORTED_MEDIA_EXTENSIONS)
+                if o and _url_has_extension(o, SUPPORTED_MEDIA_EXTENSIONS)
             ]
             try:
                 files = [
@@ -304,236 +279,38 @@ class ChatMessage(Document):
             content = f"<User>{self.name}</User>\n\n{content}"
 
         if self.attachments:
-            # append attachments info (url and type) to content
-            attachment_lines = []
+            # Process all attachments using the new file parser module
+            parsed_attachments, attachment_lines, attachment_errors = process_attachments_for_message(
+                self.attachments
+            )
+
+            # Separate text attachments from media files for different processing
+            text_attachments = [att for att in parsed_attachments if att.is_text]
             attachment_files = []
-            attachment_errors = []
-            text_attachments = []
-            truncated_files = []  # Track which files were truncated
 
-            for attachment in self.attachments:
-                try:
-                    attachment_file = download_file(
-                        attachment,
-                        os.path.join(FILE_CACHE_DIR, attachment.split("/")[-1]),
-                        overwrite=False,
-                    )
-                    mime_type = magic.from_file(attachment_file, mime=True)
-
-                    # Handle CSV files first (before text/plain check, since CSVs can be detected as text/plain)
-                    if mime_type == "text/csv" or attachment.lower().endswith(".csv"):
-                        try:
-                            file_name = attachment.split("/")[-1]
-
-                            # Read the file once with appropriate encoding
-                            try:
-                                with open(attachment_file, "r", encoding="utf-8") as f:
-                                    file_content = f.read()
-                            except UnicodeDecodeError:
-                                with open(attachment_file, "r", encoding="latin-1") as f:
-                                    file_content = f.read()
-
-                            # Check if file is empty or whitespace-only
-                            if not file_content or not file_content.strip():
-                                attachment_lines.append(
-                                    f"* {attachment}: (CSV file is empty)"
-                                )
-                                continue
-
-                            # Detect CSV dialect and parse
-                            try:
-                                sample = file_content[:CSV_DIALECT_SAMPLE_SIZE]
-                                dialect = csv.Sniffer().sniff(sample)
-                                csv_reader = csv.reader(file_content.splitlines(), dialect=dialect)
-                            except (csv.Error, Exception):
-                                # Fall back to default CSV reader if dialect detection fails
-                                csv_reader = csv.reader(file_content.splitlines())
-
-                            rows = list(csv_reader)
-
-                            # Check if CSV has meaningful content (non-empty cells)
-                            has_content = any(
-                                any(cell.strip() for cell in row)
-                                for row in rows
-                            )
-
-                            if not has_content:
-                                attachment_lines.append(
-                                    f"* {attachment}: (CSV file is empty)"
-                                )
-                            else:
-                                # Helper function to sanitize cell content for markdown tables
-                                def sanitize_cell(cell):
-                                    if cell is None:
-                                        return ""
-                                    # Replace pipes and newlines that would break markdown tables
-                                    cell_str = str(cell).replace("|", "\\|").replace("\n", " ").replace("\r", " ")
-                                    return cell_str.strip()
-
-                                # Find the maximum number of columns
-                                max_cols = max(len(row) for row in rows) if rows else 0
-
-                                # Normalize all rows to have the same number of columns
-                                normalized_rows = []
-                                for row in rows:
-                                    normalized_row = [sanitize_cell(cell) for cell in row]
-                                    # Pad with empty strings if row is shorter
-                                    while len(normalized_row) < max_cols:
-                                        normalized_row.append("")
-                                    normalized_rows.append(normalized_row)
-
-                                # Format CSV data as a readable table
-                                csv_content = ""
-                                if normalized_rows:
-                                    # Add header
-                                    csv_content += "| " + " | ".join(normalized_rows[0]) + " |\n"
-                                    csv_content += "|" + "|".join(["---"] * max_cols) + "|\n"
-
-                                    # Add data rows
-                                    for row in normalized_rows[1:]:
-                                        csv_content += "| " + " | ".join(row) + " |\n"
-
-                                was_truncated = False
-
-                                # Limit content using the constant
-                                if len(csv_content) > TEXT_ATTACHMENT_MAX_LENGTH:
-                                    csv_content = (
-                                        csv_content[:TEXT_ATTACHMENT_MAX_LENGTH]
-                                        + "\n\n[Content truncated...]"
-                                    )
-                                    was_truncated = True
-                                    truncated_files.append(file_name)
-
-                                if csv_content.strip():
-                                    text_attachments.append(
-                                        {
-                                            "name": file_name,
-                                            "content": csv_content,
-                                            "url": attachment,
-                                            "truncated": was_truncated,
-                                        }
-                                    )
-                        except Exception as read_error:
-                            logger.error(
-                                f"Error reading CSV file {attachment_file}: {read_error}"
-                            )
-                            attachment_lines.append(
-                                f"* {attachment}: (CSV file, but could not read: {str(read_error)})"
-                            )
-
-                    # Handle text files (.txt, .md, .plain)
-                    elif mime_type in [
-                        "text/plain",
-                        "text/markdown",
-                        "text/x-markdown",
-                    ] or attachment.lower().endswith(SUPPORTED_TEXT_EXTENSIONS):
-                        try:
-                            with open(attachment_file, "r", encoding="utf-8") as f:
-                                text_content = f.read()
-                                file_name = attachment.split("/")[-1]
-                                was_truncated = False
-
-                                # Limit text content using the constant
-                                if len(text_content) > TEXT_ATTACHMENT_MAX_LENGTH:
-                                    text_content = (
-                                        text_content[:TEXT_ATTACHMENT_MAX_LENGTH]
-                                        + "\n\n[Content truncated...]"
-                                    )
-                                    was_truncated = True
-                                    truncated_files.append(file_name)
-
-                                text_attachments.append(
-                                    {
-                                        "name": file_name,
-                                        "content": text_content,
-                                        "url": attachment,
-                                        "truncated": was_truncated,
-                                    }
-                                )
-                        except Exception as read_error:
-                            logger.error(
-                                f"Error reading text file {attachment_file}: {read_error}"
-                            )
-                            attachment_lines.append(
-                                f"* {attachment}: (Text file, but could not read: {str(read_error)})"
-                            )
-
-                    # Handle PDF files
-                    elif mime_type == "application/pdf" or attachment.lower().endswith(SUPPORTED_PDF_EXTENSION):
-                        try:
-                            with pdfplumber.open(attachment_file) as pdf:
-                                # Extract text from all pages
-                                text_content = ""
-                                for page in pdf.pages:
-                                    page_text = page.extract_text()
-                                    if page_text:
-                                        text_content += page_text + "\n"
-
-                                file_name = attachment.split("/")[-1]
-                                was_truncated = False
-
-                                # Limit text content using the constant
-                                if len(text_content) > TEXT_ATTACHMENT_MAX_LENGTH:
-                                    text_content = (
-                                        text_content[:TEXT_ATTACHMENT_MAX_LENGTH]
-                                        + "\n\n[Content truncated...]"
-                                    )
-                                    was_truncated = True
-                                    truncated_files.append(file_name)
-
-                                # Only add if we successfully extracted text
-                                if text_content.strip():
-                                    text_attachments.append(
-                                        {
-                                            "name": file_name,
-                                            "content": text_content,
-                                            "url": attachment,
-                                            "truncated": was_truncated,
-                                        }
-                                    )
-                                else:
-                                    attachment_lines.append(
-                                        f"* {attachment}: (PDF file with no extractable text)"
-                                    )
-                        except Exception as read_error:
-                            logger.error(
-                                f"Error reading PDF file {attachment_file}: {read_error}"
-                            )
-                            attachment_lines.append(
-                                f"* {attachment}: (PDF file, but could not extract text: {str(read_error)})"
-                            )
-
-                    elif "video" in mime_type:
-                        attachment_lines.append(
-                            f"* {attachment} (The asset is a video, the corresponding image attachment is its first frame.)"
+            # Download media files for image block processing
+            for att in parsed_attachments:
+                if att.is_media:
+                    try:
+                        attachment_file = download_file(
+                            att.url,
+                            os.path.join(FILE_CACHE_DIR, att.url.split("/")[-1]),
+                            overwrite=False,
                         )
                         attachment_files.append(attachment_file)
-                    elif "image" in mime_type:
-                        attachment_lines.append(f"* {attachment}")
-                        attachment_files.append(attachment_file)
-                    else:
-                        # Handle unsupported file types with helpful messages
-                        file_name = attachment.split("/")[-1]
-                        file_ext = file_name.lower().split(".")[-1] if "." in file_name else ""
+                    except Exception as e:
+                        logger.error(f"Error downloading media file {att.url}: {e}")
 
-                        if file_ext in UNSUPPORTED_FILE_FORMATS:
-                            warning_msg = f"⚠️ UNSUPPORTED FILE TYPE: {file_name} - {UNSUPPORTED_FILE_FORMATS[file_ext]}"
-                            attachment_lines.append(f"* {attachment}: {warning_msg}")
-                        else:
-                            attachment_lines.append(
-                                f"* {attachment}: (Unsupported file type - Mime type: {mime_type})"
-                            )
-                except Exception as e:
-                    logger.error("error downloading attachment", e)
-                    attachment_errors.append(f"* {attachment}: {str(e)}")
+            # Track which files were truncated
+            truncated_files = [att.name for att in text_attachments if att.truncated]
 
             attachments = ""
 
             # Add text file contents directly to the message
             if text_attachments:
                 for text_att in text_attachments:
-                    attachments += f'\n<attached_file name="{text_att["name"]}" url="{text_att["url"]}">\n'
-                    attachments += text_att["content"]
+                    attachments += f'\n<attached_file name="{text_att.name}" url="{text_att.url}">\n'
+                    attachments += text_att.content
                     attachments += f"\n</attached_file>\n"
 
             # Add truncation notification if any files were truncated
@@ -765,7 +542,7 @@ class ChatMessage(Document):
                         image_outputs = [
                             o
                             for o in file_outputs
-                            if o and o.lower().endswith(SUPPORTED_MEDIA_EXTENSIONS)
+                            if o and _url_has_extension(o, SUPPORTED_MEDIA_EXTENSIONS)
                         ]
 
                         for image_url in image_outputs:
@@ -788,7 +565,7 @@ class ChatMessage(Document):
                                     }
                                 )
 
-                                if image_url.lower().endswith(("webm", "mp4")):
+                                if _url_has_extension(image_url, (".webm", ".mp4")):
                                     image_urls.append(
                                         f"{image_url} (This url is a video, the corresponding image attachment is its first frame.)"
                                     )

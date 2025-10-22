@@ -19,6 +19,7 @@ from eve.agent.session.models import (
     SessionUpdateConfig,
     Deployment,
     ClientType,
+    SUPPORTED_NON_MEDIA_EXTENSIONS,
 )
 from eve.agent.deployments.typing_manager import (
     DiscordTypingManager,
@@ -95,6 +96,55 @@ class GatewayOpCode:
 class GatewayEvent:
     READY = "READY"
     MESSAGE_CREATE = "MESSAGE_CREATE"
+
+
+def _is_non_media_file_url(url: str) -> bool:
+    """
+    Check if a URL contains a non-media file extension pattern (e.g., .pdf?, .txt?).
+    This is used to determine whether to use Discord's direct URL vs proxy_url.
+
+    Args:
+        url: The URL to check
+
+    Returns:
+        True if the URL contains a non-media file extension pattern, False otherwise
+    """
+    if not url:
+        return False
+
+    # Check for file extension patterns like .pdf?, .txt?, .csv?
+    for ext in SUPPORTED_NON_MEDIA_EXTENSIONS:
+        # Match pattern: extension followed by ? (query parameter)
+        # Use re.escape to handle the dot in extension
+        pattern = rf"{re.escape(ext)}\?"
+        if re.search(pattern, url, re.IGNORECASE):
+            return True
+
+    return False
+
+
+def _select_attachment_url(attachment: dict) -> str:
+    """
+    Select the appropriate URL for a Discord attachment.
+
+    For non-media files (PDF, TXT, CSV, etc.), Discord's proxy_url may not work correctly,
+    so we use the direct 'url' field. For images and videos, we prefer proxy_url.
+
+    Args:
+        attachment: Discord attachment object with 'url' and optionally 'proxy_url'
+
+    Returns:
+        The appropriate URL string, or None if no valid URL found
+    """
+    url = attachment.get("url")
+    proxy_url = attachment.get("proxy_url")
+
+    # If we have a URL and it's a non-media file, use the direct URL
+    if url and _is_non_media_file_url(url):
+        return url
+
+    # Otherwise prefer proxy_url (for images/videos), fall back to url
+    return proxy_url or url
 
 
 class DiscordGatewayClient:
@@ -489,14 +539,13 @@ class DiscordGatewayClient:
             ref_content = ref_message.get("content", "")
             content = f"(Replying to message: {ref_content[:100]} ...)\n\n{content}"
 
-        # Get attachments
+        # Get attachments - use smart URL selection based on file type
         attachments = []
         if "attachments" in message_data:
-            attachments = [
-                attachment.get("proxy_url")
-                for attachment in message_data["attachments"]
-                if "proxy_url" in attachment
-            ]
+            for attachment in message_data["attachments"]:
+                selected_url = _select_attachment_url(attachment)
+                if selected_url:
+                    attachments.append(selected_url)
 
         # Check if bot is mentioned (force reply) - check both mentions and mention_roles
         force_reply = False
