@@ -28,18 +28,10 @@ from eve.api.runner_tasks import download_clip_models
 from eve.api.handlers import (
     handle_create,
     handle_cancel,
-    handle_discord_emission,
     handle_prompt_session,
     handle_replicate_webhook,
-    handle_chat,
-    handle_stream_chat,
-    handle_telegram_emission,
-    handle_telegram_update,
-    handle_twitter_update,
     handle_agent_tools_update,
     handle_agent_tools_delete,
-    handle_farcaster_update,
-    handle_farcaster_emission,
     handle_session_cancel,
     handle_v2_deployment_create,
     handle_v2_deployment_emission,
@@ -68,7 +60,6 @@ from eve.concepts import (
 from eve.api.api_requests import (
     CancelRequest,
     CancelSessionRequest,
-    ChatRequest,
     CreateDeploymentRequestV2,
     DeleteDeploymentRequestV2,
     DeploymentEmissionRequest,
@@ -80,13 +71,11 @@ from eve.api.api_requests import (
     UpdateConceptRequest,
     PromptSessionRequest,
     TaskRequest,
-    PlatformUpdateRequest,
     AgentToolsUpdateRequest,
     AgentToolsDeleteRequest,
     UpdateDeploymentRequestV2,
     CreateNotificationRequest,
     EmbedSearchRequest,
-    AsyncLLMCallRequest,
     AgentPromptsExtractionRequest,
 )
 from eve.api.api_functions import (
@@ -94,7 +83,6 @@ from eve.api.api_functions import (
     generate_lora_thumbnails_fn,
     rotate_agent_metadata_fn,
     embed_recent_creations,
-    # run_scheduled_triggers_fn,
     run,
     run_task,
     run_task_replicate,
@@ -228,24 +216,6 @@ async def replicate_webhook(request: Request):
     return await handle_replicate_webhook(data)
 
 
-@web_app.post("/chat")
-async def chat(
-    request: ChatRequest,
-    background_tasks: BackgroundTasks,
-    _: dict = Depends(auth.authenticate_admin),
-):
-    return await handle_chat(request, background_tasks)
-
-
-@web_app.post("/chat/stream")
-async def stream_chat(
-    request: ChatRequest,
-    background_tasks: BackgroundTasks,
-    _: dict = Depends(auth.authenticate_admin),
-):
-    return await handle_stream_chat(request, background_tasks)
-
-
 @web_app.post("/triggers/create")
 async def trigger_create(
     request: CreateTriggerRequest,
@@ -274,52 +244,6 @@ async def trigger_run(
     request: RunTriggerRequest, _: dict = Depends(auth.authenticate_admin)
 ):
     return await handle_trigger_run(request)
-
-
-@web_app.post("/updates/platform/telegram")
-async def updates_telegram(
-    request: Request,
-):
-    return await handle_telegram_update(request)
-
-
-@web_app.post("/updates/platform/farcaster")
-async def updates_farcaster(
-    request: Request,
-):
-    return await handle_farcaster_update(request)
-
-
-@web_app.post("/updates/platform/twitter")
-async def updates_twitter(
-    request: PlatformUpdateRequest,
-    _: dict = Depends(auth.authenticate_admin),
-):
-    return await handle_twitter_update(request)
-
-
-@web_app.post("/emissions/platform/discord")
-async def emissions_discord(
-    request: Request,
-    _: dict = Depends(auth.authenticate_admin),
-):
-    return await handle_discord_emission(request)
-
-
-@web_app.post("/emissions/platform/telegram")
-async def emissions_telegram(
-    request: Request,
-    _: dict = Depends(auth.authenticate_admin),
-):
-    return await handle_telegram_emission(request)
-
-
-@web_app.post("/emissions/platform/farcaster")
-async def emissions_farcaster(
-    request: Request,
-    _: dict = Depends(auth.authenticate_admin),
-):
-    return await handle_farcaster_emission(request)
 
 
 @web_app.get("/triggers/{trigger_id}")
@@ -374,16 +298,6 @@ async def cancel_session(
     _: dict = Depends(auth.authenticate_admin),
 ):
     return await handle_session_cancel(request)
-
-
-# @web_app.get("/sessions/{session_id}/stream")
-# async def stream_session(
-#     session_id: str,
-#     _: dict = Depends(auth.authenticate_admin),
-# ):
-#     from eve.api.handlers import handle_session_stream
-
-#     return await handle_session_stream(session_id)
 
 
 @web_app.post("/v2/deployments/create")
@@ -675,9 +589,9 @@ async def run_scheduled_triggers_fn():
 
 @app.function(image=image, max_containers=10, timeout=3600)
 async def remote_prompt_session_fn(
-    session_id: str, 
-    agent_id: str, 
-    user_id: str, 
+    session_id: str,
+    agent_id: str,
+    user_id: str,
     content: str,
     attachments: Optional[List[str]] = [],
     extra_tools: Optional[List[str]] = [],
@@ -692,11 +606,11 @@ async def remote_prompt_session_fn(
     )
 
 async def remote_prompt_session(
-    session_id: str, 
-    agent_id: str, 
-    user_id: str, 
+    session_id: str,
+    agent_id: str,
+    user_id: str,
     content: str,
-    attachments: Optional[List[str]] = [], 
+    attachments: Optional[List[str]] = [],
     extra_tools: Optional[List[str]] = [],
 ):
     logger.info(
@@ -722,13 +636,11 @@ async def remote_prompt_session(
         session=session,
         initiating_user_id=str(user.id),
         message=new_message,
-        llm_config=LLMConfig(model="claude-sonnet-4-5-20250929")
+        llm_config=LLMConfig(model="claude-sonnet-4-5-20250929"),
     )
 
     if extra_tools:
-        context.extra_tools = {
-            k: Tool.load(k) for k in extra_tools
-        }
+        context.extra_tools = {k: Tool.load(k) for k in extra_tools}
 
     # Add message to session
     await add_chat_message(session, context)
@@ -774,14 +686,14 @@ async def remote_prompt_session(
     # Build LLM context with custom tools
     context = LLMContext(
         messages=[
-            ChatMessage(role="system", content=system_message), 
+            ChatMessage(role="system", content=system_message),
             *messages,
-            ChatMessage(role="user", content="Summarize the results of the session.")
+            ChatMessage(role="user", content="Summarize the results of the session."),
         ],
         config=LLMConfig(
             # model="claude-haiku-4-5-latest",
             model="gpt-4o-mini",
-            response_format=RemoteSessionResponse
+            response_format=RemoteSessionResponse,
         ),
     )
 
@@ -792,20 +704,3 @@ async def remote_prompt_session(
         raise Exception(output.error)
     
     return output.outputs
-
-
-    # result.update({"session": session_id})
-
-    # return result
-
-
-@app.local_entrypoint()
-async def local_entrypoint():
-    """Test the remote_prompt_session_with_message function"""
-    result = await remote_prompt_session_with_message.remote.aio(
-        session_id="68ec5c2de3c978d796a53962",
-        agent_id="675f880479e00297cd9b4688",
-        user_id="65284b18f8bbb9bff13ebe65",
-        content="Repeat what you just said",
-    )
-    logger.info(f"Test result: {result}")

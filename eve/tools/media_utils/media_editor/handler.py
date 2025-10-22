@@ -1,8 +1,6 @@
 from jinja2 import Template
 
 from eve.tool import Tool
-from eve.agent.deployments import Deployment
-from eve.agent import Agent
 
 
 init_message = """
@@ -62,20 +60,5 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
 
     if "error" in result:
         raise Exception(result["error"])
-    
-    
-    print("media_editor result")
-    print(result)
 
-    #if "output" in result:
-    output = result["output"]
-    
-
-    # session_id = result["output"][0]["session"]
-
-    # return {"output": [{"session": session_id}]}
-
-    print("---- HERE IS THE RESULT ----")
-    print(result)
-    print("---- HERE IS THE RESULT ----")
-    return {"output": output}
+    return result

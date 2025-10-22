@@ -1,14 +1,13 @@
 import os
 import asyncio
 import fal_client
-from typing import Dict, Optional, List, Any, Tuple
+from typing import Dict, List, Any
 from pydantic import Field
 import logging
 
 from .. import utils
 from ..tool import Tool, tool_context
 from ..task import Task, Creation
-from ..mongo import get_collection
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +25,7 @@ class FalTool(Tool):
         def on_queue_update(update):
             if isinstance(update, fal_client.InProgress):
                 for log in update.logs:
-                    print(log["message"])
+                    logger.info(log["message"])
         
         result = fal_client.subscribe(
             self.fal_endpoint,
@@ -83,7 +82,6 @@ class FalTool(Tool):
                 # Print running status only every 2 seconds
                 current_time = asyncio.get_event_loop().time()
                 if current_time - last_print_time >= 2.0:
-                    print("running...") 
                     last_print_time = current_time
                 
             elif status.status == "COMPLETED":
@@ -178,7 +176,6 @@ class FalTool(Tool):
                 )
                 # Print the result from upload_result to see the structure and final URL
                 logger.info(f"Uploaded FAL URL {url} to Eden: {uploaded_data}")
-                print(f"DEBUG: uploaded_data for {url}: {uploaded_data}") # <<< ADDED FOR DEBUGGING
                 processed_outputs.append(uploaded_data)
             except Exception as e:
                  logger.error(f"Failed to upload result URL {url}: {e}")
@@ -220,7 +217,6 @@ class FalTool(Tool):
     # Override the base class method to add debugging before returning
     async def wait(self, task: Task):
         result_data = await self.async_wait(task)
-        print(f"DEBUG: Final result structure from async_wait: {result_data}") # <<< ADDED FOR DEBUGGING
         return result_data
 
 def get_webhook_url():

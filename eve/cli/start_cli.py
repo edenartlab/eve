@@ -6,9 +6,6 @@ from pathlib import Path
 
 from eve.agent.session.models import ClientType
 from ..agent import Agent
-from ..clients.discord.client import start as start_discord
-from ..clients.telegram.client import start as start_telegram
-from ..clients.farcaster.client import start as start_farcaster
 
 
 @click.command()
@@ -64,34 +61,6 @@ def start(agent: str, db: str, platforms: tuple, local: bool):
 
         # Start discord and telegram first, local client last
         processes = []
-        for client_type in clients_to_start:
-            try:
-                if client_type == ClientType.DISCORD:
-                    p = multiprocessing.Process(
-                        target=start_discord, args=(env_path, local)
-                    )
-                elif client_type == ClientType.TELEGRAM:
-                    p = multiprocessing.Process(
-                        target=start_telegram, args=(env_path, local)
-                    )
-                elif client_type == ClientType.FARCASTER:
-                    p = multiprocessing.Process(
-                        target=start_farcaster, args=(env_path, local)
-                    )
-
-                p.start()
-                processes.append(p)
-                click.echo(
-                    click.style(f"Started {client_type.value} client", fg="green")
-                )
-            except Exception as e:
-                click.echo(
-                    click.style(
-                        f"Failed to start {client_type.value} client:", fg="red"
-                    )
-                )
-                click.echo(click.style(f"Error: {str(e)}", fg="red"))
-                traceback.print_exc(file=sys.stdout)
 
         # Wait for other processes
         try:
@@ -143,6 +112,7 @@ def api(host: str, port: int, reload: bool, db: str, remote_debug: bool):
     """Start the Eve API server"""
     import uvicorn
     import os
+
     # Set the LOCAL_DEBUG environment variable if the flag is set
     if not remote_debug:
         os.environ["LOCAL_DEBUG"] = "True"
