@@ -62,7 +62,6 @@ MODEL_TIERS = {
     "high": ["claude-sonnet-4-5-20250929", "gemini/gemini-2.5-pro", "openai/gpt-5"],
     "medium": [
         "claude-sonnet-4-5-20250929",
-        "gemini/gemini-2.5-flash",
         "openai/gpt-4o",
     ],
     "low": ["claude-3-5-haiku-latest", "openai/gpt-5-nano", "openai/gpt-4o-mini"],
