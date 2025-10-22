@@ -74,6 +74,16 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
 
         session_id = str(new_session.id)
 
+        # Update parent tool call with child session ID (if called via tool execution)
+        from eve.agent.session.tool_context import get_current_tool_call
+        context = get_current_tool_call()
+        if context:
+            tool_call, assistant_message, tool_call_index = context
+            tool_call.child_session = new_session.id
+            if assistant_message.tool_calls and tool_call_index < len(assistant_message.tool_calls):
+                assistant_message.tool_calls[tool_call_index].child_session = new_session.id
+                assistant_message.save()
+
     # make a new set of drafts
     session = Session.from_mongo(session_id)
 
