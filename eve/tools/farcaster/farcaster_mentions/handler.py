@@ -53,7 +53,7 @@ async def handler(context: ToolContext):
                     target_fid = int(target_username)
                 else:
                     # Search for user by username using v2 API
-                    user_search_url = f"https://api.neynar.com/v2/farcaster/user/search"
+                    user_search_url = "https://api.neynar.com/v2/farcaster/user/search"
                     user_params = {"q": target_username, "limit": 1}
 
                     async with session.get(
@@ -101,13 +101,6 @@ async def handler(context: ToolContext):
                         cutoff_farcaster_timestamp = (
                             cutoff_unix_timestamp - FARCASTER_EPOCH
                         )
-
-                        # Debug: show some sample timestamps
-                        if messages:
-                            sample_timestamps = [
-                                msg.get("data", {}).get("timestamp", 0)
-                                for msg in messages[:3]
-                            ]
 
                         messages = [
                             msg

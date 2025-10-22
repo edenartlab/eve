@@ -30,11 +30,14 @@ def get_audio_duration(audio_file_path: str) -> float:
     """Get the duration of an audio file in seconds using ffprobe."""
     try:
         cmd = [
-            'ffprobe',
-            '-v', 'error',
-            '-show_entries', 'format=duration',
-            '-of', 'default=noprint_wrappers=1:nokey=1',
-            audio_file_path
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            audio_file_path,
         ]
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         duration = float(result.stdout.strip())
@@ -56,7 +59,9 @@ async def handler(context: ToolContext):
 
     try:
         # Download files using utils
-        image = utils.download_file(context.args["image"], temp_image.name, overwrite=True)
+        image = utils.download_file(
+            context.args["image"], temp_image.name, overwrite=True
+        )
         audio_file = utils.download_file(
             context.args["audio"], temp_audio.name, overwrite=True
         )
@@ -66,7 +71,9 @@ async def handler(context: ToolContext):
 
         # Use Hedra Character 3 model for audio-based talking heads (supports auto duration)
         # Otherwise fall back to first model
-        character_model = next((m for m in models if "Character" in m.get("name", "")), None)
+        character_model = next(
+            (m for m in models if "Character" in m.get("name", "")), None
+        )
         model = character_model if character_model else models[0]
         model_id = model["id"]
         logger.info(f"Using model: {model.get('name', 'Unknown')} (ID: {model_id})")
@@ -110,12 +117,15 @@ async def handler(context: ToolContext):
         # Build generated_video_inputs matching the official starter structure
         generated_video_inputs = {
             "text_prompt": context.args["prompt"],
-            "resolution": context.args.get("resolution", "540p"),  # Default to 540p if not provided
-            "aspect_ratio": context.args.get("aspectRatio", "1:1"),  # Default to 1:1 if not provided
+            "resolution": context.args.get(
+                "resolution", "540p"
+            ),  # Default to 540p if not provided
+            "aspect_ratio": context.args.get(
+                "aspectRatio", "1:1"
+            ),  # Default to 1:1 if not provided
         }
 
         # Add duration if explicitly provided (in seconds), otherwise get it from audio
-        logger.info(f"Args: {args}")
         if context.args.get("duration") is not None:
             duration_seconds = context.args["duration"]
             logger.info(f"Using explicit duration: {duration_seconds}s")
@@ -126,7 +136,9 @@ async def handler(context: ToolContext):
                 duration_seconds = audio_duration
                 logger.info(f"Using audio duration: {duration_seconds}s")
             else:
-                logger.warning("Could not get audio duration, proceeding without duration")
+                logger.warning(
+                    "Could not get audio duration, proceeding without duration"
+                )
                 duration_seconds = None
 
         # Convert duration to milliseconds and clamp to valid model durations
@@ -136,9 +148,13 @@ async def handler(context: ToolContext):
             # If model has specific valid durations, use the closest one
             if valid_durations_ms:
                 # Find the closest valid duration
-                duration_ms = min(valid_durations_ms, key=lambda x: abs(x - requested_duration_ms))
+                duration_ms = min(
+                    valid_durations_ms, key=lambda x: abs(x - requested_duration_ms)
+                )
                 if duration_ms != requested_duration_ms:
-                    logger.info(f"Requested duration {requested_duration_ms}ms not valid for this model. Using closest valid duration: {duration_ms}ms")
+                    logger.info(
+                        f"Requested duration {requested_duration_ms}ms not valid for this model. Using closest valid duration: {duration_ms}ms"
+                    )
                 else:
                     logger.info(f"Using valid duration: {duration_ms}ms")
             else:
@@ -169,7 +185,9 @@ async def handler(context: ToolContext):
         # Check if the response contains an error
         if "code" in generation_response or "id" not in generation_response:
             error_msg = generation_response.get("messages", ["Unknown error"])
-            raise Exception(f"API error: {error_msg}. Full response: {generation_response}")
+            raise Exception(
+                f"API error: {error_msg}. Full response: {generation_response}"
+            )
 
         generation_id = generation_response["id"]
         while True:
@@ -186,17 +204,6 @@ async def handler(context: ToolContext):
         # --- Process final status (download or log error) ---
         if status == "complete" and status_response.get("url"):
             download_url = status_response["url"]
-            # Use asset_id for filename if available, otherwise use generation_id
-            output_filename_base = status_response.get("asset_id", generation_id)
-            output_filename = f"{output_filename_base}.mp4"
-
-            # Use a fresh requests get, not the session, as the URL is likely presigned S3
-            # with requests.get(download_url, stream=True) as r:
-            #     r.raise_for_status() # Check if the request was successful
-            #     with open(output_filename, 'wb') as f:
-            #         for chunk in r.iter_content(chunk_size=8192):
-            #             f.write(chunk)
-            # logger.info(f"Successfully downloaded video to {output_filename}")
             return {"output": download_url}
 
         elif status == "error":

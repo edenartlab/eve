@@ -86,7 +86,7 @@ async def handler(context: ToolContext):
                 creator_name = random.choice(available_creators)
             else:
                 raise RuntimeError("No creators available from API")
-        except Exception as e:
+        except Exception:
             # Fallback to a few known creators if API fails
             fallback_creators = [
                 "Jason",

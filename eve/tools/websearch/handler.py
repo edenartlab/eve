@@ -12,7 +12,7 @@ async def wait_for_content(page) -> bool:
         # Wait a bit for dynamic content
         await page.wait_for_timeout(1000)
         return True
-    except:
+    except Exception:
         return False
 
 
@@ -103,7 +103,7 @@ async def get_text_content(page) -> str:
     """
     try:
         return await page.evaluate(script)
-    except:
+    except Exception:
         return ""
 
 

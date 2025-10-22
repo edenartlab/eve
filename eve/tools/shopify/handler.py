@@ -11,22 +11,27 @@ from eve.tool import ToolContext
 async def handler(context: ToolContext):
     if not context.agent:
         raise Exception("Agent is required")
-    
+
     agent_obj = Agent.from_mongo(context.agent)
     deployment = Deployment.load(agent=agent_obj.id, platform="shopify")
     if not deployment:
         raise Exception("No valid shopify deployments found")
-    
+
     store_name = deployment.secrets.shopify.store_name
     access_token = deployment.secrets.shopify.access_token
     location_id = deployment.secrets.shopify.location_id
     api_version = "2025-07"
-    
+
     if not all([store_name, access_token, location_id]):
         raise ValueError("Missing required Shopify credentials")
 
-    ENDPOINT = f"https://{store_name}.myshopify.com/admin/api/{api_version}/graphql.json"
-    HEADERS  = {"X-Shopify-Access-Token": access_token, "Content-Type": "application/json"}
+    ENDPOINT = (
+        f"https://{store_name}.myshopify.com/admin/api/{api_version}/graphql.json"
+    )
+    HEADERS = {
+        "X-Shopify-Access-Token": access_token,
+        "Content-Type": "application/json",
+    }
 
     # ────────────────────────────────────────────────────────────────
     # GraphQL Helper
@@ -35,11 +40,8 @@ async def handler(context: ToolContext):
         r = requests.post(
             ENDPOINT,
             headers=HEADERS,
-            data=json.dumps({
-                "query": query,
-                "variables": variables or {}
-            }),
-            timeout=30
+            data=json.dumps({"query": query, "variables": variables or {}}),
+            timeout=30,
         )
         r.raise_for_status()
         data = r.json()
@@ -81,7 +83,7 @@ async def handler(context: ToolContext):
     }
     """
 
-    PUBS = "query { publications(first: 5) { nodes { id name } } }"      # Online Store is usually first
+    PUBS = "query { publications(first: 5) { nodes { id name } } }"  # Online Store is usually first
 
     PUBLISH = """
     mutation publish($id: ID!, $pub: ID!) {
@@ -95,72 +97,77 @@ async def handler(context: ToolContext):
     """
 
     # ---- 1. create skeleton product + hero image ----
-    draft = _gql(PRODUCT_CREATE, {
-        "product": {
-            "title": context.args.get("title"),
-            "descriptionHtml": context.args.get("description"),
-            "status": "ACTIVE"
+    draft = _gql(
+        PRODUCT_CREATE,
+        {
+            "product": {
+                "title": context.args.get("title"),
+                "descriptionHtml": context.args.get("description"),
+                "status": "ACTIVE",
+            },
+            "media": [
+                {
+                    "alt": context.args.get("alt_text"),
+                    "mediaContentType": "IMAGE",
+                    "originalSource": context.args.get("image"),
+                }
+            ],
         },
-        "media": [{
-            "alt": context.args.get("alt_text"),
-            "mediaContentType": "IMAGE",
-            "originalSource": context.args.get("image")
-        }]
-    })["productCreate"]
+    )["productCreate"]
 
     if draft["userErrors"]:
         raise RuntimeError(draft["userErrors"])
 
-    product_id  = draft["product"]["id"]
-    variant_id  = draft["product"]["variants"]["nodes"][0]["id"]
-    item_id     = draft["product"]["variants"]["nodes"][0]["inventoryItem"]["id"]
+    product_id = draft["product"]["id"]
+    variant_id = draft["product"]["variants"]["nodes"][0]["id"]
+    item_id = draft["product"]["variants"]["nodes"][0]["inventoryItem"]["id"]
     handle = draft["product"]["handle"]
     store_url = f"https://{store_name}.myshopify.com/products/{handle}"
-    
+
     # make a sku from the slug
-    base = ''.join(e for e in context.args.get("title") if e.isalnum() or e == " ")
+    base = "".join(e for e in context.args.get("title") if e.isalnum() or e == " ")
     base = base.upper().replace(" ", "-")[:10]
     sku = base64.b32encode(uuid.uuid4().bytes)[:4].decode("ascii")
     sku = f"{base}-{sku}"
 
     # ---- 2. set price + SKU on the default variant ----
-    _gql(VARIANTS_UPDATE, {
-        "productId": product_id,
-        "variants": [{
-            "id": variant_id,
-            "price": context.args.get("price"),
-            "inventoryItem": {
-                "sku": sku
-            }
-        }]
-    })
-
+    _gql(
+        VARIANTS_UPDATE,
+        {
+            "productId": product_id,
+            "variants": [
+                {
+                    "id": variant_id,
+                    "price": context.args.get("price"),
+                    "inventoryItem": {"sku": sku},
+                }
+            ],
+        },
+    )
 
     # ---- 3. set on‑hand inventory at first active location ----
     location_id = f"gid://shopify/Location/{location_id}"
-    _gql(SET_QTY, {
-        "input": {
-            "name":   "available",                      # or "on_hand"
-            "reason": "initial_stock",                  # any non‑empty string
-            "quantities": [{
-                "inventoryItemId": item_id,
-                "locationId": location_id,
-                "quantity": context.args.get("quantity")
-                # "compareQuantity": 0  # optional: CAS check
-            }]
-        }
-    })
-
+    _gql(
+        SET_QTY,
+        {
+            "input": {
+                "name": "available",  # or "on_hand"
+                "reason": "initial_stock",  # any non‑empty string
+                "quantities": [
+                    {
+                        "inventoryItemId": item_id,
+                        "locationId": location_id,
+                        "quantity": context.args.get("quantity"),
+                        # "compareQuantity": 0  # optional: CAS check
+                    }
+                ],
+            }
+        },
+    )
 
     # ---- 4. publish to Online Store, so no manual merch action is needed ----
-    if context.args.get("auto_publish") == True:
+    if context.args.get("auto_publish"):
         online_pub = _gql(PUBS)["publications"]["nodes"][0]["id"]
         _gql(PUBLISH, {"id": product_id, "pub": online_pub})
-    
-    return {
-        "output": [{"url": store_url}]
-    }
 
-
-
-
+    return {"output": [{"url": store_url}]}

@@ -38,7 +38,9 @@ async def handler(context: ToolContext):
             from telegram import InputMediaPhoto, InputMediaVideo
 
             media_group = []
-            for i, url in enumerate(media_urls[:10]):  # Telegram allows up to 10 media items
+            for i, url in enumerate(
+                media_urls[:10]
+            ):  # Telegram allows up to 10 media items
                 # Determine media type based on extension
                 video_extensions = (".mp4", ".avi", ".mov", ".mkv", ".webm")
 
@@ -59,11 +61,15 @@ async def handler(context: ToolContext):
             message = await bot.send_message(chat_id=channel_id, text=content)
 
         result = {
-            "output": [{
-                "message_id": message.message_id,
-                "chat_id": message.chat.id,
-                "url": f"https://t.me/{message.chat.username}/{message.message_id}" if hasattr(message.chat, 'username') and message.chat.username else None,
-            }]
+            "output": [
+                {
+                    "message_id": message.message_id,
+                    "chat_id": message.chat.id,
+                    "url": f"https://t.me/{message.chat.username}/{message.message_id}"
+                    if hasattr(message.chat, "username") and message.chat.username
+                    else None,
+                }
+            ]
         }
 
         await bot.close()
@@ -72,6 +78,6 @@ async def handler(context: ToolContext):
     except Exception as e:
         try:
             await bot.close()
-        except:
+        except Exception:
             pass  # Ignore errors closing bot
         raise e

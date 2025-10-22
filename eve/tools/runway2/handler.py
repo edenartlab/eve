@@ -56,10 +56,10 @@ async def handler(context: ToolContext):
                 seed=context.args["seed"],
             )
 
-        except runwayml.APIConnectionError as e:
+        except runwayml.APIConnectionError:
             raise Exception("The server could not be reached")
 
-        except runwayml.RateLimitError as e:
+        except runwayml.RateLimitError:
             raise Exception("A 429 status code was received; we should back off a bit.")
 
         except runwayml.APIStatusError as e:

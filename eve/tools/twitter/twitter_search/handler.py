@@ -6,7 +6,8 @@ from typing import List, Dict, Tuple
 from pydantic import BaseModel, Field, validator
 
 from eve.agent import Agent
-from eve.agent.session.models import Deployment
+from eve.agent.session.models import ChatMessage, Deployment
+from eve.agent.session.session_llm import async_prompt
 from eve.tools.twitter import X
 from eve.tool import ToolContext
 
@@ -193,12 +194,9 @@ def process_payload(
 # ───────────────────────────────────────────────
 
 
-
 ##### TODO:
 ### async_prompt no longer exists
 ### Use Session instead
-
-
 
 
 async def handler(context: ToolContext):
@@ -212,11 +210,17 @@ async def handler(context: ToolContext):
     user_query = context.args["query"]
     parsed: TwitterSearchQuery = await async_prompt(
         messages=[
-            UserMessage(
-                role="user", content=f"Build a Twitter search for: {user_query}"
+            ChatMessage(
+                role="user",
+                content=f"Build a Twitter search for: {user_query}",
+                sender=context.user,
             )
         ],
-        system_message=SYSTEM_MESSAGE,
+        system=ChatMessage(
+            role="system",
+            content=SYSTEM_MESSAGE,
+            sender=context.user,
+        ),
         response_model=TwitterSearchQuery,
         model="gpt-4o",
     )
@@ -229,7 +233,10 @@ async def handler(context: ToolContext):
 
     # strict pass
     raw_strict = twitter_search(
-        x, parsed.query, start=context.args.get("start_time"), end=context.args.get("end_time")
+        x,
+        parsed.query,
+        start=context.args.get("start_time"),
+        end=context.args.get("end_time"),
     )
     tweets = process_payload(
         raw_strict,
@@ -246,7 +253,10 @@ async def handler(context: ToolContext):
         )
         # print("relaxed_q", relaxed_q)
         raw_relaxed = twitter_search(
-            x, relaxed_q, start=context.args.get("start_time"), end=context.args.get("end_time")
+            x,
+            relaxed_q,
+            start=context.args.get("start_time"),
+            end=context.args.get("end_time"),
         )
         tweets = process_payload(
             raw_relaxed,
@@ -265,7 +275,10 @@ async def handler(context: ToolContext):
         )
         # print("relaxed_q 2", relaxed_q)
         raw_very_relaxed = twitter_search(
-            x, relaxed_q, start=context.args.get("start_time"), end=context.args.get("end_time")
+            x,
+            relaxed_q,
+            start=context.args.get("start_time"),
+            end=context.args.get("end_time"),
         )
         tweets = process_payload(
             raw_very_relaxed,

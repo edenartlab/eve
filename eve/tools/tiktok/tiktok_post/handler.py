@@ -248,7 +248,7 @@ async def _refresh_token(refresh_token: str) -> Dict[str, Any]:
                 if "error_description" in error_data:
                     error_msg += f" - {error_data['error_description']}"
                 return {"error": error_msg}
-            except:
+            except Exception:
                 return {"error": f"HTTP {response.status_code}: {response.text}"}
 
         refresh_data = response.json()
@@ -297,7 +297,7 @@ def _parse_bigint_json(response_text: str) -> dict:
                             break
 
         return data
-    except json.JSONDecodeError as e:
+    except json.JSONDecodeError:
         # Fallback to regular parsing
         return json.loads(response_text)
 

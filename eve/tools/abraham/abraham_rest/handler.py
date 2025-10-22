@@ -19,10 +19,7 @@ CONTRACT_ADDRESS_COVENANT = os.getenv("CONTRACT_ADDRESS_COVENANT")
 ABRAHAM_PRIVATE_KEY = os.getenv("ABRAHAM_PRIVATE_KEY")
 
 # ABI file is stored locally in the tool folder
-CONTRACT_ABI_COVENANT = os.path.join(
-    os.path.dirname(__file__),
-    "abi_covenant.json"
-)
+CONTRACT_ABI_COVENANT = os.path.join(os.path.dirname(__file__), "abi_covenant.json")
 
 
 def rest():
@@ -37,7 +34,7 @@ def rest():
             abi_path=CONTRACT_ABI_COVENANT,
             private_key=ABRAHAM_PRIVATE_KEY,
             # network=Network.ETH_SEPOLIA,
-            network=Network.ETH_MAINNET
+            network=Network.ETH_MAINNET,
         )
 
         # Prepare contract function call
@@ -58,7 +55,7 @@ def rest():
 
         # Build explorer URL for ETH Sepolia
         tx_hash_hex = tx_hash.hex()
-        if not tx_hash_hex.startswith('0x'):
+        if not tx_hash_hex.startswith("0x"):
             tx_hash_hex = f"0x{tx_hash_hex}"
         # explorer_url = f"https://sepolia.etherscan.io/tx/{tx_hash_hex}"
         explorer_url = f"https://etherscan.io/tx/{tx_hash_hex}"
@@ -66,10 +63,7 @@ def rest():
         logger.info(f"✅ Rest committed successfully: {tx_hash_hex}")
         logger.info(f"Explorer: {explorer_url}")
 
-        return {
-            "tx_hash": tx_hash_hex,
-            "explorer_url": explorer_url
-        }
+        return {"tx_hash": tx_hash_hex, "explorer_url": explorer_url}
 
     except BlockchainError as e:
         logger.error(f"❌ ABRAHAM_REST failed: {e}")
@@ -88,10 +82,9 @@ async def handler(context: ToolContext):
         result = rest()
 
         return {
-            "output": [{
-                "tx_hash": result["tx_hash"],
-                "explorer_url": result["explorer_url"]
-            }]
+            "output": [
+                {"tx_hash": result["tx_hash"], "explorer_url": result["explorer_url"]}
+            ]
         }
     except Exception as e:
         logger.error(f"Failed to rest: {e}")

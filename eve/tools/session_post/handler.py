@@ -42,7 +42,7 @@ async def handler(context: ToolContext):
             if session:
                 title = f"Session spawned from {session}"
             else:
-                title = f"New Session"
+                title = "New Session"
 
         request = PromptSessionRequest(
             user_id=str(user.id),

@@ -16,17 +16,16 @@ async def handler(context: ToolContext):
     # collection_id = results[0]["collection_id"]
     collection_id = context.args.get("collection_id")
     creation_id = context.args.get("creation_id")
-    
 
     collection = CreationsCollection.from_mongo(collection_id)
     collection.add_creation(creation_id)
     collection.save()
 
     creation = Creation.from_mongo(creation_id)
-    
+
     return {
         "output": {
             "filename": creation.filename,
-            "mediaAttributes": creation.mediaAttributes
+            "mediaAttributes": creation.mediaAttributes,
         }
     }

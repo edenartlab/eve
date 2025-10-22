@@ -27,7 +27,9 @@ async def handler(context: ToolContext):
             reply=context.args.get("reply_to"),
         )
     else:
-        response = x.post(text=context.args.get("content"), reply=context.args.get("reply_to"))
+        response = x.post(
+            text=context.args.get("content"), reply=context.args.get("reply_to")
+        )
     tweet_id = response.get("data", {}).get("id")
     url = f"https://x.com/{deployment.config.twitter.username}/status/{tweet_id}"
     return {

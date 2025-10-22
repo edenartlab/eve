@@ -260,7 +260,6 @@ async def discover_active_users(
                 logger.warning(
                     f"Failed to get thread messages for channel {channel_id}: {e}"
                 )
-                continue
 
         # Sort by message count (most active first)
         active_users.sort(key=lambda x: x.message_count, reverse=True)

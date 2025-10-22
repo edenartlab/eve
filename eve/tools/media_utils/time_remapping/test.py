@@ -19,21 +19,6 @@ async def test_time_remapping():
         "preserve_pitch": False,
     }
 
-    # Create dynamic description of what we're doing
-    if "total_frames" in args:
-        action_desc = (
-            f"Creating a {args['total_frames']}-frame video at {args['target_fps']}fps"
-        )
-        duration_desc = f"({args['total_frames'] / args['target_fps']:.1f} seconds)"
-    elif "duration" in args:
-        action_desc = (
-            f"Creating a {args['duration']:.1f}-second video at {args['target_fps']}fps"
-        )
-        duration_desc = f"({int(args['duration'] * args['target_fps'])} frames)"
-    else:
-        action_desc = f"Preserving original duration at {args['target_fps']}fps"
-        duration_desc = ""
-
     # Import and run the handler
     from eve.tools.media_utils.time_remapping.handler import handler
     from eve.tool import ToolContext

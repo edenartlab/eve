@@ -106,7 +106,7 @@ async def handler(context: ToolContext):
     )
 
     # Make LLM call
-    system_message = f"""You are a search assistant that helps find relevant Collections based on natural language queries. Analyze the provided items and return only the most relevant matches for the query. Be selective - only return items that truly match the query's intent."""
+    system_message = """You are a search assistant that helps find relevant Collections based on natural language queries. Analyze the provided items and return only the most relevant matches for the query. Be selective - only return items that truly match the query's intent."""
 
     client = instructor.from_openai(openai.AsyncOpenAI())
     results = await client.chat.completions.create(

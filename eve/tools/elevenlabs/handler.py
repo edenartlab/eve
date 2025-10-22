@@ -23,15 +23,10 @@ async def handler(context: ToolContext):
     args["stability"] = args.get("stability", 0.5)
     args["style"] = args.get("style", 0.0)
     args["speed"] = args.get("speed", 1.0)
-    # args["similarity_boost"] = args.get("similarity_boost", 0.75)
-    # args["use_speaker_boost"] = args.get("use_speaker_boost", True)
-    # args["max_attempts"] = args.get("max_attempts", 3)
-    # args["initial_delay"] = args.get("initial_delay", 1)
 
     # get voice
     response = eleven.voices.get_all()
     voices = {v.name: v.voice_id for v in response.voices}
-    # voice_id = voices.get(args["voice"], DEFAULT_VOICE)
     voice_ids = [v.voice_id for v in response.voices]
     voice_id = args.get("voice", DEFAULT_VOICE)
     if voice_id not in voice_ids:
@@ -198,7 +193,6 @@ def get_voice_summary():
         full_description += f"{id} :: {name}, {description}\n"
         ids.append(id)
         names.append(name)
-
 
     return ids, names, full_description
 

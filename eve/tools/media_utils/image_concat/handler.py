@@ -21,8 +21,8 @@ async def handler(context: ToolContext):
     # Calculate total width for the final image
     total_width = sum(img.size[0] for img in images)
     # Create new image with combined width and specified height
-    combined_image = Image.new('RGB', (total_width, height))
-    
+    combined_image = Image.new("RGB", (total_width, height))
+
     # Paste images horizontally
     x_offset = 0
     for img in images:
@@ -33,6 +33,4 @@ async def handler(context: ToolContext):
     result_filename = f"combined_{height}px.png"
     combined_image.save(result_filename)
 
-    return {
-        "output": result_filename
-    }
+    return {"output": result_filename}

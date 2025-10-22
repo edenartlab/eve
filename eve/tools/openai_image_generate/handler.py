@@ -113,8 +113,8 @@ async def handler(context: ToolContext):
     valid_args["model"] = "gpt-image-1"
     valid_args["moderation"] = "low"
 
-    if user and "user" not in valid_args:
-        valid_args["user"] = str(user)
+    if context.user and "user" not in valid_args:
+        valid_args["user"] = str(context.user)
     # Rename n_samples to n for OpenAI API
     if "n_samples" in valid_args:
         valid_args["n"] = valid_args.pop("n_samples")

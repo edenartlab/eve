@@ -10,14 +10,12 @@ from eve.tool import ToolContext
 from loguru import logger
 
 
-eleven = ElevenLabs(
-    api_key=os.getenv("ELEVEN_API_KEY")
-)
+eleven = ElevenLabs(api_key=os.getenv("ELEVEN_API_KEY"))
 
 
 async def handler(context: ToolContext):
     prompt = context.args["prompt"]
-    
+
     if context.args.get("enhance_prompt"):
         try:
             prompt = enhance_prompt(prompt)
@@ -32,9 +30,7 @@ async def handler(context: ToolContext):
         return audio_generator
 
     audio_generator = await utils.async_exponential_backoff(
-        generate_with_params,
-        max_attempts=3, 
-        initial_delay=1
+        generate_with_params, max_attempts=3, initial_delay=1
     )
 
     if isinstance(audio_generator, Iterator):
@@ -50,7 +46,6 @@ async def handler(context: ToolContext):
     return {
         "output": audio_file.name,
     }
-
 
 
 enhancement_prompt = """Your job is to transform a user’s raw request into an optimal prompt for Eleven Music—maximizing musicality and control while staying concise.
@@ -134,4 +129,3 @@ def enhance_prompt(
     )
 
     return enhanced_prompt.choices[0].message.content
-

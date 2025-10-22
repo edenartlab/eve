@@ -127,7 +127,9 @@ Behavior:
             )
 
         if messages:
-            messages = await _replace_user_mentions(http=http, messages=messages)
+            messages = await _replace_user_mentions(
+                http=http, messages=messages, user=context.user
+            )
 
         formatted_messages = _format_output_messages(messages)
         return {"output": formatted_messages, "_skip_upload_processing": True}
@@ -433,7 +435,7 @@ async def _collect_thread_messages(
 
 
 async def _replace_user_mentions(
-    http: discord.http.HTTPClient, messages: List[Dict[str, Any]]
+    http: discord.http.HTTPClient, messages: List[Dict[str, Any]], user: str
 ) -> List[Dict[str, Any]]:
     user_ids: set[str] = set()
     for message in messages:
@@ -453,7 +455,7 @@ async def _replace_user_mentions(
         except Exception as exc:
             logger.error(f"Failed to resolve user {user_id}: {exc}")
             continue
-        if context.user:
+        if user:
             username = user.get("global_name") or user.get("username")
             if username:
                 username_cache[user_id] = username

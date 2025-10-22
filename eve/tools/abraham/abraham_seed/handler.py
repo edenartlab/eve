@@ -46,7 +46,7 @@ async def handler(context: ToolContext):
             - image: A representative/main image URL from the creation
         session: The session ID where the creation was made (provided automatically)
     """
-    if not session:
+    if not context.session:
         raise ValueError("Session ID is required")
 
     title = context.args.get("title")
@@ -57,23 +57,23 @@ async def handler(context: ToolContext):
 
     # Validate required fields
     if not all([title, proposal, tagline, cast_hash, image]):
-        raise ValueError("All parameters are required: title, proposal, tagline, cast_hash, image")
+        raise ValueError(
+            "All parameters are required: title, proposal, tagline, cast_hash, image"
+        )
 
     # Generate URL
-    url = f"https://abraham.ai/seeds/{session}"
+    url = f"https://abraham.ai/seeds/{context.session}"
 
     seed = AbrahamSeed(
-        session_id=ObjectId(session),
+        session_id=ObjectId(context.session),
         title=title,
         proposal=proposal,
         tagline=tagline,
         cast_hash=cast_hash,
         image=image,
         url=url,
-        status="seed"
+        status="seed",
     )
     seed.save()
 
-    return {
-        "output": {"url": url, "seed_id": str(seed.id)}
-    }
+    return {"output": {"url": url, "seed_id": str(seed.id)}}

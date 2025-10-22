@@ -14,9 +14,17 @@ class LocalTool(Tool):
         self._tasks = {}
 
     @Tool.handle_run
-    async def async_run(self, args: Dict, user_id: str = None, agent_id: str = None, session_id: str = None):
+    async def async_run(
+        self,
+        args: Dict,
+        user_id: str = None,
+        agent_id: str = None,
+        session_id: str = None,
+    ):
         handler = load_handler(self.parent_tool or self.key)
-        context = ToolContext(args=args, user=user_id, agent=agent_id, session=session_id)
+        context = ToolContext(
+            args=args, user=user_id, agent=agent_id, session=session_id
+        )
         result = await handler(context)
         return result
 
@@ -52,6 +60,8 @@ class LocalTool(Tool):
 
 
 @task_handler_func
-async def run_task(tool_key: str, args: dict, user: str = None, agent: str = None, session: str = None):
+async def run_task(
+    tool_key: str, args: dict, user: str = None, agent: str = None, session: str = None
+):
     context = ToolContext(args=args, user=user, agent=agent, session=session)
     return await load_handler(tool_key)(context)

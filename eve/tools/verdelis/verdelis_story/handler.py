@@ -179,17 +179,19 @@ async def handler(context: ToolContext):
         reference_images=reference_images,
     )
 
-    result = await session_post.async_run({
-        "role": "user",
-        "agent_id": str(agent.id),
-        "title": title,
-        "content": user_message,
-        "attachments": [],
-        "pin": True,
-        "prompt": True,
-        "async": True,
-        "extra_tools": ["discord_post", "add_to_collection"],
-    })
+    result = await session_post.async_run(
+        {
+            "role": "user",
+            "agent_id": str(agent.id),
+            "title": title,
+            "content": user_message,
+            "attachments": [],
+            "pin": True,
+            "prompt": True,
+            "async": True,
+            "extra_tools": ["discord_post", "add_to_collection"],
+        }
+    )
 
     session_id = result["output"][0]["session"]
 

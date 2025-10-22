@@ -213,15 +213,15 @@ async def handler(context: ToolContext):
             api_params["mask"] = BytesIOWithName(mask_bytes, "mask.webp")
 
         # Add optional parameters
-        if "n" in args:
+        if "n" in context.args:
             api_params["n"] = context.args["n"]
-        elif "n_samples" in args:
+        elif "n_samples" in context.args:
             api_params["n"] = context.args["n_samples"]
 
-        if "size" in args:
+        if "size" in context.args:
             api_params["size"] = context.args["size"]
 
-        if "input_fidelity" in args:
+        if "input_fidelity" in context.args:
             api_params["input_fidelity"] = context.args["input_fidelity"]
 
         # if "output_compression" in args:

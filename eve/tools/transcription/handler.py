@@ -4,6 +4,7 @@ import json
 import tempfile
 from ... import utils
 
+
 async def handler(context: ToolContext):
     """
     Handles audio transcription using the OpenAI API.
@@ -12,8 +13,10 @@ async def handler(context: ToolContext):
     # If not set, an openai.AuthenticationError will be raised upon API call.
     client = openai.AsyncOpenAI()
 
-    temp_audio = tempfile.NamedTemporaryFile(suffix='.mp3', delete=False)
-    file_path_str = utils.download_file(context.args["audio"], temp_audio.name, overwrite=True)
+    temp_audio = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
+    file_path_str = utils.download_file(
+        context.args["audio"], temp_audio.name, overwrite=True
+    )
     selected_model_arg = context.args.get("model", "gpt-4o-transcribe")
     enable_timestamps = context.args.get("use_timestamps", False)
     prompt_text = context.args.get("prompt")
@@ -23,7 +26,9 @@ async def handler(context: ToolContext):
         # Timestamps require whisper-1 and verbose_json format
         api_call_params["model"] = "whisper-1"
         api_call_params["response_format"] = "verbose_json"
-        api_call_params["timestamp_granularities"] = [context.args.get("timestamp_granularity", "segment")]
+        api_call_params["timestamp_granularities"] = [
+            context.args.get("timestamp_granularity", "segment")
+        ]
     else:
         api_call_params["model"] = selected_model_arg
         # "json" format is supported by gpt-4o models and whisper-1,
@@ -32,20 +37,19 @@ async def handler(context: ToolContext):
 
     if prompt_text:
         api_call_params["prompt"] = prompt_text
-    
+
     # The 'file' parameter must be a file object opened in binary read mode.
     with open(file_path_str, "rb") as audio_file_obj:
         transcription_response = await client.audio.transcriptions.create(
-            file=audio_file_obj,
-            **api_call_params
+            file=audio_file_obj, **api_call_params
         )
 
     # transcription_response is a Pydantic model from the OpenAI library.
     # .model_dump() converts it to a dictionary.
     # - For response_format="json", this dict is like {"text": "Transcription text..."}
     # - For response_format="verbose_json", this dict contains segments, words with timestamps, etc.
-    output_data = transcription_response.model_dump() 
-    
+    output_data = transcription_response.model_dump()
+
     return {
-        "output": json.dumps(output_data) # Return the full JSON structure as a string
-    } 
+        "output": json.dumps(output_data)  # Return the full JSON structure as a string
+    }

@@ -45,18 +45,20 @@ async def handler(context: ToolContext):
         instructions=instructions,
     )
 
-    result = await session_post.async_run({
-        "role": "user",
-        "agent_id": agent,
-        "agent": "media-editor",
-        "title": context.args.get("title") or "Media Editor Session",
-        "content": user_message,
-        "attachments": media_files,
-        "pin": True,
-        "prompt": True,
-        "async": False,
-        "extra_tools": ["video_concat", "audio_video_combine", "ffmpeg_multitool"],
-    })
+    result = await session_post.async_run(
+        {
+            "role": "user",
+            "agent_id": context.agent,
+            "agent": "media-editor",
+            "title": context.args.get("title") or "Media Editor Session",
+            "content": user_message,
+            "attachments": media_files,
+            "pin": True,
+            "prompt": True,
+            "async": False,
+            "extra_tools": ["video_concat", "audio_video_combine", "ffmpeg_multitool"],
+        }
+    )
 
     if "error" in result:
         raise Exception(result["error"])
