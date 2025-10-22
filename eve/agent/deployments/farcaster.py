@@ -157,6 +157,7 @@ class FarcasterClient(PlatformClient):
                 signer_status = await neynar_client.get_signer_status(
                     secrets.farcaster.signer_uuid
                 )
+
                 if signer_status.get("status") != "approved":
                     raise APIError(
                         f"Managed signer is not approved. Status: {signer_status.get('status')}",
@@ -212,6 +213,44 @@ class FarcasterClient(PlatformClient):
         fid = await self._get_fid(self.deployment.secrets)
 
         await self._update_webhook_fids(webhook_id, add_fid=fid)
+
+    async def update(
+        self,
+        old_config: Optional[DeploymentConfig] = None,
+        new_config: Optional[DeploymentConfig] = None,
+        old_secrets: Optional[DeploymentSecrets] = None,
+        new_secrets: Optional[DeploymentSecrets] = None,
+    ) -> None:
+        """Handle deployment config/secrets updates"""
+        if not self.deployment:
+            raise ValueError("Deployment is required for update")
+
+        # Check if auto_reply setting changed
+        old_auto_reply = (
+            old_config.farcaster.auto_reply
+            if old_config and old_config.farcaster
+            else False
+        )
+        new_auto_reply = (
+            new_config.farcaster.auto_reply
+            if new_config and new_config.farcaster
+            else False
+        )
+
+        if old_auto_reply != new_auto_reply:
+            webhook_id = os.getenv("NEYNAR_WEBHOOK_ID")
+            if not webhook_id:
+                raise Exception("NEYNAR_WEBHOOK_ID not found in environment")
+
+            # Get FID
+            fid = await self._get_fid(self.deployment.secrets)
+
+            if new_auto_reply and not old_auto_reply:
+                # Enable auto-reply: add FID to webhook
+                await self._update_webhook_fids(webhook_id, add_fid=fid)
+            elif not new_auto_reply and old_auto_reply:
+                # Disable auto-reply: remove FID from webhook
+                await self._update_webhook_fids(webhook_id, remove_fid=fid)
 
     async def stop(self) -> None:
         """Stop Farcaster client by removing FID from webhook"""

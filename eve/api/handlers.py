@@ -4,11 +4,10 @@ import logging
 import os
 import time
 import uuid
-import aiohttp
 from bson import ObjectId
-from typing import Dict, List, Optional
+from typing import List, Optional
 from fastapi import BackgroundTasks, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 
 from eve.agent.deployments.farcaster import FarcasterClient
 from eve.agent.session.models import (
@@ -490,6 +489,10 @@ async def handle_v2_deployment_update(request: UpdateDeploymentRequestV2):
             f"Deployment not found: {request.deployment_id}", status_code=404
         )
 
+    # Store old config and secrets for platform update hook
+    old_config = deployment.config
+    old_secrets = deployment.secrets
+
     update_dict = {}
 
     # Handle partial config updates by merging with existing config
@@ -535,6 +538,27 @@ async def handle_v2_deployment_update(request: UpdateDeploymentRequestV2):
     # Update deployment with both config and secrets if provided
     if update_dict:
         deployment.update(**update_dict)
+
+        # Call platform-specific update hook if it exists
+        try:
+            agent = Agent.from_mongo(ObjectId(deployment.agent))
+            client = get_platform_client(
+                agent=agent, platform=deployment.platform, deployment=deployment
+            )
+
+            # Reload deployment to get updated values
+            deployment.reload()
+
+            # Call update hook with old and new configs
+            await client.update(
+                old_config=old_config,
+                new_config=deployment.config,
+                old_secrets=old_secrets,
+                new_secrets=deployment.secrets,
+            )
+        except Exception as e:
+            logger.error(f"Error calling platform update hook: {e}")
+            # Don't fail the update if the hook fails
 
     return {"deployment_id": str(deployment.id)}
 
@@ -740,7 +764,6 @@ async def handle_extract_agent_prompts(request):
     - memory_instructions: Instructions for how agent should store/recall memories
     """
     from pydantic import BaseModel, Field
-    from eve.agent.thread import UserMessage
     from eve.agent.session.models import Session
 
     class AgentPromptsResponse(BaseModel):
