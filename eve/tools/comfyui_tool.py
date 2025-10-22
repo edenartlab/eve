@@ -3,7 +3,6 @@ import modal
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
 
-from ..mongo import get_collection
 from ..tool import Tool, tool_context
 from ..task import Task
 from ..user import User
@@ -58,7 +57,6 @@ class ComfyUITool(Tool):
         session_id: str = None,
     ):
         db = os.getenv("DB", "STAGE")
-        print(f"ComfyUI: comfyui-{self.workspace}-{db}")
         cls = modal.Cls.from_name(
             f"comfyui-{self.workspace}-{db}", "ComfyUIBasic", environment_name="main"
         )
@@ -77,7 +75,6 @@ class ComfyUITool(Tool):
         cls = modal.Cls.from_name(
             f"comfyui-{self.workspace}-{db}", modal_class, environment_name="main"
         )
-        print(f"comfyui-{self.workspace}-{db}", cls)
         job = await cls().run_task.spawn.aio(task)
         return job.object_id
 

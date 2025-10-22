@@ -22,7 +22,7 @@ from eve.task import Task
 from eve.tool import Tool
 from eve.mongo import get_collection
 from eve.models import Model
-from eve.api.api_requests import ChatRequest, UpdateConfig
+from eve.api.api_requests import UpdateConfig
 
 
 async def cancel_stuck_tasks():
@@ -368,52 +368,6 @@ STYLE_PROMPTS = [
 ]
 
 ALL_PROMPTS = FACE_PROMPTS + OBJECT_PROMPTS + STYLE_PROMPTS
-
-
-async def run_twitter_automation():
-    """
-    Periodically generate tweets for Twitter deployments via chat endpoint
-    """
-
-    deployments = Deployment.find({"platform": "twitter"})
-    api_url = os.getenv("EDEN_API_URL")
-
-    async with aiohttp.ClientSession() as session:
-        for deployment in deployments:
-            try:
-                agent = Agent.load(deployment.agent)
-
-                # Create update config for the chat request
-                update_config = UpdateConfig(
-                    update_endpoint=f"{api_url}/updates/platform/twitter",
-                    deployment_id=str(deployment.id),
-                    twitter_tweet_to_reply_id=None,
-                )
-
-                # Create chat request
-                chat_request = ChatRequest(
-                    user_id=str(agent.id),
-                    agent_id=str(agent.id),
-                    user_message={
-                        "content": "Please generate a tweet for my Twitter audience."
-                    },
-                    update_config=update_config,
-                    force_reply=True,
-                )
-
-                # Post to chat endpoint
-                async with session.post(
-                    f"{api_url}/chat",
-                    json=chat_request.model_dump(),
-                    headers={"Authorization": f"Bearer {os.getenv('EDEN_API_KEY')}"},
-                ) as response:
-                    if response.status != 200:
-                        error_text = await response.text()
-                        raise Exception(f"Chat request failed: {error_text}")
-
-            except Exception as e:
-                logger.error(f"Error processing deployment {deployment.id}: {e}")
-                sentry_sdk.capture_exception(e)
 
 
 async def rotate_agent_metadata(since_hours=6):

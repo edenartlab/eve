@@ -1,7 +1,6 @@
 from jinja2 import Template
 
 from eve.tool import Tool
-from eve.agent.deployments import Deployment
 from eve.agent import Agent
 
 
@@ -192,8 +191,6 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         "extra_tools": ["discord_post", "add_to_collection"],
     })
 
-    print("verdelis_story result")
-    print(result)
     session_id = result["output"][0]["session"]
 
     return {"output": [{"session": session_id}]}

@@ -1,8 +1,6 @@
 from jinja2 import Template
 
 from eve.tool import Tool
-from eve.agent.deployments import Deployment
-from eve.agent import Agent
 
 
 init_message = """
@@ -60,13 +58,8 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         "extra_tools": ["video_concat", "audio_video_combine", "ffmpeg_multitool"],
     })
 
-    print("media_editor result")
-    print(result)
     # session_id = result["output"][0]["session"]
 
     # return {"output": [{"session": session_id}]}
 
-    print("---- HERE IS THE RESULT ----")
-    print(result)
-    print("---- HERE IS THE RESULT ----")
     return {"output": result}
