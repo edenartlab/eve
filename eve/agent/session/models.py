@@ -60,7 +60,7 @@ class ToolCall(BaseModel):
     result: Optional[List[Dict[str, Any]]] = None
     reactions: Optional[Dict[str, List[str]]] = None
     error: Optional[str] = None
-    child_session: Optional[ObjectId] = None  # ID of session spawned by this tool call (e.g., session_post)
+    child_session: Optional[ObjectId] = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
