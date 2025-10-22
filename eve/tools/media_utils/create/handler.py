@@ -21,7 +21,6 @@ from loguru import logger
 
 # from eve.api.api import create
 from eve.user import User
-from eve.agent.agent import Agent
 from eve.utils import get_media_attributes
 
 
@@ -97,14 +96,14 @@ async def handler(context: ToolContext):
     output_type = context.args.get("output", "image")
 
     if output_type == "image":
-        return await handle_image_creation(context.args, user, agent)
+        return await handle_image_creation(context.args, context.user, context.agent)
     elif output_type == "video":
-        return await handle_video_creation(context.args, user, agent)
+        return await handle_video_creation(context.args, context.user, context.agent)
     else:
         raise Exception(f"Invalid output type: {output_type}")
 
 
-async def handle_image_creation(context.args: dict, user: str = None, agent: str = None):
+async def handle_image_creation(args: dict, user: str = None, agent: str = None):
     """Handle image creation - copied from original create tool handler"""
 
     # load tools
@@ -119,29 +118,29 @@ async def handle_image_creation(context.args: dict, user: str = None, agent: str
     # openai_image_generate = Tool.load("openai_image_generate")
     # seedream3 = Tool.load("seedream3")
     # seedream4 = Tool.load("seedream4")
-    
+
     # get args
-    prompt = context.args["prompt"]
-    n_samples = context.args.get("n_samples", 1)
-    reference_images = context.args.get("reference_images", [])
+    prompt = args["prompt"]
+    n_samples = args.get("n_samples", 1)
+    reference_images = args.get("reference_images", [])
     init_image = reference_images[0] if len(reference_images) > 0 else None
-    extras = context.args.get("extras", [])
+    extras = args.get("extras", [])
     controlnet = "controlnet" in extras
     double_character = "double_character" in extras
-    seed = context.args.get("seed", None)
-    aspect_ratio = context.args.get("aspect_ratio", "auto")
-    model_preference = context.args.get("model_preference")
+    seed = args.get("seed", None)
+    aspect_ratio = args.get("aspect_ratio", "auto")
+    model_preference = args.get("model_preference")
     model_preference = model_preference.lower() if model_preference else ""
 
     # get loras
-    loras = get_loras(context.args.get("lora"), context.args.get("lora2"))
-    lora_strength = context.args.get("lora_strength", 0.8)
-    lora2_strength = context.args.get("lora2_strength", 0.8)
+    loras = get_loras(args.get("lora"), args.get("lora2"))
+    lora_strength = args.get("lora_strength", 0.8)
+    lora2_strength = args.get("lora2_strength", 0.8)
 
     # check if both loras are faces
     two_faces = len(loras) == 2 and all(
         [
-            (lora.context.args.get("mode") or lora.context.args.get("concept_mode")) == "face"
+            (lora.args.get("mode") or lora.args.get("concept_mode")) == "face"
             for lora in loras
         ]
     )
@@ -196,10 +195,10 @@ async def handle_image_creation(context.args: dict, user: str = None, agent: str
         }
 
         if seed:
-            context.args["seed"] = seed
+            args["seed"] = seed
 
         if loras:
-            context.args.update(
+            args.update(
                 {
                     "use_lora": True,
                     "lora": str(loras[0].id),
@@ -208,7 +207,7 @@ async def handle_image_creation(context.args: dict, user: str = None, agent: str
             )
 
         if init_image:
-            context.args.update(
+            args.update(
                 {
                     "init_image": init_image,
                     "use_init_image": True,
@@ -216,22 +215,22 @@ async def handle_image_creation(context.args: dict, user: str = None, agent: str
                 }
             )
             if controlnet:
-                context.args.update(
+                args.update(
                     {
                         "use_controlnet": True,
                         "controlnet_strength": 0.6,
                     }
                 )
 
-        context.args.update(aspect_ratio_to_dimensions(aspect_ratio))
+        args.update(aspect_ratio_to_dimensions(aspect_ratio))
 
-        result = await txt2img.async_run(context.args, save_thumbnails=True)
+        result = await txt2img.async_run(args, save_thumbnails=True)
 
     #########################################################
     # Flux Schnell
     elif image_tool == "flux_schnell":
         flux_schnell = Tool.load("flux_schnell")
-        
+
         if aspect_ratio == "auto":
             aspect_ratio = "1:1"
 
@@ -242,9 +241,9 @@ async def handle_image_creation(context.args: dict, user: str = None, agent: str
         }
 
         if seed:
-            context.args["seed"] = seed
+            args["seed"] = seed
 
-        result = await flux_schnell.async_run(context.args, save_thumbnails=True)
+        result = await flux_schnell.async_run(args, save_thumbnails=True)
 
     #########################################################
     # Flux Dev Lora
@@ -257,10 +256,10 @@ async def handle_image_creation(context.args: dict, user: str = None, agent: str
         }
 
         if seed:
-            context.args["seed"] = seed
+            args["seed"] = seed
 
         if init_image:
-            context.args.update(
+            args.update(
                 {
                     "init_image": init_image,
                     "prompt_strength": 0.8 if init_image else 1.0,
@@ -268,25 +267,25 @@ async def handle_image_creation(context.args: dict, user: str = None, agent: str
             )
         else:
             if aspect_ratio != "auto":
-                context.args["aspect_ratio"] = aspect_ratio
+                args["aspect_ratio"] = aspect_ratio
 
         if loras:
-            context.args.update(
+            args.update(
                 {
                     "lora": str(loras[0].id),
                     "lora_strength": lora_strength,
                 }
             )
         else:
-            context.args.update({"lora_strength": 0.0})
+            args.update({"lora_strength": 0.0})
 
-        result = await flux_dev_lora.async_run(context.args, save_thumbnails=True)
+        result = await flux_dev_lora.async_run(args, save_thumbnails=True)
 
     #########################################################
     # Flux Dev
     elif image_tool == "flux_dev":
         flux_dev = Tool.load("flux_dev")
-        
+
         args = {
             "prompt": prompt,
             "denoise": 1.0 if init_image else 0.8,
@@ -295,10 +294,10 @@ async def handle_image_creation(context.args: dict, user: str = None, agent: str
         }
 
         if seed:
-            context.args["seed"] = seed
+            args["seed"] = seed
 
         if init_image:
-            context.args.update(
+            args.update(
                 {
                     "init_image": init_image,
                     "use_init_image": True,
@@ -310,7 +309,7 @@ async def handle_image_creation(context.args: dict, user: str = None, agent: str
                 aspect_ratio = "1:1"
 
         if controlnet:
-            context.args.update(
+            args.update(
                 {
                     "use_controlnet": True,
                     "controlnet_strength": 0.6,
@@ -318,7 +317,7 @@ async def handle_image_creation(context.args: dict, user: str = None, agent: str
             )
 
         if loras:
-            context.args.update(
+            args.update(
                 {
                     "use_lora": True,
                     "lora": str(loras[0].id),
@@ -326,10 +325,10 @@ async def handle_image_creation(context.args: dict, user: str = None, agent: str
                 }
             )
         else:
-            context.args.update({"lora_strength": 0.0})
+            args.update({"lora_strength": 0.0})
 
         if loras and len(loras) > 1:
-            context.args.update(
+            args.update(
                 {
                     "use_lora2": True,
                     "lora2": str(loras[1].id),
@@ -337,11 +336,11 @@ async def handle_image_creation(context.args: dict, user: str = None, agent: str
                 }
             )
         else:
-            context.args.update({"lora2_strength": 0.0})
+            args.update({"lora2_strength": 0.0})
 
-        context.args.update(aspect_ratio_to_dimensions(aspect_ratio))
+        args.update(aspect_ratio_to_dimensions(aspect_ratio))
 
-        result = await flux_dev.async_run(context.args, save_thumbnails=True)
+        result = await flux_dev.async_run(args, save_thumbnails=True)
         # Todo: incorporate style_image / style_strength ?
 
     #########################################################
@@ -353,8 +352,8 @@ async def handle_image_creation(context.args: dict, user: str = None, agent: str
         if len(loras) < 2:
             raise Exception("flux_double_character requires exactly 2 LoRAs")
 
-        for l, lora in enumerate(loras):
-            prompt = prompt.replace(lora.name, f"subj_{l + 1}")
+        for idx, lora in enumerate(loras):
+            prompt = prompt.replace(lora.name, f"subj_{idx + 1}")
 
         args = {
             "prompt": prompt,
@@ -363,13 +362,13 @@ async def handle_image_creation(context.args: dict, user: str = None, agent: str
             "lora": str(loras[0].id),
             "lora2": str(loras[1].id),
         }
-        context.args.update(aspect_ratio_to_dimensions(aspect_ratio))
+        args.update(aspect_ratio_to_dimensions(aspect_ratio))
 
         if seed:
-            context.args["seed"] = seed
+            args["seed"] = seed
 
         # Note: flux_double_character doesn't support init_image, so we ignore it
-        result = await flux_double_character.async_run(context.args, save_thumbnails=True)
+        result = await flux_double_character.async_run(args, save_thumbnails=True)
 
     #########################################################
     # Flux Kontext
@@ -388,9 +387,9 @@ async def handle_image_creation(context.args: dict, user: str = None, agent: str
         }
 
         if seed:
-            context.args["seed"] = seed
+            args["seed"] = seed
 
-        result = await flux_kontext.async_run(context.args, save_thumbnails=True)
+        result = await flux_kontext.async_run(args, save_thumbnails=True)
 
     #########################################################
     # Nano Banana
@@ -404,12 +403,12 @@ async def handle_image_creation(context.args: dict, user: str = None, agent: str
         }
 
         if reference_images:
-            context.args["image_input"] = reference_images
+            args["image_input"] = reference_images
 
         if seed:
-            context.args["seed"] = seed
+            args["seed"] = seed
 
-        result = await nano_banana.async_run(context.args, save_thumbnails=True)
+        result = await nano_banana.async_run(args, save_thumbnails=True)
 
     #########################################################
     # OpenAI Image Generate
@@ -422,24 +421,24 @@ async def handle_image_creation(context.args: dict, user: str = None, agent: str
             "quality": "high",
         }
         if aspect_ratio in ["21:9", "16:9", "3:2", "4:3"]:
-            context.args["size"] = "1536x1024"
+            args["size"] = "1536x1024"
         elif aspect_ratio in ["3:4", "2:3", "9:16", "9:21"]:
-            context.args["size"] = "1024x1536"
+            args["size"] = "1024x1536"
         elif aspect_ratio in ["5:4", "1:1", "4:5"]:
-            context.args["size"] = "1024x1024"
+            args["size"] = "1024x1024"
         else:
-            context.args["size"] = "auto"
+            args["size"] = "auto"
 
-        if context.user:
-            context.args["user"] = str(context.user)
+        if user:
+            args["user"] = str(user)
 
-        result = await openai_image_generate.async_run(context.args, save_thumbnails=True)
+        result = await openai_image_generate.async_run(args, save_thumbnails=True)
 
     #########################################################
     # OpenAI Image Edit
     elif image_tool == "openai_image_edit":
         openai_image_edit = Tool.load("openai_image_edit")
-        
+
         if loras:
             try:
                 args_pre = {
@@ -519,16 +518,16 @@ async def handle_image_creation(context.args: dict, user: str = None, agent: str
             "size": "auto",
         }
 
-        if context.user:
-            context.args["user"] = str(context.user)
+        if user:
+            args["user"] = str(user)
 
         if init_image:
-            context.args["image"] = [init_image]
-            result = await openai_image_edit.async_run(context.args, save_thumbnails=True)
+            args["image"] = [init_image]
+            result = await openai_image_edit.async_run(args, save_thumbnails=True)
 
         else:
             openai_image_generate = Tool.load("openai_image_generate")
-            result = await openai_image_generate.async_run(context.args, save_thumbnails=True)
+            result = await openai_image_generate.async_run(args, save_thumbnails=True)
 
     #########################################################
     # Seedream 3
@@ -541,18 +540,18 @@ async def handle_image_creation(context.args: dict, user: str = None, agent: str
         }
 
         if aspect_ratio == "auto":
-            context.args["aspect_ratio"] = "match_input_image"
+            args["aspect_ratio"] = "match_input_image"
         elif aspect_ratio == "5:4":
-            context.args["aspect_ratio"] = "4:3"  # Seedream 3 doesn't support 5:4
+            args["aspect_ratio"] = "4:3"  # Seedream 3 doesn't support 5:4
         elif aspect_ratio == "4:5":
-            context.args["aspect_ratio"] = "3:4"  # Seedream 3 doesn't support 4:5
+            args["aspect_ratio"] = "3:4"  # Seedream 3 doesn't support 4:5
         else:
-            context.args["aspect_ratio"] = aspect_ratio
-        
-        if seed:
-            context.args["seed"] = seed
+            args["aspect_ratio"] = aspect_ratio
 
-        result = await seedream3.async_run(context.args, save_thumbnails=True)
+        if seed:
+            args["seed"] = seed
+
+        result = await seedream3.async_run(args, save_thumbnails=True)
 
     #########################################################
     # Seedream 4
@@ -565,7 +564,7 @@ async def handle_image_creation(context.args: dict, user: str = None, agent: str
         }
 
         if reference_images:
-            context.args["image_input"] = reference_images
+            args["image_input"] = reference_images
             start_image_attributes, _ = get_media_attributes(reference_images[0])
         else:
             start_image_attributes = None
@@ -574,39 +573,40 @@ async def handle_image_creation(context.args: dict, user: str = None, agent: str
             aspect_ratio = snap_aspect_ratio_to_model(
                 aspect_ratio, "seedream4", start_image_attributes
             )
-            context.args["aspect_ratio"] = aspect_ratio
-        
+            args["aspect_ratio"] = aspect_ratio
+
         if seed:
-            context.args["seed"] = seed
+            args["seed"] = seed
 
         if n_samples > 1:
-            context.args["sequential_image_generation"] = "auto"
-            context.args["max_images"] = min(15, n_samples)
-            context.args["prompt"] = f"Use sequential_image_generation to generate exactly **{n_samples}** individual images in sequence. Do **NOT** make a grid/contact sheet/collage/panel layout. Make {n_samples} images. {prompt}"
+            args["sequential_image_generation"] = "auto"
+            args["max_images"] = min(15, n_samples)
+            args["prompt"] = (
+                f"Use sequential_image_generation to generate exactly **{n_samples}** individual images in sequence. Do **NOT** make a grid/contact sheet/collage/panel layout. Make {n_samples} images. {prompt}"
+            )
 
-        result = await seedream4.async_run(context.args, save_thumbnails=True)
+        result = await seedream4.async_run(args, save_thumbnails=True)
 
         # throw exception if there was an error
-        if result.get("status") == "failed" or not "output" in result:
+        if result.get("status") == "failed" or "output" not in result:
             raise Exception(f"Error in Seedream4: {result.get('error')}")
 
         # retry once if n_samples not satisfied
         if len(result.get("output", [])) != n_samples:
-            result = await seedream4.async_run(context.args, save_thumbnails=True)
+            result = await seedream4.async_run(args, save_thumbnails=True)
 
     else:
-        raise Exception("Invalid args", context.args, image_tool)
-
+        raise Exception("Invalid args", args, image_tool)
 
     #########################################################
     # Final result
-    if result.get("status") == "failed" or not "output" in result:
+    if result.get("status") == "failed" or "output" not in result:
         raise Exception(f"Error in /create: {result.get('error')}")
 
     final_result = [get_full_url(r["filename"]) for r in result["output"]]
 
     # Add sub tool call to tool_calls
-    tool_calls.append({"tool": image_tool, "args": context.args, "output": final_result})
+    tool_calls.append({"tool": image_tool, "args": args, "output": final_result})
 
     # insert args urls
     for tool_call in tool_calls:
@@ -628,18 +628,18 @@ async def handle_image_creation(context.args: dict, user: str = None, agent: str
     return final_result
 
 
-async def handle_video_creation(context.args: dict, user: str = None, agent: str = None):
+async def handle_video_creation(args: dict, user: str = None, agent: str = None):
     """Handle video creation - copied from create_video tool handler"""
 
     # veo3 is enabled by default
     # if a specific user is provided (e.g. from the website or api), check if paying user has access to veo3 and disable it if not
     veo3_enabled = True
-    if context.user:
-        user = User.from_mongo(context.user)
+    if user:
+        user = User.from_mongo(user)
 
         # if agent's owner pays, check their feature flags, otherwise user's
         if agent:
-            agent = Agent.from_mongo(context.agent)
+            agent = Agent.from_mongo(agent)
             if agent.owner_pays in ["full", "deployments"]:
                 paying_user = User.from_mongo(agent.owner)
             else:
@@ -647,13 +647,16 @@ async def handle_video_creation(context.args: dict, user: str = None, agent: str
         else:
             paying_user = user
 
-        veo3_enabled = any(
-            [
-                t
-                for t in paying_user.featureFlags
-                if t in ["tool_access_veo3", "preview"]
-            ]
-        ) or paying_user.subscriptionTier > 0
+        veo3_enabled = (
+            any(
+                [
+                    t
+                    for t in paying_user.featureFlags
+                    if t in ["tool_access_veo3", "preview"]
+                ]
+            )
+            or paying_user.subscriptionTier > 0
+        )
 
     """
     reference_video -> runway3
@@ -673,24 +676,23 @@ async def handle_video_creation(context.args: dict, user: str = None, agent: str
     # create = Tool.load("create")
     # thinksound = Tool.load("thinksound")
 
-    prompt = context.args["prompt"]
-    # n_samples = context.args.get("n_samples", 1)
-    reference_images = context.args.get("reference_images", [])
-    reference_video = context.args.get("reference_video", None)  # Extract reference_video
+    prompt = args["prompt"]
+    # n_samples = args.get("n_samples", 1)
+    reference_images = args.get("reference_images", [])
+    reference_video = args.get("reference_video", None)  # Extract reference_video
     start_image = reference_images[0] if len(reference_images) > 0 else None
     end_image = reference_images[1] if len(reference_images) > 1 else None
-    seed = context.args.get("seed", None)
-    lora_strength = context.args.get("lora_strength", 0.75)
-    aspect_ratio = context.args.get("aspect_ratio", "auto")
-    quality = context.args.get("quality", "standard")
-    model_preference = context.args.get("model_preference")
+    seed = args.get("seed", None)
+    lora_strength = args.get("lora_strength", 0.75)
+    aspect_ratio = args.get("aspect_ratio", "auto")
+    quality = args.get("quality", "standard")
+    model_preference = args.get("model_preference")
     model_preference = model_preference.lower() if model_preference else ""
-    duration = context.args.get("duration", 5)
-    extras = context.args.get("extras", [])
+    duration = args.get("duration", 5)
+    extras = args.get("extras", [])
     talking_head = "talking_head" in extras
-    controlnet = "controlnet" in extras
-    audio = context.args.get("audio", None)
-    sound_effects = context.args.get("sound_effects", None)
+    audio = args.get("audio", None)
+    sound_effects = args.get("sound_effects", None)
 
     intermediate_outputs = {}
 
@@ -698,21 +700,21 @@ async def handle_video_creation(context.args: dict, user: str = None, agent: str
         assert start_image, "Must provide init_image if end_image is provided"
 
     # get loras
-    loras = get_loras(context.args.get("lora"), context.args.get("lora2"))
+    loras = get_loras(args.get("lora"), args.get("lora2"))
 
     # Rules
     if reference_video:
         # Always use Runway Aleph for video-to-video style transfer
         video_tool = "runway3"
     elif talking_head and audio:
-        video_tool = "hedra"    
+        video_tool = "hedra"
     # Go by model preference
     else:
         video_tool = {
-            "kling": "kling", 
-            "seedance": "seedance1", 
+            "kling": "kling",
+            "seedance": "seedance1",
             "veo": "veo3",
-            "runway": "runway"
+            "runway": "runway",
         }.get(model_preference, "veo3")
 
         if not veo3_enabled and video_tool == "veo3":
@@ -728,7 +730,7 @@ async def handle_video_creation(context.args: dict, user: str = None, agent: str
         if video_tool in ["runway", "hedra"] or loras:
             args = {"prompt": prompt}
             if loras:
-                context.args.update(
+                args.update(
                     {
                         "lora": str(loras[0].id),
                         "lora_strength": lora_strength,
@@ -736,10 +738,10 @@ async def handle_video_creation(context.args: dict, user: str = None, agent: str
                 )
             try:
                 create = Tool.load("create")
-                result = await create.async_run(context.args, save_thumbnails=True)
+                result = await create.async_run(args, save_thumbnails=True)
                 start_image = get_full_url(result["output"][0]["filename"])
                 tool_calls.append(
-                    {"tool": create.key, "args": context.args, "output": start_image}
+                    {"tool": create.key, "args": args, "output": start_image}
                 )
                 intermediate_outputs["create_start_image"] = result["output"]
             except Exception as e:
@@ -777,11 +779,11 @@ async def handle_video_creation(context.args: dict, user: str = None, agent: str
         }
 
         if aspect_ratio != "auto":
-            context.args["ratio"] = aspect_ratio
+            args["ratio"] = aspect_ratio
 
         # If ending image, must use gen3a_turbo
         if end_image:
-            context.args.update(
+            args.update(
                 {
                     "end_image": end_image,
                     "model": "gen3a_turbo",
@@ -789,9 +791,9 @@ async def handle_video_creation(context.args: dict, user: str = None, agent: str
             )
 
         if seed:
-            context.args["seed"] = seed
+            args["seed"] = seed
 
-        result = await runway.async_run(context.args, save_thumbnails=True)
+        result = await runway.async_run(args, save_thumbnails=True)
 
     #########################################################
     # Kling
@@ -806,34 +808,30 @@ async def handle_video_creation(context.args: dict, user: str = None, agent: str
 
         # if no start image, use kling_pro 1.6
         if not start_image:
-            kling_pro = Tool.load("kling_pro") 
-        
-            args = {
-                "prompt": prompt, 
-                "duration": duration, 
-                "quality": "medium"
-            }
+            kling_pro = Tool.load("kling_pro")
+
+            args = {"prompt": prompt, "duration": duration, "quality": "medium"}
 
             if end_image:
-                context.args.update({"end_image": end_image})
-            
-            result = await kling_pro.async_run(context.args, save_thumbnails=True)
+                args.update({"end_image": end_image})
+
+            result = await kling_pro.async_run(args, save_thumbnails=True)
 
         # else, use kling 2.1
         else:
             kling = Tool.load("kling")
 
             args = {
-                "prompt": prompt, 
-                "duration": duration, 
+                "prompt": prompt,
+                "duration": duration,
                 "mode": quality,
                 "start_image": start_image,
             }
 
             if end_image:
-                context.args.update({"end_image": end_image})
+                args.update({"end_image": end_image})
 
-            result = await kling.async_run(context.args, save_thumbnails=True)
+            result = await kling.async_run(args, save_thumbnails=True)
 
     #########################################################
     # Seedance
@@ -855,19 +853,19 @@ async def handle_video_creation(context.args: dict, user: str = None, agent: str
         }
 
         if aspect_ratio != "auto":
-            context.args["aspect_ratio"] = aspect_ratio
+            args["aspect_ratio"] = aspect_ratio
 
         if start_image:
-            context.args.update(
+            args.update(
                 {
                     "image": start_image,
                 }
             )
 
         if seed:
-            context.args["seed"] = seed
+            args["seed"] = seed
 
-        result = await seedance1.async_run(context.args, save_thumbnails=True)
+        result = await seedance1.async_run(args, save_thumbnails=True)
 
     #########################################################
     # Veo-2
@@ -889,18 +887,18 @@ async def handle_video_creation(context.args: dict, user: str = None, agent: str
         }
 
         if start_image:
-            context.args.update(
+            args.update(
                 {
                     "image": start_image,
                 }
             )
 
         # if end_image:
-        #     context.args.update({
+        #     args.update({
         #         "end_image": end_image,
         #     })
 
-        result = await veo2.async_run(context.args, save_thumbnails=True)
+        result = await veo2.async_run(args, save_thumbnails=True)
 
     #########################################################
     # Veo-3
@@ -923,16 +921,16 @@ async def handle_video_creation(context.args: dict, user: str = None, agent: str
         }
 
         if start_image:
-            context.args.update(
+            args.update(
                 {
                     "image": start_image,
                 }
             )
 
         if seed:
-            context.args["seed"] = seed
+            args["seed"] = seed
 
-        result = await veo3.async_run(context.args, save_thumbnails=True)
+        result = await veo3.async_run(args, save_thumbnails=True)
 
     #########################################################
     # Hebra
@@ -951,7 +949,7 @@ async def handle_video_creation(context.args: dict, user: str = None, agent: str
             "aspectRatio": aspect_ratio,
         }
 
-        result = await hedra.async_run(context.args, save_thumbnails=True)
+        result = await hedra.async_run(args, save_thumbnails=True)
 
     #########################################################
     # Runway3 (Runway Aleph)
@@ -964,7 +962,7 @@ async def handle_video_creation(context.args: dict, user: str = None, agent: str
             "runway4",
             None,  # Use runway4 presets for Aleph
         )
-        
+
         args = {
             "input_video": reference_video,  # The video to stylize
             "prompt_text": prompt,  # Style description
@@ -973,7 +971,7 @@ async def handle_video_creation(context.args: dict, user: str = None, agent: str
 
         # Add style reference images if provided
         if start_image:
-            context.args["style_image"] = (
+            args["style_image"] = (
                 start_image  # Use first reference image as style image
             )
 
@@ -981,9 +979,9 @@ async def handle_video_creation(context.args: dict, user: str = None, agent: str
         # But for now we'll keep it simple
 
         if seed:
-            context.args["seed"] = seed
+            args["seed"] = seed
 
-        result = await runway_aleph.async_run(context.args, save_thumbnails=True)
+        result = await runway_aleph.async_run(args, save_thumbnails=True)
 
     else:
         raise Exception("Invalid video tool", video_tool)
@@ -992,7 +990,7 @@ async def handle_video_creation(context.args: dict, user: str = None, agent: str
     # Final video is now generated
     final_video = get_full_url(result["output"][0]["filename"])
 
-    tool_calls.append({"tool": video_tool, "args": context.args, "output": final_video})
+    tool_calls.append({"tool": video_tool, "args": args, "output": final_video})
 
     # If sound effects are requested, try to add them
     if sound_effects and video_tool != "veo3":
@@ -1005,10 +1003,10 @@ async def handle_video_creation(context.args: dict, user: str = None, agent: str
                 "num_inference_steps": 24,
             }
             thinksound = Tool.load("thinksound")
-            sound_fx = await thinksound.async_run(context.args, save_thumbnails=True)
+            sound_fx = await thinksound.async_run(args, save_thumbnails=True)
             final_video = get_full_url(sound_fx["output"][0]["filename"])
             tool_calls.append(
-                {"tool": thinksound.key, "args": context.args, "output": final_video}
+                {"tool": thinksound.key, "args": args, "output": final_video}
             )
 
         except Exception as e:

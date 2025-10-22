@@ -112,14 +112,14 @@ async def handler(context: ToolContext):
         if video_tool in [runway, hedra] or loras:
             args = {"prompt": prompt}
             if loras:
-                context.args.update(
+                args.update(
                     {
                         "lora": str(loras[0].id),
                         "lora_strength": lora_strength,
                     }
                 )
             try:
-                result = await create.async_run(context.args, save_thumbnails=True)
+                result = await create.async_run(args, save_thumbnails=True)
                 start_image = get_full_url(result["output"][0]["filename"])
             except Exception as e:
                 raise Exception(
@@ -158,11 +158,11 @@ async def handler(context: ToolContext):
         }
 
         if aspect_ratio != "auto":
-            context.args["ratio"] = aspect_ratio
+            args["ratio"] = aspect_ratio
 
         # If ending image, must use gen3a_turbo
         if end_image:
-            context.args.update(
+            args.update(
                 {
                     "end_image": end_image,
                     "model": "gen3a_turbo",
@@ -170,9 +170,9 @@ async def handler(context: ToolContext):
             )
 
         if seed:
-            context.args["seed"] = seed
+            args["seed"] = seed
 
-        result = await runway.async_run(context.args, save_thumbnails=True)
+        result = await runway.async_run(args, save_thumbnails=True)
 
     #########################################################
     # Kling
@@ -193,7 +193,7 @@ async def handler(context: ToolContext):
         }
 
         if start_image:
-            context.args.update(
+            args.update(
                 {
                     "start_image": start_image,
                 }
@@ -201,14 +201,14 @@ async def handler(context: ToolContext):
 
         # If an end image is requested, fall back to Kling 1.6 Pro which supports it
         if end_image:
-            context.args.update(
+            args.update(
                 {
                     "end_image": end_image,
                     "quality": "medium",
                 }
             )
 
-        result = await kling_pro.async_run(context.args, save_thumbnails=True)
+        result = await kling_pro.async_run(args, save_thumbnails=True)
 
     #########################################################
     # Veo-2
@@ -228,18 +228,18 @@ async def handler(context: ToolContext):
         }
 
         if start_image:
-            context.args.update(
+            args.update(
                 {
                     "image": start_image,
                 }
             )
 
         # if end_image:
-        #     context.args.update({
+        #     args.update({
         #         "end_image": end_image,
         #     })
 
-        result = await veo2.async_run(context.args, save_thumbnails=True)
+        result = await veo2.async_run(args, save_thumbnails=True)
 
     #########################################################
     # Veo-3
@@ -254,14 +254,14 @@ async def handler(context: ToolContext):
         }
 
         # if start_image:
-        #     context.args.update({
+        #     args.update({
         #         "image": start_image,
         #     })
 
         if seed:
-            context.args["seed"] = seed
+            args["seed"] = seed
 
-        result = await veo3.async_run(context.args, save_thumbnails=True)
+        result = await veo3.async_run(args, save_thumbnails=True)
 
     #########################################################
     # Hebra
@@ -278,7 +278,7 @@ async def handler(context: ToolContext):
             "aspectRatio": aspect_ratio,
         }
 
-        result = await hedra.async_run(context.args, save_thumbnails=True)
+        result = await hedra.async_run(args, save_thumbnails=True)
 
     else:
         raise Exception("Invalid video tool", video_tool)
@@ -296,8 +296,8 @@ async def handler(context: ToolContext):
                 "duration": min(duration, 16),
             }
             if seed:
-                context.args["seed"] = seed
-            sound_fx = await mmaudio.async_run(context.args, save_thumbnails=True)
+                args["seed"] = seed
+            sound_fx = await mmaudio.async_run(args, save_thumbnails=True)
             final_video = get_full_url(sound_fx["output"][0]["filename"])
 
         except Exception as e:

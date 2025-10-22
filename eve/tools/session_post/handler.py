@@ -39,8 +39,8 @@ async def handler(context: ToolContext):
     if session_id is None:
         title = context.args.get("title")
         if not title:
-            if session:
-                title = f"Session spawned from {session}"
+            if context.session:
+                title = f"Session spawned from {context.session}"
             else:
                 title = "New Session"
 
@@ -58,9 +58,9 @@ async def handler(context: ToolContext):
         # Update parent tool call with child session ID (if called via tool execution)
         from eve.agent.session.tool_context import get_current_tool_call
 
-        context = get_current_tool_call()
-        if context:
-            tool_call, assistant_message, tool_call_index = context
+        tool_call_context = get_current_tool_call()
+        if tool_call_context:
+            tool_call, assistant_message, tool_call_index = tool_call_context
             tool_call.child_session = new_session.id
             if assistant_message.tool_calls and tool_call_index < len(
                 assistant_message.tool_calls
@@ -85,7 +85,7 @@ async def handler(context: ToolContext):
             attachments=context.args.get("attachments") or [],
         )
 
-        context = PromptSessionContext(
+        prompt_context = PromptSessionContext(
             session=session,
             initiating_user_id=initiating_user_id,
             message=new_message,
@@ -138,7 +138,7 @@ async def handler(context: ToolContext):
                 attachments=context.args.get("attachments") or [],
             )
 
-            context = PromptSessionContext(
+            prompt_context = PromptSessionContext(
                 session=session,
                 initiating_user_id=initiating_user_id,
                 message=new_message,
@@ -146,10 +146,10 @@ async def handler(context: ToolContext):
             )
 
             if context.args.get("extra_tools"):
-                context.extra_tools = {
+                prompt_context.extra_tools = {
                     k: Tool.load(k) for k in context.args.get("extra_tools")
                 }
 
-            await add_chat_message(session, context)
+            await add_chat_message(session, prompt_context)
 
     return {"output": [{"session": session_id}]}

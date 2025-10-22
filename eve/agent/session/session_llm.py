@@ -296,7 +296,7 @@ async def async_prompt_litellm(
                     "title": citation.get("title"),
                     "url": citation.get("url"),
                 }
-                if not source in sources:  # avoid duplicates
+                if source not in sources:  # avoid duplicates
                     sources.append(source)
         if sources:
             tool_calls.append(
@@ -446,7 +446,7 @@ async def async_prompt_litellm_responses(
 
     # Debug tool format
     if tools and len(tools) > 0:
-        logger.debug(f"🧠 [DEBUG] Tool format from construct_tools:")
+        logger.debug("🧠 [DEBUG] Tool format from construct_tools:")
         logger.debug(f"🧠 [DEBUG] First tool: {tools[0]}")
         logger.debug(
             f"🧠 [DEBUG] Tool keys: {tools[0].keys() if isinstance(tools[0], dict) else 'Not a dict'}"
@@ -491,9 +491,9 @@ async def async_prompt_litellm_responses(
                 f"🧠 [DEBUG] Converted tool format: {json.dumps(responses_tools[0] if responses_tools else {}, indent=2)[:500]}"
             )
         else:
-            logger.debug(f"🧠 [DEBUG] No valid tools to add to responses API")
+            logger.debug("🧠 [DEBUG] No valid tools to add to responses API")
     else:
-        logger.debug(f"🧠 [DEBUG] No tools provided for responses API")
+        logger.debug("🧠 [DEBUG] No tools provided for responses API")
 
     # Add response format if present
     if context.config.response_format:
