@@ -226,20 +226,16 @@ class FarcasterClient(PlatformClient):
             raise ValueError("Deployment is required for update")
 
         # Check if auto_reply setting changed
-        # Handle both dict and object types
-        old_auto_reply = False
-        if old_config:
-            if isinstance(old_config, dict):
-                old_auto_reply = old_config.get("farcaster", {}).get("auto_reply", False)
-            elif hasattr(old_config, "farcaster") and old_config.farcaster:
-                old_auto_reply = old_config.farcaster.auto_reply
-
-        new_auto_reply = False
-        if new_config:
-            if isinstance(new_config, dict):
-                new_auto_reply = new_config.get("farcaster", {}).get("auto_reply", False)
-            elif hasattr(new_config, "farcaster") and new_config.farcaster:
-                new_auto_reply = new_config.farcaster.auto_reply
+        old_auto_reply = (
+            old_config.farcaster.auto_reply
+            if old_config and old_config.farcaster
+            else False
+        )
+        new_auto_reply = (
+            new_config.farcaster.auto_reply
+            if new_config and new_config.farcaster
+            else False
+        )
 
         if old_auto_reply != new_auto_reply:
             webhook_id = os.getenv("NEYNAR_WEBHOOK_ID")

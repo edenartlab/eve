@@ -19,6 +19,7 @@ from eve.agent.session.models import (
     EdenMessageAgentData,
     Deployment,
     DeploymentConfig,
+    DeploymentSecrets,
     Notification,
     NotificationChannel,
     NotificationConfig,
@@ -490,8 +491,9 @@ async def handle_v2_deployment_update(request: UpdateDeploymentRequestV2):
         )
 
     # Store old config and secrets for platform update hook
-    old_config = deployment.config
-    old_secrets = deployment.secrets
+    # Convert to proper objects if they're dicts (MongoDB stores as dicts)
+    old_config = DeploymentConfig(**deployment.config) if isinstance(deployment.config, dict) else deployment.config
+    old_secrets = DeploymentSecrets(**deployment.secrets) if isinstance(deployment.secrets, dict) else deployment.secrets
 
     update_dict = {}
 
@@ -516,8 +518,6 @@ async def handle_v2_deployment_update(request: UpdateDeploymentRequestV2):
 
     # Handle secrets updates by merging with existing secrets
     if request.secrets:
-        from eve.agent.session.models import DeploymentSecrets
-
         existing_secrets = deployment.secrets or DeploymentSecrets()
         new_secrets = request.secrets.model_dump(exclude_unset=True)
 
