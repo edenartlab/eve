@@ -3,7 +3,7 @@ from typing import Dict, Any, Optional
 from pydantic import Field
 from urllib.parse import urlencode
 
-from ..tool import Tool, tool_context
+from ..tool import Tool, ToolContext, tool_context
 from ..task import Task
 
 
@@ -114,15 +114,9 @@ class MCPTool(Tool):
         return formatted
 
     @Tool.handle_run
-    async def async_run(
-        self,
-        args: Dict,
-        user_id: str = None,
-        agent_id: str = None,
-        session_id: str = None,
-    ):
+    async def async_run(self, context: ToolContext):
         """Execute the MCP tool and return result"""
-        result = await self._call_mcp_tool(args)
+        result = await self._call_mcp_tool(context.args)
         return {"output": result}
 
     @Tool.handle_start_task

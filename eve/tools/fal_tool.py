@@ -1,12 +1,12 @@
 import os
 import asyncio
 import fal_client
-from typing import Dict, List, Any
+from typing import List, Any
 from pydantic import Field
 import logging
 
 from .. import utils
-from ..tool import Tool, tool_context
+from ..tool import Tool, ToolContext, tool_context
 from ..task import Task, Creation
 
 logger = logging.getLogger(__name__)
@@ -21,15 +21,9 @@ class FalTool(Tool):
     # output_handler: str = "normal" # Removed, logic now uses output_schema
 
     @Tool.handle_run
-    async def async_run(
-        self,
-        args: Dict,
-        user_id: str = None,
-        agent_id: str = None,
-        session_id: str = None,
-    ):
+    async def async_run(self, context: ToolContext):
         check_fal_api_token()
-        args = self._format_args_for_fal(args)
+        args = self._format_args_for_fal(context.args)
 
         def on_queue_update(update):
             if isinstance(update, fal_client.InProgress):

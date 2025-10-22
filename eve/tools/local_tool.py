@@ -1,6 +1,5 @@
 import asyncio
 import uuid
-from typing import Dict
 
 from ..task import Task, task_handler_func
 from ..tool import Tool, ToolContext, tool_context
@@ -14,20 +13,8 @@ class LocalTool(Tool):
         self._tasks = {}
 
     @Tool.handle_run
-    async def async_run(
-        self,
-        args: Dict,
-        user_id: str = None,
-        agent_id: str = None,
-        session_id: str = None,
-    ):
+    async def async_run(self, context: ToolContext):
         handler = load_handler(self.parent_tool or self.key)
-        context = ToolContext(
-            args=args,
-            user=str(user_id) if user_id else None,
-            agent=str(agent_id) if agent_id else None,
-            session=str(session_id) if session_id else None,
-        )
         result = await handler(context)
         return result
 

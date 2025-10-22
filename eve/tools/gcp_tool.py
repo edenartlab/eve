@@ -1,11 +1,10 @@
 import os
 import asyncio
-from typing import Dict
 from google.oauth2 import service_account
 from google.cloud import aiplatform
 from loguru import logger
 
-from ..tool import Tool, tool_context
+from ..tool import Tool, ToolContext, tool_context
 from ..task import Task
 
 
@@ -16,13 +15,7 @@ class GCPTool(Tool):
     gpu: str
 
     @Tool.handle_run
-    async def async_run(
-        self,
-        args: Dict,
-        user_id: str = None,
-        agent_id: str = None,
-        session_id: str = None,
-    ):
+    async def async_run(self, context: ToolContext):
         raise NotImplementedError("Not implemented yet, need a GCP Task ID")
 
     @Tool.handle_start_task

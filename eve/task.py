@@ -219,9 +219,9 @@ async def _task_handler(func, *args, **kwargs):
                 *args[:-1],
                 task.parent_tool or task.tool,
                 task_args,
-                user=task.user,
-                agent=task.agent,
-                session=task.session,
+                user=str(task.user) if task.user else None,
+                agent=str(task.agent) if task.agent else None,
+                session=str(task.session) if task.session else None,
             )
 
             if output_type in ["image", "video", "audio", "lora"] and is_creation_tool:

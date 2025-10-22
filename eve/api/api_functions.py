@@ -75,7 +75,12 @@ async def run_task(
     tool_key: str, args: dict, user: str = None, agent: str = None, session: str = None
 ):
     handler = load_handler(tool_key)
-    context = ToolContext(args=args, user=user, agent=agent, session=session)
+    context = ToolContext(
+        args=args,
+        user=str(user) if user else None,
+        agent=str(agent) if agent else None,
+        session=str(session) if session else None
+    )
     return await handler(context)
 
 

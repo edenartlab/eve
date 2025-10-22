@@ -3,7 +3,7 @@ import modal
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
 
-from ..tool import Tool, tool_context
+from ..tool import Tool, ToolContext, tool_context
 from ..task import Task
 from ..user import User
 
@@ -49,18 +49,12 @@ class ComfyUITool(Tool):
         return super().convert_from_yaml(schema, file_path)
 
     @Tool.handle_run
-    async def async_run(
-        self,
-        args: Dict,
-        user_id: str = None,
-        agent_id: str = None,
-        session_id: str = None,
-    ):
+    async def async_run(self, context: ToolContext):
         db = os.getenv("DB", "STAGE")
         cls = modal.Cls.from_name(
             f"comfyui-{self.workspace}-{db}", "ComfyUIBasic", environment_name="main"
         )
-        result = await cls().run.remote.aio(self.parent_tool or self.key, args)
+        result = await cls().run.remote.aio(self.parent_tool or self.key, context.args)
         return result
 
     @Tool.handle_start_task

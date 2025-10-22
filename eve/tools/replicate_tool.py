@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 from .. import s3
 from .. import utils
-from ..tool import Tool, tool_context
+from ..tool import Tool, ToolContext, tool_context
 from ..models import Model
 from ..task import Task, Creation
 from ..mongo import get_collection
@@ -25,15 +25,10 @@ class ReplicateTool(Tool):
     output_handler: str = "normal"
 
     @Tool.handle_run
-    async def async_run(
-        self,
-        args: Dict,
-        user_id: str = None,
-        agent_id: str = None,
-        session_id: str = None,
-    ):
+    async def async_run(self, context: ToolContext):
         check_replicate_api_token()
 
+        args = context.args
         if self.version:
             args = self._format_args_for_replicate(args)
             prediction = await self._create_prediction(args, webhook=False)
