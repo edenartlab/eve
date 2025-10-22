@@ -2,7 +2,6 @@ from typing import Any, Dict, List, Optional, Literal
 from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
 
-from eve.agent.thread import UserMessage
 from eve.agent.session.models import UpdateType
 from eve.agent.session.models import (
     ChatMessageRequestInput,
@@ -62,18 +61,6 @@ class PlatformUpdateRequest(BaseModel):
     result: Optional[List[Dict[str, Any]]] = None
     error: Optional[str] = None
     update_config: Optional[UpdateConfig] = None
-
-
-class ChatRequest(BaseModel):
-    user_id: str
-    agent_id: str
-    user_message: UserMessage
-    thread_id: Optional[str] = None
-    update_config: Optional[UpdateConfig] = None
-    force_reply: bool = False
-    use_thinking: bool = True
-    model: Optional[str] = None
-    user_is_bot: Optional[bool] = False
 
 
 class CronSchedule(BaseModel):
@@ -187,7 +174,9 @@ class PromptSessionRequest(BaseModel):
     notification_config: Optional[Dict[str, Any]] = None
     thinking: Optional[bool] = None  # Override agent's thinking policy per-message
     api_key_id: Optional[str] = None  # API key ID to attach to messages
-    trigger: Optional[str] = None  # Mark message as coming from a trigger (for memory skip)
+    trigger: Optional[str] = (
+        None  # Mark message as coming from a trigger (for memory skip)
+    )
 
     # Session creation fields (used when session_id is not provided)
     creation_args: Optional[SessionCreationArgs] = None

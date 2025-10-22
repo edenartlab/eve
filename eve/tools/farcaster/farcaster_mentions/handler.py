@@ -3,21 +3,23 @@ import aiohttp
 from datetime import datetime, timedelta
 from eve.agent.deployments import Deployment
 from eve.agent import Agent
+from eve.tool import ToolContext
+from loguru import logger
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
-    if not agent:
+async def handler(context: ToolContext):
+    if not context.agent:
         raise Exception("Agent is required")
-    agent = Agent.from_mongo(agent)
+    agent = Agent.from_mongo(context.agent)
     deployment = Deployment.load(agent=agent.id, platform="farcaster")
     if not deployment:
         raise Exception("No valid Farcaster deployments found")
 
     # Get parameters
-    username = args.get("username")
-    additional_query = args.get("additional_query")
-    limit = min(args.get("limit", 10), 100)  # Cap at 100
-    time_range_hours = args.get("time_range_hours", 24)  # Default 24 hours
+    username = context.args.get("username")
+    additional_query = context.args.get("additional_query")
+    limit = min(context.args.get("limit", 10), 100)  # Cap at 100
+    time_range_hours = context.args.get("time_range_hours", 24)  # Default 24 hours
 
     # Get Neynar API key
     neynar_api_key = os.getenv("NEYNAR_API_KEY")
@@ -51,7 +53,7 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
                     target_fid = int(target_username)
                 else:
                     # Search for user by username using v2 API
-                    user_search_url = f"https://api.neynar.com/v2/farcaster/user/search"
+                    user_search_url = "https://api.neynar.com/v2/farcaster/user/search"
                     user_params = {"q": target_username, "limit": 1}
 
                     async with session.get(
@@ -99,13 +101,6 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
                         cutoff_farcaster_timestamp = (
                             cutoff_unix_timestamp - FARCASTER_EPOCH
                         )
-
-                        # Debug: show some sample timestamps
-                        if messages:
-                            sample_timestamps = [
-                                msg.get("data", {}).get("timestamp", 0)
-                                for msg in messages[:3]
-                            ]
 
                         messages = [
                             msg
@@ -200,5 +195,5 @@ def format_hub_mention_result(message, target_username=None):
         return result
 
     except Exception as e:
-        print(f"Error formatting mention result: {str(e)}")
+        logger.error(f"Error formatting mention result: {str(e)}")
         return None

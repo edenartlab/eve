@@ -27,17 +27,32 @@ class PlatformClient(ABC):
         self, secrets: DeploymentSecrets, config: DeploymentConfig
     ) -> tuple[DeploymentSecrets, DeploymentConfig]:
         """Platform-specific validation and setup before deployment"""
-        pass
 
     @abstractmethod
     async def postdeploy(self) -> None:
         """Platform-specific actions after deployment"""
-        pass
 
     @abstractmethod
     async def stop(self) -> None:
         """Stop the platform client"""
-        pass
+
+    async def update(
+        self,
+        old_config: Optional[DeploymentConfig] = None,
+        new_config: Optional[DeploymentConfig] = None,
+        old_secrets: Optional[DeploymentSecrets] = None,
+        new_secrets: Optional[DeploymentSecrets] = None
+    ) -> None:
+        """
+        Platform-specific actions when deployment config/secrets are updated.
+        This is optional - platforms that don't need update logic can skip implementing this.
+
+        Args:
+            old_config: The previous deployment config
+            new_config: The new deployment config
+            old_secrets: The previous deployment secrets
+            new_secrets: The new deployment secrets
+        """
 
     def add_tools(self) -> None:
         """Add platform-specific tools to agent"""
@@ -57,14 +72,11 @@ class PlatformClient(ABC):
         #     {"$set": {"tools.social_media_tools": False}, "$currentDate": {"updatedAt": True}}
         # )
         ## Note: this is skipped for now because we don't want to remove the social media tools unless there are 0 deployments left
-        pass
 
     @abstractmethod
     async def interact(self, request: Request) -> None:
         """Interact with the platform client"""
-        pass
 
     @abstractmethod
     async def handle_emission(self, emission: "DeploymentEmissionRequest") -> None:
         """Handle an emission from the platform client"""
-        pass

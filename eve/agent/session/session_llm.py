@@ -7,8 +7,8 @@ import litellm
 from litellm import acompletion, aresponses
 from typing import Callable, List, AsyncGenerator, Optional
 
-from eve.agent.thread import ChatMessage
 from eve.agent.session.models import (
+    ChatMessage,
     LLMContext,
     LLMConfig,
     LLMContextMetadata,
@@ -250,7 +250,9 @@ async def async_prompt_litellm(
 
             # add web search options for Anthropic models
             if "claude" in model or "anthropic" in model:
-                completion_kwargs["web_search_options"] = {"search_context_size": "medium"}
+                completion_kwargs["web_search_options"] = {
+                    "search_context_size": "medium"
+                }
 
             # Use finalized reasoning_effort from config if available
             if thinking:
@@ -275,7 +277,11 @@ async def async_prompt_litellm(
 
     if response is None:
         logging.error(f"All models failed. Last error: {str(last_error)}")
-        raise last_error if last_error else Exception("Unknown error: no response received")
+        raise (
+            last_error
+            if last_error
+            else Exception("Unknown error: no response received")
+        )
 
     tool_calls = []
 
@@ -290,7 +296,7 @@ async def async_prompt_litellm(
                     "title": citation.get("title"),
                     "url": citation.get("url"),
                 }
-                if not source in sources:  # avoid duplicates
+                if source not in sources:  # avoid duplicates
                     sources.append(source)
         if sources:
             tool_calls.append(
@@ -440,7 +446,7 @@ async def async_prompt_litellm_responses(
 
     # Debug tool format
     if tools and len(tools) > 0:
-        logger.debug(f"🧠 [DEBUG] Tool format from construct_tools:")
+        logger.debug("🧠 [DEBUG] Tool format from construct_tools:")
         logger.debug(f"🧠 [DEBUG] First tool: {tools[0]}")
         logger.debug(
             f"🧠 [DEBUG] Tool keys: {tools[0].keys() if isinstance(tools[0], dict) else 'Not a dict'}"
@@ -485,9 +491,9 @@ async def async_prompt_litellm_responses(
                 f"🧠 [DEBUG] Converted tool format: {json.dumps(responses_tools[0] if responses_tools else {}, indent=2)[:500]}"
             )
         else:
-            logger.debug(f"🧠 [DEBUG] No valid tools to add to responses API")
+            logger.debug("🧠 [DEBUG] No valid tools to add to responses API")
     else:
-        logger.debug(f"🧠 [DEBUG] No tools provided for responses API")
+        logger.debug("🧠 [DEBUG] No tools provided for responses API")
 
     # Add response format if present
     if context.config.response_format:

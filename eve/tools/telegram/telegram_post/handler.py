@@ -1,12 +1,13 @@
 from eve.agent.deployments import Deployment
 from eve.agent import Agent
+from eve.tool import ToolContext
 from telegram import Bot
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
-    if not agent:
+async def handler(context: ToolContext):
+    if not context.agent:
         raise Exception("Agent is required")
-    agent = Agent.from_mongo(agent)
+    agent = Agent.from_mongo(context.agent)
     deployment = Deployment.load(agent=agent.id, platform="telegram")
     if not deployment:
         raise Exception("No valid Telegram deployments found")
@@ -17,9 +18,9 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         raise Exception("No chats configured for this deployment")
 
     # Get channel ID and content from args (using channel_id to match discord_post)
-    channel_id = args.get("channel_id")
-    content = args.get("content")
-    media_urls = args.get("media_urls", [])
+    channel_id = context.args.get("channel_id")
+    content = context.args.get("content")
+    media_urls = context.args.get("media_urls", [])
 
     if not channel_id:
         raise Exception("channel_id is required")
@@ -37,7 +38,9 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
             from telegram import InputMediaPhoto, InputMediaVideo
 
             media_group = []
-            for i, url in enumerate(media_urls[:10]):  # Telegram allows up to 10 media items
+            for i, url in enumerate(
+                media_urls[:10]
+            ):  # Telegram allows up to 10 media items
                 # Determine media type based on extension
                 video_extensions = (".mp4", ".avi", ".mov", ".mkv", ".webm")
 
@@ -58,11 +61,15 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
             message = await bot.send_message(chat_id=channel_id, text=content)
 
         result = {
-            "output": [{
-                "message_id": message.message_id,
-                "chat_id": message.chat.id,
-                "url": f"https://t.me/{message.chat.username}/{message.message_id}" if hasattr(message.chat, 'username') and message.chat.username else None,
-            }]
+            "output": [
+                {
+                    "message_id": message.message_id,
+                    "chat_id": message.chat.id,
+                    "url": f"https://t.me/{message.chat.username}/{message.message_id}"
+                    if hasattr(message.chat, "username") and message.chat.username
+                    else None,
+                }
+            ]
         }
 
         await bot.close()
@@ -71,6 +78,6 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     except Exception as e:
         try:
             await bot.close()
-        except:
+        except Exception:
             pass  # Ignore errors closing bot
         raise e

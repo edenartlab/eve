@@ -8,11 +8,6 @@ def load_handler(name):
 
             handlers[name] = handler
 
-        elif name == "memory":
-            from .memory.handler import handler
-
-            handlers[name] = handler
-
         elif name == "magic_8_ball":
             from .magic_8_ball.handler import handler
 
@@ -73,9 +68,6 @@ def load_handler(name):
 
             handlers[name] = handler
 
-        elif name == "create_session":
-            from .mongo_utils.create_session.handler import handler
-
             handlers[name] = handler
 
         elif name == "search_models":
@@ -107,9 +99,6 @@ def load_handler(name):
             from .twitter.tweet.handler import handler
 
             handlers[name] = handler
-
-        elif name == "twitter_trends":
-            from .twitter.twitter_trends.handler import handler
 
             handlers[name] = handler
 
@@ -257,12 +246,12 @@ def load_handler(name):
             from .abraham.abraham_publish.handler import handler
 
             handlers[name] = handler
-        
+
         elif name == "abraham_daily":
             from .abraham.abraham_daily.handler import handler
 
             handlers[name] = handler
-        
+
         elif name == "abraham_covenant":
             from .abraham.abraham_covenant.handler import handler
 

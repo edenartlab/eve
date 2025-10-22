@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 from .. import s3
 from .. import utils
-from ..tool import Tool, tool_context
+from ..tool import Tool, ToolContext, tool_context
 from ..models import Model
 from ..task import Task, Creation
 from ..mongo import get_collection
@@ -25,9 +25,10 @@ class ReplicateTool(Tool):
     output_handler: str = "normal"
 
     @Tool.handle_run
-    async def async_run(self, args: Dict, user_id: str = None, agent_id: str = None, session_id: str = None):
+    async def async_run(self, context: ToolContext):
         check_replicate_api_token()
-        
+
+        args = context.args
         if self.version:
             args = self._format_args_for_replicate(args)
             prediction = await self._create_prediction(args, webhook=False)
@@ -45,10 +46,12 @@ class ReplicateTool(Tool):
             replicate_model = self._get_replicate_model(args)
             args = self._format_args_for_replicate(args)
             output = replicate.run(replicate_model, input=args)
-            
+
             if output and isinstance(output, replicate.helpers.FileOutput):
                 suffix = ".mp4" if self.output_type == "video" else ".webp"
-                with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as temp_file:
+                with tempfile.NamedTemporaryFile(
+                    suffix=suffix, delete=False
+                ) as temp_file:
                     temp_file.write(output.read())
                 output = temp_file.name
             result = {"output": output}
@@ -69,9 +72,7 @@ class ReplicateTool(Tool):
             # So we spawn a remote task on Modal which awaits the Replicate task
             db = os.getenv("DB", "STAGE").upper()
             func = modal.Function.from_name(
-                f"api-{db.lower()}",
-                "run_task_replicate", 
-                environment_name="main"
+                f"api-{db.lower()}", "run_task_replicate", environment_name="main"
             )
             job = func.spawn(task)
             return job.object_id
@@ -119,7 +120,6 @@ class ReplicateTool(Tool):
             if field in new_args:
                 if lora:
                     loras = get_collection(Model.collection_name)
-                    print(f"Looking up LoRA with ID: {args[field]}")
                     lora_doc = (
                         loras.find_one({"_id": ObjectId(args[field])})
                         if args[field]
@@ -132,10 +132,10 @@ class ReplicateTool(Tool):
                             lora_name = lora_doc.get("name")
                             lora_trigger_text = lora_doc.get("lora_trigger_text")
                             new_args[field] = lora_url
-                            print(f"LoRA {lora_name} found, using URL: {lora_url}")
-                            print(f"Trigger text: {lora_trigger_text}")
                         else:
-                            print(f"ERROR: LoRA doc found but no checkpoint field")
+                            raise RuntimeError(
+                                "ERROR: LoRA doc found but no checkpoint field"
+                            )
 
                         if lora_trigger_text and "prompt" in new_args:
                             name_pattern = f"(\\b{re.escape(lora_name)}\\b|<{re.escape(lora_name)}>|\\<concept\\>)"
@@ -145,22 +145,35 @@ class ReplicateTool(Tool):
                             )
                             # if no lora trigger text, add it to the prompt
                             if lora_trigger_text not in new_args["prompt"]:
-                                new_args["prompt"] = f"{lora_trigger_text}, {new_args['prompt']}"
+                                new_args["prompt"] = (
+                                    f"{lora_trigger_text}, {new_args['prompt']}"
+                                )
                     else:
-                        print(f"ERROR: No LoRA found with ID: {args[field]}")
+                        raise RuntimeError(
+                            f"ERROR: No LoRA found with ID: {args[field]}"
+                        )
 
                 if is_number:
                     new_args[field] = float(args[field])
                 elif is_array:
-                    is_pipe = any(n in self.key for n in [
-                        "legacy", "real2real", "interpolate", "controlnet", "img2vid", "txt2vid", "_trainer"
-                    ])
+                    is_pipe = any(
+                        n in self.key
+                        for n in [
+                            "legacy",
+                            "real2real",
+                            "interpolate",
+                            "controlnet",
+                            "img2vid",
+                            "txt2vid",
+                            "_trainer",
+                        ]
+                    )
 
                     if is_pipe:
                         new_args[field] = "|".join([str(p) for p in args[field]])
                 if alias:
                     new_args[alias] = new_args.pop(field)
-                    
+
         return new_args
 
     def _get_replicate_model(self, args: dict):
@@ -266,11 +279,7 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
             )
             if thumbnails:
                 for thumb in thumbnails:
-                    utils.upload_media(
-                        thumb, 
-                        save_thumbnails=True,
-                        save_blurhash=True
-                    )
+                    utils.upload_media(thumb, save_thumbnails=True, save_blurhash=True)
             result = [{"output": [out]} for out in output]
         else:
             output = utils.upload_result(
@@ -322,7 +331,6 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
                     creation.save()
 
                     # increment creation count
-                    task_args = task.args
                     # if task_args.get("lora"):
                     #     model = Model.from_mongo(task_args.get("lora"))
                     #     model.creationCount += 1
@@ -343,6 +351,7 @@ def replicate_update_task(task: Task, status, error, output, output_handler):
         task.save()
 
         return {"status": "completed", "result": result}
+
 
 def check_replicate_api_token():
     if not os.getenv("REPLICATE_API_TOKEN"):

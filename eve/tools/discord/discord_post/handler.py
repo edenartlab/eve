@@ -1,24 +1,26 @@
 from eve.agent.agent import Agent
 from eve.agent.session.models import Deployment
+from eve.tool import ToolContext
 import discord
 import aiohttp
 import io
 import os
+from loguru import logger
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
-    if not agent:
+async def handler(context: ToolContext):
+    if not context.agent:
         raise Exception("Agent is required")
-    agent = Agent.from_mongo(agent)
+    agent = Agent.from_mongo(context.agent)
     deployment = Deployment.load(agent=agent.id, platform="discord")
     if not deployment:
         raise Exception("No valid Discord deployments found")
 
     # Get parameters
-    channel_id = args.get("channel_id")
-    discord_user_id = args.get("discord_user_id")
-    content = args["content"]
-    media_urls = args.get("media_urls", [])
+    channel_id = context.args.get("channel_id")
+    discord_user_id = context.args.get("discord_user_id")
+    content = context.args["content"]
+    media_urls = context.args.get("media_urls", [])
 
     # Validate parameters
     if not discord_user_id and not channel_id:
@@ -49,7 +51,9 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
             return await send_dm(client, discord_user_id, content, files)
         else:
             # Send message to channel (existing functionality)
-            return await send_channel_message(client, deployment, channel_id, content, files)
+            return await send_channel_message(
+                client, deployment, channel_id, content, files
+            )
 
     finally:
         await client.close()
@@ -65,32 +69,36 @@ async def download_media_files(media_urls: list) -> list:
                 async with session.get(url) as response:
                     if response.status == 200:
                         # Get filename from URL or use a default
-                        filename = os.path.basename(url.split('?')[0])
-                        if not filename or '.' not in filename:
+                        filename = os.path.basename(url.split("?")[0])
+                        if not filename or "." not in filename:
                             # Determine extension from content-type
-                            content_type = response.headers.get('content-type', '')
-                            if 'image' in content_type:
-                                ext = content_type.split('/')[-1]
+                            content_type = response.headers.get("content-type", "")
+                            if "image" in content_type:
+                                ext = content_type.split("/")[-1]
                                 filename = f"image.{ext}"
-                            elif 'video' in content_type:
-                                ext = content_type.split('/')[-1]
+                            elif "video" in content_type:
+                                ext = content_type.split("/")[-1]
                                 filename = f"video.{ext}"
                             else:
                                 filename = "attachment"
 
                         # Read file content
                         file_data = await response.read()
-                        file_obj = discord.File(io.BytesIO(file_data), filename=filename)
+                        file_obj = discord.File(
+                            io.BytesIO(file_data), filename=filename
+                        )
                         files.append(file_obj)
             except Exception as e:
                 # If any file fails to download, return empty list to trigger fallback
-                print(f"Failed to download media from {url}: {str(e)}")
+                logger.error(f"Failed to download media from {url}: {str(e)}")
                 return []
 
     return files
 
 
-async def send_dm(client: discord.Client, discord_user_id: str, content: str, files: list = None):
+async def send_dm(
+    client: discord.Client, discord_user_id: str, content: str, files: list = None
+):
     """Send a direct message to a Discord user."""
     try:
         # Get the user object
@@ -117,14 +125,22 @@ async def send_dm(client: discord.Client, discord_user_id: str, content: str, fi
 
     except discord.Forbidden:
         # User has DMs disabled or bot is blocked
-        raise Exception(f"Cannot send DM to user {discord_user_id}: DMs disabled or bot blocked")
+        raise Exception(
+            f"Cannot send DM to user {discord_user_id}: DMs disabled or bot blocked"
+        )
     except discord.NotFound:
         raise Exception(f"User {discord_user_id} not found")
     except Exception as e:
         raise Exception(f"Failed to send DM to user {discord_user_id}: {str(e)}")
 
 
-async def send_channel_message(client: discord.Client, deployment: Deployment, channel_id: str, content: str, files: list = None):
+async def send_channel_message(
+    client: discord.Client,
+    deployment: Deployment,
+    channel_id: str,
+    content: str,
+    files: list = None,
+):
     """Send a message to a Discord channel (existing functionality)."""
     # Get allowed channels from deployment config
     allowed_channels = deployment.config.discord.channel_allowlist

@@ -1,5 +1,5 @@
+from eve.tool import ToolContext
 import os
-import time
 import logging
 import requests
 import tempfile
@@ -30,11 +30,14 @@ def get_audio_duration(audio_file_path: str) -> float:
     """Get the duration of an audio file in seconds using ffprobe."""
     try:
         cmd = [
-            'ffprobe',
-            '-v', 'error',
-            '-show_entries', 'format=duration',
-            '-of', 'default=noprint_wrappers=1:nokey=1',
-            audio_file_path
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            audio_file_path,
         ]
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         duration = float(result.stdout.strip())
@@ -46,7 +49,7 @@ def get_audio_duration(audio_file_path: str) -> float:
         return None
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
+async def handler(context: ToolContext):
     HEDRA_API_KEY = os.getenv("HEDRA_API_KEY")
     session = Session(api_key=HEDRA_API_KEY)
 
@@ -56,9 +59,11 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
 
     try:
         # Download files using utils
-        image = utils.download_file(args["image"], temp_image.name, overwrite=True)
+        image = utils.download_file(
+            context.args["image"], temp_image.name, overwrite=True
+        )
         audio_file = utils.download_file(
-            args["audio"], temp_audio.name, overwrite=True
+            context.args["audio"], temp_audio.name, overwrite=True
         )
 
         logger.info("testing against %s", session.base_url)
@@ -66,7 +71,9 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
 
         # Use Hedra Character 3 model for audio-based talking heads (supports auto duration)
         # Otherwise fall back to first model
-        character_model = next((m for m in models if "Character" in m.get("name", "")), None)
+        character_model = next(
+            (m for m in models if "Character" in m.get("name", "")), None
+        )
         model = character_model if character_model else models[0]
         model_id = model["id"]
         logger.info(f"Using model: {model.get('name', 'Unknown')} (ID: {model_id})")
@@ -109,15 +116,18 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
 
         # Build generated_video_inputs matching the official starter structure
         generated_video_inputs = {
-            "text_prompt": args["prompt"],
-            "resolution": args.get("resolution", "540p"),  # Default to 540p if not provided
-            "aspect_ratio": args.get("aspectRatio", "1:1"),  # Default to 1:1 if not provided
+            "text_prompt": context.args["prompt"],
+            "resolution": context.args.get(
+                "resolution", "540p"
+            ),  # Default to 540p if not provided
+            "aspect_ratio": context.args.get(
+                "aspectRatio", "1:1"
+            ),  # Default to 1:1 if not provided
         }
 
         # Add duration if explicitly provided (in seconds), otherwise get it from audio
-        logger.info(f"Args: {args}")
-        if args.get("duration") is not None:
-            duration_seconds = args["duration"]
+        if context.args.get("duration") is not None:
+            duration_seconds = context.args["duration"]
             logger.info(f"Using explicit duration: {duration_seconds}s")
         else:
             # Get audio duration
@@ -126,7 +136,9 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
                 duration_seconds = audio_duration
                 logger.info(f"Using audio duration: {duration_seconds}s")
             else:
-                logger.warning("Could not get audio duration, proceeding without duration")
+                logger.warning(
+                    "Could not get audio duration, proceeding without duration"
+                )
                 duration_seconds = None
 
         # Convert duration to milliseconds and clamp to valid model durations
@@ -136,9 +148,13 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
             # If model has specific valid durations, use the closest one
             if valid_durations_ms:
                 # Find the closest valid duration
-                duration_ms = min(valid_durations_ms, key=lambda x: abs(x - requested_duration_ms))
+                duration_ms = min(
+                    valid_durations_ms, key=lambda x: abs(x - requested_duration_ms)
+                )
                 if duration_ms != requested_duration_ms:
-                    logger.info(f"Requested duration {requested_duration_ms}ms not valid for this model. Using closest valid duration: {duration_ms}ms")
+                    logger.info(
+                        f"Requested duration {requested_duration_ms}ms not valid for this model. Using closest valid duration: {duration_ms}ms"
+                    )
                 else:
                     logger.info(f"Using valid duration: {duration_ms}ms")
             else:
@@ -150,8 +166,8 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
             logger.info("Skipping duration_ms - model will auto-detect from audio")
 
         # Add optional seed if provided
-        if args.get("seed") is not None:
-            generated_video_inputs["seed"] = args["seed"]
+        if context.args.get("seed") is not None:
+            generated_video_inputs["seed"] = context.args["seed"]
 
         generation_request_data = {
             "type": "video",
@@ -169,7 +185,9 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         # Check if the response contains an error
         if "code" in generation_response or "id" not in generation_response:
             error_msg = generation_response.get("messages", ["Unknown error"])
-            raise Exception(f"API error: {error_msg}. Full response: {generation_response}")
+            raise Exception(
+                f"API error: {error_msg}. Full response: {generation_response}"
+            )
 
         generation_id = generation_response["id"]
         while True:
@@ -186,17 +204,6 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         # --- Process final status (download or log error) ---
         if status == "complete" and status_response.get("url"):
             download_url = status_response["url"]
-            # Use asset_id for filename if available, otherwise use generation_id
-            output_filename_base = status_response.get("asset_id", generation_id)
-            output_filename = f"{output_filename_base}.mp4"
-
-            # Use a fresh requests get, not the session, as the URL is likely presigned S3
-            # with requests.get(download_url, stream=True) as r:
-            #     r.raise_for_status() # Check if the request was successful
-            #     with open(output_filename, 'wb') as f:
-            #         for chunk in r.iter_content(chunk_size=8192):
-            #             f.write(chunk)
-            # logger.info(f"Successfully downloaded video to {output_filename}")
             return {"output": download_url}
 
         elif status == "error":

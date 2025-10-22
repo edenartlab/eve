@@ -16,11 +16,12 @@ TODO:
 
 import os
 from eve.s3 import get_full_url
-from eve.tool import Tool
+from eve.tool import Tool, ToolContext
 from eve.models import Model
+from loguru import logger
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
+async def handler(context: ToolContext):
     # load tools
     flux_schnell = Tool.load("flux_schnell")
     flux_dev_lora = Tool.load("flux_dev_lora")
@@ -31,17 +32,17 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     openai_image_generate = Tool.load("openai_image_generate")
 
     # get args
-    prompt = args["prompt"]
-    n_samples = args.get("n_samples", 1)
-    init_image = args.get("init_image", None)
-    text_precision = args.get("text_precision", False)
-    seed = args.get("seed", None)
-    lora_strength = args.get("lora_strength", 0.75)
-    aspect_ratio = args.get("aspect_ratio", "auto")
-    controlnet = args.get("controlnet", False)
+    prompt = context.args["prompt"]
+    n_samples = context.args.get("n_samples", 1)
+    init_image = context.args.get("init_image", None)
+    text_precision = context.args.get("text_precision", False)
+    seed = context.args.get("seed", None)
+    lora_strength = context.args.get("lora_strength", 0.75)
+    aspect_ratio = context.args.get("aspect_ratio", "auto")
+    controlnet = context.args.get("controlnet", False)
 
     # get loras
-    loras = get_loras(args.get("lora"), args.get("lora2"))
+    loras = get_loras(context.args.get("lora"), context.args.get("lora2"))
 
     # Determine tool
     if init_image:
@@ -137,7 +138,6 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         if seed:
             args["seed"] = seed
 
-        print("Running flux_schnell", args)
         result = await flux_schnell.async_run(args, save_thumbnails=True)
 
     #########################################################
@@ -172,7 +172,6 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         else:
             args.update({"lora_strength": 0.0})
 
-        print("Running flux_dev_lora", args)
         result = await flux_dev_lora.async_run(args, save_thumbnails=True)
 
     #########################################################
@@ -232,7 +231,6 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
 
         args.update(aspect_ratio_to_dimensions(aspect_ratio))
 
-        print("Running flux_dev", args)
         result = await flux_dev.async_run(args, save_thumbnails=True)
         # Todo: incorporate style_image / style_strength ?
 
@@ -253,7 +251,6 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         if seed:
             args["seed"] = seed
 
-        print("Running flux_kontext", args)
         result = await flux_kontext.async_run(args, save_thumbnails=True)
 
     #########################################################
@@ -273,10 +270,9 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         else:
             args["size"] = "auto"
 
-        if user:
-            args["user"] = str(user)
+        if context.user:
+            args["user"] = str(context.user)
 
-        print("Running openai_image_generate", args)
         result = await openai_image_generate.async_run(args, save_thumbnails=True)
 
     #########################################################
@@ -330,11 +326,8 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
 
                 prompt = f"This was the prompt for the image you see here: {prompt}. Regenerate this exact image in this exact style, as faithfully to the original image as possible, except completely redo any poorly rendered or illegible text rendered that doesn't match what's in the prompt."
 
-                print("oae init_image", init_image)
-                print("oae prompt", prompt)
-
             except Exception as e:
-                print(
+                logger.error(
                     "Error in flux_dev_lora step, so just using openai_image_generate",
                     e,
                 )
@@ -347,16 +340,15 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
             "size": "auto",
         }
 
-        if user:
-            args["user"] = str(user)
+        if context.user:
+            args["user"] = str(context.user)
 
         if init_image:
             args["image"] = [init_image]
-            print("Running openai_image_edit", args)
             result = await openai_image_edit.async_run(args, save_thumbnails=True)
 
         else:
-            print("No init image, fall back on openai_image_generate", args)
+            logger.warning("No init image, fall back on openai_image_generate", args)
             result = await openai_image_generate.async_run(args, save_thumbnails=True)
 
     else:
@@ -368,8 +360,6 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     assert "filename" in result["output"][0], "No filename in output from image tool"
 
     final_result = get_full_url(result["output"][0]["filename"])
-
-    print("final result", final_result)
 
     return {"output": final_result}
 

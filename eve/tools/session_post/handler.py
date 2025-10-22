@@ -1,78 +1,74 @@
-import os
-import json
-import requests
-import uuid
 import modal
 
 from eve.agent import Agent
 from eve.user import User
-from eve.tool import Tool
+from eve.tool import Tool, ToolContext
 from eve.api.api import remote_prompt_session
 from eve.api.handlers import setup_session
-from eve.api.api_requests import (
-    PromptSessionRequest,
-    SessionCreationArgs
-)
+from eve.api.api_requests import PromptSessionRequest, SessionCreationArgs
 from eve.agent.session.models import (
     PromptSessionContext,
-    ChatMessageRequestInput,
     LLMConfig,
     Session,
-    ChatMessage
+    ChatMessage,
 )
-from eve.agent.session.session import (
-    add_chat_message,
-    build_llm_context,
-    async_prompt_session
-)
+from eve.agent.session.session import add_chat_message
 from eve import db
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
-    if not agent:
+async def handler(context: ToolContext):
+    if not context.agent:
         raise Exception("Agent is required")
-    if not user:
+    if not context.user:
         raise Exception("User is required")
 
-    # note: if agent is provided in args, it is a subagent being called by the originating agent (which is just "agent" in the handler args)
-    if args.get("agent"):
-        agent = args.get("agent")
+    # note: if agent is provided in context.args, it is a subagent being called by the originating agent (which is just "agent" in the handler context.args)
+    if context.args.get("agent"):
+        agent = context.args.get("agent")
         agent = Agent.load(agent)
     else:
-        agent = Agent.from_mongo(agent)
-        
-    user = User.from_mongo(user)
+        agent = Agent.from_mongo(context.agent)
 
-    # note: session in handler args refers to the originating session (if there is one), not the session that is being posted to. session to post to is args.get("session")
-    session_id = args.get("session")
+    user = User.from_mongo(context.user)
+
+    # note: session in handler args refers to the originating session (if there is one), not the session that is being posted to. session to post to is context.args.get("session")
+    session_id = context.args.get("session")
 
     # create genesis session if new
     request = None
     if session_id is None:
-        title = args.get("title")
+        title = context.args.get("title")
         if not title:
-            if session:
-                title = f"Session spawned from {session}"
+            if context.session:
+                title = f"Session spawned from {context.session}"
             else:
-                title = f"New Session"
+                title = "New Session"
 
         request = PromptSessionRequest(
             user_id=str(user.id),
             creation_args=SessionCreationArgs(
-                owner_id=str(user.id),
-                agents=[str(agent.id)],
-                title=title
-            )
+                owner_id=str(user.id), agents=[str(agent.id)], title=title
+            ),
         )
 
-        new_session = setup_session(
-            None,
-            request.session_id,
-            request.user_id,
-            request
-        )
+        new_session = setup_session(None, request.session_id, request.user_id, request)
 
         session_id = str(new_session.id)
+
+        # Update parent tool call with child session ID (if called via tool execution)
+        from eve.agent.session.tool_context import get_current_tool_call
+
+        tool_call_context = get_current_tool_call()
+        if tool_call_context:
+            tool_call, assistant_message, tool_call_index = tool_call_context
+            tool_call.child_session = new_session.id
+            if assistant_message.tool_calls and tool_call_index < len(
+                assistant_message.tool_calls
+            ):
+                assistant_message.tool_calls[
+                    tool_call_index
+                ].child_session = new_session.id
+                assistant_message.save()
 
     # make a new set of drafts
     session = Session.from_mongo(session_id)
@@ -80,41 +76,40 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
     # Use user.id as initiating_user_id if request is not available
     initiating_user_id = request.user_id if request else str(user.id)
 
-    if args.get("role") == "assistant":
-
+    if context.args.get("role") == "assistant":
         new_message = ChatMessage(
             role="assistant",
             sender=agent.id,
             session=session.id,
-            content=args.get("content"),
-            attachments=args.get("attachments") or [],
+            content=context.args.get("content"),
+            attachments=context.args.get("attachments") or [],
         )
 
-        context = PromptSessionContext(
+        prompt_context = PromptSessionContext(
             session=session,
             initiating_user_id=initiating_user_id,
             message=new_message,
-            llm_config=LLMConfig(model="claude-sonnet-4-5-20250929")
+            llm_config=LLMConfig(model="claude-sonnet-4-5-20250929"),
         )
 
         new_message.save()
 
-    elif args.get("role") in ["system", "user"]:
-        
+    elif context.args.get("role") in ["system", "user"]:
         # If we're going to prompt, let the remote function handle message addition
-        if args.get("prompt"):
-
+        if context.args.get("prompt"):
             # Run asynchronously
-            if args.get("async"):
+            if context.args.get("async"):
                 app_name = f"api-{db.lower()}"
-                remote_fn = modal.Function.from_name(app_name, "remote_prompt_session_fn")
+                remote_fn = modal.Function.from_name(
+                    app_name, "remote_prompt_session_fn"
+                )
                 remote_fn.spawn(
                     session_id=session_id,
                     agent_id=str(agent.id),
                     user_id=str(user.id),
-                    content=args.get("content"),
-                    attachments=args.get("attachments") or [],
-                    extra_tools=args.get("extra_tools") or [],
+                    content=context.args.get("content"),
+                    attachments=context.args.get("attachments") or [],
+                    extra_tools=context.args.get("extra_tools") or [],
                 )
 
             # Run and wait for the result
@@ -123,44 +118,38 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
                     session_id=session_id,
                     agent_id=str(agent.id),
                     user_id=str(user.id),
-                    content=args.get("content"),
-                    attachments=args.get("attachments") or [],
-                    extra_tools=args.get("extra_tools") or [],
+                    content=context.args.get("content"),
+                    attachments=context.args.get("attachments") or [],
+                    extra_tools=context.args.get("extra_tools") or [],
                 )
 
                 # session_id = result["session_id"]
 
-                print("remote_prompt_session result")
-                print(result)
                 return {"output": result}
-
-
-
+                # return result
 
         else:
             # Just add the message without prompting
             new_message = ChatMessage(
-                role=args.get("role"),
+                role=context.args.get("role"),
                 sender=user.id,
                 session=session.id,
-                content=args.get("content"),
-                attachments=args.get("attachments") or [],
+                content=context.args.get("content"),
+                attachments=context.args.get("attachments") or [],
             )
 
-            context = PromptSessionContext(
+            prompt_context = PromptSessionContext(
                 session=session,
                 initiating_user_id=initiating_user_id,
                 message=new_message,
                 llm_config=LLMConfig(model="claude-sonnet-4-5-20250929"),
             )
 
-            if args.get("extra_tools"):
-                context.extra_tools = {
-                    k: Tool.load(k) for k in args.get("extra_tools")
+            if context.args.get("extra_tools"):
+                prompt_context.extra_tools = {
+                    k: Tool.load(k) for k in context.args.get("extra_tools")
                 }
 
-            await add_chat_message(session, context)
-    
-    return {
-        "output": [{"session": session_id}]
-    }
+            await add_chat_message(session, prompt_context)
+
+    return {"output": [{"session": session_id}]}

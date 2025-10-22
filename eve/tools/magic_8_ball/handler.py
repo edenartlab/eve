@@ -1,64 +1,67 @@
 import random
-from typing import Dict, List, Optional
 from ...agent import Agent
 from ...agent.session.models import ChatMessage, LLMContext, LLMConfig
 from ...agent.session.session_llm import async_prompt
+from ...tool import ToolContext
+from loguru import logger
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
+async def handler(context: ToolContext):
     """
     Magic Eightball handler that randomly samples from categories and generates constrained content.
-    
+
     This tool implements the Magic Eightball prompting system to combat diversity collapse
     by forcing external randomization outside the LLM's probability distributions.
     """
-    
+
     # Extract parameters
-    sample_dict = args.get("sample_dict", {})
-    context = args.get("context", "")
-    instruction = args.get("instruction", "")
-    agent_override = args.get("agent")  # Optional agent from argument
-    
+    sample_dict = context.args.get("sample_dict", {})
+    prompt_context = context.args.get("context", "")
+    instruction = context.args.get("instruction", "")
+    agent_override = context.args.get("agent")  # Optional agent from argument
+
     if not sample_dict:
         return {"error": "sample_dict is required"}
-    if not context:
+    if not prompt_context:
         return {"error": "context is required"}
     if not instruction:
         return {"error": "instruction is required"}
-    
+
     # Step 1: Random sampling from each category
     sampled_values = {}
     for category, options in sample_dict.items():
         if options and isinstance(options, list):
             sampled_values[category] = random.choice(options)
-    
+
     if not sampled_values:
         return {"error": "No valid categories with options found in sample_dict"}
-    
+
     # Step 2: Create formatted output of selections
-    samples_text = "\n".join([
-        f"• {category}: {value}"
-        for category, value in sampled_values.items()
-    ])
-    
+    samples_text = "\n".join(
+        [f"• {category}: {value}" for category, value in sampled_values.items()]
+    )
+
     # Step 3: Set up system prompt (with agent persona if available)
     system_prompt = """You are a creative assistant that generates content strictly constrained by mandatory elements. You must naturally incorporate ALL specified elements into your response."""
-    
+
     # Use agent persona if provided (either from args or session context)
     agent = None
     if agent_override:
         try:
             agent = Agent.from_mongo(agent_override)
         except Exception as e:
-            print(f"Warning: Could not load agent from override '{agent_override}': {e}")
-    elif agent:
+            logger.error(
+                f"Warning: Could not load agent from override '{agent_override}': {e}"
+            )
+    elif context.agent:
         try:
-            agent = Agent.from_mongo(agent)
+            agent = Agent.from_mongo(context.agent)
         except Exception as e:
-            print(f"Warning: Could not load agent from session '{agent}': {e}")
-    
+            logger.error(
+                f"Warning: Could not load agent from session '{context.agent}': {e}"
+            )
+
     if agent:
-        print(f"Using agent persona: {agent.name}")
         system_prompt = f"""You are {agent.name}. The following is a description of your persona.
         # Your persona
 
@@ -67,11 +70,11 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
         # Task
         
         You are a creative assistant that generates content strictly constrained by mandatory elements. You must naturally incorporate ALL specified elements into your response. Let your persona influence your creative direction, voice, and style. Stay true to your character while fulfilling this creative task."""
-    
+
     # Step 4: Create inner prompt with constraints
     inner_user = f"""
 CONTEXT:
-{context}
+{prompt_context}
 
 MANDATORY ELEMENTS (you MUST incorporate ALL of these features into your response):
 {samples_text}
@@ -81,7 +84,7 @@ INSTRUCTIONS:
 
 The mandatory elements should feel integral to the story, not just mentioned in passing.
 """
-    
+
     # Step 5: Call LLM with constraints
     try:
         ctx = LLMContext(
@@ -92,27 +95,27 @@ The mandatory elements should feel integral to the story, not just mentioned in 
             config=LLMConfig(
                 model="claude-sonnet-4-5-20250929",
                 fallback_models=["claude-3-7-sonnet-20250219", "gpt-4o"],
-                reasoning_effort="medium"
+                reasoning_effort="medium",
             ),
         )
-        
+
         response = await async_prompt(ctx)
         generated_content = response.content.strip()
-        
+
     except Exception as e:
         return {"error": f"Content generation failed: {str(e)}"}
-    
+
     # Step 6: Format final response
     result = f"""🎱 EIGHTBALL SELECTIONS:
 {samples_text}
 
 📝 GENERATED CONTENT:
 {generated_content}"""
-    
+
     return {
         "output": result,
         "intermediate_outputs": {
             "sampled_values": sampled_values,
-            "raw_content": generated_content
-        }
+            "raw_content": generated_content,
+        },
     }

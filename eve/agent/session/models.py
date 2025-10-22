@@ -60,6 +60,7 @@ class ToolCall(BaseModel):
     result: Optional[List[Dict[str, Any]]] = None
     reactions: Optional[Dict[str, List[str]]] = None
     error: Optional[str] = None
+    child_session: Optional[ObjectId] = None  # ID of session spawned by this tool call (e.g., session_post)
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -1165,8 +1166,15 @@ class DeploymentSettingsFarcaster(BaseModel):
 
 
 class DeploymentSecretsFarcaster(BaseModel):
-    mnemonic: str
+    mnemonic: Optional[str] = None  # For backwards compatibility with direct mnemonic auth
+    signer_uuid: Optional[str] = None  # For Neynar managed signers
     neynar_webhook_secret: Optional[str] = None
+
+    def model_post_init(self, __context):
+        """Validate that either mnemonic or signer_uuid is provided"""
+        if not self.mnemonic and not self.signer_uuid:
+            raise ValueError("Either mnemonic or signer_uuid must be provided")
+        super().model_post_init(__context)
 
 
 # Twitter Models

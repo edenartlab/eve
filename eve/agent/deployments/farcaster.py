@@ -2,7 +2,7 @@ import json
 import os
 import aiohttp
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional, Dict, Any, List
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
@@ -18,6 +18,7 @@ from eve.agent.session.models import (
 from eve.api.api_requests import SessionCreationArgs
 from eve.api.errors import APIError
 from eve.agent.deployments import PlatformClient
+from eve.agent.deployments.neynar_client import NeynarClient
 from eve.agent.session.models import UpdateType
 from eve.utils import prepare_result
 from eve.user import User
@@ -29,6 +30,86 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def uses_managed_signer(secrets: DeploymentSecrets) -> bool:
+    """Check if deployment uses managed signer or mnemonic"""
+    return bool(secrets.farcaster.signer_uuid)
+
+
+async def get_fid(secrets: DeploymentSecrets) -> int:
+    """Get FID based on auth method (managed signer or mnemonic)"""
+    if uses_managed_signer(secrets):
+        neynar_client = NeynarClient()
+        user_info = await neynar_client.get_user_info_by_signer(
+            secrets.farcaster.signer_uuid
+        )
+        return user_info.get("fid")
+    else:
+        from farcaster import Warpcast
+
+        client = Warpcast(mnemonic=secrets.farcaster.mnemonic)
+        user_info = client.get_me()
+        return user_info.fid
+
+
+async def post_cast(
+    secrets: DeploymentSecrets,
+    text: str = "",
+    embeds: Optional[List[str]] = None,
+    parent: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Post a cast using either managed signer or mnemonic
+
+    Returns dict with cast info including hash, url, thread_hash
+    """
+    logger.info(f"post_cast called - text: '{text[:100] if text else '(empty)'}...', embeds: {embeds}, parent: {parent}")
+
+    if uses_managed_signer(secrets):
+        # Use Neynar API for managed signer
+        logger.info(f"Using managed signer with UUID: {secrets.farcaster.signer_uuid}")
+        neynar_client = NeynarClient()
+        result = await neynar_client.post_cast(
+            signer_uuid=secrets.farcaster.signer_uuid,
+            text=text,
+            embeds=embeds,
+            parent=parent,
+        )
+
+        logger.info(f"Neynar post_cast result: {result}")
+
+        # Normalize Neynar response format
+        cast_data = result.get("cast", {})
+        cast_hash = cast_data.get("hash")
+        author = cast_data.get("author", {})
+        username = author.get("username")
+        thread_hash = cast_data.get("thread_hash")
+
+        cast_info = {
+            "hash": cast_hash,
+            "url": f"https://warpcast.com/{username}/{cast_hash}" if username and cast_hash else None,
+            "thread_hash": thread_hash,
+        }
+        logger.info(f"Successfully posted cast via managed signer: {cast_info}")
+        return cast_info
+    else:
+        # Use Warpcast client for mnemonic
+        logger.info("Using mnemonic-based authentication")
+        from farcaster import Warpcast
+
+        client = Warpcast(mnemonic=secrets.farcaster.mnemonic)
+        result = client.post_cast(text=text, embeds=embeds, parent=parent)
+
+        # Convert to dict format for consistency
+        user_info = client.get_me()
+        cast_hash = result.cast.hash
+        cast_info = {
+            "hash": cast_hash,
+            "url": f"https://warpcast.com/{user_info.username}/{cast_hash}",
+            "thread_hash": result.cast.thread_hash,
+        }
+        logger.info(f"Successfully posted cast via mnemonic: {cast_info}")
+        return cast_info
+
+
 class FarcasterClient(PlatformClient):
     TOOLS = [
         "farcaster_cast",
@@ -36,17 +117,72 @@ class FarcasterClient(PlatformClient):
         "farcaster_mentions",
     ]
 
+    def _uses_managed_signer(self, secrets: DeploymentSecrets) -> bool:
+        """Check if deployment uses managed signer or mnemonic"""
+        return uses_managed_signer(secrets)
+
+    async def _get_fid_from_managed_signer(self, signer_uuid: str) -> int:
+        """Get FID from managed signer"""
+        neynar_client = NeynarClient()
+        user_info = await neynar_client.get_user_info_by_signer(signer_uuid)
+        return user_info.get("fid")
+
+    async def _get_fid_from_mnemonic(self, mnemonic: str) -> int:
+        """Get FID from mnemonic using Warpcast client"""
+        from farcaster import Warpcast
+
+        client = Warpcast(mnemonic=mnemonic)
+        user_info = client.get_me()
+        return user_info.fid
+
+    async def _get_fid(self, secrets: DeploymentSecrets) -> int:
+        """Get FID based on auth method"""
+        return await get_fid(secrets)
+
+    async def _post_cast(
+        self,
+        text: str = "",
+        embeds: Optional[List[str]] = None,
+        parent: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Post a cast using either managed signer or mnemonic"""
+        if not self.deployment:
+            raise ValueError("Deployment is required for _post_cast")
+
+        return await post_cast(
+            secrets=self.deployment.secrets,
+            text=text,
+            embeds=embeds,
+            parent=parent,
+        )
+
     async def predeploy(
         self, secrets: DeploymentSecrets, config: DeploymentConfig
     ) -> tuple[DeploymentSecrets, DeploymentConfig]:
         """Verify Farcaster credentials"""
         try:
-            from farcaster import Warpcast
+            if self._uses_managed_signer(secrets):
+                # Verify managed signer status
+                neynar_client = NeynarClient()
+                signer_status = await neynar_client.get_signer_status(
+                    secrets.farcaster.signer_uuid
+                )
 
-            client = Warpcast(mnemonic=secrets.farcaster.mnemonic)
+                if signer_status.get("status") != "approved":
+                    raise APIError(
+                        f"Managed signer is not approved. Status: {signer_status.get('status')}",
+                        status_code=400,
+                    )
+            else:
+                # Verify mnemonic credentials
+                from farcaster import Warpcast
 
-            # Test the credentials by getting user info
-            client.get_me()
+                client = Warpcast(mnemonic=secrets.farcaster.mnemonic)
+
+                # Test the credentials by getting user info
+                client.get_me()
+        except APIError:
+            raise
         except Exception as e:
             raise APIError(f"Invalid Farcaster credentials: {str(e)}", status_code=400)
 
@@ -83,13 +219,49 @@ class FarcasterClient(PlatformClient):
         if not webhook_id:
             raise Exception("NEYNAR_WEBHOOK_ID not found in environment")
 
-        # Get user info to add FID to webhook
-        from farcaster import Warpcast
+        # Get FID to add to webhook
+        fid = await self._get_fid(self.deployment.secrets)
 
-        client = Warpcast(mnemonic=self.deployment.secrets.farcaster.mnemonic)
-        user_info = client.get_me()
+        await self._update_webhook_fids(webhook_id, add_fid=fid)
 
-        await self._update_webhook_fids(webhook_id, add_fid=user_info.fid)
+    async def update(
+        self,
+        old_config: Optional[DeploymentConfig] = None,
+        new_config: Optional[DeploymentConfig] = None,
+        old_secrets: Optional[DeploymentSecrets] = None,
+        new_secrets: Optional[DeploymentSecrets] = None,
+    ) -> None:
+        """Handle deployment config/secrets updates"""
+        if not self.deployment:
+            raise ValueError("Deployment is required for update")
+
+        # Check if auto_reply setting changed
+        old_auto_reply = (
+            old_config.farcaster.auto_reply
+            if old_config and old_config.farcaster
+            else False
+        )
+        new_auto_reply = (
+            new_config.farcaster.auto_reply
+            if new_config and new_config.farcaster
+            else False
+        )
+
+        if old_auto_reply != new_auto_reply:
+            webhook_id = os.getenv("NEYNAR_WEBHOOK_ID")
+            if not webhook_id:
+                raise Exception("NEYNAR_WEBHOOK_ID not found in environment")
+
+            # Use new_secrets parameter (not self.deployment.secrets which is stale)
+            secrets = new_secrets or self.deployment.secrets
+            fid = await self._get_fid(secrets)
+
+            if new_auto_reply and not old_auto_reply:
+                # Enable auto-reply: add FID to webhook
+                await self._update_webhook_fids(webhook_id, add_fid=fid)
+            elif not new_auto_reply and old_auto_reply:
+                # Disable auto-reply: remove FID from webhook
+                await self._update_webhook_fids(webhook_id, remove_fid=fid)
 
     async def stop(self) -> None:
         """Stop Farcaster client by removing FID from webhook"""
@@ -100,13 +272,10 @@ class FarcasterClient(PlatformClient):
         webhook_id = os.getenv("NEYNAR_WEBHOOK_ID")
         if webhook_id:
             try:
-                # Get user info to remove FID from webhook
-                from farcaster import Warpcast
+                # Get FID to remove from webhook
+                fid = await self._get_fid(self.deployment.secrets)
 
-                client = Warpcast(mnemonic=self.deployment.secrets.farcaster.mnemonic)
-                user_info = client.get_me()
-
-                await self._update_webhook_fids(webhook_id, remove_fid=user_info.fid)
+                await self._update_webhook_fids(webhook_id, remove_fid=fid)
             except Exception as e:
                 logger.error(f"Error removing FID from Neynar webhook: {e}")
 
@@ -129,10 +298,13 @@ class FarcasterClient(PlatformClient):
 
         from eve.api.api_requests import PromptSessionRequest
 
+        logger.info("=== Received Neynar webhook ===")
+
         # Verify Neynar webhook signature
         body = await request.body()
         signature = request.headers.get("X-Neynar-Signature")
         if not signature:
+            logger.warning("Missing X-Neynar-Signature header")
             return JSONResponse(
                 status_code=401, content={"error": "Missing signature header"}
             )
@@ -142,12 +314,16 @@ class FarcasterClient(PlatformClient):
         webhook_data = await request.json()
         cast_data = webhook_data.get("data", {})
 
+        logger.info(f"Webhook data received: {webhook_data}")
+
         if not cast_data or "hash" not in cast_data:
+            logger.warning(f"Invalid cast data: {cast_data}")
             return JSONResponse(status_code=400, content={"error": "Invalid cast data"})
 
         # Use webhook secret from environment to verify signature
         webhook_secret = os.getenv("NEYNAR_WEBHOOK_SECRET")
         if not webhook_secret:
+            logger.error("NEYNAR_WEBHOOK_SECRET not configured in environment")
             return JSONResponse(
                 status_code=401,
                 content={"error": "Webhook secret not configured"},
@@ -161,26 +337,37 @@ class FarcasterClient(PlatformClient):
         ).hexdigest()
 
         if not hmac.compare_digest(computed_signature, signature):
+            logger.warning(f"Invalid webhook signature. Expected: {computed_signature[:20]}..., Got: {signature[:20]}...")
             return JSONResponse(
                 status_code=401,
                 content={"error": "Invalid webhook signature"},
             )
 
+        logger.info("Webhook signature verified successfully")
+
         # Find deployment by mentioned FID
         cast_author_fid = cast_data["author"]["fid"]
+        cast_hash = cast_data["hash"]
+
+        logger.info(f"Processing cast {cast_hash} from FID {cast_author_fid}")
 
         # Check if this is a self-mention (agent replying to itself) - ignore if so
         deployment = None
-        for d in Deployment.find({"platform": "farcaster"}):
+        farcaster_deployments = list(Deployment.find({"platform": "farcaster"}))
+        logger.info(f"Found {len(farcaster_deployments)} Farcaster deployments")
+
+        for d in farcaster_deployments:
             if d.config and d.config.farcaster and d.config.farcaster.auto_reply:
                 try:
-                    from farcaster import Warpcast
+                    # Create temporary client instance to use helper methods
+                    temp_client = FarcasterClient(deployment=d)
+                    fid = await temp_client._get_fid(d.secrets)
 
-                    client = Warpcast(mnemonic=d.secrets.farcaster.mnemonic)
-                    user_info = client.get_me()
+                    logger.info(f"Checking deployment {d.id} with FID {fid}")
 
                     # Skip if this cast is from the agent itself (prevent loops)
-                    if user_info.fid == cast_author_fid:
+                    if fid == cast_author_fid:
+                        logger.info(f"Skipping deployment {d.id} - cast is from the agent itself")
                         return JSONResponse(status_code=200, content={"ok": True})
 
                     # Check if agent was mentioned or parent author
@@ -194,11 +381,11 @@ class FarcasterClient(PlatformClient):
                         else None
                     )
 
-                    if (
-                        user_info.fid in mentioned_fid_list
-                        or user_info.fid == parent_author_fid
-                    ):
+                    logger.info(f"Mentioned FIDs: {mentioned_fid_list}, Parent author FID: {parent_author_fid}")
+
+                    if fid in mentioned_fid_list or fid == parent_author_fid:
                         deployment = d
+                        logger.info(f"Found matching deployment {d.id} for FID {fid}")
                         break
 
                 except Exception as e:
@@ -206,6 +393,7 @@ class FarcasterClient(PlatformClient):
                     continue
 
         if not deployment:
+            logger.warning("No matching deployment found for this cast")
             return JSONResponse(
                 status_code=200,
                 content={"ok": True, "message": "No matching deployment found"},
@@ -219,14 +407,18 @@ class FarcasterClient(PlatformClient):
         author_username = author["username"]
         author_fid = author["fid"]
 
+        logger.info(f"Processing cast from @{author_username} (FID: {author_fid})")
+
         # Get or create user
         user = User.from_farcaster(author_fid, author_username)
+        logger.info(f"Got user {user.id} for FID {author_fid}")
 
         session_key = f"farcaster-{cast_hash}"
 
         # attempt to get session by session_key
         try:
             session = Session.load(session_key=session_key)
+            logger.info(f"Found existing session {session.id} for cast {cast_hash}")
 
             # Check if the session is deleted or archived - if so, reactivate it
             needs_reactivation = False
@@ -237,20 +429,25 @@ class FarcasterClient(PlatformClient):
                 needs_reactivation = True
 
             if needs_reactivation:
+                logger.info(f"Reactivating session {session.id}")
                 session.deleted = False
                 session.status = "active"
                 session.save()
         except Exception as e:
             if isinstance(e, eve.mongo.MongoDocumentNotFound):
+                logger.info(f"No existing session found for cast {cast_hash}, will create new one")
                 session = None
             else:
                 raise e
+
+        cast_text = cast_data.get("text", "")
+        logger.info(f"Cast text: '{cast_text}'")
 
         prompt_session_request = PromptSessionRequest(
             user_id=str(user.id),
             actor_agent_ids=[str(deployment.agent)],
             message=ChatMessageRequestInput(
-                content=cast_data.get("text", ""),
+                content=cast_text,
                 sender_name=author_username,
             ),
             update_config=SessionUpdateConfig(
@@ -264,6 +461,7 @@ class FarcasterClient(PlatformClient):
         # create session if it doesn't exist
         if session:
             prompt_session_request.session_id = str(session.id)
+            logger.info(f"Using existing session {session.id}")
         else:
             prompt_session_request.creation_args = SessionCreationArgs(
                 owner_id=str(user.id),
@@ -272,11 +470,16 @@ class FarcasterClient(PlatformClient):
                 session_key=session_key,
                 platform="farcaster",
             )
+            logger.info(f"Will create new session with key {session_key}")
 
         # Make async HTTP POST to /chat
+        eden_api_url = os.getenv('EDEN_API_URL')
+        prompt_url = f"{eden_api_url}/sessions/prompt"
+        logger.info(f"Sending prompt request to {prompt_url}")
+
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                f"{os.getenv('EDEN_API_URL')}/sessions/prompt",
+                prompt_url,
                 json=prompt_session_request.model_dump(),
                 headers={
                     "Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}",
@@ -285,13 +488,17 @@ class FarcasterClient(PlatformClient):
             ) as response:
                 if response.status != 200:
                     error_text = await response.text()
+                    logger.error(f"Failed to process chat request: {error_text}")
                     return JSONResponse(
                         status_code=500,
                         content={
                             "error": f"Failed to process chat request: {error_text}"
                         },
                     )
+                else:
+                    logger.info(f"Successfully sent prompt request, status: {response.status}")
 
+        logger.info("=== Webhook processing complete ===")
         return JSONResponse(status_code=200, content={"ok": True})
 
     async def _update_webhook_fids(
@@ -371,6 +578,8 @@ class FarcasterClient(PlatformClient):
     async def handle_emission(self, emission: "DeploymentEmissionRequest") -> None:
         """Handle an emission from the platform client"""
         try:
+            logger.info(f"=== Handling Farcaster emission: {emission.type} ===")
+
             if not self.deployment:
                 raise ValueError("Deployment is required for handle_emission")
 
@@ -384,36 +593,40 @@ class FarcasterClient(PlatformClient):
                 )
                 return
 
-            # Initialize Farcaster client
-            from farcaster import Warpcast
-
-            client = Warpcast(mnemonic=self.deployment.secrets.farcaster.mnemonic)
+            logger.info(f"Replying to cast {cast_hash} from FID {author_fid}")
 
             update_type = emission.type
 
             if update_type == UpdateType.ASSISTANT_MESSAGE:
                 content = emission.content
+                logger.info(f"Processing ASSISTANT_MESSAGE with content length: {len(content) if content else 0}")
                 if content:
                     try:
-                        client.post_cast(
+                        logger.info(f"Posting assistant message: '{content[:100]}...'")
+                        result = await self._post_cast(
                             text=content,
                             parent={"hash": cast_hash, "fid": int(author_fid)},
                         )
                         logger.info(
-                            f"Posted assistant message cast in reply to {cast_hash}"
+                            f"Posted assistant message cast in reply to {cast_hash}. Result: {result}"
                         )
                     except Exception as e:
-                        logger.error(f"Failed to post cast: {str(e)}")
+                        logger.error(f"Failed to post cast: {str(e)}", exc_info=True)
                         raise
+                else:
+                    logger.warning("ASSISTANT_MESSAGE had no content to post")
 
             elif update_type == UpdateType.TOOL_COMPLETE:
                 result = emission.result
+                logger.info(f"Processing TOOL_COMPLETE")
                 if not result:
                     logger.debug("No tool result to post")
                     return
 
                 # Process result to extract media URLs
+                logger.info("Processing tool result: %s...", result[:200])
                 processed_result = prepare_result(json.loads(result))
+                logger.info("Processed result: %s", processed_result)
 
                 if (
                     processed_result.get("result")
@@ -421,6 +634,7 @@ class FarcasterClient(PlatformClient):
                     and "output" in processed_result["result"][0]
                 ):
                     outputs = processed_result["result"][0]["output"]
+                    logger.info(f"Found {len(outputs)} outputs in tool result")
 
                     # Extract URLs from outputs (up to 4 for Farcaster limit)
                     urls = []
@@ -428,19 +642,22 @@ class FarcasterClient(PlatformClient):
                         if isinstance(output, dict) and "url" in output:
                             urls.append(output["url"])
 
+                    logger.info(f"Extracted {len(urls)} URLs from outputs: {urls}")
+
                     if urls:
                         try:
                             # Post cast with media embeds
-                            client.post_cast(
+                            logger.info(f"Posting cast with {len(urls)} media embeds")
+                            result = await self._post_cast(
                                 text="",  # Empty text, just media
                                 embeds=urls,
                                 parent={"hash": cast_hash, "fid": int(author_fid)},
                             )
                             logger.info(
-                                f"Posted tool result cast with {len(urls)} embeds in reply to {cast_hash}"
+                                f"Posted tool result cast with {len(urls)} embeds in reply to {cast_hash}. Result: {result}"
                             )
                         except Exception as e:
-                            logger.error(f"Failed to post cast with embeds: {str(e)}")
+                            logger.error(f"Failed to post cast with embeds: {str(e)}", exc_info=True)
                             raise
                     else:
                         logger.warning(
@@ -448,24 +665,27 @@ class FarcasterClient(PlatformClient):
                         )
                 else:
                     logger.warning(
-                        "Unexpected tool result structure for Farcaster emission"
+                        f"Unexpected tool result structure for Farcaster emission. Structure: {processed_result}"
                     )
 
             elif update_type == UpdateType.ERROR:
                 error_msg = emission.error or "Unknown error occurred"
+                logger.info(f"Processing ERROR emission: {error_msg}")
                 try:
-                    client.post_cast(
+                    logger.info(f"Posting error message: {error_msg}")
+                    result = await self._post_cast(
                         text=f"Error: {error_msg}",
-                        parent={"hash": cast_hash, "fid": author_fid},
+                        parent={"hash": cast_hash, "fid": int(author_fid)},
                     )
-                    logger.info(f"Posted error message cast in reply to {cast_hash}")
+                    logger.info(f"Posted error message cast in reply to {cast_hash}. Result: {result}")
                 except Exception as e:
-                    logger.error(f"Failed to post error cast: {str(e)}")
+                    logger.error(f"Failed to post error cast: {str(e)}", exc_info=True)
                     # Don't re-raise for error posts to avoid infinite loops
 
             else:
-                logger.debug(f"update_type: {update_type}")
-                logger.debug(f"Ignoring emission type: {update_type}")
+                logger.info("Ignoring emission type: %s", update_type)
+
+            logger.info("=== Emission handling complete ===")
 
         except Exception as e:
             logger.error(f"Error handling Farcaster emission: {str(e)}", exc_info=True)

@@ -1,8 +1,6 @@
 from jinja2 import Template
 
-from eve.tool import Tool
-from eve.agent.deployments import Deployment
-from eve.agent import Agent
+from eve.tool import Tool, ToolContext
 
 
 init_message = """
@@ -34,39 +32,35 @@ In your response, outline how you will solve the user’s request using the avai
 """
 
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
-    if not agent:
+async def handler(context: ToolContext):
+    if not context.agent:
         raise Exception("Agent is required")
 
     session_post = Tool.load("session_post")
 
-    instructions = args.get("instructions")
-    media_files = args.get("media_files") or []
+    instructions = context.args.get("instructions")
+    media_files = context.args.get("media_files") or []
 
     user_message = Template(init_message).render(
         instructions=instructions,
     )
 
-    result = await session_post.async_run({
-        "role": "user",
-        "agent_id": agent,
-        "agent": "media-editor",
-        "title": args.get("title") or "Media Editor Session",
-        "content": user_message,
-        "attachments": media_files,
-        "pin": True,
-        "prompt": True,
-        "async": False,
-        "extra_tools": ["video_concat", "audio_video_combine", "ffmpeg_multitool"],
-    })
+    result = await session_post.async_run(
+        {
+            "role": "user",
+            "agent_id": context.agent,
+            "agent": "media-editor",
+            "title": context.args.get("title") or "Media Editor Session",
+            "content": user_message,
+            "attachments": media_files,
+            "pin": True,
+            "prompt": True,
+            "async": False,
+            "extra_tools": ["video_concat", "audio_video_combine", "ffmpeg_multitool"],
+        }
+    )
 
-    print("media_editor result")
-    print(result)
-    # session_id = result["output"][0]["session"]
+    if "error" in result:
+        raise Exception(result["error"])
 
-    # return {"output": [{"session": session_id}]}
-
-    print("---- HERE IS THE RESULT ----")
-    print(result)
-    print("---- HERE IS THE RESULT ----")
-    return {"output": result}
+    return result

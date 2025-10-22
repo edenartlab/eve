@@ -34,6 +34,14 @@ class RateLimit(BaseModel):
     feature_flag: Optional[str] = None
 
 
+class ToolContext(BaseModel):
+    """Context object for tool execution."""
+    args: Dict[str, Any]
+    user: Optional[str] = None
+    agent: Optional[str] = None
+    session: Optional[str] = None
+
+
 @Collection("tools3")
 class Tool(Document, ABC):
     """
@@ -476,12 +484,19 @@ class Tool(Document, ABC):
                 session_id = args.pop("session_id", None)
                 args = self.prepare_args(args)
                 sentry_sdk.add_breadcrumb(category="handle_run", data=args)
+
+                # Create ToolContext object for the new handler signature
+                context = ToolContext(
+                    args=args,
+                    user=str(user_id) if user_id else None,
+                    agent=str(agent_id) if agent_id else None,
+                    session=str(session_id) if session_id else None
+                )
+
                 if mock:
                     result = {"output": utils.mock_image(args)}
                 else:
-                    result = await run_function(
-                        self, args, user_id, agent_id, session_id
-                    )
+                    result = await run_function(self, context)
                 result["output"] = (
                     result["output"]
                     if isinstance(result["output"], list)

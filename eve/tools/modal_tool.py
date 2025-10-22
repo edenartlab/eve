@@ -1,20 +1,19 @@
 import modal
 import os
-from typing import Dict
 
 from ..task import Task
-from ..tool import Tool, tool_context
+from ..tool import Tool, ToolContext, tool_context
 
 
 @tool_context("modal")
 class ModalTool(Tool):
     @Tool.handle_run
-    async def async_run(self, args: Dict, user_id: str = None, agent_id: str = None, session_id: str = None):
+    async def async_run(self, context: ToolContext):
         db = os.getenv("DB", "STAGE").upper()
         func = modal.Function.from_name(
             f"api-{db.lower()}", "run", environment_name="main"
         )
-        result = await func.remote.aio(tool_key=self.parent_tool or self.key, args=args)
+        result = await func.remote.aio(tool_key=self.parent_tool or self.key, args=context.args)
         return result
 
     @Tool.handle_start_task

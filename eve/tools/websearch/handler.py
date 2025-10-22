@@ -1,18 +1,20 @@
+from eve.tool import ToolContext
 from playwright.async_api import async_playwright
-from typing import Dict, Any
 import asyncio
 from collections import Counter
+
 
 async def wait_for_content(page) -> bool:
     """Wait for page to load and stabilize."""
     try:
         # Wait for body to have content
-        await page.wait_for_selector('body', timeout=3000)
+        await page.wait_for_selector("body", timeout=3000)
         # Wait a bit for dynamic content
         await page.wait_for_timeout(1000)
         return True
-    except:
+    except Exception:
         return False
+
 
 async def get_text_content(page) -> str:
     """Extract all visible text content from the page."""
@@ -101,39 +103,40 @@ async def get_text_content(page) -> str:
     """
     try:
         return await page.evaluate(script)
-    except:
+    except Exception:
         return ""
 
-async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
+
+async def handler(context: ToolContext):
     """
     Performance-optimized web scraper using Playwright.
     """
-    url = args["url"]
-    max_links = int(args.get('max_links', 5))
-    max_chars = int(args.get('max_chars', 20000))
+    url = context.args["url"]
+    max_links = int(context.args.get("max_links", 5))
+    max_chars = int(context.args.get("max_chars", 20000))
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(
             headless=True,
-            args=['--disable-gpu', '--no-sandbox', '--disable-dev-shm-usage']
+            args=["--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage"],
         )
-        
-        context = await browser.new_context(
-            viewport={'width': 1280, 'height': 800},
-            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+
+        browser_context = await browser.new_context(
+            viewport={"width": 1280, "height": 800},
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
         )
-        
+
         try:
-            page = await context.new_page()
-            await page.goto(url, wait_until='networkidle', timeout=10000)
-            
+            page = await browser_context.new_page()
+            await page.goto(url, wait_until="networkidle", timeout=10000)
+
             # Wait for content to load
             await wait_for_content(page)
-            
+
             # Extract data in parallel
             title_future = page.title()
             content_future = get_text_content(page)
-            
+
             # Modified link extraction to be more generic
             links_script = """
                 () => {
@@ -161,14 +164,12 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
                 }
             """
             links_future = page.evaluate(links_script)
-            
+
             # Wait for all operations to complete
             title, text_content, links = await asyncio.gather(
-                title_future, 
-                content_future,
-                links_future
+                title_future, content_future, links_future
             )
-            
+
             # Format output
             output = f"""# Page Analysis: {url}
 
@@ -176,31 +177,32 @@ async def handler(args: dict, user: str = None, agent: str = None, session: str 
 {title}
 
 ## Content Summary
-{text_content[:max_chars]}{'...' if len(text_content) > max_chars else ''}
+{text_content[:max_chars]}{"..." if len(text_content) > max_chars else ""}
 
 ## Top Links
 """
             # Count frequency of each link
-            link_counts = Counter(link['href'] for link in links)
+            link_counts = Counter(link["href"] for link in links)
 
             # Sort links by frequency, then by text length for ties
             sorted_links = sorted(
-                links, 
-                key=lambda x: (-link_counts[x['href']], -len(x['text']))
+                links, key=lambda x: (-link_counts[x["href"]], -len(x["text"]))
             )
 
             # Add links with their counts
             seen_links = set()
             for link in sorted_links[:max_links]:
-                if link['href'] not in seen_links:
-                    count = link_counts[link['href']]
-                    output += f"- [{link['text']}]({link['href']}) (appears {count} times)\n"
-                    seen_links.add(link['href'])
-            
+                if link["href"] not in seen_links:
+                    count = link_counts[link["href"]]
+                    output += (
+                        f"- [{link['text']}]({link['href']}) (appears {count} times)\n"
+                    )
+                    seen_links.add(link["href"])
+
             return {"output": output}
-            
+
         except Exception as e:
             return {"output": f"Error processing webpage: {str(e)}"}
-        
+
         finally:
             await browser.close()
