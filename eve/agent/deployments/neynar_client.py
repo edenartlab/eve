@@ -179,8 +179,17 @@ class NeynarClient:
                 payload["embeds"] = [{"url": url} for url in embeds]
 
             if parent:
-                # Parent requires both hash and fid
-                payload["parent"] = parent
+                # Neynar API expects parent as just the cast hash string
+                # If parent is a dict (from Warpcast format), extract the hash and fid
+                if isinstance(parent, dict):
+                    payload["parent"] = parent["hash"]
+                    # CRITICAL: Also send parent_author_fid for proper threading
+                    if "fid" in parent:
+                        payload["parent_author_fid"] = parent["fid"]
+                else:
+                    payload["parent"] = parent
+
+            logger.info(f"Sending cast to Neynar with payload: {payload}")
 
             async with session.post(
                 f"{self.base_url}/farcaster/cast",
@@ -191,4 +200,23 @@ class NeynarClient:
                     error_text = await response.text()
                     raise Exception(f"Failed to post cast: {error_text}")
 
-                return await response.json()
+                result = await response.json()
+                logger.info(f"Neynar cast response: {result}")
+
+                # Fetch full cast details to verify threading
+                cast_hash = result.get("cast", {}).get("hash")
+                if cast_hash:
+                    try:
+                        async with session.get(
+                            f"{self.base_url}/farcaster/cast",
+                            headers=self._get_headers(),
+                            params={"identifier": cast_hash, "type": "hash"},
+                        ) as verify_response:
+                            if verify_response.status == 200:
+                                full_cast = await verify_response.json()
+                                cast_data = full_cast.get("cast", {})
+                                logger.info(f"Full cast verification - parent_hash: {cast_data.get('parent_hash')}, thread_hash: {cast_data.get('thread_hash')}")
+                    except Exception as e:
+                        logger.warning(f"Failed to verify full cast details: {e}")
+
+                return result
