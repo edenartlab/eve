@@ -2,7 +2,7 @@ import json
 import os
 import aiohttp
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional, Dict, Any, List
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
@@ -18,6 +18,7 @@ from eve.agent.session.models import (
 from eve.api.api_requests import SessionCreationArgs
 from eve.api.errors import APIError
 from eve.agent.deployments import PlatformClient
+from eve.agent.deployments.neynar_client import NeynarClient
 from eve.agent.session.models import UpdateType
 from eve.utils import prepare_result
 from eve.user import User
@@ -29,6 +30,76 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def uses_managed_signer(secrets: DeploymentSecrets) -> bool:
+    """Check if deployment uses managed signer or mnemonic"""
+    return bool(secrets.farcaster.signer_uuid)
+
+
+async def get_fid(secrets: DeploymentSecrets) -> int:
+    """Get FID based on auth method (managed signer or mnemonic)"""
+    if uses_managed_signer(secrets):
+        neynar_client = NeynarClient()
+        user_info = await neynar_client.get_user_info_by_signer(
+            secrets.farcaster.signer_uuid
+        )
+        return user_info.get("fid")
+    else:
+        from farcaster import Warpcast
+
+        client = Warpcast(mnemonic=secrets.farcaster.mnemonic)
+        user_info = client.get_me()
+        return user_info.fid
+
+
+async def post_cast(
+    secrets: DeploymentSecrets,
+    text: str = "",
+    embeds: Optional[List[str]] = None,
+    parent: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Post a cast using either managed signer or mnemonic
+
+    Returns dict with cast info including hash, url, thread_hash
+    """
+    if uses_managed_signer(secrets):
+        # Use Neynar API for managed signer
+        neynar_client = NeynarClient()
+        result = await neynar_client.post_cast(
+            signer_uuid=secrets.farcaster.signer_uuid,
+            text=text,
+            embeds=embeds,
+            parent=parent,
+        )
+
+        # Normalize Neynar response format
+        cast_data = result.get("cast", {})
+        cast_hash = cast_data.get("hash")
+        author = cast_data.get("author", {})
+        username = author.get("username")
+        thread_hash = cast_data.get("thread_hash")
+
+        return {
+            "hash": cast_hash,
+            "url": f"https://warpcast.com/{username}/{cast_hash}" if username and cast_hash else None,
+            "thread_hash": thread_hash,
+        }
+    else:
+        # Use Warpcast client for mnemonic
+        from farcaster import Warpcast
+
+        client = Warpcast(mnemonic=secrets.farcaster.mnemonic)
+        result = client.post_cast(text=text, embeds=embeds, parent=parent)
+
+        # Convert to dict format for consistency
+        user_info = client.get_me()
+        cast_hash = result.cast.hash
+        return {
+            "hash": cast_hash,
+            "url": f"https://warpcast.com/{user_info.username}/{cast_hash}",
+            "thread_hash": result.cast.thread_hash,
+        }
+
+
 class FarcasterClient(PlatformClient):
     TOOLS = [
         "farcaster_cast",
@@ -36,17 +107,71 @@ class FarcasterClient(PlatformClient):
         "farcaster_mentions",
     ]
 
+    def _uses_managed_signer(self, secrets: DeploymentSecrets) -> bool:
+        """Check if deployment uses managed signer or mnemonic"""
+        return uses_managed_signer(secrets)
+
+    async def _get_fid_from_managed_signer(self, signer_uuid: str) -> int:
+        """Get FID from managed signer"""
+        neynar_client = NeynarClient()
+        user_info = await neynar_client.get_user_info_by_signer(signer_uuid)
+        return user_info.get("fid")
+
+    async def _get_fid_from_mnemonic(self, mnemonic: str) -> int:
+        """Get FID from mnemonic using Warpcast client"""
+        from farcaster import Warpcast
+
+        client = Warpcast(mnemonic=mnemonic)
+        user_info = client.get_me()
+        return user_info.fid
+
+    async def _get_fid(self, secrets: DeploymentSecrets) -> int:
+        """Get FID based on auth method"""
+        return await get_fid(secrets)
+
+    async def _post_cast(
+        self,
+        text: str = "",
+        embeds: Optional[List[str]] = None,
+        parent: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Post a cast using either managed signer or mnemonic"""
+        if not self.deployment:
+            raise ValueError("Deployment is required for _post_cast")
+
+        return await post_cast(
+            secrets=self.deployment.secrets,
+            text=text,
+            embeds=embeds,
+            parent=parent,
+        )
+
     async def predeploy(
         self, secrets: DeploymentSecrets, config: DeploymentConfig
     ) -> tuple[DeploymentSecrets, DeploymentConfig]:
         """Verify Farcaster credentials"""
         try:
-            from farcaster import Warpcast
+            if self._uses_managed_signer(secrets):
+                # Verify managed signer status
+                neynar_client = NeynarClient()
+                signer_status = await neynar_client.get_signer_status(
+                    secrets.farcaster.signer_uuid
+                )
+                if signer_status.get("status") != "approved":
+                    raise APIError(
+                        f"Managed signer is not approved. Status: {signer_status.get('status')}",
+                        status_code=400,
+                    )
+            else:
+                # Verify mnemonic credentials
+                from farcaster import Warpcast
 
-            client = Warpcast(mnemonic=secrets.farcaster.mnemonic)
+                client = Warpcast(mnemonic=secrets.farcaster.mnemonic)
 
-            # Test the credentials by getting user info
-            client.get_me()
+                # Test the credentials by getting user info
+                client.get_me()
+        except APIError:
+            raise
         except Exception as e:
             raise APIError(f"Invalid Farcaster credentials: {str(e)}", status_code=400)
 
@@ -83,13 +208,10 @@ class FarcasterClient(PlatformClient):
         if not webhook_id:
             raise Exception("NEYNAR_WEBHOOK_ID not found in environment")
 
-        # Get user info to add FID to webhook
-        from farcaster import Warpcast
+        # Get FID to add to webhook
+        fid = await self._get_fid(self.deployment.secrets)
 
-        client = Warpcast(mnemonic=self.deployment.secrets.farcaster.mnemonic)
-        user_info = client.get_me()
-
-        await self._update_webhook_fids(webhook_id, add_fid=user_info.fid)
+        await self._update_webhook_fids(webhook_id, add_fid=fid)
 
     async def stop(self) -> None:
         """Stop Farcaster client by removing FID from webhook"""
@@ -100,13 +222,10 @@ class FarcasterClient(PlatformClient):
         webhook_id = os.getenv("NEYNAR_WEBHOOK_ID")
         if webhook_id:
             try:
-                # Get user info to remove FID from webhook
-                from farcaster import Warpcast
+                # Get FID to remove from webhook
+                fid = await self._get_fid(self.deployment.secrets)
 
-                client = Warpcast(mnemonic=self.deployment.secrets.farcaster.mnemonic)
-                user_info = client.get_me()
-
-                await self._update_webhook_fids(webhook_id, remove_fid=user_info.fid)
+                await self._update_webhook_fids(webhook_id, remove_fid=fid)
             except Exception as e:
                 logger.error(f"Error removing FID from Neynar webhook: {e}")
 
@@ -174,13 +293,12 @@ class FarcasterClient(PlatformClient):
         for d in Deployment.find({"platform": "farcaster"}):
             if d.config and d.config.farcaster and d.config.farcaster.auto_reply:
                 try:
-                    from farcaster import Warpcast
-
-                    client = Warpcast(mnemonic=d.secrets.farcaster.mnemonic)
-                    user_info = client.get_me()
+                    # Create temporary client instance to use helper methods
+                    temp_client = FarcasterClient(deployment=d)
+                    fid = await temp_client._get_fid(d.secrets)
 
                     # Skip if this cast is from the agent itself (prevent loops)
-                    if user_info.fid == cast_author_fid:
+                    if fid == cast_author_fid:
                         return JSONResponse(status_code=200, content={"ok": True})
 
                     # Check if agent was mentioned or parent author
@@ -194,10 +312,7 @@ class FarcasterClient(PlatformClient):
                         else None
                     )
 
-                    if (
-                        user_info.fid in mentioned_fid_list
-                        or user_info.fid == parent_author_fid
-                    ):
+                    if fid in mentioned_fid_list or fid == parent_author_fid:
                         deployment = d
                         break
 
@@ -384,18 +499,13 @@ class FarcasterClient(PlatformClient):
                 )
                 return
 
-            # Initialize Farcaster client
-            from farcaster import Warpcast
-
-            client = Warpcast(mnemonic=self.deployment.secrets.farcaster.mnemonic)
-
             update_type = emission.type
 
             if update_type == UpdateType.ASSISTANT_MESSAGE:
                 content = emission.content
                 if content:
                     try:
-                        client.post_cast(
+                        await self._post_cast(
                             text=content,
                             parent={"hash": cast_hash, "fid": int(author_fid)},
                         )
@@ -431,7 +541,7 @@ class FarcasterClient(PlatformClient):
                     if urls:
                         try:
                             # Post cast with media embeds
-                            client.post_cast(
+                            await self._post_cast(
                                 text="",  # Empty text, just media
                                 embeds=urls,
                                 parent={"hash": cast_hash, "fid": int(author_fid)},
@@ -454,9 +564,9 @@ class FarcasterClient(PlatformClient):
             elif update_type == UpdateType.ERROR:
                 error_msg = emission.error or "Unknown error occurred"
                 try:
-                    client.post_cast(
+                    await self._post_cast(
                         text=f"Error: {error_msg}",
-                        parent={"hash": cast_hash, "fid": author_fid},
+                        parent={"hash": cast_hash, "fid": int(author_fid)},
                     )
                     logger.info(f"Posted error message cast in reply to {cast_hash}")
                 except Exception as e:
