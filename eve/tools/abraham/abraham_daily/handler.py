@@ -77,11 +77,11 @@ async def commit_daily_work(agent: Agent, session: str):
 
     abraham_seeds = AbrahamSeed.find({"status": "seed"})
 
-    print("seeds", abraham_seeds)
-    print([a.session_id for a in abraham_seeds])
+    # print("seeds", abraham_seeds)
+    # print([a.session_id for a in abraham_seeds])
     sessions = Session.find({"_id": {"$in": [a.session_id for a in abraham_seeds]}})
 
-    print("sessions", sessions)
+    # print("sessions", sessions)
 
     candidates = []
     for session in sessions:
@@ -104,11 +104,11 @@ async def commit_daily_work(agent: Agent, session: str):
         unique_users = len(messages_per_user)
         total_messages = len(user_messages)
 
-        print("session", session.id)
-        print("score", score)
-        print("unique_users", unique_users)
-        print("total_messages", total_messages)
-        print("--------------------------------")
+        # print("session", session.id)
+        # print("score", score)
+        # print("unique_users", unique_users)
+        # print("total_messages", total_messages)
+        # print("--------------------------------")
 
         candidates.append({
             "session": session,
@@ -119,19 +119,19 @@ async def commit_daily_work(agent: Agent, session: str):
 
     candidates = sorted(candidates, key=lambda x: x["score"], reverse=True)
 
-    print("---")
-    print("Session Scores (Quadratic Voting):")
-    for candidate in candidates:
-        print(f"  {candidate['session'].id}: score={candidate['score']:.2f}, "
-              f"unique_users={candidate['unique_users']}, "
-              f"total_messages={candidate['total_messages']}")
-    print("---")
+    # print("---")
+    # print("Session Scores (Quadratic Voting):")
+    # for candidate in candidates:
+    #     print(f"  {candidate['session'].id}: score={candidate['score']:.2f}, "
+    #           f"unique_users={candidate['unique_users']}, "
+    #           f"total_messages={candidate['total_messages']}")
+    # print("---")
 
     winner = candidates[0]
 
-    print("THE WINNER IS", winner["session"].id)
+    # print("THE WINNER IS", winner["session"].id)
 
-    if str(winner["session"].id) != "68f615d74bd332166b766ec5":
+    if str(winner["session"].id) != "68f8a0c84484da83b1711341":
         raise Exception("Stop here, it's", str(winner["session"].id))
 
     # raise Exception("Stop here")
@@ -156,16 +156,16 @@ async def commit_daily_work(agent: Agent, session: str):
 
 
 async def abraham_rest(agent: Agent):
-    print("RUN ABRAHAM_REST !!")
-    print("agent", agent)
-    print(type(agent))
+    # print("RUN ABRAHAM_REST !!")
+    # print("agent", agent)
+    # print(type(agent))
     # tool = Tool.load("abraham_rest")
     # result = await tool.async_run({"agent_id": str(agent.id)}) # todo: maybe some nice Abraham comments here
 
     from eve.tools.abraham.abraham_rest.handler import rest
 
     result = rest()
-    print("result rest", result)
+    # print("result rest", result)
 
     return {
         "output": [{
@@ -176,11 +176,11 @@ async def abraham_rest(agent: Agent):
 
 
 async def handler(args: dict, user: str = None, agent: str = None, session: str = None):
-    print("RUN ABRAHAM_DAILY")
-    print("agent", agent)
-    print(type(agent))
-    print("session", session)
-    print(type(session))
+    # print("RUN ABRAHAM_DAILY")
+    # print("agent", agent)
+    # print(type(agent))
+    # print("session", session)
+    # print(type(session))
 
     if not agent:
         raise Exception("Agent is required")
