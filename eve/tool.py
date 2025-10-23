@@ -484,6 +484,9 @@ class Tool(Document, ABC):
                 user_id = args.pop("user_id", None) or str(get_my_eden_user().id)
                 agent_id = args.pop("agent_id", None)
                 session_id = args.pop("session_id", None)
+                message_id = args.pop("message_id", None)
+                tool_call_id = args.pop("tool_call_id", None)
+
                 args = self.prepare_args(args)
                 sentry_sdk.add_breadcrumb(category="handle_run", data=args)
 
@@ -492,7 +495,9 @@ class Tool(Document, ABC):
                     args=args,
                     user=str(user_id) if user_id else None,
                     agent=str(agent_id) if agent_id else None,
-                    session=str(session_id) if session_id else None
+                    session=str(session_id) if session_id else None,
+                    message=str(message_id) if message_id else None,
+                    tool_call_id=str(tool_call_id) if tool_call_id else None,
                 )
 
                 if mock:
@@ -525,6 +530,8 @@ class Tool(Document, ABC):
             user_id: str,
             agent_id: str,
             session_id: Optional[str] = None,
+            message_id: Optional[str] = None,
+            tool_call_id: Optional[str] = None,
             args: Dict = None,
             public: bool = False,
             mock: bool = False,
@@ -562,6 +569,8 @@ class Tool(Document, ABC):
                 user=user_id,
                 agent=agent_id,
                 session=session_id,
+                message=message_id,
+                tool_call_id=tool_call_id,
                 tool=self.key,
                 parent_tool=self.parent_tool,
                 output_type=self.output_type,
@@ -673,12 +682,14 @@ class Tool(Document, ABC):
         user_id: str,
         agent_id: str,
         session_id: Optional[str] = None,
+        message_id: Optional[str] = None,
+        tool_call_id: Optional[str] = None,
         args: Dict = None,
         mock: bool = False,
         public: bool = False,
     ):
         return asyncio.run(
-            self.async_start_task(user_id, agent_id, session_id, args, mock, public)
+            self.async_start_task(user_id, agent_id, session_id, message_id, tool_call_id, args, mock, public)
         )
 
     def wait(self, task: Task):

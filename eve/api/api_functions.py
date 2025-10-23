@@ -57,7 +57,13 @@ async def rotate_agent_metadata_fn():
 
 
 async def run(
-    tool_key: str, args: dict, user: str = None, agent: str = None, session: str = None
+    tool_key: str, 
+    args: dict, 
+    user: str = None, 
+    agent: str = None, 
+    session: str = None,
+    message: str = None, 
+    tool_call_id: str = None
 ):
     handler = load_handler(tool_key)
     context = ToolContext(
@@ -65,6 +71,8 @@ async def run(
         user=str(user) if user else None,
         agent=str(agent) if agent else None,
         session=str(session) if session else None,
+        message=str(message) if message else None,
+        tool_call_id=str(tool_call_id) if tool_call_id else None,
     )
     result = await handler(context)
     return utils.upload_result(result)
@@ -72,14 +80,22 @@ async def run(
 
 @task_handler_func
 async def run_task(
-    tool_key: str, args: dict, user: str = None, agent: str = None, session: str = None
+    tool_key: str, 
+    args: dict, 
+    user: str = None, 
+    agent: str = None, 
+    session: str = None, 
+    message: str = None, 
+    tool_call_id: str = None
 ):
     handler = load_handler(tool_key)
     context = ToolContext(
         args=args,
         user=str(user) if user else None,
         agent=str(agent) if agent else None,
-        session=str(session) if session else None
+        session=str(session) if session else None,
+        message=str(message) if message else None,
+        tool_call_id=str(tool_call_id) if tool_call_id else None,
     )
     return await handler(context)
 

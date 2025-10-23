@@ -4,8 +4,13 @@ from bson import ObjectId
 from typing import Dict
 from pydantic import BaseModel
 from litellm import ModelResponse
+from typing import Optional
 
-from eve.agent.session.models import LLMContextMetadata, LLMResponse, LLMTraceMetadata
+from eve.agent.session.models import (
+    LLMContextMetadata,
+    LLMResponse,
+    LLMTraceMetadata,
+)
 from eve.agent.session.session_llm import (
     LLMContext,
     LLMConfig,
@@ -48,6 +53,9 @@ class MockTool(Tool):
         self,
         user_id: str,
         agent_id: str,
+        session_id: Optional[str] = None,
+        message_id: Optional[str] = None,
+        tool_call_id: Optional[str] = None,
         args: Dict,
         mock: bool = False,
         public: bool = False,

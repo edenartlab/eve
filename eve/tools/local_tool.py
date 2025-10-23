@@ -51,12 +51,20 @@ class LocalTool(Tool):
 
 @task_handler_func
 async def run_task(
-    tool_key: str, args: dict, user: str = None, agent: str = None, session: str = None
+    tool_key: str,
+    args: dict,
+    user: str = None,
+    agent: str = None,
+    session: str = None,
+    message: str = None,
+    tool_call_id: str = None
 ):
     context = ToolContext(
         args=args,
         user=str(user) if user else None,
         agent=str(agent) if agent else None,
         session=str(session) if session else None,
+        message=str(message) if message else None,
+        tool_call_id=str(tool_call_id) if tool_call_id else None,
     )
     return await load_handler(tool_key)(context)

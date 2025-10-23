@@ -1,4 +1,5 @@
 import modal
+from bson import ObjectId
 
 from eve.agent import Agent
 from eve.user import User
@@ -32,8 +33,6 @@ async def handler(context: ToolContext):
     user = User.from_mongo(context.user)
 
     # note: session in handler args refers to the originating session (if there is one), not the session that is being posted to. session to post to is context.args.get("session")
-
-
     session_id = context.args.get("session")
 
     # create genesis session if new
@@ -56,6 +55,13 @@ async def handler(context: ToolContext):
         new_session = setup_session(None, request.session_id, request.user_id, request)
 
         session_id = str(new_session.id)
+
+    if context.message and context.tool_call_id:
+        message = ChatMessage.from_mongo(context.message)
+        tool_call = [tc for tc in message.tool_calls if tc.id == context.tool_call_id]
+        if tool_call:
+            tool_call[0].child_session = ObjectId(session_id)
+            message.save()
 
     # make a new set of drafts
     session = Session.from_mongo(session_id)
