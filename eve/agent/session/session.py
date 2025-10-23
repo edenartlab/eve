@@ -605,20 +605,10 @@ async def process_tool_call(
     if assistant_message.tool_calls and tool_call_index < len(
         assistant_message.tool_calls
     ):
-        assistant_message.tool_calls[tool_call_index].status = "running"
-        try:
-            # Force save with direct MongoDB update
-            from eve.mongo import get_collection
-
-            messages_collection = get_collection("messages")
-            result = messages_collection.update_one(
-                {"_id": assistant_message.id},
-                {"$set": {f"tool_calls.{tool_call_index}.status": "running"}},
-            )
-        except Exception as e:
-            logger.error(f"Failed to update tool status to running: {e}")
-            # Try regular save as fallback
-            assistant_message.save()
+        assistant_message.update_tool_call(
+            tool_call_index,
+            status="running"
+        )
 
     try:
         # Check for cancellation before starting tool execution
@@ -629,18 +619,10 @@ async def process_tool_call(
             if assistant_message.tool_calls and tool_call_index < len(
                 assistant_message.tool_calls
             ):
-                assistant_message.tool_calls[tool_call_index].status = "cancelled"
-                try:
-                    # Force save with direct MongoDB update
-                    from eve.mongo import get_collection
-
-                    messages_collection = get_collection("messages")
-                    result = messages_collection.update_one(
-                        {"_id": assistant_message.id},
-                        {"$set": {f"tool_calls.{tool_call_index}.status": "cancelled"}},
-                    )
-                except Exception:
-                    assistant_message.save()
+                assistant_message.update_tool_call(
+                    tool_call_index,
+                    status="cancelled"
+                )
             return SessionUpdate(
                 type=UpdateType.TOOL_CANCELLED,
                 tool_name=tool_call.tool,
@@ -669,19 +651,10 @@ async def process_tool_call(
             if assistant_message.tool_calls and tool_call_index < len(
                 assistant_message.tool_calls
             ):
-                assistant_message.tool_calls[tool_call_index].status = "cancelled"
-                try:
-                    # Force save with direct MongoDB update
-                    from eve.mongo import get_collection
-
-                    messages_collection = get_collection("messages")
-                    result = messages_collection.update_one(
-                        {"_id": assistant_message.id},
-                        {"$set": {f"tool_calls.{tool_call_index}.status": "cancelled"}},
-                    )
-                except Exception as e:
-                    logger.warning(f"Direct update failed, trying regular save: {e}")
-                    assistant_message.save()
+                assistant_message.update_tool_call(
+                    tool_call_index,
+                    status="cancelled"
+                )
             return SessionUpdate(
                 type=UpdateType.TOOL_CANCELLED,
                 tool_name=tool_call.tool,
@@ -692,23 +665,23 @@ async def process_tool_call(
         # Update the original tool call with result
         if result["status"] == "completed":
             tool_call.status = "completed"
-            # Extract the actual tool result based on the known structure
-            # result["result"] contains the list of result objects
-            tool_result = result.get("result", [])
+            tool_call.result = result.get("result", [])
 
-            tool_call.result = tool_result
             if assistant_message.tool_calls and tool_call_index < len(
                 assistant_message.tool_calls
             ):
-                assistant_message.tool_calls[tool_call_index].status = "completed"
-                assistant_message.tool_calls[tool_call_index].result = tool_result
-                assistant_message.tool_calls[tool_call_index].cost = result.get(
-                    "cost", 0
+                assistant_message.update_tool_call(
+                    tool_call_index,
+                    status="completed",
+                    result=tool_call.result,
+                    cost=result.get("cost", 0),
+                    task=result.get("task"),
                 )
-                assistant_message.tool_calls[tool_call_index].task = result.get("task")
-                assistant_message.save()
 
-            update_session_budget(session, manna_spent=result.get("cost", 0))
+            update_session_budget(
+                session, 
+                manna_spent=result.get("cost", 0)
+            )
 
             return SessionUpdate(
                 type=UpdateType.TOOL_COMPLETE,
@@ -717,30 +690,19 @@ async def process_tool_call(
                 result=result,
                 session_run_id=session_run_id,
             )
+
         elif result["status"] == "cancelled":
             tool_call.status = "cancelled"
+
             if assistant_message.tool_calls and tool_call_index < len(
                 assistant_message.tool_calls
             ):
-                assistant_message.tool_calls[tool_call_index].status = "cancelled"
-                assistant_message.tool_calls[tool_call_index].cost = result.get("cost", 0)
-                assistant_message.tool_calls[tool_call_index].task = result.get("task")
-                try:
-                    # Force save with direct MongoDB update
-                    from eve.mongo import get_collection
-
-                    messages_collection = get_collection("messages")
-                    result = messages_collection.update_one(
-                        {"_id": assistant_message.id},
-                        {"$set": {
-                            f"tool_calls.{tool_call_index}.status": "cancelled",
-                            f"tool_calls.{tool_call_index}.cost": assistant_message.tool_calls[tool_call_index].cost,
-                            f"tool_calls.{tool_call_index}.task": assistant_message.tool_calls[tool_call_index].task,
-                        }},
-                    )
-                except Exception as e:
-                    logger.warning(f"Direct update failed, trying regular save: {e}")
-                    assistant_message.save()
+                assistant_message.update_tool_call(
+                    tool_call_index,
+                    status="cancelled",
+                    cost=result.get("cost", 0),
+                    task=result.get("task"),
+                )
 
             return SessionUpdate(
                 type=UpdateType.TOOL_CANCELLED,
@@ -748,21 +710,20 @@ async def process_tool_call(
                 tool_index=tool_call_index,
                 result={"status": "cancelled"},
             )
+
         else:
             tool_call.status = "failed"
-            tool_call.error = result.get("error")
+
             if assistant_message.tool_calls and tool_call_index < len(
                 assistant_message.tool_calls
             ):
-                assistant_message.tool_calls[tool_call_index].status = "failed"
-                assistant_message.tool_calls[tool_call_index].error = result.get(
-                    "error"
+                assistant_message.update_tool_call(
+                    tool_call_index,
+                    status="failed",
+                    error=result.get("error"),
+                    cost=result.get("cost", 0),
+                    task=result.get("task"),
                 )
-                assistant_message.tool_calls[tool_call_index].cost = result.get(
-                    "cost", 0
-                )
-                assistant_message.tool_calls[tool_call_index].task = result.get("task")
-                assistant_message.save()
 
             return SessionUpdate(
                 type=UpdateType.ERROR,
@@ -777,13 +738,15 @@ async def process_tool_call(
 
         # Update the original tool call with error
         tool_call.status = "failed"
-        tool_call.error = str(e)
+
         if assistant_message.tool_calls and tool_call_index < len(
             assistant_message.tool_calls
         ):
-            assistant_message.tool_calls[tool_call_index].status = "failed"
-            assistant_message.tool_calls[tool_call_index].error = str(e)
-            assistant_message.save()
+            assistant_message.update_tool_call(
+                tool_call_index,
+                status="failed",
+                error=str(e),
+            )
 
         return SessionUpdate(
             type=UpdateType.ERROR,
