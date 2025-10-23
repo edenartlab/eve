@@ -59,8 +59,8 @@ def commit_daily_work(
 
         num_creations = len(AbrahamSeed.find({"status": "creation"}))
 
-        if num_creations != 3:
-            raise Exception("Abraham has already committed 3 creations")
+        if num_creations != 4:
+            raise Exception("Num creations should be 4")
 
         index = num_creations
 

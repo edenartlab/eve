@@ -66,3 +66,9 @@ parameters:
     description: Whether to pin the message to the session
     default: false
     required: false
+  public:
+    type: boolean
+    label: Public
+    description: Whether to make the session always public
+    tip: Do **not** ever set this to true, unless **explicitly** directed to by the user in the previous message, and not overridden anywhere else..
+    default: false
