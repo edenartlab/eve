@@ -58,11 +58,6 @@ def load_handler(name):
 
             handlers[name] = handler
 
-        elif name == "time_remapping":
-            from .media_utils.time_remapping.handler import handler
-
-            handlers[name] = handler
-
         elif name == "search_agents":
             from .mongo_utils.search_agents.handler import handler
 

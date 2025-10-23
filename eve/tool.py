@@ -40,6 +40,8 @@ class ToolContext(BaseModel):
     user: Optional[str] = None
     agent: Optional[str] = None
     session: Optional[str] = None
+    message: Optional[str] = None
+    tool_call_id: Optional[str] = None
 
 
 @Collection("tools3")
