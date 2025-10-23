@@ -124,7 +124,7 @@ async def commit_daily_work(agent: Agent, session: str):
 
     # print("THE WINNER IS", winner["session"].id)
 
-    if str(winner["session"].id) != "68f8a0c84484da83b1711341":
+    if str(winner["session"].id) != "68f9ffe72669bcdb465e9a1d":
         raise Exception("Stop here, it's", str(winner["session"].id))
 
     await session_post.async_run(

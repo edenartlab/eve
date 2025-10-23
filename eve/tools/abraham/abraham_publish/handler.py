@@ -122,6 +122,7 @@ async def handler(context: ToolContext):
         "prompt": True,
         "async": True,
         "extra_tools": ["farcaster_cast", "abraham_seed"],
+        "public": True,
     })
 
     session_id = result["output"][0]["session"]
