@@ -225,8 +225,8 @@ async def _task_handler(func, *args, **kwargs):
                 user=str(task.user) if task.user else None,
                 agent=str(task.agent) if task.agent else None,
                 session=str(task.session) if task.session else None,
-                message=str(task.message) if task.message else None,
-                tool_call_id=str(task.tool_call_id) if task.tool_call_id else None,
+                message=str(task.message) if hasattr(task, "message") and task.message else None,
+                tool_call_id=str(task.tool_call_id) if hasattr(task, "tool_call_id") and task.tool_call_id else None,
             )
 
             if output_type in ["image", "video", "audio", "lora"] and is_creation_tool:
