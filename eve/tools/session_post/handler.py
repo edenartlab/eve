@@ -16,10 +16,6 @@ from eve.agent.session.session import add_chat_message
 from eve import db
 
 
-
-from loguru import logger
-
-
 async def handler(context: ToolContext):
     if not context.agent:
         raise Exception("Agent is required")
@@ -38,11 +34,7 @@ async def handler(context: ToolContext):
     # note: session in handler args refers to the originating session (if there is one), not the session that is being posted to. session to post to is context.args.get("session")
 
 
-    logger.info(f"Session post GO")
-    
     session_id = context.args.get("session")
-
-    logger.info(f"Session ID: {session_id}")
 
     # create genesis session if new
     request = None
@@ -64,34 +56,6 @@ async def handler(context: ToolContext):
         new_session = setup_session(None, request.session_id, request.user_id, request)
 
         session_id = str(new_session.id)
-
-        # Update parent tool call with child session ID (if called via tool execution)
-        from eve.agent.session.tool_context import get_current_tool_call
-
-        tool_call_context = get_current_tool_call()
-
-        logger.info(f"Tool call context: {tool_call_context}")
-
-
-        
-        if tool_call_context:
-            tool_call, assistant_message, tool_call_index = tool_call_context
-            logger.info(f"Tool call: {tool_call}")
-            logger.info(f"Assistant message: {assistant_message}")
-            logger.info(f"Tool call index: {tool_call_index}")
-            tool_call.child_session = new_session.id
-            if assistant_message.tool_calls and tool_call_index < len(
-                assistant_message.tool_calls
-            ):
-                assistant_message.tool_calls[
-                    tool_call_index
-                ].child_session = new_session.id
-                assistant_message.save()
-
-
-    else:
-        logger.info(f"No tool call context !!!")
-
 
     # make a new set of drafts
     session = Session.from_mongo(session_id)
