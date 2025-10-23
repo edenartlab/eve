@@ -268,6 +268,15 @@ class ChatMessage(Document):
 
         return self.model_copy(update={"tool_calls": filtered_tool_calls})
 
+    def update_tool_call(self, tool_call_index: int, **fields: dict):
+        set_fields = {
+            f"tool_calls.{tool_call_index}.{k}": v
+            for k, v in fields.items()
+        }
+        self.get_collection().update_one(
+            {"_id": self.id}, {"$set": set_fields},
+        )
+
     def _get_content_block(self, schema, truncate_images=False):
         """Assemble user message content block"""
 
