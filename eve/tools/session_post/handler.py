@@ -1,4 +1,5 @@
 import modal
+from bson import ObjectId
 
 from eve.agent import Agent
 from eve.user import User
@@ -55,20 +56,12 @@ async def handler(context: ToolContext):
 
         session_id = str(new_session.id)
 
-        # Update parent tool call with child session ID (if called via tool execution)
-        from eve.agent.session.tool_context import get_current_tool_call
-
-        tool_call_context = get_current_tool_call()
-        if tool_call_context:
-            tool_call, assistant_message, tool_call_index = tool_call_context
-            tool_call.child_session = new_session.id
-            if assistant_message.tool_calls and tool_call_index < len(
-                assistant_message.tool_calls
-            ):
-                assistant_message.tool_calls[
-                    tool_call_index
-                ].child_session = new_session.id
-                assistant_message.save()
+    if context.message and context.tool_call_id:
+        message = ChatMessage.from_mongo(context.message)
+        tool_call = [tc for tc in message.tool_calls if tc.id == context.tool_call_id]
+        if tool_call:
+            tool_call[0].child_session = ObjectId(session_id)
+            message.save()
 
     # make a new set of drafts
     session = Session.from_mongo(session_id)

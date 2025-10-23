@@ -106,8 +106,9 @@ class CreationsCollection(Document):
 class Task(Document):
     user: ObjectId
     agent: Optional[ObjectId] = None
-    # thread: Optional[ObjectId] = None
     session: Optional[ObjectId] = None
+    message: Optional[ObjectId] = None
+    tool_call_id: Optional[str] = None
     tool: str
     parent_tool: Optional[str] = None
     output_type: str
@@ -132,6 +133,8 @@ class Task(Document):
             data["agent"] = ObjectId(data["agent"])
         if isinstance(data.get("session"), str):
             data["session"] = ObjectId(data["session"])
+        if isinstance(data.get("message"), str):
+            data["message"] = ObjectId(data["message"])
         super().__init__(**data)
 
     @classmethod
@@ -222,6 +225,8 @@ async def _task_handler(func, *args, **kwargs):
                 user=str(task.user) if task.user else None,
                 agent=str(task.agent) if task.agent else None,
                 session=str(task.session) if task.session else None,
+                message=str(task.message) if task.message else None,
+                tool_call_id=str(task.tool_call_id) if task.tool_call_id else None,
             )
 
             if output_type in ["image", "video", "audio", "lora"] and is_creation_tool:

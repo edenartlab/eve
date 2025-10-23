@@ -57,14 +57,12 @@ from eve.agent.session.tracing import (
     trace_async_operation,
     add_breadcrumb,
 )
-from eve.agent.session.tool_context import tool_call_context
 from loguru import logger
 
 
 class SessionCancelledException(Exception):
     """Exception raised when a session is cancelled via Ably signal."""
 
-    pass
 
 
 def check_session_budget(session: Session):
@@ -473,6 +471,7 @@ async def async_run_tool_call_with_cancellation(
     user_id: Optional[str] = None,
     agent_id: Optional[str] = None,
     session_id: Optional[str] = None,
+    message_id: Optional[str] = None,
     public: bool = True,
     is_client_platform: bool = False,
     cancellation_event: asyncio.Event = None,
@@ -492,6 +491,8 @@ async def async_run_tool_call_with_cancellation(
             user_id=user_id,
             agent_id=agent_id,
             session_id=session_id,
+            message_id=message_id,
+            tool_call_id=tool_call.id,
             args=tool_call.args,
             mock=False,
             public=public,
@@ -650,19 +651,17 @@ async def process_tool_call(
         # Use cancellation-aware tool execution
         # Use tool-specific cancellation event if available, otherwise use general cancellation event
         effective_cancellation_event = tool_cancellation_event or cancellation_event
-
-        # Execute tool with context so handler can update the tool call
-        async with tool_call_context(tool_call, assistant_message, tool_call_index):
-            result = await async_run_tool_call_with_cancellation(
-                llm_context,
-                tool_call,
-                user_id=llm_context.metadata.trace_metadata.user_id
-                or llm_context.metadata.trace_metadata.agent_id,
-                agent_id=llm_context.metadata.trace_metadata.agent_id,
-                session_id=str(session.id),
-                cancellation_event=effective_cancellation_event,
-                is_client_platform=is_client_platform,
-            )
+        result = await async_run_tool_call_with_cancellation(
+            llm_context,
+            tool_call,
+            user_id=llm_context.metadata.trace_metadata.user_id
+            or llm_context.metadata.trace_metadata.agent_id,
+            agent_id=llm_context.metadata.trace_metadata.agent_id,
+            session_id=str(session.id),
+            message_id=str(assistant_message.id),
+            cancellation_event=effective_cancellation_event,
+            is_client_platform=is_client_platform,
+        )
 
         # Check for cancellation after tool execution completes
         if cancellation_event and cancellation_event.is_set():

@@ -23,8 +23,8 @@ DB=PROD WORKSPACE=video_mochi modal deploy comfyui.py
 """
 
 from bson import ObjectId
-from pprint import pprint
 from pathlib import Path
+from loguru import logger
 import os
 import re
 import git
@@ -40,7 +40,6 @@ import pathlib
 import tempfile
 import subprocess
 import traceback
-import sys
 import socket
 
 import eve.utils as eden_utils
@@ -73,24 +72,24 @@ test_inactive = True if os.getenv("TEST_INACTIVE") else False
 
 # Run a bunch of checks to verify input args:
 if test_all and specific_tests:
-    print(f"WARNING: can't have both TEST_ALL and SPECIFIC_TEST at the same time...")
-    print(f"Running TEST_ALL instead")
+    logger.info(f"WARNING: can't have both TEST_ALL and SPECIFIC_TEST at the same time...")
+    logger.info(f"Running TEST_ALL instead")
     specific_tests = []
 
-print("========================================")
-print(f"db: {db}")
-print(f"workspace: {workspace_name}")
-print(f"test_workflows: {test_workflows}")
-print(f"test_all: {test_all}")
-print(f"specific_tests: {specific_tests}")
-print(f"skip_tests: {skip_tests}")
-print(f"test_inactive: {test_inactive}")
-print("========================================")
+logger.info("========================================")
+logger.info(f"db: {db}")
+logger.info(f"workspace: {workspace_name}")
+logger.info(f"test_workflows: {test_workflows}")
+logger.info(f"test_all: {test_all}")
+logger.info(f"specific_tests: {specific_tests}")
+logger.info(f"skip_tests: {skip_tests}")
+logger.info(f"test_inactive: {test_inactive}")
+logger.info("========================================")
 
 if not test_workflows and workspace_name and not test_all:
-    print("\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-    print("!!!! WARNING: You are deploying a workspace without TEST_ALL !!!!")
-    print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n")
+    logger.info("\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+    logger.info("!!!! WARNING: You are deploying a workspace without TEST_ALL !!!!")
+    logger.info("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n")
 
 
 def install_comfyui():
@@ -98,11 +97,11 @@ def install_comfyui():
     snapshot = json.load(open("/root/workspace/snapshot.json", "r"))
     comfyui_commit_sha = snapshot["comfyui"]
 
-    print(f"Initializing git repository in {os.getcwd()}")
+    logger.info(f"Initializing git repository in {os.getcwd()}")
     result = subprocess.run(["git", "init", "."], check=True, capture_output=True)
-    print(f"Git init output: {result.stdout.decode()}")
+    logger.info(f"Git init output: {result.stdout.decode()}")
 
-    print(f"Adding ComfyUI remote and fetching")
+    logger.info(f"Adding ComfyUI remote and fetching")
     result = subprocess.run(
         [
             "git",
@@ -115,13 +114,13 @@ def install_comfyui():
         check=True,
         capture_output=True,
     )
-    print(f"Git remote add output: {result.stdout.decode()}")
+    logger.info(f"Git remote add output: {result.stdout.decode()}")
 
-    print(f"Checking out commit: {comfyui_commit_sha}")
+    logger.info(f"Checking out commit: {comfyui_commit_sha}")
     result = subprocess.run(
         ["git", "checkout", comfyui_commit_sha], check=True, capture_output=True
     )
-    print(f"Git checkout output: {result.stdout.decode()}")
+    logger.info(f"Git checkout output: {result.stdout.decode()}")
 
     subprocess.run(
         [
@@ -137,18 +136,18 @@ def install_comfyui():
         check=True,
     )
     # List all files and directories in the current directory:
-    print("Current directory structure:")
+    logger.info("Current directory structure:")
     for root, dirs, files in os.walk("."):
         level = root.replace(os.getcwd(), "").count(os.sep)
         if level <= 1:
             indent = " " * 4 * (level)
-            print(f"{indent}{os.path.basename(root)}/")
+            logger.info(f"{indent}{os.path.basename(root)}/")
             subindent = " " * 4 * (level + 1)
             for f in files:
-                print(f"{subindent}{f}")
+                logger.info(f"{subindent}{f}")
         if level >= 1:
             dirs.clear()  # This prevents os.walk from recursing deeper
-    print("ComfyUI installation completed successfully")
+    logger.info("ComfyUI installation completed successfully")
 
 
 def install_custom_nodes():
@@ -157,7 +156,7 @@ def install_custom_nodes():
     snapshot = json.load(open("/root/workspace/snapshot.json", "r"))
     custom_nodes = snapshot["git_custom_nodes"]
     for url, node in custom_nodes.items():
-        print(f"Installing custom node {url} with hash {node['hash']}")
+        logger.info(f"Installing custom node {url} with hash {node['hash']}")
         install_custom_node_with_retries(url, node["hash"])
     post_install_commands = snapshot.get("post_install_commands", [])
     for cmd in post_install_commands:
@@ -170,19 +169,19 @@ def install_custom_nodes():
             "custom_nodes/ControlFlowUtils/helper.py",
         )
         if os.path.exists(helper_path):
-            print(
+            logger.info(
                 f"Found ControlFlowUtils helper.py at {helper_path}, checking for DEBUG_MODE"
             )
             with open(helper_path, "r") as f:
                 content = f.read()
 
             if "DEBUG_MODE = True" in content:
-                print("Setting DEBUG_MODE to False in ControlFlowUtils helper.py")
+                logger.info("Setting DEBUG_MODE to False in ControlFlowUtils helper.py")
                 content = content.replace("DEBUG_MODE = True", "DEBUG_MODE = False")
                 with open(helper_path, "w") as f:
                     f.write(content)
             else:
-                print(
+                logger.info(
                     "DEBUG_MODE is already set to False or not found in ControlFlowUtils helper.py"
                 )
     except:
@@ -192,19 +191,19 @@ def install_custom_nodes():
 def install_custom_node_with_retries(url, hash, max_retries=3):
     for attempt in range(max_retries + 1):
         try:
-            print(f"Attempt {attempt + 1}: Installing {url}")
+            logger.info(f"Attempt {attempt + 1}: Installing {url}")
             install_custom_node(url, hash)
-            print(f"Successfully installed {url}")
+            logger.info(f"Successfully installed {url}")
             return
         except Exception as e:
             if attempt < max_retries:
-                print(f"Attempt {attempt + 1} failed because: {str(e)}")
-                print(f"Exception type: {type(e)}")
+                logger.info(f"Attempt {attempt + 1} failed because: {str(e)}")
+                logger.info(f"Exception type: {type(e)}")
                 traceback.print_exc()  # This will print the full stack trace
-                print("Retrying...")
+                logger.info("Retrying...")
                 time.sleep(5)
             else:
-                print(f"All attempts failed. Final error: {str(e)}")
+                logger.info(f"All attempts failed. Final error: {str(e)}")
                 traceback.print_exc()
                 raise
 
@@ -230,7 +229,7 @@ def install_custom_node(url, hash):
                         ["pip", "install", "-r", requirements_path], check=True
                     )
                 except Exception as e:
-                    print(f"Error installing requirements: {e}")
+                    logger.info(f"Error installing requirements: {e}")
 
 
 def create_symlink(source_path, target_path, is_directory=False, force=False):
@@ -248,13 +247,13 @@ def clone_repo(repo_url, target_path, force=False):
     """Clone a git repository to the specified target path."""
     if target_path.exists():
         if force:
-            print(f"Removing existing repository at {target_path}")
+            logger.info(f"Removing existing repository at {target_path}")
             shutil.rmtree(target_path)
         else:
-            print(f"Repository already exists at {target_path}, skipping clone")
+            logger.info(f"Repository already exists at {target_path}, skipping clone")
             return
 
-    print(f"Cloning repository {repo_url} to {target_path}")
+    logger.info(f"Cloning repository {repo_url} to {target_path}")
     target_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
@@ -272,10 +271,10 @@ def clone_repo(repo_url, target_path, force=False):
 def download_file(url, target_path, force=False):
     """Download a single file to the target path."""
     if target_path.is_file() and not force:
-        print(f"Skipping download, getting {target_path} from cache")
+        logger.info(f"Skipping download, getting {target_path} from cache")
         return
 
-    print(f"Downloading {url} to {target_path}")
+    logger.info(f"Downloading {url} to {target_path}")
     target_path.parent.mkdir(parents=True, exist_ok=True)
     eden_utils.download_file(url, target_path)
     downloads_vol.commit()
@@ -301,7 +300,7 @@ def sync_final_state_to_volume():
     Sync the final state of ComfyUI after all tests complete to the persistent volume.
     This captures any files downloaded during testing that aren't already in the volume.
     """
-    print("Starting sync of final ComfyUI state to persistent volume...")
+    logger.info("Starting sync of final ComfyUI state to persistent volume...")
 
     # Key directories that might contain downloaded files from testing
     sync_paths = ["models", "custom_nodes", "output", "input"]
@@ -315,10 +314,10 @@ def sync_final_state_to_volume():
         volume_path = f"{volume_root}/{path}"
 
         if not os.path.exists(root_path):
-            print(f"Skipping {root_path} - does not exist")
+            logger.info(f"Skipping {root_path} - does not exist")
             continue
 
-        print(f"Syncing {root_path} to {volume_path}...")
+        logger.info(f"Syncing {root_path} to {volume_path}...")
 
         # Use rsync-like logic to sync only new/changed files
         if os.path.exists(volume_path):
@@ -330,11 +329,11 @@ def sync_final_state_to_volume():
             synced_files = count_files_recursive(root_path)
 
         total_synced += synced_files
-        print(f"Synced {synced_files} files from {path}")
+        logger.info(f"Synced {synced_files} files from {path}")
 
     # Commit changes to volume
     downloads_vol.commit()
-    print(
+    logger.info(
         f"Successfully synced {total_synced} files to persistent volume and committed changes"
     )
 
@@ -392,11 +391,11 @@ def restore_state_from_volume():
     Restore the cached ComfyUI state from the persistent volume.
     This is used when SKIP_TESTS=1 to populate /root with previously cached downloads.
     """
-    print("Restoring ComfyUI state from persistent volume...")
+    logger.info("Restoring ComfyUI state from persistent volume...")
 
     volume_root = "/data/comfyui_root"
     if not os.path.exists(volume_root):
-        print(
+        logger.info(
             "No cached state found in volume. This appears to be the first deployment."
         )
         return
@@ -410,10 +409,10 @@ def restore_state_from_volume():
         root_path = f"/root/{path}"
 
         if not os.path.exists(volume_path):
-            print(f"Skipping {path} - no cached version found")
+            logger.info(f"Skipping {path} - no cached version found")
             continue
 
-        print(f"Restoring {path} from volume...")
+        logger.info(f"Restoring {path} from volume...")
 
         # Remove existing directory and replace with cached version
         if os.path.exists(root_path):
@@ -422,9 +421,9 @@ def restore_state_from_volume():
         shutil.copytree(volume_path, root_path)
         restored_files = count_files_recursive(root_path)
         total_restored += restored_files
-        print(f"Restored {restored_files} files to {path}")
+        logger.info(f"Restored {restored_files} files to {path}")
 
-    print(f"Successfully restored {total_restored} files from persistent volume cache")
+    logger.info(f"Successfully restored {total_restored} files from persistent volume cache")
 
 
 def download_files(force_redownload=False):
@@ -454,7 +453,7 @@ def download_files(force_redownload=False):
         # If comfy_path already exists (e.g., from a previous run) and we are not forcing a redownload for this entry,
         # we can skip processing it. The optimization is primarily for downloads within a single fresh run.
         if comfy_path.exists() and not force_redownload:
-            print(
+            logger.info(
                 f"Comfy path {comfy_path} already exists and not forcing redownload, skipping processing for this entry."
             )
             # Note: If this comfy_path was for a URL that *will* appear again, and this skip prevents
@@ -473,16 +472,16 @@ def download_files(force_redownload=False):
                 # This source URL has already been processed (downloaded/cloned) in this run.
                 original_persistent_path = downloaded_source_registry[actual_source_url]
 
-                print(
+                logger.info(
                     f"Source '{actual_source_url}' already processed to persistent path '{original_persistent_path}'."
                 )
                 if force_redownload:
                     # The content at original_persistent_path should have been refreshed by its first encounter if force_redownload is true.
-                    print(
+                    logger.info(
                         f"Force_redownload is True; ensuring symlink from '{comfy_path}' to refreshed content at '{original_persistent_path}'."
                     )
                 else:
-                    print(
+                    logger.info(
                         f"Creating symlink from '{comfy_path}' to '{original_persistent_path}'."
                     )
 
@@ -498,13 +497,13 @@ def download_files(force_redownload=False):
                 # This is the first time this actual_source_url is being processed in this run.
                 # It needs to be downloaded/cloned. It will be stored at current_entry_persistent_vol_path.
                 # This path then becomes the canonical persistent path for this actual_source_url in the registry.
-                print(
+                logger.info(
                     f"Processing source '{actual_source_url}' for the first time in this run."
                 )
-                print(
+                logger.info(
                     f"It will be stored at persistent path: '{current_entry_persistent_vol_path}'."
                 )
-                print(f"ComfyUI path will be: '{comfy_path}'.")
+                logger.info(f"ComfyUI path will be: '{comfy_path}'.")
 
                 if is_git_clone:
                     # handle_repo_download clones to current_entry_persistent_vol_path and symlinks comfy_path to it.
@@ -527,7 +526,7 @@ def download_files(force_redownload=False):
                 downloaded_source_registry[actual_source_url] = (
                     current_entry_persistent_vol_path
                 )
-                print(
+                logger.info(
                     f"Registered '{actual_source_url}' to persistent path '{current_entry_persistent_vol_path}'."
                 )
 
@@ -569,11 +568,11 @@ def get_workflows():
                 f"One or more invalid workflows found: {', '.join(invalid_workflows)}. Available workflows: {', '.join(workflow_names)}"
             )
         workflow_names = test_workflows
-        print(
+        logger.info(
             f"====> Running tests for subset of workflows: {' | '.join(workflow_names)}"
         )
     else:
-        print(f"====> Running tests for all workflows: {' | '.join(workflow_names)}")
+        logger.info(f"====> Running tests for all workflows: {' | '.join(workflow_names)}")
 
     # Then filter based on status if TEST_INACTIVE is not set
     if not os.getenv("TEST_INACTIVE"):
@@ -583,7 +582,7 @@ def get_workflows():
             if tool.active:
                 filtered_names.append(name)
             else:
-                print(f"Workflow {name} is inactive, skipping")
+                logger.info(f"Workflow {name} is inactive, skipping")
 
         workflow_names = filtered_names
 
@@ -620,14 +619,14 @@ def run_tests_or_restore():
     The behavior is controlled by the SKIP_TESTS environment variable.
     """
     if os.getenv("SKIP_TESTS"):
-        print(
+        logger.info(
             "SKIP_TESTS is set - restoring cached state from volume instead of running tests"
         )
         restore_state_from_volume()
-        print("Cached state restoration completed")
+        logger.info("Cached state restoration completed")
         return
     else:
-        print("SKIP_TESTS not set - running full test suite")
+        logger.info("SKIP_TESTS not set - running full test suite")
         test_workflows()
         return
 
@@ -635,17 +634,17 @@ def run_tests_or_restore():
 def test_workflows():
     """Run all tests for the current workspace."""
     overall_start_time = time.time()
-    print(f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] Starting test execution")
+    logger.info(f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] Starting test execution")
 
     if os.getenv("SKIP_TESTS"):
-        print("Skipping tests")
+        logger.info("Skipping tests")
         return
 
     # Only run tests if TEST_ALL or specific tests are specified
     if not (
         os.getenv("TEST_ALL") or os.getenv("WORKFLOWS") or os.getenv("SPECIFIC_TEST")
     ):
-        print("No tests specified, skipping tests")
+        logger.info("No tests specified, skipping tests")
         return
 
     test_summary = []
@@ -654,13 +653,13 @@ def test_workflows():
 
     # Get list of workflows
     workflow_start = time.time()
-    print(f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] Finding workflows...")
+    logger.info(f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] Finding workflows...")
     workflows = get_workflows()
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Found workflows: {workflows}")
-    print(f"Workflow discovery took {time.time() - workflow_start:.2f}s")
+    logger.info(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Found workflows: {workflows}")
+    logger.info(f"Workflow discovery took {time.time() - workflow_start:.2f}s")
 
     # Print overview of all tests that will be run
-    print("\n========== TEST EXECUTION PLAN ==========")
+    logger.info("\n========== TEST EXECUTION PLAN ==========")
     total_tests = 0
     for workflow in workflows:
         test_files = get_test_files(workflow)
@@ -668,14 +667,14 @@ def test_workflows():
             # Check if workflow is inactive before counting it
             tool = Tool.from_yaml(f"/root/workspace/workflows/{workflow}/api.yaml")
             if not tool.active and not test_inactive:
-                print(f"\nWorkflow: {workflow} (inactive, will be skipped)")
+                logger.info(f"\nWorkflow: {workflow} (inactive, will be skipped)")
                 continue
-            print(f"\nWorkflow: {workflow}")
+            logger.info(f"\nWorkflow: {workflow}")
             for test in test_files:
-                print(f"  • {os.path.basename(test)}")
+                logger.info(f"  • {os.path.basename(test)}")
                 total_tests += 1
-    print(f"\nTotal tests to run: {total_tests}")
-    print("========================================\n")
+    logger.info(f"\nTotal tests to run: {total_tests}")
+    logger.info("========================================\n")
 
     # Check if we have AWS credentials
     has_aws_creds = all(
@@ -685,29 +684,29 @@ def test_workflows():
             os.getenv("AWS_REGION_NAME"),
         ]
     )
-    print(f"AWS credentials available: {has_aws_creds}")
+    logger.info(f"AWS credentials available: {has_aws_creds}")
 
     # Create a single ComfyUI instance for all tests
     server_start = time.time()
-    print(f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] Starting ComfyUI server...")
+    logger.info(f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] Starting ComfyUI server...")
     comfyui = ComfyUI()
     try:
         comfyui._start()  # This will set server_address and start the server
-        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Server started successfully")
-        print(f"Server startup took {time.time() - server_start:.2f}s")
+        logger.info(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Server started successfully")
+        logger.info(f"Server startup took {time.time() - server_start:.2f}s")
     except Exception as e:
-        print(f"Error starting ComfyUI server: {e}")
+        logger.info(f"Error starting ComfyUI server: {e}")
         raise
 
     current_test = 0
     # For each workflow
     for workflow_idx, workflow in enumerate(workflows, 1):
         workflow_test_start = time.time()
-        print(f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] Testing workflow: {workflow}")
+        logger.info(f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] Testing workflow: {workflow}")
 
         # Get list of test files
         test_files = get_test_files(workflow)
-        print(f"Found test files: {test_files}")
+        logger.info(f"Found test files: {test_files}")
 
         # For each test file
         for test_idx, test in enumerate(test_files, 1):
@@ -716,43 +715,43 @@ def test_workflows():
             try:
                 tool = Tool.from_yaml(f"/root/workspace/workflows/{workflow}/api.yaml")
                 if not tool.active and not test_inactive:
-                    print(f"{workflow} is inactive, skipping test")
+                    logger.info(f"{workflow} is inactive, skipping test")
                     continue
 
                 current_test += 1
                 successful_tests = current_test - 1 - len(failed_tests)
-                print(
+                logger.info(
                     f"\n\n\n------------------ Test ({current_test}/{total_tests}) - Workflow {workflow_idx}/{len(workflows)} - {workflow} ({test_idx}/{len(test_files)}) ------------------"
                 )
-                print(
+                logger.info(
                     f"Progress: {successful_tests} successful, {len(failed_tests)} failed tests so far"
                 )
 
                 test_args = json.loads(open(test, "r").read())
                 test_args = tool.prepare_args(test_args)
                 test_name = f"{workflow}_{os.path.basename(test)}"
-                print(f"====> Running test: {test_name}")
+                logger.info(f"====> Running test: {test_name}")
 
                 result = comfyui._execute(workflow, test_args)
 
                 if has_aws_creds:
                     try:
-                        print(
+                        logger.info(
                             f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Starting S3 upload..."
                         )
                         s3_start = time.time()
                         result = eden_utils.upload_result(result)
-                        print(
+                        logger.info(
                             f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] S3 upload successful"
                         )
-                        print(f"S3 upload took {time.time() - s3_start:.2f}s")
+                        logger.info(f"S3 upload took {time.time() - s3_start:.2f}s")
 
                         # Print individual test summary
-                        print("\n========== TEST SUMMARY ==========")
+                        logger.info("\n========== TEST SUMMARY ==========")
                         test_duration = time.time() - test_start
-                        print(f"Test: {test_name}")
-                        print(f"Duration: {test_duration:.2f}s")
-                        print("\nGenerated Files:")
+                        logger.info(f"Test: {test_name}")
+                        logger.info(f"Duration: {test_duration:.2f}s")
+                        logger.info("\nGenerated Files:")
                         bucket_prefix = (
                             "edenartlab-stage-data"
                             if db == "STAGE"
@@ -774,16 +773,16 @@ def test_workflows():
                                                 and not primary_url
                                             ):
                                                 primary_url = s3_url
-                                            print(f"\n{output_key}:")
-                                            print(f"  URL: {s3_url}")
+                                            logger.info(f"\n{output_key}:")
+                                            logger.info(f"  URL: {s3_url}")
                                             if "mediaAttributes" in output:
                                                 for attr, value in output[
                                                     "mediaAttributes"
                                                 ].items():
-                                                    print(f"  {attr}: {value}")
+                                                    logger.info(f"  {attr}: {value}")
                                     else:
-                                        print(f"\n{output_key}: {output}")
-                        print("================================\n")
+                                        logger.info(f"\n{output_key}: {output}")
+                        logger.info("================================\n")
 
                         # Add to succinct summary
                         succinct_summary.append(
@@ -796,8 +795,8 @@ def test_workflows():
                         )
 
                     except Exception as e:
-                        print(f"S3 upload failed: {e}")
-                        print("Falling back to local file verification")
+                        logger.info(f"S3 upload failed: {e}")
+                        logger.info("Falling back to local file verification")
                         # Fall back to local verification
                         for output_files in result.values():
                             if isinstance(output_files, list):
@@ -807,11 +806,11 @@ def test_workflows():
                                         raise Exception(
                                             f"Output file not found: {full_path}"
                                         )
-                                    print(
+                                    logger.info(
                                         f"====> Verified output file exists: {full_path}"
                                     )
                 else:
-                    print("No AWS credentials available, verifying files locally")
+                    logger.info("No AWS credentials available, verifying files locally")
                     # Local verification only
                     for output_files in result.values():
                         if isinstance(output_files, list):
@@ -821,10 +820,10 @@ def test_workflows():
                                     raise Exception(
                                         f"Output file not found: {full_path}"
                                     )
-                                print(f"====> Verified output file exists: {full_path}")
+                                logger.info(f"====> Verified output file exists: {full_path}")
 
                 test_duration = time.time() - test_start
-                print(
+                logger.info(
                     f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Test completed successfully in {test_duration:.2f}s"
                 )
 
@@ -854,10 +853,10 @@ def test_workflows():
                         "test_path": test.replace("/root/workspace/workflows/", ""),
                     }
                 )
-                print(
+                logger.info(
                     f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] Test failed: {test_name}"
                 )
-                print(error_trace)
+                logger.info(error_trace)
 
                 # Add to succinct summary
                 succinct_summary.append(
@@ -872,25 +871,25 @@ def test_workflows():
                 continue
 
         workflow_duration = time.time() - workflow_test_start
-        print(
+        logger.info(
             f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Workflow {workflow} completed in {workflow_duration:.2f}s"
         )
 
     # Print final summary
     total_duration = time.time() - overall_start_time
-    print("\n\n========== FINAL TEST EXECUTION SUMMARY ==========")
-    print(f"Total execution time: {total_duration:.2f}s")
-    print(f"Number of tests executed: {len(test_summary)}")
-    print(f"Number of failed tests: {len(failed_tests)}")
+    logger.info("\n\n========== FINAL TEST EXECUTION SUMMARY ==========")
+    logger.info(f"Total execution time: {total_duration:.2f}s")
+    logger.info(f"Number of tests executed: {len(test_summary)}")
+    logger.info(f"Number of failed tests: {len(failed_tests)}")
 
-    print("\nDetailed test results:")
-    print("----------------------------------------")
+    logger.info("\nDetailed test results:")
+    logger.info("----------------------------------------")
 
     for entry in test_summary:
-        print(f"\nWorkflow: {entry['workflow']}")
-        print(f"Test: {entry['test']}")
-        print(f"Duration: {entry['duration']}")
-        print("Outputs:")
+        logger.info(f"\nWorkflow: {entry['workflow']}")
+        logger.info(f"Test: {entry['test']}")
+        logger.info(f"Duration: {entry['duration']}")
+        logger.info("Outputs:")
         for output_key, outputs in entry["outputs"].items():
             for output in outputs:
                 if isinstance(output, dict):
@@ -903,35 +902,35 @@ def test_workflows():
                         )
                         region = os.getenv("AWS_REGION_NAME", "us-east-1")
                         s3_url = f"https://{bucket_prefix}.s3.{region}.amazonaws.com/{filename}"
-                        print(f"  {output_key}: {s3_url}")
+                        logger.info(f"  {output_key}: {s3_url}")
 
                         if "mediaAttributes" in output:
                             for attr, value in output["mediaAttributes"].items():
-                                print(f"    {attr}: {value}")
+                                logger.info(f"    {attr}: {value}")
                 else:
-                    print(f"  {output_key}: {output}")
-        print("----------------------------------------")
+                    logger.info(f"  {output_key}: {output}")
+        logger.info("----------------------------------------")
 
     # Print failed tests summary if any
     if failed_tests:
-        print("\n========== FAILED TESTS SUMMARY ==========")
-        print("\nTests failed:")
+        logger.info("\n========== FAILED TESTS SUMMARY ==========")
+        logger.info("\nTests failed:")
         for failed_test in failed_tests:
-            print(f"    {failed_test['test_path']}")
+            logger.info(f"    {failed_test['test_path']}")
 
-        print("\nDetailed failure information:")
-        print("----------------------------------------")
+        logger.info("\nDetailed failure information:")
+        logger.info("----------------------------------------")
         for failed_test in failed_tests:
-            print(f"\nWorkflow: {failed_test['workflow']}")
-            print(f"Test: {failed_test['test']}")
-            print("Error Stack Trace:")
-            print(failed_test["error"])
-            print("----------------------------------------")
+            logger.info(f"\nWorkflow: {failed_test['workflow']}")
+            logger.info(f"Test: {failed_test['test']}")
+            logger.info("Error Stack Trace:")
+            logger.info(failed_test["error"])
+            logger.info("----------------------------------------")
 
     # Print ComfyUI reinit timing information
     if len(test_summary) > 1:
-        print("\n========== COMFYUI REINIT TIMING ==========")
-        print(
+        logger.info("\n========== COMFYUI REINIT TIMING ==========")
+        logger.info(
             "Reinitializing ComfyUI to check startup time after all files are downloaded..."
         )
         reinit_start = time.time()
@@ -940,39 +939,39 @@ def test_workflows():
         try:
             comfyui._stop_server()
         except Exception as e:
-            print(f"Warning: Error stopping existing server: {e}")
+            logger.info(f"Warning: Error stopping existing server: {e}")
         
         # Create new instance and start
         comfyui = ComfyUI()
         try:
             comfyui._start()
             reinit_duration = time.time() - reinit_start
-            print(f"ComfyUI reinitialization completed in {reinit_duration:.2f}s")
+            logger.info(f"ComfyUI reinitialization completed in {reinit_duration:.2f}s")
         except Exception as e:
-            print(f"Error during ComfyUI reinitialization: {e}")
-        print("----------------------------------------")
+            logger.info(f"Error during ComfyUI reinitialization: {e}")
+        logger.info("----------------------------------------")
 
     # Print succinct test results at the very end
-    print("\nSuccinct Test Results:")
-    print("----------------------------------------")
+    logger.info("\nSuccinct Test Results:")
+    logger.info("----------------------------------------")
     for result in succinct_summary:
         if result["status"] == "SUCCESS":
-            print(f"✓ {result['test']} - {result['duration']:.2f}s")
-            print(f"    {result['url']}")
+            logger.info(f"✓ {result['test']} - {result['duration']:.2f}s")
+            logger.info(f"    {result['url']}")
         else:
-            print(f"✗ {result['test']} - {result['duration']:.2f}s")
-            print(f"    Error: {result['error']}")
-    print("----------------------------------------")
+            logger.info(f"✗ {result['test']} - {result['duration']:.2f}s")
+            logger.info(f"    Error: {result['error']}")
+    logger.info("----------------------------------------")
 
     # Sync the final ComfyUI state to persistent volume after all tests
-    print("\n========== SYNCING FINAL STATE TO VOLUME ==========")
+    logger.info("\n========== SYNCING FINAL STATE TO VOLUME ==========")
     try:
         sync_final_state_to_volume()
-        print("Successfully synced final state to persistent volume")
+        logger.info("Successfully synced final state to persistent volume")
     except Exception as e:
-        print(f"Warning: Failed to sync final state to volume: {e}")
+        logger.info(f"Warning: Failed to sync final state to volume: {e}")
         # Don't fail the entire deployment if sync fails
-    print("========================================")
+    logger.info("========================================")
 
     # Only raise the exception at the end after running all tests
     if failed_tests:
@@ -1064,7 +1063,7 @@ class ComfyUI:
     server_address: str = modal.parameter(default="127.0.0.1:8188")
 
     def _start(self, port=8188):
-        print("DEBUG: Starting ComfyUI server...")
+        logger.info("DEBUG: Starting ComfyUI server...")
         t1 = time.time()
         self.server_address = f"127.0.0.1:{port}"
         cmd = f"python /root/main.py --dont-print-server --listen --port {port}"
@@ -1073,64 +1072,64 @@ class ComfyUI:
             time.sleep(1.0)
         t2 = time.time()
         self.launch_time = t2 - t1
-        print(f"DEBUG: ComfyUI server started in {self.launch_time:.2f}s")
+        logger.info(f"DEBUG: ComfyUI server started in {self.launch_time:.2f}s")
 
     def _execute(
         self, workflow_name: str, args: dict, user: str = None, agent: str = None, session: str = None
     ):
         try:
-            print("\n" + "=" * 60)
-            print(f"{' ' * 10}STARTING NEW TASK: {workflow_name}{' ' * 10}")
-            print("=" * 60 + "\n")
+            logger.info("\n" + "=" * 60)
+            logger.info(f"{' ' * 10}STARTING NEW TASK: {workflow_name}{' ' * 10}")
+            logger.info("=" * 60 + "\n")
 
             # Debug: Get detailed server stats
-            print("DEBUG: Getting detailed ComfyUI server stats...")
+            logger.info("DEBUG: Getting detailed ComfyUI server stats...")
             server_check_start = time.time()
             server_stats = self.get_server_stats()
             server_check_time = time.time() - server_check_start
 
             # Check if we got valid stats without error
             if "error" not in server_stats:
-                print(
+                logger.info(
                     f"DEBUG: ComfyUI server is running at {self.server_address} (stats check took {server_check_time:.3f}s)"
                 )
 
                 # Print memory usage if available
                 if server_stats.get("memory_usage"):
                     mem = server_stats["memory_usage"]
-                    print(
+                    logger.info(
                         f"DEBUG: VRAM Usage: {mem['vram_used_gb']:.2f}GB / {mem['vram_total_gb']:.2f}GB ({mem['vram_utilization']:.1f}%)"
                     )
 
                 # Print queue information if available
                 if server_stats.get("queue"):
                     queue = server_stats["queue"]
-                    print(
+                    logger.info(
                         f"DEBUG: Queue status - Running: {queue.get('running_size', 'N/A')}, Pending: {queue.get('pending_size', 'N/A')}"
                     )
 
                 # Print processing times if available
                 if server_stats.get("processing_times"):
                     times = server_stats["processing_times"]
-                    print(
+                    logger.info(
                         f"DEBUG: Recent processing times - Avg: {times['average']:.2f}s, Min: {times['min']:.2f}s, Max: {times['max']:.2f}s"
                     )
             else:
-                print(
+                logger.info(
                     f"DEBUG: WARNING - ComfyUI server is NOT running at {self.server_address}!"
                 )
-                print(f"DEBUG: Stats check error: {server_stats['error']}")
+                logger.info(f"DEBUG: Stats check error: {server_stats['error']}")
 
-                print("DEBUG: Attempting to restart server...")
+                logger.info("DEBUG: Attempting to restart server...")
                 try:
                     self._start()
-                    print("DEBUG: Server restarted successfully")
+                    logger.info("DEBUG: Server restarted successfully")
                     # Verify server stats after restart
                     server_stats = self.get_server_stats()
                     if "error" in server_stats:
                         raise Exception("Server restart failed - still not responding")
                 except Exception as e:
-                    print(f"DEBUG: Failed to restart server: {e}")
+                    logger.info(f"DEBUG: Failed to restart server: {e}")
                     raise Exception(
                         f"ComfyUI server is not running and restart failed: {e}"
                     )
@@ -1145,16 +1144,16 @@ class ComfyUI:
             # Debug: Check server again before queuing prompt
             server_stats = self.get_server_stats()
             if "error" in server_stats:
-                print("DEBUG: ERROR - Server not responding before queuing prompt!")
+                logger.info("DEBUG: ERROR - Server not responding before queuing prompt!")
                 raise Exception(
                     "ComfyUI server stopped responding before queuing prompt"
                 )
 
-            print("DEBUG: Queuing prompt to ComfyUI server...")
+            logger.info("DEBUG: Queuing prompt to ComfyUI server...")
             queue_start = time.time()
             prompt_id = self._queue_prompt(workflow)["prompt_id"]
             queue_time = time.time() - queue_start
-            print(
+            logger.info(
                 f"DEBUG: Prompt queued successfully (took {queue_time:.3f}s), prompt_id: {prompt_id}"
             )
 
@@ -1164,22 +1163,22 @@ class ComfyUI:
                 raise Exception(
                     f"No output found for {workflow_name} at output node {tool.comfyui_output_node_id}"
                 )
-            print("---- comfyui output ----")
+            logger.info("---- comfyui output ----")
             result = {"output": output}
             if tool.comfyui_intermediate_outputs:
                 result["intermediate_outputs"] = {
                     key: outputs[str(node_id)]
                     for key, node_id in tool.comfyui_intermediate_outputs.items()
                 }
-            print(result)
+            logger.info(result)
             return result
         except modal.exception.InputCancellation:
-            print("Modal Task Cancelled")
-            print("Interrupting ComfyUI")
+            logger.info("Modal Task Cancelled")
+            logger.info("Interrupting ComfyUI")
             self._interrupt()
-            print("ComfyUI interrupted")
+            logger.info("ComfyUI interrupted")
         except Exception as error:
-            print("ComfyUI pipeline error: ", error)
+            logger.info("ComfyUI pipeline error: ", error)
             raise
 
     @modal.method()
@@ -1210,11 +1209,11 @@ class ComfyUI:
                 is_running = response.status == 200
 
                 if is_running:
-                    print(
+                    logger.info(
                         f"DEBUG: Server check successful - response time: {response_time:.3f}s"
                     )
                 else:
-                    print(
+                    logger.info(
                         f"DEBUG: Server responded with unexpected status: {response.status}"
                     )
 
@@ -1223,18 +1222,18 @@ class ComfyUI:
         except urllib.error.URLError as e:
             response_time = time.time() - start_time
             if hasattr(e, "reason"):
-                print(f"DEBUG: Failure reason: {e.reason}, time: {response_time}")
+                logger.info(f"DEBUG: Failure reason: {e.reason}, time: {response_time}")
             return False
         except socket.timeout:
             response_time = time.time() - start_time
-            print(f"DEBUG: Server check timed out after {response_time:.3f}s")
+            logger.info(f"DEBUG: Server check timed out after {response_time:.3f}s")
             return False
         except Exception as e:
             response_time = time.time() - start_time
-            print(
+            logger.info(
                 f"DEBUG: Server check failed with unexpected error after {response_time:.3f}s: {e}"
             )
-            print(f"DEBUG: Error type: {type(e).__name__}")
+            logger.info(f"DEBUG: Error type: {type(e).__name__}")
             return False
 
     def _queue_prompt(self, prompt):
@@ -1252,20 +1251,20 @@ class ComfyUI:
 
     def _interrupt(self):
         try:
-            print("Interrupting ComfyUI ...")
+            logger.info("Interrupting ComfyUI ...")
             with urllib.request.urlopen(
                 f"http://{self.server_address}/interrupt"
             ) as response:
                 if response.status != 200:
                     raise Exception(f"Failed to interrupt ComfyUI: {response.status}")
         except Exception as e:
-            print(f"Error interrupting ComfyUI: {e}")
+            logger.info(f"Error interrupting ComfyUI: {e}")
             raise
 
     def _stop_server(self):
         """Stop the ComfyUI server by killing the process."""
         try:
-            print("DEBUG: Stopping ComfyUI server...")
+            logger.info("DEBUG: Stopping ComfyUI server...")
             # Kill any existing ComfyUI processes
             result = subprocess.run(
                 ["pkill", "-f", "main.py"], 
@@ -1273,14 +1272,14 @@ class ComfyUI:
                 text=True
             )
             if result.returncode == 0:
-                print("DEBUG: ComfyUI server process killed")
+                logger.info("DEBUG: ComfyUI server process killed")
             else:
-                print("DEBUG: No ComfyUI server process found to kill")
+                logger.info("DEBUG: No ComfyUI server process found to kill")
             
             # Wait a moment for the process to fully terminate
             time.sleep(2)
         except Exception as e:
-            print(f"Error stopping ComfyUI server: {e}")
+            logger.info(f"Error stopping ComfyUI server: {e}")
             raise
 
     def _get_history(self, prompt_id):
@@ -1303,7 +1302,7 @@ class ComfyUI:
 
             with urllib.request.urlopen(url) as response:
                 if response.status != 200:
-                    print(f"Warning: Unexpected status code {response.status}")
+                    logger.info(f"Warning: Unexpected status code {response.status}")
 
                 response_data = response.read()
                 try:
@@ -1315,22 +1314,22 @@ class ComfyUI:
                     return history_data
 
                 except json.JSONDecodeError as e:
-                    print(f"Failed to decode JSON response from {url}")
-                    print(f"Error decoding JSON response: {e}")
-                    print(
+                    logger.info(f"Failed to decode JSON response from {url}")
+                    logger.info(f"Error decoding JSON response: {e}")
+                    logger.info(
                         f"Raw response data: {response_data[:200]}..."
                     )  # Print first 200 chars
                     raise
 
         except urllib.error.URLError as e:
-            print(f"Connection error while fetching history: {e}")
+            logger.info(f"Connection error while fetching history: {e}")
             if hasattr(e, "reason"):
-                print(f"Failure reason: {e.reason}")
+                logger.info(f"Failure reason: {e.reason}")
             raise
 
         except Exception as e:
-            print(f"Unexpected error in _get_history: {str(e)}")
-            print(f"Error type: {type(e).__name__}")
+            logger.info(f"Unexpected error in _get_history: {str(e)}")
+            logger.info(f"Error type: {type(e).__name__}")
             raise
 
     def _get_outputs(self, prompt_id, poll_interval=1):
@@ -1352,7 +1351,7 @@ class ComfyUI:
                     if k == "execution_error"
                 ]
                 error_str = ", ".join(errors)
-                print("error", error_str)
+                logger.info("error", error_str)
                 raise Exception(error_str)
 
             for _ in history["outputs"]:
@@ -1380,7 +1379,7 @@ class ComfyUI:
                             for audio in node_output["audio"]
                         ]
 
-            print("comfy outputs", outputs)
+            logger.info("comfy outputs", outputs)
             if not outputs:
                 raise Exception("No outputs found")
 
@@ -1445,26 +1444,26 @@ class ComfyUI:
             if lora_trigger_text not in text:
                 text = f"{lora_trigger_text}, {text}"
 
-        print(f"Performed FLUX LoRA trigger injection:")
-        print(orig_text)
-        print("Changed to:")
-        print(text)
+        logger.info(f"Performed FLUX LoRA trigger injection:")
+        logger.info(orig_text)
+        logger.info("Changed to:")
+        logger.info(text)
 
         return text
 
     def _transport_lora_flux(self, lora_url: str):
         loras_folder = "/root/models/loras"
 
-        print("tl download lora", lora_url)
+        logger.info("tl download lora", lora_url)
         if not re.match(r"^https?://", lora_url):
             raise ValueError(f"Lora URL Invalid: {lora_url}")
 
         lora_filename = lora_url.split("/")[-1]
         lora_path = os.path.join(loras_folder, lora_filename)
-        print("tl destination folder", loras_folder)
+        logger.info("tl destination folder", loras_folder)
 
         if os.path.exists(lora_path):
-            print("Lora safetensors file already extracted. Skipping.")
+            logger.info("Lora safetensors file already extracted. Skipping.")
         else:
             eden_utils.download_file(lora_url, lora_path)
             if not os.path.exists(lora_path):
@@ -1472,8 +1471,8 @@ class ComfyUI:
                     f"The LoRA tar file {lora_path} does not exist."
                 )
 
-        print("destination path", lora_path)
-        print("lora filename", lora_filename)
+        logger.info("destination path", lora_path)
+        logger.info("lora filename", lora_filename)
 
         return lora_filename
 
@@ -1482,17 +1481,17 @@ class ComfyUI:
         loras_folder = "/root/models/loras"
         embeddings_folder = "/root/models/embeddings"
 
-        print("tl download lora", lora_url)
+        logger.info("tl download lora", lora_url)
         if not re.match(r"^https?://", lora_url):
             raise ValueError(f"Lora URL Invalid: {lora_url}")
 
         lora_tar_filename = lora_url.split("/")[-1]
         name = lora_tar_filename.split(".")[0]  # e.g., 'hotmale' from 'hotmale.tar.gz'
         destination_folder = os.path.join(downloads_folder, name)
-        print("tl destination folder", destination_folder)
+        logger.info("tl destination folder", destination_folder)
 
         if os.path.exists(destination_folder):
-            print("LORA bundle already extracted, skipping download")
+            logger.info("LORA bundle already extracted, skipping download")
         else:
             try:
                 lora_tarfile_path = eden_utils.download_file(
@@ -1504,12 +1503,12 @@ class ComfyUI:
                     )
                 with tarfile.open(lora_tarfile_path, "r:*") as tar:
                     tar.extractall(path=destination_folder)
-                    print("Extraction complete.")
+                    logger.info("Extraction complete.")
             except Exception as e:
                 raise IOError(f"Failed to extract tar file: {e}")
 
         extracted_files = os.listdir(destination_folder)
-        print(f"Found {len(extracted_files)} files in LORA bundle: {extracted_files}")
+        logger.info(f"Found {len(extracted_files)} files in LORA bundle: {extracted_files}")
 
         lora_filename = None
         embeddings_filename = None
@@ -1526,13 +1525,13 @@ class ComfyUI:
         )
 
         if lora_filename:
-            print(f"Found standard LoRA file: {lora_filename}")
+            logger.info(f"Found standard LoRA file: {lora_filename}")
         if embeddings_filename:
-            print(f"Found standard embeddings file: {embeddings_filename}")
+            logger.info(f"Found standard embeddings file: {embeddings_filename}")
 
         # 2. Fallbacks for lora_filename if not found by standard pattern
         if not lora_filename:
-            print(
+            logger.info(
                 "Standard LoRA file pattern not matched. Trying fallbacks for LoRA file..."
             )
             # Fallback 2a: General *.safetensors that isn't an embeddings file
@@ -1552,38 +1551,38 @@ class ComfyUI:
                 None,
             )
             if lora_filename:
-                print(
+                logger.info(
                     f"Found LoRA file by general .safetensors fallback: {lora_filename}"
                 )
             else:
                 # Fallback 2b: Specific 'lora.safetensors' for very old format
                 if "lora.safetensors" in extracted_files:
                     lora_filename = "lora.safetensors"
-                    print(
+                    logger.info(
                         f"Found LoRA file by specific name 'lora.safetensors': {lora_filename}"
                     )
 
         # 3. Fallbacks for embeddings_filename if not found by standard pattern
         if not embeddings_filename:
-            print(
+            logger.info(
                 "Standard embeddings file pattern not matched. Trying fallbacks for embeddings file..."
             )
             # Fallback 3a: Specific 'embeddings.pti'
             if "embeddings.pti" in extracted_files:
                 embeddings_filename = "embeddings.pti"
-                print(
+                logger.info(
                     f"Found embeddings file by specific name 'embeddings.pti': {embeddings_filename}"
                 )
             elif "embedding.pti" in extracted_files:  # Also check singular version
                 embeddings_filename = "embedding.pti"
-                print(
+                logger.info(
                     f"Found embeddings file by specific name 'embedding.pti': {embeddings_filename}"
                 )
             # Fallback 3b: (No generic .safetensors fallback for embeddings to avoid ambiguity with other files)
 
         # Convert .pti to .safetensors if necessary
         if embeddings_filename and embeddings_filename.endswith(".pti"):
-            print(
+            logger.info(
                 f"Found .pti embeddings file: {embeddings_filename}. Attempting conversion."
             )
             base_embedding_name = embeddings_filename[:-4]  # Remove .pti
@@ -1598,14 +1597,14 @@ class ComfyUI:
                 input_pti_path, output_safetensors_path
             )
             if conversion_success:
-                print(
+                logger.info(
                     f"Successfully converted {embeddings_filename} to {converted_embeddings_filename}"
                 )
                 if converted_embeddings_filename not in extracted_files:
                     extracted_files.append(converted_embeddings_filename)
                 embeddings_filename = converted_embeddings_filename
             else:
-                print(f"Conversion of {embeddings_filename} failed. Check logs.")
+                logger.info(f"Conversion of {embeddings_filename} failed. Check logs.")
 
         # --- Determine lora_mode and embedding_trigger ---
         training_args_filename = next(
@@ -1615,7 +1614,7 @@ class ComfyUI:
         embedding_trigger = None
 
         if training_args_filename:
-            print(f"Found training_args.json: {training_args_filename}")
+            logger.info(f"Found training_args.json: {training_args_filename}")
             with open(
                 os.path.join(destination_folder, training_args_filename), "r"
             ) as f:
@@ -1625,15 +1624,15 @@ class ComfyUI:
                 )
                 embedding_trigger = training_args.get("name")
                 if not embedding_trigger:
-                    print(
+                    logger.info(
                         f"Warning: 'name' for embedding_trigger not found in training_args.json. Will use archive name '{name}'."
                     )
                     embedding_trigger = name
         else:
-            print("training_args.json not found.")
+            logger.info("training_args.json not found.")
             lora_mode = "style"  # Default lora_mode if no training_args.json
             embedding_trigger = name  # Default trigger to archive name
-            print(
+            logger.info(
                 f"Defaulting lora_mode to '{lora_mode}' and embedding_trigger to archive name '{embedding_trigger}' due to missing training_args.json."
             )
 
@@ -1662,15 +1661,15 @@ class ComfyUI:
                 f"Searched for standard patterns (e.g. *_embeddings.safetensors) and fallbacks (e.g. embeddings.pti)."
             )
 
-        print(f"LORA mode: {lora_mode}")
-        print(f"Using LORA file: {lora_filename}")
+        logger.info(f"LORA mode: {lora_mode}")
+        logger.info(f"Using LORA file: {lora_filename}")
         if embeddings_filename:
-            print(f"Using embeddings file: {embeddings_filename}")
+            logger.info(f"Using embeddings file: {embeddings_filename}")
         else:
-            print(
+            logger.info(
                 "No embeddings file will be used (e.g., for style LoRA or if not found and mode allows)."
             )
-        print(f"Embedding trigger: {embedding_trigger}")
+        logger.info(f"Embedding trigger: {embedding_trigger}")
 
         # --- File operations ---
         if not os.path.exists(loras_folder):
@@ -1682,14 +1681,14 @@ class ComfyUI:
         lora_path = os.path.join(destination_folder, lora_filename)
         lora_copy_path = os.path.join(loras_folder, lora_filename)
         shutil.copy(lora_path, lora_copy_path)
-        print(f"LoRA {lora_path} has been copied to {lora_copy_path}")
+        logger.info(f"LoRA {lora_path} has been copied to {lora_copy_path}")
 
         # Copy embedding file to embeddings folder (if it exists and was found)
         if embeddings_filename:
             embeddings_path = os.path.join(destination_folder, embeddings_filename)
             embeddings_copy_path = os.path.join(embeddings_folder, embeddings_filename)
             shutil.copy(embeddings_path, embeddings_copy_path)
-            print(
+            logger.info(
                 f"Embeddings {embeddings_path} has been copied to {embeddings_copy_path}"
             )
 
@@ -1760,8 +1759,8 @@ class ComfyUI:
                 url = "https://" + url
             return url
 
-        print("===== Injecting comfyui args into workflow =====")
-        pprint(args)
+        logger.info("===== Injecting comfyui args into workflow =====")
+        plogger.info(args)
 
         embedding_triggers = {"lora": None, "lora2": None}
         lora_trigger_texts = {"lora": None, "lora2": None}
@@ -1799,7 +1798,7 @@ class ComfyUI:
                         if url
                         else None
                     )
-                    print(f"Downloaded {url} to {local_path}")
+                    logger.info(f"Downloaded {url} to {local_path}")
                     args[key] = local_path
 
             elif file_type == "lora":
@@ -1808,10 +1807,10 @@ class ComfyUI:
                 if not lora_id:
                     args[key] = None
                     args[f"{key}_strength"] = 0
-                    print(f"DISABLING {key}")
+                    logger.info(f"DISABLING {key}")
                     continue
 
-                print(f"Found {key} LORA ID: {lora_id}")
+                logger.info(f"Found {key} LORA ID: {lora_id}")
 
                 models = get_collection("models3")
                 lora = models.find_one({"_id": ObjectId(lora_id)})
@@ -1827,11 +1826,11 @@ class ComfyUI:
                 if not lora_url:
                     raise Exception(f"Lora {lora_id} has no checkpoint")
                 else:
-                    print("LORA URL", lora_url)
+                    logger.info("LORA URL", lora_url)
 
                 lora_url = get_full_url(lora_url)
-                print("lora url", lora_url)
-                print("base model", base_model)
+                logger.info("lora url", lora_url)
+                logger.info("base model", base_model)
 
                 if base_model == "sdxl":
                     lora_filename, embeddings_filename, embedding_trigger, lora_mode = (
@@ -1902,7 +1901,7 @@ class ComfyUI:
                                 None,
                             )
                             if no_token_mapping:
-                                print(
+                                logger.info(
                                     "Updating no_token_prompt for SDXL: ",
                                     no_token_prompt,
                                 )
@@ -1910,7 +1909,7 @@ class ComfyUI:
                                     no_token_mapping.field
                                 ][no_token_mapping.subfield] = no_token_prompt
 
-                print("====> Final updated prompt for workflow: ", value)
+                logger.info("====> Final updated prompt for workflow: ", value)
 
             # Handle preprocessing
             if comfyui.preprocessing is not None:
@@ -1929,7 +1928,7 @@ class ComfyUI:
                         shutil.copy(value, temp_subfolder)
                     value = temp_subfolder
 
-            print(f"Injecting {key} = {value}")
+            logger.info(f"Injecting {key} = {value}")
             node_id, field, subfield = (
                 str(comfyui.node_id),
                 str(comfyui.field),
@@ -1937,7 +1936,7 @@ class ComfyUI:
             )
             subfields = [s.strip() for s in subfield.split(",")]
             for subfield in subfields:
-                print("inject", node_id, field, subfield, " = ", value)
+                logger.info("inject", node_id, field, subfield, " = ", value)
                 workflow[node_id][field][subfield] = value
 
             # Handle remaps
@@ -1946,7 +1945,7 @@ class ComfyUI:
                 for subfield in subfields:
                     output_value = remap.map.get(value)
                     if output_value is not None:
-                        print(
+                        logger.info(
                             f"Remapping {key}={value} to {remap.node_id}.{remap.field}.{subfield}={output_value}"
                         )
                         workflow[str(remap.node_id)][remap.field][subfield] = (

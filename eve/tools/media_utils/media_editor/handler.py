@@ -57,6 +57,8 @@ async def handler(context: ToolContext):
             "prompt": True,
             "async": False,
             "extra_tools": ["video_concat", "audio_video_combine", "ffmpeg_multitool"],
+            "message_id": context.message,
+            "tool_call_id": context.tool_call_id,
         }
     )
 
