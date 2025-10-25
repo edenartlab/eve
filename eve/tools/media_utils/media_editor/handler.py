@@ -48,8 +48,9 @@ async def handler(context: ToolContext):
     result = await session_post.async_run(
         {
             "role": "user",
-            "agent_id": context.agent,
-            "agent": "media-editor",
+            "user_id": str(context.user),
+            "agent_id": str(context.agent),
+            "agent": "eve",
             "title": context.args.get("title") or "Media Editor Session",
             "content": user_message,
             "attachments": media_files,
