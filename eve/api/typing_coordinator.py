@@ -3,11 +3,10 @@ Typing state coordinator for managing typing indicators across platforms.
 Ensures proper sequencing and prevents race conditions.
 """
 
-import asyncio
 import logging
 import os
 from typing import Dict, Optional
-from ably import AblyRest, AblyRealtime
+from ably import AblyRest
 import time
 
 logger = logging.getLogger(__name__)
@@ -71,13 +70,16 @@ class TypingCoordinator:
         
         # Determine platform and channel
         platform = self._get_platform(update_config)
+        logger.info(f"[TypingCoord] Detected platform: {platform}, config keys: {list(update_config.keys())}")
         if not platform:
             logger.warning(f"[TypingCoord] Could not determine platform from config")
             return False
-        
+
         # Prepare message based on platform
         message = self._prepare_message(platform, update_config, request_id, is_busy)
+        logger.info(f"[TypingCoord] Prepared message for {platform}: {message}")
         if not message:
+            logger.warning(f"[TypingCoord] Failed to prepare message for {platform}")
             return False
         
         # Send via Ably with request tracking
@@ -85,7 +87,7 @@ class TypingCoordinator:
         try:
             channel = self.ably_publisher.channels.get(channel_name)
             await channel.publish("typing", message)
-            
+
             logger.info(
                 f"[TypingCoord] Sent {platform} typing update - "
                 f"request: {request_id}, busy: {is_busy}, "
@@ -106,13 +108,13 @@ class TypingCoordinator:
     
     def _get_platform(self, update_config: Dict) -> Optional[str]:
         """Determine platform from update config"""
-        if "discord_channel_id" in update_config:
+        if update_config.get("discord_channel_id"):
             return "discord"
-        elif "telegram_chat_id" in update_config:
+        elif update_config.get("telegram_chat_id"):
             return "telegram"
-        elif "farcaster_hash" in update_config:
+        elif update_config.get("farcaster_hash"):
             return "farcaster"
-        elif "twitter_tweet_to_reply_id" in update_config:
+        elif update_config.get("twitter_tweet_to_reply_id"):
             return "twitter"
         return None
     

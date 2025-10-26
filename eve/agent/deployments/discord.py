@@ -8,6 +8,7 @@ from loguru import logger
 
 from eve.api.errors import APIError
 from eve.agent.deployments import PlatformClient
+from eve.agent.deployments.utils import get_api_url
 from eve.agent.session.models import DeploymentSecrets, DeploymentConfig
 from eve.agent.session.models import UpdateType
 from eve.utils import prepare_result
@@ -123,7 +124,7 @@ class DiscordClient(PlatformClient):
             # Forward the session request to the sessions API
             async with aiohttp.ClientSession() as session:
                 async with session.post(
-                    f"{os.getenv('EDEN_API_URL')}/sessions/prompt",
+                    f"{get_api_url()}/sessions/prompt",
                     json=interact_request.interaction.model_dump(),
                     headers={
                         "Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}",

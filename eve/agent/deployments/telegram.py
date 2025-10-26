@@ -17,6 +17,7 @@ from eve.agent.session.models import (
 from eve.api.api_requests import PromptSessionRequest
 from eve.api.errors import APIError
 from eve.agent.deployments import PlatformClient
+from eve.agent.deployments.utils import get_api_url
 from eve.agent.session.models import UpdateType
 from eve.user import User
 from eve.utils import prepare_result
@@ -77,6 +78,7 @@ class TelegramClient(PlatformClient):
             raise Exception("GATEWAY_URL is not set")
 
         webhook_url = f"{gateway_url}/telegram/webhook"
+        logger.info(f"[TELEGRAM-POSTDEPLOY] Webhook URL: {webhook_url}")
 
         # Set webhook directly via HTTP instead of using telegram library
         import aiohttp
@@ -430,7 +432,7 @@ class TelegramClient(PlatformClient):
             # Build session request
             from eve.api.api_requests import SessionCreationArgs
 
-            api_url = os.getenv("EDEN_API_URL")
+            api_url = get_api_url()
             logger.info(f"[TELEGRAM-INTERACT] API URL: {api_url}")
 
             session_request = PromptSessionRequest(
@@ -687,7 +689,7 @@ async def create_telegram_session_request(
             content=cleaned_text, sender_name=username, attachments=attachments
         ),
         update_config=SessionUpdateConfig(
-            update_endpoint=f"{os.getenv('EDEN_API_URL')}/emissions/platform/telegram",
+            update_endpoint=f"{get_api_url()}/emissions/platform/telegram",
             deployment_id=str(deployment.id),
             telegram_chat_id=str(chat_id),
             telegram_message_id=str(message.get("message_id")),
