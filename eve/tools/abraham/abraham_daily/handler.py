@@ -130,7 +130,7 @@ async def commit_daily_work(agent: Agent, session: str):
     await session_post.async_run(
         {
             "role": "user",
-            "user_id": str(context.user),
+            "user_id": str(agent.owner),
             "agent_id": str(agent.id),
             "session": str(winner["session"].id),
             "content": daily_message,
