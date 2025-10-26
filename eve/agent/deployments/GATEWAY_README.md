@@ -10,7 +10,7 @@ Configure Eve .env.STAGE
 
 ```
 GATEWAY_ID=[your-id]
-LOCAL_API_URL=https://edenartlab--discord-gateway-v2-stage-[your-id]-gateway-app-dev.modal.run
+GATEWAY_URL=https://edenartlab--discord-gateway-v2-stage-[your-id]-gateway-app-dev.modal.run
 EDEN_API_URL=[your-ngrok-url]
 ```
 
