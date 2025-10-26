@@ -26,7 +26,7 @@ cd eden
 yarn dev:eden
 ```
 
-Create deployments in the local Eden app, then mark them as local in the database. `deployment.local = True`
+Create deployments in the local Eden app, then mark them as local in the database. `deployment.local = True`. I think this is only relevant for Telegram because the webhook is registered using the TG API, but could be wrong.
 
 Finally, start the gateway. LOCAL_USER_ID must be set to your Eden staging user id and will filter all deployments but your own.
 
