@@ -1049,6 +1049,7 @@ class Deployment(Document):
     user: ObjectId
     platform: ClientType
     valid: Optional[bool] = None
+    local: Optional[bool] = None
     secrets: Optional[DeploymentSecrets]
     config: Optional[DeploymentConfig]
 

@@ -19,6 +19,7 @@ from eve.api.api_requests import SessionCreationArgs
 from eve.api.errors import APIError
 from eve.agent.deployments import PlatformClient
 from eve.agent.deployments.neynar_client import NeynarClient
+from eve.agent.deployments.utils import get_api_url
 from eve.agent.session.models import UpdateType
 from eve.utils import prepare_result
 from eve.user import User
@@ -452,7 +453,7 @@ class FarcasterClient(PlatformClient):
             ),
             update_config=SessionUpdateConfig(
                 deployment_id=str(deployment.id),
-                update_endpoint=f"{os.getenv('EDEN_API_URL')}/v2/deployments/emission",
+                update_endpoint=f"{get_api_url()}/v2/deployments/emission",
                 farcaster_hash=cast_hash,
                 farcaster_author_fid=author_fid,
             ),
@@ -473,7 +474,7 @@ class FarcasterClient(PlatformClient):
             logger.info(f"Will create new session with key {session_key}")
 
         # Make async HTTP POST to /chat
-        eden_api_url = os.getenv('EDEN_API_URL')
+        eden_api_url = get_api_url()
         prompt_url = f"{eden_api_url}/sessions/prompt"
         logger.info(f"Sending prompt request to {prompt_url}")
 

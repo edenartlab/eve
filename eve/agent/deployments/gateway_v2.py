@@ -19,16 +19,20 @@ from eve.agent.session.models import (
     SessionUpdateConfig,
     Deployment,
     ClientType,
-    SUPPORTED_NON_MEDIA_EXTENSIONS,
 )
+from eve.agent.session.file_config import SUPPORTED_NON_MEDIA_EXTENSIONS
 from eve.agent.deployments.typing_manager import (
     DiscordTypingManager,
     TelegramTypingManager,
 )
+from eve.agent.deployments.utils import get_api_url
 from eve.api.api_requests import SessionCreationArgs, PromptSessionRequest
 import eve.mongo
 from fastapi import FastAPI, Request, HTTPException, Header
 from contextlib import asynccontextmanager
+
+# Override the imported db with uppercase version for Ably channel consistency
+db = os.getenv("DB", "STAGE").upper()
 
 
 def construct_agent_chat_url(agent_username: str) -> str:
@@ -41,7 +45,6 @@ def construct_agent_chat_url(agent_username: str) -> str:
     Returns:
         Properly formatted Eden agent chat URL
     """
-    db = os.getenv("DB", "STAGE")
     root_url = "app.eden.art" if db == "PROD" else "staging.app.eden.art"
     return f"https://{root_url}/chat/{agent_username}"
 
@@ -49,9 +52,16 @@ def construct_agent_chat_url(agent_username: str) -> str:
 logger = logging.getLogger(__name__)
 root_dir = Path(__file__).parent.parent.parent.parent
 
+
+app_name = (
+    f"discord-gateway-v2-{db}-{os.getenv('GATEWAY_ID')}"
+    if os.getenv("GATEWAY_ID")
+    else f"discord-gateway-v2-{db}"
+)
+
 # Create Modal app
 app = modal.App(
-    name=f"discord-gateway-v2-{db}",
+    name=app_name,
     secrets=[
         modal.Secret.from_name("eve-secrets", environment_name="main"),
         modal.Secret.from_name(f"eve-secrets-{db}", environment_name="main"),
@@ -78,6 +88,7 @@ image = (
     .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
     .env({"DB": db})
     .env({"LOCAL_API_URL": os.getenv("LOCAL_API_URL") or ""})
+    .env({"LOCAL_USER_ID": os.getenv("LOCAL_USER_ID") or ""})
     .add_local_python_source("eve", ignore=[])
 )
 
@@ -168,14 +179,6 @@ class DiscordGatewayClient:
         # Set up Ably for busy state updates
         self.ably_client = None
         self.busy_channel = None
-
-    @property
-    def api_url(self) -> str:
-        """Get the API URL, preferring LOCAL_API_URL if set."""
-        if os.getenv("LOCAL_API_URL") != "":
-            return os.getenv("LOCAL_API_URL")
-        else:
-            return os.getenv("EDEN_API_URL")
 
     async def heartbeat_loop(self):
         try:
@@ -801,7 +804,7 @@ class DiscordGatewayClient:
             ),
             update_config=SessionUpdateConfig(
                 deployment_id=str(self.deployment.id),
-                update_endpoint=f"{self.api_url}/v2/deployments/emission",
+                update_endpoint=f"{get_api_url()}/v2/deployments/emission",
                 discord_channel_id=channel_id if not is_dm else None,
                 discord_message_id=message_id,
                 discord_user_id=user.discordId if is_dm else None,
@@ -812,14 +815,15 @@ class DiscordGatewayClient:
         self, request: PromptSessionRequest, trace_id: str
     ) -> None:
         """Send the session request to the API"""
+        api_url = get_api_url()
         logger.info(
-            f"[{trace_id}] Sending session request to {self.api_url}/sessions/prompt"
+            f"[{trace_id}] Sending session request to {api_url}/sessions/prompt"
         )
         logger.debug(f"[{trace_id}] Request payload: {request.model_dump()}")
 
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                f"{self.api_url}/sessions/prompt",
+                f"{api_url}/sessions/prompt",
                 json=request.model_dump(),
                 headers={
                     "Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}",
@@ -1461,7 +1465,36 @@ class GatewayManager:
 
     async def load_deployments(self):
         """Load all Discord HTTP deployments from database"""
-        deployments = Deployment.find({"platform": ClientType.DISCORD.value})
+        from bson import ObjectId as BsonObjectId
+
+        # Filter deployments based on LOCAL_API_URL environment variable
+        local_api_url = os.getenv("LOCAL_API_URL")
+        local_user_id = os.getenv("LOCAL_USER_ID")
+
+        if local_api_url and local_api_url != "":
+            # If LOCAL_API_URL is set, only load local deployments
+            deployment_filter = {"platform": ClientType.DISCORD.value, "local": True}
+            logger.info("LOCAL_API_URL is set, loading only local deployments")
+        else:
+            # Otherwise, load non-local deployments (or deployments where local doesn't exist)
+            deployment_filter = {
+                "platform": ClientType.DISCORD.value,
+                "$or": [{"local": {"$exists": False}}, {"local": {"$ne": True}}],
+            }
+            logger.info("Loading non-local deployments")
+
+        # Add user filter if LOCAL_USER_ID is set
+        if local_user_id:
+            try:
+                user_oid = BsonObjectId(local_user_id)
+                deployment_filter["user"] = user_oid
+                logger.info(f"Filtering deployments for user: {local_user_id}")
+            except Exception as e:
+                logger.error(
+                    f"Invalid LOCAL_USER_ID format: {local_user_id}, error: {e}"
+                )
+
+        deployments = Deployment.find(deployment_filter)
         for deployment in deployments:
             # Skip deployments that are marked as invalid
             if deployment.valid is False:
@@ -1472,7 +1505,25 @@ class GatewayManager:
                 await self.start_client(deployment)
 
         # Also load Telegram deployments for typing
-        telegram_deployments = Deployment.find({"platform": ClientType.TELEGRAM.value})
+        if local_api_url and local_api_url != "":
+            telegram_filter = {"platform": ClientType.TELEGRAM.value, "local": True}
+        else:
+            telegram_filter = {
+                "platform": ClientType.TELEGRAM.value,
+                "$or": [{"local": {"$exists": False}}, {"local": {"$ne": True}}],
+            }
+
+        # Add user filter to Telegram deployments if LOCAL_USER_ID is set
+        if local_user_id:
+            try:
+                user_oid = BsonObjectId(local_user_id)
+                telegram_filter["user"] = user_oid
+            except Exception as e:
+                logger.error(
+                    f"Invalid LOCAL_USER_ID format for Telegram filter: {local_user_id}, error: {e}"
+                )
+
+        telegram_deployments = Deployment.find(telegram_filter)
         for deployment in telegram_deployments:
             if (
                 deployment.secrets
@@ -1566,9 +1617,8 @@ async def telegram_webhook(
         # Parse request body to check if it's a validation request
         try:
             body = await request.json()
-        except:
+        except Exception:
             # Empty body - likely validation request
-
             logger.info("Received POST with no body - validation request")
             return {"ok": True}
 

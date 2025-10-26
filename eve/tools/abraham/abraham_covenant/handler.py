@@ -39,7 +39,7 @@ def commit_daily_work(
     Commit Abraham's daily work to the blockchain.
 
     Args:
-        # index: Work index number
+        index: Work index number
         title: Title of the work
         tagline: Short description/tagline
         poster_image: URL to the poster image
@@ -56,13 +56,6 @@ def commit_daily_work(
         logger.info(f"Uploading poster image to IPFS: {poster_image}")
         image_cid = ipfs_pin(poster_image)
         poster_image_hash = image_cid.split("/")[-1]
-
-        num_creations = len(AbrahamSeed.find({"status": "creation"}))
-
-        if num_creations != 4:
-            raise Exception("Num creations should be 4")
-
-        index = num_creations
 
         # Create metadata JSON
         json_data = {
@@ -146,8 +139,6 @@ async def handler(context: ToolContext):
     if not context.session:
         raise Exception("Session is required")
 
-    index = 2
-
     title = context.args.get("title")
     tagline = context.args.get("tagline")
     poster_image = context.args.get("poster_image")
@@ -171,6 +162,14 @@ async def handler(context: ToolContext):
     # check blog post at least 10 chars
     if len(blog_post) < 10:
         raise Exception("Blog post must be at least 10 characters long")
+
+
+    num_creations = len(AbrahamSeed.find({"status": "creation"}))
+
+    if num_creations != 6:
+        raise Exception("Num creations should be 6")
+
+    index = num_creations
 
     # Commit to blockchain
     try:
