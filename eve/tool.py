@@ -481,7 +481,7 @@ class Tool(Document, ABC):
             self, args: Dict, mock: bool = False, save_thumbnails: bool = False
         ):
             try:
-                user_id = args.pop("user_id", None) or str(get_my_eden_user().id)
+                user_id = args.pop("user_id", None)
                 agent_id = args.pop("agent_id", None)
                 session_id = args.pop("session_id", None)
                 message_id = args.pop("message_id", None)
