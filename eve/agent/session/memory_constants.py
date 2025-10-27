@@ -54,7 +54,7 @@ SESSION_DIRECTIVE_MEMORY_MAX_WORDS  = 25  # Target word length for session direc
 SESSION_SUGGESTION_MEMORY_MAX_WORDS = 35  # Target word length for session suggestion memory
 SESSION_FACT_MEMORY_MAX_WORDS       = 30  # Target word length for session fact memory
 # Consolidated memory blobs:
-USER_MEMORY_BLOB_MAX_WORDS  = 250   # Target word count for consolidated user memory blob
+USER_MEMORY_BLOB_MAX_WORDS  = 400   # Target word count for consolidated user memory blob
 AGENT_MEMORY_BLOB_MAX_WORDS = 1000  # Target word count for consolidated agent memory blob (shard)
 
 # Define different memory types and their extraction limits:
@@ -188,7 +188,7 @@ Return **exactly** this JSON:
 ########################################################
 
 # User Memory Consolidation Prompt Template
-USER_MEMORY_CONSOLIDATION_PROMPT = f"""Task: You are helping to consolidate all memories regarding one specific user's preferences and personal context for all your future interactions with this user.
+USER_MEMORY_CONSOLIDATION_PROMPT = f"""Task: You are going to consolidate all memories regarding one specific user's preferences and personal context for all your future interactions with this user.
 
 CURRENT CONSOLIDATED MEMORY:
 {{current_memory}}
@@ -203,7 +203,7 @@ Requirements:
 - Remove redundancies and contradictions (newer memories override older ones, memory age should not be integrated), keep the most specific and actionable information.
 - Store actual names when available (avoid "User" or "the user"). There is only one single user in this context.
 - Focus on persistent preferences and personal context that will consistently affect future interactions. Avoid storing ephemeral information, focus on long-lasting, always-true information.
-- Be concise but comprehensive.
+- Be concise and avoid verbosity: keep the memory as short as possible, while still being comprehensive.
 
 IMPORTANT:
 Certain sections of the existing consolidated memory may not need to be updated at all, especially if the new memories are not relevant to that section. Whenever possible, simply copy existing fragments from current memory unchanged.
