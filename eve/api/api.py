@@ -8,7 +8,6 @@ import modal
 import replicate
 import sentry_sdk
 from typing import Optional, List
-from bson import ObjectId
 from pathlib import Path
 from fastapi.responses import JSONResponse
 from fastapi import FastAPI, Depends, BackgroundTasks, Request
@@ -18,7 +17,6 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.exceptions import RequestValidationError
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
-from pydantic import BaseModel, Field
 
 from eve import auth, db
 from eve.agent import Agent
@@ -91,7 +89,6 @@ from eve.api.api_functions import (
 from eve.agent.session.models import (
     Session,
     ChatMessage,
-    LLMContext,
     LLMConfig,
     PromptSessionContext,
 )
@@ -100,7 +97,6 @@ from eve.agent.session.session import (
     build_llm_context, 
     async_prompt_session,
 )
-from eve.agent.session.session_llm import async_prompt
 
 
 app_name = f"api-{db.lower()}"
@@ -658,49 +654,3 @@ async def remote_prompt_session(
         pass
 
     logger.info(f"Remote prompt completed for session {session_id}")
-
-    # structured output
-    # Define a custom tool as a pydantic model
-    class RemoteSessionResponse(BaseModel):
-        """All relevant results (or error report) from the remote session prompt"""    
-        
-        outputs: List[str] = Field(description="A list of all requested successful media outputs, given the original request. Do not include intermediate results -- only the desired output given the task.")
-        error: Optional[str] = Field(description="A human-readable error message that explains why the session failed to produce the requested outputs. Mutually exclusive with outputs -- **ONLY** set this if there was an error or the requested output was not successfully generated.")
-        
-    system_message = """
-    You are a helpful assistant that summarizes the results of a remote session prompt.
-
-    Given the original request and the subsequent response to it, identify if the session was successful or not.
-    If it was successful, list all the successful outputs.
-    If it was not successful, provide a human-readable error message that explains why the session failed to produce the requested outputs.
-    """
-    
-    messages = ChatMessage.find({"session": ObjectId(session_id)})
-
-    # print("---33--")
-    # for message in messages:
-    #     print(message.content)
-    #     print("-")
-    # print("---333--")
-
-    # Build LLM context with custom tools
-    context = LLMContext(
-        messages=[
-            ChatMessage(role="system", content=system_message),
-            *messages,
-            ChatMessage(role="user", content="Summarize the results of the session."),
-        ],
-        config=LLMConfig(
-            # model="claude-haiku-4-5-latest",
-            model="gpt-4o-mini",
-            response_format=RemoteSessionResponse,
-        ),
-    )
-
-    response = await async_prompt(context)
-    
-    output = RemoteSessionResponse(**json.loads(response.content))
-    if output.error:
-        raise Exception(output.error)
-    
-    return output.outputs

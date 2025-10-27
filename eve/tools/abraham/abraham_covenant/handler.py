@@ -171,6 +171,8 @@ async def handler(context: ToolContext):
 
     index = num_creations
 
+    raise Exception(f"Need to account for index for index : Index: {index}")
+
     # Commit to blockchain
     try:
         result = commit_daily_work(

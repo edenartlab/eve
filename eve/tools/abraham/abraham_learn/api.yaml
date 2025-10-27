@@ -1,0 +1,15 @@
+name: abraham_learn
+description: Abraham learn from last week
+tip: |-
+  This tool allows Abraham to learn from last week.
+cost_estimate: 0
+output_type: string
+active: true
+handler: local
+visible: false
+parameters:
+  comments:
+    type: string
+    description: Comments
+    tip: Optional comments on the daily practice
+    required: false

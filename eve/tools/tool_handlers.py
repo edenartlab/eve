@@ -55,6 +55,7 @@ HANDLER_PATHS = {
     "abraham_covenant": "abraham.abraham_covenant.handler",
     "abraham_rest": "abraham.abraham_rest.handler",
     "abraham_seed": "abraham.abraham_seed.handler",
+    "abraham_learn": "abraham.abraham_learn.handler",
     "verdelis_story": "verdelis.verdelis_story.handler",
 }
 

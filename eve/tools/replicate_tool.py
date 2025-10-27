@@ -119,39 +119,39 @@ class ReplicateTool(Tool):
 
             if field in new_args:
                 if lora:
-                    loras = get_collection(Model.collection_name)
-                    lora_doc = (
-                        loras.find_one({"_id": ObjectId(args[field])})
-                        if args[field]
-                        else None
-                    )
-                    if lora_doc:
-                        checkpoint = lora_doc.get("checkpoint")
-                        if checkpoint:
-                            lora_url = s3.get_full_url(checkpoint)
-                            lora_name = lora_doc.get("name")
-                            lora_trigger_text = lora_doc.get("lora_trigger_text")
-                            new_args[field] = lora_url
+                    if args[field]:  # Only process if lora ID is provided
+                        loras = get_collection(Model.collection_name)
+                        lora_doc = loras.find_one({"_id": ObjectId(args[field])})
+                        if lora_doc:
+                            checkpoint = lora_doc.get("checkpoint")
+                            if checkpoint:
+                                lora_url = s3.get_full_url(checkpoint)
+                                lora_name = lora_doc.get("name")
+                                lora_trigger_text = lora_doc.get("lora_trigger_text")
+                                new_args[field] = lora_url
+                            else:
+                                raise RuntimeError(
+                                    "ERROR: LoRA doc found but no checkpoint field"
+                                )
+
+                            if lora_trigger_text and "prompt" in new_args:
+                                name_pattern = f"(\\b{re.escape(lora_name)}\\b|<{re.escape(lora_name)}>|\\<concept\\>)"
+                                pattern = re.compile(name_pattern, re.IGNORECASE)
+                                new_args["prompt"] = pattern.sub(
+                                    lora_trigger_text, new_args["prompt"]
+                                )
+                                # if no lora trigger text, add it to the prompt
+                                if lora_trigger_text not in new_args["prompt"]:
+                                    new_args["prompt"] = (
+                                        f"{lora_trigger_text}, {new_args['prompt']}"
+                                    )
                         else:
                             raise RuntimeError(
-                                "ERROR: LoRA doc found but no checkpoint field"
+                                f"ERROR: No LoRA found with ID: {args[field]}"
                             )
-
-                        if lora_trigger_text and "prompt" in new_args:
-                            name_pattern = f"(\\b{re.escape(lora_name)}\\b|<{re.escape(lora_name)}>|\\<concept\\>)"
-                            pattern = re.compile(name_pattern, re.IGNORECASE)
-                            new_args["prompt"] = pattern.sub(
-                                lora_trigger_text, new_args["prompt"]
-                            )
-                            # if no lora trigger text, add it to the prompt
-                            if lora_trigger_text not in new_args["prompt"]:
-                                new_args["prompt"] = (
-                                    f"{lora_trigger_text}, {new_args['prompt']}"
-                                )
                     else:
-                        raise RuntimeError(
-                            f"ERROR: No LoRA found with ID: {args[field]}"
-                        )
+                        # Remove empty lora field from new_args
+                        new_args.pop(field, None)
 
                 if is_number:
                     new_args[field] = float(args[field])

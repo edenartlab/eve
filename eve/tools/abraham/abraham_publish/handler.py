@@ -114,6 +114,7 @@ async def handler(context: ToolContext):
 
     result = await session_post.async_run({
         "role": "user",
+        "user_id": str(context.user),
         "agent_id": str(agent.id),
         "title": title,
         "content": user_message,
