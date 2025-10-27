@@ -20,7 +20,6 @@ from .tool_constants import (
 )
 from . import utils
 from .agent.agent import Agent
-from .auth import get_my_eden_user
 from .base import parse_schema
 from .user import User
 from .task import Task

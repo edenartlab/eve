@@ -53,7 +53,7 @@ def get_collection(collection_name: str):
 def Collection(name):
     def wrapper(cls):
         @classmethod
-        def find(cls, query, sort=None, desc=False, limit=None):
+        def find(cls, query={}, sort=None, desc=False, limit=None):
             """Find all documents matching the query"""
             collection = get_collection(cls.collection_name)
             docs = collection.find(query)
