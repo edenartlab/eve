@@ -166,8 +166,8 @@ async def handler(context: ToolContext):
 
     num_creations = len(AbrahamSeed.find({"status": "creation"}))
 
-    if num_creations != 6:
-        raise Exception("Num creations should be 6")
+    if num_creations != 7:
+        raise Exception("Num creations should be 7")
 
     index = num_creations
 
