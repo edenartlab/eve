@@ -1052,6 +1052,7 @@ class Deployment(Document):
     local: Optional[bool] = None
     secrets: Optional[DeploymentSecrets]
     config: Optional[DeploymentConfig]
+    encrypted: Optional[bool] = None  # Track if secrets are encrypted
 
     def __init__(self, **data):
         # Convert string to ClientType enum if needed
@@ -1065,6 +1066,43 @@ class Deployment(Document):
         if "platform" in data and isinstance(data["platform"], ClientType):
             data["platform"] = data["platform"].value
         return data
+
+    @classmethod
+    def convert_to_mongo(cls, schema: dict, **kwargs) -> dict:
+        """Encrypt secrets before saving to MongoDB"""
+        from eve.utils.kms_encryption import encrypt_deployment_secrets, get_kms_encryption
+
+        kms = get_kms_encryption()
+
+        if kms.enabled and "secrets" in schema and schema["secrets"]:
+            # Encrypt the secrets field
+            encrypted_secrets = encrypt_deployment_secrets(schema["secrets"])
+            schema["secrets"] = encrypted_secrets
+            schema["encrypted"] = True
+
+        return schema
+
+    @classmethod
+    def convert_from_mongo(cls, schema: dict, **kwargs) -> dict:
+        """Decrypt secrets after loading from MongoDB"""
+        from eve.utils.kms_encryption import decrypt_deployment_secrets, get_kms_encryption
+
+        kms = get_kms_encryption()
+
+        if "secrets" in schema and schema["secrets"]:
+            # Check if secrets are encrypted
+            if isinstance(schema["secrets"], dict) and "encryption_metadata" in schema["secrets"]:
+                # Decrypt the secrets
+                try:
+                    decrypted_secrets = decrypt_deployment_secrets(schema["secrets"])
+                    schema["secrets"] = decrypted_secrets
+                except Exception as e:
+                    logger.error(f"Failed to decrypt deployment secrets: {e}")
+                    # Keep encrypted data in schema, will fail validation
+                    # This is better than losing data
+            # else: secrets are not encrypted (backward compatibility)
+
+        return schema
 
     @classmethod
     def ensure_indexes(cls):

@@ -638,10 +638,25 @@ class FarcasterClient(PlatformClient):
                     logger.info(f"Found {len(outputs)} outputs in tool result")
 
                     # Extract URLs from outputs (up to 4 for Farcaster limit)
+                    # Wrap in embed URLs for proper Open Graph video tags
+                    from eve.api.helpers import get_eden_creation_url
+                    import urllib.parse
+                    import os
+
+                    root_url = "app.eden.art" if os.getenv("DB", "STAGE").upper() == "PROD" else "staging.app.eden.art"
+
                     urls = []
                     for output in outputs[:4]:
-                        if isinstance(output, dict) and "url" in output:
-                            urls.append(output["url"])
+                        if isinstance(output, dict):
+                            # Prefer creation page URL for proper Open Graph video tags
+                            if "creation" in output:
+                                creation_url = get_eden_creation_url(str(output["creation"]))
+                                urls.append(creation_url)
+                            elif "url" in output:
+                                # Wrap raw URLs in our video embed endpoint
+                                video_url = output["url"]
+                                embed_url = f"https://{root_url}/v?url={urllib.parse.quote(video_url)}"
+                                urls.append(embed_url)
 
                     logger.info(f"Extracted {len(urls)} URLs from outputs: {urls}")
 
