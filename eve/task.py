@@ -25,6 +25,7 @@ NON_CREATION_TOOLS = [
     *SOCIAL_MEDIA_TOOLS,
     *CONTEXT7_MCP_TOOLS,
     *CALCULATOR_MCP_TOOLS,
+    "session_post",
 ]
 
 
