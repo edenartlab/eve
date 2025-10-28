@@ -69,11 +69,13 @@ parameters:
     minimum: 512
     maximum: 2048
   checkpoint:
+    hide_from_agent: true
+    hide_from_ui: true
     type: string
     label: Checkpoint
     description: Which Stable Diffusion checkpoint to use
-    choices: [eden:eden-v1, juggernaut_XL2]
-    choices_labels: [eden:eden-v1, Juggernaut_XL2]
+    choices: [juggernaut_XL2]
+    choices_labels: [Juggernaut_XL2]
     default: juggernaut_XL2
   
   use_lora:

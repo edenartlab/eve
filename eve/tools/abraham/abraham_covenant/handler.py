@@ -163,15 +163,14 @@ async def handler(context: ToolContext):
     if len(blog_post) < 10:
         raise Exception("Blog post must be at least 10 characters long")
 
-
     num_creations = len(AbrahamSeed.find({"status": "creation"}))
 
-    if num_creations != 6:
-        raise Exception("Num creations should be 6")
+    if num_creations != 8:
+        raise Exception("Num creations should be 8")
 
-    index = num_creations
+    index = num_creations + 1
 
-    raise Exception(f"Need to account for index for index : Index: {index}")
+    # raise Exception(f"Need to account for index for index : Index: {index}")
 
     # Commit to blockchain
     try:

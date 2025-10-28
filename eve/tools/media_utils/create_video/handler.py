@@ -285,7 +285,10 @@ async def handler(context: ToolContext):
 
     #########################################################
     # Final video is now generated
-    final_video = get_full_url(result["output"][0]["filename"])
+    if "output" in result and result["output"]:
+        final_video = get_full_url(result["output"][0]["filename"])
+    else:
+        raise Exception(f"No output from {video_tool}:", result)
 
     # If sound effects are requested, try to add them
     if sound_effects and video_tool != veo3:

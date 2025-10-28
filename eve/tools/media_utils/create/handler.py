@@ -988,7 +988,10 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
 
     #########################################################
     # Final video is now generated
-    final_video = get_full_url(result["output"][0]["filename"])
+    if "output" in result and result["output"]:
+        final_video = get_full_url(result["output"][0]["filename"])
+    else:
+        raise Exception(f"No output from {video_tool}:", result)
 
     tool_calls.append({"tool": video_tool, "args": args, "output": final_video})
 
