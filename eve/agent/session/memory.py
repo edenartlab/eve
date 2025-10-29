@@ -1014,6 +1014,10 @@ def should_form_memories(
 
 
 async def maybe_form_memories(agent_id: ObjectId, session: Session, agent=None) -> bool:
+    # Skip memory formation if exclude_memory is set
+    if session.extras and session.extras.exclude_memory:
+        return False
+
     should_form, conversation_text, char_counts_by_source = should_form_memories(
         agent_id, session
     )
