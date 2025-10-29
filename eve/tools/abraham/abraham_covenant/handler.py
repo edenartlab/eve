@@ -7,6 +7,7 @@ from eve.tool import ToolContext
 from eve.utils import is_valid_image_url
 from eve.agent import Agent
 from eve.tools.abraham.abraham_seed.handler import AbrahamSeed, AbrahamCreation
+from eve.tools.abraham.abraham_covenant.validate_post import validate_ipfs_bundle
 
 from eve.utils.chain_utils import (
     safe_send,
@@ -76,43 +77,41 @@ def commit_daily_work(
         ipfs_hash = ipfs_pin(json_data)
         logger.info(f"Metadata uploaded to IPFS: {ipfs_hash}")
 
+        # Validate IPFS bundle
+        validate_ipfs_bundle(ipfs_hash)
+        logger.info(f"IPFS post is valid: {ipfs_hash}")
+
         # Prepare contract function call
-        if False:
-            raise Exception("Dont go here!")
 
-            w3, owner, contract, abi = load_contract(
-                address=CONTRACT_ADDRESS_COVENANT,
-                abi_path=CONTRACT_ABI_COVENANT,
-                private_key=ABRAHAM_PRIVATE_KEY,
-                network=Network.ETH_MAINNET,
-            )
+        w3, owner, contract, abi = load_contract(
+            address=CONTRACT_ADDRESS_COVENANT,
+            abi_path=CONTRACT_ABI_COVENANT,
+            private_key=ABRAHAM_PRIVATE_KEY,
+            network=Network.ETH_MAINNET,
+        )
 
-            contract_function = contract.functions.commitDailyWork(
-                f"ipfs://{ipfs_hash}"
-            )
+        contract_function = contract.functions.commitDailyWork(
+            f"ipfs://{ipfs_hash}"
+        )
 
-            # Send transaction
-            tx_hash, receipt = safe_send(
-                w3,
-                contract_function,
-                ABRAHAM_PRIVATE_KEY,
-                op_name="ABRAHAM_DAILY_WORK",
-                nonce=None,
-                value=0,
-                abi=abi,
-                # network=Network.ETH_SEPOLIA,
-                network=Network.ETH_MAINNET,
-            )
+        # Send transaction
+        tx_hash, receipt = safe_send(
+            w3,
+            contract_function,
+            ABRAHAM_PRIVATE_KEY,
+            op_name="ABRAHAM_DAILY_WORK",
+            nonce=None,
+            value=0,
+            abi=abi,
+            # network=Network.ETH_SEPOLIA,
+            network=Network.ETH_MAINNET,
+        )
 
-            # Build explorer URL
-            tx_hash_hex = tx_hash.hex()
-            if not tx_hash_hex.startswith("0x"):
-                tx_hash_hex = f"0x{tx_hash_hex}"
+        # Build explorer URL
+        tx_hash_hex = tx_hash.hex()
+        if not tx_hash_hex.startswith("0x"):
+            tx_hash_hex = f"0x{tx_hash_hex}"
 
-        else:
-            tx_hash_hex = "test-tx-hash-tbd"
-
-        # explorer_url = f"https://sepolia.etherscan.io/tx/{tx_hash_hex}"
         explorer_url = f"https://etherscan.io/tx/{tx_hash_hex}"
 
         logger.info(f"✅ Daily work committed successfully: {tx_hash_hex}")
@@ -164,10 +163,6 @@ async def handler(context: ToolContext):
         raise Exception("Blog post must be at least 10 characters long")
 
     num_creations = len(AbrahamSeed.find({"status": "creation"}))
-
-    if num_creations != 8:
-        raise Exception("Num creations should be 8")
-
     index = num_creations + 1
 
     # raise Exception(f"Need to account for index for index : Index: {index}")
