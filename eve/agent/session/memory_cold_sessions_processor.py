@@ -67,6 +67,7 @@ async def process_cold_sessions():
         base_query = {
             "updatedAt": {"$gte": hard_filter_date, "$lt": cutoff_time},
             "status": "active",
+            "extras.exclude_memory": {"$ne": True},  # Exclude sessions with exclude_memory flag
         }
 
         # First batch: Sessions with memory_context that need processing

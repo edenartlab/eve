@@ -1,9 +1,9 @@
-from __future__ import annotations
 import os
 import io
 import re
 import pathlib
 import tempfile
+import subprocess
 import requests
 import httpx
 import boto3
@@ -106,6 +106,7 @@ def _save_to_volume_cache(url, local_filepath):
             # Commit volume changes if we have access to modal
             try:
                 import modal
+                logger.debug(f"Modal module available: {modal}")
                 # Try to get the volume and commit changes
                 # This will only work if we're in a Modal function with volume access
                 # We can't directly access the volume object, so we rely on Modal's auto-commit
@@ -279,16 +280,200 @@ def convert_pti_to_safetensors(input_path: str, output_path: str):
         return False
 
 
-def is_valid_image_url(url: str, *, timeout=(5, 15), max_bytes=8 * 1024 * 1024):
+def validate_image_bytes(image_bytes: bytes) -> tuple[bool, dict]:
     """
-    Returns (ok: bool, info: dict). Keeps it simple:
-    - checks HTTP status
-    - ensures Content-Type starts with image/
-    - downloads with a size cap
-    - opens with Pillow and verifies
+    Validate that bytes represent a valid image using Pillow.
+
+    Returns:
+        tuple: (ok: bool, info: dict)
+            - If valid: (True, {"format": str, "size": (width, height)})
+            - If invalid: (False, {"reason": str})
     """
     try:
-        # Quick HEAD (best effort)
+        # Load and verify image
+        img = Image.open(io.BytesIO(image_bytes))
+        img.verify()  # Check consistency
+
+        # Reopen to get details (verify() invalidates the image)
+        img = Image.open(io.BytesIO(image_bytes))
+        img.load()  # Fully decode to catch any issues
+
+        width, height = img.size
+        if width <= 0 or height <= 0:
+            return False, {"reason": f"Invalid dimensions: {width}x{height}"}
+
+        if not img.format:
+            return False, {"reason": "Unable to determine image format"}
+
+        return True, {"format": img.format, "size": (width, height)}
+    except UnidentifiedImageError:
+        return False, {"reason": "Unrecognized image format"}
+    except Exception as e:
+        return False, {"reason": f"Image validation error: {e.__class__.__name__}"}
+
+
+def validate_video_bytes(video_bytes: bytes) -> tuple[bool, dict]:
+    """
+    Validate that bytes represent a valid video file using ffprobe.
+
+    Returns:
+        tuple: (ok: bool, info: dict)
+            - If valid: (True, {"format": str, "duration": float, "size": (width, height)})
+            - If invalid: (False, {"reason": str})
+    """
+    try:
+        # Write bytes to temporary file for ffprobe to read
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
+            tmp.write(video_bytes)
+            tmp_path = tmp.name
+
+        try:
+            # Use ffprobe to validate and get info
+            result = subprocess.run(
+                [
+                    "ffprobe",
+                    "-v", "error",
+                    "-select_streams", "v:0",
+                    "-show_entries", "stream=codec_name,width,height,duration",
+                    "-show_entries", "format=format_name,duration",
+                    "-of", "json",
+                    tmp_path
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+
+            if result.returncode != 0:
+                return False, {"reason": f"ffprobe failed: {result.stderr.strip()}"}
+
+            import json
+            probe_data = json.loads(result.stdout)
+
+            # Extract video stream info
+            if "streams" not in probe_data or not probe_data["streams"]:
+                return False, {"reason": "No video stream found"}
+
+            stream = probe_data["streams"][0]
+            format_info = probe_data.get("format", {})
+
+            codec = stream.get("codec_name", "unknown")
+            width = stream.get("width", 0)
+            height = stream.get("height", 0)
+            duration = float(stream.get("duration") or format_info.get("duration") or 0)
+            format_name = format_info.get("format_name", "unknown")
+
+            if width <= 0 or height <= 0:
+                return False, {"reason": f"Invalid video dimensions: {width}x{height}"}
+
+            return True, {
+                "format": codec,
+                "container": format_name,
+                "duration": duration,
+                "size": (width, height)
+            }
+
+        finally:
+            # Clean up temp file
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+
+    except subprocess.TimeoutExpired:
+        return False, {"reason": "Video validation timeout"}
+    except FileNotFoundError:
+        return False, {"reason": "ffprobe not found (install ffmpeg)"}
+    except Exception as e:
+        return False, {"reason": f"Video validation error: {e.__class__.__name__}"}
+
+
+def validate_audio_bytes(audio_bytes: bytes) -> tuple[bool, dict]:
+    """
+    Validate that bytes represent a valid audio file using ffprobe.
+
+    Returns:
+        tuple: (ok: bool, info: dict)
+            - If valid: (True, {"format": str, "duration": float, "sample_rate": int})
+            - If invalid: (False, {"reason": str})
+    """
+    try:
+        # Write bytes to temporary file for ffprobe to read
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
+            tmp.write(audio_bytes)
+            tmp_path = tmp.name
+
+        try:
+            # Use ffprobe to validate and get info
+            result = subprocess.run(
+                [
+                    "ffprobe",
+                    "-v", "error",
+                    "-select_streams", "a:0",
+                    "-show_entries", "stream=codec_name,sample_rate,duration,channels",
+                    "-show_entries", "format=format_name,duration",
+                    "-of", "json",
+                    tmp_path
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+
+            if result.returncode != 0:
+                return False, {"reason": f"ffprobe failed: {result.stderr.strip()}"}
+
+            import json
+            probe_data = json.loads(result.stdout)
+
+            # Extract audio stream info
+            if "streams" not in probe_data or not probe_data["streams"]:
+                return False, {"reason": "No audio stream found"}
+
+            stream = probe_data["streams"][0]
+            format_info = probe_data.get("format", {})
+
+            codec = stream.get("codec_name", "unknown")
+            sample_rate = int(stream.get("sample_rate", 0))
+            channels = int(stream.get("channels", 0))
+            duration = float(stream.get("duration") or format_info.get("duration") or 0)
+            format_name = format_info.get("format_name", "unknown")
+
+            if sample_rate <= 0:
+                return False, {"reason": f"Invalid sample rate: {sample_rate}"}
+
+            return True, {
+                "format": codec,
+                "container": format_name,
+                "duration": duration,
+                "sample_rate": sample_rate,
+                "channels": channels
+            }
+
+        finally:
+            # Clean up temp file
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+
+    except subprocess.TimeoutExpired:
+        return False, {"reason": "Audio validation timeout"}
+    except FileNotFoundError:
+        return False, {"reason": "ffprobe not found (install ffmpeg)"}
+    except Exception as e:
+        return False, {"reason": f"Audio validation error: {e.__class__.__name__}"}
+
+
+def is_valid_image_url(url: str, *, timeout=(5, 15), max_bytes=8 * 1024 * 1024):
+    """
+    Validate an image URL by downloading and verifying it.
+
+    Returns:
+        tuple: (ok: bool, info: dict)
+            - Checks HTTP status
+            - Ensures Content-Type starts with image/
+            - Downloads with a size cap
+            - Validates image with Pillow
+    """
+    try:
+        # Quick HEAD check (best effort)
         try:
             h = requests.head(url, timeout=timeout, allow_redirects=True)
             if h.status_code >= 400:
@@ -300,7 +485,7 @@ def is_valid_image_url(url: str, *, timeout=(5, 15), max_bytes=8 * 1024 * 1024):
             if cl and int(cl) > max_bytes:
                 return False, {"reason": "Too large by Content-Length"}
         except requests.RequestException:
-            # If HEAD fails, we’ll still try GET.
+            # If HEAD fails, we'll still try GET
             pass
 
         # Streamed GET with byte cap
@@ -317,17 +502,8 @@ def is_valid_image_url(url: str, *, timeout=(5, 15), max_bytes=8 * 1024 * 1024):
             buf.write(chunk)
         data = buf.getvalue()
 
-        # Try decoding with Pillow
-        try:
-            img = Image.open(io.BytesIO(data))
-            img.verify()  # quick consistency check
-            # reopen to read size and format after verify()
-            img2 = Image.open(io.BytesIO(data))
-            img2.load()
-            w, h = img2.size
-            return True, {"format": img2.format, "size": (w, h)}
-        except UnidentifiedImageError:
-            return False, {"reason": "Unrecognized image format"}
+        # Validate the downloaded bytes
+        return validate_image_bytes(data)
     except requests.RequestException as e:
         return False, {"reason": f"Network error: {e.__class__.__name__}"}
     except Exception as e:
