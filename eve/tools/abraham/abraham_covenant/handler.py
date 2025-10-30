@@ -4,7 +4,6 @@ from datetime import datetime
 from bson import ObjectId
 
 from eve.tool import ToolContext
-from eve.utils import is_valid_image_url
 from eve.agent import Agent
 from eve.tools.abraham.abraham_seed.handler import AbrahamSeed, AbrahamCreation
 from eve.tools.abraham.abraham_covenant.guardrails import validate_ipfs_bundle, validate_creation, extract_media_urls
@@ -158,27 +157,16 @@ async def handler(context: ToolContext):
     blog_post = context.args.get("post")
     session_id = str(context.session)
 
+    # Safety checks
     validate_creation(title, tagline, poster_image, blog_post, session_id)
+
     logger.success(f"Creation validated successfully!")
-
-    abraham_seed = AbrahamSeed.find_one({"session_id": ObjectId(session_id)})
-
-    logger.info("Processing Abraham creation")
     logger.info(f"Title: {title}")
     logger.info(f"Tagline: {tagline}")
     logger.info(f"Post: {blog_post}")
     logger.info(f"Poster image: {poster_image}")
 
-    # Safety checks
-    # check if poster image downloads and loads as image
-    ok, info = is_valid_image_url(poster_image)
-    if not ok:
-        raise Exception("Poster image is not a valid image")
-
-    # check blog post at least 10 chars
-    if len(blog_post) < 10:
-        raise Exception("Blog post must be at least 10 characters long")
-
+    abraham_seed = AbrahamSeed.find_one({"session_id": ObjectId(session_id)})
     num_creations = len(AbrahamSeed.find({"status": "creation"}))
     index = num_creations + 1
 

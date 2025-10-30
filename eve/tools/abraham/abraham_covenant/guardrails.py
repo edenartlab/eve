@@ -203,6 +203,10 @@ def validate_creation(title: str, tagline: str, poster_image: str, post: str, se
         except (InvalidId, TypeError) as e:
             raise ValueError(f"Invalid session_id: {e}")
 
+        # check blog post at least 10 chars
+        if len(post) < 20:
+            raise Exception("Blog post must be at least 20 characters long")
+
         logger.success(f"Creation validated successfully!")
 
     except Exception as e:
