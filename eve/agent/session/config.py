@@ -5,44 +5,49 @@ from loguru import logger
 
 DEFAULT_SESSION_LLM_CONFIG_DEV = {
     "premium": LLMConfig(
-        model="claude-sonnet-4-5-20250929",
+        model="claude-haiku-4-5",
         fallback_models=[
-            "claude-3-7-sonnet-20250219",
-            "gpt-4o",
+            "gpt-5-nano"
         ],
     ),
     "free": LLMConfig(
-        model="claude-sonnet-4-5-20250929",
+        model="claude-haiku-4-5",
         fallback_models=[
-            "claude-3-7-sonnet-20250219",
-            "gpt-4o",
+            "gpt-5-nano"
         ],
     ),
 }
 DEFAULT_SESSION_LLM_CONFIG_STAGE = {
     "premium": LLMConfig(
-        model="claude-sonnet-4-5-20250929",
+        model="claude-haiku-4-5",
         fallback_models=[
-            "claude-3-7-sonnet-20250219",
-            "gpt-4o",
+            "gpt-5-nano"
         ],
     ),
     "free": LLMConfig(
-        model="claude-sonnet-4-5-20250929",
+        model="claude-haiku-4-5",
         fallback_models=[
-            "claude-3-7-sonnet-20250219",
-            "gpt-4o",
+            "gpt-5-nano"
         ],
     ),
 }
 
 DEFAULT_SESSION_LLM_CONFIG_PROD = {
     "premium": LLMConfig(
-        model="claude-sonnet-4-5-20250929",
+        model="claude-haiku-4-5",
     ),
     "free": LLMConfig(
-        model="claude-sonnet-4-5-20250929",
+        model="claude-haiku-4-5",
     ),
+}
+
+DEFAULT_SESSION_SELECTION_LIMIT = 40
+
+# Master model configuration: tier -> [primary, fallback1, fallback2]
+MODEL_TIERS = {
+    "high": ["claude-haiku-4-5", "openai/gpt-5-nano", "openai/gpt-4o-mini"],
+    "medium": ["claude-haiku-4-5", "openai/gpt-5-nano", "openai/gpt-4o-mini"],
+    "low": ["claude-haiku-4-5", "openai/gpt-5-nano", "openai/gpt-4o-mini"],
 }
 
 
@@ -53,20 +58,6 @@ def get_default_session_llm_config(tier: Literal["premium", "free"] = "free"):
         return DEFAULT_SESSION_LLM_CONFIG_PROD[tier]
     else:
         return DEFAULT_SESSION_LLM_CONFIG_STAGE[tier]
-
-
-DEFAULT_SESSION_SELECTION_LIMIT = 100
-
-# Master model configuration: tier -> [primary, fallback1, fallback2]
-MODEL_TIERS = {
-    "high": ["claude-sonnet-4-5-20250929", "gemini/gemini-2.5-pro", "openai/gpt-5"],
-    "medium": [
-        "claude-sonnet-4-5-20250929",
-        "openai/gpt-4o",
-    ],
-    "low": ["claude-3-5-haiku-latest", "openai/gpt-5-nano", "openai/gpt-4o-mini"],
-}
-
 
 async def build_llm_config_from_agent_settings(
     agent,
