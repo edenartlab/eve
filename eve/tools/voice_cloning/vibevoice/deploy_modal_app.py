@@ -48,7 +48,7 @@ app = modal.App(name="VibeVoice-audio-app")
 
 @app.cls(
     image=image,
-    gpu="A10",
+    gpu="A100",
     cpu=2.0,
     volumes={"/data": downloads_vol},
     max_containers=1,

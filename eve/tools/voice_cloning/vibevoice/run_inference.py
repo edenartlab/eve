@@ -6,65 +6,6 @@ This script provides a standalone Python interface to the VibeVoice model
 without requiring ComfyUI. It wraps all the functionality from the ComfyUI
 node into a simple generate_audio() function with full multi-speaker support.
 
-Example usage:
-    from run_inference import generate_audio
-    import soundfile as sf
-
-    # === Single Speaker Examples ===
-
-    # Basic single speaker with synthetic voice
-    audio_data = generate_audio(
-        text="Hello, this is a test of VibeVoice.",
-        model_path="/path/to/models/vibevoice/VibeVoice-1.5B",
-        tokenizer_path="/path/to/tokenizer"
-    )
-    sf.write("output.wav", audio_data["waveform"], audio_data["sample_rate"])
-
-    # Single speaker with voice cloning from file
-    audio_data = generate_audio(
-        text="I will speak in the reference voice.",
-        model_path="/path/to/models/vibevoice/VibeVoice-1.5B",
-        tokenizer_path="/path/to/tokenizer",
-        voice_audio="/path/to/reference.wav",  # Any sample rate supported
-        cfg_scale=1.5,
-        diffusion_steps=30
-    )
-
-    # Single speaker with voice cloning from numpy array
-    import numpy as np
-    reference_audio = np.load("reference_voice.npy")  # Your reference audio at 24000 Hz
-    audio_data = generate_audio(
-        text="I will speak in the reference voice.",
-        model_path="/path/to/models/vibevoice/VibeVoice-1.5B",
-        tokenizer_path="/path/to/tokenizer",
-        voice_audio=reference_audio
-    )
-
-    # === Multi-Speaker Examples ===
-
-    # Multi-speaker with synthetic voices (automatic)
-    audio_data = generate_audio(
-        text="Speaker 1: Hello there! Speaker 2: Hi, how are you doing?",
-        model_path="/path/to/models/vibevoice/VibeVoice-1.5B",
-        tokenizer_path="/path/to/tokenizer"
-    )
-    sf.write("conversation.wav", audio_data["waveform"], audio_data["sample_rate"])
-
-    # Multi-speaker with separate voice cloning for each speaker
-    audio_data = generate_audio(
-        text="Speaker 1: Welcome to the show. Speaker 2: Thanks for having me!",
-        model_path="/path/to/models/vibevoice/VibeVoice-1.5B",
-        tokenizer_path="/path/to/tokenizer",
-        voice_audio=["speaker1_reference.wav", "speaker2_reference.wav"]
-    )
-
-    # Multi-speaker with mixed numpy arrays and files
-    audio_data = generate_audio(
-        text="Speaker 1: First person. Speaker 2: Second person.",
-        model_path="/path/to/models/vibevoice/VibeVoice-1.5B",
-        tokenizer_path="/path/to/tokenizer",
-        voice_audio=[np.load("voice1.npy"), "voice2.wav"]
-    )
 """
 
 import logging
@@ -669,30 +610,6 @@ def generate_audio(
         Dictionary containing:
             - "waveform": numpy array of audio samples (1D float32 array)
             - "sample_rate": sample rate of the audio (typically 24000 Hz)
-
-    Examples:
-        # Single speaker with voice cloning
-        audio = generate_audio(
-            text="Hello, this is a test.",
-            model_path="/path/to/VibeVoice-1.5B",
-            tokenizer_path="/path/to/tokenizer",
-            voice_audio="reference.wav"
-        )
-
-        # Multi-speaker with separate voices
-        audio = generate_audio(
-            text="Speaker 1: Hello there! Speaker 2: Hi, how are you?",
-            model_path="/path/to/VibeVoice-1.5B",
-            tokenizer_path="/path/to/tokenizer",
-            voice_audio=["speaker1.wav", "speaker2.wav"]
-        )
-
-        # Multi-speaker with synthetic voices (no voice_audio provided)
-        audio = generate_audio(
-            text="Speaker 1: First person speaking. Speaker 2: Second person responding.",
-            model_path="/path/to/VibeVoice-1.5B",
-            tokenizer_path="/path/to/tokenizer"
-        )
     """
     global _inference
 
@@ -752,7 +669,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="VibeVoice Standalone Inference")
     parser.add_argument("--text", type=str, required=True, help="Text to convert to speech")
     parser.add_argument("--model_path", type=str, required=True, help="Path to model directory")
-    parser.add_argument("--output", type=str, default="output.wav", help="Output file path")
+    parser.add_argument("--output", type=str, default="output.mp3", help="Output file path")
     parser.add_argument("--voice_audio", type=str, help="Reference audio for voice cloning")
     parser.add_argument("--cfg_scale", type=float, default=1.3, help="CFG scale")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
