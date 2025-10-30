@@ -1,6 +1,5 @@
 import json
 import re
-import sys
 import requests
 from typing import Dict, List, Any
 from loguru import logger
@@ -17,11 +16,9 @@ from eve.utils.file_utils import (
 def download_from_ipfs(ipfs_hash: str) -> bytes:
     """Download content from IPFS gateway."""
     url = f"https://ipfs.io/ipfs/{ipfs_hash}"
-    logger.info(f"Downloading from {url}")
     response = requests.get(url, timeout=30)
     response.raise_for_status()
     content_length = len(response.content)
-    logger.info(f"Downloaded {content_length} bytes from IPFS")
     return response.content
 
 
@@ -40,10 +37,11 @@ def validate_image_field(data: Dict[str, Any]) -> None:
     if "image" not in data:
         raise ValueError("Missing 'image' field in JSON")
 
-    if not data["image"].startswith("ipfs://"):
-        raise ValueError(f"Image field does not start with 'ipfs://': {data["image"]}")
+    image_value = data.get("image")
+    if not image_value.startswith("ipfs://"):        
+        raise ValueError(f"Image field does not start with 'ipfs://': {image_value}")
 
-    ipfs_hash = data["image"].replace("ipfs://", "")
+    ipfs_hash = image_value.replace("ipfs://", "")
     image_bytes = download_from_ipfs(ipfs_hash)
     ok, info = validate_image_bytes(image_bytes)
     if not ok:
@@ -94,6 +92,46 @@ def extract_media_urls(markdown_text: str) -> List[str]:
     return unique_urls
 
 
+def validate_media_url(url: str) -> None:
+    """Validate a single media URL (image, video, or audio).
+
+    Args:
+        url: The media URL to validate
+
+    Raises:
+        ValueError: If the media is invalid or cannot be validated
+    """
+    media_type = get_media_type(url)
+
+    try:
+        response = requests.get(url, timeout=30)
+        response.raise_for_status()
+
+        # Validate based on media type
+        if media_type == 'image':
+            ok, info = validate_image_bytes(response.content)
+            if not ok:
+                raise ValueError(f"Invalid image from {url}: {info.get('reason', 'unknown')}")
+
+        elif media_type == 'video':
+            ok, info = validate_video_bytes(response.content)
+            if not ok:
+                raise ValueError(f"Invalid video from {url}: {info.get('reason', 'unknown')}")
+
+        elif media_type == 'audio':
+            ok, info = validate_audio_bytes(response.content)
+            if not ok:
+                raise ValueError(f"Invalid audio from {url}: {info.get('reason', 'unknown')}")
+
+        else:
+            raise ValueError(f"Unknown media type for {url}")
+
+    except ValueError:
+        raise
+    except Exception as e:
+        raise ValueError(f"Failed to validate {media_type} from post: {url} - {e}")
+
+
 def validate_post_images(data: Dict[str, Any]) -> None:
     """Validate all media (images, videos, audio) referenced in the post field."""
 
@@ -111,41 +149,8 @@ def validate_post_images(data: Dict[str, Any]) -> None:
         return
 
     # Validate each media file
-    for idx, url in enumerate(media_urls, 1):
-        media_type = get_media_type(url)
-
-        try:
-            response = requests.get(url, timeout=30)
-            response.raise_for_status()
-
-            # Validate based on media type
-            if media_type == 'image':
-                ok, info = validate_image_bytes(response.content)
-                if not ok:
-                    raise ValueError(f"Invalid image from {url}: {info.get('reason', 'unknown')}")
-                width, height = info["size"]
-
-            elif media_type == 'video':
-                ok, info = validate_video_bytes(response.content)
-                if not ok:
-                    raise ValueError(f"Invalid video from {url}: {info.get('reason', 'unknown')}")
-                width, height = info["size"]
-                duration = info.get("duration", 0)
-
-            elif media_type == 'audio':
-                ok, info = validate_audio_bytes(response.content)
-                if not ok:
-                    raise ValueError(f"Invalid audio from {url}: {info.get('reason', 'unknown')}")
-                duration = info.get("duration", 0)
-                sample_rate = info.get("sample_rate", 0)
-
-            else:
-                raise ValueError(f"Unknown media type for {url}")
-
-        except ValueError:
-            raise
-        except Exception as e:
-            raise ValueError(f"Failed to validate {media_type} from post: {url} - {e}")
+    for url in media_urls:
+        validate_media_url(url)
 
 
 def validate_eden_session_id(data: Dict[str, Any]) -> None:
@@ -160,6 +165,55 @@ def validate_eden_session_id(data: Dict[str, Any]) -> None:
         raise ValueError(f"Invalid eden_session_id: {e}")
 
 
+def validate_creation(title: str, tagline: str, poster_image: str, post: str, session_id: str) -> None:
+    """Validate a creation with all its media assets.
+
+    Args:
+        title: Creation title
+        tagline: Creation tagline
+        poster_image: URL to the poster image
+        post: Markdown post content
+        session_id: Eden session ID
+    """
+    try:
+        # Validate poster image
+        if not poster_image:
+            raise ValueError("Missing poster_image")
+
+        if not poster_image.startswith(("http://", "https://")):
+            raise ValueError(f"Invalid poster_image URL: {poster_image}")
+
+        response = requests.get(poster_image, timeout=30)
+        response.raise_for_status()
+
+        ok, info = validate_image_bytes(response.content)
+        if not ok:
+            raise ValueError(f"Invalid poster image {poster_image}: {info.get('reason', 'unknown')}")
+
+        # Validate media in post
+        media_urls = extract_media_urls(post)
+
+        for idx, url in enumerate(media_urls, 1):
+            media_type = get_media_type(url)
+            validate_media_url(url)
+
+        # Validate session ID
+        try:
+            session = Session.from_mongo(session_id)
+        except (InvalidId, TypeError) as e:
+            raise ValueError(f"Invalid session_id: {e}")
+
+        # check blog post at least 10 chars
+        if len(post) < 20:
+            raise Exception("Blog post must be at least 20 characters long")
+
+        logger.success(f"Creation validated successfully!")
+
+    except Exception as e:
+        logger.error(f"✗✗✗ VALIDATION FAILED ✗✗✗\nError: {e}")
+        raise
+
+
 def validate_ipfs_bundle(ipfs_hash: str) -> None:
     """Main validation function for IPFS bundle."""
 
@@ -170,7 +224,7 @@ def validate_ipfs_bundle(ipfs_hash: str) -> None:
         validate_image_field(data)
         validate_post_images(data)
         validate_eden_session_id(data)
-        
+
         logger.success(f"IPFS bundle validated: {ipfs_hash}")
 
     except Exception as e:
@@ -179,5 +233,5 @@ def validate_ipfs_bundle(ipfs_hash: str) -> None:
 
 
 if __name__ == "__main__":
-    ipfs_hash = sys.argv[1]
-    validate_ipfs_bundle(ipfs_hash)
+    validate_ipfs_bundle("QmZ1ttzbpfah5CGkCu2L1JkFNjaqjdC1RZPWpQDioYdXkt")
+    validate_creation("Test Title", "Test Tagline", "https://d14i3advvh2bvd.cloudfront.net/58656ca3bf3013df15536f8cba11dbe224a353d866e5e5bbef070a377fb5bc36.jpeg", "Test Post containing an image: ![Test Image](https://d14i3advvh2bvd.cloudfront.net/cffc6e0704676f7ea9c2325943796df8a2a7ee56e9ed47e63e82c53b5da22e18.jpg), ![Test Image 2](https://d14i3advvh2bvd.cloudfront.net/48f4b354bd5711b4d2234a9b8f05b193e186df8639ca72273c068e8b4f1910f1.png)", "690201918de005f84abc8163")

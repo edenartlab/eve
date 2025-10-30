@@ -35,5 +35,14 @@ class ModalTool(Tool):
 
     @Tool.handle_cancel
     async def async_cancel(self, task: Task):
-        fc = modal.functions.FunctionCall.from_id(task.handler_id)
-        await fc.cancel.aio()
+        # Mark task as cancelled in DB first
+        task.update(status="cancelled")
+
+        # Then try to cancel the Modal function
+        try:
+            fc = modal.functions.FunctionCall.from_id(task.handler_id)
+            await fc.cancel.aio()
+        except Exception as e:
+            # Modal cancellation might fail, but task is already marked cancelled
+            from loguru import logger
+            logger.warning(f"Failed to cancel Modal function {task.handler_id}: {e}")

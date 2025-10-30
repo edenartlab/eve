@@ -13,38 +13,26 @@ HANDLERS = Literal["local", "modal", "comfyui", "replicate", "gcp", "fal", "mcp"
 BASE_MODELS = Literal[
     "sd15",
     "sdxl",
-    "sd3",
-    "sd35",
     "flux-dev",
-    "flux-schnell",
-    "hellomeme",
     "stable-audio-open",
     "inspyrenet-rembg",
-    "mochi-preview",
     "runway",
     "mmaudio",
     "librosa",
     "musicgen",
     "kling",
     "svd-xt",
-    "wan21",
     "ltxv",
     "nano-banana",
 ]
 
 # These tools are default agent tools except Eve
 ALL_TOOLS = [
-    # text-to-image
-    "flux_schnell",
     "flux_dev_lora",
     "flux_dev",
-    "flux_kontext",
     "txt2img",
     # more image generation
-    "flux_inpainting",
     "outpaint",
-    "remix_flux_schnell",
-    "flux_double_character",
     "seedream3",
     "seedream4",
     # video
@@ -65,7 +53,6 @@ ALL_TOOLS = [
     "mmaudio",
     "thinksound",
     "stable_audio",
-    "zonos",
     "transcription",
     "elevenlabs_music", 
     "elevenlabs_fx",
@@ -150,7 +137,7 @@ BASE_TOOLS = [
     "news",
 ]
 
-FLUX_LORA_TXT2IMG_TOOLS = ["flux_dev_lora", "flux_dev", "flux_schnell"]
+FLUX_LORA_TXT2IMG_TOOLS = ["flux_dev_lora", "flux_dev"]
 
 SDXL_LORA_TXT2IMG_TOOLS = ["txt2img"]
 

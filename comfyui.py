@@ -4,22 +4,18 @@ DB=STAGE SKIP_TESTS=1 WORKSPACE=batch_tools modal deploy comfyui.py
 DB=STAGE SKIP_TESTS=1 WORKSPACE=flux modal deploy comfyui.py
 DB=STAGE SKIP_TESTS=1 WORKSPACE=img_tools modal deploy comfyui.py
 DB=STAGE SKIP_TESTS=1 WORKSPACE=mars_exclusive modal deploy comfyui.py
-DB=STAGE SKIP_TESTS=1 WORKSPACE=sd3 modal deploy comfyui.py
 DB=STAGE SKIP_TESTS=1 WORKSPACE=txt2img modal deploy comfyui.py
 DB=STAGE SKIP_TESTS=1 WORKSPACE=video modal deploy comfyui.py
 DB=STAGE SKIP_TESTS=1 WORKSPACE=video2 modal deploy comfyui.py
-DB=STAGE SKIP_TESTS=1 WORKSPACE=video_mochi modal deploy comfyui.py
 
 DB=PROD WORKSPACE=audio modal deploy comfyui.py
 DB=PROD WORKSPACE=batch_tools modal deploy comfyui.py
 DB=PROD WORKSPACE=flux modal deploy comfyui.py
 DB=PROD WORKSPACE=img_tools modal deploy comfyui.py
 DB=PROD WORKSPACE=mars_exclusive modal deploy comfyui.py
-DB=PROD WORKSPACE=sd3 modal deploy comfyui.py
 DB=PROD WORKSPACE=txt2img modal deploy comfyui.py
 DB=PROD WORKSPACE=video modal deploy comfyui.py
 DB=PROD WORKSPACE=video2 modal deploy comfyui.py
-DB=PROD WORKSPACE=video_mochi modal deploy comfyui.py
 """
 
 from bson import ObjectId
@@ -1848,13 +1844,6 @@ class ComfyUI:
 
                 args[key] = lora_filename
 
-        # For flux_double_character, extract trigger texts and inject them
-        if tool.key == "flux_double_character":
-            args["trigger_1"] = lora_trigger_texts.get("lora")
-            args["trigger_2"] = lora_trigger_texts.get("lora2")
-            args["use_lora"] = True
-            args["use_lora2"] = True
-
         # Second pass: Inject the downloaded files and other parameters into workflow
         for key, comfyui in tool.comfyui_map.items():
             value = args.get(key)
@@ -1870,7 +1859,6 @@ class ComfyUI:
                     if not (
                         ("subj_1" in value)
                         and ("subj_2" in value)
-                        and (tool.key == "flux_double_character")
                     ):  # Skip trigger injection
                         for lora_key in ["lora", "lora2"]:
                             if args.get(f"use_{lora_key}", False):

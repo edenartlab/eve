@@ -4,10 +4,9 @@ from datetime import datetime
 from bson import ObjectId
 
 from eve.tool import ToolContext
-from eve.utils import is_valid_image_url
 from eve.agent import Agent
 from eve.tools.abraham.abraham_seed.handler import AbrahamSeed, AbrahamCreation
-from eve.tools.abraham.abraham_covenant.validate_post import validate_ipfs_bundle
+from eve.tools.abraham.abraham_covenant.guardrails import validate_ipfs_bundle, validate_creation, extract_media_urls
 
 from eve.utils.chain_utils import (
     safe_send,
@@ -58,6 +57,16 @@ def commit_daily_work(
         image_cid = ipfs_pin(poster_image)
         poster_image_hash = image_cid.split("/")[-1]
 
+        # Extract and pin all media URLs from blog_post
+        logger.info("Extracting media URLs from blog post")
+        media_urls = extract_media_urls(blog_post)
+        if media_urls:
+            for media_url in media_urls:
+                media_cid = ipfs_pin(media_url)
+                media_hash = media_cid.split("/")[-1]
+                ipfs_url = f"https://ipfs.io/ipfs/{media_hash}"
+                blog_post = blog_post.replace(media_url, ipfs_url)
+
         # Create metadata JSON
         json_data = {
             "name": title,
@@ -83,29 +92,33 @@ def commit_daily_work(
 
         # Prepare contract function call
 
-        w3, owner, contract, abi = load_contract(
-            address=CONTRACT_ADDRESS_COVENANT,
-            abi_path=CONTRACT_ABI_COVENANT,
-            private_key=ABRAHAM_PRIVATE_KEY,
-            network=Network.ETH_MAINNET,
-        )
+        if False:
+            w3, owner, contract, abi = load_contract(
+                address=CONTRACT_ADDRESS_COVENANT,
+                abi_path=CONTRACT_ABI_COVENANT,
+                private_key=ABRAHAM_PRIVATE_KEY,
+                network=Network.ETH_MAINNET,
+            )
 
-        contract_function = contract.functions.commitDailyWork(
-            f"ipfs://{ipfs_hash}"
-        )
+            contract_function = contract.functions.commitDailyWork(
+                f"ipfs://{ipfs_hash}"
+            )
 
-        # Send transaction
-        tx_hash, receipt = safe_send(
-            w3,
-            contract_function,
-            ABRAHAM_PRIVATE_KEY,
-            op_name="ABRAHAM_DAILY_WORK",
-            nonce=None,
-            value=0,
-            abi=abi,
-            # network=Network.ETH_SEPOLIA,
-            network=Network.ETH_MAINNET,
-        )
+            # Send transaction
+            tx_hash, receipt = safe_send(
+                w3,
+                contract_function,
+                ABRAHAM_PRIVATE_KEY,
+                op_name="ABRAHAM_DAILY_WORK",
+                nonce=None,
+                value=0,
+                abi=abi,
+                # network=Network.ETH_SEPOLIA,
+                network=Network.ETH_MAINNET,
+            )
+        else:
+            tx_hash_hex = "test_hex"
+            receipt = "test_receipt"
 
         # Build explorer URL
         tx_hash_hex = tx_hash.hex()
@@ -144,24 +157,16 @@ async def handler(context: ToolContext):
     blog_post = context.args.get("post")
     session_id = str(context.session)
 
-    abraham_seed = AbrahamSeed.find_one({"session_id": ObjectId(session_id)})
+    # Safety checks
+    validate_creation(title, tagline, poster_image, blog_post, session_id)
 
-    logger.info("Processing Abraham creation")
+    logger.success(f"Creation validated successfully!")
     logger.info(f"Title: {title}")
     logger.info(f"Tagline: {tagline}")
     logger.info(f"Post: {blog_post}")
     logger.info(f"Poster image: {poster_image}")
 
-    # Safety checks
-    # check if poster image downloads and loads as image
-    ok, info = is_valid_image_url(poster_image)
-    if not ok:
-        raise Exception("Poster image is not a valid image")
-
-    # check blog post at least 10 chars
-    if len(blog_post) < 10:
-        raise Exception("Blog post must be at least 10 characters long")
-
+    abraham_seed = AbrahamSeed.find_one({"session_id": ObjectId(session_id)})
     num_creations = len(AbrahamSeed.find({"status": "creation"}))
     index = num_creations + 1
 

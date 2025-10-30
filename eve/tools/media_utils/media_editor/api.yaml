@@ -29,3 +29,9 @@ parameters:
     label: Title
     description: A very short descriptive title for the media editing operation to be done.
     required: false
+  resume_session:
+    type: string
+    label: Resume session
+    description: Optional ID of previous session to send new message to. Leave blank to start a new session.
+    tip: This is useful to make improvements, refinements, or corrections to previous instances of the media_editor tool so as to not start from scratch.
+    required: false

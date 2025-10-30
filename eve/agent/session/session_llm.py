@@ -22,10 +22,8 @@ logging.getLogger("LiteLLM").setLevel(logging.WARNING)
 
 
 supported_models = [
-    "claude-sonnet-4-5-20250929",
-    "claude-3-5-haiku-latest",
-    "claude-3-7-sonnet-20250219",
-    "claude-opus-4-1-20250805",
+    "claude-sonnet-4-5",
+    "claude-haiku-4-5",
     "gpt-4o-mini",
     "gpt-4o",
     "gpt-5",
@@ -33,17 +31,13 @@ supported_models = [
     "gpt-5-nano",
     "gemini-2.5-pro",
     "gemini-2.5-flash",
-    "gemini-2.5-flash-lite",
-    "claude-sonnet-4-5-20250929",
-    "claude-3-7-sonnet-20250219",
     "openai/gpt-4o-mini",
     "openai/gpt-4o",
     "openai/gpt-5",
     "openai/gpt-5-mini",
     "openai/gpt-5-nano",
     "gemini/gemini-2.5-pro",
-    "gemini/gemini-2.5-flash",
-    "gemini/gemini-2.5-flash-lite",
+    "gemini/gemini-2.5-flash"
 ]
 
 
@@ -243,8 +237,7 @@ async def async_prompt_litellm(
                     "gpt-4o-mini": "gpt-4o",
                     "gpt-5-mini": "gpt-5",
                     "gpt-5-nano": "gpt-5",
-                    "gemini-2.5-flash": "gemini-2.5-pro",
-                    "gemini-2.5-flash-lite": "gemini-2.5-flash",
+                    "gemini-2.5-flash": "gemini-2.5-pro"
                 },
             }
 

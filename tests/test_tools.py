@@ -46,7 +46,6 @@ def test_tools():
     # Test from mongo
     results = asyncio.run(async_run_all_tools(
         tools=[
-            "flux_schnell", 
             "txt2img", 
             "legacy_create", 
             "example_tool", 

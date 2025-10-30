@@ -1,7 +1,6 @@
 """
 TODO:
- - face_swap, flux_inpainting, outpaint, remix_flux_schnell
- - deal with moderation errors for flux_kontext and openai tools, and errors in general
+ - deal with moderation errors for openai tools, and errors in general
  - negative prompting
  - make init image strength a parameter
  - txt2img has "style image" / ip adapter
@@ -107,11 +106,8 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
     """Handle image creation - copied from original create tool handler"""
 
     # load tools
-    # flux_schnell = Tool.load("flux_schnell")
     # flux_dev_lora = Tool.load("flux_dev_lora")
     # flux_dev = Tool.load("flux_dev")
-    # flux_kontext = Tool.load("flux_kontext")
-    # flux_double_character = Tool.load("flux_double_character")
     # nano_banana = Tool.load("nano_banana")
     # txt2img = Tool.load("txt2img")
     # openai_image_edit = Tool.load("openai_image_edit")
@@ -137,14 +133,6 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
     lora_strength = args.get("lora_strength", 0.8)
     lora2_strength = args.get("lora2_strength", 0.8)
 
-    # check if both loras are faces
-    two_faces = len(loras) == 2 and all(
-        [
-            (lora.args.get("mode") or lora.args.get("concept_mode")) == "face"
-            for lora in loras
-        ]
-    )
-
     intermediate_outputs = {}
 
     # Determine tool
@@ -152,7 +140,6 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
         # just use one of the image editing tools for now, even when there's a lora
         # init image takes precedence over lora
         image_tool = {
-            "flux": "flux_kontext",
             "seedream": "seedream4",
             "openai": "openai_image_edit",
             "nano_banana": "nano_banana",
@@ -176,9 +163,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
     # Switch from Flux Dev Lora to Flux Dev if and only if 2 LoRAs or Controlnet
     if image_tool == "flux_dev_lora":
-        if two_faces or double_character:
-            image_tool = "flux_double_character"
-        elif len(loras) > 1 or controlnet:
+        if len(loras) > 1 or controlnet:
             image_tool = "flux_dev"
 
     tool_calls = []
@@ -225,25 +210,6 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
         args.update(aspect_ratio_to_dimensions(aspect_ratio))
 
         result = await txt2img.async_run(args, save_thumbnails=True)
-
-    #########################################################
-    # Flux Schnell
-    elif image_tool == "flux_schnell":
-        flux_schnell = Tool.load("flux_schnell")
-
-        if aspect_ratio == "auto":
-            aspect_ratio = "1:1"
-
-        args = {
-            "prompt": prompt,
-            "n_samples": min(4, n_samples),
-            "aspect_ratio": aspect_ratio,
-        }
-
-        if seed:
-            args["seed"] = seed
-
-        result = await flux_schnell.async_run(args, save_thumbnails=True)
 
     #########################################################
     # Flux Dev Lora
@@ -343,55 +309,6 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
         result = await flux_dev.async_run(args, save_thumbnails=True)
         # Todo: incorporate style_image / style_strength ?
 
-    #########################################################
-    # Flux Double Character
-    elif image_tool == "flux_double_character":
-        flux_double_character = Tool.load("flux_double_character")
-
-        # Set the two LoRAs
-        if len(loras) < 2:
-            raise Exception("flux_double_character requires exactly 2 LoRAs")
-
-        for idx, lora in enumerate(loras):
-            prompt = prompt.replace(lora.name, f"subj_{idx + 1}")
-
-        args = {
-            "prompt": prompt,
-            "n_samples": min(4, n_samples),
-            "speed_quality_slider": 0.4,
-            "lora": str(loras[0].id),
-            "lora2": str(loras[1].id),
-        }
-        args.update(aspect_ratio_to_dimensions(aspect_ratio))
-
-        if seed:
-            args["seed"] = seed
-
-        # Note: flux_double_character doesn't support init_image, so we ignore it
-        result = await flux_double_character.async_run(args, save_thumbnails=True)
-
-    #########################################################
-    # Flux Kontext
-    elif image_tool == "flux_kontext":
-        flux_kontext = Tool.load("flux_kontext")
-
-        if aspect_ratio == "auto":
-            aspect_ratio = "match_input_image"
-
-        args = {
-            "prompt": prompt,
-            "init_image": init_image,
-            "n_samples": min(4, n_samples),
-            "aspect_ratio": aspect_ratio,
-            "fast": False,
-        }
-
-        if seed:
-            args["seed"] = seed
-
-        result = await flux_kontext.async_run(args, save_thumbnails=True)
-
-    #########################################################
     # Nano Banana
     elif image_tool == "nano_banana":
         nano_banana = Tool.load("nano_banana")

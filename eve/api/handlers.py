@@ -240,6 +240,9 @@ def setup_session(
     if request.creation_args.budget is not None:
         session_kwargs["budget"] = request.creation_args.budget
 
+    if request.creation_args.parent_session:
+        session_kwargs["parent_session"] = ObjectId(request.creation_args.parent_session)
+
     session = Session(**session_kwargs)
     session.save()
 

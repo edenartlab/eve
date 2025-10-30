@@ -632,7 +632,7 @@ async def remote_prompt_session(
         session=session,
         initiating_user_id=str(user.id),
         message=new_message,
-        llm_config=LLMConfig(model="claude-sonnet-4-5-20250929"),
+        llm_config=LLMConfig(model="claude-sonnet-4-5"),
     )
 
     if extra_tools:
