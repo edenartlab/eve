@@ -168,14 +168,15 @@ async def run_session_prompt(
     class RemoteSessionResponse(BaseModel):
         """All relevant results (or error report) from the remote session prompt"""    
         
-        outputs: List[str] = Field(description="A list of all requested successful media outputs, given the original request. Do not include intermediate results -- only the desired output given the task.")
+        outputs: List[str] = Field(description="A list of all requested successful media outputs, given the original request. Do not include intermediate results here -- only the desired output given the task.")
+        intermediate_outputs: Optional[List[str]] = Field(description="An optional list of all important **intermediate media urls** that were generated during the session, leading up to the final result. This does not include the original attachments provided by the user, or the final output.")
         error: Optional[str] = Field(description="A human-readable error message that explains why the session failed to produce the requested outputs. Mutually exclusive with outputs -- **ONLY** set this if there was an error or the requested output was not successfully generated.")
         
     system_message = """
     You are a helpful assistant that summarizes the results of a remote session prompt.
 
     Given the original request and the subsequent response to it, identify if the session was successful or not.
-    If it was successful, list all the successful outputs.
+    If it was successful, list all the successful outputs. If there were any important intermediate results, list them in the intermediate_outputs field.
     If it was not successful, provide a human-readable error message that explains why the session failed to produce the requested outputs.
     """
     
@@ -189,16 +190,33 @@ async def run_session_prompt(
             ChatMessage(role="user", content="Summarize the results of the session."),
         ],
         config=LLMConfig(
-            # model="claude-haiku-4-5-latest",
-            model="gpt-4o-mini",
+            model="claude-haiku-4-5",
+            # model="gpt-4o-mini",
             response_format=RemoteSessionResponse,
         ),
     )
 
     response = await async_prompt(context)
     
-    output = RemoteSessionResponse(**json.loads(response.content))
+    output = RemoteSessionResponse(
+        **json.loads(response.content)
+    )
+
+    # if output.error:
+    #     raise Exception(output.error)
+
     if output.error:
-        raise Exception(output.error)
-        
-    return {"output": output.outputs}
+        result = {
+            "output": [],
+            "intermediate_outputs": output.intermediate_outputs,
+            "error": output.error,
+            "session_id": session_id,
+        }
+    else:
+        result = {
+            "output": output.outputs,
+            "intermediate_outputs": output.intermediate_outputs,
+            "session_id": session_id,
+        }
+
+    return result
