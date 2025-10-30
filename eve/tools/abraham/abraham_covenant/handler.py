@@ -83,29 +83,34 @@ def commit_daily_work(
 
         # Prepare contract function call
 
-        w3, owner, contract, abi = load_contract(
-            address=CONTRACT_ADDRESS_COVENANT,
-            abi_path=CONTRACT_ABI_COVENANT,
-            private_key=ABRAHAM_PRIVATE_KEY,
-            network=Network.ETH_MAINNET,
-        )
+        if False:
+            raise Exception("Not implemented")
+            w3, owner, contract, abi = load_contract(
+                address=CONTRACT_ADDRESS_COVENANT,
+                abi_path=CONTRACT_ABI_COVENANT,
+                private_key=ABRAHAM_PRIVATE_KEY,
+                network=Network.ETH_MAINNET,
+            )
 
-        contract_function = contract.functions.commitDailyWork(
-            f"ipfs://{ipfs_hash}"
-        )
+            contract_function = contract.functions.commitDailyWork(
+                f"ipfs://{ipfs_hash}"
+            )
 
-        # Send transaction
-        tx_hash, receipt = safe_send(
-            w3,
-            contract_function,
-            ABRAHAM_PRIVATE_KEY,
-            op_name="ABRAHAM_DAILY_WORK",
-            nonce=None,
-            value=0,
-            abi=abi,
-            # network=Network.ETH_SEPOLIA,
-            network=Network.ETH_MAINNET,
-        )
+            # Send transaction
+            tx_hash, receipt = safe_send(
+                w3,
+                contract_function,
+                ABRAHAM_PRIVATE_KEY,
+                op_name="ABRAHAM_DAILY_WORK",
+                nonce=None,
+                value=0,
+                abi=abi,
+                # network=Network.ETH_SEPOLIA,
+                network=Network.ETH_MAINNET,
+            )
+        else:
+            tx_hash_hex = "test_hex"
+            receipt = "test_receipt"
 
         # Build explorer URL
         tx_hash_hex = tx_hash.hex()

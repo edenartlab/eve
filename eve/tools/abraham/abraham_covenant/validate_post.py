@@ -40,10 +40,11 @@ def validate_image_field(data: Dict[str, Any]) -> None:
     if "image" not in data:
         raise ValueError("Missing 'image' field in JSON")
 
-    if not data["image"].startswith("ipfs://"):
-        raise ValueError(f"Image field does not start with 'ipfs://': {data["image"]}")
+    image_value = data.get("image")
+    if not image_value.startswith("ipfs://"):        
+        raise ValueError(f"Image field does not start with 'ipfs://': {image_value}")
 
-    ipfs_hash = data["image"].replace("ipfs://", "")
+    ipfs_hash = image_value.replace("ipfs://", "")
     image_bytes = download_from_ipfs(ipfs_hash)
     ok, info = validate_image_bytes(image_bytes)
     if not ok:

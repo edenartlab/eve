@@ -1,7 +1,9 @@
 from datetime import datetime, timezone
 import math
+from jinja2 import Template
 
 from eve.tool import Tool, ToolContext
+from eve.user import User
 from eve.agent import Agent
 from eve.agent.session.models import Session
 from eve.tools.abraham.abraham_seed.handler import AbrahamSeed
@@ -32,7 +34,7 @@ def user_score(msg_count: int) -> float:
         return (5**0.5) + math.log(msg_count - 4) * 0.3
 
 
-daily_message = """
+daily_message_template = Template("""
 The creation session is complete. It has been chosen as the top **Seed of the Day** and will be permanently recorded in the **Abraham Covenant**. Next, we’ll process and package everything into a final form that reflects all of the development, research, and creative work from this session.
 
 # Structure of the Covenant
@@ -57,12 +59,12 @@ Analyze everything that happened in this session and form a unifying narrative. 
 
 ## Step 2
 
-From that narrative, write a long-form Markdown blog post that captures the entire session. Embed all key images from earlier in the session and include any videos. Do not include more than 10 assets, so if there are more, select the most important ones.
+From that narrative, write a long-form Markdown blog post that captures the entire session. Embed all key images from earlier in the session and include any videos. Do not include more than 10 assets, so if there are more, select the most important ones. The post should end with an "Acknowledgments" section that gives a very short acknowledgment for up to 3 people who contributed to this work. For context, the top users by message count are {{usernames}}.
 
 ## Step 3
 
 Finally, call the **`abraham_covenant`** tool to publish the blog post, poster image, and supporting content. Make sure the poster image is 16:9, regardless of the original content you made.
-"""
+""")
 
 
 async def commit_daily_work(agent: Agent, session: str):
@@ -97,6 +99,21 @@ async def commit_daily_work(agent: Agent, session: str):
         unique_users = len(messages_per_user)
         total_messages = len(user_messages)
 
+        # Sort users by message count (most to least)
+        users_sorted = sorted(
+            [
+                {
+                    "user_id": user_id,
+                    "username": User.from_mongo(user_id).username.replace("farcaster_", ""),
+                    "message_count": count
+                } 
+                for user_id, count in messages_per_user.items()
+                # if User.from_mongo(user_id).username not in ["farcaster_genekogan", "gene"]
+            ],
+            key=lambda x: x["message_count"],
+            reverse=True
+        )
+
         # print("session", session.id)
         # print("score", score)
         # print("unique_users", unique_users)
@@ -108,6 +125,7 @@ async def commit_daily_work(agent: Agent, session: str):
             "score": score,
             "unique_users": unique_users,
             "total_messages": total_messages,
+            "users": users_sorted,
         })
 
     candidates = sorted(candidates, key=lambda x: x["score"], reverse=True)
@@ -123,6 +141,10 @@ async def commit_daily_work(agent: Agent, session: str):
     winner = candidates[0]
 
     # print("THE WINNER IS", winner["session"].id)
+
+    daily_message = daily_message_template.render(
+        usernames=[user["username"] for user in winner["users"][:3]],
+    )
 
     await session_post.async_run(
         {
