@@ -6,7 +6,7 @@ from pydantic import Field
 import logging
 
 from .. import utils
-from ..agent.session.models import Session
+# from ..agent.session.models import Session
 from ..tool import Tool, ToolContext, tool_context
 from ..task import Task, Creation
 
@@ -223,15 +223,16 @@ class FalTool(Tool):
                     "prompt", task.args.get("text_input", "")
                 )  # Try getting prompt/text_input
 
-                creation_agent = task.agent
-                session = Session.from_mongo(task.session)
-                if session.parent_session:
-                    parent_session = Session.from_mongo(session.parent_session)
-                    creation_agent = parent_session.agent
+                # creation_agent = task.agent
+                # session = Session.from_mongo(task.session)
+                # if session.parent_session:
+                #     parent_session = Session.from_mongo(session.parent_session)
+                #     creation_agent = parent_session.agent
 
                 creation = Creation(
                     user=task.user,
-                    agent=creation_agent,
+                    # agent=creation_agent,
+                    agent=task.agent,
                     task=task.id,
                     tool=task.tool,
                     filename=output_data.get("filename"),

@@ -257,16 +257,17 @@ async def _task_handler(func, *args, **kwargs):
                         if name:
                             name = " to ".join(name)
 
-                    from eve.agent.session.models import Session
-                    creation_agent = task.agent
-                    session = Session.from_mongo(task.session)
-                    if session.parent_session:
-                        parent_session = Session.from_mongo(session.parent_session)
-                        creation_agent = parent_session.agent
+                    # from eve.agent.session.models import Session
+                    # creation_agent = task.agent
+                    # session = Session.from_mongo(task.session)
+                    # if session.parent_session:
+                    #     parent_session = Session.from_mongo(session.parent_session)
+                    #     creation_agent = parent_session.agent
 
                     new_creation = Creation(
                         user=task.user,
-                        agent=creation_agent,
+                        # agent=creation_agent,
+                        agent=task.agent,
                         task=task.id,
                         tool=task.tool,
                         filename=filename,

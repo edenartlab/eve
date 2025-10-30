@@ -84,7 +84,6 @@ def commit_daily_work(
         # Prepare contract function call
 
         if False:
-            raise Exception("Not implemented")
             w3, owner, contract, abi = load_contract(
                 address=CONTRACT_ADDRESS_COVENANT,
                 abi_path=CONTRACT_ABI_COVENANT,
