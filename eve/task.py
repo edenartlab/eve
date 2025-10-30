@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 from .user import Manna, Transaction
 from .mongo import Document, Collection
+from .agent.session.models import Session
 from . import utils
 import sentry_sdk
 from loguru import logger
