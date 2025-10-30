@@ -7,7 +7,7 @@ from eve.tool import ToolContext
 from eve.utils import is_valid_image_url
 from eve.agent import Agent
 from eve.tools.abraham.abraham_seed.handler import AbrahamSeed, AbrahamCreation
-from eve.tools.abraham.abraham_covenant.validate_post import validate_ipfs_bundle
+from eve.tools.abraham.abraham_covenant.guardrails import validate_ipfs_bundle, validate_creation
 
 from eve.utils.chain_utils import (
     safe_send,
@@ -147,6 +147,9 @@ async def handler(context: ToolContext):
     poster_image = context.args.get("poster_image")
     blog_post = context.args.get("post")
     session_id = str(context.session)
+
+    validate_creation(title, tagline, poster_image, blog_post, session_id)
+    logger.success(f"Creation validated successfully!")
 
     abraham_seed = AbrahamSeed.find_one({"session_id": ObjectId(session_id)})
 
