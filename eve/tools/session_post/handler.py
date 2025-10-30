@@ -51,6 +51,7 @@ async def handler(context: ToolContext):
                 owner_id=str(user.id),
                 agents=[str(agent.id)],
                 title=title,
+                parent_session=context.session,
                 extras={
                     "is_public": context.args.get("public", False)
                 },
