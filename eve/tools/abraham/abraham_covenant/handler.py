@@ -7,7 +7,7 @@ from eve.tool import ToolContext
 from eve.utils import is_valid_image_url
 from eve.agent import Agent
 from eve.tools.abraham.abraham_seed.handler import AbrahamSeed, AbrahamCreation
-from eve.tools.abraham.abraham_covenant.guardrails import validate_ipfs_bundle, validate_creation
+from eve.tools.abraham.abraham_covenant.guardrails import validate_ipfs_bundle, validate_creation, extract_media_urls
 
 from eve.utils.chain_utils import (
     safe_send,
@@ -57,6 +57,16 @@ def commit_daily_work(
         logger.info(f"Uploading poster image to IPFS: {poster_image}")
         image_cid = ipfs_pin(poster_image)
         poster_image_hash = image_cid.split("/")[-1]
+
+        # Extract and pin all media URLs from blog_post
+        logger.info("Extracting media URLs from blog post")
+        media_urls = extract_media_urls(blog_post)
+        if media_urls:
+            for media_url in media_urls:
+                media_cid = ipfs_pin(media_url)
+                media_hash = media_cid.split("/")[-1]
+                ipfs_url = f"https://ipfs.io/ipfs/{media_hash}"
+                blog_post = blog_post.replace(media_url, ipfs_url)
 
         # Create metadata JSON
         json_data = {
