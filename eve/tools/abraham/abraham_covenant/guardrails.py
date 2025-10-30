@@ -19,6 +19,7 @@ def download_from_ipfs(ipfs_hash: str) -> bytes:
     response = requests.get(url, timeout=30)
     response.raise_for_status()
     content_length = len(response.content)
+    assert content_length > 0, "Content length is 0"
     return response.content
 
 
@@ -168,7 +169,7 @@ def validate_eden_session_id(data: Dict[str, Any]) -> None:
         raise ValueError("Missing 'eden_session_id' field in JSON")
 
     try:
-        session = Session.from_mongo(data["eden_session_id"])
+        Session.from_mongo(data["eden_session_id"])
     except (InvalidId, TypeError) as e:
         raise ValueError(f"Invalid eden_session_id: {e}")
 
@@ -202,12 +203,11 @@ def validate_creation(title: str, tagline: str, poster_image: str, post: str, se
         media_urls = extract_media_urls(post)
 
         for idx, url in enumerate(media_urls, 1):
-            media_type = get_media_type(url)
             validate_media_url(url)
 
         # Validate session ID
         try:
-            session = Session.from_mongo(session_id)
+            Session.from_mongo(session_id)
         except (InvalidId, TypeError) as e:
             raise ValueError(f"Invalid session_id: {e}")
 

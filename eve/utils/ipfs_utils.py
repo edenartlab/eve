@@ -16,7 +16,6 @@ PINATA_JWT = os.getenv("PINATA_JWT")
 
 class IPFSError(Exception):
     """Error during IPFS operations."""
-    pass
 
 
 @retry(

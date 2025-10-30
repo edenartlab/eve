@@ -124,7 +124,6 @@ def commit_daily_work(
             )
         else:
             tx_hash_hex = "test_hex"
-            receipt = "test_receipt"
 
         # Build explorer URL
         tx_hash_hex = tx_hash.hex()
