@@ -24,7 +24,7 @@ def main():
     litellm._turn_on_debug()
     litellm.modify_params = True
     
-    model = "anthropic/claude-3-7-sonnet-20250219"  # works across Anthropic, Bedrock, Vertex AI
+    model = "anthropic/claude-haiku-4-5"  # works across Anthropic, Bedrock, Vertex AI
     
     # Step 1: send the conversation and available functions to the model
     messages = [
