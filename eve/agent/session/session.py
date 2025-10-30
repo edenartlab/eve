@@ -899,6 +899,7 @@ async def async_prompt_session(
 
         prompt_session_finished = False
         tokens_spent = 0
+        tool_was_cancelled = False  # Track if any tool was cancelled
 
         while not prompt_session_finished:
             # Check for cancellation before each iteration
@@ -943,6 +944,12 @@ async def async_prompt_session(
 
             # Generate new generation_id for this LLM call
             llm_context.metadata.generation_id = str(uuid.uuid4())
+
+            # Disable tools if any tool was cancelled in this session run
+            if tool_was_cancelled:
+                logger.info("Disabling tools for this LLM call due to previous tool cancellation")
+                llm_context.tools = {}
+                llm_context.tool_choice = "none"
 
             if stream:
                 # For streaming, we need to collect the content as it comes in
@@ -1143,6 +1150,10 @@ async def async_prompt_session(
                         # Check for cancellation during tool execution
                         if cancellation_event.is_set():
                             raise SessionCancelledException("Session cancelled by user")
+                        # Track if any tool was cancelled
+                        if update.type == UpdateType.TOOL_CANCELLED:
+                            tool_was_cancelled = True
+                            logger.info(f"Tool cancelled, disabling tools for remainder of session run")
                         yield update
 
             if stop_reason in ["stop", "completed"]:
