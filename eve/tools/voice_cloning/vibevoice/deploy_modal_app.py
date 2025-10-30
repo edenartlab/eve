@@ -65,6 +65,7 @@ class VibeVoiceContainer:
     def enter(self):
         import subprocess
         import os
+        import sys
 
         print("Container started with GPU and dependencies")
 
@@ -120,6 +121,26 @@ class VibeVoiceContainer:
         print(f"  VibeVoice: {vibevoice_repo_path}")
         print(f"  Tokenizer: {qwen_repo_path}")
 
+        # Pre-load the model onto GPU for hot reloading
+        print("\n=== Pre-loading model onto GPU ===")
+        sys.path.insert(0, "/root/VibeVoice-ComfyUI")
+        from run_inference import VibeVoiceInference
+
+        # Store model paths as instance variables
+        self.model_path = vibevoice_repo_path
+        self.tokenizer_path = qwen_repo_path
+
+        # Initialize the inference instance and load model
+        self.inference = VibeVoiceInference()
+        self.inference.load_model(
+            model_path=self.model_path,
+            tokenizer_path=self.tokenizer_path,
+            attention_type="auto",
+            quantize_llm="full precision"
+        )
+        print("Model successfully pre-loaded onto GPU and ready for inference")
+        print("Subsequent requests will use the hot-loaded model without reloading")
+
     @modal.method()
     def hello(self):
         """Simple test method to verify the container works"""
@@ -147,19 +168,10 @@ class VibeVoiceContainer:
         Returns:
             Path to generated audio file in /data volume
         """
-        import sys
         import os
         import tempfile
         import soundfile as sf
         from loguru import logger
-
-        # Add VibeVoice to path
-        sys.path.insert(0, "/root/VibeVoice-ComfyUI")
-        from run_inference import generate_audio
-
-        # Model paths
-        model_path = "/root/VibeVoice-ComfyUI/models/VibeVoice-Large-Q8"
-        tokenizer_path = "/root/VibeVoice-ComfyUI/models/tokenizer/Qwen2.5-1.5B"
 
         # Handle voice_audio - download if URLs provided
         voice_audio_paths = None
@@ -184,31 +196,44 @@ class VibeVoiceContainer:
             else:
                 logger.info(f"Multiple voice audio - using multi-speaker mode with {len(voice_audio_paths)} speakers")
 
-        logger.info(f"Generating audio with VibeVoice")
+        logger.info(f"Generating audio with VibeVoice using hot-loaded model")
         logger.info(f"Text: {text[:100]}...")
         logger.info(f"CFG Scale: {cfg_scale}, Diffusion Steps: {diffusion_steps}, Seed: {seed}")
 
-        # Generate audio
-        audio_data = generate_audio(
+        # Prepare voice samples if provided
+        voice_samples = None
+        if voice_audio_paths is not None:
+            # Check if it's a list (multi-speaker) or single audio
+            if isinstance(voice_audio_paths, list):
+                # Multi-speaker: prepare each voice audio
+                voice_samples = []
+                for i, audio in enumerate(voice_audio_paths):
+                    prepared_audio = self.inference._prepare_voice_audio(audio)
+                    voice_samples.append(prepared_audio)
+                logger.info(f"Prepared {len(voice_samples)} voice sample(s) for multi-speaker")
+            else:
+                # Single speaker: prepare single audio
+                prepared_audio = self.inference._prepare_voice_audio(voice_audio_paths)
+                voice_samples = [prepared_audio]
+                logger.info("Prepared single voice sample")
+
+        # Generate audio using the pre-loaded inference instance
+        # This will use the model already loaded on GPU without reloading
+        audio_data = self.inference.generate(
             text=text,
-            model_path=model_path,
-            tokenizer_path=tokenizer_path,
-            voice_audio=voice_audio_paths,
+            voice_samples=voice_samples,
             cfg_scale=cfg_scale,
             diffusion_steps=diffusion_steps,
             seed=seed,
-            attention_type="auto",
-            quantize_llm="full precision",
             use_sampling=False,
             temperature=0.95,
             top_p=0.95,
-            free_memory_after=False,
         )
 
         # Save to temporary file and read bytes
         temp_output = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
         sf.write(temp_output.name, audio_data["waveform"], audio_data["sample_rate"])
-        logger.info(f"Audio generated successfully")
+        logger.info(f"Audio generated successfully using hot-loaded model")
 
         # Read the audio file as bytes
         with open(temp_output.name, "rb") as f:
