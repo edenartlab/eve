@@ -2,13 +2,11 @@
 TODO:
  - incorporate lora2
  - a bit too overeager on text precision?
- - when two loras and they are faces, use flux_double_character
- - when text_precision, lora, and no init_image, first use flux_dev_lora and then openai_image_edit or flux_kontext
- - face_swap, flux_inpainting, outpaint, remix_flux_schnell
- - deal with moderation errors for flux_kontext and openai tools
+ - when text_precision, lora, and no init_image, first use flux_dev_lora and then openai_image_edit
+ - deal with moderation errors for openai tools
  - negative prompting
  - make init image strength a parameter
- - guidance, n_steps (low, medium, high) (low -> schnell)
+ - guidance, n_steps (low, medium, high)
  - txt2img has "style image" / ip adapter
  - check on n_samples
 
@@ -23,10 +21,8 @@ from loguru import logger
 
 async def handler(context: ToolContext):
     # load tools
-    flux_schnell = Tool.load("flux_schnell")
     flux_dev_lora = Tool.load("flux_dev_lora")
     flux_dev = Tool.load("flux_dev")
-    flux_kontext = Tool.load("flux_kontext")
     txt2img = Tool.load("txt2img")
     openai_image_edit = Tool.load("openai_image_edit")
     openai_image_generate = Tool.load("openai_image_generate")
@@ -62,7 +58,7 @@ async def handler(context: ToolContext):
                     flux_dev  # todo: controlnet vs instructions is kind of a hack
                 )
             else:
-                image_tool = flux_kontext
+                image_tool = openai_image_edit
     else:
         if text_precision:
             if loras:
@@ -76,7 +72,7 @@ async def handler(context: ToolContext):
                 else:
                     image_tool = flux_dev_lora
             else:
-                image_tool = flux_dev_lora  # flux_schnell
+                image_tool = flux_dev_lora
 
     # Switch from Flux Dev Lora to Flux Dev if and only if 2 LoRAs or Controlnet
     if image_tool == flux_dev_lora:
@@ -122,23 +118,6 @@ async def handler(context: ToolContext):
         args.update(aspect_ratio_to_dimensions(aspect_ratio))
 
         result = await txt2img.async_run(args, save_thumbnails=True)
-
-    #########################################################
-    # Flux Schnell
-    elif image_tool == flux_schnell:
-        if aspect_ratio == "auto":
-            aspect_ratio = "1:1"
-
-        args = {
-            "prompt": prompt,
-            "n_samples": n_samples,
-            "aspect_ratio": aspect_ratio,
-        }
-
-        if seed:
-            args["seed"] = seed
-
-        result = await flux_schnell.async_run(args, save_thumbnails=True)
 
     #########################################################
     # Flux Dev Lora
@@ -233,25 +212,6 @@ async def handler(context: ToolContext):
 
         result = await flux_dev.async_run(args, save_thumbnails=True)
         # Todo: incorporate style_image / style_strength ?
-
-    #########################################################
-    # Flux Kontext
-    elif image_tool == flux_kontext:
-        if aspect_ratio == "auto":
-            aspect_ratio = "match_input_image"
-
-        args = {
-            "prompt": prompt,
-            "init_image": init_image,
-            "n_samples": n_samples,
-            "aspect_ratio": aspect_ratio,
-            "fast": False,
-        }
-
-        if seed:
-            args["seed"] = seed
-
-        result = await flux_kontext.async_run(args, save_thumbnails=True)
 
     #########################################################
     # OpenAI Image Generate

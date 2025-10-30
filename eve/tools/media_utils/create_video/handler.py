@@ -14,7 +14,6 @@ AUDIO
 - stable_audio
 - mmaudio
 - ace_step_musicgen
-- zonos
 - transcription
 
 MEDIA_EDITOR
