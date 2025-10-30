@@ -299,7 +299,7 @@ class ChatMessage(Document):
 
             # Download media files for image block processing
             for att in parsed_attachments:
-                if att.is_media:
+                if att.is_visual:
                     try:
                         attachment_file = download_file(
                             att.url,

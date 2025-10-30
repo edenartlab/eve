@@ -5,16 +5,22 @@ from bson import ObjectId
 
 from eve.tool import ToolContext
 from eve.agent import Agent
-from eve.tools.abraham.abraham_seed.handler import AbrahamSeed, AbrahamCreation
-from eve.tools.abraham.abraham_covenant.guardrails import validate_ipfs_bundle, validate_creation, extract_media_urls
-
+from eve.utils.ipfs_utils import pin as ipfs_pin
 from eve.utils.chain_utils import (
     safe_send,
     BlockchainError,
     load_contract,
     Network,
 )
-from eve.utils.ipfs_utils import pin as ipfs_pin
+from eve.tools.abraham.abraham_seed.handler import (
+    AbrahamSeed, 
+    AbrahamCreation
+)
+from eve.tools.abraham.abraham_covenant.guardrails import (
+    validate_ipfs_bundle, 
+    validate_creation, 
+    extract_media_urls
+)
 
 # Initialize logger
 logger = logging.getLogger(__name__)
@@ -160,7 +166,7 @@ async def handler(context: ToolContext):
     # Safety checks
     validate_creation(title, tagline, poster_image, blog_post, session_id)
 
-    logger.success(f"Creation validated successfully!")
+    logger.info(f"Creation validated successfully!")
     logger.info(f"Title: {title}")
     logger.info(f"Tagline: {tagline}")
     logger.info(f"Post: {blog_post}")
