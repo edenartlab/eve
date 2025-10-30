@@ -1,7 +1,7 @@
 name: Create an image with Flux-Dev
 description: Generate an image from text Flux-Dev.
 tip: |-
-  This is a higher quality Flux model. Use this tool instead of Flux Schnell tool if the prompt calls for rendering text, has exacly one Lora with flux-dev base model selected, or the user requests higher quality.
+  This is a higher quality Flux model. Use this tool if there is exacly one Lora with flux-dev base model selected, or the user requests flux specifically.
 cost_estimate: 2 * n_samples
 output_type: image
 visible: false

@@ -102,7 +102,7 @@ def test_prompt_thread():
 
     messages = [
         UserMessage(
-            content="eve, make another picture of a fancy dog using flux_schnell"
+            content="eve, make another picture of a fancy dog using flux_dev"
         )
     ]
 

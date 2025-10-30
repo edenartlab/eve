@@ -16,8 +16,7 @@ headers = {
 def run_create(server_url):
     request = {
         "user_id": "65284b18f8bbb9bff13ebe65",
-        # "tool": "runway",
-        "tool": "flux_schnell",
+        "tool": "flux_dev",
         "args": {
             "prompt": "a picture of a kangaroo roller skating in venice beach",
             "n_samples": 4,

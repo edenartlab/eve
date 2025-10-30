@@ -332,4 +332,11 @@ async def _task_handler(func, *args, **kwargs):
             "waitTime": queue_time,
             "runTime": run_time.total_seconds(),
         }
-        task.update(**task_update)
+
+        # Check if task was cancelled while running - don't overwrite cancellation
+        task.reload()
+        if task.status != "cancelled":
+            task.update(**task_update)
+        else:
+            # Just update performance, keep cancelled status
+            task.update(performance=task_update["performance"])

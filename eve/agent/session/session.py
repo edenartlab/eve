@@ -64,7 +64,6 @@ class SessionCancelledException(Exception):
     """Exception raised when a session is cancelled via Ably signal."""
 
 
-
 def check_session_budget(session: Session):
     if session.budget:
         if session.budget.token_budget:
@@ -605,10 +604,7 @@ async def process_tool_call(
     if assistant_message.tool_calls and tool_call_index < len(
         assistant_message.tool_calls
     ):
-        assistant_message.update_tool_call(
-            tool_call_index,
-            status="running"
-        )
+        assistant_message.update_tool_call(tool_call_index, status="running")
 
     try:
         # Check for cancellation before starting tool execution
@@ -619,10 +615,7 @@ async def process_tool_call(
             if assistant_message.tool_calls and tool_call_index < len(
                 assistant_message.tool_calls
             ):
-                assistant_message.update_tool_call(
-                    tool_call_index,
-                    status="cancelled"
-                )
+                assistant_message.update_tool_call(tool_call_index, status="cancelled")
             return SessionUpdate(
                 type=UpdateType.TOOL_CANCELLED,
                 tool_name=tool_call.tool,
@@ -651,10 +644,7 @@ async def process_tool_call(
             if assistant_message.tool_calls and tool_call_index < len(
                 assistant_message.tool_calls
             ):
-                assistant_message.update_tool_call(
-                    tool_call_index,
-                    status="cancelled"
-                )
+                assistant_message.update_tool_call(tool_call_index, status="cancelled")
             return SessionUpdate(
                 type=UpdateType.TOOL_CANCELLED,
                 tool_name=tool_call.tool,
@@ -678,10 +668,7 @@ async def process_tool_call(
                     task=result.get("task"),
                 )
 
-            update_session_budget(
-                session, 
-                manna_spent=result.get("cost", 0)
-            )
+            update_session_budget(session, manna_spent=result.get("cost", 0))
 
             return SessionUpdate(
                 type=UpdateType.TOOL_COMPLETE,
@@ -899,6 +886,7 @@ async def async_prompt_session(
 
         prompt_session_finished = False
         tokens_spent = 0
+        tool_was_cancelled = False  # Track if any tool was cancelled
 
         while not prompt_session_finished:
             # Check for cancellation before each iteration
@@ -943,6 +931,11 @@ async def async_prompt_session(
 
             # Generate new generation_id for this LLM call
             llm_context.metadata.generation_id = str(uuid.uuid4())
+
+            # Disable tools if any tool was cancelled in this session run
+            if tool_was_cancelled:
+                llm_context.tools = {}
+                llm_context.tool_choice = "none"
 
             if stream:
                 # For streaming, we need to collect the content as it comes in
@@ -1143,6 +1136,9 @@ async def async_prompt_session(
                         # Check for cancellation during tool execution
                         if cancellation_event.is_set():
                             raise SessionCancelledException("Session cancelled by user")
+                        # Track if any tool was cancelled
+                        if update.type == UpdateType.TOOL_CANCELLED:
+                            tool_was_cancelled = True
                         yield update
 
             if stop_reason in ["stop", "completed"]:
