@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 
 from .user import Manna, Transaction
 from .mongo import Document, Collection
-from .agent.session.models import Session
 from . import utils
 import sentry_sdk
 from loguru import logger
@@ -258,6 +257,7 @@ async def _task_handler(func, *args, **kwargs):
                         if name:
                             name = " to ".join(name)
 
+                    from eve.agent.session.models import Session
                     creation_agent = task.agent
                     session = Session.from_mongo(task.session)
                     if session.parent_session:
