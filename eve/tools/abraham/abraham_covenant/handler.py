@@ -111,7 +111,7 @@ def commit_daily_work(
             )
 
             # Send transaction
-            tx_hash, receipt = safe_send(
+            tx_hash, _ = safe_send(
                 w3,
                 contract_function,
                 ABRAHAM_PRIVATE_KEY,
