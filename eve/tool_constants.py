@@ -50,6 +50,7 @@ ALL_TOOLS = [
     # audio
     "ace_step_musicgen",
     "elevenlabs",
+    "vibevoice",
     "mmaudio",
     "thinksound",
     "stable_audio",

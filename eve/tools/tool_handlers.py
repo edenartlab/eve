@@ -41,6 +41,7 @@ HANDLER_PATHS = {
     "elevenlabs_fx": "elevenlabs_fx.handler",
     "transcription": "transcription.handler",
     "send_eth": "wallet.send_eth.handler",
+    "vibevoice": "voice_cloning.vibevoice.handler",
     "weather": "weather.handler",
     "openai_image_generate": "openai_image_generate.handler",
     "openai_image_edit": "openai_image_edit.handler",
@@ -56,7 +57,7 @@ HANDLER_PATHS = {
     "abraham_rest": "abraham.abraham_rest.handler",
     "abraham_seed": "abraham.abraham_seed.handler",
     "abraham_learn": "abraham.abraham_learn.handler",
-    "verdelis_story": "verdelis.verdelis_story.handler",
+    "verdelis_story": "verdelis.verdelis_story.handler"
 }
 
 
