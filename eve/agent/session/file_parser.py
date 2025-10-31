@@ -41,6 +41,7 @@ class ParsedAttachment:
         is_text: bool = False,
         is_visual: bool = False,
         is_video: bool = False,
+        is_audio: bool = False,
         error: str = None,
     ):
         self.name = name
@@ -50,6 +51,7 @@ class ParsedAttachment:
         self.is_text = is_text
         self.is_visual = is_visual
         self.is_video = is_video
+        self.is_audio = is_audio
         self.error = error
 
 
@@ -324,7 +326,7 @@ def parse_attachment(attachment_url: str) -> ParsedAttachment:
                 name=file_name,
                 content=f"{attachment_url} (The asset is an audio file.)",
                 url=attachment_url,
-                is_visual=False
+                is_audio=True
             )
 
         # Handle image files

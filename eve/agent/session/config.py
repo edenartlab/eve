@@ -5,7 +5,8 @@ from loguru import logger
 
 DEFAULT_SESSION_LLM_CONFIG_DEV = {
     "premium": LLMConfig(
-        model="claude-haiku-4-5",
+        # model="claude-haiku-4-5",
+        model="claude-sonnet-4-5",
         fallback_models=[
             "gpt-5-nano"
         ],
@@ -45,9 +46,9 @@ DEFAULT_SESSION_SELECTION_LIMIT = 100
 
 # Master model configuration: tier -> [primary, fallback1, fallback2]
 MODEL_TIERS = {
-    "high": ["claude-haiku-4-5", "openai/gpt-5-nano", "openai/gpt-4o-mini"],
-    "medium": ["claude-haiku-4-5", "openai/gpt-5-nano", "openai/gpt-4o-mini"],
-    "low": ["claude-haiku-4-5", "openai/gpt-5-nano", "openai/gpt-4o-mini"],
+    "high": ["claude-sonnet-4-5", "claude-haiku-4-5", "openai/gpt-5-nano", "openai/gpt-4o-mini"],
+    "medium": ["claude-sonnet-4-5","claude-haiku-4-5", "openai/gpt-5-nano", "openai/gpt-4o-mini"],
+    "low": ["claude-sonnet-4-5", "claude-haiku-4-5", "openai/gpt-5-nano", "openai/gpt-4o-mini"],
 }
 
 

@@ -295,6 +295,8 @@ class ChatMessage(Document):
 
             # Separate text attachments from media files for different processing
             text_attachments = [att for att in parsed_attachments if att.is_text]
+            audio_attachments = [att for att in parsed_attachments if att.is_audio]
+
             attachment_files = []
 
             # Download media files for image block processing
@@ -318,10 +320,14 @@ class ChatMessage(Document):
             # Add text file contents directly to the message
             if text_attachments:
                 for text_att in text_attachments:
-                    attachments += f'\n<attached_file name="{text_att.name}" url="{text_att.url}">\n'
+                    attachments += f'\n<attached_file type="text" name="{text_att.name}" url="{text_att.url}">\n'
                     attachments += text_att.content
                     attachments += f"\n</attached_file>\n"
 
+            if audio_attachments:
+                for audio_att in audio_attachments:
+                    attachments += f'\n<attached_file type="audio" name="{audio_att.name}" url="{audio_att.url}" />\n'
+                    
             # Add truncation notification if any files were truncated
             if truncated_files:
                 if attachments:
