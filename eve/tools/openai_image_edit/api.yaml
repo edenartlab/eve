@@ -44,12 +44,10 @@ parameters:
     label: Input Fidelity
     type: string
     required: false
-    default: auto
+    default: high
     choices:
       - high
-      - medium
       - low
-      - auto
     description: How strongly to preserve the input image's content (high, medium, low, auto). Defaults to auto.
     tip: |-
       This is useful for preserving the original details like text, faces, logos, etc.

@@ -230,7 +230,7 @@ async def _task_handler(func, *args, **kwargs):
                 tool_call_id=str(task.tool_call_id) if hasattr(task, "tool_call_id") and task.tool_call_id else None,
             )
 
-            if output_type in ["image", "video", "audio", "lora"] and is_creation_tool:
+            if output_type in ["image", "video", "audio", "lora"] and is_creation_tool and result.get("output"):
                 result["output"] = (
                     result["output"]
                     if isinstance(result["output"], list)
@@ -240,7 +240,7 @@ async def _task_handler(func, *args, **kwargs):
                     result, save_thumbnails=True, save_blurhash=True
                 )
 
-                for output in result["output"]:
+                for output in result["output"] or []:
                     filename = output.get("filename")
                     media_attributes = output.get("mediaAttributes")
 
