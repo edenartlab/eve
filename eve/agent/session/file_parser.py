@@ -5,7 +5,7 @@ This module handles parsing of:
 - CSV files (with dialect detection and markdown table formatting)
 - Text files (.txt, .md, .markdown, .plain)
 - PDF files (text extraction)
-- Images and videos (for attachment context)
+- Images, videos, and audio (for attachment context)
 """
 
 import os
@@ -39,8 +39,9 @@ class ParsedAttachment:
         url: str,
         truncated: bool = False,
         is_text: bool = False,
-        is_media: bool = False,
+        is_visual: bool = False,
         is_video: bool = False,
+        is_audio: bool = False,
         error: str = None,
     ):
         self.name = name
@@ -48,8 +49,9 @@ class ParsedAttachment:
         self.url = url
         self.truncated = truncated
         self.is_text = is_text
-        self.is_media = is_media
+        self.is_visual = is_visual
         self.is_video = is_video
+        self.is_audio = is_audio
         self.error = error
 
 
@@ -314,8 +316,17 @@ def parse_attachment(attachment_url: str) -> ParsedAttachment:
                 name=file_name,
                 content=f"{attachment_url} (The asset is a video, the corresponding image attachment is its first frame.)",
                 url=attachment_url,
-                is_media=True,
+                is_visual=True,
                 is_video=True
+            )
+
+        # Handle audio files
+        elif "audio" in mime_type:
+            return ParsedAttachment(
+                name=file_name,
+                content=f"{attachment_url} (The asset is an audio file.)",
+                url=attachment_url,
+                is_audio=True
             )
 
         # Handle image files
@@ -324,7 +335,7 @@ def parse_attachment(attachment_url: str) -> ParsedAttachment:
                 name=file_name,
                 content=f"{attachment_url}",
                 url=attachment_url,
-                is_media=True
+                is_visual=True
             )
 
         # Handle unsupported file types with helpful messages
@@ -382,7 +393,7 @@ def process_attachments_for_message(
 
         if parsed.error:
             attachment_errors.append(f"* {attachment_url}: {parsed.error}")
-        elif parsed.is_media:
+        elif parsed.is_visual:
             attachment_lines.append(f"* {parsed.content}")
 
     return all_parsed, attachment_lines, attachment_errors

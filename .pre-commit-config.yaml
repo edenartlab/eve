@@ -8,8 +8,8 @@ repos:
     hooks:
       - id: autoflake
         args:
-          - --check
           - --remove-all-unused-imports
+          - --remove-unused-variables
   - repo: local
     hooks:
       - id: no-print-statements

@@ -1,0 +1,59 @@
+name: VibeVoice
+description: Voice cloning and text-to-speech using VibeVoice
+tip: |-
+  This tool can generate natural-sounding speech from text using voice cloning.
+  Supports both single-speaker and multi-speaker generation.
+
+  For multi-speaker, format your text like:
+  - "[1]: First speaker text [2]: Second speaker text [1]: First speaker more text"
+
+  Provide voice_audio as a list with one audio sample per speaker, ideally you want >30s per speaker.
+cost_estimate: 10.0
+thumbnail: app/audio-opt.mp4
+output_type: audio
+active: true
+visible: true
+parameters:
+  text:
+    type: string
+    label: Text
+    description: |-
+      The text to convert to speech. For multi-speaker, use format like "[1]: text [2]: text [1]: text ..."
+    required: true
+  voice_audio:
+    type: array
+    items:
+      type: audio
+    label: Voice audio
+    description: |-
+      Reference audio for voice cloning. Provide one or more audio files.
+      - Single audio file for single-speaker
+      - Multiple audio files for multi-speaker (one per speaker, in order)
+      If omitted, synthetic voices will be used.
+    required: false
+  cfg_scale:
+    type: float
+    label: CFG Scale
+    description: |-
+      Classifier-free guidance scale. Higher values = more guidance and adherence to the text, lower values: more randomness, variation and expressiveness (at the cost of more word errors)
+      Range: 1.2 - 1.5. Recommended: 1.35
+    default: 1.35
+    minimum: 1.0
+    maximum: 2.0
+    step: 0.01
+  diffusion_steps:
+    type: integer
+    label: Diffusion Steps
+    description: |-
+      Number of denoising diffusion steps. More steps = better quality but slower generation.
+    default: 25
+    minimum: 10
+    maximum: 30
+    step: 1
+  seed:
+    type: integer
+    label: Seed
+    description: Random seed for reproducibility. If blank, will be set to a random value.
+    default: 42
+    minimum: 0
+    maximum: 2147483647

@@ -19,6 +19,7 @@ def download_from_ipfs(ipfs_hash: str) -> bytes:
     response = requests.get(url, timeout=30)
     response.raise_for_status()
     content_length = len(response.content)
+    assert content_length > 0, "Content length is 0"
     return response.content
 
 
@@ -64,22 +65,30 @@ def get_media_type(url: str) -> str:
 
 def extract_media_urls(markdown_text: str) -> List[str]:
     """Extract image, video, and audio URLs from markdown text."""
+    if not markdown_text:
+        return []
+
     # Media extensions
     media_exts = r'jpg|jpeg|png|gif|webp|bmp|svg|mp4|webm|mov|mp3|wav'
 
     # Match markdown images/media: ![alt](url) or [text](url)
+    # This pattern extracts only the URL from inside the parentheses
     markdown_pattern = rf'!?\[.*?\]\((https?://[^\)]+\.(?:{media_exts}))\)'
 
     # Match HTML tags: <img>, <video>, <audio>, <source>
     html_pattern = rf'<(?:img|video|audio|source)[^>]+src=["\']([^"\']+\.(?:{media_exts}))["\']'
 
-    # Match plain URLs with media extensions
-    plain_pattern = rf'(https?://[^\s<>"\'\)]+\.(?:{media_exts}))'
+    # Match plain URLs with media extensions (but exclude those inside brackets)
+    # Exclude ] and ( to avoid matching URLs in markdown alt text
+    plain_pattern = rf'(?<!\[)(https?://[^\s<>"\'\)\]\[]+\.(?:{media_exts}))(?!\])'
 
     urls = []
     urls.extend(re.findall(markdown_pattern, markdown_text, re.IGNORECASE))
     urls.extend(re.findall(html_pattern, markdown_text, re.IGNORECASE))
-    urls.extend(re.findall(plain_pattern, markdown_text, re.IGNORECASE))
+
+    # For plain URLs, first remove all markdown image syntax to avoid duplicates
+    text_without_markdown = re.sub(markdown_pattern, '', markdown_text, flags=re.IGNORECASE)
+    urls.extend(re.findall(plain_pattern, text_without_markdown, re.IGNORECASE))
 
     # Remove duplicates while preserving order
     seen = set()
@@ -160,7 +169,7 @@ def validate_eden_session_id(data: Dict[str, Any]) -> None:
         raise ValueError("Missing 'eden_session_id' field in JSON")
 
     try:
-        session = Session.from_mongo(data["eden_session_id"])
+        Session.from_mongo(data["eden_session_id"])
     except (InvalidId, TypeError) as e:
         raise ValueError(f"Invalid eden_session_id: {e}")
 
@@ -194,12 +203,11 @@ def validate_creation(title: str, tagline: str, poster_image: str, post: str, se
         media_urls = extract_media_urls(post)
 
         for idx, url in enumerate(media_urls, 1):
-            media_type = get_media_type(url)
             validate_media_url(url)
 
         # Validate session ID
         try:
-            session = Session.from_mongo(session_id)
+            Session.from_mongo(session_id)
         except (InvalidId, TypeError) as e:
             raise ValueError(f"Invalid session_id: {e}")
 
@@ -207,7 +215,7 @@ def validate_creation(title: str, tagline: str, poster_image: str, post: str, se
         if len(post) < 20:
             raise Exception("Blog post must be at least 20 characters long")
 
-        logger.success(f"Creation validated successfully!")
+        logger.info(f"Creation validated successfully!")
 
     except Exception as e:
         logger.error(f"✗✗✗ VALIDATION FAILED ✗✗✗\nError: {e}")
@@ -225,7 +233,7 @@ def validate_ipfs_bundle(ipfs_hash: str) -> None:
         validate_post_images(data)
         validate_eden_session_id(data)
 
-        logger.success(f"IPFS bundle validated: {ipfs_hash}")
+        logger.info(f"IPFS bundle validated: {ipfs_hash}")
 
     except Exception as e:
         logger.error(f"✗✗✗ VALIDATION FAILED ✗✗✗\nError: {e}")
@@ -233,5 +241,5 @@ def validate_ipfs_bundle(ipfs_hash: str) -> None:
 
 
 if __name__ == "__main__":
-    validate_ipfs_bundle("QmZ1ttzbpfah5CGkCu2L1JkFNjaqjdC1RZPWpQDioYdXkt")
-    validate_creation("Test Title", "Test Tagline", "https://d14i3advvh2bvd.cloudfront.net/58656ca3bf3013df15536f8cba11dbe224a353d866e5e5bbef070a377fb5bc36.jpeg", "Test Post containing an image: ![Test Image](https://d14i3advvh2bvd.cloudfront.net/cffc6e0704676f7ea9c2325943796df8a2a7ee56e9ed47e63e82c53b5da22e18.jpg), ![Test Image 2](https://d14i3advvh2bvd.cloudfront.net/48f4b354bd5711b4d2234a9b8f05b193e186df8639ca72273c068e8b4f1910f1.png)", "690201918de005f84abc8163")
+    validate_ipfs_bundle("Qmaec8j6mbvsvG6PrF95ztYJrYL8iXqf57XWQNPaLtNSeh")
+    #validate_creation("Test Title", "Test Tagline", "https://d14i3advvh2bvd.cloudfront.net/58656ca3bf3013df15536f8cba11dbe224a353d866e5e5bbef070a377fb5bc36.jpeg", "Test Post containing an image: ![Test Image](https://d14i3advvh2bvd.cloudfront.net/cffc6e0704676f7ea9c2325943796df8a2a7ee56e9ed47e63e82c53b5da22e18.jpg), ![Test Image 2](https://d14i3advvh2bvd.cloudfront.net/48f4b354bd5711b4d2234a9b8f05b193e186df8639ca72273c068e8b4f1910f1.png)", "690201918de005f84abc8163")

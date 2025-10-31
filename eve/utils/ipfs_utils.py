@@ -16,7 +16,6 @@ PINATA_JWT = os.getenv("PINATA_JWT")
 
 class IPFSError(Exception):
     """Error during IPFS operations."""
-    pass
 
 
 @retry(
@@ -59,7 +58,6 @@ def pin(data: Union[str, Mapping[str, Any]]) -> str:
             raise IPFSError(f"Failed to download file {data}: {dl.status_code}")
         filename = os.path.basename(urlparse(data).path) or "file"
         files = {"file": (filename, dl.content)}
-        logger.info("Uploading downloaded file to IPFS...")
         r = requests.post(file_endpoint, files=files, headers=auth_headers, timeout=60)
 
     # Local file path

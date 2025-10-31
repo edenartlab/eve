@@ -1,5 +1,6 @@
 import base64
 import os
+import json
 import tempfile
 import openai
 from PIL import Image
@@ -266,4 +267,8 @@ async def handler(context: ToolContext):
             # Optional: log/telemetry for other OpenAI or client runtime issues
             error_result = {"error": {"category": category, **info}}
 
-        return error_result
+        error_message = error_result.get("error").get("message")
+        if not error_message:
+            error_message = json.dumps(error_result)
+
+        raise Exception(error_message)
