@@ -11,7 +11,7 @@ parameters:
   prompt:
     type: string
     label: Prompt
-    description: A compact but specific instruction for the whole composition. Include genre/tone, BPM, key, instrumentation with “solo”, vocal directives with “a cappella” or “instrumental only”, singer count/roles, vocal delivery adjectives, timing cues for when vocals start/stop, language, and (optionally) a ‘Lyrics:’ block. Preserve user intent as much as possible.
+    description: A compact but specific instruction for the whole composition. Include genre/tone, BPM, key, instrumentation with “solo”, vocal directives with “a cappella” or “instrumental only”, singer count/roles, vocal delivery adjectives, timing cues for when vocals start/stop, language, and (optionally) a ‘Lyrics:’ block. Don't ever reference actual names of artists, songs, or anything else that could be copyrighted.
     required: true
   enhance_prompt:
     type: boolean

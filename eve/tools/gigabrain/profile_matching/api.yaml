@@ -1,12 +1,8 @@
 name: Gigabrain
-description: AI-powered profile matching and intro generation using the Choreo matching system
+description: AI-powered profile matching and intro generation for communities / brainstorms.
 tip: |-
-  This tool analyzes input user context (profile or conversation) and generates intelligent matches with personalized introductions.
-
-  The tool will process profiles, generate embeddings, calculate match scores, and create
-  personalized introductions for each match pair.
-
-  Results include match scores, intro messages, and suggested conversation starters.
+  This tool analyzes input user context (a profile or conversation per user) and generates intelligent matches with personalized introductions.
+  The tool will process profiles, generate embeddings, calculate match scores, and create personalized introductions for each match pair.
 cost_estimate: 15.0
 output_type: string
 active: true
