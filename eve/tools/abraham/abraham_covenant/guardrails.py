@@ -145,47 +145,22 @@ def extract_media_urls(markdown_text: str) -> List[str]:
     before_sleep=lambda retry_state: logger.info(f"Retrying download (attempt {retry_state.attempt_number}/3)...")
 )
 def download_with_retry(url: str, timeout: int = 60) -> bytes:
-    """Download content from URL with retry logic.
-
-    Args:
-        url: The URL to download
-        timeout: Timeout in seconds for each request (default: 60)
-
-    Returns:
-        bytes: The downloaded content
-
-    Raises:
-        requests.RequestException: If all retries fail
-    """
-    logger.info(f"Downloading {url}")
+    """Download content from URL with retry logic."""
     response = requests.get(url, timeout=timeout)
-
     # Non-gateway errors should not be retried
     if response.status_code >= 400:
         if response.status_code not in [502, 503, 504]:
             response.raise_for_status()
-
     response.raise_for_status()
-
     content_length = len(response.content)
     if content_length == 0:
         raise requests.RequestException("Content length is 0")
-
-    logger.info(f"✓ Successfully downloaded {content_length} bytes")
     return response.content
 
 
 def validate_media_url(url: str) -> None:
-    """Validate a single media URL (image, video, or audio).
-
-    Args:
-        url: The media URL to validate
-
-    Raises:
-        ValueError: If the media is invalid or cannot be validated
-    """
+    """Validate a single media URL (image, video, or audio)."""
     media_type = get_media_type(url)
-
     try:
         content = download_with_retry(url)
 
