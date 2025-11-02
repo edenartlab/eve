@@ -58,7 +58,7 @@ async def remote_prompt_session(
         context.extra_tools = {k: Tool.load(k) for k in extra_tools}
 
     # Add message to session
-    # await add_chat_message(session, context)
+    await add_chat_message(session, context)
 
     # Build LLM context and prompt
     context = await build_llm_context(
