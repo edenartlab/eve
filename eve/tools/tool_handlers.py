@@ -1,6 +1,16 @@
 import importlib
+from eve.tool_constants import GIGABRAIN_TOOLS
 
 handlers = {}
+
+
+def _build_gigabrain_handler_paths():
+    """
+    Dynamically build handler paths for all gigabrain tools.
+    Returns a dict mapping tool names to their import paths.
+    """
+    return {tool: f"gigabrain.{tool}.handler" for tool in GIGABRAIN_TOOLS}
+
 
 # Map tool names to their import paths
 HANDLER_PATHS = {
@@ -57,7 +67,9 @@ HANDLER_PATHS = {
     "abraham_rest": "abraham.abraham_rest.handler",
     "abraham_seed": "abraham.abraham_seed.handler",
     "abraham_learn": "abraham.abraham_learn.handler",
-    "verdelis_story": "verdelis.verdelis_story.handler"
+    "verdelis_story": "verdelis.verdelis_story.handler",
+    # Gigabrain tools are added dynamically below
+    **_build_gigabrain_handler_paths(),
 }
 
 
