@@ -29,7 +29,7 @@ class AbrahamSeed(Document):
     cast_hash: str
     image: str
     url: str
-    status: Literal["seed", "creation"]
+    status: Literal["seed", "creation", "archived"]
     creation: Optional[AbrahamCreation] = None
 
 
