@@ -1,0 +1,5 @@
+{
+  "to": "user@example.com",
+  "subject": "Test email from Eden agent",
+  "text": "Hello from the Eden email integration!"
+}

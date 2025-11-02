@@ -51,6 +51,7 @@ HANDLER_PATHS = {
     "printify": "printify.handler",
     "tiktok_post": "tiktok.tiktok_post.handler",
     "session_post": "session_post.handler",
+    "email_send": "email.email_send.handler",
     "abraham_publish": "abraham.abraham_publish.handler",
     "abraham_daily": "abraham.abraham_daily.handler",
     "abraham_covenant": "abraham.abraham_covenant.handler",

@@ -4,12 +4,18 @@ import logging
 import os
 import time
 import uuid
+import hashlib
+import hmac
+import random
+
+import aiohttp
 from bson import ObjectId
 from typing import List, Optional
 from fastapi import BackgroundTasks, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 
 from eve.agent.deployments.farcaster import FarcasterClient
+from eve.agent.deployments.utils import get_api_url
 from eve.agent.session.models import (
     PromptSessionContext,
     Session,
@@ -23,6 +29,9 @@ from eve.agent.session.models import (
     Notification,
     NotificationChannel,
     NotificationConfig,
+    SessionUpdateConfig,
+    ChatMessageRequestInput,
+    EmailDomain,
 )
 from eve.agent.session.memory_models import messages_to_text, select_messages
 from eve.agent.session.session import run_prompt_session, run_prompt_session_stream
@@ -43,6 +52,7 @@ from eve.api.api_requests import (
     AgentToolsDeleteRequest,
     UpdateDeploymentRequestV2,
     CreateNotificationRequest,
+    SessionCreationArgs,
 )
 from eve.api.helpers import (
     get_platform_client,
@@ -51,7 +61,7 @@ from eve.utils import serialize_json
 from eve.tools.replicate_tool import replicate_update_task
 from eve.agent.session.session_llm import LLMContext, LLMConfig, async_prompt
 from eve.agent.session.models import LLMContextMetadata, LLMTraceMetadata
-from eve.mongo import get_collection
+from eve.mongo import get_collection, MongoDocumentNotFound
 from eve.task import Task
 from eve.tool import Tool
 from eve.agent import Agent
@@ -241,7 +251,9 @@ def setup_session(
         session_kwargs["budget"] = request.creation_args.budget
 
     if request.creation_args.parent_session:
-        session_kwargs["parent_session"] = ObjectId(request.creation_args.parent_session)
+        session_kwargs["parent_session"] = ObjectId(
+            request.creation_args.parent_session
+        )
 
     session = Session(**session_kwargs)
     session.save()
@@ -495,8 +507,16 @@ async def handle_v2_deployment_update(request: UpdateDeploymentRequestV2):
 
     # Store old config and secrets for platform update hook
     # MongoDB returns nested objects as dicts, convert to proper Pydantic models
-    old_config = DeploymentConfig(**deployment.config) if isinstance(deployment.config, dict) else deployment.config
-    old_secrets = DeploymentSecrets(**deployment.secrets) if isinstance(deployment.secrets, dict) else deployment.secrets
+    old_config = (
+        DeploymentConfig(**deployment.config)
+        if isinstance(deployment.config, dict)
+        else deployment.config
+    )
+    old_secrets = (
+        DeploymentSecrets(**deployment.secrets)
+        if isinstance(deployment.secrets, dict)
+        else deployment.secrets
+    )
 
     update_dict = {}
 
@@ -553,8 +573,16 @@ async def handle_v2_deployment_update(request: UpdateDeploymentRequestV2):
             deployment.reload()
 
             # Convert reloaded config/secrets to proper objects (MongoDB returns dicts)
-            new_config = DeploymentConfig(**deployment.config) if isinstance(deployment.config, dict) else deployment.config
-            new_secrets = DeploymentSecrets(**deployment.secrets) if isinstance(deployment.secrets, dict) else deployment.secrets
+            new_config = (
+                DeploymentConfig(**deployment.config)
+                if isinstance(deployment.config, dict)
+                else deployment.config
+            )
+            new_secrets = (
+                DeploymentSecrets(**deployment.secrets)
+                if isinstance(deployment.secrets, dict)
+                else deployment.secrets
+            )
 
             # Call platform-specific update hook
             await client.update(
@@ -631,6 +659,179 @@ async def handle_v2_deployment_emission(request: DeploymentEmissionRequest):
         agent=agent, platform=deployment.platform, deployment=deployment
     )
     await client.handle_emission(request)
+    return {"deployment_id": str(deployment.id)}
+
+
+@handle_errors
+async def handle_v2_deployment_email_inbound(request: Request):
+    form = await request.form()
+
+    timestamp = form.get("timestamp")
+    token = form.get("token")
+    signature = form.get("signature")
+
+    signing_key = os.getenv("MAILGUN_WEBHOOK_SIGNING_KEY") or os.getenv(
+        "MAILGUN_API_KEY"
+    )
+
+    if signing_key and timestamp and token and signature:
+        expected_signature = hmac.new(
+            signing_key.encode(), f"{timestamp}{token}".encode(), hashlib.sha256
+        ).hexdigest()
+
+        if not hmac.compare_digest(expected_signature, signature):
+            logger.warning("Invalid email webhook signature")
+            return JSONResponse(status_code=401, content={"error": "invalid signature"})
+    else:
+        logger.warning("Missing email webhook signature data")
+        return JSONResponse(
+            status_code=400, content={"error": "missing signature parameters"}
+        )
+
+    recipient = form.get("recipient")
+    sender = form.get("sender")
+    subject = form.get("subject") or ""
+
+    if not recipient or not sender:
+        return JSONResponse(status_code=400, content={"error": "invalid payload"})
+
+    domain_part = recipient.split("@")[-1].lower()
+    email_domain = EmailDomain.find_by_domain(domain_part)
+
+    if not email_domain:
+        logger.info(f"No email domain configured for {domain_part}")
+        return JSONResponse(status_code=200, content={"ok": True})
+
+    if email_domain.provider != "mailgun":
+        logger.info(f"Email domain {domain_part} not managed by configured provider")
+        return JSONResponse(status_code=200, content={"ok": True})
+
+    deployment = None
+    if email_domain.deployment:
+        deployment = Deployment.from_mongo(ObjectId(email_domain.deployment))
+    else:
+        try:
+            deployment = Deployment.load(agent=email_domain.agent, platform="email")
+        except Exception:
+            deployment = None
+
+    if not deployment:
+        logger.info(f"No deployment associated with domain {domain_part}")
+        return JSONResponse(status_code=200, content={"ok": True})
+
+    config_email = deployment.config.email if deployment.config else None
+
+    if not config_email or not config_email.autoreply_enabled:
+        logger.info(f"Autoreply disabled for deployment {deployment.id}")
+        return JSONResponse(status_code=200, content={"ok": True})
+
+    text_body = form.get("stripped-text") or form.get("body-plain") or ""
+    html_body = form.get("stripped-html") or form.get("body-html")
+    message_id = (
+        form.get("Message-Id") or form.get("message-id") or form.get("message_id")
+    )
+    in_reply_to = (
+        form.get("In-Reply-To") or form.get("in-reply-to") or form.get("in_reply_to")
+    )
+
+    thread_identifier = (
+        (in_reply_to or message_id or str(uuid.uuid4()))
+        .replace("<", "")
+        .replace(">", "")
+    )
+
+    session_key = f"email-{deployment.id}-{thread_identifier}"
+
+    sender_name = sender
+    if "<" in sender and ">" in sender:
+        sender_name = sender.split("<")[0].strip().strip('"')
+
+    try:
+        session = Session.load(session_key=session_key)
+        session_id = str(session.id)
+    except MongoDocumentNotFound:
+        session = None
+        session_id = None
+
+    user = User.from_email(sender)
+
+    content_lines = []
+    if subject:
+        content_lines.append(f"Subject: {subject}")
+    if text_body:
+        content_lines.extend(["", text_body])
+    elif html_body:
+        content_lines.extend(["", html_body])
+    else:
+        content_lines.append("")
+
+    message_content = "\n".join(content_lines).strip()
+
+    avg_delay = config_email.reply_delay_average_minutes or 0
+    variance_delay = config_email.reply_delay_variance_minutes or 0
+
+    delay_minutes = avg_delay
+    if variance_delay:
+        delay_minutes = max(0, random.normalvariate(avg_delay, variance_delay))
+
+    delay_seconds = max(0, delay_minutes * 60)
+
+    update_config = SessionUpdateConfig(
+        deployment_id=str(deployment.id),
+        update_endpoint=f"{get_api_url()}/v2/deployments/emission",
+        email_sender=sender,
+        email_recipient=recipient,
+        email_subject=subject,
+        email_message_id=message_id,
+        email_thread_id=thread_identifier,
+    )
+
+    prompt_request = PromptSessionRequest(
+        user_id=str(user.id),
+        actor_agent_ids=[str(deployment.agent)],
+        message=ChatMessageRequestInput(
+            content=message_content or "(no content)",
+            sender_name=sender_name,
+        ),
+        update_config=update_config,
+    )
+
+    if session_id:
+        prompt_request.session_id = session_id
+    else:
+        prompt_request.creation_args = SessionCreationArgs(
+            owner_id=str(user.id),
+            agents=[str(deployment.agent)],
+            title=f"Email thread with {sender_name}",
+            session_key=session_key,
+            platform="email",
+        )
+
+    async def dispatch_prompt():
+        if delay_seconds > 0:
+            await asyncio.sleep(delay_seconds)
+
+        eden_api_url = get_api_url()
+        prompt_url = f"{eden_api_url}/sessions/prompt"
+
+        async with aiohttp.ClientSession() as session_client:
+            async with session_client.post(
+                prompt_url,
+                json=prompt_request.model_dump(),
+                headers={
+                    "Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}",
+                    "Content-Type": "application/json",
+                },
+            ) as response:
+                if response.status >= 400:
+                    error_text = await response.text()
+                    logger.error(
+                        f"Failed to dispatch email prompt ({response.status}): {error_text}"
+                    )
+
+    asyncio.create_task(dispatch_prompt())
+
+    return JSONResponse(status_code=200, content={"ok": True})
 
 
 # Notification handlers
@@ -691,8 +892,6 @@ else:
 @handle_errors
 async def handle_embed(request):
     """Embed images with CLIP"""
-
-    creations = get_collection("creations3")
 
     inputs = proc(
         text=[request.query], return_tensors="pt", padding=True, truncation=True

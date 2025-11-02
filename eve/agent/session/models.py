@@ -269,12 +269,10 @@ class ChatMessage(Document):
         return self.model_copy(update={"tool_calls": filtered_tool_calls})
 
     def update_tool_call(self, tool_call_index: int, **fields: dict):
-        set_fields = {
-            f"tool_calls.{tool_call_index}.{k}": v
-            for k, v in fields.items()
-        }
+        set_fields = {f"tool_calls.{tool_call_index}.{k}": v for k, v in fields.items()}
         self.get_collection().update_one(
-            {"_id": self.id}, {"$set": set_fields},
+            {"_id": self.id},
+            {"$set": set_fields},
         )
 
     def _get_content_block(self, schema, truncate_images=False):
@@ -289,8 +287,8 @@ class ChatMessage(Document):
 
         if self.attachments:
             # Process all attachments using the new file parser module
-            parsed_attachments, attachment_lines, attachment_errors = process_attachments_for_message(
-                self.attachments
+            parsed_attachments, attachment_lines, attachment_errors = (
+                process_attachments_for_message(self.attachments)
             )
 
             # Separate text attachments from media files for different processing
@@ -322,12 +320,12 @@ class ChatMessage(Document):
                 for text_att in text_attachments:
                     attachments += f'\n<attached_file type="text" name="{text_att.name}" url="{text_att.url}">\n'
                     attachments += text_att.content
-                    attachments += f"\n</attached_file>\n"
+                    attachments += "\n</attached_file>\n"
 
             if audio_attachments:
                 for audio_att in audio_attachments:
                     attachments += f'\n<attached_file type="audio" name="{audio_att.name}" url="{audio_att.url}" />\n'
-                    
+
             # Add truncation notification if any files were truncated
             if truncated_files:
                 if attachments:
@@ -645,6 +643,11 @@ class SessionUpdateConfig(BaseModel):
     farcaster_message_id: Optional[str] = None
     twitter_tweet_to_reply_id: Optional[str] = None
     user_is_bot: Optional[bool] = False
+    email_sender: Optional[str] = None
+    email_recipient: Optional[str] = None
+    email_subject: Optional[str] = None
+    email_message_id: Optional[str] = None
+    email_thread_id: Optional[str] = None
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
@@ -765,7 +768,9 @@ class SessionMemoryContext(BaseModel):
 class SessionExtras(BaseModel):
     """Additional session configuration flags"""
 
-    exclude_memory: Optional[bool] = False  # If True, memory won't be passed to system prompt
+    exclude_memory: Optional[bool] = (
+        False  # If True, memory won't be passed to system prompt
+    )
     is_public: Optional[bool] = False  # If True, session is publicly accessible
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -883,6 +888,7 @@ class ClientType(Enum):
     PRINTIFY = "printify"
     CAPTIONS = "captions"
     TIKTOK = "tiktok"
+    EMAIL = "email"
 
 
 class NotificationType(Enum):
@@ -958,7 +964,9 @@ class DeploymentSettingsFarcaster(BaseModel):
 
 
 class DeploymentSecretsFarcaster(BaseModel):
-    mnemonic: Optional[str] = None  # For backwards compatibility with direct mnemonic auth
+    mnemonic: Optional[str] = (
+        None  # For backwards compatibility with direct mnemonic auth
+    )
     signer_uuid: Optional[str] = None  # For Neynar managed signers
     neynar_webhook_secret: Optional[str] = None
 
@@ -1026,6 +1034,23 @@ class DeploymentSecretsTiktok(BaseModel):
     username: Optional[str] = None
 
 
+class DeploymentSettingsEmail(BaseModel):
+    domain_id: Optional[str] = None
+    sender_email: Optional[str] = None
+    autoreply_enabled: Optional[bool] = None
+    reply_delay_average_minutes: Optional[int] = None
+    reply_delay_variance_minutes: Optional[int] = None
+
+
+class DeploymentSecretsEmail(BaseModel):
+    domain: Optional[str] = None
+    provider_domain_id: Optional[str] = None
+    inbound_route_id: Optional[str] = None
+    inbound_route_expression: Optional[str] = None
+    forwarding_address: Optional[str] = None
+    webhook_signing_key: Optional[str] = None
+
+
 # Combined Models
 class DeploymentSecrets(BaseModel):
     discord: DeploymentSecretsDiscord | None = None
@@ -1036,6 +1061,7 @@ class DeploymentSecrets(BaseModel):
     printify: DeploymentSecretsPrintify | None = None
     captions: DeploymentSecretsCaptions | None = None
     tiktok: DeploymentSecretsTiktok | None = None
+    email: DeploymentSecretsEmail | None = None
 
 
 class DeploymentConfig(BaseModel):
@@ -1047,6 +1073,7 @@ class DeploymentConfig(BaseModel):
     printify: DeploymentSettingsPrintify | None = None
     captions: DeploymentSettingsCaptions | None = None
     tiktok: DeploymentSettingsTiktok | None = None
+    email: DeploymentSettingsEmail | None = None
 
 
 @Collection("deployments2")
@@ -1076,7 +1103,10 @@ class Deployment(Document):
     @classmethod
     def convert_to_mongo(cls, schema: dict, **kwargs) -> dict:
         """Encrypt secrets before saving to MongoDB"""
-        from eve.utils.kms_encryption import encrypt_deployment_secrets, get_kms_encryption
+        from eve.utils.kms_encryption import (
+            encrypt_deployment_secrets,
+            get_kms_encryption,
+        )
 
         kms = get_kms_encryption()
 
@@ -1091,13 +1121,19 @@ class Deployment(Document):
     @classmethod
     def convert_from_mongo(cls, schema: dict, **kwargs) -> dict:
         """Decrypt secrets after loading from MongoDB"""
-        from eve.utils.kms_encryption import decrypt_deployment_secrets, get_kms_encryption
+        from eve.utils.kms_encryption import (
+            decrypt_deployment_secrets,
+            get_kms_encryption,
+        )
 
-        kms = get_kms_encryption()
+        get_kms_encryption()
 
         if "secrets" in schema and schema["secrets"]:
             # Check if secrets are encrypted
-            if isinstance(schema["secrets"], dict) and "encryption_metadata" in schema["secrets"]:
+            if (
+                isinstance(schema["secrets"], dict)
+                and "encryption_metadata" in schema["secrets"]
+            ):
                 # Decrypt the secrets
                 try:
                     decrypted_secrets = decrypt_deployment_secrets(schema["secrets"])
@@ -1123,6 +1159,30 @@ class Deployment(Document):
         elif self.platform == ClientType.TELEGRAM:
             return self.config.telegram.topic_allowlist
         return []
+
+
+@Collection("email_domains")
+class EmailDomain(Document):
+    agent: ObjectId
+    user: ObjectId
+    provider: Literal["mailgun", "sendgrid", "twilio"] = "mailgun"
+    domain: str
+    provider_domain_id: Optional[str] = None
+    inbound_route_id: Optional[str] = None
+    inbound_route_expression: Optional[str] = None
+    forwarding_address: Optional[str] = None
+    webhook_signing_key: Optional[str] = None
+    status: Literal["pending", "verified", "failed"] = "pending"
+    lastSyncedAt: Optional[datetime] = None
+    dnsRecords: Optional[List[Dict[str, Any]]] = None
+    verificationErrors: Optional[List[str]] = None
+    deployment: Optional[ObjectId] = None
+
+    @classmethod
+    def find_by_domain(cls, domain: str) -> Optional["EmailDomain"]:
+        collection = cls.get_collection()
+        doc = collection.find_one({"domain": domain.lower()})
+        return cls(**doc) if doc else None
 
 
 @Collection("usernotifications")

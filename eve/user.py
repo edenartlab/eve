@@ -1,3 +1,4 @@
+import re
 from bson import ObjectId
 from typing import Optional, Literal, List, Dict
 
@@ -20,7 +21,7 @@ class Manna(Document):
     def load(cls, user: ObjectId):
         try:
             return super().load(user=user)
-        except MongoDocumentNotFound as e:
+        except MongoDocumentNotFound:
             # if mannas not found, check if user exists, and create a new manna document
             user = User.from_mongo(user)
             if not user:
@@ -155,6 +156,25 @@ class User(Document):
             new_user = cls(
                 telegramId=telegram_id,
                 telegramUsername=telegram_username,
+                username=username,
+            )
+            new_user.save()
+            return new_user
+        return cls(**user)
+
+    @classmethod
+    def from_email(cls, email: str):
+        normalized = email.strip().lower()
+        users = get_collection(cls.collection_name)
+        user = users.find_one({"normalizedEmail": normalized})
+        if not user:
+            local_part = normalized.split("@")[0] if "@" in normalized else normalized
+            safe_local = re.sub(r"[^a-z0-9_]", "_", local_part)
+            base_username = f"email_{safe_local or 'user'}"
+            username = cls._get_unique_username(base_username)
+            new_user = cls(
+                email=email.strip(),
+                normalizedEmail=normalized,
                 username=username,
             )
             new_user.save()

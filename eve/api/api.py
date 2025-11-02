@@ -37,6 +37,7 @@ from eve.api.handlers import (
     handle_v2_deployment_update,
     handle_v2_deployment_delete,
     handle_v2_deployment_farcaster_neynar_webhook,
+    handle_v2_deployment_email_inbound,
     handle_create_notification,
     handle_embedsearch,
     handle_extract_agent_prompts,
@@ -330,6 +331,11 @@ async def deployment_interact(
 @web_app.post("/v2/deployments/farcaster/neynar-webhook")
 async def deployment_farcaster_neynar_webhook(request: Request):
     return await handle_v2_deployment_farcaster_neynar_webhook(request)
+
+
+@web_app.post("/v2/deployments/email/inbound")
+async def deployment_email_inbound(request: Request):
+    return await handle_v2_deployment_email_inbound(request)
 
 
 @web_app.post("/v2/deployments/emission")

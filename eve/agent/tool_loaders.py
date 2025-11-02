@@ -39,6 +39,7 @@ def _get_platform_tool_sets():
             PRINTIFY_TOOLS,
             CAPTIONS_TOOLS,
             TIKTOK_TOOLS,
+            EMAIL_TOOLS,
         )
 
         PLATFORM_TOOL_SETS.update(
@@ -51,6 +52,7 @@ def _get_platform_tool_sets():
                 "printify": PRINTIFY_TOOLS,
                 "captions": CAPTIONS_TOOLS,
                 "tiktok": TIKTOK_TOOLS,
+                "email": EMAIL_TOOLS,
             }
         )
     return PLATFORM_TOOL_SETS
