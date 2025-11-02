@@ -12,7 +12,7 @@ DEFAULT_SESSION_LLM_CONFIG_DEV = {
         ],
     ),
     "free": LLMConfig(
-        model="claude-haiku-4-5",
+        model="claude-sonnet-4-5",
         fallback_models=[
             "gpt-5-nano"
         ],
@@ -20,13 +20,13 @@ DEFAULT_SESSION_LLM_CONFIG_DEV = {
 }
 DEFAULT_SESSION_LLM_CONFIG_STAGE = {
     "premium": LLMConfig(
-        model="claude-haiku-4-5",
+        model="claude-sonnet-4-5",
         fallback_models=[
             "gpt-5-nano"
         ],
     ),
     "free": LLMConfig(
-        model="claude-haiku-4-5",
+        model="claude-sonnet-4-5",
         fallback_models=[
             "gpt-5-nano"
         ],
@@ -35,10 +35,10 @@ DEFAULT_SESSION_LLM_CONFIG_STAGE = {
 
 DEFAULT_SESSION_LLM_CONFIG_PROD = {
     "premium": LLMConfig(
-        model="claude-haiku-4-5",
+        model="claude-sonnet-4-5",
     ),
     "free": LLMConfig(
-        model="claude-haiku-4-5",
+        model="claude-sonnet-4-5",
     ),
 }
 

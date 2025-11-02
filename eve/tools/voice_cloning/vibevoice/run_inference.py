@@ -458,7 +458,7 @@ class VibeVoiceInference:
 
         # Set diffusion steps
         self.model.set_ddpm_inference_steps(diffusion_steps)
-
+        
         # Format text for VibeVoice
         formatted_text = self._format_text_for_vibevoice(text)
         print(f"Formatted text")
