@@ -2,7 +2,23 @@
 Constants used by both tool.py and agent.py, extracted to break circular imports.
 """
 
+import os
+from pathlib import Path
 from typing import Literal
+
+def _discover_gigabrain_tools():
+    gigabrain_tools_path = Path(__file__).parent / "tools" / "gigabrain"
+    tools = []
+
+    if gigabrain_tools_path.exists():
+        for item in gigabrain_tools_path.iterdir():
+            # Only include directories (not files like __pycache__ or .DS_Store)
+            if item.is_dir() and not item.name.startswith('.') and not item.name.startswith('__'):
+                tools.append(item.name)
+
+    return sorted(tools)
+
+
 
 OUTPUT_TYPES = Literal[
     "boolean", "string", "integer", "float", "array", "image", "video", "audio", "lora"
@@ -76,6 +92,7 @@ ALL_TOOLS = [
     "openai_image_generate",
 ]
 
+GIGABRAIN_TOOLS = _discover_gigabrain_tools()
 DISCORD_TOOLS = ["discord_post", "discord_search", "discord_broadcast_dm"]
 TELEGRAM_TOOLS = ["telegram_post"]
 TWITTER_TOOLS = ["tweet", "twitter_mentions", "twitter_search"]
