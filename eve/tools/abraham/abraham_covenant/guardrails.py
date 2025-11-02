@@ -4,6 +4,7 @@ import requests
 from typing import Dict, List, Any
 from loguru import logger
 from bson.errors import InvalidId
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from eve.agent.session.models import Session
 from eve.utils.file_utils import (
@@ -13,14 +14,50 @@ from eve.utils.file_utils import (
 )
 
 
+class IPFSDownloadError(Exception):
+    """Error during IPFS download operations."""
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    retry=retry_if_exception_type((requests.RequestException, IPFSDownloadError)),
+    before_sleep=lambda retry_state: logger.info(f"Retrying download (attempt {retry_state.attempt_number}/3)...")
+)
+def _download_from_gateway(url: str, timeout: int = 60) -> bytes:
+    """Download content from a single gateway with retry logic."""
+    try:
+        response = requests.get(url, timeout=timeout)
+        response.raise_for_status()
+        content_length = len(response.content)
+        if content_length == 0:
+            raise IPFSDownloadError("Content length is 0")
+        return response.content
+    except requests.exceptions.HTTPError as e:
+        # Non-gateway errors (404, 403, etc) should not be retried
+        if e.response.status_code not in [502, 503, 504]:
+            raise IPFSDownloadError(f"HTTP error {e.response.status_code}: {e}")
+        raise  # Gateway errors (502, 503, 504) will be retried by tenacity
+    except Exception as e:
+        raise IPFSDownloadError(f"Download failed: {e}")
+
+
 def download_from_ipfs(ipfs_hash: str) -> bytes:
-    """Download content from IPFS gateway."""
-    url = f"https://ipfs.io/ipfs/{ipfs_hash}"
-    response = requests.get(url, timeout=30)
-    response.raise_for_status()
-    content_length = len(response.content)
-    assert content_length > 0, "Content length is 0"
-    return response.content
+    """Download content from IPFS gateway with automatic fallback to multiple gateways"""
+    last_exception = None
+    for gateway in [
+        "https://ipfs.io/ipfs/",
+        "https://cloudflare-ipfs.com/ipfs/",
+        "https://dweb.link/ipfs/",
+        "https://gateway.pinata.cloud/ipfs/",
+    ]:
+        url = f"{gateway}{ipfs_hash}"
+        try:
+            return _download_from_gateway(url)
+        except Exception as e:
+            last_exception = e
+            continue
+    error_msg = f"Failed to download IPFS content {ipfs_hash} from all gateways"
+    raise IPFSDownloadError(f"{error_msg}. Last error: {last_exception}")
 
 
 def validate_json(content: bytes) -> Dict[str, Any]:
@@ -101,6 +138,43 @@ def extract_media_urls(markdown_text: str) -> List[str]:
     return unique_urls
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    retry=retry_if_exception_type(requests.RequestException),
+    before_sleep=lambda retry_state: logger.info(f"Retrying download (attempt {retry_state.attempt_number}/3)...")
+)
+def download_with_retry(url: str, timeout: int = 60) -> bytes:
+    """Download content from URL with retry logic.
+
+    Args:
+        url: The URL to download
+        timeout: Timeout in seconds for each request (default: 60)
+
+    Returns:
+        bytes: The downloaded content
+
+    Raises:
+        requests.RequestException: If all retries fail
+    """
+    logger.info(f"Downloading {url}")
+    response = requests.get(url, timeout=timeout)
+
+    # Non-gateway errors should not be retried
+    if response.status_code >= 400:
+        if response.status_code not in [502, 503, 504]:
+            response.raise_for_status()
+
+    response.raise_for_status()
+
+    content_length = len(response.content)
+    if content_length == 0:
+        raise requests.RequestException("Content length is 0")
+
+    logger.info(f"✓ Successfully downloaded {content_length} bytes")
+    return response.content
+
+
 def validate_media_url(url: str) -> None:
     """Validate a single media URL (image, video, or audio).
 
@@ -113,22 +187,21 @@ def validate_media_url(url: str) -> None:
     media_type = get_media_type(url)
 
     try:
-        response = requests.get(url, timeout=30)
-        response.raise_for_status()
+        content = download_with_retry(url)
 
         # Validate based on media type
         if media_type == 'image':
-            ok, info = validate_image_bytes(response.content)
+            ok, info = validate_image_bytes(content)
             if not ok:
                 raise ValueError(f"Invalid image from {url}: {info.get('reason', 'unknown')}")
 
         elif media_type == 'video':
-            ok, info = validate_video_bytes(response.content)
+            ok, info = validate_video_bytes(content)
             if not ok:
                 raise ValueError(f"Invalid video from {url}: {info.get('reason', 'unknown')}")
 
         elif media_type == 'audio':
-            ok, info = validate_audio_bytes(response.content)
+            ok, info = validate_audio_bytes(content)
             if not ok:
                 raise ValueError(f"Invalid audio from {url}: {info.get('reason', 'unknown')}")
 
@@ -192,10 +265,9 @@ def validate_creation(title: str, tagline: str, poster_image: str, post: str, se
         if not poster_image.startswith(("http://", "https://")):
             raise ValueError(f"Invalid poster_image URL: {poster_image}")
 
-        response = requests.get(poster_image, timeout=30)
-        response.raise_for_status()
+        content = download_with_retry(poster_image)
 
-        ok, info = validate_image_bytes(response.content)
+        ok, info = validate_image_bytes(content)
         if not ok:
             raise ValueError(f"Invalid poster image {poster_image}: {info.get('reason', 'unknown')}")
 
