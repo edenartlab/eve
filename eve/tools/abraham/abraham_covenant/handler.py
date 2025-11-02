@@ -98,7 +98,7 @@ def commit_daily_work(
 
         # Prepare contract function call
 
-        if False:
+        if True:
             w3, owner, contract, abi = load_contract(
                 address=CONTRACT_ADDRESS_COVENANT,
                 abi_path=CONTRACT_ABI_COVENANT,
@@ -173,9 +173,8 @@ async def handler(context: ToolContext):
 
     abraham_seed = AbrahamSeed.find_one({"session_id": ObjectId(session_id)})
     num_creations = len(AbrahamSeed.find({"status": "creation"}))
-    index = num_creations + 1
-
-    # raise Exception(f"Need to account for index for index : Index: {index}")
+    num_rest_days = num_creations // 6
+    index = num_creations + num_rest_days
 
     # Commit to blockchain
     try:

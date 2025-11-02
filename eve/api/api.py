@@ -3,7 +3,6 @@ import logging
 import asyncio
 import signal
 import json
-import uuid
 import modal
 import replicate
 import sentry_sdk
@@ -19,9 +18,6 @@ from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 
 from eve import auth, db
-from eve.agent import Agent
-from eve.user import User
-from eve.tool import Tool
 from eve.api.runner_tasks import download_clip_models
 from eve.api.handlers import (
     handle_create,
@@ -86,17 +82,8 @@ from eve.api.api_functions import (
     run_task_replicate,
     cleanup_stale_busy_states,
 )
-from eve.agent.session.models import (
-    Session,
-    ChatMessage,
-    LLMConfig,
-    PromptSessionContext,
-)
-from eve.agent.session.session import (
-    add_chat_message, 
-    build_llm_context, 
-    async_prompt_session,
-)
+from eve.agent.session.models import Session
+from eve.agent.session.run import remote_prompt_session
 
 
 app_name = f"api-{db.lower()}"
@@ -600,57 +587,3 @@ async def remote_prompt_session_fn(
         attachments=attachments,
         extra_tools=extra_tools,
     )
-
-async def remote_prompt_session(
-    session_id: str,
-    agent_id: str,
-    user_id: str,
-    content: str,
-    attachments: Optional[List[str]] = [],
-    extra_tools: Optional[List[str]] = [],
-):
-    logger.info(
-        f"Remote prompt: session={session_id}, agent={agent_id}, user={user_id}"
-    )
-
-    # Load models
-    session = Session.from_mongo(session_id)
-    agent = Agent.from_mongo(agent_id)
-    user = User.from_mongo(user_id)
-
-    # Create user message
-    new_message = ChatMessage(
-        role="user",
-        sender=user.id,
-        session=session.id,
-        content=content,
-        attachments=attachments,
-    )
-
-    # Build context
-    context = PromptSessionContext(
-        session=session,
-        initiating_user_id=str(user.id),
-        message=new_message,
-        llm_config=LLMConfig(model="claude-sonnet-4-5"),
-    )
-
-    if extra_tools:
-        context.extra_tools = {k: Tool.load(k) for k in extra_tools}
-
-    # Add message to session
-    await add_chat_message(session, context)
-
-    # Build LLM context and prompt
-    context = await build_llm_context(
-        session,
-        agent,
-        context,
-        trace_id=str(uuid.uuid4()),
-    )
-
-    # Run the prompt
-    async for m in async_prompt_session(session, context, agent):
-        pass
-
-    logger.info(f"Remote prompt completed for session {session_id}")

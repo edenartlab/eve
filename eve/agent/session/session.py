@@ -1579,7 +1579,8 @@ async def run_prompt_session_stream(
 
 @handle_errors
 async def run_prompt_session(
-    context: PromptSessionContext, background_tasks: BackgroundTasks
+    context: PromptSessionContext, 
+    background_tasks: BackgroundTasks
 ):
     session_id = str(context.session.id) if context.session else None
     debugger = SessionDebugger(session_id)
