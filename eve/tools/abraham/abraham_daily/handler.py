@@ -6,6 +6,7 @@ from eve.tool import Tool, ToolContext
 from eve.user import User
 from eve.agent import Agent
 from eve.agent.session.models import Session
+from eve.tools.abraham.abraham_rest.handler import rest
 from eve.tools.abraham.abraham_seed.handler import AbrahamSeed
 
 
@@ -35,35 +36,81 @@ def user_score(msg_count: int) -> float:
 
 
 daily_message_template = Template("""
-The creation session is complete. It has been chosen as the top **Seed of the Day** and will be permanently recorded in the **Abraham Covenant**. Next, we’ll process and package everything into a final form that reflects all of the development, research, and creative work from this session.
+### Prompt: Minting a Creation to the Covenant
 
-# Structure of the Covenant
+This Seed has concluded, and it has been selected to be permanently recorded as the next Creation in the **Abraham Covenant**.
 
-You will now produce the Covenant entry. It must include:
+Your task is to process and package everything from this session into a final form that represents its complete creative journey.
 
-* A title
-* A tagline
-* A representative 16:9 poster image with the title on it
-* A Markdown blog post with supporting media embedded throughout that captures the essence of the creation
+---
 
-# Plan
+## Objective
 
-Complete **all** of the following in order. Do not proceed to the next step until you’re sure the previous one is finished. You may work autonomously—no need for clarification. Don’t stop. I trust you. Be bold.
+Produce a **Covenant entry** consisting of:
 
-## Step 1
+1. **Title**
+2. **Tagline**
+3. **Representative poster image (16:9)** — must include the title text
+4. **Markdown blog post** — with embedded supporting media (images/videos) that capture the essence of the creation
 
-Analyze everything that happened in this session and form a unifying narrative. Ask yourself:
+---
+
+## Workflow
+
+Follow these steps **in order**.
+Do **not** skip or advance until the current step is fully complete.
+You may act autonomously and decisively—no clarification is needed. Be confident and bold in your creative choices.
+
+---
+
+### Step 1 — Analyze the Session
+
+Review all events, outputs, and conversations from this creation session.
+Synthesize them into a **unifying narrative** by answering:
 
 * What was the main outcome of this session?
-* In what format did it emerge—did you and your followers tell a sequential story, or iteratively develop a single work? Were there multiple outcomes? What is the structure and essence of the session?
+* What form did the creation take — a sequential story, a single evolving work, or multiple related outcomes?
+* What is the overall structure and essence of this creative process?
 
-## Step 2
+---
 
-From that narrative, write a long-form Markdown blog post that captures the entire session. Embed all key images from earlier in the session and include any videos. Do not include more than 10 assets, so if there are more, select the most important ones. The post should end with an "Acknowledgments" section that gives a very short acknowledgment for up to 3 people who contributed to this work. For context, the top users by message count are {{usernames}}.
+### Guidance for the Blog Post
 
-## Step 3
+When writing the Covenant post, focus on **clarity and cohesion**, not completeness.
+Distill the entire session into a single **central thread** — the main transformation or discovery that defines it. Begin with **meaning**, not process: tell the reader what this creation *is about* before describing how it came to be.
 
-Finally, call the **`abraham_covenant`** tool to publish the blog post, poster image, and supporting content. Make sure the poster image is 16:9, regardless of the original content you made.
+**Curate, don’t chronicle.**
+Select only the most important moments and images that express the essence of the work. Avoid redundancy, and group related experiments together rather than documenting every step. The result should read as one coherent story — concise, intentional, and emotionally resonant — regardless of how long or short the session was.
+
+---
+
+### Step 2 — Write the Markdown Blog Post
+
+Using your analysis, write a **long-form Markdown blog post** that documents and interprets the entire session.
+Embed up to **10 key assets** (images and/or videos) that best represent the evolution and final result of the work.
+
+* Select only the most essential and distinct visuals.
+* Avoid duplicates or near-identical images unless contextually justified.
+* Conclude the post with an **“Acknowledgments”** section, briefly naming up to 3 contributors (the top participants by message count: `{{usernames}}`).
+
+---
+
+### Step 3 — Create the Poster Image
+
+Generate a **16:9 poster image** representing the entire creation.
+
+* The poster should integrate or reference multiple session images for visual cohesion.
+* The **title must be clearly visible** and legible within the image.
+* You may retry generation multiple times if legibility or composition is poor.
+* Ensure the final version strictly maintains a **16:9 aspect ratio**.
+
+---
+
+### Step 4 — Publish to the Covenant
+
+When all components (title, tagline, blog post, and poster image) are ready,
+call the **`abraham_covenant`** tool to **publish** the complete entry.
+Confirm that the poster image is 16:9 before submission.
 """)
 
 
@@ -71,12 +118,7 @@ async def commit_daily_work(agent: Agent, session: str):
     session_post = Tool.load("session_post")
 
     abraham_seeds = AbrahamSeed.find({"status": "seed"})
-
-    # print("seeds", abraham_seeds)
-    # print([a.session_id for a in abraham_seeds])
     sessions = Session.find({"_id": {"$in": [a.session_id for a in abraham_seeds]}})
-
-    # print("sessions", sessions)
 
     candidates = []
     for session in sessions:
@@ -108,17 +150,10 @@ async def commit_daily_work(agent: Agent, session: str):
                     "message_count": count
                 } 
                 for user_id, count in messages_per_user.items()
-                # if User.from_mongo(user_id).username not in ["farcaster_genekogan", "gene"]
             ],
             key=lambda x: x["message_count"],
             reverse=True
         )
-
-        # print("session", session.id)
-        # print("score", score)
-        # print("unique_users", unique_users)
-        # print("total_messages", total_messages)
-        # print("--------------------------------")
 
         candidates.append({
             "session": session,
@@ -129,18 +164,7 @@ async def commit_daily_work(agent: Agent, session: str):
         })
 
     candidates = sorted(candidates, key=lambda x: x["score"], reverse=True)
-
-    # print("---")
-    # print("Session Scores (Quadratic Voting):")
-    # for candidate in candidates:
-    #     print(f"  {candidate['session'].id}: score={candidate['score']:.2f}, "
-    #           f"unique_users={candidate['unique_users']}, "
-    #           f"total_messages={candidate['total_messages']}")
-    # print("---")
-
     winner = candidates[0]
-
-    # print("THE WINNER IS", winner["session"].id)
 
     daily_message = daily_message_template.render(
         usernames=[user["username"] for user in winner["users"][:3]],
@@ -154,7 +178,6 @@ async def commit_daily_work(agent: Agent, session: str):
             "session": str(winner["session"].id),
             "content": daily_message,
             "attachments": [],
-            # "pin": True,
             "prompt": True,
             "async": True,
             "extra_tools": ["abraham_covenant"],
@@ -165,16 +188,7 @@ async def commit_daily_work(agent: Agent, session: str):
 
 
 async def abraham_rest(agent: Agent):
-    # print("RUN ABRAHAM_REST !!")
-    # print("agent", agent)
-    # print(type(agent))
-    # tool = Tool.load("abraham_rest")
-    # result = await tool.async_run({"agent_id": str(agent.id)}) # todo: maybe some nice Abraham comments here
-
-    from eve.tools.abraham.abraham_rest.handler import rest
-
     result = rest()
-    # print("result rest", result)
 
     return {
         "output": [
@@ -195,9 +209,3 @@ async def handler(context: ToolContext):
         return await abraham_rest(agent)
     else:
         return await commit_daily_work(agent, context.session)
-
-
-# if __name__ == "__main__":
-#     agent = Agent.from_mongo("675f880479e00297cd9b4688")
-#     agent_id = "675f880479e00297cd9b4688"
-#     asyncio.run(handler({}, agent=agent_id))

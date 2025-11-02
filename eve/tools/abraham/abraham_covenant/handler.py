@@ -97,34 +97,30 @@ def commit_daily_work(
         logger.info(f"IPFS post is valid: {ipfs_hash}")
 
         # Prepare contract function call
+        w3, owner, contract, abi = load_contract(
+            address=CONTRACT_ADDRESS_COVENANT,
+            abi_path=CONTRACT_ABI_COVENANT,
+            private_key=ABRAHAM_PRIVATE_KEY,
+            network=Network.ETH_MAINNET,
+        )
 
-        if True:
-            w3, owner, contract, abi = load_contract(
-                address=CONTRACT_ADDRESS_COVENANT,
-                abi_path=CONTRACT_ABI_COVENANT,
-                private_key=ABRAHAM_PRIVATE_KEY,
-                network=Network.ETH_MAINNET,
-            )
+        contract_function = contract.functions.commitDailyWork(
+            f"ipfs://{ipfs_hash}"
+        )
 
-            contract_function = contract.functions.commitDailyWork(
-                f"ipfs://{ipfs_hash}"
-            )
-
-            # Send transaction
-            tx_hash, _ = safe_send(
-                w3,
-                contract_function,
-                ABRAHAM_PRIVATE_KEY,
-                op_name="ABRAHAM_DAILY_WORK",
-                nonce=None,
-                value=0,
-                abi=abi,
-                # network=Network.ETH_SEPOLIA,
-                network=Network.ETH_MAINNET,
-            )
-        else:
-            tx_hash_hex = "test_hex"
-
+        # Send transaction
+        tx_hash, _ = safe_send(
+            w3,
+            contract_function,
+            ABRAHAM_PRIVATE_KEY,
+            op_name="ABRAHAM_DAILY_WORK",
+            nonce=None,
+            value=0,
+            abi=abi,
+            # network=Network.ETH_SEPOLIA,
+            network=Network.ETH_MAINNET,
+        )
+        
         # Build explorer URL
         tx_hash_hex = tx_hash.hex()
         if not tx_hash_hex.startswith("0x"):
