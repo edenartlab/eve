@@ -6,12 +6,9 @@ from fastapi import Request
 from loguru import logger
 
 from eve.api.errors import APIError
+from eve.agent.agent import Agent
 from eve.agent.deployments import PlatformClient
-from eve.agent.session.models import (
-    DeploymentConfig,
-    DeploymentSecrets,
-    UpdateType,
-)
+from eve.agent.session.models import Deployment, DeploymentConfig, DeploymentSecrets, UpdateType
 
 
 class EmailClient(PlatformClient):
@@ -191,3 +188,62 @@ class EmailClient(PlatformClient):
                         return {"message": response_text}
 
                 return {"message": response_text}
+
+    @classmethod
+    async def send_tool_email(
+        cls,
+        *,
+        agent_id: Optional[str],
+        args: Optional[dict],
+        user: Optional[str] = None,
+    ) -> dict:
+        if not agent_id:
+            raise APIError("Agent identifier is required", status_code=400)
+
+        agent = Agent.from_mongo(agent_id)
+        if not agent:
+            raise APIError("Agent not found", status_code=404)
+
+        deployment = Deployment.load(agent=agent.id, platform="email")
+        if not deployment or not deployment.valid:
+            raise APIError(
+                "Agent has no valid email deployment configured",
+                status_code=400,
+            )
+
+        client = cls(agent=agent, deployment=deployment)
+
+        email_args = args or {}
+        to_address = email_args.get("to")
+        subject = email_args.get("subject")
+        text = email_args.get("text") or email_args.get("body")
+        html = email_args.get("html")
+        reply_to = email_args.get("reply_to")
+
+        if not to_address:
+            raise APIError("Recipient email address is required", status_code=400)
+        if not subject:
+            raise APIError("Email subject is required", status_code=400)
+        if not text and not html:
+            raise APIError("Email body is required", status_code=400)
+
+        response = await client.send_email(
+            to_address=to_address,
+            subject=subject,
+            text_content=text or "",
+            html_content=html,
+            reply_to=reply_to,
+        )
+
+        message_id = response.get("id") if isinstance(response, dict) else None
+
+        return {
+            "output": [
+                {
+                    "url": f"mailto:{to_address}",
+                    "title": subject,
+                    "status": "sent",
+                    "message_id": message_id,
+                }
+            ]
+        }
