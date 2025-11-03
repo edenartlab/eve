@@ -42,7 +42,7 @@ DEFAULT_SESSION_LLM_CONFIG_PROD = {
     ),
 }
 
-DEFAULT_SESSION_SELECTION_LIMIT = 100
+DEFAULT_SESSION_SELECTION_LIMIT = 30
 
 # Master model configuration: tier -> [primary, fallback1, fallback2]
 MODEL_TIERS = {
