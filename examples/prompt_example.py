@@ -14,7 +14,7 @@ async def example_prompt():
         name=agent.name,
         current_date_time=datetime.now(pytz.utc).strftime("%Y-%m-%d %H:%M:%S"),
         persona=agent.persona,
-        tools=None
+        tools=None,
     )
 
     # Build LLM context with custom tools
@@ -29,7 +29,7 @@ async def example_prompt():
     # Do a single turn prompt with forced tool usage
     response = await async_prompt(context)
 
-    print(response)
+    # print(response)
 
 
 if __name__ == "__main__":

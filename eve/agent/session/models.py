@@ -1077,12 +1077,13 @@ class Deployment(Document):
     def convert_to_mongo(cls, schema: dict, **kwargs) -> dict:
         """Encrypt secrets before saving to MongoDB"""
         from eve.utils.kms_encryption import encrypt_deployment_secrets, get_kms_encryption
+        from eve.utils.data_utils import serialize_json
 
         kms = get_kms_encryption()
 
         if kms.enabled and "secrets" in schema and schema["secrets"]:
-            # Encrypt the secrets field
-            encrypted_secrets = encrypt_deployment_secrets(schema["secrets"])
+            secrets_dict = serialize_json(schema["secrets"])
+            encrypted_secrets = encrypt_deployment_secrets(secrets_dict)
             schema["secrets"] = encrypted_secrets
             schema["encrypted"] = True
 
