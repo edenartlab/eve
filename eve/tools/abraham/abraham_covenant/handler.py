@@ -109,7 +109,7 @@ def commit_daily_work(
         )
 
         # Send transaction
-        tx_hash, _ = safe_send(
+        tx_hash_hex, _ = safe_send(
             w3,
             contract_function,
             ABRAHAM_PRIVATE_KEY,
@@ -122,7 +122,6 @@ def commit_daily_work(
         )
         
         # Build explorer URL
-        tx_hash_hex = tx_hash.hex()
         if not tx_hash_hex.startswith("0x"):
             tx_hash_hex = f"0x{tx_hash_hex}"
 

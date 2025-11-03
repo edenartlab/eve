@@ -373,8 +373,8 @@ def safe_send(
             f"✅ {op_name} confirmed: {tx_hex} | block={receipt.blockNumber} gasUsed={receipt.gasUsed}"
             + (f" effGasPrice={_fmt_gwei(eff)}" if eff is not None else "")
         )
-
-        return tx_hash, receipt
+        
+        return tx_hash.hex()h, receipt
 
     except BlockchainError as first_err:
         # Check if transaction reverted (already mined) vs timeout (still pending)
@@ -422,7 +422,7 @@ def safe_send(
                 logger.info(
                     f"✅ {op_name} confirmed after speed-up: {tx_hex} | block={receipt.blockNumber}"
                 )
-                return tx_hash, receipt
+                return tx_hash.hex(), receipt
 
             except ValueError as e:
                 msg = e.args[0].get("message") if e.args and isinstance(e.args[0], dict) else str(e)
