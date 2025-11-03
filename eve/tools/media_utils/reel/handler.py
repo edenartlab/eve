@@ -119,12 +119,12 @@ async def handler(context: ToolContext):
 
     session_post = Tool.load("session_post")
 
-    context = context.args.get("context")
+    context_text = context.args.get("context")
     producer_instructions = context.args.get("producer_instructions")
     media_files = context.args.get("media_files") or []
 
     user_message = Template(init_message).render(
-        context=context,
+        context=context_text,
         producer_instructions=producer_instructions,
     )
 
