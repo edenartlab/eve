@@ -60,7 +60,7 @@ AGENT_MEMORY_BLOB_MAX_WORDS = 1000  # Target word count for consolidated agent m
 # Define different memory types and their extraction limits:
 MEMORY_TYPES = {
     "episode":    MemoryType("episode",    1, 1, "Summary of given conversation segment for contextual recall. Will always be provided in the context of previous episodes and most recent messages."),
-    "directive":  MemoryType("directive",  0, 3, "Persistent instructions, preferences and personal context to remember for future interactions with this user."), 
+    "directive":  MemoryType("directive",  0, 4, "Persistent instructions, preferences and personal context to remember for future interactions with this user."), 
     "suggestion": MemoryType("suggestion", 0, 5, "New ideas, suggestions, insights, or context relevant to the shard that could help improve / evolve / form this shard's area of focus"),
     "fact":       MemoryType("fact",       0, 2, "Atomic, verifiable, unchanging information that is relevant to the collective memory shard context and should be kept in memory FOREVER.")
 }
@@ -87,7 +87,7 @@ REGULAR_MEMORY_EXTRACTION_PROMPT = f"""Task: Extract persistent memories from th
   - Avoid commentary or analysis, create memories that stand on their own without context
 
 2. DIRECTIVE: {MEMORY_TYPES['directive'].custom_prompt}
-  Create {MEMORY_TYPES['directive'].min_items}-{MEMORY_TYPES['directive'].max_items} user memories (maximum {SESSION_DIRECTIVE_MEMORY_MAX_WORDS} words each) if there are personal updates (like progress on projects), long-lasting rules, preferences, or personal context that should be remembered consistently in all future interactions with this user. If none exist (very likely), just return an empty array.
+  Create {MEMORY_TYPES['directive'].min_items}-{MEMORY_TYPES['directive'].max_items} user memories (maximum {SESSION_DIRECTIVE_MEMORY_MAX_WORDS} words each) if there are personal updates (like progress on projects), long-lasting rules, preferences, or personal context that should be remembered consistently in all future interactions with this user. If none exist (likely), just return an empty array.
    
   INCLUDE as directives:
   - Explicit behavioral rules ("always ask before X", "never do Y")
@@ -104,13 +104,14 @@ REGULAR_MEMORY_EXTRACTION_PROMPT = f"""Task: Extract persistent memories from th
   - "Always ask Jack for permission before generating videos"
   - "Before generating images always check what aspect ratio the user prefers"
   - "Jack is fascinated by calligraphy and loves to paint"
+  - "Amelia is a VJ who is exploring AI tools to create seamless video animations for her gigs"
   Bad examples (DO NOT make these directives):
   - "Gene requested a story about a clockmaker" (one-time request)
   - "The deadline is next Friday" (ephemeral temporal fact, not behavioral rule)
    
 CRITICAL REQUIREMENTS: 
-- BE VERY STRICT about directives - conversations will often have NO directives (empty array), only an episode
-- ALWAYS use specific user names from the conversation (NEVER use "User", "the user", or "they")
+- BE STRICT about directives - conversations will often have NO directives (empty array), only an episode
+- ALWAYS use specific usernames from the conversation (NEVER use "User", "the user", or "they")
 - Episodes should capture both WHAT happened and WHY it matters (avoid interpretations or commentary but preserve emotional context when relevant)
 - Directives can include CONDITIONAL rules ("when X, then Y")
 - Return arrays for both episode and directive (empty array if no relevant directives)
