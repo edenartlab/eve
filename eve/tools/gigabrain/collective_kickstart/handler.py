@@ -495,6 +495,13 @@ async def handler(context: ToolContext):
             "output": "This tool can only be run by an agent owner."
         }
 
+    # Defensive check: ensure context.args is a dict
+    if not isinstance(context.args, dict):
+        logger.error(f"context.args is not a dict, it's a {type(context.args)}: {context.args}")
+        return {
+            "output": f"Error: Tool received invalid arguments format. Expected dict, got {type(context.args).__name__}."
+        }
+
     # Extract and validate parameters
     time_window_str = context.args.get("time_window", "P2H")
     min_messages = context.args.get("min_messages", 3)
