@@ -1,0 +1,7 @@
+{
+  "time_window": "PT4H",
+  "min_messages": 2,
+  "message_age_cutoff": "P2D",
+  "agent_id": "6906b66f47f7f6cc88eaa069",
+  "user_id": "659d4bea8b190e62b1d2e22f"
+}
