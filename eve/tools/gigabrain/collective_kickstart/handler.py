@@ -269,7 +269,7 @@ def format_user_profiles(
     return user_profiles
 
 
-async def call_profile_matching_handler(user_profiles: Dict[str, str]) -> Dict:
+async def call_profile_matching_handler(user_profiles: Dict[str, str], agent_id: ObjectId) -> Dict:
     """
     Call the profile_matching tool's handler directly.
 
@@ -290,7 +290,7 @@ async def call_profile_matching_handler(user_profiles: Dict[str, str]) -> Dict:
             "config_path": "config/config.yaml",
             "force": True
         },
-        agent=None,
+        agent=agent_id,
         user=None
     )
 
@@ -458,7 +458,6 @@ async def create_user_session_with_message(
             "status": "failed",
             "error": str(e)
         }
-
 
 async def handler(context: ToolContext):
     """
