@@ -109,7 +109,7 @@ def commit_daily_work(
         )
 
         # Send transaction
-        tx_hash, _ = safe_send(
+        tx_hex, _ = safe_send(
             w3,
             contract_function,
             ABRAHAM_PRIVATE_KEY,
@@ -122,17 +122,16 @@ def commit_daily_work(
         )
         
         # Build explorer URL
-        tx_hash_hex = tx_hash.hex()
-        if not tx_hash_hex.startswith("0x"):
-            tx_hash_hex = f"0x{tx_hash_hex}"
+        if not tx_hex.startswith("0x"):
+            tx_hex = f"0x{tx_hex}"
 
-        explorer_url = f"https://etherscan.io/tx/{tx_hash_hex}"
+        explorer_url = f"https://etherscan.io/tx/{tx_hex}"
 
-        logger.info(f"✅ Daily work committed successfully: {tx_hash_hex}")
+        logger.info(f"✅ Daily work committed successfully: {tx_hex}")
         logger.info(f"Explorer: {explorer_url}")
 
         return {
-            "tx_hash": tx_hash_hex,
+            "tx_hash": tx_hex,
             "ipfs_hash": ipfs_hash,
             "image_hash": poster_image_hash,
             "explorer_url": explorer_url,
