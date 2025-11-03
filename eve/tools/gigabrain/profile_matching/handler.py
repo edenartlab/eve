@@ -47,11 +47,12 @@ async def handler(context: ToolContext):
 
         logger.info(f"Matching pipeline completed successfully")
 
-        if result.get("success"):
-            num_matches = len(result.get("matches", []))
-            logger.info(f"Generated {num_matches} matches")
-        else:
+        # Log results - check for error or success
+        if result.get("error"):
             logger.warning(f"Pipeline returned with errors: {result.get('error')}")
+        elif result.get("users"):
+            num_users = len(result.get("users", {}))
+            logger.info(f"Generated matches for {num_users} users")
 
         return {
             "output": result,
