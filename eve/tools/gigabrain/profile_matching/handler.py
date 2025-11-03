@@ -1,7 +1,34 @@
 import json
 import modal
+from bson import ObjectId
 from eve.tool import ToolContext
+from eve.agent.agent import Agent, AgentPermission
 from loguru import logger
+
+
+def check_agent_owner_permission(agent: Agent, user_id: ObjectId) -> bool:
+    """
+    Check if a user is an owner of the agent.
+
+    Args:
+        agent: Agent object
+        user_id: User ObjectId to check
+
+    Returns:
+        True if user is an owner, False otherwise
+    """
+    # Check if user is the primary owner
+    if agent.owner == user_id:
+        return True
+
+    # Check agent_permissions collection for owner-level permission
+    permission = AgentPermission.find_one({
+        "agent": agent.id,
+        "user": user_id,
+        "level": "owner"
+    })
+
+    return permission is not None
 
 
 async def handler(context: ToolContext):
@@ -10,6 +37,29 @@ async def handler(context: ToolContext):
 
     Calls the Modal app to run the matching pipeline remotely.
     """
+    # Validate that agent context exists
+    if not context.agent:
+        return {
+            "output": "Error: This tool requires an agent context."
+        }
+
+    # Validate that user context exists
+    if not context.user:
+        return {
+            "output": "Error: This tool requires a user context."
+        }
+
+    # Load agent
+    agent = Agent.from_mongo(context.agent)
+
+    # Check permissions - must be agent owner
+    is_owner = check_agent_owner_permission(agent, ObjectId(context.user))
+
+    if not is_owner:
+        return {
+            "output": "This tool can only be run by an agent owner."
+        }
+
     args = context.args
 
     # Required parameters

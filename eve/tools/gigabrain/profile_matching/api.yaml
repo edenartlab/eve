@@ -3,7 +3,7 @@ description: AI-powered profile matching and intro generation for communities / 
 tip: |-
   This tool analyzes input user context (a profile or conversation per user) and generates intelligent matches with personalized introductions.
   The tool will process profiles, generate embeddings, calculate match scores, and create personalized introductions for each match pair.
-cost_estimate: 15.0
+cost_estimate: 50.0
 output_type: string
 active: true
 visible: true
