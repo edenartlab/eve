@@ -20,7 +20,6 @@ from eve.concepts import Concept
 from eve.user import User
 from eve.utils import serialize_json
 
-
 def parse_timedelta_string(timedelta_str: str) -> timedelta:
     """
     Parse an ISO 8601 timedelta string into a timedelta object.
@@ -125,7 +124,7 @@ def collect_user_messages(
     sessions: List[Session],
     include_agent_messages: bool = True,
     ignore_multi_user_sessions: bool = True,
-    message_age_cutoff: Optional[datetime] = None
+    session_cutoff_time: Optional[datetime] = None
 ) -> tuple[Dict[ObjectId, List[List[ChatMessage]]], Dict[str, ObjectId]]:
     """
     Collect messages grouped by user, with sessions kept separate per user.
@@ -134,7 +133,7 @@ def collect_user_messages(
         sessions: List of Session objects
         include_agent_messages: Whether to include agent messages alongside user messages
         ignore_multi_user_sessions: Whether to filter out sessions with multiple users
-        message_age_cutoff: Optional datetime cutoff to filter out messages older than this
+        session_cutoff_time: Optional datetime cutoff to filter out messages older than this (same as session creation cutoff)
 
     Returns:
         Tuple of:
@@ -166,13 +165,13 @@ def collect_user_messages(
         current_user = None
 
         for msg in messages_list:
-            # Filter messages by age cutoff if specified
-            if message_age_cutoff and msg.createdAt:
+            # Filter messages by session cutoff time if specified
+            if session_cutoff_time and msg.createdAt:
                 # Ensure both datetimes are timezone-aware for comparison
                 msg_created = msg.createdAt
                 if msg_created.tzinfo is None:
                     msg_created = msg_created.replace(tzinfo=timezone.utc)
-                if msg_created < message_age_cutoff:
+                if msg_created < session_cutoff_time:
                     continue
 
             if msg.role == "user" and msg.sender:
@@ -507,24 +506,18 @@ async def handler(context: ToolContext):
     min_messages = context.args.get("min_messages", 2)
     include_agent_messages = context.args.get("include_agent_messages", True)
     ignore_multi_user_sessions = context.args.get("ignore_multi_user_sessions", True)
-    message_age_cutoff_str = context.args.get("message_age_cutoff", "P1D")
 
     logger.info(f"Starting collective_kickstart for agent {agent.username}")
     logger.info(f"Time window: {time_window_str}, Min messages: {min_messages}")
     logger.info(f"Include agent messages: {include_agent_messages}, Ignore multi-user sessions: {ignore_multi_user_sessions}")
-    logger.info(f"Message age cutoff: {message_age_cutoff_str}")
 
     try:
         # Parse time window
         time_delta = parse_timedelta_string(time_window_str)
         cutoff_time = datetime.now(timezone.utc) - time_delta
 
-        # Parse message age cutoff
-        message_age_delta = parse_timedelta_string(message_age_cutoff_str)
-        message_age_cutoff = datetime.now(timezone.utc) - message_age_delta
-
         logger.info(f"Fetching sessions created after {cutoff_time}")
-        logger.info(f"Filtering messages created after {message_age_cutoff}")
+        logger.info(f"Filtering messages created after {cutoff_time} (same as session cutoff)")
 
         # Step 1: Fetch recent sessions
         sessions = fetch_recent_sessions(agent.id, cutoff_time)
@@ -541,7 +534,7 @@ async def handler(context: ToolContext):
             sessions,
             include_agent_messages=include_agent_messages,
             ignore_multi_user_sessions=ignore_multi_user_sessions,
-            message_age_cutoff=message_age_cutoff
+            session_cutoff_time=cutoff_time
         )
 
         if not messages_by_user:

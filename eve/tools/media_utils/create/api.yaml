@@ -36,6 +36,7 @@ parameters:
         • Purpose (asset/use) → Subject + Action → Environment/Context → Style/Lighting/Camera → Composition/Framing.
         • Use full sentences, not keyword lists. Put any literal text to render in "double quotes".
         • Do not mention tool parameters in the prompt (aspect ratio, model, etc. go in their fields).
+        • Do not refer to previous images or creations, each toolcall runs in isolation and so the prompt must stand on its own.
 
       Edits (image or video):
         • Use: Action + Target + Location + Keep/Constraints.

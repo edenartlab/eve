@@ -12,17 +12,9 @@ parameters:
     label: Time Window
     description: |-
       ISO 8601 timedelta string to look back for recent sessions (e.g., "PT2H" for past 2 hours, "P1D" for past 1 day, "P3D" for 3 days).
-      The tool will analyze all sessions created within this timeframe.
+      The tool will analyze all sessions created within this timeframe, and only include messages from those sessions that were created after the session creation cutoff.
     default: "PT2H"
     required: true
-  message_age_cutoff:
-    type: string
-    label: Message Age Cutoff
-    description: |-
-      ISO 8601 timedelta string to filter out messages older than this cutoff (e.g., "P1D" for 1 day, "P2D" for 2 days).
-      Only messages newer than this cutoff will be included in user profiles.
-    default: "P1D"
-    required: false
   min_messages:
     type: integer
     label: Minimum Messages
