@@ -1,0 +1,16 @@
+{
+    "agent_id": "675f880479e00297cd9b4688",
+    "user_id": "65284b18f8bbb9bff13ebe65",
+    "agent": "media-editor",
+    "session": "68ec631e2c2d83fdf5bd3836",
+    "title": "Test Media Editor",
+    "role": "user",
+    "prompt": true,
+    "async": true,
+    "content": "Concatenate these two videos into a single video.",
+    "attachments": [
+        "https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/3af6a5aca2a5b9edf0154f0f527eaedc06025f0ce4af9ca3794b5e44aef89b1a.mp4",
+        "https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/97468b465a993c272b8d12990095027ec67f86ddfea6093c36be8925503d41a4.mp4",
+        "https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/74f4eb185727c3f289d08b07094302b822d0b3ca3b12050517797c2cc339fe98.mp4"
+    ]
+}
