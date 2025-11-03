@@ -269,12 +269,14 @@ def format_user_profiles(
     return user_profiles
 
 
-async def call_profile_matching_handler(user_profiles: Dict[str, str], agent_id: ObjectId) -> Dict:
+async def call_profile_matching_handler(user_profiles: Dict[str, str], agent_id: ObjectId, user_id: ObjectId) -> Dict:
     """
     Call the profile_matching tool's handler directly.
 
     Args:
         user_profiles: Dict of {username: profile_text}
+        agent_id: Agent ID
+        user_id: User ID (agent owner)
 
     Returns:
         Profile matching results dict
@@ -290,8 +292,8 @@ async def call_profile_matching_handler(user_profiles: Dict[str, str], agent_id:
             "config_path": "config/config.yaml",
             "force": True
         },
-        agent=agent_id,
-        user=None
+        agent=str(agent_id),
+        user=str(user_id)
     )
 
     # Call the handler
@@ -303,7 +305,13 @@ async def call_profile_matching_handler(user_profiles: Dict[str, str], agent_id:
     print(f"Profile matching result: {result}")
     print(f"Profile matching result type: {type(result)}")
     print("\n" + "="*80)
-    return result.get("output", {})
+
+    # Get the output and convert numpy types to native Python types for JSON serialization
+    output = result.get("output", {})
+    if isinstance(output, dict):
+        output = serialize_json(output)
+
+    return output
 
 
 async def generate_personalized_message(
@@ -576,12 +584,22 @@ async def handler(context: ToolContext):
 
         # Step 4: Call profile matching
         logger.info("Calling profile_matching tool...")
-        matching_results = await call_profile_matching_handler(user_profiles)
+        matching_results = await call_profile_matching_handler(user_profiles, agent.id, ObjectId(context.user))
 
         print("\n" + "="*80)
         print(f"Matching results: {matching_results}")
 
-        # Check for errors
+        # Check for errors - handle both string and dict responses
+        if isinstance(matching_results, str):
+            return {
+                "output": [f"Profile matching failed: {matching_results}"]
+            }
+
+        if not isinstance(matching_results, dict):
+            return {
+                "output": [f"Profile matching returned unexpected type: {type(matching_results)}"]
+            }
+
         if matching_results.get("error"):
             error_msg = matching_results.get("error")
             return {
