@@ -299,13 +299,6 @@ async def call_profile_matching_handler(user_profiles: Dict[str, str], agent_id:
     # Call the handler
     result = await profile_matching_handler(mock_context)
 
-    print("\n" + "="*80)
-    print("VERBOSE DEBUG OUTPUT - PROFILE MATCHING RESULT")
-    print("="*80)
-    print(f"Profile matching result: {result}")
-    print(f"Profile matching result type: {type(result)}")
-    print("\n" + "="*80)
-
     # Get the output and convert numpy types to native Python types for JSON serialization
     output = result.get("output", {})
     if isinstance(output, dict):
@@ -511,7 +504,7 @@ async def handler(context: ToolContext):
 
     # Extract and validate parameters
     time_window_str = context.args.get("time_window", "P2H")
-    min_messages = context.args.get("min_messages", 3)
+    min_messages = context.args.get("min_messages", 2)
     include_agent_messages = context.args.get("include_agent_messages", True)
     ignore_multi_user_sessions = context.args.get("ignore_multi_user_sessions", True)
     message_age_cutoff_str = context.args.get("message_age_cutoff", "P1D")
@@ -568,26 +561,9 @@ async def handler(context: ToolContext):
 
         logger.info(f"Created profiles for {len(user_profiles)} users")
 
-        # ===== DEBUG: Print verbose information about collected profiles =====
-        print("\n" + "="*80)
-        print(f"\nTotal users with profiles: {len(user_profiles)}")
-        print(f"Sessions analyzed: {len(sessions)}")
-        print("\n" + "-"*80)
-        print("USER PROFILES DETAIL:")
-        print("-"*80)
-
-        for idx, (username, profile_text) in enumerate(user_profiles.items(), 1):
-            print(f"\n[{idx}] USERNAME: {username}")
-            preview = profile_text[:2000].replace('\n', '\n    ')
-            print(f"    {preview}")
-            print(f"    {'-'*76}")
-
         # Step 4: Call profile matching
         logger.info("Calling profile_matching tool...")
         matching_results = await call_profile_matching_handler(user_profiles, agent.id, ObjectId(context.user))
-
-        print("\n" + "="*80)
-        print(f"Matching results: {matching_results}")
 
         # Check for errors - handle both string and dict responses
         if isinstance(matching_results, str):
@@ -666,9 +642,6 @@ async def handler(context: ToolContext):
                 )
 
                 session_results.append(result)
-
-                # Add small delay between session creations to avoid rate limits
-                await asyncio.sleep(0.25)
 
             except Exception as e:
                 logger.error(f"Error creating session for user {username}: {e}")
