@@ -307,6 +307,8 @@ importlib-metadata==8.7.0
     # via litellm
 instructor==1.9.2
     # via eve
+isodate==0.7.2
+    # via eve
 jinja2==3.1.6
     # via instructor
     # via litellm
