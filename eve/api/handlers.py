@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import modal
 import os
 import time
 import uuid
@@ -440,6 +441,54 @@ async def handle_session_cancel(request: CancelSessionRequest):
     except Exception as e:
         logger.error(f"Error sending session cancel signal: {e}", exc_info=True)
         raise APIError(f"Failed to send cancel signal: {str(e)}", status_code=500)
+
+
+@handle_errors
+async def handle_session_status_update(request):
+    """Update the status of a session."""
+    try:
+        # Import UpdateSessionStatusRequest here to avoid circular imports
+        from eve.api.api_requests import UpdateSessionStatusRequest
+
+        # Validate request
+        if isinstance(request, dict):
+            request = UpdateSessionStatusRequest(**request)
+
+        # Verify session exists
+        session = Session.from_mongo(ObjectId(request.session_id))
+        if not session:
+            raise APIError(f"Session not found: {request.session_id}", status_code=404)
+
+        # Update session status
+        session.update(status=request.status)
+
+        # Spawn Modal function to handle status change
+        try:
+            db = os.getenv("DB", "STAGE").upper()
+            func = modal.Function.from_name(
+                f"api-{db.lower()}",
+                "handle_session_status_change_fn",
+                environment_name="main"
+            )
+            func.spawn(request.session_id, request.status)
+        except Exception as e:
+            logger.warning(f"Failed to spawn Modal function for session status change: {e}")
+            # Don't fail the request if Modal spawn fails
+
+        return {
+            "success": True,
+            "session_id": request.session_id,
+            "status": request.status
+        }
+
+    except APIError:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating session status: {e}", exc_info=True)
+        return {
+            "success": False,
+            "error": str(e)
+        }
 
 
 @handle_errors

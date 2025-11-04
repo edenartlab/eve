@@ -1,12 +1,14 @@
 import base64
-import os
 import json
+import os
 import tempfile
+from io import BytesIO
+from urllib.parse import urlparse
+
 import openai
 from PIL import Image
-from io import BytesIO
 
-from eve.utils import download_file, PIL_to_bytes
+from eve.utils import download_file
 from eve.tool import ToolContext
 
 # Maximum dimension (width or height) for resizing
@@ -102,18 +104,10 @@ def classify_openai_error(e: Exception):
     return "client_runtime", {"message": message}
 
 
-class BytesIOWithName(BytesIO):
-    """A BytesIO subclass that has a name attribute for MIME type detection."""
-
-    def __init__(self, data, name):
-        super().__init__(data)
-        self.name = name
-
-
 def preprocess_image(file_input, is_mask=False):
     """
-    Downloads if URL, resizes image, converts to WEBP bytes.
-    Returns the processed image bytes.
+    Downloads if URL, resizes image, converts to WEBP (PNG for masks),
+    and returns a tuple of (image_bytes, filename, mime_type).
     """
     temp_file_path = None
 
@@ -122,7 +116,10 @@ def preprocess_image(file_input, is_mask=False):
             ("http://", "https://")
         ):
             # Create a temporary file to store the download
-            file_type = file_input.split(".")[-1]
+            parsed_url = urlparse(file_input)
+            path = parsed_url.path or ""
+            _, ext = os.path.splitext(path)
+            file_type = ext.lstrip(".") or "tmp"
             with tempfile.NamedTemporaryFile(
                 delete=False, suffix=f".{file_type}"
             ) as temp_file:
@@ -136,21 +133,41 @@ def preprocess_image(file_input, is_mask=False):
             raise ValueError(f"Invalid image input type or path: {file_input}")
 
         # Process the image
-        img = Image.open(image_path)
-        w, h = img.size
+        with Image.open(image_path) as img:
+            w, h = img.size
 
-        # Calculate new size
-        if max(w, h) > MAX_DIMENSION:
-            ratio = MAX_DIMENSION / max(w, h)
-            new_w = int(w * ratio)
-            new_h = int(h * ratio)
-            img.thumbnail((new_w, new_h), Image.Resampling.LANCZOS)
+            # Calculate new size
+            if max(w, h) > MAX_DIMENSION:
+                ratio = MAX_DIMENSION / max(w, h)
+                new_w = int(w * ratio)
+                new_h = int(h * ratio)
+                img.thumbnail((new_w, new_h), Image.Resampling.LANCZOS)
 
-        if is_mask:
-            img = img.convert("RGBA")
+            if is_mask:
+                img = img.convert("RGBA")
+            else:
+                if "A" in img.getbands():
+                    img = img.convert("RGBA")
+                elif img.mode not in ("RGB", "RGBA"):
+                    img = img.convert("RGB")
 
-        img_bytes = PIL_to_bytes(img, ext="WEBP", quality=90)
-        return img_bytes
+            buffer = BytesIO()
+            if is_mask:
+                target_format = "PNG"
+                filename = "mask.png"
+                mime_type = "image/png"
+                save_kwargs = {}
+            else:
+                target_format = "WEBP"
+                filename = "image.webp"
+                mime_type = "image/webp"
+                save_kwargs = {"quality": 90}
+
+            img.save(buffer, format=target_format, **save_kwargs)
+            buffer.seek(0)
+            img_bytes = buffer.read()
+
+        return img_bytes, filename, mime_type
 
     except FileNotFoundError as e:
         raise ValueError(f"File not found: {getattr(e, 'filename', file_input)}") from e
@@ -195,23 +212,27 @@ async def handler(context: ToolContext):
 
     try:
         # Process the first image (OpenAI edit API only supports one image)
-        image_bytes = preprocess_image(image_paths[0], is_mask=False)
+        image_bytes, image_filename, image_mime = preprocess_image(
+            image_paths[0], is_mask=False
+        )
 
         # Process mask if provided
         mask_bytes = None
         if mask_path:
-            mask_bytes = preprocess_image(mask_path, is_mask=True)
+            mask_bytes, mask_filename, mask_mime = preprocess_image(
+                mask_path, is_mask=True
+            )
 
         # Prepare API call parameters
         api_params = {
             "model": "gpt-image-1",
-            "image": BytesIOWithName(image_bytes, "image.webp"),
+            "image": (image_filename, image_bytes, image_mime),
             "prompt": prompt,
             # "moderation": "low"
         }
 
         if mask_bytes:
-            api_params["mask"] = BytesIOWithName(mask_bytes, "mask.webp")
+            api_params["mask"] = (mask_filename, mask_bytes, mask_mime)
 
         # Add optional parameters
         if "n" in context.args:
