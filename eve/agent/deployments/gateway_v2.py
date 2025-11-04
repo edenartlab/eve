@@ -1768,81 +1768,81 @@ async def _refresh_gmail_watches(
     return results
 
 
-@web_app.post("/gmail/webhook")
-async def gmail_webhook(request: Request):
-    return {"status": "ok"}
-
-
 # @web_app.post("/gmail/webhook")
 # async def gmail_webhook(request: Request):
-#     """Handle inbound Gmail notifications delivered via Pub/Sub push."""
-#     try:
-#         body = await request.json()
-#     except Exception:
-#         raise HTTPException(status_code=400, detail="Invalid JSON body")
+#     return {"status": "ok"}
 
-#     try:
-#         inner_payload, attributes = unwrap_pubsub_message(body)
-#     except Exception as e:
-#         logger.error(f"[GMAIL-WEBHOOK] Failed to decode payload: {e}", exc_info=True)
-#         raise HTTPException(status_code=400, detail="Failed to decode Pub/Sub payload")
 
-#     deployment_id = (
-#         request.query_params.get("deployment_id")
-#         or inner_payload.get("deployment_id")
-#         or (attributes or {}).get("deployment_id")
-#     )
-#     if not deployment_id:
-#         raise HTTPException(status_code=400, detail="deployment_id missing from payload")
+@web_app.post("/gmail/webhook")
+async def gmail_webhook(request: Request):
+    """Handle inbound Gmail notifications delivered via Pub/Sub push."""
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
 
-#     try:
-#         deployment = Deployment.from_mongo(ObjectId(deployment_id))
-#     except Exception:
-#         raise HTTPException(status_code=404, detail="Deployment not found")
+    try:
+        inner_payload, attributes = unwrap_pubsub_message(body)
+    except Exception as e:
+        logger.error(f"[GMAIL-WEBHOOK] Failed to decode payload: {e}", exc_info=True)
+        raise HTTPException(status_code=400, detail="Failed to decode Pub/Sub payload")
 
-#     if not deployment or not _is_gmail_platform(deployment.platform):
-#         raise HTTPException(status_code=404, detail="Gmail deployment not found")
+    deployment_id = (
+        request.query_params.get("deployment_id")
+        or inner_payload.get("deployment_id")
+        or (attributes or {}).get("deployment_id")
+    )
+    if not deployment_id:
+        raise HTTPException(status_code=400, detail="deployment_id missing from payload")
 
-#     agent = Agent.from_mongo(ObjectId(deployment.agent))
-#     if not agent:
-#         raise HTTPException(status_code=404, detail="Agent not found for deployment")
+    try:
+        deployment = Deployment.from_mongo(ObjectId(deployment_id))
+    except Exception:
+        raise HTTPException(status_code=404, detail="Deployment not found")
 
-#     gmail_client = GmailClient(agent=agent, deployment=deployment)
+    if not deployment or not _is_gmail_platform(deployment.platform):
+        raise HTTPException(status_code=404, detail="Gmail deployment not found")
 
-#     history_id = inner_payload.get("historyId") or inner_payload.get("history_id")
-#     if history_id and not inner_payload.get("message_id"):
-#         try:
-#             result = await gmail_client.process_history_update(str(history_id))
-#             return {"status": "history_processed", "result": result}
-#         except APIError as exc:
-#             logger.error(f"[GMAIL-WEBHOOK] History processing API error: {exc}")
-#             raise HTTPException(status_code=exc.status_code or 500, detail=str(exc))
-#         except Exception as exc:
-#             logger.error(
-#                 f"[GMAIL-WEBHOOK] Failed to process history update: {exc}",
-#                 exc_info=True,
-#             )
-#             raise HTTPException(status_code=500, detail="Failed to process history update")
+    agent = Agent.from_mongo(ObjectId(deployment.agent))
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found for deployment")
 
-#     try:
-#         email = parse_inbound_email(inner_payload)
-#     except ValueError as exc:
-#         logger.warning(f"[GMAIL-WEBHOOK] Ignoring payload: {exc}")
-#         return {"status": "ignored", "reason": str(exc)}
-#     except Exception as exc:
-#         logger.error(f"[GMAIL-WEBHOOK] Failed to parse email payload: {exc}", exc_info=True)
-#         raise HTTPException(status_code=400, detail="Invalid email payload")
+    gmail_client = GmailClient(agent=agent, deployment=deployment)
 
-#     try:
-#         await gmail_client.process_inbound_email(email)
-#     except APIError as exc:
-#         logger.error(f"[GMAIL-WEBHOOK] Processing failed with API error: {exc}")
-#         raise HTTPException(status_code=exc.status_code or 500, detail=str(exc))
-#     except Exception as exc:
-#         logger.error(f"[GMAIL-WEBHOOK] Error processing inbound email: {exc}", exc_info=True)
-#         raise HTTPException(status_code=500, detail="Failed to process email")
+    history_id = inner_payload.get("historyId") or inner_payload.get("history_id")
+    if history_id and not inner_payload.get("message_id"):
+        try:
+            result = await gmail_client.process_history_update(str(history_id))
+            return {"status": "history_processed", "result": result}
+        except APIError as exc:
+            logger.error(f"[GMAIL-WEBHOOK] History processing API error: {exc}")
+            raise HTTPException(status_code=exc.status_code or 500, detail=str(exc))
+        except Exception as exc:
+            logger.error(
+                f"[GMAIL-WEBHOOK] Failed to process history update: {exc}",
+                exc_info=True,
+            )
+            raise HTTPException(status_code=500, detail="Failed to process history update")
 
-#     return {"status": "processed"}
+    try:
+        email = parse_inbound_email(inner_payload)
+    except ValueError as exc:
+        logger.warning(f"[GMAIL-WEBHOOK] Ignoring payload: {exc}")
+        return {"status": "ignored", "reason": str(exc)}
+    except Exception as exc:
+        logger.error(f"[GMAIL-WEBHOOK] Failed to parse email payload: {exc}", exc_info=True)
+        raise HTTPException(status_code=400, detail="Invalid email payload")
+
+    try:
+        await gmail_client.process_inbound_email(email)
+    except APIError as exc:
+        logger.error(f"[GMAIL-WEBHOOK] Processing failed with API error: {exc}")
+        raise HTTPException(status_code=exc.status_code or 500, detail=str(exc))
+    except Exception as exc:
+        logger.error(f"[GMAIL-WEBHOOK] Error processing inbound email: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to process email")
+
+    return {"status": "processed"}
 
 
 @web_app.post("/gmail/watch/refresh")
