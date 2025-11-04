@@ -1844,7 +1844,7 @@ if WATCH_REFRESH_INTERVAL_HOURS > 0:
 
     @app.function(
         image=image,
-        schedule=modal.PeriodicSchedule.every(timedelta(hours=WATCH_REFRESH_INTERVAL_HOURS)),
+        schedule=modal.Period(hours=WATCH_REFRESH_INTERVAL_HOURS),
         timeout=600,
     )
     async def gmail_watch_refresher():
