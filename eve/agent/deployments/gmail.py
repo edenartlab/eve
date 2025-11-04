@@ -420,6 +420,7 @@ class GmailClient(PlatformClient):
     ):
         super().__init__(agent=agent, deployment=deployment)
         self._gmail_api_client: Optional[GmailAPIClient] = None
+        self._own_addresses: Optional[set[str]] = None
 
     async def predeploy(
         self, secrets: DeploymentSecrets, config: DeploymentConfig
@@ -537,6 +538,13 @@ class GmailClient(PlatformClient):
     async def process_inbound_email(self, email: GmailInboundEmail) -> None:
         if not self.deployment:
             raise ValueError("Deployment is required for processing Gmail email")
+
+        own_addresses = self._get_own_addresses()
+        if email.from_address and email.from_address.lower() in own_addresses:
+            logger.info(
+                f"[GMAIL-INBOUND] Skipping self-sent message {email.message_id} from {email.from_address}"
+            )
+            return
 
         # Load agent and ensure we have latest deployment context
         if not self.agent:
@@ -657,7 +665,15 @@ class GmailClient(PlatformClient):
                 for message_info in messages_added:
                     message_meta = message_info.get("message") or {}
                     message_id = message_meta.get("id")
+                    label_ids = message_meta.get("labelIds") or []
+
                     if not message_id or message_id in seen_messages:
+                        continue
+
+                    if any(label in label_ids for label in ["SENT", "DRAFT", "OUTBOX"]):
+                        logger.info(
+                            f"[GMAIL-HISTORY] Skipping message {message_id} due to labels {label_ids}"
+                        )
                         continue
 
                     seen_messages.add(message_id)
@@ -805,6 +821,25 @@ class GmailClient(PlatformClient):
                 self._get_settings(),
             )
         return self._gmail_api_client
+
+    def _get_own_addresses(self) -> set[str]:
+        if self._own_addresses is not None:
+            return self._own_addresses
+
+        secrets = self._get_secrets()
+        settings = self._get_settings()
+        addresses: set[str] = set()
+
+        for value in (
+            getattr(secrets, "reply_alias", None),
+            secrets.delegated_user if secrets else None,
+            settings.reply_from_address if settings else None,
+        ):
+            if value:
+                addresses.add(value.lower())
+
+        self._own_addresses = addresses
+        return addresses
 
     def _compute_reply_delay(self, settings: DeploymentSettingsGmail) -> float:
         base = max(settings.reply_delay_seconds or 0, 0)
