@@ -139,7 +139,9 @@ def _collect_message_bodies(mime_message) -> Tuple[Optional[str], Optional[str]]
     return plain_text, html_text
 
 
-def unwrap_pubsub_message(body: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+def unwrap_pubsub_message(
+    body: Dict[str, Any],
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """Return inner payload and attributes from Pub/Sub style body."""
     message = body.get("message") or {}
     attributes = message.get("attributes") or {}
@@ -252,7 +254,9 @@ def parse_inbound_email(payload: Dict[str, Any]) -> GmailInboundEmail:
         try:
             # Accept epoch millis or RFC3339 strings
             if isinstance(received_ts, (int, float)):
-                received_at = datetime.fromtimestamp(received_ts / 1000, tz=timezone.utc)
+                received_at = datetime.fromtimestamp(
+                    received_ts / 1000, tz=timezone.utc
+                )
             else:
                 received_at = datetime.fromisoformat(received_ts)
         except Exception:
@@ -411,7 +415,9 @@ class GmailAPIClient:
 class GmailClient(PlatformClient):
     TOOLS = []
 
-    def __init__(self, agent: Optional[Agent] = None, deployment: Optional[Deployment] = None):
+    def __init__(
+        self, agent: Optional[Agent] = None, deployment: Optional[Deployment] = None
+    ):
         super().__init__(agent=agent, deployment=deployment)
         self._gmail_api_client: Optional[GmailAPIClient] = None
 
@@ -445,7 +451,9 @@ class GmailClient(PlatformClient):
                 f"[GMAIL-PREDEPLOY] Verified Gmail access for {profile.get('emailAddress')}"
             )
         except Exception as exc:
-            logger.error(f"[GMAIL-PREDEPLOY] Unable to validate Gmail credentials: {exc}")
+            logger.error(
+                f"[GMAIL-PREDEPLOY] Unable to validate Gmail credentials: {exc}"
+            )
             raise APIError(
                 f"Failed to validate Gmail credentials: {exc}",
                 status_code=400,
@@ -518,7 +526,8 @@ class GmailClient(PlatformClient):
                 recipient=recipient,
                 subject=update_config.gmail_subject,
                 thread_id=update_config.gmail_thread_id,
-                in_reply_to=update_config.gmail_message_id or update_config.gmail_thread_id,
+                in_reply_to=update_config.gmail_message_id
+                or update_config.gmail_thread_id,
                 references=self._collect_reference_ids(update_config),
                 body=message_text,
                 delay_seconds=delay_seconds,
@@ -545,7 +554,7 @@ class GmailClient(PlatformClient):
         session = None
         try:
             session = Session.load(session_key=session_key)
-            if session.deleted:
+            if hasattr(session, "deleted") and session.deleted:
                 session.deleted = False
                 session.status = "active"
                 session.save()
@@ -742,7 +751,9 @@ class GmailClient(PlatformClient):
 
             reply_from = settings.reply_from_address or secrets.delegated_user
             display_name = settings.reply_display_name
-            from_header = formataddr((display_name, reply_from)) if display_name else reply_from
+            from_header = (
+                formataddr((display_name, reply_from)) if display_name else reply_from
+            )
 
             if subject:
                 normalized_subject = subject
@@ -767,7 +778,9 @@ class GmailClient(PlatformClient):
             )
             await gmail_api.send_email(email_message, thread_id=thread_id)
         except Exception as exc:
-            logger.error(f"[GMAIL-SEND] Failed to send Gmail response: {exc}", exc_info=True)
+            logger.error(
+                f"[GMAIL-SEND] Failed to send Gmail response: {exc}", exc_info=True
+            )
 
     def _get_secrets(self) -> DeploymentSecretsGmail:
         deployment_secrets = self.deployment.secrets
@@ -817,9 +830,13 @@ class GmailClient(PlatformClient):
     def _update_watch_expiration(self, expiration_ms: int | str):
         try:
             expiration_int = int(expiration_ms)
-            expiration_dt = datetime.fromtimestamp(expiration_int / 1000, tz=timezone.utc)
+            expiration_dt = datetime.fromtimestamp(
+                expiration_int / 1000, tz=timezone.utc
+            )
         except Exception as exc:
-            logger.warning(f"[GMAIL] Invalid watch expiration value: {expiration_ms} ({exc})")
+            logger.warning(
+                f"[GMAIL] Invalid watch expiration value: {expiration_ms} ({exc})"
+            )
             return
 
         try:
