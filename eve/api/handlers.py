@@ -227,7 +227,6 @@ def setup_session(
         "owner": ObjectId(request.creation_args.owner_id or user_id),
         "agents": agent_object_ids,
         "title": request.creation_args.title,
-        "scenario": request.creation_args.scenario,
         "session_key": request.creation_args.session_key,
         "platform": request.creation_args.platform,
         "status": "active",

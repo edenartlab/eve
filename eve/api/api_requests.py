@@ -152,7 +152,6 @@ class SessionCreationArgs(BaseModel):
     owner_id: Optional[str] = None
     agents: List[str]
     title: Optional[str] = None
-    scenario: Optional[str] = None
     budget: Optional[float] = None
     trigger: Optional[str] = None
     session_key: Optional[str] = None

@@ -156,8 +156,7 @@ Each round of the game goes like this:
     
     conductor_message = conductor_template.render(
         current_date_time=datetime.now(pytz.utc).strftime("%Y-%m-%d %H:%M:%S"),
-        agents=agents,
-        scenario=scenario
+        agents=agents
     )
     
     messages = ChatMessage.find({"session": ObjectId(session_id)})

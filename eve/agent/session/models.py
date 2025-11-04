@@ -721,19 +721,16 @@ class LLMContext:
     enable_tracing: bool = True
 
 
-class ActorSelectionMethod(Enum):
-    RANDOM = "random"
-    RANDOM_EXCLUDE_LAST = "random_exclude_last"
+class SessionType(Enum):
+    CHAT = "chat"
+    PASSIVE = "passive"
+    AUTOMATIC = "automatic"
 
 
-class SessionAutonomySettings(BaseModel):
-    auto_reply: bool = False
-    reply_interval: int = 0
-    actor_selection_method: ActorSelectionMethod = ActorSelectionMethod.RANDOM
-
-    @field_serializer("actor_selection_method")
-    def serialize_actor_selection_method(self, value: ActorSelectionMethod) -> str:
-        return value.value
+class SessionSettings(BaseModel):
+    conductor_prompt: Optional[str] = None
+    delay_interval: int = 0
+    mention_force_reply: bool = False
 
 
 class SessionBudget(BaseModel):
@@ -793,8 +790,8 @@ class Session(Document):
         default_factory=SessionMemoryContext
     )
     title: Optional[str] = None
-    scenario: Optional[str] = None
-    autonomy_settings: Optional[SessionAutonomySettings] = None
+    type: SessionType = SessionType.CHAT
+    settings: SessionSettings = Field(default_factory=SessionSettings)
     last_actor_id: Optional[ObjectId] = None
     budget: SessionBudget = SessionBudget()
     platform: Optional[

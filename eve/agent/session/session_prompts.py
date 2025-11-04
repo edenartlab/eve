@@ -144,9 +144,6 @@ system_template = Template("""
   {% if memory %}
   {{ memory }}
   {% endif %}
-  {% if scenario %}<Scenario>
-    {{ scenario }}
-  </Scenario>{% endif %}
 </AGENT_SPEC>""")
 
 
@@ -190,8 +187,4 @@ conductor_template = Template("""
   <Agents>
     {{ agents }}
   </Agents>
-  
-  {% if scenario %}<Scenario>
-    {{ scenario }}
-  </Scenario>{% endif %}
 </AGENT_SPEC>""")
