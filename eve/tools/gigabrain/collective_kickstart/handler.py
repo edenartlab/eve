@@ -354,7 +354,7 @@ Generate a friendly, personalized introduction message that presents these conne
     # Build system prompt with memory context using the same template
     system_content = system_template.render(
         name=agent.name,
-        current_date_time=current_date_time,
+        # current_date_time=current_date_time,
         description=agent.description,
         scenario=None,
         persona=agent.persona,

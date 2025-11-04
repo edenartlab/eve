@@ -273,7 +273,7 @@ async def build_system_message(
     # Build system prompt with memory context
     content = system_template.render(
         name=actor.name,
-        current_date_time=current_date_time,
+        # current_date_time=current_date_time,
         description=actor.description,
         scenario=session.scenario,
         persona=actor.persona,
@@ -288,7 +288,9 @@ async def build_system_message(
 
 
 async def build_system_extras(
-    session: Session, context: PromptSessionContext, config: LLMConfig
+    session: Session, 
+    context: PromptSessionContext, 
+    config: LLMConfig
 ):
     extras = []
 
@@ -321,7 +323,9 @@ async def build_system_extras(
 
 
 async def add_chat_message(
-    session: Session, context: PromptSessionContext, pin: bool = False
+    session: Session, 
+    context: PromptSessionContext, 
+    pin: bool = False
 ):
     new_message = ChatMessage(
         session=session.id,

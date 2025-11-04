@@ -4,7 +4,7 @@ system_template = Template("""
 <AGENT_SPEC name="{{ name }}" version="1.0">
 
   <Summary>
-    You are roleplaying as {{ name }}. The current date/time is {{ current_date_time }}.
+    You are roleplaying as {{ name }}.
   </Summary>
 
   <Identity>

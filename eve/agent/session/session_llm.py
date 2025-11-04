@@ -95,6 +95,10 @@ def construct_tools(context: LLMContext) -> Optional[List[dict]]:
 
     tools = [tool.openai_schema(exclude_hidden=True) for tool in tools.values()]
 
+    # Add cache control for Anthropic models
+    if "claude" in context.config.model or "anthropic" in context.config.model:
+        tools[-1]["cache_control"] = {"type": "ephemeral"}
+
     # Gemini/Vertex: enum values must be strings and parameter type must be "string"
     if "gemini" in context.config.model or "vertex" in context.config.model:
         for tool in tools:
@@ -159,9 +163,9 @@ def add_anthropic_cache_control(messages: List[dict]) -> List[dict]:
         if msg.get("role") == "user":
             user_message_indices.append(i)
 
-    # Mark second-to-last user message for caching (checkpoint)
-    if len(user_message_indices) >= 2:
-        messages[user_message_indices[-2]]["cache_control"] = {"type": "ephemeral"}
+    # # Mark second-to-last user message for caching (checkpoint)
+    # if len(user_message_indices) >= 2:
+    #     messages[user_message_indices[-2]]["cache_control"] = {"type": "ephemeral"}
 
     # Mark the final message for continuing in followups
     if len(messages) > 0:
@@ -193,7 +197,9 @@ async def async_prompt_litellm(
 ) -> LLMResponse:
     thinking = True if context.config.reasoning_effort else False
     messages = prepare_messages(
-        context.messages, context.config.model, include_thoughts=thinking
+        context.messages, 
+        context.config.model, 
+        include_thoughts=thinking
     )
     tools = construct_tools(context)
     tool_choice = context.tool_choice
