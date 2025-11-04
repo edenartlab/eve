@@ -162,6 +162,37 @@ class User(Document):
         return cls(**user)
 
     @classmethod
+    def from_email(cls, email_address: str, fallback_username: Optional[str] = None):
+        if not email_address:
+            raise ValueError("email_address is required")
+
+        normalized_email = email_address.strip().lower()
+        users = get_collection(cls.collection_name)
+
+        # Prefer normalized email, but also fall back to raw casing if needed
+        user_doc = users.find_one({"normalizedEmail": normalized_email})
+        if not user_doc:
+            user_doc = users.find_one({"email": normalized_email}) or users.find_one(
+                {"email": email_address}
+            )
+
+        if user_doc:
+            return cls(**user_doc)
+
+        base_username = fallback_username or normalized_email.split("@")[0]
+        base_username = (base_username or "").strip().lower().replace(" ", "_")
+        if not base_username:
+            base_username = normalized_email.split("@")[0]
+        username = cls._get_unique_username(f"email_{base_username}")
+        new_user = cls(
+            email=email_address,
+            normalizedEmail=normalized_email,
+            username=username,
+        )
+        new_user.save()
+        return new_user
+
+    @classmethod
     def _get_unique_username(cls, base_username):
         users = get_collection(cls.collection_name)
         username = base_username

@@ -11,3 +11,5 @@ logs/
 scripts/analytics/data
 scripts/analytics/results
 .claude
+
+scripts/gcp

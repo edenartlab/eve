@@ -1,14 +1,17 @@
-from pathlib import Path
-import modal
 import asyncio
 import json
 import logging
 import os
 import re
-from typing import Dict, Optional, Tuple
+from datetime import timedelta
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+import modal
 import websockets
 import aiohttp
 from ably import AblyRealtime
+from bson import ObjectId
 
 from eve import db
 from eve.agent.agent import Agent
@@ -25,8 +28,14 @@ from eve.agent.deployments.typing_manager import (
     DiscordTypingManager,
     TelegramTypingManager,
 )
+from eve.agent.deployments.gmail import (
+    GmailClient,
+    parse_inbound_email,
+    unwrap_pubsub_message,
+)
 from eve.agent.deployments.utils import get_api_url
 from eve.api.api_requests import SessionCreationArgs, PromptSessionRequest
+from eve.api.errors import APIError
 import eve.mongo
 from fastapi import FastAPI, Request, HTTPException, Header
 from contextlib import asynccontextmanager
@@ -47,6 +56,12 @@ def construct_agent_chat_url(agent_username: str) -> str:
     """
     root_url = "app.eden.art" if db == "PROD" else "staging.app.eden.art"
     return f"https://{root_url}/chat/{agent_username}"
+
+
+def _is_gmail_platform(platform: Any) -> bool:
+    if isinstance(platform, ClientType):
+        return platform == ClientType.GMAIL
+    return str(platform) == ClientType.GMAIL.value
 
 
 logger = logging.getLogger(__name__)
@@ -91,6 +106,8 @@ image = (
     .env({"LOCAL_USER_ID": os.getenv("LOCAL_USER_ID") or ""})
     .add_local_python_source("eve", ignore=[])
 )
+
+WATCH_REFRESH_INTERVAL_HOURS = int(os.getenv("GMAIL_WATCH_REFRESH_HOURS", "6"))
 
 
 class GatewayOpCode:
@@ -1660,6 +1677,197 @@ async def telegram_webhook(
     except Exception as e:
         logger.error(f"Error handling Telegram webhook: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+async def _refresh_gmail_watches(
+    deployment_ids: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
+    deployments: List[Deployment] = []
+    results: List[Dict[str, Any]] = []
+
+    if deployment_ids:
+        for dep_id in deployment_ids:
+            try:
+                deployment = Deployment.from_mongo(ObjectId(dep_id))
+            except Exception as exc:
+                results.append(
+                    {
+                        "deployment_id": str(dep_id),
+                        "status": "error",
+                        "error": f"Deployment lookup failed: {exc}",
+                    }
+                )
+                continue
+
+            if not deployment or not _is_gmail_platform(deployment.platform):
+                results.append(
+                    {
+                        "deployment_id": str(dep_id),
+                        "status": "skipped",
+                        "reason": "Not a Gmail deployment",
+                    }
+                )
+                continue
+
+            deployments.append(deployment)
+    else:
+        deployments = list(
+            Deployment.find({"platform": ClientType.GMAIL.value, "valid": {"$ne": False}})
+        )
+
+    for deployment in deployments:
+        dep_id = str(deployment.id)
+        try:
+            agent = Agent.from_mongo(ObjectId(deployment.agent))
+        except Exception as exc:
+            results.append(
+                {
+                    "deployment_id": dep_id,
+                    "status": "error",
+                    "error": f"Agent lookup failed: {exc}",
+                }
+            )
+            continue
+
+        if not agent:
+            results.append(
+                {
+                    "deployment_id": dep_id,
+                    "status": "error",
+                    "error": "Agent not found",
+                }
+            )
+            continue
+
+        client = GmailClient(agent=agent, deployment=deployment)
+        try:
+            response = await client.ensure_watch()
+            results.append(
+                {
+                    "deployment_id": dep_id,
+                    "status": "refreshed",
+                    "expiration": response.get("expiration") if response else None,
+                    "historyId": response.get("historyId") if response else None,
+                }
+            )
+        except Exception as exc:
+            logger.error(
+                f"[GMAIL-WATCH] Failed to refresh watch for deployment {dep_id}: {exc}",
+                exc_info=True,
+            )
+            results.append(
+                {
+                    "deployment_id": dep_id,
+                    "status": "error",
+                    "error": str(exc),
+                }
+            )
+
+    return results
+
+
+@web_app.post("/gmail/webhook")
+async def gmail_webhook(request: Request):
+    """Handle inbound Gmail notifications delivered via Pub/Sub push."""
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    try:
+        inner_payload, attributes = unwrap_pubsub_message(body)
+    except Exception as e:
+        logger.error(f"[GMAIL-WEBHOOK] Failed to decode payload: {e}", exc_info=True)
+        raise HTTPException(status_code=400, detail="Failed to decode Pub/Sub payload")
+
+    deployment_id = (
+        request.query_params.get("deployment_id")
+        or inner_payload.get("deployment_id")
+        or (attributes or {}).get("deployment_id")
+    )
+    if not deployment_id:
+        raise HTTPException(status_code=400, detail="deployment_id missing from payload")
+
+    try:
+        deployment = Deployment.from_mongo(ObjectId(deployment_id))
+    except Exception:
+        raise HTTPException(status_code=404, detail="Deployment not found")
+
+    if not deployment or not _is_gmail_platform(deployment.platform):
+        raise HTTPException(status_code=404, detail="Gmail deployment not found")
+
+    agent = Agent.from_mongo(ObjectId(deployment.agent))
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found for deployment")
+
+    gmail_client = GmailClient(agent=agent, deployment=deployment)
+
+    history_id = inner_payload.get("historyId") or inner_payload.get("history_id")
+    if history_id and not inner_payload.get("message_id"):
+        try:
+            result = await gmail_client.process_history_update(str(history_id))
+            return {"status": "history_processed", "result": result}
+        except APIError as exc:
+            logger.error(f"[GMAIL-WEBHOOK] History processing API error: {exc}")
+            raise HTTPException(status_code=exc.status_code or 500, detail=str(exc))
+        except Exception as exc:
+            logger.error(
+                f"[GMAIL-WEBHOOK] Failed to process history update: {exc}",
+                exc_info=True,
+            )
+            raise HTTPException(status_code=500, detail="Failed to process history update")
+
+    try:
+        email = parse_inbound_email(inner_payload)
+    except ValueError as exc:
+        logger.warning(f"[GMAIL-WEBHOOK] Ignoring payload: {exc}")
+        return {"status": "ignored", "reason": str(exc)}
+    except Exception as exc:
+        logger.error(f"[GMAIL-WEBHOOK] Failed to parse email payload: {exc}", exc_info=True)
+        raise HTTPException(status_code=400, detail="Invalid email payload")
+
+    try:
+        await gmail_client.process_inbound_email(email)
+    except APIError as exc:
+        logger.error(f"[GMAIL-WEBHOOK] Processing failed with API error: {exc}")
+        raise HTTPException(status_code=exc.status_code or 500, detail=str(exc))
+    except Exception as exc:
+        logger.error(f"[GMAIL-WEBHOOK] Error processing inbound email: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to process email")
+
+    return {"status": "processed"}
+
+
+@web_app.post("/gmail/watch/refresh")
+async def gmail_watch_refresh(request: Request):
+    """Manually refresh Gmail watches for one or more deployments."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    deployment_ids = body.get("deployment_ids") or body.get("deployment_id")
+    if isinstance(deployment_ids, str):
+        deployment_ids = [deployment_ids]
+    elif deployment_ids is not None and not isinstance(deployment_ids, list):
+        deployment_ids = [str(deployment_ids)]
+
+    results = await _refresh_gmail_watches(deployment_ids)
+    return {"results": results}
+
+
+if WATCH_REFRESH_INTERVAL_HOURS > 0:
+
+    @app.function(
+        image=image,
+        schedule=modal.Period(hours=WATCH_REFRESH_INTERVAL_HOURS),
+        timeout=600,
+    )
+    async def gmail_watch_refresher():
+        logger.info(
+            f"[GMAIL-WATCH] Periodic refresh triggered (interval={WATCH_REFRESH_INTERVAL_HOURS}h)"
+        )
+        await _refresh_gmail_watches()
 
 
 @app.function(
