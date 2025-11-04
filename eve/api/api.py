@@ -27,6 +27,7 @@ from eve.api.handlers import (
     handle_agent_tools_update,
     handle_agent_tools_delete,
     handle_session_cancel,
+    handle_session_status_update,
     handle_v2_deployment_create,
     handle_v2_deployment_emission,
     handle_v2_deployment_interact,
@@ -54,6 +55,7 @@ from eve.concepts import (
 from eve.api.api_requests import (
     CancelRequest,
     CancelSessionRequest,
+    UpdateSessionStatusRequest,
     CreateDeploymentRequestV2,
     DeleteDeploymentRequestV2,
     DeploymentEmissionRequest,
@@ -281,6 +283,14 @@ async def cancel_session(
     _: dict = Depends(auth.authenticate_admin),
 ):
     return await handle_session_cancel(request)
+
+
+@web_app.post("/session/status")
+async def update_session_status(
+    request: UpdateSessionStatusRequest,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    return await handle_session_status_update(request)
 
 
 @web_app.post("/v2/deployments/create")
@@ -587,3 +597,10 @@ async def remote_prompt_session_fn(
         attachments=attachments,
         extra_tools=extra_tools,
     )
+
+
+@app.function(image=image, max_containers=4)
+async def handle_session_status_change_fn(session_id: str, status: str):
+    """Handle session status changes - placeholder for future implementation."""
+    logger.info(f"Session {session_id} status changed to {status}")
+    return {"session_id": session_id, "status": status, "message": "Status change processed"}

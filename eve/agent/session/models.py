@@ -787,7 +787,7 @@ class Session(Document):
     channel: Optional[Channel] = None
     parent_session: Optional[ObjectId] = None
     agents: List[ObjectId] = Field(default_factory=list)
-    status: Literal["active", "archived"] = "active"
+    status: Literal["active", "paused", "stopped", "archived"] = "active"
     messages: List[ObjectId] = Field(default_factory=list)
     memory_context: Optional[SessionMemoryContext] = Field(
         default_factory=SessionMemoryContext

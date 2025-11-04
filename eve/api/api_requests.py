@@ -36,6 +36,11 @@ class CancelSessionRequest(BaseModel):
     tool_call_index: Optional[int] = None
 
 
+class UpdateSessionStatusRequest(BaseModel):
+    session_id: str
+    status: Literal["active", "paused", "stopped", "archived"]
+
+
 class UpdateConfig(BaseModel):
     sub_channel_name: Optional[str] = None
     update_endpoint: Optional[str] = None

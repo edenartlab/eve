@@ -259,9 +259,9 @@ def example_usage():
         user_id="60d4f1c85f8b8b1234567890",
     )
 
-    print("Example requests created successfully!")
-    print(f"New session request: {new_session_request}")
-    print(f"Existing session request: {existing_session_request}")
+    # print("Example requests created successfully!")
+    # print(f"New session request: {new_session_request}")
+    # print(f"Existing session request: {existing_session_request}")
 
 
 if __name__ == "__main__":
