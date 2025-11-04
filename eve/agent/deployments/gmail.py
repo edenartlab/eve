@@ -546,6 +546,8 @@ class GmailClient(PlatformClient):
             )
             return
 
+
+
         # Load agent and ensure we have latest deployment context
         if not self.agent:
             self.agent = Agent.from_mongo(ObjectId(self.deployment.agent))
