@@ -1712,7 +1712,9 @@ async def _refresh_gmail_watches(
             deployments.append(deployment)
     else:
         deployments = list(
-            Deployment.find({"platform": ClientType.GMAIL.value, "valid": {"$ne": False}})
+            Deployment.find(
+                {"platform": ClientType.GMAIL.value, "valid": {"$ne": False}}
+            )
         )
 
     for deployment in deployments:
@@ -1764,6 +1766,11 @@ async def _refresh_gmail_watches(
             )
 
     return results
+
+
+@web_app.post("/gmail/webhook")
+async def gmail_webhook(request: Request):
+    return {"status": "ok"}
 
 
 # @web_app.post("/gmail/webhook")
@@ -1836,7 +1843,6 @@ async def _refresh_gmail_watches(
 #         raise HTTPException(status_code=500, detail="Failed to process email")
 
 #     return {"status": "processed"}
-
 
 
 @web_app.post("/gmail/watch/refresh")
