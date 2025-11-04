@@ -97,7 +97,8 @@ def construct_tools(context: LLMContext) -> Optional[List[dict]]:
 
     # Add cache control for Anthropic models
     if "claude" in context.config.model or "anthropic" in context.config.model:
-        tools[-1]["cache_control"] = {"type": "ephemeral"}
+        if len(tools) > 0:
+            tools[-1]["cache_control"] = {"type": "ephemeral"}
 
     # Gemini/Vertex: enum values must be strings and parameter type must be "string"
     if "gemini" in context.config.model or "vertex" in context.config.model:
