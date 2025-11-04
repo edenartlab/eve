@@ -1800,6 +1800,23 @@ async def gmail_webhook(request: Request):
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found for deployment")
 
+    gmail_client = GmailClient(agent=agent, deployment=deployment)
+
+    history_id = inner_payload.get("historyId") or inner_payload.get("history_id")
+    if history_id and not inner_payload.get("message_id"):
+        try:
+            result = await gmail_client.process_history_update(str(history_id))
+            return {"status": "history_processed", "result": result}
+        except APIError as exc:
+            logger.error(f"[GMAIL-WEBHOOK] History processing API error: {exc}")
+            raise HTTPException(status_code=exc.status_code or 500, detail=str(exc))
+        except Exception as exc:
+            logger.error(
+                f"[GMAIL-WEBHOOK] Failed to process history update: {exc}",
+                exc_info=True,
+            )
+            raise HTTPException(status_code=500, detail="Failed to process history update")
+
     try:
         email = parse_inbound_email(inner_payload)
     except ValueError as exc:
@@ -1809,7 +1826,6 @@ async def gmail_webhook(request: Request):
         logger.error(f"[GMAIL-WEBHOOK] Failed to parse email payload: {exc}", exc_info=True)
         raise HTTPException(status_code=400, detail="Invalid email payload")
 
-    gmail_client = GmailClient(agent=agent, deployment=deployment)
     try:
         await gmail_client.process_inbound_email(email)
     except APIError as exc:

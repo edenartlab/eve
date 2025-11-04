@@ -374,6 +374,39 @@ class GmailAPIClient:
                 )
             return response.json()
 
+    async def list_history(
+        self, start_history_id: str, page_token: Optional[str] = None
+    ) -> Dict[str, Any]:
+        params = {
+            "startHistoryId": start_history_id,
+            "historyTypes": "messageAdded",
+        }
+        if page_token:
+            params["pageToken"] = page_token
+
+        token = await self.get_access_token()
+        url = f"https://gmail.googleapis.com/gmail/v1/users/{self._user}/history"
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.get(
+                url,
+                params=params,
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            response.raise_for_status()
+            return response.json()
+
+    async def get_message_raw(self, message_id: str) -> Dict[str, Any]:
+        token = await self.get_access_token()
+        url = f"https://gmail.googleapis.com/gmail/v1/users/{self._user}/messages/{message_id}"
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.get(
+                url,
+                params={"format": "raw"},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            response.raise_for_status()
+            return response.json()
+
 
 class GmailClient(PlatformClient):
     TOOLS = []
@@ -583,6 +616,73 @@ class GmailClient(PlatformClient):
         # Persist last_history_id if provided
         if email.history_id:
             self._update_history_id(email.history_id)
+
+    async def process_history_update(self, history_id: str) -> Dict[str, Any]:
+        """Handle Gmail push notifications that provide only a historyId."""
+        if not self.deployment:
+            raise ValueError("Deployment is required for process_history_update")
+
+        settings = self._get_settings()
+        last_history_id = settings.last_history_id
+
+        if not last_history_id:
+            logger.info(
+                "[GMAIL-HISTORY] No previous history_id stored; initializing baseline."
+            )
+            self._update_history_id(history_id)
+            return {"processed": 0, "reason": "baseline_initialized"}
+
+        gmail_api = self._get_gmail_api_client()
+
+        processed = 0
+        next_page: Optional[str] = None
+        seen_messages: set[str] = set()
+
+        while True:
+            history_response = await gmail_api.list_history(
+                start_history_id=last_history_id, page_token=next_page
+            )
+
+            for history_entry in history_response.get("history", []):
+                messages_added = history_entry.get("messagesAdded") or []
+                for message_info in messages_added:
+                    message_meta = message_info.get("message") or {}
+                    message_id = message_meta.get("id")
+                    if not message_id or message_id in seen_messages:
+                        continue
+
+                    seen_messages.add(message_id)
+                    try:
+                        raw_message = await gmail_api.get_message_raw(message_id)
+                    except Exception as exc:
+                        logger.warning(
+                            f"[GMAIL-HISTORY] Failed to fetch raw message {message_id}: {exc}"
+                        )
+                        continue
+
+                    payload = {
+                        "raw": raw_message.get("raw"),
+                        "id": raw_message.get("id"),
+                        "threadId": raw_message.get("threadId"),
+                    }
+
+                    try:
+                        email = parse_inbound_email(payload)
+                        email.history_id = history_id
+                        await self.process_inbound_email(email)
+                        processed += 1
+                    except Exception as exc:
+                        logger.error(
+                            f"[GMAIL-HISTORY] Failed to process message {message_id}: {exc}",
+                            exc_info=True,
+                        )
+
+            next_page = history_response.get("nextPageToken")
+            if not next_page:
+                break
+
+        self._update_history_id(history_id)
+        return {"processed": processed}
 
     async def ensure_watch(self) -> Optional[Dict[str, Any]]:
         """Ensure Gmail watch is active for this deployment."""
