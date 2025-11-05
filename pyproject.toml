@@ -65,11 +65,15 @@ dependencies = [
     "sentry-sdk>=2.41.0",
     "loguru>=0.7.3",
     "isodate>=0.6.1",
+    "graphiti-core[falkordb,neptune]>=0.22.0",
 ]
 
 [build-system]
 requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = { find = { include = ["eve*"], exclude = ["tests*", "scripts*", "docker*"] } }
 
 [tool.rye]
 dev-dependencies = [

@@ -7,7 +7,7 @@ import re
 import pytz
 import uuid
 from fastapi import BackgroundTasks
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
 from bson import ObjectId
 from sentry_sdk import capture_exception
@@ -36,7 +36,11 @@ from eve.agent.session.session_llm import (
     LLMContext,
     async_prompt,
     async_prompt_stream,
+    is_fake_llm_mode,
+    should_force_fake_response,
+    is_test_mode_prompt,
 )
+from eve.agent.session.fake_utils import build_fake_tool_result_payload
 from eve.agent.session.models import LLMContextMetadata
 from eve.api.errors import handle_errors
 from eve.api.helpers import emit_update
@@ -419,6 +423,11 @@ async def build_llm_context(
     if tool_choice not in ["auto", "none"]:
         tool_choice = {"type": "function", "function": {"name": context.tool_choice}}
 
+    raw_prompt_text = (
+        context.message.content if context.message and context.message.content else None
+    )
+    force_fake = is_fake_llm_mode() or is_test_mode_prompt(raw_prompt_text)
+
     # build messages first to have context for thinking routing
     system_message = await build_system_message(session, actor, context, tools)
 
@@ -434,7 +443,7 @@ async def build_llm_context(
     messages = convert_message_roles(messages, actor.id)
 
     # Use agent's llm_settings if available, otherwise fallback to context or default
-    if actor.llm_settings:
+    if actor.llm_settings and not force_fake:
         from eve.agent.session.config import build_llm_config_from_agent_settings
 
         config = await build_llm_config_from_agent_settings(
@@ -468,6 +477,36 @@ async def build_llm_context(
     )
 
 
+def create_fake_tool_result(
+    tool: Tool,
+    tool_call: ToolCall,
+    user_id: Optional[str],
+    agent_id: Optional[str],
+    session_id: Optional[str],
+    message_id: Optional[str],
+    public: bool,
+) -> Dict[str, Any]:
+    """Create placeholder task and result data for fake chat mode."""
+    args = tool_call.args or {}
+    try:
+        tool_call.args = tool.prepare_args(args.copy())
+    except Exception as exc:
+        logger.warning(
+            f"Failed to normalize args for fake tool call {tool_call.tool}: {exc}"
+        )
+
+    result_payload = build_fake_tool_result_payload(
+        tool_call.tool, getattr(tool, "name", None)
+    )
+
+    return {
+        "status": "completed",
+        "result": result_payload,
+        "cost": 0,
+        "task": None,
+    }
+
+
 async def async_run_tool_call_with_cancellation(
     llm_context: LLMContext,
     tool_call: ToolCall,
@@ -487,6 +526,17 @@ async def async_run_tool_call_with_cancellation(
         return tool_call.result
 
     tool = llm_context.tools[tool_call.tool]
+
+    if is_fake_llm_mode() or should_force_fake_response(llm_context):
+        return create_fake_tool_result(
+            tool,
+            tool_call,
+            user_id=user_id,
+            agent_id=agent_id,
+            session_id=session_id,
+            message_id=message_id,
+            public=public,
+        )
 
     # Start the task
     try:
