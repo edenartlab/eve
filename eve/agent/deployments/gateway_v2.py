@@ -1047,7 +1047,19 @@ class DiscordGatewayClient:
                                     f"Authentication failed for deployment {self.deployment.id}: {data}"
                                 )
                                 # Mark the deployment as invalid in the database
-                                self._mark_deployment_invalid()
+                                self._mark_deployment_invalid(
+                                    reason="authentication_failed"
+                                )
+                                # Stop reconnection attempts
+                                self._reconnect = False
+                                break
+                            elif close_code == 4014 or "Disallowed intent" in str(data):
+                                logger.error(
+                                    f"Disallowed intents for deployment {self.deployment.id}: {data}"
+                                )
+                                self._mark_deployment_invalid(
+                                    reason="discord_disallowed_intents"
+                                )
                                 # Stop reconnection attempts
                                 self._reconnect = False
                                 break
@@ -1100,7 +1112,17 @@ class DiscordGatewayClient:
                         f"Authentication failed for deployment {self.deployment.id}: {e}"
                     )
                     # Mark the deployment as invalid in the database
-                    self._mark_deployment_invalid()
+                    self._mark_deployment_invalid(reason="authentication_failed")
+                    # Stop reconnection attempts
+                    self._reconnect = False
+                    break
+                if e.code == 4014 or (
+                    isinstance(e.reason, str) and "Disallowed intent" in e.reason
+                ):
+                    logger.error(
+                        f"Disallowed intents for deployment {self.deployment.id}: {e}"
+                    )
+                    self._mark_deployment_invalid(reason="discord_disallowed_intents")
                     # Stop reconnection attempts
                     self._reconnect = False
                     break
@@ -1120,7 +1142,15 @@ class DiscordGatewayClient:
                         f"Authentication failed for deployment {self.deployment.id}, marking as invalid"
                     )
                     # Mark the deployment as invalid in the database
-                    self._mark_deployment_invalid()
+                    self._mark_deployment_invalid(reason="authentication_failed")
+                    # Stop reconnection attempts
+                    self._reconnect = False
+                    break
+                if "4014" in str(e) or "Disallowed intent" in str(e):
+                    logger.error(
+                        f"Disallowed intents for deployment {self.deployment.id}, marking as invalid"
+                    )
+                    self._mark_deployment_invalid(reason="discord_disallowed_intents")
                     # Stop reconnection attempts
                     self._reconnect = False
                     break
@@ -1185,7 +1215,7 @@ class DiscordGatewayClient:
                 logger.error(f"Error closing Ably client for {self.deployment.id}: {e}")
             self.ably_client = None
 
-    def _mark_deployment_invalid(self):
+    def _mark_deployment_invalid(self, reason: str = "unspecified"):
         """Mark the deployment as invalid in the database"""
         try:
             # Fetch fresh deployment data to avoid overwriting other changes
@@ -1194,7 +1224,7 @@ class DiscordGatewayClient:
                 deployment.valid = False
                 deployment.save()
                 logger.info(
-                    f"Marked deployment {self.deployment.id} as invalid due to authentication failure"
+                    f"Marked deployment {self.deployment.id} as invalid (reason={reason})"
                 )
         except Exception as e:
             logger.error(
