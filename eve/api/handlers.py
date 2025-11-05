@@ -447,9 +447,8 @@ async def handle_session_cancel(request: CancelSessionRequest):
 async def handle_session_status_update(request):
     """Update the status of a session."""
     try:
-        from eve.api.api_requests import UpdateSessionStatusRequest
-        request = UpdateSessionStatusRequest(**request)
-        session = Session.from_mongo(request.session_id)
+        # Request is already an UpdateSessionStatusRequest from FastAPI
+        session = Session.from_mongo(ObjectId(request.session_id))
 
         try:
             db = os.getenv("DB", "STAGE").upper()

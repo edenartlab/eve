@@ -37,7 +37,7 @@ async def remote_prompt_session(
     session_id: str,
     agent_id: str,
     user_id: str,
-    content: str,
+    content: Optional[str] = None,
     attachments: Optional[List[str]] = [],
     extra_tools: Optional[List[str]] = [],
 ):
@@ -55,7 +55,7 @@ async def remote_prompt_session(
         role="user",
         sender=user.id,
         session=session.id,
-        content=content,
+        content=content or "",
         attachments=attachments,
     )
 
@@ -71,7 +71,8 @@ async def remote_prompt_session(
         context.extra_tools = {k: Tool.load(k) for k in extra_tools}
 
     # Add message to session
-    await add_chat_message(session, context)
+    if content or attachments:
+        await add_chat_message(session, context)
 
     # Build LLM context and prompt
     context = await build_llm_context(
@@ -179,7 +180,7 @@ Each round of the game goes like this:
         session_id=session_id,
         agent_id=agent_id,
         user_id=user_id,
-        content=f"",
+        content=None,
         attachments=[],
         extra_tools=[],
     )
@@ -195,10 +196,15 @@ Each round of the game goes like this:
 
 async def run_automatic_session(session_id: str):    
     session = Session.from_mongo(session_id)
+    
+    if session.session_type != "automatic":
+        raise ValueError("Session is not an automatic session")
+
     while True:
         session.reload()
         if session.status != "active":
             break
+        
         await run_automatic_session_step(session)
 
 
@@ -219,8 +225,12 @@ async def run_automatic_session_step(session: Session):
     class ConductorResponse(BaseModel):
         """Form an intention for the next speaker"""    
 
-        speaker: Literal[*agents.keys()] = Field(description="The speaker who should speak next")
-        hint: Optional[str] = Field(description="A hint to the speaker to keep turn. Turn constraints/budgets/phase reminders **only**.")
+        speaker: Literal[*agents.keys()] = Field(
+            description="The speaker who should speak next"
+        )
+        hint: Optional[str] = Field(
+            description="A hint to the speaker to keep turn. Turn constraints/budgets/phase reminders **only**."
+        )
 
     # Build LLM context with custom tools
     context = LLMContext(
@@ -244,7 +254,7 @@ async def run_automatic_session_step(session: Session):
         session_id=str(session.id),
         agent_id=str(actor.id),
         user_id=str(session.owner),
-        content=f"",
+        content=None,
         attachments=[],
         extra_tools=[],
     )

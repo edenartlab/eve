@@ -719,12 +719,6 @@ class LLMContext:
     enable_tracing: bool = True
 
 
-class SessionType(Enum):
-    CHAT = "chat"
-    PASSIVE = "passive"
-    AUTOMATIC = "automatic"
-
-
 class SessionSettings(BaseModel):
     conductor_prompt: Optional[str] = None
     delay_interval: int = 0
@@ -790,7 +784,7 @@ class Session(Document):
         default_factory=SessionMemoryContext
     )
     title: Optional[str] = None
-    type: SessionType = SessionType.CHAT
+    session_type: Optional[Literal["chat", "passive", "automatic"]] = "chat"
     settings: SessionSettings = Field(default_factory=SessionSettings)
     last_actor_id: Optional[ObjectId] = None
     budget: SessionBudget = SessionBudget()
