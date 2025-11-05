@@ -269,12 +269,10 @@ class ChatMessage(Document):
         return self.model_copy(update={"tool_calls": filtered_tool_calls})
 
     def update_tool_call(self, tool_call_index: int, **fields: dict):
-        set_fields = {
-            f"tool_calls.{tool_call_index}.{k}": v
-            for k, v in fields.items()
-        }
+        set_fields = {f"tool_calls.{tool_call_index}.{k}": v for k, v in fields.items()}
         self.get_collection().update_one(
-            {"_id": self.id}, {"$set": set_fields},
+            {"_id": self.id},
+            {"$set": set_fields},
         )
 
     def _get_content_block(self, schema, truncate_images=False):
@@ -289,8 +287,8 @@ class ChatMessage(Document):
 
         if self.attachments:
             # Process all attachments using the new file parser module
-            parsed_attachments, attachment_lines, attachment_errors = process_attachments_for_message(
-                self.attachments
+            parsed_attachments, attachment_lines, attachment_errors = (
+                process_attachments_for_message(self.attachments)
             )
 
             # Separate text attachments from media files for different processing
@@ -327,7 +325,7 @@ class ChatMessage(Document):
             if audio_attachments:
                 for audio_att in audio_attachments:
                     attachments += f'\n<attached_file type="audio" name="{audio_att.name}" url="{audio_att.url}" />\n'
-                    
+
             # Add truncation notification if any files were truncated
             if truncated_files:
                 if attachments:
@@ -765,7 +763,9 @@ class SessionMemoryContext(BaseModel):
 class SessionExtras(BaseModel):
     """Additional session configuration flags"""
 
-    exclude_memory: Optional[bool] = False  # If True, memory won't be passed to system prompt
+    exclude_memory: Optional[bool] = (
+        False  # If True, memory won't be passed to system prompt
+    )
     is_public: Optional[bool] = False  # If True, session is publicly accessible
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -789,7 +789,7 @@ class Session(Document):
     autonomy_settings: Optional[SessionAutonomySettings] = None
     last_actor_id: Optional[ObjectId] = None
     budget: SessionBudget = SessionBudget()
-    platform: Optional[Literal["discord", "telegram", "twitter", "farcaster"]] = None
+    platform: Optional[str] = None
     trigger: Optional[ObjectId] = None
     active_requests: Optional[List[str]] = []
     extras: Optional[SessionExtras] = None  # Additional session configuration flags
@@ -958,7 +958,9 @@ class DeploymentSettingsFarcaster(BaseModel):
 
 
 class DeploymentSecretsFarcaster(BaseModel):
-    mnemonic: Optional[str] = None  # For backwards compatibility with direct mnemonic auth
+    mnemonic: Optional[str] = (
+        None  # For backwards compatibility with direct mnemonic auth
+    )
     signer_uuid: Optional[str] = None  # For Neynar managed signers
     neynar_webhook_secret: Optional[str] = None
 
@@ -1076,7 +1078,10 @@ class Deployment(Document):
     @classmethod
     def convert_to_mongo(cls, schema: dict, **kwargs) -> dict:
         """Encrypt secrets before saving to MongoDB"""
-        from eve.utils.kms_encryption import encrypt_deployment_secrets, get_kms_encryption
+        from eve.utils.kms_encryption import (
+            encrypt_deployment_secrets,
+            get_kms_encryption,
+        )
         from eve.utils.data_utils import serialize_json
 
         kms = get_kms_encryption()
@@ -1092,13 +1097,19 @@ class Deployment(Document):
     @classmethod
     def convert_from_mongo(cls, schema: dict, **kwargs) -> dict:
         """Decrypt secrets after loading from MongoDB"""
-        from eve.utils.kms_encryption import decrypt_deployment_secrets, get_kms_encryption
+        from eve.utils.kms_encryption import (
+            decrypt_deployment_secrets,
+            get_kms_encryption,
+        )
 
         kms = get_kms_encryption()
 
         if "secrets" in schema and schema["secrets"]:
             # Check if secrets are encrypted
-            if isinstance(schema["secrets"], dict) and "encryption_metadata" in schema["secrets"]:
+            if (
+                isinstance(schema["secrets"], dict)
+                and "encryption_metadata" in schema["secrets"]
+            ):
                 # Decrypt the secrets
                 try:
                     decrypted_secrets = decrypt_deployment_secrets(schema["secrets"])

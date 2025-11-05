@@ -61,14 +61,23 @@ def Collection(name):
                 docs = docs.sort(sort, -1 if desc else 1)
             if limit:
                 docs = docs.limit(limit)
-            return [cls(**doc) for doc in docs]
+            results = []
+            for doc in docs:
+                sub_cls = cls.get_sub_class(doc, from_yaml=False)
+                converted = sub_cls.convert_from_mongo(doc)
+                results.append(sub_cls.from_schema(converted, from_yaml=False))
+            return results
 
         @classmethod
         def find_one(cls, query):
             """Find one document matching the query"""
             collection = get_collection(cls.collection_name)
             doc = collection.find_one(query)
-            return cls(**doc) if doc else None
+            if not doc:
+                return None
+            sub_cls = cls.get_sub_class(doc, from_yaml=False)
+            converted = sub_cls.convert_from_mongo(doc)
+            return sub_cls.from_schema(converted, from_yaml=False)
 
         cls.collection_name = name
         cls.find = find
