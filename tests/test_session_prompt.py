@@ -76,7 +76,6 @@ class TestSessionPrompt:
             owner_id=str(mock_user.id),
             agents=[str(mock_agent.id)],
             title="Test Session",
-            scenario="Test scenario",
             budget=100.0,
         )
 
@@ -93,7 +92,6 @@ class TestSessionPrompt:
                 owner=mock_user.id,
                 agents=[mock_agent.id],
                 title="Test Session",
-                scenario="Test scenario",
                 budget=100.0,
                 status="active",
             )
@@ -248,7 +246,6 @@ def example_usage():
             "60d4f1c85f8b8b1234567892",
         ],  # Required for new sessions
         title="New Chat Session",
-        scenario="General conversation",
         budget=100.0,
     )
 
@@ -259,9 +256,9 @@ def example_usage():
         user_id="60d4f1c85f8b8b1234567890",
     )
 
-    print("Example requests created successfully!")
-    print(f"New session request: {new_session_request}")
-    print(f"Existing session request: {existing_session_request}")
+    # print("Example requests created successfully!")
+    # print(f"New session request: {new_session_request}")
+    # print(f"Existing session request: {existing_session_request}")
 
 
 if __name__ == "__main__":

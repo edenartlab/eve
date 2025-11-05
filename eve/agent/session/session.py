@@ -18,7 +18,6 @@ from eve.models import Model
 from eve.agent.session.debug_logger import SessionDebugger
 from eve.concepts import Concept
 from eve.agent.session.models import (
-    ActorSelectionMethod,
     ChatMessage,
     ChatMessageObservability,
     LLMTraceMetadata,
@@ -103,33 +102,8 @@ def validate_prompt_session(session: Session, context: PromptSessionContext):
         or session.budget.manna_budget
         or session.budget.turn_budget
     )
-    if (
-        session.autonomy_settings
-        and session.autonomy_settings.auto_reply
-        and not has_budget
-    ):
-        raise ValueError("Session cannot have auto-reply enabled without a set budget")
     if has_budget:
         check_session_budget(session)
-
-
-def determine_actor_from_actor_selection_method(session: Session) -> Optional[Agent]:
-    selection_method = session.autonomy_settings.actor_selection_method
-    if (
-        session.autonomy_settings.actor_selection_method
-        == ActorSelectionMethod.RANDOM_EXCLUDE_LAST
-    ):
-        if not session.last_actor_id:
-            return random.choice(session.agents)
-        last_actor_id = session.last_actor_id
-        eligible_actors = [
-            agent_id for agent_id in session.agents if agent_id != last_actor_id
-        ]
-        return random.choice(eligible_actors)
-    elif selection_method == ActorSelectionMethod.RANDOM:
-        return random.choice(session.agents)
-    else:
-        raise ValueError(f"Invalid actor selection method: {selection_method}")
 
 
 def parse_mentions(content: str) -> List[str]:
@@ -151,9 +125,6 @@ async def determine_actors(
         for actor_agent_id in context.actor_agent_ids:
             requested_actor = ObjectId(actor_agent_id)
             actor_ids.append(requested_actor)
-    elif session.autonomy_settings and session.autonomy_settings.auto_reply:
-        actor_id = determine_actor_from_actor_selection_method(session)
-        actor_ids.append(actor_id)
     elif len(session.agents) > 1:
         mentions = parse_mentions(context.message.content)
         if len(mentions) > 0:
@@ -273,9 +244,8 @@ async def build_system_message(
     # Build system prompt with memory context
     content = system_template.render(
         name=actor.name,
-        current_date_time=current_date_time,
+        # current_date_time=current_date_time,
         description=actor.description,
-        scenario=session.scenario,
         persona=actor.persona,
         tools=tools,
         concepts=concepts,
@@ -288,7 +258,9 @@ async def build_system_message(
 
 
 async def build_system_extras(
-    session: Session, context: PromptSessionContext, config: LLMConfig
+    session: Session, 
+    context: PromptSessionContext, 
+    config: LLMConfig
 ):
     extras = []
 
@@ -304,6 +276,16 @@ async def build_system_extras(
     #     config.max_tokens = 1024
 
     # add trigger context
+    if hasattr(session, "context") and session.context:
+        extras.append(
+            ChatMessage(
+                session=session.id,
+                role="system",
+                content=session.context,
+            )
+        )
+
+    # add trigger context# add trigger context
     if session.trigger:
         from eve.trigger import Trigger
 
@@ -321,7 +303,9 @@ async def build_system_extras(
 
 
 async def add_chat_message(
-    session: Session, context: PromptSessionContext, pin: bool = False
+    session: Session, 
+    context: PromptSessionContext, 
+    pin: bool = False
 ):
     new_message = ChatMessage(
         session=session.id,
@@ -1493,12 +1477,6 @@ async def _run_prompt_session_internal(
 
         # Schedule background tasks if available
         if background_tasks:
-            # Process auto-reply after all actors have completed
-            if session.autonomy_settings and session.autonomy_settings.auto_reply:
-                background_tasks.add_task(
-                    _queue_session_action_fastify_background_task, session
-                )
-
             # Process memory formation for all actors that participated
             for actor in actors:
                 background_tasks.add_task(maybe_form_memories, actor.id, session, actor)
@@ -1597,25 +1575,6 @@ async def run_prompt_session(
         await emit_update(context.update_config, data, session_id=session_id)
 
     debugger.end_section("run_prompt_session")
-
-
-async def _queue_session_action_fastify_background_task(session: Session):
-    import httpx
-
-    if session.autonomy_settings:
-        await asyncio.sleep(session.autonomy_settings.reply_interval)
-
-    url = f"{os.getenv('EDEN_API_URL')}/sessions/prompt"
-    payload = {"session_id": str(session.id), "stream": True}
-    headers = {"Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}"}
-
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(url, headers=headers, json=payload)
-            response.raise_for_status()
-    except Exception as e:
-        logger.error(f"HTTP request failed: {str(e)}")
-        capture_exception(e)
 
 
 async def check_if_session_active(user_id: str, session_id: str) -> dict:

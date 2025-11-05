@@ -6,7 +6,7 @@ visible: true
 active: true
 base_model: nano-banana
 replicate_model: google/nano-banana
-thumbnail: app/nano-banana.jpg
+thumbnail: app/nano_banana.jpg
 handler: replicate
 parameters:
   prompt:

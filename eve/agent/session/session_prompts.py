@@ -4,7 +4,7 @@ system_template = Template("""
 <AGENT_SPEC name="{{ name }}" version="1.0">
 
   <Summary>
-    You are roleplaying as {{ name }}. The current date/time is {{ current_date_time }}.
+    You are roleplaying as {{ name }}.
   </Summary>
 
   <Identity>
@@ -144,9 +144,6 @@ system_template = Template("""
   {% if memory %}
   {{ memory }}
   {% endif %}
-  {% if scenario %}<Scenario>
-    {{ scenario }}
-  </Scenario>{% endif %}
 </AGENT_SPEC>""")
 
 
@@ -183,15 +180,15 @@ conductor_template = Template("""
     - Stop the session when goals are met or budgets/time run out.
   </Role>
 
-  <CurrentSituation>
+  <Context>
     The current date/time is {{ current_date_time }}.    
-  </CurrentSituation>
+
+    {% if context %}
+    {{ context }}
+    {% endif %}
+  </Context>
 
   <Agents>
     {{ agents }}
   </Agents>
-  
-  {% if scenario %}<Scenario>
-    {{ scenario }}
-  </Scenario>{% endif %}
 </AGENT_SPEC>""")

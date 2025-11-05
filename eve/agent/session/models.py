@@ -643,6 +643,12 @@ class SessionUpdateConfig(BaseModel):
     farcaster_message_id: Optional[str] = None
     twitter_tweet_to_reply_id: Optional[str] = None
     user_is_bot: Optional[bool] = False
+    gmail_thread_id: Optional[str] = None
+    gmail_message_id: Optional[str] = None
+    gmail_history_id: Optional[str] = None
+    gmail_from_address: Optional[str] = None
+    gmail_to_address: Optional[str] = None
+    gmail_subject: Optional[str] = None
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
@@ -713,19 +719,10 @@ class LLMContext:
     enable_tracing: bool = True
 
 
-class ActorSelectionMethod(Enum):
-    RANDOM = "random"
-    RANDOM_EXCLUDE_LAST = "random_exclude_last"
-
-
-class SessionAutonomySettings(BaseModel):
-    auto_reply: bool = False
-    reply_interval: int = 0
-    actor_selection_method: ActorSelectionMethod = ActorSelectionMethod.RANDOM
-
-    @field_serializer("actor_selection_method")
-    def serialize_actor_selection_method(self, value: ActorSelectionMethod) -> str:
-        return value.value
+class SessionSettings(BaseModel):
+    conductor_prompt: Optional[str] = None
+    delay_interval: int = 0
+    mention_force_reply: bool = False
 
 
 class SessionBudget(BaseModel):
@@ -767,6 +764,8 @@ class SessionExtras(BaseModel):
         False  # If True, memory won't be passed to system prompt
     )
     is_public: Optional[bool] = False  # If True, session is publicly accessible
+    gmail_thread_id: Optional[str] = None
+    gmail_initial_message_id: Optional[str] = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -779,20 +778,23 @@ class Session(Document):
     channel: Optional[Channel] = None
     parent_session: Optional[ObjectId] = None
     agents: List[ObjectId] = Field(default_factory=list)
-    status: Literal["active", "archived"] = "active"
+    status: Literal["active", "paused", "stopped", "archived"] = "active"
     messages: List[ObjectId] = Field(default_factory=list)
     memory_context: Optional[SessionMemoryContext] = Field(
         default_factory=SessionMemoryContext
     )
     title: Optional[str] = None
-    scenario: Optional[str] = None
-    autonomy_settings: Optional[SessionAutonomySettings] = None
+    session_type: Optional[Literal["chat", "passive", "automatic"]] = "chat"
+    settings: SessionSettings = Field(default_factory=SessionSettings)
     last_actor_id: Optional[ObjectId] = None
     budget: SessionBudget = SessionBudget()
-    platform: Optional[str] = None
+    platform: Optional[
+        Literal["discord", "telegram", "twitter", "farcaster", "gmail"]
+    ] = None
     trigger: Optional[ObjectId] = None
     active_requests: Optional[List[str]] = []
     extras: Optional[SessionExtras] = None  # Additional session configuration flags
+    deleted: Optional[bool] = False
 
     def get_messages(self):
         messages = ChatMessage.find({"session": self.id})
@@ -883,6 +885,8 @@ class ClientType(Enum):
     PRINTIFY = "printify"
     CAPTIONS = "captions"
     TIKTOK = "tiktok"
+    GMAIL = "gmail"
+    EMAIL = "email"
 
 
 class NotificationType(Enum):
@@ -1028,6 +1032,26 @@ class DeploymentSecretsTiktok(BaseModel):
     username: Optional[str] = None
 
 
+# Gmail Models
+class DeploymentSettingsGmail(BaseModel):
+    reply_delay_seconds: int = 0
+    reply_variance_seconds: int = 0
+    reply_from_address: Optional[str] = None
+    reply_display_name: Optional[str] = None
+    last_history_id: Optional[str] = None
+    watch_expiration: Optional[datetime] = None
+
+
+class DeploymentSecretsGmail(BaseModel):
+    service_account_info: Dict[str, Any]  # Full service account dictionary
+    delegated_user: str  # User to impersonate (e.g. solienne@solienne.ai)
+    token_scopes: Optional[List[str]] = None
+    pubsub_subscription: Optional[str] = None
+    pubsub_topic: Optional[str] = None
+    watch_label_ids: Optional[List[str]] = None
+    reply_alias: Optional[str] = None
+
+
 # Combined Models
 class DeploymentSecrets(BaseModel):
     discord: DeploymentSecretsDiscord | None = None
@@ -1038,6 +1062,7 @@ class DeploymentSecrets(BaseModel):
     printify: DeploymentSecretsPrintify | None = None
     captions: DeploymentSecretsCaptions | None = None
     tiktok: DeploymentSecretsTiktok | None = None
+    gmail: DeploymentSecretsGmail | None = None
 
 
 class DeploymentConfig(BaseModel):
@@ -1049,6 +1074,7 @@ class DeploymentConfig(BaseModel):
     printify: DeploymentSettingsPrintify | None = None
     captions: DeploymentSettingsCaptions | None = None
     tiktok: DeploymentSettingsTiktok | None = None
+    gmail: DeploymentSettingsGmail | None = None
 
 
 @Collection("deployments2")

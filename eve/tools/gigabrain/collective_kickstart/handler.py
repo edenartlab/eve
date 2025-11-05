@@ -354,9 +354,8 @@ Generate a friendly, personalized introduction message that presents these conne
     # Build system prompt with memory context using the same template
     system_content = system_template.render(
         name=agent.name,
-        current_date_time=current_date_time,
+        # current_date_time=current_date_time,
         description=agent.description,
-        scenario=None,
         persona=agent.persona,
         tools=None,
         concepts=concepts,
@@ -585,7 +584,69 @@ async def handler(context: ToolContext):
 
         logger.info(f"Profile matching generated results for {len(users_data)} users")
 
-        # Step 5: Extract intro documents per user
+        # Step 5: Update memory_user content with extracted profiles
+        from eve.agent.session.memory_models import UserMemory
+
+        updated_memories = []
+        failed_memory_updates = []
+
+        logger.info("Updating user memory content with extracted profiles...")
+        for username, user_data in users_data.items():
+            try:
+                # Extract profile from the new JSON structure
+                profile_content = user_data.get("profile", "")
+
+                if not profile_content:
+                    logger.warning(f"No profile content found for user {username}")
+                    continue
+
+                # Get user_id from the mapping
+                user_id = username_to_user_id.get(username)
+                if not user_id:
+                    logger.warning(f"Could not find user_id for username: {username}")
+                    failed_memory_updates.append({
+                        "username": username,
+                        "error": "User ID not found"
+                    })
+                    continue
+
+                # Find or create UserMemory document
+                user_memory = UserMemory.find_one_or_create(
+                    {"agent_id": agent.id, "user_id": user_id}
+                )
+
+                # Prepend profile to any existing content (never overwrite)
+                existing_content = user_memory.content or ""
+
+                if existing_content:
+                    # Prepend new profile with separator
+                    user_memory.content = f"{profile_content}\n\n---\n\n{existing_content}"
+                    logger.info(f"Prepended profile to existing memory for user {username}")
+                else:
+                    # No existing content, just set the profile
+                    user_memory.content = profile_content
+                    logger.info(f"Set initial memory content for user {username}")
+
+                user_memory.last_updated_at = datetime.now(timezone.utc)
+                user_memory.save()
+
+                updated_memories.append({
+                    "username": username,
+                    "user_id": str(user_id),
+                    "profile_length": len(profile_content),
+                    "had_existing_content": bool(existing_content)
+                })
+
+            except Exception as e:
+                logger.error(f"Error updating memory for user {username}: {e}")
+                failed_memory_updates.append({
+                    "username": username,
+                    "error": str(e)
+                })
+
+        logger.info(f"Memory updates complete: {len(updated_memories)} successful, {len(failed_memory_updates)} failed")
+
+        # Step 6: Extract intro documents per user
         # Build a map of username -> intro text
         user_intros = {}
         for username, user_data in users_data.items():
@@ -655,14 +716,30 @@ Sessions Analyzed: {len(sessions)}
 Active Users Found: {len(user_profiles)}
 Introductions Generated: {len(user_intros)}
 
+Memory Updates:
+✓ Successful: {len(updated_memories)}
+✗ Failed: {len(failed_memory_updates)}
+
 Session Creation Results:
 ✓ Successful: {len(successful)}
 ✗ Failed: {len(failed)}
 
 """
 
+        if updated_memories:
+            summary += "Successfully updated memories for:\n"
+            for result in updated_memories:
+                status = "(updated existing)" if result['had_existing_content'] else "(new)"
+                summary += f"  - {result['username']} {status}\n"
+
+        if failed_memory_updates:
+            summary += "\nFailed memory updates:\n"
+            for result in failed_memory_updates:
+                error = result.get('error', 'Unknown error')
+                summary += f"  - {result['username']}: {error}\n"
+
         if successful:
-            summary += "Successfully created sessions for:\n"
+            summary += "\nSuccessfully created sessions for:\n"
             for result in successful:
                 summary += f"  - {result['user']} (session: {result['session_id']})\n"
 

@@ -19,6 +19,7 @@ from contextlib import asynccontextmanager
 
 from eve import auth, db
 from eve.api.runner_tasks import download_clip_models
+from eve.agent.session.models import Session
 from eve.api.handlers import (
     handle_create,
     handle_cancel,
@@ -27,6 +28,7 @@ from eve.api.handlers import (
     handle_agent_tools_update,
     handle_agent_tools_delete,
     handle_session_cancel,
+    handle_session_status_update,
     handle_v2_deployment_create,
     handle_v2_deployment_emission,
     handle_v2_deployment_interact,
@@ -54,6 +56,7 @@ from eve.concepts import (
 from eve.api.api_requests import (
     CancelRequest,
     CancelSessionRequest,
+    UpdateSessionStatusRequest,
     CreateDeploymentRequestV2,
     DeleteDeploymentRequestV2,
     DeploymentEmissionRequest,
@@ -82,8 +85,11 @@ from eve.api.api_functions import (
     run_task_replicate,
     cleanup_stale_busy_states,
 )
-from eve.agent.session.models import Session
-from eve.agent.session.run import remote_prompt_session
+from eve.agent.session.run import (
+    remote_prompt_session, 
+    run_automatic_session
+)
+
 
 
 app_name = f"api-{db.lower()}"
@@ -281,6 +287,14 @@ async def cancel_session(
     _: dict = Depends(auth.authenticate_admin),
 ):
     return await handle_session_cancel(request)
+
+
+@web_app.post("/sessions/status")
+async def update_session_status(
+    request: UpdateSessionStatusRequest,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    return await handle_session_status_update(request)
 
 
 @web_app.post("/v2/deployments/create")
@@ -587,3 +601,12 @@ async def remote_prompt_session_fn(
         attachments=attachments,
         extra_tools=extra_tools,
     )
+
+
+@app.function(image=image, max_containers=4)
+async def handle_session_status_change_fn(
+    session_id: str, 
+    status: str
+):
+    if status == "active":
+        await run_automatic_session(session_id)

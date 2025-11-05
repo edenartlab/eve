@@ -1,0 +1,50 @@
+name: Reel Composer
+description: Compose a 30–300s reel from a simple brief. Optionally generate narration/music, create keyframes, turn them into clips, then assemble and mix into a single video.
+tip: |-
+  This tool runs without prior chat context. Always provide a self-contained <Task> with exactly three sections: Context, Instructions, Assets.
+  Defaults if not stated: 60s runtime, ~5s shots, 1–2 refs/shot, hard cuts, mp4/h264/aac @1080p, −14 LUFS. If narration+music, make VO first; then instrumental music slightly longer and duck under VO.
+  Return only the final video file.
+cost_estimate: 1000
+output_type: video
+active: true
+visible: false
+handler: modal
+parameters:
+  context:
+    type: string
+    label: Context (summary)
+    description: One concise paragraph summarizing the parent session’s relevant decisions; idea, tone, audience/platform, constraints (length/aspect), prior exploration.
+    tip: Keep only what is needed to make THIS reel; no fluff.
+    required: true
+
+  producer_instructions:
+    type: string
+    label: Producer instructions
+    description: Natural-language brief telling the Reel Producer exactly what to make; audio plan (and VO script/voice if used), keyframe strategy, image→video motion notes, assembly order & transitions, mix targets, and output format.
+    tip: Aim for 6–12 bullet points. Include VO script (50–300 words) if narration is requested. State aspect/fps/resolution if important.
+    required: true
+
+  media_files:
+    type: array
+    items:
+      anyOf: 
+        - type: image
+        - type: video
+        - type: audio
+    label: Media files
+    description: Downloadable URLs for every asset to be used (refs, footage, logos, music/SFX). These power the Assets section.
+    tip: Each item may include optional fields `label` and `role` (e.g., "hero character ref", "shot 3 background", "end-card logo 2s").
+    required: false
+
+  title:
+    type: string
+    label: Title
+    description: Very short descriptive title for the reel.
+    required: false
+
+  resume_session:
+    type: string
+    label: Resume session
+    description: Optional prior session ID to iterate from; mention changes in the Context text.
+    tip: This is useful to make improvements, refinements, or corrections to previous instances of the reel composer tool so as to not start from scratch.
+    required: false
