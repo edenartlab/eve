@@ -310,7 +310,7 @@ class DiscordGatewayClient:
                 Deployment.find(
                     {
                         "platform": ClientType.DISCORD.value,
-                        "secrets.discord.application_id": {"$in": discord_ids},
+                        "config.discord.oauth_client_id": {"$in": discord_ids},
                         "valid": {"$ne": False},
                     }
                 )
