@@ -92,33 +92,12 @@ async def remote_prompt_session(
 
 
 
-
-
-
 async def conductor():
-    available_agents = ["kweku", "shuijing", "mycos"]
-    session_id = "69067bdac9ab119e414bfff1"
-    scenario = "Kweku, Shuijing and Mycos are debating the nature of consciousness. Kweku thinks consciousness is a software program, while the others disagree and gang up on him. Make sure to go around the table in a circular manner, don't ever call on the same agent twice in a row."
-
-    available_agents = ["kweku", "invention-peddler", "banny"]
-    session_id = "6906824cc9ab119e414c1f97"
-    scenario = "Invention Peddler, Banny and Kweku are playing a game. The first one of them generates an image of anything they feel like. Then they take turns taking the last image made and modifying it somehow to make it more absurd. Each one more absurd than the last. Always use the last image made as the input image."
-
-    available_agents = ["banny", "mechanical_duck", "abraham", "kweku"]
-    session_id = "690694f6223d5f30d7986867"
-    scenario = """Here's the game.
-
-Banny is the Dungeon Master.
-
-Abraham, Mechanical Duck, and Kweku are the players.
-
-Each round of the game goes like this:
-- Banny comes up with a scenario
-- The players each take turns responding to the scenario, maybe with an image.
-- Banny then tells them the outcome of their actions, and eliminates one of the players, and then comes up with a new scenario for the remaining players.
-- This continues until there is one player left, and that player is declared winner, and asked to come up with a triumphant image of themselves winning the D&D challenge.
-"""
-
+    
+    # available_agents = ["iannis", "glitch_gigabrain", "dadagan", "xander2"]
+    available_agents = ["iannis", "glitch_gigabrain", "plantoid-49"]
+    session_id = "690b68d99aa43032fcc0349e"
+    
     user = get_my_eden_user()
     
     agents = ""
@@ -184,14 +163,6 @@ Each round of the game goes like this:
         attachments=[],
         extra_tools=[],
     )
-
-
-
-
-
-
-
-
 
 
 async def run_automatic_session(session_id: str):    
@@ -284,11 +255,11 @@ async def run_automatic_session_step(session: Session):
 
 
 
-if __name__ == "__main__":
-    # while True:
-    #     asyncio.run(conductor())
+# if __name__ == "__main__":
+#     while True:
+#         asyncio.run(conductor())
     # asyncio.run(test())
-    asyncio.run(run_automatic_session("690a76002df74800fac63c5e"))
+    # asyncio.run(run_automatic_session("690a76002df74800fac63c5e"))
 
 
 
