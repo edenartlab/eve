@@ -285,7 +285,7 @@ async def cancel_session(
     return await handle_session_cancel(request)
 
 
-@web_app.post("/session/status")
+@web_app.post("/sessions/status")
 async def update_session_status(
     request: UpdateSessionStatusRequest,
     _: dict = Depends(auth.authenticate_admin),
@@ -600,7 +600,9 @@ async def remote_prompt_session_fn(
 
 
 @app.function(image=image, max_containers=4)
-async def handle_session_status_change_fn(session_id: str, status: str):
-    """Handle session status changes - placeholder for future implementation."""
-    logger.info(f"Session {session_id} status changed to {status}")
-    return {"session_id": session_id, "status": status, "message": "Status change processed"}
+async def handle_session_status_change_fn(
+    session_id: str, 
+    status: str
+):
+    if status == "active":
+        await run_automatic_session(session_id)

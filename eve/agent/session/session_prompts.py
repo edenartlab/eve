@@ -180,9 +180,13 @@ conductor_template = Template("""
     - Stop the session when goals are met or budgets/time run out.
   </Role>
 
-  <CurrentSituation>
+  <Context>
     The current date/time is {{ current_date_time }}.    
-  </CurrentSituation>
+
+    {% if context %}
+    {{ context }}
+    {% endif %}
+  </Context>
 
   <Agents>
     {{ agents }}

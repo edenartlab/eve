@@ -276,6 +276,16 @@ async def build_system_extras(
     #     config.max_tokens = 1024
 
     # add trigger context
+    if hasattr(session, "context") and session.context:
+        extras.append(
+            ChatMessage(
+                session=session.id,
+                role="system",
+                content=session.context,
+            )
+        )
+
+    # add trigger context# add trigger context
     if session.trigger:
         from eve.trigger import Trigger
 
