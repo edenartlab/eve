@@ -329,6 +329,7 @@ class DiscordGatewayClient:
 
         return mentioned_agent_ids
 
+
     async def _is_channel_allowlisted(
         self, channel_id: str, allowed_channels: list, trace_id: str
     ) -> bool:
