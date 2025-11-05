@@ -46,12 +46,11 @@ from eve.api.errors import handle_errors
 from eve.api.helpers import emit_update
 from eve.agent.session.session_prompts import system_template
 
-from eve.agent.session.memory import maybe_form_memories
-from eve.agent.session.memory_models import (
+from eve.agent.memory.memory_models import (
     get_sender_id_to_sender_name_map,
     select_messages,
 )
-from eve.agent.session.memory_assemble_context import assemble_memory_context
+from eve.agent.memory.service import memory_service
 
 from eve.agent.session.config import (
     get_default_session_llm_config,
@@ -267,7 +266,7 @@ async def build_system_message(
     # Get memory (unless excluded by session extras)
     memory = None
     if not (session.extras and session.extras.exclude_memory):
-        memory = await assemble_memory_context(
+        memory = await memory_service.assemble_memory_context(
             session,
             actor,
             user,
@@ -1555,7 +1554,9 @@ async def _run_prompt_session_internal(
 
             # Process memory formation for all actors that participated
             for actor in actors:
-                background_tasks.add_task(maybe_form_memories, actor.id, session, actor)
+                background_tasks.add_task(
+                    memory_service.maybe_form_memories, actor.id, session, actor
+                )
 
             # Send success notification if configured
             if (

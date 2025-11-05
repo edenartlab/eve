@@ -6,7 +6,7 @@ from eve.mongo import Collection, Document
 from datetime import datetime, timezone
 from loguru import logger
 
-from eve.agent.session.memory_constants import (
+from eve.agent.memory.memory_constants import (
     MAX_FACTS_PER_SHARD,
     MAX_AGENT_MEMORIES_BEFORE_CONSOLIDATION,
     MemoryType,
@@ -126,7 +126,10 @@ def get_sender_id_to_sender_name_map(
         traceback.print_exc()
         return {}
 
-def messages_to_text(messages: List[ChatMessage], skip_trigger_messages: bool = True) -> tuple[str, dict[str, int]]:
+
+def messages_to_text(
+    messages: List[ChatMessage], skip_trigger_messages: bool = True
+) -> tuple[str, dict[str, int]]:
     """Convert messages to readable text for LLM processing
 
     Args:
