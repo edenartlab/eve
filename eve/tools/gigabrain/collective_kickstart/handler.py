@@ -361,7 +361,6 @@ Generate a friendly, personalized introduction message that presents these conne
         name=agent.name,
         # current_date_time=current_date_time,
         description=agent.description,
-        scenario=None,
         persona=agent.persona,
         tools=None,
         concepts=concepts,

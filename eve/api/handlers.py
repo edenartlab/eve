@@ -228,7 +228,6 @@ def setup_session(
         "owner": ObjectId(request.creation_args.owner_id or user_id),
         "agents": agent_object_ids,
         "title": request.creation_args.title,
-        "scenario": request.creation_args.scenario,
         "session_key": request.creation_args.session_key,
         "platform": request.creation_args.platform,
         "status": "active",
@@ -450,22 +449,9 @@ async def handle_session_cancel(request: CancelSessionRequest):
 async def handle_session_status_update(request):
     """Update the status of a session."""
     try:
-        # Import UpdateSessionStatusRequest here to avoid circular imports
-        from eve.api.api_requests import UpdateSessionStatusRequest
-
-        # Validate request
-        if isinstance(request, dict):
-            request = UpdateSessionStatusRequest(**request)
-
-        # Verify session exists
+        # Request is already an UpdateSessionStatusRequest from FastAPI
         session = Session.from_mongo(ObjectId(request.session_id))
-        if not session:
-            raise APIError(f"Session not found: {request.session_id}", status_code=404)
 
-        # Update session status
-        session.update(status=request.status)
-
-        # Spawn Modal function to handle status change
         try:
             db = os.getenv("DB", "STAGE").upper()
             func = modal.Function.from_name(
@@ -474,20 +460,22 @@ async def handle_session_status_update(request):
                 environment_name="main",
             )
             func.spawn(request.session_id, request.status)
+            session.update(status=request.status)
+            return {
+                "success": True,
+                "session_id": request.session_id,
+                "status": request.status,
+            }
         except Exception as e:
             logger.warning(
                 f"Failed to spawn Modal function for session status change: {e}"
             )
-            # Don't fail the request if Modal spawn fails
-
-        return {
-            "success": True,
-            "session_id": request.session_id,
-            "status": request.status,
-        }
+            session.update(status="paused")
+            return {"success": False, "error": str(e)}
 
     except APIError:
         raise
+
     except Exception as e:
         logger.error(f"Error updating session status: {e}", exc_info=True)
         return {"success": False, "error": str(e)}
