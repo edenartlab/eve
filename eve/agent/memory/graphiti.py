@@ -27,7 +27,7 @@ except ImportError as import_error:  # pragma: no cover - optional dependency
 else:
     _IMPORT_ERROR = None
 
-DEFAULT_FALKORDB_PORT = 6379
+DEFAULT_FALKORDB_PORT = 6380
 
 
 @dataclass(frozen=True)
