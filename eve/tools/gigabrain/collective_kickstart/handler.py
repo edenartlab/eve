@@ -339,7 +339,7 @@ Generate a friendly, personalized introduction message that presents these conne
     # Only including essential components (concepts, date/time, persona, memory)
 
     # Get concepts
-    concepts = Concept.find({"agent": agent.id})
+    concepts = Concept.find({"agent": agent.id, "deleted": {"$ne": True}})
 
     # Get current date/time
     current_date_time = datetime.now(pytz.utc).strftime("%Y-%m-%d %H:%M:%S")
