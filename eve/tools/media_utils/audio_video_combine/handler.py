@@ -7,7 +7,7 @@ async def handler(context: ToolContext):
     from .... import utils
 
     video_url = context.args.get("video")
-    audio_url = context.args.get("audio")
+    audio_urls = context.args.get("audio", [])
 
     video_file = utils.get_file_handler(".mp4", video_url)
     output_file = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
@@ -15,90 +15,72 @@ async def handler(context: ToolContext):
     # Get video duration - this will be the output duration
     video_duration = utils.get_media_duration(video_file)
 
-    if audio_url:
-        audio_file = utils.get_file_handler(".mp3", audio_url)
+    # Download all audio files
+    audio_files = [utils.get_file_handler(".mp3", url) for url in audio_urls]
 
-        # Check if video has existing audio
-        probe_cmd = [
-            "ffprobe",
-            "-v", "error",
-            "-select_streams", "a:0",
-            "-show_entries", "stream=codec_type",
-            "-of", "default=noprint_wrappers=1:nokey=1",
-            video_file
-        ]
-        result = subprocess.run(probe_cmd, capture_output=True, text=True)
-        video_has_audio = result.stdout.strip() == "audio"
+    # Check if video has existing audio
+    probe_cmd = [
+        "ffprobe",
+        "-v", "error",
+        "-select_streams", "a:0",
+        "-show_entries", "stream=codec_type",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        video_file
+    ]
+    result = subprocess.run(probe_cmd, capture_output=True, text=True)
+    video_has_audio = result.stdout.strip() == "audio"
 
-        if video_has_audio:
-            # Mix the new audio with existing video audio
-            # Both audio tracks will be trimmed/padded to video duration
-            cmd = [
-                "ffmpeg",
-                "-y",
-                "-loglevel",
-                "panic",
-                "-i",
-                video_file,
-                "-i",
-                audio_file,
-                "-filter_complex",
-                f"[1:a]atrim=0:{video_duration},asetpts=PTS-STARTPTS,apad[a1];[0:a][a1]amix=inputs=2:duration=first:dropout_transition=0[aout]",
-                "-map", "0:v",
-                "-map", "[aout]",
-                "-c:v", "copy",
-                "-c:a", "aac",
-                "-t", str(video_duration),
-                "-movflags",
-                "+faststart",
-                output_file.name,
-            ]
-        else:
-            # Video has no audio, just add the new audio (trimmed/padded to video duration)
-            cmd = [
-                "ffmpeg",
-                "-y",
-                "-loglevel",
-                "panic",
-                "-i",
-                video_file,
-                "-i",
-                audio_file,
-                "-filter_complex",
-                f"[1:a]atrim=0:{video_duration},asetpts=PTS-STARTPTS,apad[aout]",
-                "-map", "0:v",
-                "-map", "[aout]",
-                "-c:v", "copy",
-                "-c:a", "aac",
-                "-t", str(video_duration),
-                "-movflags",
-                "+faststart",
-                output_file.name,
-            ]
+    # Build ffmpeg command
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-loglevel",
+        "panic",
+        "-i",
+        video_file,
+    ]
 
+    # Add all audio file inputs
+    for audio_file in audio_files:
+        cmd.extend(["-i", audio_file])
+
+    # Build filter complex for mixing all audio tracks
+    # First, process each new audio track (trim/pad to video duration)
+    filter_parts = []
+    for i, _ in enumerate(audio_files, start=1):
+        filter_parts.append(f"[{i}:a]atrim=0:{video_duration},asetpts=PTS-STARTPTS,apad[a{i}]")
+
+    # Then mix all tracks together
+    if video_has_audio:
+        # Include video's existing audio in the mix
+        num_inputs = len(audio_files) + 1
+        mix_inputs = "[0:a]" + "".join(f"[a{i}]" for i in range(1, len(audio_files) + 1))
+        filter_parts.append(f"{mix_inputs}amix=inputs={num_inputs}:duration=first:dropout_transition=0[aout]")
     else:
-        # if no audio, create a silent audio track with same duration as video
-        cmd = [
-            "ffmpeg",
-            "-y",
-            "-loglevel",
-            "panic",
-            "-i",
-            video_file,
-            "-f",
-            "lavfi",
-            "-i",
-            f"anullsrc=channel_layout=stereo:sample_rate=44100:duration={video_duration}",
-            "-c:v",
-            "copy",
-            "-c:a",
-            "aac",
-            "-strict",
-            "experimental",
-            "-movflags",
-            "+faststart",
-            output_file.name,
-        ]
+        # Mix only the new audio tracks
+        num_inputs = len(audio_files)
+        if num_inputs == 1:
+            # Single track, no mixing needed
+            filter_parts.append("[a1]acopy[aout]")
+        else:
+            # Multiple tracks, mix them
+            mix_inputs = "".join(f"[a{i}]" for i in range(1, len(audio_files) + 1))
+            filter_parts.append(f"{mix_inputs}amix=inputs={num_inputs}:duration=first:dropout_transition=0[aout]")
+
+    filter_complex = ";".join(filter_parts)
+
+    cmd.extend([
+        "-filter_complex",
+        filter_complex,
+        "-map", "0:v",
+        "-map", "[aout]",
+        "-c:v", "copy",
+        "-c:a", "aac",
+        "-t", str(video_duration),
+        "-movflags",
+        "+faststart",
+        output_file.name,
+    ])
 
     subprocess.run(cmd)
 

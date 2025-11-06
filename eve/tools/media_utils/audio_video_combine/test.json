@@ -1,4 +1,8 @@
 {
     "video": "https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/4923a1895da41b30e95aa1f59e44125bd01310b9e8f7a20ab460a15ee5221b31.mp4",
-    "audio": "https://edenartlab-stage-data.s3.us-east-1.amazonaws.com/ec4ad5ecade85da38e40523d9c2f93576aa99f312fe6f61aeef53757ee63e925.mp3"
+    "audio": [
+        "https://d14i3advvh2bvd.cloudfront.net/7cbef1ff064e0e5f75af22a88baaa3392ce881459f00ffd3f084f622d2aabd73.mp3", 
+        "https://d14i3advvh2bvd.cloudfront.net/da493782a91a8eeee3145e8168c817f87525abf29ed1dbb57c0c9d14584d5a2e.mp3",
+        "https://d14i3advvh2bvd.cloudfront.net/e301d16a53f190babb4a2472b8e0af1e34e8cf8bc5318da8c3e84cf969fa43da.mp3"
+    ]
 }
