@@ -127,34 +127,12 @@ class MediaFiles(BaseModel):
     """Model for organizing and validating media inputs"""
 
     images: List[str] = Field(default_factory=list)
-    video1: Optional[str] = None
-    video2: Optional[str] = None
-    video3: Optional[str] = None
-    video4: Optional[str] = None
-    video5: Optional[str] = None
-    audio1: Optional[str] = None
-    audio2: Optional[str] = None
-    audio3: Optional[str] = None
-    audio4: Optional[str] = None
-    audio5: Optional[str] = None
+    videos: List[str] = Field(default_factory=list)
+    audios: List[str] = Field(default_factory=list)
 
     def has_media(self) -> bool:
         """Check if at least one media file is provided"""
-        return any(
-            [
-                self.images,
-                self.video1,
-                self.video2,
-                self.video3,
-                self.video4,
-                self.video5,
-                self.audio1,
-                self.audio2,
-                self.audio3,
-                self.audio4,
-                self.audio5,
-            ]
-        )
+        return any([self.images, self.videos, self.audios])
 
     def to_context_string(self) -> str:
         """Convert media files to readable format for prompt including technical details"""
@@ -173,27 +151,11 @@ class MediaFiles(BaseModel):
             height = img_info.get("height", "unknown")
             media_items.append(f"- Image {i}: {img_path} ({width}x{height})")
 
-        # Handle videos and audio with consistent pattern
-        media_files = {
-            "Video 1": self.video1,
-            "Video 2": self.video2,
-            "Video 3": self.video3,
-            "Video 4": self.video4,
-            "Video 5": self.video5,
-            "Audio 1": self.audio1,
-            "Audio 2": self.audio2,
-            "Audio 3": self.audio3,
-            "Audio 4": self.audio4,
-            "Audio 5": self.audio5,
-        }
-
-        for media_type, path in media_files.items():
-            if not path:
-                continue
-
-            info = probe_media_with_streams(path)
+        # Handle videos
+        for i, video_path in enumerate(self.videos, 1):
+            info = probe_media_with_streams(video_path)
             if "error" in info:
-                media_items.append(f"- {media_type}: {path} (Error: {info['error']})")
+                media_items.append(f"- Video {i}: {video_path} (Error: {info['error']})")
                 continue
 
             duration = info.get("duration", "unknown")
@@ -201,10 +163,27 @@ class MediaFiles(BaseModel):
 
             if streams:
                 media_items.append(
-                    f"- {media_type}: {path} ({duration}s)\n  Streams: {', '.join(streams)}"
+                    f"- Video {i}: {video_path} ({duration}s)\n  Streams: {', '.join(streams)}"
                 )
             else:
-                media_items.append(f"- {media_type}: {path} ({duration}s)")
+                media_items.append(f"- Video {i}: {video_path} ({duration}s)")
+
+        # Handle audios
+        for i, audio_path in enumerate(self.audios, 1):
+            info = probe_media_with_streams(audio_path)
+            if "error" in info:
+                media_items.append(f"- Audio {i}: {audio_path} (Error: {info['error']})")
+                continue
+
+            duration = info.get("duration", "unknown")
+            streams = info.get("streams", [])
+
+            if streams:
+                media_items.append(
+                    f"- Audio {i}: {audio_path} ({duration}s)\n  Streams: {', '.join(streams)}"
+                )
+            else:
+                media_items.append(f"- Audio {i}: {audio_path} ({duration}s)")
 
         return "Available media files:\n" + "\n".join(media_items)
 
@@ -345,33 +324,41 @@ def validate_and_prepare_media(
             except Exception as e:
                 raise FFmpegError(f"Failed to download image {image_url}: {str(e)}", "")
 
-        media_handlers = {}
-        for media_type in [
-            "video1",
-            "video2",
-            "video3",
-            "video4",
-            "video5",
-            "audio1",
-            "audio2",
-            "audio3",
-            "audio4",
-            "audio5",
-        ]:
-            if url := args.get(media_type):
-                try:
-                    extension = Path(url).suffix.lstrip(".")
-                    original_handler = utils.get_file_handler(extension, url)
+        video_paths = []
+        for idx, video_url in enumerate(args.get("videos", []), start=1):
+            if not video_url:
+                continue
 
-                    new_path = os.path.join(tmp_dir, f"{media_type}.{extension}")
-                    shutil.copy2(original_handler, new_path)
-                    media_handlers[media_type] = new_path
-                except Exception as e:
-                    raise FFmpegError(
-                        f"Failed to handle {media_type} file: {str(e)}", ""
-                    )
+            try:
+                extension = Path(video_url).suffix.lstrip(".")
+                original_handler = utils.get_file_handler(extension, video_url)
 
-        return MediaFiles(images=image_paths, **media_handlers)
+                new_path = os.path.join(tmp_dir, f"video{idx}.{extension}")
+                shutil.copy2(original_handler, new_path)
+                video_paths.append(new_path)
+            except Exception as e:
+                raise FFmpegError(
+                    f"Failed to handle video {video_url}: {str(e)}", ""
+                )
+
+        audio_paths = []
+        for idx, audio_url in enumerate(args.get("audios", []), start=1):
+            if not audio_url:
+                continue
+
+            try:
+                extension = Path(audio_url).suffix.lstrip(".")
+                original_handler = utils.get_file_handler(extension, audio_url)
+
+                new_path = os.path.join(tmp_dir, f"audio{idx}.{extension}")
+                shutil.copy2(original_handler, new_path)
+                audio_paths.append(new_path)
+            except Exception as e:
+                raise FFmpegError(
+                    f"Failed to handle audio {audio_url}: {str(e)}", ""
+                )
+
+        return MediaFiles(images=image_paths, videos=video_paths, audios=audio_paths)
 
     except Exception:
         shutil.rmtree(tmp_dir, ignore_errors=True)
