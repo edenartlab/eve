@@ -35,6 +35,7 @@ class RateLimit(BaseModel):
 
 class ToolContext(BaseModel):
     """Context object for tool execution."""
+
     args: Dict[str, Any]
     user: Optional[str] = None
     agent: Optional[str] = None
@@ -550,6 +551,9 @@ class Tool(Document, ABC):
                     ):
                         paying_user = User.from_mongo(agent.owner)
 
+                    if not agent.public:
+                        public = False
+
                 paying_user.check_manna(cost)
 
             except Exception as e:
@@ -688,7 +692,16 @@ class Tool(Document, ABC):
         public: bool = False,
     ):
         return asyncio.run(
-            self.async_start_task(user_id, agent_id, session_id, message_id, tool_call_id, args, mock, public)
+            self.async_start_task(
+                user_id,
+                agent_id,
+                session_id,
+                message_id,
+                tool_call_id,
+                args,
+                mock,
+                public,
+            )
         )
 
     def wait(self, task: Task):

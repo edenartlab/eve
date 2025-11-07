@@ -341,14 +341,18 @@ async def add_chat_message(
 
         # Get full user data for enrichment
         user = User.from_mongo(context.initiating_user_id)
-        user_data = None
-        if user:
-            user_data = {
-                "_id": str(user.id),
-                "username": user.username,
-                "name": user.username,  # Use username as name for consistency
-                "userImage": user.userImage,
-            }
+        
+        # increment stats
+        stats = user.stats
+        stats.messageCount += 1
+        user.update(stats=stats.model_dump())
+
+        user_data = {
+            "_id": str(user.id),
+            "username": user.username,
+            "name": user.username,  # Use username as name for consistency
+            "userImage": user.userImage,
+        }
 
         message_dict = new_message.model_dump(by_alias=True)
         # Enrich sender with full user data if available
@@ -1040,6 +1044,11 @@ async def async_prompt_session(
                 tokens_spent = response.tokens_spent
 
             assistant_message.save()
+
+            # increment agent stats
+            stats = actor.stats
+            stats.messageCount += 1
+            actor.update(stats=stats.model_dump())
 
             # No longer storing message IDs on session to avoid race conditions
             # session.messages.append(assistant_message.id)
