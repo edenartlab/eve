@@ -215,7 +215,7 @@ async def build_system_message(
     tools: Dict[str, Tool],
 ):  # Get the last speaker ID for memory prioritization
     # Get concepts
-    concepts = Concept.find({"agent": actor.id})
+    concepts = Concept.find({"agent": actor.id, "deleted": {"$ne": True}})
 
     # Get time
     current_date_time = datetime.now(pytz.utc).strftime("%Y-%m-%d %H:%M:%S")

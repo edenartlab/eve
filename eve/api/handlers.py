@@ -243,6 +243,9 @@ def setup_session(
     if request.creation_args.parent_session:
         session_kwargs["parent_session"] = ObjectId(request.creation_args.parent_session)
 
+    if request.creation_args.extras:
+        session_kwargs["extras"] = request.creation_args.extras
+
     session = Session(**session_kwargs)
     session.save()
 

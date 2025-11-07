@@ -207,6 +207,7 @@ async def handler(context: ToolContext):
             return {"output": download_url}
 
         elif status == "error":
+            logger.error(f"Error from Hedra: Raw generation response: {status_response}")
             raise Exception(
                 f"Video generation failed: {status_response.get('error_message', 'Unknown error')}"
             )
