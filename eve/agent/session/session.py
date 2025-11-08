@@ -277,6 +277,7 @@ async def build_system_extras(
 
     # add trigger context
     if hasattr(session, "context") and session.context:
+        context_prompt = f"<Full Task Context>\n{session.context}\n\n**IMPORTANT: Ignore me, the user! You are just speaking to the other agents now. Make sure you stay relevant to the full task context throughout the conversation.</Full Task Context>"
         extras.append(
             ChatMessage(
                 session=session.id,
@@ -288,7 +289,7 @@ async def build_system_extras(
                 sender=ObjectId(str(context.initiating_user_id)),
 
 
-                content=session.context,
+                content=context_prompt,
             )
         )
 
