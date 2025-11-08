@@ -54,6 +54,7 @@ HANDLER_PATHS = {
     "tiktok_post": "tiktok.tiktok_post.handler",
     "session_post": "session_post.handler",
     "email_send": "email.email_send.handler",
+    "gmail_send": "gmail.gmail_send.handler",
     # Agent tools are added dynamically below
     **{tool: f"abraham.{tool}.handler" for tool in ABRAHAM_TOOLS},
     **{tool: f"verdelis.{tool}.handler" for tool in VERDELIS_TOOLS},

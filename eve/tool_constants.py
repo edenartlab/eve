@@ -96,6 +96,7 @@ PRINTIFY_TOOLS = ["printify"]
 CAPTIONS_TOOLS = ["captions"]
 TIKTOK_TOOLS = ["tiktok_post"]
 EMAIL_TOOLS = ["email_send"]
+GMAIL_TOOLS = ["gmail_send"]
 
 SOCIAL_MEDIA_TOOLS = [
     *TWITTER_TOOLS,
@@ -107,6 +108,7 @@ SOCIAL_MEDIA_TOOLS = [
     *CAPTIONS_TOOLS,
     *TIKTOK_TOOLS,
     *EMAIL_TOOLS,
+    *GMAIL_TOOLS,
 ]
 
 EDEN_DB_TOOLS = [

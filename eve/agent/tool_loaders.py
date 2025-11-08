@@ -40,6 +40,7 @@ def _get_platform_tool_sets():
             CAPTIONS_TOOLS,
             TIKTOK_TOOLS,
             EMAIL_TOOLS,
+            GMAIL_TOOLS,
         )
 
         PLATFORM_TOOL_SETS.update(
@@ -53,6 +54,7 @@ def _get_platform_tool_sets():
                 "captions": CAPTIONS_TOOLS,
                 "tiktok": TIKTOK_TOOLS,
                 "email": EMAIL_TOOLS,
+                "gmail": GMAIL_TOOLS,
             }
         )
     return PLATFORM_TOOL_SETS

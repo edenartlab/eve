@@ -58,7 +58,6 @@ from eve.api.errors import APIError
 from eve.user import User
 
 MAX_LENGTH_FOR_FULL_VARIANCE = 1800
-from eve.api.handlers import setup_session
 from eve.agent.session.session import add_chat_message
 from eve.trigger import Trigger, calculate_next_scheduled_run
 
@@ -419,7 +418,7 @@ class GmailAPIClient:
 
 
 class GmailClient(PlatformClient):
-    TOOLS = []
+    TOOLS = ["gmail_send"]
 
     def __init__(
         self, agent: Optional[Agent] = None, deployment: Optional[Deployment] = None
@@ -466,13 +465,21 @@ class GmailClient(PlatformClient):
                 status_code=400,
             )
 
+        try:
+            self.add_tools()
+        except Exception as exc:
+            raise APIError(f"Failed to add Gmail tools: {exc}", status_code=400)
+
         return secrets, config
 
     async def postdeploy(self) -> None:
         logger.info("[GMAIL-POSTDEPLOY] Gmail deployment ready")
 
     async def stop(self) -> None:
-        logger.info("[GMAIL-STOP] No teardown required for Gmail deployments yet")
+        try:
+            self.remove_tools()
+        except Exception as exc:
+            logger.error(f"[GMAIL-STOP] Failed to remove Gmail tools: {exc}")
 
     async def interact(self, request: Request | DeploymentInteractRequest) -> None:
         """Handle direct DeploymentInteractRequest or FastAPI request wrapper."""
@@ -574,25 +581,11 @@ class GmailClient(PlatformClient):
             session = None
 
         if not session:
-            creation_request = PromptSessionRequest(
-                user_id=str(user.id),
-                creation_args=SessionCreationArgs(
-                    owner_id=str(user.id),
-                    agents=[str(self.deployment.agent)],
-                    title=email.subject or f"Gmail thread {session_key_basis}",
-                    session_key=session_key,
-                    platform="gmail",
-                    extras={
-                        "gmail_thread_id": email.thread_id,
-                        "gmail_initial_message_id": email.message_id,
-                    },
-                ),
-            )
-            session = setup_session(
-                None,
-                creation_request.session_id,
-                creation_request.user_id,
-                creation_request,
+            session = self._create_gmail_session(
+                user=user,
+                session_key=session_key,
+                session_key_basis=session_key_basis,
+                email=email,
             )
 
         message_content = email.plain_body or (
@@ -806,6 +799,69 @@ class GmailClient(PlatformClient):
                 f"[GMAIL-SEND] Failed to send Gmail response: {exc}", exc_info=True
             )
 
+    @classmethod
+    async def send_tool_email(
+        cls,
+        *,
+        agent_id: Optional[str],
+        args: Optional[dict],
+        user: Optional[str] = None,
+    ) -> dict:
+        if not agent_id:
+            raise APIError("Agent identifier is required", status_code=400)
+
+        agent = Agent.from_mongo(agent_id)
+        if not agent:
+            raise APIError("Agent not found", status_code=404)
+
+        deployment = Deployment.load(agent=agent.id, platform="gmail")
+        if not deployment or not deployment.valid:
+            raise APIError(
+                "Agent has no valid Gmail deployment configured",
+                status_code=400,
+            )
+
+        client = cls(agent=agent, deployment=deployment)
+
+        email_args = args or {}
+        to_address = email_args.get("to")
+        subject = email_args.get("subject")
+        body = email_args.get("text") or email_args.get("body")
+        thread_id = email_args.get("thread_id")
+        in_reply_to = email_args.get("in_reply_to")
+        references = email_args.get("references") or []
+        if isinstance(references, str):
+            references = [references]
+        references = [str(ref) for ref in references if ref]
+        delay_seconds = max(0.0, float(email_args.get("delay_seconds") or 0))
+
+        if not to_address:
+            raise APIError("Recipient email address is required", status_code=400)
+        if not subject:
+            raise APIError("Email subject is required", status_code=400)
+        if not body:
+            raise APIError("Email body is required", status_code=400)
+
+        await client._send_email_after_delay(
+            recipient=to_address,
+            subject=subject,
+            thread_id=thread_id,
+            in_reply_to=in_reply_to,
+            references=references,
+            body=body,
+            delay_seconds=delay_seconds,
+        )
+
+        return {
+            "output": [
+                {
+                    "url": f"mailto:{to_address}",
+                    "title": subject,
+                    "status": "sent",
+                }
+            ]
+        }
+
     async def _schedule_reply_trigger(
         self,
         *,
@@ -908,6 +964,32 @@ class GmailClient(PlatformClient):
             next_run.isoformat(),
             delay_seconds,
         )
+
+    def _create_gmail_session(
+        self,
+        *,
+        user: User,
+        session_key: str,
+        session_key_basis: str,
+        email: GmailInboundEmail,
+    ) -> Session:
+        if not self.deployment:
+            raise ValueError("Deployment is required to create Gmail session")
+
+        session = Session(
+            owner=ObjectId(str(user.id)),
+            agents=[ObjectId(self.deployment.agent)],
+            title=email.subject or f"Gmail thread {session_key_basis}",
+            session_key=session_key,
+            platform="gmail",
+            status="active",
+            extras={
+                "gmail_thread_id": email.thread_id,
+                "gmail_initial_message_id": email.message_id,
+            },
+        )
+        session.save()
+        return session
 
     def _get_secrets(self) -> DeploymentSecretsGmail:
         deployment_secrets = self.deployment.secrets

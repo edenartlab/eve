@@ -1,0 +1,38 @@
+name: gmail_send
+description: Send an email using the agent's Gmail deployment
+cost_estimate: 0
+output_type: string
+active: true
+handler: local
+visible: false
+parameters:
+  to:
+    type: string
+    description: Recipient email address
+    required: true
+  subject:
+    type: string
+    description: Subject line for the email
+    required: true
+  text:
+    type: string
+    description: Plain text body for the email
+    required: true
+  thread_id:
+    type: string
+    description: Optional Gmail thread ID to reply within
+    required: false
+  in_reply_to:
+    type: string
+    description: Optional Gmail message ID for In-Reply-To header
+    required: false
+  references:
+    type: array
+    description: Optional list of additional `References` message IDs
+    items:
+      type: string
+    required: false
+  delay_seconds:
+    type: number
+    description: Optional delay before sending (seconds)
+    required: false
