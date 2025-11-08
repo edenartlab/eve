@@ -919,6 +919,7 @@ class GmailClient(PlatformClient):
         email_context = (
             "<InboundEmail>\n"
             f"From: {email.from_name or email.from_address}\n"
+            f"FromAddress: {email.from_address}\n"
             f"To: {to_address_display or email.to_address or 'unknown'}\n"
             f"Subject: {email.subject or '(no subject)'}\n\n"
             f"{body_text or '(no body provided)'}\n"
@@ -929,7 +930,8 @@ class GmailClient(PlatformClient):
 
         base_prompt = (
             "Review the email in the trigger context and craft the reply you intend to send. "
-            "Respond with the exact email body that should be delivered back to the sender."
+            "Respond with the exact email body that should be delivered back to the sender. "
+            "After composing the reply, you MUST call the `gmail_send` tool to deliver it."
         )
         trigger_prompt = (
             f"{base_prompt}\n\n<TriggerContext>\n{trigger_context}\n</TriggerContext>"
