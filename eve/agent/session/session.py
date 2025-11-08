@@ -420,6 +420,15 @@ async def build_llm_context(
     )
     if len(system_extras) > 0:
         messages.extend(system_extras)
+
+
+    logger.info(f"\n\n\n\n\n\n\n=======================================================")
+    logger.info(f"messages after build_system_extras:")
+    for message in messages:
+        logger.info(f"{message.role} {message.content}")
+        logger.info(f"--------------------------------")
+    logger.info(f"=======================================================\n\n\n\n\n\n\n")
+    
     existing_messages = select_messages(session)
     messages.extend(existing_messages)
     messages = label_message_channels(messages)
