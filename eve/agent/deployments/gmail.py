@@ -944,19 +944,48 @@ class GmailClient(PlatformClient):
             else update_config
         )
 
-        trigger = Trigger(
-            name=trigger_name[:120],
-            user=ObjectId(user.id),
-            agent=ObjectId(self.deployment.agent),
-            schedule=schedule,
-            context=trigger_context,
-            trigger_prompt=trigger_prompt,
-            posting_instructions=[],
-            update_config=update_config_payload,
-            session=session.id,
-            next_scheduled_run=next_run,
-        )
-        trigger.save()
+        api_url = get_api_url()
+        headers = {
+            "Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}",
+            "Content-Type": "application/json",
+        }
+
+        schedule_payload = {}
+        for key, value in schedule.items():
+            if isinstance(value, datetime):
+                schedule_payload[key] = value.isoformat()
+            else:
+                schedule_payload[key] = value
+
+        payload = {
+            "agent": str(self.deployment.agent),
+            "user": str(user.id),
+            "name": trigger_name[:120],
+            "context": trigger_context,
+            "trigger_prompt": trigger_prompt,
+            "posting_instructions": [],
+            "schedule": schedule_payload,
+            "session_type": "another",
+            "session": str(session.id),
+        }
+
+        if update_config_payload:
+            payload["update_config"] = update_config_payload
+
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                response = await client.post(
+                    f"{api_url}/triggers/create",
+                    json=payload,
+                    headers=headers,
+                )
+                response.raise_for_status()
+        except Exception as exc:
+            logger.error(
+                f"[GMAIL-TRIGGER] Failed to create trigger via API: {exc}",
+                exc_info=True,
+            )
+            raise
 
         logger.info(
             "[GMAIL-TRIGGER] Scheduled reply for %s at %s (delay=%.2fs)",
