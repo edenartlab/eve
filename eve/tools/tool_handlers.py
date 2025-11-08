@@ -1,9 +1,5 @@
 import importlib
-from eve.tool_constants import (
-    GIGABRAIN_TOOLS, 
-    ABRAHAM_TOOLS, 
-    VERDELIS_TOOLS
-)
+from eve.tool_constants import GIGABRAIN_TOOLS, ABRAHAM_TOOLS, VERDELIS_TOOLS
 
 handlers = {}
 
@@ -57,11 +53,11 @@ HANDLER_PATHS = {
     "printify": "printify.handler",
     "tiktok_post": "tiktok.tiktok_post.handler",
     "session_post": "session_post.handler",
-
+    "email_send": "email.email_send.handler",
     # Agent tools are added dynamically below
     **{tool: f"abraham.{tool}.handler" for tool in ABRAHAM_TOOLS},
     **{tool: f"verdelis.{tool}.handler" for tool in VERDELIS_TOOLS},
-    **{tool: f"gigabrain.{tool}.handler" for tool in GIGABRAIN_TOOLS}
+    **{tool: f"gigabrain.{tool}.handler" for tool in GIGABRAIN_TOOLS},
 }
 
 

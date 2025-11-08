@@ -12,13 +12,14 @@ from loguru import logger
 from eve.tool import ToolContext
 from eve.agent.agent import Agent, AgentPermission
 from eve.agent.session.models import Session, ChatMessage, LLMContext, LLMConfig
-from eve.agent.session.memory_models import messages_to_text
+from eve.agent.memory.memory_models import messages_to_text
 from eve.agent.session.session_llm import async_prompt
 from eve.agent.session.session_prompts import system_template
-from eve.agent.session.memory_assemble_context import assemble_memory_context
+from eve.agent.memory.service import memory_service
 from eve.concepts import Concept
 from eve.user import User
 from eve.utils import serialize_json
+
 
 def parse_timedelta_string(timedelta_str: str) -> timedelta:
     """
@@ -66,11 +67,9 @@ def check_agent_owner_permission(agent: Agent, user_id: ObjectId) -> bool:
         return True
 
     # Check agent_permissions collection for owner-level permission
-    permission = AgentPermission.find_one({
-        "agent": agent.id,
-        "user": user_id,
-        "level": "owner"
-    })
+    permission = AgentPermission.find_one(
+        {"agent": agent.id, "user": user_id, "level": "owner"}
+    )
 
     return permission is not None
 
@@ -87,15 +86,14 @@ def fetch_recent_sessions(agent_id: ObjectId, cutoff_time: datetime) -> List[Ses
     Returns:
         List of Session objects
     """
-    sessions = Session.find({
-        "agents": agent_id,
-        "createdAt": {"$gte": cutoff_time},
-        "status": "active",
-        "$or": [
-            {"parent_session": {"$exists": False}},
-            {"parent_session": None}
-        ]
-    })
+    sessions = Session.find(
+        {
+            "agents": agent_id,
+            "createdAt": {"$gte": cutoff_time},
+            "status": "active",
+            "$or": [{"parent_session": {"$exists": False}}, {"parent_session": None}],
+        }
+    )
 
     return list(sessions)
 
@@ -124,7 +122,7 @@ def collect_user_messages(
     sessions: List[Session],
     include_agent_messages: bool = True,
     ignore_multi_user_sessions: bool = True,
-    session_cutoff_time: Optional[datetime] = None
+    session_cutoff_time: Optional[datetime] = None,
 ) -> tuple[Dict[ObjectId, List[List[ChatMessage]]], Dict[str, ObjectId]]:
     """
     Collect messages grouped by user, with sessions kept separate per user.
@@ -148,16 +146,16 @@ def collect_user_messages(
     for session in sessions:
         # Fetch all messages for this session, sorted by creation time
         messages_list = ChatMessage.find(
-            {"session": session.id},
-            sort="createdAt",
-            desc=False
+            {"session": session.id}, sort="createdAt", desc=False
         )  # Sort chronologically
 
         # If we're filtering multi-user sessions, check user count
         if ignore_multi_user_sessions:
             user_count = get_session_user_count(session, messages_list)
             if user_count > 1:
-                logger.info(f"Skipping session {session.id}: {user_count} users (multi-user)")
+                logger.info(
+                    f"Skipping session {session.id}: {user_count} users (multi-user)"
+                )
                 continue
 
         # Collect messages per user per session
@@ -197,7 +195,7 @@ def collect_user_messages(
 def format_user_profiles(
     messages_by_user: Dict[ObjectId, List[List[ChatMessage]]],
     username_to_user_id: Dict[str, ObjectId],
-    min_messages: int = 3
+    min_messages: int = 3,
 ) -> Dict[str, str]:
     """
     Format user messages into profile strings using messages_to_text.
@@ -216,8 +214,10 @@ def format_user_profiles(
         try:
             # Count only user messages for the threshold check across all sessions
             user_message_count = sum(
-                1 for session_msgs in session_messages_list
-                for msg in session_msgs if msg.role == "user"
+                1
+                for session_msgs in session_messages_list
+                for msg in session_msgs
+                if msg.role == "user"
             )
 
             if user_message_count < min_messages:
@@ -238,7 +238,9 @@ def format_user_profiles(
                 # Convert each session's messages to text
                 for session_msgs in session_messages_list:
                     if session_msgs:
-                        profile_text, _ = messages_to_text(session_msgs, skip_trigger_messages=True)
+                        profile_text, _ = messages_to_text(
+                            session_msgs, skip_trigger_messages=True
+                        )
                         if profile_text.strip():
                             session_texts.append(profile_text.strip())
                             total_messages += len(session_msgs)
@@ -247,7 +249,9 @@ def format_user_profiles(
                 if session_texts:
                     if len(session_texts) > 1:
                         # Multiple sessions - add separator
-                        combined_profile = "\n\n--- new session ---\n\n".join(session_texts)
+                        combined_profile = "\n\n--- new session ---\n\n".join(
+                            session_texts
+                        )
                     else:
                         # Single session - no separator needed
                         combined_profile = session_texts[0]
@@ -268,7 +272,9 @@ def format_user_profiles(
     return user_profiles
 
 
-async def call_profile_matching_handler(user_profiles: Dict[str, str], agent_id: ObjectId, user_id: ObjectId) -> Dict:
+async def call_profile_matching_handler(
+    user_profiles: Dict[str, str], agent_id: ObjectId, user_id: ObjectId
+) -> Dict:
     """
     Call the profile_matching tool's handler directly.
 
@@ -281,7 +287,9 @@ async def call_profile_matching_handler(user_profiles: Dict[str, str], agent_id:
         Profile matching results dict
     """
     # Import the profile_matching handler
-    from eve.tools.gigabrain.profile_matching.handler import handler as profile_matching_handler
+    from eve.tools.gigabrain.profile_matching.handler import (
+        handler as profile_matching_handler,
+    )
     from eve.tool import ToolContext
 
     # Create a mock context for the profile_matching tool
@@ -289,10 +297,10 @@ async def call_profile_matching_handler(user_profiles: Dict[str, str], agent_id:
         args={
             "user_profiles": user_profiles,
             "config_path": "config/config.yaml",
-            "force": True
+            "force": True,
         },
         agent=str(agent_id),
-        user=str(user_id)
+        user=str(user_id),
     )
 
     # Call the handler
@@ -307,10 +315,7 @@ async def call_profile_matching_handler(user_profiles: Dict[str, str], agent_id:
 
 
 async def generate_personalized_message(
-    agent: Agent,
-    matching_data: str,
-    user: User,
-    session: Session
+    agent: Agent, matching_data: str, user: User, session: Session
 ) -> str:
     """
     Use the agent to generate a personalized message based on matching results.
@@ -343,8 +348,8 @@ Generate a friendly, personalized introduction message that presents these conne
 
     # Get current date/time
     current_date_time = datetime.now(pytz.utc).strftime("%Y-%m-%d %H:%M:%S")
-    
-    memory = await assemble_memory_context(
+
+    memory = await memory_service.assemble_memory_context(
         session,
         agent,
         user,
@@ -363,18 +368,16 @@ Generate a friendly, personalized introduction message that presents these conne
         voice=None,
         memory=memory,
     )
-    
+
     system_message = ChatMessage(
-        session=session.id,
-        role="system",
-        content=system_content
+        session=session.id, role="system", content=system_content
     )
 
     # Build LLM context with full system message
     context = LLMContext(
         messages=[
             system_message,
-            ChatMessage(role="user", content=instruction_prompt, session=session.id)
+            ChatMessage(role="user", content=instruction_prompt, session=session.id),
         ],
         config=LLMConfig(model="claude-sonnet-4-5"),
     )
@@ -386,11 +389,7 @@ Generate a friendly, personalized introduction message that presents these conne
 
 
 async def create_user_session_with_message(
-    agent_id: ObjectId,
-    user: User,
-    intro_text: str,
-    agent_username: str,
-    agent: Agent
+    agent_id: ObjectId, user: User, intro_text: str, agent_username: str, agent: Agent
 ) -> Dict:
     """
     Create a new session with a user and insert an agent-generated message.
@@ -426,7 +425,9 @@ async def create_user_session_with_message(
 
         # Generate personalized message using the agent (with session context)
         logger.info(f"Generating personalized message for user {user.username}")
-        generated_agent_message = await generate_personalized_message(agent, intro_text, user, session)
+        generated_agent_message = await generate_personalized_message(
+            agent, intro_text, user, session
+        )
 
         # Create and save the agent message with generated content
         agent_message = ChatMessage(
@@ -434,34 +435,33 @@ async def create_user_session_with_message(
             role="assistant",
             content=generated_agent_message,
             sender=agent_id,
-            createdAt=datetime.now(timezone.utc)
+            createdAt=datetime.now(timezone.utc),
         )
         agent_message.save()
 
-        # increment agent stats
-        # stats = agent.stats
-        # stats["messageCount"] += 1
-        # agent.update(stats=stats.model_dump())
-
-        logger.info(f"Created session {session.id} with agent-generated message for user {user.username}")
+        logger.info(
+            f"Created session {session.id} with agent-generated message for user {user.username}"
+        )
 
         return {
             "user": user.username,
             "user_id": str(user.id),
             "session_id": str(session.id),
-            "status": "success"
+            "status": "success",
         }
 
     except Exception as e:
         logger.error(f"Error creating session for user {user.username}: {e}")
         import traceback
+
         traceback.print_exc()
         return {
             "user": user.username,
             "user_id": str(user.id),
             "status": "failed",
-            "error": str(e)
+            "error": str(e),
         }
+
 
 async def handler(context: ToolContext):
     """
@@ -477,15 +477,11 @@ async def handler(context: ToolContext):
     """
     # Validate that agent context exists
     if not context.agent:
-        return {
-            "output": "Error: This tool requires an agent context."
-        }
+        return {"output": "Error: This tool requires an agent context."}
 
     # Validate that user context exists
     if not context.user:
-        return {
-            "output": "Error: This tool requires a user context."
-        }
+        return {"output": "Error: This tool requires a user context."}
 
     # Load agent
     agent = Agent.from_mongo(context.agent)
@@ -494,13 +490,13 @@ async def handler(context: ToolContext):
     is_owner = check_agent_owner_permission(agent, ObjectId(context.user))
 
     if not is_owner:
-        return {
-            "output": "This tool can only be run by an agent owner."
-        }
+        return {"output": "This tool can only be run by an agent owner."}
 
     # Defensive check: ensure context.args is a dict
     if not isinstance(context.args, dict):
-        logger.error(f"context.args is not a dict, it's a {type(context.args)}: {context.args}")
+        logger.error(
+            f"context.args is not a dict, it's a {type(context.args)}: {context.args}"
+        )
         return {
             "output": f"Error: Tool received invalid arguments format. Expected dict, got {type(context.args).__name__}."
         }
@@ -513,7 +509,9 @@ async def handler(context: ToolContext):
 
     logger.info(f"Starting collective_kickstart for agent {agent.username}")
     logger.info(f"Time window: {time_window_str}, Min messages: {min_messages}")
-    logger.info(f"Include agent messages: {include_agent_messages}, Ignore multi-user sessions: {ignore_multi_user_sessions}")
+    logger.info(
+        f"Include agent messages: {include_agent_messages}, Ignore multi-user sessions: {ignore_multi_user_sessions}"
+    )
 
     try:
         # Parse time window
@@ -521,15 +519,15 @@ async def handler(context: ToolContext):
         cutoff_time = datetime.now(timezone.utc) - time_delta
 
         logger.info(f"Fetching sessions created after {cutoff_time}")
-        logger.info(f"Filtering messages created after {cutoff_time} (same as session cutoff)")
+        logger.info(
+            f"Filtering messages created after {cutoff_time} (same as session cutoff)"
+        )
 
         # Step 1: Fetch recent sessions
         sessions = fetch_recent_sessions(agent.id, cutoff_time)
 
         if not sessions:
-            return {
-                "output": f"No sessions found in the last {time_window_str}."
-            }
+            return {"output": f"No sessions found in the last {time_window_str}."}
 
         logger.info(f"Found {len(sessions)} sessions in time window")
 
@@ -538,7 +536,7 @@ async def handler(context: ToolContext):
             sessions,
             include_agent_messages=include_agent_messages,
             ignore_multi_user_sessions=ignore_multi_user_sessions,
-            session_cutoff_time=cutoff_time
+            session_cutoff_time=cutoff_time,
         )
 
         if not messages_by_user:
@@ -549,7 +547,9 @@ async def handler(context: ToolContext):
         logger.info(f"Found messages from {len(messages_by_user)} unique users")
 
         # Step 3: Format user profiles
-        user_profiles = format_user_profiles(messages_by_user, username_to_user_id, min_messages)
+        user_profiles = format_user_profiles(
+            messages_by_user, username_to_user_id, min_messages
+        )
 
         if not user_profiles:
             return {
@@ -560,24 +560,24 @@ async def handler(context: ToolContext):
 
         # Step 4: Call profile matching
         logger.info("Calling profile_matching tool...")
-        matching_results = await call_profile_matching_handler(user_profiles, agent.id, ObjectId(context.user))
+        matching_results = await call_profile_matching_handler(
+            user_profiles, agent.id, ObjectId(context.user)
+        )
 
         # Check for errors - handle both string and dict responses
         if isinstance(matching_results, str):
-            return {
-                "output": [f"Profile matching failed: {matching_results}"]
-            }
+            return {"output": [f"Profile matching failed: {matching_results}"]}
 
         if not isinstance(matching_results, dict):
             return {
-                "output": [f"Profile matching returned unexpected type: {type(matching_results)}"]
+                "output": [
+                    f"Profile matching returned unexpected type: {type(matching_results)}"
+                ]
             }
 
         if matching_results.get("error"):
             error_msg = matching_results.get("error")
-            return {
-                "output": [f"Profile matching failed: {error_msg}"]
-            }
+            return {"output": [f"Profile matching failed: {error_msg}"]}
 
         # Parse the cohort_summary structure
         users_data = matching_results.get("users", {})
@@ -590,7 +590,7 @@ async def handler(context: ToolContext):
         logger.info(f"Profile matching generated results for {len(users_data)} users")
 
         # Step 5: Update memory_user content with extracted profiles
-        from eve.agent.session.memory_models import UserMemory
+        from eve.agent.memory.memory_models import UserMemory
 
         updated_memories = []
         failed_memory_updates = []
@@ -609,10 +609,9 @@ async def handler(context: ToolContext):
                 user_id = username_to_user_id.get(username)
                 if not user_id:
                     logger.warning(f"Could not find user_id for username: {username}")
-                    failed_memory_updates.append({
-                        "username": username,
-                        "error": "User ID not found"
-                    })
+                    failed_memory_updates.append(
+                        {"username": username, "error": "User ID not found"}
+                    )
                     continue
 
                 # Find or create UserMemory document
@@ -625,8 +624,12 @@ async def handler(context: ToolContext):
 
                 if existing_content:
                     # Prepend new profile with separator
-                    user_memory.content = f"{profile_content}\n\n---\n\n{existing_content}"
-                    logger.info(f"Prepended profile to existing memory for user {username}")
+                    user_memory.content = (
+                        f"{profile_content}\n\n---\n\n{existing_content}"
+                    )
+                    logger.info(
+                        f"Prepended profile to existing memory for user {username}"
+                    )
                 else:
                     # No existing content, just set the profile
                     user_memory.content = profile_content
@@ -635,21 +638,22 @@ async def handler(context: ToolContext):
                 user_memory.last_updated_at = datetime.now(timezone.utc)
                 user_memory.save()
 
-                updated_memories.append({
-                    "username": username,
-                    "user_id": str(user_id),
-                    "profile_length": len(profile_content),
-                    "had_existing_content": bool(existing_content)
-                })
+                updated_memories.append(
+                    {
+                        "username": username,
+                        "user_id": str(user_id),
+                        "profile_length": len(profile_content),
+                        "had_existing_content": bool(existing_content),
+                    }
+                )
 
             except Exception as e:
                 logger.error(f"Error updating memory for user {username}: {e}")
-                failed_memory_updates.append({
-                    "username": username,
-                    "error": str(e)
-                })
+                failed_memory_updates.append({"username": username, "error": str(e)})
 
-        logger.info(f"Memory updates complete: {len(updated_memories)} successful, {len(failed_memory_updates)} failed")
+        logger.info(
+            f"Memory updates complete: {len(updated_memories)} successful, {len(failed_memory_updates)} failed"
+        )
 
         # Step 6: Extract intro documents per user
         # Build a map of username -> intro text
@@ -664,7 +668,9 @@ async def handler(context: ToolContext):
                     if username not in user_intros:
                         user_intros[username] = []
                     # Format the intro with partner information
-                    formatted_intro = f"You might want to connect with {partner}:\n\n{intro}"
+                    formatted_intro = (
+                        f"You might want to connect with {partner}:\n\n{intro}"
+                    )
                     user_intros[username].append(formatted_intro)
 
         if not user_intros:
@@ -693,22 +699,16 @@ async def handler(context: ToolContext):
 
                 # Create session with agent-generated message
                 result = await create_user_session_with_message(
-                    agent.id,
-                    user,
-                    combined_intro,
-                    agent.username,
-                    agent
+                    agent.id, user, combined_intro, agent.username, agent
                 )
 
                 session_results.append(result)
 
             except Exception as e:
                 logger.error(f"Error creating session for user {username}: {e}")
-                session_results.append({
-                    "user": username,
-                    "status": "failed",
-                    "error": str(e)
-                })
+                session_results.append(
+                    {"user": username, "status": "failed", "error": str(e)}
+                )
 
         # Compile results summary
         successful = [r for r in session_results if r["status"] == "success"]
@@ -734,13 +734,15 @@ Session Creation Results:
         if updated_memories:
             summary += "Successfully updated memories for:\n"
             for result in updated_memories:
-                status = "(updated existing)" if result['had_existing_content'] else "(new)"
+                status = (
+                    "(updated existing)" if result["had_existing_content"] else "(new)"
+                )
                 summary += f"  - {result['username']} {status}\n"
 
         if failed_memory_updates:
             summary += "\nFailed memory updates:\n"
             for result in failed_memory_updates:
-                error = result.get('error', 'Unknown error')
+                error = result.get("error", "Unknown error")
                 summary += f"  - {result['username']}: {error}\n"
 
         if successful:
@@ -751,20 +753,17 @@ Session Creation Results:
         if failed:
             summary += "\nFailed to create sessions for:\n"
             for result in failed:
-                error = result.get('error', 'Unknown error')
+                error = result.get("error", "Unknown error")
                 summary += f"  - {result['user']}: {error}\n"
 
         return {"output": summary}
 
     except ValueError as e:
-        return {
-            "output": f"Invalid parameter: {str(e)}"
-        }
+        return {"output": f"Invalid parameter: {str(e)}"}
 
     except Exception as e:
         logger.error(f"Error in collective_kickstart handler: {e}")
         import traceback
+
         traceback.print_exc()
-        return {
-            "output": f"Error running collective_kickstart: {str(e)}"
-        }
+        return {"output": f"Error running collective_kickstart: {str(e)}"}

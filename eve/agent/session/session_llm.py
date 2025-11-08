@@ -3,9 +3,10 @@ import os
 import time
 import uuid
 import json
+from types import SimpleNamespace
 import litellm
 from litellm import acompletion, aresponses
-from typing import Callable, List, AsyncGenerator, Optional
+from typing import Callable, List, AsyncGenerator, Optional, Dict, Any
 
 from eve.agent.session.models import (
     ChatMessage,
@@ -18,7 +19,12 @@ from eve.agent.session.models import (
 )
 from loguru import logger
 
+from eve.agent.session.fake_utils import build_fake_tool_result_payload
+
 logging.getLogger("LiteLLM").setLevel(logging.WARNING)
+
+TEST_MODE_TEXT_STRING = "===test"
+TEST_MODE_TOOL_STRING = "===tool"
 
 
 supported_models = [
@@ -39,6 +45,249 @@ supported_models = [
     "gemini/gemini-2.5-pro",
     "gemini/gemini-2.5-flash"
 ]
+
+
+def is_fake_llm_mode() -> bool:
+    """Feature flag toggle for fake LLM responses."""
+    return os.getenv("FF_SESSION_FAKE_LLM", "").lower() in {"1", "true", "yes", "on"}
+
+
+def is_test_mode_prompt(prompt_text: Optional[str]) -> bool:
+    """Check if the raw prompt text should force fake/test handling."""
+    if not prompt_text:
+        return False
+
+    cleaned = prompt_text.strip()
+    if cleaned in {TEST_MODE_TEXT_STRING, TEST_MODE_TOOL_STRING}:
+        return True
+
+    return (
+        TEST_MODE_TEXT_STRING in cleaned
+        or TEST_MODE_TOOL_STRING in cleaned
+    )
+
+
+def _build_fake_tool_args(tool) -> Dict[str, Any]:
+    """Generate plausible arguments for a tool in fake mode."""
+    if getattr(tool, "test_args", None):
+        try:
+            return tool.prepare_args(tool.test_args.copy())
+        except Exception:
+            pass
+
+    parameters = getattr(tool, "parameters", {}) or {}
+    candidate_args: Dict[str, Any] = {}
+
+    for field_name, parameter in parameters.items():
+        default = parameter.get("default")
+        param_type = parameter.get("type")
+        enum_values = parameter.get("enum") or []
+
+        if default not in (None, "random"):
+            candidate_args[field_name] = default
+            continue
+        if enum_values:
+            candidate_args[field_name] = enum_values[0]
+            continue
+        if default == "random":
+            if param_type in {"integer", "number"}:
+                minimum = parameter.get("minimum", 0)
+                candidate_args[field_name] = minimum
+            else:
+                candidate_args[field_name] = "sample"
+            continue
+
+        if param_type == "boolean":
+            candidate_args[field_name] = True
+        elif param_type == "integer":
+            candidate_args[field_name] = parameter.get("minimum", 1)
+        elif param_type == "number":
+            candidate_args[field_name] = parameter.get("minimum", 1.0)
+        elif param_type == "array":
+            candidate_args[field_name] = []
+        elif param_type == "object":
+            candidate_args[field_name] = {}
+        else:
+            candidate_args[field_name] = "sample"
+
+    try:
+        return tool.prepare_args(candidate_args.copy())
+    except Exception:
+        return candidate_args
+
+
+def _get_last_user_prompt(context: LLMContext) -> Optional[str]:
+    last_user_message = next(
+        (msg for msg in reversed(context.messages or []) if msg.role == "user"),
+        None,
+    )
+    if not last_user_message or not last_user_message.content:
+        return None
+    return last_user_message.content.strip()
+
+
+def _get_last_assistant_message(context: LLMContext) -> Optional[ChatMessage]:
+    return next(
+        (msg for msg in reversed(context.messages or []) if msg.role == "assistant"),
+        None,
+    )
+
+
+def _get_last_completed_tool_call(
+    context: LLMContext,
+) -> Optional[ToolCall]:
+    for msg in reversed(context.messages or []):
+        if msg.role != "assistant" or not msg.tool_calls:
+            continue
+        for tool_call in reversed(msg.tool_calls):
+            if tool_call.status == "completed" and tool_call.result:
+                return tool_call
+    return None
+
+
+def _should_use_fake_handler(prompt_text: Optional[str]) -> bool:
+    if not prompt_text:
+        return is_fake_llm_mode()
+    if is_test_mode_prompt(prompt_text):
+        return True
+    return is_fake_llm_mode()
+
+
+def should_force_fake_response(context: LLMContext) -> bool:
+    """Determine whether the request should bypass providers and use fake handlers."""
+    prompt_text = _get_last_user_prompt(context)
+    return _should_use_fake_handler(prompt_text)
+
+
+async def async_prompt_fake(
+    context: LLMContext,
+) -> LLMResponse:
+    """Return a simulated LLM response without reaching a provider."""
+    prompt_text = _get_last_user_prompt(context) or ""
+    prompt_clean = prompt_text.strip()
+    prompt_lower = prompt_clean.lower()
+
+    last_tool_call = _get_last_completed_tool_call(context)
+    last_assistant = _get_last_assistant_message(context)
+
+    if (
+        last_tool_call
+        and last_assistant
+        and getattr(last_assistant, "finish_reason", None) == "tool_calls"
+        and is_test_mode_prompt(prompt_clean)
+    ):
+        result_summary = last_tool_call.result or []
+        body = (
+            f"[Simulated Tool Result] Tool '{last_tool_call.tool}' completed with"
+            " placeholder output."
+        )
+        if result_summary and isinstance(result_summary, list):
+            try:
+                first_output = result_summary[0]["output"][0]
+                url = first_output.get("url")
+                if url:
+                    body += f"\nPreview URL: {url}"
+            except Exception:
+                pass
+
+        return LLMResponse(
+            content=body,
+            tool_calls=None,
+            stop="stop",
+            tokens_spent=0,
+            thought=None,
+        )
+
+    placeholder = os.getenv(
+        "FAKE_LLM_PLACEHOLDER_TEXT", "This is a simulated response."
+    )
+    tool_calls = None
+    stop_reason = "stop"
+
+    wants_tool = (
+        prompt_lower == "tool"
+        or prompt_clean == TEST_MODE_TOOL_STRING
+        or prompt_lower.endswith(TEST_MODE_TOOL_STRING)
+        or TEST_MODE_TOOL_STRING in prompt_clean
+    )
+
+    if wants_tool and context.tools:
+        tool_key, tool = next(iter(context.tools.items()))
+        fake_args = _build_fake_tool_args(tool)
+        result_payload = build_fake_tool_result_payload(
+            tool_key, getattr(tool, "name", None)
+        )
+
+        tool_calls = [
+            ToolCall(
+                id=f"toolu_{uuid.uuid4()}",
+                tool=tool_key,
+                args=fake_args,
+                status="completed",
+                result=result_payload,
+                cost=0,
+            )
+        ]
+        content = ""
+        stop_reason = "tool_calls"
+    else:
+        if prompt_clean == TEST_MODE_TEXT_STRING:
+            body = "[Test Mode] Simulated response."
+        elif wants_tool and not context.tools:
+            body = "[Simulated Response]\nNo tools available for test mode."
+        else:
+            body = f"[Simulated Response]\n{placeholder}"
+            if prompt_clean:
+                body += f"\n\n(Original prompt: {prompt_clean})"
+        content = body
+
+    return LLMResponse(
+        content=content,
+        tool_calls=tool_calls,
+        stop=stop_reason,
+        tokens_spent=0,
+        thought=None,
+    )
+
+
+async def async_prompt_stream_fake(
+    context: LLMContext,
+) -> AsyncGenerator[Any, None]:
+    """Yield a fake streaming response compatible with the existing consumer."""
+    response = await async_prompt_fake(context)
+
+    delta = SimpleNamespace(
+        content=response.content if response.content else None,
+        tool_calls=None,
+    )
+
+    if response.tool_calls and any(tc.status != "completed" for tc in response.tool_calls):
+        tool_calls = []
+        for index, tool_call in enumerate(response.tool_calls):
+            function_payload = SimpleNamespace(
+                name=tool_call.tool,
+                arguments=json.dumps(tool_call.args or {}),
+            )
+            tool_calls.append(
+                SimpleNamespace(
+                    index=index,
+                    id=tool_call.id,
+                    function=function_payload,
+                )
+            )
+        delta = SimpleNamespace(content=None, tool_calls=tool_calls)
+
+    chunk = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                delta=delta,
+                finish_reason=response.stop or "stop",
+            )
+        ],
+        usage=SimpleNamespace(total_tokens=response.tokens_spent or 0),
+    )
+
+    yield chunk
 
 
 class ToolMetadataBuilder:
@@ -383,17 +632,26 @@ async def async_prompt_stream_litellm(
         yield part
 
 
-DEFAULT_LLM_HANDLER = async_prompt_litellm
-DEFAULT_LLM_STREAM_HANDLER = async_prompt_stream_litellm
+if is_fake_llm_mode():
+    DEFAULT_LLM_HANDLER = async_prompt_fake
+    DEFAULT_LLM_STREAM_HANDLER = async_prompt_stream_fake
+else:
+    DEFAULT_LLM_HANDLER = async_prompt_litellm
+    DEFAULT_LLM_STREAM_HANDLER = async_prompt_stream_litellm
 
 
 async def async_prompt(
     context: LLMContext,
     handler: Optional[Callable[[LLMContext], str]] = DEFAULT_LLM_HANDLER,
 ) -> LLMResponse:
-    validate_input(context)
-    response = await handler(context)
-    return response
+    force_fake = should_force_fake_response(context)
+
+    handler_to_use = async_prompt_fake if force_fake else handler
+
+    if handler_to_use is not async_prompt_fake:
+        validate_input(context)
+
+    return await handler_to_use(context)
 
 
 async def async_prompt_stream(
@@ -402,8 +660,14 @@ async def async_prompt_stream(
         Callable[[LLMContext, LLMConfig], AsyncGenerator[str, None]]
     ] = DEFAULT_LLM_STREAM_HANDLER,
 ) -> AsyncGenerator[str, None]:
-    validate_input(context)
-    async for chunk in handler(context):
+    force_fake = should_force_fake_response(context)
+
+    stream_handler = async_prompt_stream_fake if force_fake else handler
+
+    if stream_handler is not async_prompt_stream_fake:
+        validate_input(context)
+
+    async for chunk in stream_handler(context):
         yield chunk
 
 

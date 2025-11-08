@@ -1,0 +1,28 @@
+name: email_send
+description: Send an email using the configured email provider
+cost_estimate: 0
+output_type: string
+active: true
+handler: local
+visible: false
+parameters:
+  to:
+    type: string
+    description: Recipient email address
+    required: true
+  subject:
+    type: string
+    description: Subject line for the email
+    required: true
+  text:
+    type: string
+    description: Plain text body for the email
+    required: false
+  html:
+    type: string
+    description: HTML body for the email
+    required: false
+  reply_to:
+    type: string
+    description: Reply-To header value
+    required: false
