@@ -423,7 +423,7 @@ async def build_llm_context(
 
 
     logger.info(f"\n\n\n\n\n\n\n=======================================================")
-    logger.info(f"messages after build_system_extras:")
+    logger.info(f"messages after build_system_extras for session {session.id}:")
     for message in messages:
         logger.info(f"{message.role} {message.content}")
         logger.info(f"--------------------------------")
