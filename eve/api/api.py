@@ -603,7 +603,7 @@ async def remote_prompt_session_fn(
     )
 
 
-@app.function(image=image, max_containers=4)
+@app.function(image=image, max_containers=4, timeout=3600)
 async def handle_session_status_change_fn(
     session_id: str, 
     status: str
