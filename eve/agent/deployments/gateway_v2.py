@@ -1944,6 +1944,7 @@ async def gmail_webhook(request: Request):
         logger.error(f"[GMAIL-WEBHOOK] Failed to parse email payload: {exc}", exc_info=True)
         raise HTTPException(status_code=400, detail="Invalid email payload")
 
+
     try:
         await gmail_client.process_inbound_email(email)
     except APIError as exc:
