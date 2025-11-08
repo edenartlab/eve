@@ -148,6 +148,21 @@ async def build_llm_config_from_agent_settings(
 async def route_thinking_effort(context_messages: list, instructions: str) -> str:
     """Route thinking effort based on context using a small LLM"""
 
+    fake_mode = os.getenv("FF_SESSION_FAKE_LLM", "").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+    if fake_mode:
+        return "medium"
+
+    for msg in reversed(context_messages or []):
+        content = getattr(msg, "content", None)
+        if content and ("===test" in content or "===tool" in content):
+            return "medium"
+
     # Extract last 5 messages for routing context
     routing_messages = (
         context_messages[-5:] if len(context_messages) > 5 else context_messages

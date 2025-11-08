@@ -1,3 +1,4 @@
+import re
 from bson import ObjectId
 from pydantic import BaseModel
 from typing import Optional, Literal, List, Dict
@@ -21,7 +22,7 @@ class Manna(Document):
     def load(cls, user: ObjectId):
         try:
             return super().load(user=user)
-        except MongoDocumentNotFound as e:
+        except MongoDocumentNotFound:
             # if mannas not found, check if user exists, and create a new manna document
             user = User.from_mongo(user)
             if not user:
@@ -60,6 +61,7 @@ class Transaction(Document):
 # todo: add more stats
 class UserStats(BaseModel):
     messageCount: int = 0
+
 
 @Collection("users3")
 class User(Document):
@@ -168,7 +170,25 @@ class User(Document):
         return cls(**user)
 
     @classmethod
-    def from_email(cls, email_address: str, fallback_username: Optional[str] = None):
+    def from_email(cls, email: str):
+        normalized = email.strip().lower()
+        users = get_collection(cls.collection_name)
+        user = users.find_one({"normalizedEmail": normalized})
+        if not user:
+            local_part = normalized.split("@")[0] if "@" in normalized else normalized
+            safe_local = re.sub(r"[^a-z0-9_]", "_", local_part)
+            base_username = f"email_{safe_local or 'user'}"
+            username = cls._get_unique_username(base_username)
+            new_user = cls(
+                email=email.strip(),
+                normalizedEmail=normalized,
+                username=username,
+            )
+            new_user.save()
+            return new_user
+        return cls(**user)
+
+    def from_gmail(cls, email_address: str, fallback_username: Optional[str] = None):
         if not email_address:
             raise ValueError("email_address is required")
 

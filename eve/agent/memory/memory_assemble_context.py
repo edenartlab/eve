@@ -1,10 +1,10 @@
-from eve.agent.session.memory_models import (
+from eve.agent.memory.memory_models import (
     SessionMemory,
     UserMemory,
     AgentMemory,
     select_messages,
 )
-from eve.agent.session.memory_constants import (
+from eve.agent.memory.memory_constants import (
     MAX_N_EPISODES_TO_REMEMBER,
     LOCAL_DEV,
     SYNC_MEMORIES_ACROSS_SESSIONS_EVERY_N_MINUTES,
@@ -19,7 +19,7 @@ from datetime import datetime, timezone, timedelta
 from eve.agent import Agent
 from eve.user import User
 from eve.agent.session.models import Session
-from eve.agent.session.memory import safe_update_memory_context
+from eve.agent.memory.memory import safe_update_memory_context
 
 
 async def _assemble_user_memory(agent: Agent, user: User) -> str:
@@ -43,7 +43,7 @@ async def _assemble_user_memory(agent: Agent, user: User) -> str:
                 user_memory_content = user_memory.fully_formed_memory
             else:
                 # Regenerate fully formed memory if missing or empty
-                from eve.agent.session.memory import (
+                from eve.agent.memory.memory import (
                     _regenerate_fully_formed_user_memory,
                 )
 
@@ -149,10 +149,10 @@ async def _assemble_agent_memories(agent: Agent) -> List[Dict[str, str]]:
                 )
             else:
                 # Import here to avoid circular imports
-                from eve.agent.session.memory import (
+                from eve.agent.memory.memory import (
                     _regenerate_fully_formed_agent_memory,
                 )
-                
+
                 await _regenerate_fully_formed_agent_memory(shard)
 
                 # Use the regenerated content if it's non-empty

@@ -11,13 +11,13 @@ import traceback
 from bson import ObjectId
 from loguru import logger
 
-from eve.agent.session.memory_models import SessionMemory, AgentMemory
+from eve.agent.memory.memory_models import SessionMemory, AgentMemory
 
 
 """
 
 cd /Users/xandersteenbrugge/Documents/GitHub/Eden/eve
-DB=PROD PYTHONPATH=/Users/xandersteenbrugge/Documents/GitHub/Eden python -m eve.agent.session.memory_update_shard
+DB=PROD PYTHONPATH=/Users/xandersteenbrugge/Documents/GitHub/Eden python -m eve.agent.memory.memory_update_shard
 
 """
 

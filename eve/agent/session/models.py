@@ -320,7 +320,7 @@ class ChatMessage(Document):
                 for text_att in text_attachments:
                     attachments += f'\n<attached_file type="text" name="{text_att.name}" url="{text_att.url}">\n'
                     attachments += text_att.content
-                    attachments += f"\n</attached_file>\n"
+                    attachments += "\n</attached_file>\n"
 
             if audio_attachments:
                 for audio_att in audio_attachments:
@@ -643,6 +643,11 @@ class SessionUpdateConfig(BaseModel):
     farcaster_message_id: Optional[str] = None
     twitter_tweet_to_reply_id: Optional[str] = None
     user_is_bot: Optional[bool] = False
+    email_sender: Optional[str] = None
+    email_recipient: Optional[str] = None
+    email_subject: Optional[str] = None
+    email_message_id: Optional[str] = None
+    email_thread_id: Optional[str] = None
     gmail_thread_id: Optional[str] = None
     gmail_message_id: Optional[str] = None
     gmail_history_id: Optional[str] = None
@@ -1032,6 +1037,23 @@ class DeploymentSecretsTiktok(BaseModel):
     username: Optional[str] = None
 
 
+class DeploymentSettingsEmail(BaseModel):
+    domain_id: Optional[str] = None
+    sender_email: Optional[str] = None
+    autoreply_enabled: Optional[bool] = None
+    reply_delay_average_minutes: Optional[int] = None
+    reply_delay_variance_minutes: Optional[int] = None
+
+
+class DeploymentSecretsEmail(BaseModel):
+    domain: Optional[str] = None
+    provider_domain_id: Optional[str] = None
+    inbound_route_id: Optional[str] = None
+    inbound_route_expression: Optional[str] = None
+    forwarding_address: Optional[str] = None
+    webhook_signing_key: Optional[str] = None
+
+
 # Gmail Models
 class DeploymentSettingsGmail(BaseModel):
     reply_delay_seconds: int = 0
@@ -1062,6 +1084,7 @@ class DeploymentSecrets(BaseModel):
     printify: DeploymentSecretsPrintify | None = None
     captions: DeploymentSecretsCaptions | None = None
     tiktok: DeploymentSecretsTiktok | None = None
+    email: DeploymentSecretsEmail | None = None
     gmail: DeploymentSecretsGmail | None = None
 
 
@@ -1074,6 +1097,7 @@ class DeploymentConfig(BaseModel):
     printify: DeploymentSettingsPrintify | None = None
     captions: DeploymentSettingsCaptions | None = None
     tiktok: DeploymentSettingsTiktok | None = None
+    email: DeploymentSettingsEmail | None = None
     gmail: DeploymentSettingsGmail | None = None
 
 
@@ -1128,7 +1152,7 @@ class Deployment(Document):
             get_kms_encryption,
         )
 
-        kms = get_kms_encryption()
+        get_kms_encryption()
 
         if "secrets" in schema and schema["secrets"]:
             # Check if secrets are encrypted
@@ -1161,6 +1185,30 @@ class Deployment(Document):
         elif self.platform == ClientType.TELEGRAM:
             return self.config.telegram.topic_allowlist
         return []
+
+
+@Collection("email_domains")
+class EmailDomain(Document):
+    agent: ObjectId
+    user: ObjectId
+    provider: Literal["mailgun", "sendgrid", "twilio"] = "mailgun"
+    domain: str
+    provider_domain_id: Optional[str] = None
+    inbound_route_id: Optional[str] = None
+    inbound_route_expression: Optional[str] = None
+    forwarding_address: Optional[str] = None
+    webhook_signing_key: Optional[str] = None
+    status: Literal["pending", "verified", "failed"] = "pending"
+    lastSyncedAt: Optional[datetime] = None
+    dnsRecords: Optional[List[Dict[str, Any]]] = None
+    verificationErrors: Optional[List[str]] = None
+    deployment: Optional[ObjectId] = None
+
+    @classmethod
+    def find_by_domain(cls, domain: str) -> Optional["EmailDomain"]:
+        collection = cls.get_collection()
+        doc = collection.find_one({"domain": domain.lower()})
+        return cls(**doc) if doc else None
 
 
 @Collection("usernotifications")

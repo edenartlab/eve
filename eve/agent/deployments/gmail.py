@@ -546,8 +546,6 @@ class GmailClient(PlatformClient):
             )
             return
 
-
-
         # Load agent and ensure we have latest deployment context
         if not self.agent:
             self.agent = Agent.from_mongo(ObjectId(self.deployment.agent))
@@ -556,7 +554,7 @@ class GmailClient(PlatformClient):
         session_key = f"gmail-{session_key_basis}"
 
         # Resolve or create user from email
-        user = User.from_email(
+        user = User.from_gmail(
             email_address=email.from_address,
             fallback_username=email.from_name,
         )

@@ -21,7 +21,7 @@ from eve.agent.session.models import (
     LLMTraceMetadata,
     SessionMemoryContext,
 )
-from eve.agent.session.memory_models import (
+from eve.agent.memory.memory_models import (
     SessionMemory,
     UserMemory,
     AgentMemory,
@@ -32,8 +32,8 @@ from eve.agent.session.memory_models import (
     select_messages,
     calculate_dynamic_limits,
 )
-from eve.agent.session.memory_constants import *
-from eve.agent.session.memory_constants import (
+from eve.agent.memory.memory_constants import *
+from eve.agent.memory.memory_constants import (
     MEMORY_LLM_MODEL_FAST,
     MEMORY_LLM_MODEL_SLOW,
 )
@@ -976,7 +976,7 @@ def should_form_memories(
         conversation_text, char_counts_by_source = messages_to_text(recent_messages)
 
         # Weight tokens from different sources differently:
-        from eve.agent.session.memory_models import (
+        from eve.agent.memory.memory_models import (
             USER_MULTIPLIER,
             TOOL_MULTIPLIER,
             OTHER_MULTIPLIER,
@@ -1128,7 +1128,7 @@ async def form_memories(
         )
         last_speaker_id = related_users[-1] if related_users else None
 
-        from eve.agent.session.memory_assemble_context import assemble_memory_context
+        from eve.agent.memory.memory_assemble_context import assemble_memory_context
 
         await assemble_memory_context(
             session,
