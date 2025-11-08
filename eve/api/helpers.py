@@ -4,13 +4,11 @@ from typing import Optional
 import aiohttp
 from ably import AblyRest
 import traceback
-import re
 import time
 
 import modal
 
 from eve.agent.deployments import PlatformClient
-from eve.user import User
 from eve.agent import Agent
 from eve.api.api_requests import UpdateConfig
 from eve.agent.session.models import Deployment, ClientType
@@ -51,7 +49,7 @@ async def emit_update(
     if update_config:
         if update_config.update_endpoint:
             debugger.log(
-                f"HTTP emit",
+                "HTTP emit",
                 {"endpoint": update_config.update_endpoint.split("/")[-1]},
                 emoji="update",
             )
@@ -59,7 +57,7 @@ async def emit_update(
         elif update_config.sub_channel_name:
             try:
                 debugger.log(
-                    f"Ably emit",
+                    "Ably emit",
                     {"channel": update_config.sub_channel_name},
                     emoji="update",
                 )
@@ -79,13 +77,13 @@ async def emit_update(
 
             if connection_count > 0:
                 debugger.log(
-                    f"SSE broadcast",
+                    "SSE broadcast",
                     {"connections": connection_count, "type": data.get("type", "?")},
                     emoji="broadcast",
                 )
                 await sse_manager.broadcast(session_id, data)
             else:
-                debugger.log(f"No SSE connections", emoji="warning")
+                debugger.log("No SSE connections", emoji="warning")
         except Exception as e:
             debugger.log_error("SSE failed", e)
             logger.error(f"Failed to broadcast to SSE connections: {str(e)}")
@@ -349,6 +347,7 @@ async def update_busy_state_old(update_config, request_id: str, is_busy: bool):
 def get_platform_client(
     agent: Agent, platform: ClientType, deployment: Optional[Deployment] = None
 ) -> PlatformClient:
+    """Helper function to get the appropriate platform client"""
     from eve.agent.deployments.discord import DiscordClient
     from eve.agent.deployments.telegram import TelegramClient
     from eve.agent.deployments.farcaster import FarcasterClient
@@ -357,9 +356,9 @@ def get_platform_client(
     from eve.agent.deployments.printify import PrintifyClient
     from eve.agent.deployments.captions import CaptionsClient
     from eve.agent.deployments.tiktok import TiktokClient
+    from eve.agent.deployments.email import EmailClient
     from eve.agent.deployments.gmail import GmailClient
 
-    """Helper function to get the appropriate platform client"""
     if platform == ClientType.DISCORD:
         return DiscordClient(agent=agent, deployment=deployment)
     elif platform == ClientType.TELEGRAM:
@@ -376,6 +375,8 @@ def get_platform_client(
         return CaptionsClient(agent=agent, deployment=deployment)
     elif platform == ClientType.TIKTOK:
         return TiktokClient(agent=agent, deployment=deployment)
+    elif platform == ClientType.EMAIL:
+        return EmailClient(agent=agent, deployment=deployment)
     elif platform == ClientType.GMAIL:
         return GmailClient(agent=agent, deployment=deployment)
 

@@ -35,6 +35,7 @@ from eve.api.handlers import (
     handle_v2_deployment_update,
     handle_v2_deployment_delete,
     handle_v2_deployment_farcaster_neynar_webhook,
+    handle_v2_deployment_email_inbound,
     handle_create_notification,
     handle_embedsearch,
     handle_extract_agent_prompts,
@@ -85,11 +86,7 @@ from eve.api.api_functions import (
     run_task_replicate,
     cleanup_stale_busy_states,
 )
-from eve.agent.session.run import (
-    remote_prompt_session, 
-    run_automatic_session
-)
-
+from eve.agent.session.run import remote_prompt_session, run_automatic_session
 
 
 app_name = f"api-{db.lower()}"
@@ -125,9 +122,9 @@ class SentryContextMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
-
 # Global flag for shutdown
 _shutdown_event = asyncio.Event()
+
 
 def handle_shutdown_signal(signum, frame):
     """Handle SIGINT/SIGTERM to close SSE connections immediately"""
@@ -331,6 +328,11 @@ async def deployment_interact(
 @web_app.post("/v2/deployments/farcaster/neynar-webhook")
 async def deployment_farcaster_neynar_webhook(request: Request):
     return await handle_v2_deployment_farcaster_neynar_webhook(request)
+
+
+@web_app.post("/v2/deployments/email/inbound")
+async def deployment_email_inbound(request: Request):
+    return await handle_v2_deployment_email_inbound(request)
 
 
 @web_app.post("/v2/deployments/emission")
@@ -579,10 +581,10 @@ async def run_scheduled_triggers_fn():
     logger.info(sessions)
 
 
-
 ########################################################
 ## Remote Session Prompting
 ########################################################
+
 
 @app.function(image=image, max_containers=10, timeout=3600)
 async def remote_prompt_session_fn(
@@ -604,9 +606,6 @@ async def remote_prompt_session_fn(
 
 
 @app.function(image=image, max_containers=4)
-async def handle_session_status_change_fn(
-    session_id: str, 
-    status: str
-):
+async def handle_session_status_change_fn(session_id: str, status: str):
     if status == "active":
         await run_automatic_session(session_id)
