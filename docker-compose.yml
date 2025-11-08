@@ -1,0 +1,15 @@
+version: "3.9"
+
+services:
+  falkordb:
+    image: falkordb/falkordb:latest
+    container_name: eve-falkordb
+    restart: unless-stopped
+    ports:
+      - "${FALKORDB_PORT:-6380}:6379"
+      - "${FALKORDB_WEB_PORT:-8380}:3000"
+    volumes:
+      - falkordb-data:/data
+
+volumes:
+  falkordb-data:

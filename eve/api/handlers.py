@@ -25,7 +25,7 @@ from eve.agent.session.models import (
     NotificationChannel,
     NotificationConfig,
 )
-from eve.agent.session.memory_models import messages_to_text, select_messages
+from eve.agent.memory.memory_models import messages_to_text, select_messages
 from eve.agent.session.session import run_prompt_session, run_prompt_session_stream
 from eve.trigger import (
     Trigger,
@@ -241,7 +241,9 @@ def setup_session(
         session_kwargs["budget"] = request.creation_args.budget
 
     if request.creation_args.parent_session:
-        session_kwargs["parent_session"] = ObjectId(request.creation_args.parent_session)
+        session_kwargs["parent_session"] = ObjectId(
+            request.creation_args.parent_session
+        )
 
     if request.creation_args.extras:
         session_kwargs["extras"] = request.creation_args.extras
@@ -458,32 +460,28 @@ async def handle_session_status_update(request):
             func = modal.Function.from_name(
                 f"api-{db.lower()}",
                 "handle_session_status_change_fn",
-                environment_name="main"
+                environment_name="main",
             )
             func.spawn(request.session_id, request.status)
             session.update(status=request.status)
             return {
                 "success": True,
                 "session_id": request.session_id,
-                "status": request.status
+                "status": request.status,
             }
         except Exception as e:
-            logger.warning(f"Failed to spawn Modal function for session status change: {e}")
+            logger.warning(
+                f"Failed to spawn Modal function for session status change: {e}"
+            )
             session.update(status="paused")
-            return {
-                "success": False,
-                "error": str(e)
-            }
+            return {"success": False, "error": str(e)}
 
     except APIError:
         raise
-    
+
     except Exception as e:
         logger.error(f"Error updating session status: {e}", exc_info=True)
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        return {"success": False, "error": str(e)}
 
 
 @handle_errors
@@ -538,8 +536,16 @@ async def handle_v2_deployment_update(request: UpdateDeploymentRequestV2):
 
     # Store old config and secrets for platform update hook
     # MongoDB returns nested objects as dicts, convert to proper Pydantic models
-    old_config = DeploymentConfig(**deployment.config) if isinstance(deployment.config, dict) else deployment.config
-    old_secrets = DeploymentSecrets(**deployment.secrets) if isinstance(deployment.secrets, dict) else deployment.secrets
+    old_config = (
+        DeploymentConfig(**deployment.config)
+        if isinstance(deployment.config, dict)
+        else deployment.config
+    )
+    old_secrets = (
+        DeploymentSecrets(**deployment.secrets)
+        if isinstance(deployment.secrets, dict)
+        else deployment.secrets
+    )
 
     update_dict = {}
 
@@ -596,8 +602,16 @@ async def handle_v2_deployment_update(request: UpdateDeploymentRequestV2):
             deployment.reload()
 
             # Convert reloaded config/secrets to proper objects (MongoDB returns dicts)
-            new_config = DeploymentConfig(**deployment.config) if isinstance(deployment.config, dict) else deployment.config
-            new_secrets = DeploymentSecrets(**deployment.secrets) if isinstance(deployment.secrets, dict) else deployment.secrets
+            new_config = (
+                DeploymentConfig(**deployment.config)
+                if isinstance(deployment.config, dict)
+                else deployment.config
+            )
+            new_secrets = (
+                DeploymentSecrets(**deployment.secrets)
+                if isinstance(deployment.secrets, dict)
+                else deployment.secrets
+            )
 
             # Call platform-specific update hook
             await client.update(
