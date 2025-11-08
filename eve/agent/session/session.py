@@ -343,9 +343,9 @@ async def add_chat_message(
         user = User.from_mongo(context.initiating_user_id)
         
         # increment stats
-        stats = user.stats
-        stats["messageCount"] += 1
-        user.update(stats=stats.model_dump())
+        # stats = user.stats
+        # stats["messageCount"] += 1
+        # user.update(stats=stats.model_dump())
 
         user_data = {
             "_id": str(user.id),
@@ -1046,9 +1046,9 @@ async def async_prompt_session(
             assistant_message.save()
 
             # increment agent stats
-            stats = actor.stats
-            stats["messageCount"] += 1
-            actor.update(stats=stats.model_dump())
+            # stats = actor.stats
+            # stats["messageCount"] += 1
+            # actor.update(stats=stats.model_dump())
 
             # No longer storing message IDs on session to avoid race conditions
             # session.messages.append(assistant_message.id)

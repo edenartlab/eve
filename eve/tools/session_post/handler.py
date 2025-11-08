@@ -86,9 +86,9 @@ async def handler(context: ToolContext):
         )
         new_message.save()
 
-        stats = agent.stats
-        stats["messageCount"] += 1
-        agent.update(stats=stats.model_dump())
+        # stats = agent.stats
+        # stats["messageCount"] += 1
+        # agent.update(stats=stats.model_dump())
 
     elif context.args.get("role") in ["system", "user"]:
         
