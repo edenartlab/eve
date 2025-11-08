@@ -927,9 +927,12 @@ class GmailClient(PlatformClient):
         context_parts.append(email_context)
         trigger_context = "\n\n".join(context_parts)
 
-        trigger_prompt = (
+        base_prompt = (
             "Review the email in the trigger context and craft the reply you intend to send. "
             "Respond with the exact email body that should be delivered back to the sender."
+        )
+        trigger_prompt = (
+            f"{base_prompt}\n\n<TriggerContext>\n{trigger_context}\n</TriggerContext>"
         )
 
         trigger_name = (
