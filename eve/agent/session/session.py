@@ -280,7 +280,14 @@ async def build_system_extras(
         extras.append(
             ChatMessage(
                 session=session.id,
-                role="system",
+                
+                
+                # debug this
+                # role="system",
+                role="user",
+                sender=ObjectId(str(context.initiating_user_id)),
+
+
                 content=session.context,
             )
         )
