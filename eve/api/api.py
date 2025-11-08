@@ -19,6 +19,7 @@ from contextlib import asynccontextmanager
 
 from eve import auth, db
 from eve.api.runner_tasks import download_clip_models
+from eve.agent.session.models import Session
 from eve.api.handlers import (
     handle_create,
     handle_cancel,
@@ -84,8 +85,11 @@ from eve.api.api_functions import (
     run_task_replicate,
     cleanup_stale_busy_states,
 )
-from eve.agent.session.models import Session
-from eve.agent.session.run import remote_prompt_session
+from eve.agent.session.run import (
+    remote_prompt_session, 
+    run_automatic_session
+)
+
 
 
 app_name = f"api-{db.lower()}"

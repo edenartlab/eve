@@ -292,8 +292,8 @@ def safe_send(
     On inclusion timeout, optionally re-broadcast with higher fee using the same nonce.
     """
 
-    if True:   # temporarily babysit txs
-        return "tx_simulated", "tx_simulated_receipt"
+    # if True:   # temporarily babysit txs
+    #     return "tx_simulated", "tx_simulated_receipt"
 
     owner_account = Account.from_key(private_key)
     addr = owner_account.address

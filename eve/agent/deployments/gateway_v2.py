@@ -13,6 +13,7 @@ import aiohttp
 from ably import AblyRealtime
 from bson import ObjectId
 
+
 from eve import db
 from eve.agent.agent import Agent
 from eve.user import User
@@ -326,7 +327,7 @@ class DiscordGatewayClient:
                 Deployment.find(
                     {
                         "platform": ClientType.DISCORD.value,
-                        "secrets.discord.application_id": {"$in": discord_ids},
+                        "config.discord.oauth_client_id": {"$in": discord_ids},
                         "valid": {"$ne": False},
                     }
                 )
@@ -344,6 +345,7 @@ class DiscordGatewayClient:
             logger.error(f"Error looking up mentioned agents: {e}")
 
         return mentioned_agent_ids
+
 
     async def _is_channel_allowlisted(
         self, channel_id: str, allowed_channels: list, trace_id: str
@@ -1063,7 +1065,19 @@ class DiscordGatewayClient:
                                     f"Authentication failed for deployment {self.deployment.id}: {data}"
                                 )
                                 # Mark the deployment as invalid in the database
-                                self._mark_deployment_invalid()
+                                self._mark_deployment_invalid(
+                                    reason="authentication_failed"
+                                )
+                                # Stop reconnection attempts
+                                self._reconnect = False
+                                break
+                            elif close_code == 4014 or "Disallowed intent" in str(data):
+                                logger.error(
+                                    f"Disallowed intents for deployment {self.deployment.id}: {data}"
+                                )
+                                self._mark_deployment_invalid(
+                                    reason="discord_disallowed_intents"
+                                )
                                 # Stop reconnection attempts
                                 self._reconnect = False
                                 break
@@ -1116,7 +1130,17 @@ class DiscordGatewayClient:
                         f"Authentication failed for deployment {self.deployment.id}: {e}"
                     )
                     # Mark the deployment as invalid in the database
-                    self._mark_deployment_invalid()
+                    self._mark_deployment_invalid(reason="authentication_failed")
+                    # Stop reconnection attempts
+                    self._reconnect = False
+                    break
+                if e.code == 4014 or (
+                    isinstance(e.reason, str) and "Disallowed intent" in e.reason
+                ):
+                    logger.error(
+                        f"Disallowed intents for deployment {self.deployment.id}: {e}"
+                    )
+                    self._mark_deployment_invalid(reason="discord_disallowed_intents")
                     # Stop reconnection attempts
                     self._reconnect = False
                     break
@@ -1136,7 +1160,15 @@ class DiscordGatewayClient:
                         f"Authentication failed for deployment {self.deployment.id}, marking as invalid"
                     )
                     # Mark the deployment as invalid in the database
-                    self._mark_deployment_invalid()
+                    self._mark_deployment_invalid(reason="authentication_failed")
+                    # Stop reconnection attempts
+                    self._reconnect = False
+                    break
+                if "4014" in str(e) or "Disallowed intent" in str(e):
+                    logger.error(
+                        f"Disallowed intents for deployment {self.deployment.id}, marking as invalid"
+                    )
+                    self._mark_deployment_invalid(reason="discord_disallowed_intents")
                     # Stop reconnection attempts
                     self._reconnect = False
                     break
@@ -1201,7 +1233,7 @@ class DiscordGatewayClient:
                 logger.error(f"Error closing Ably client for {self.deployment.id}: {e}")
             self.ably_client = None
 
-    def _mark_deployment_invalid(self):
+    def _mark_deployment_invalid(self, reason: str = "unspecified"):
         """Mark the deployment as invalid in the database"""
         try:
             # Fetch fresh deployment data to avoid overwriting other changes
@@ -1210,7 +1242,7 @@ class DiscordGatewayClient:
                 deployment.valid = False
                 deployment.save()
                 logger.info(
-                    f"Marked deployment {self.deployment.id} as invalid due to authentication failure"
+                    f"Marked deployment {self.deployment.id} as invalid (reason={reason})"
                 )
         except Exception as e:
             logger.error(
@@ -1284,14 +1316,31 @@ class DiscordGatewayClient:
 class GatewayManager:
     def __init__(self):
         self.clients: Dict[str, DiscordGatewayClient] = {}
-        self.ably_client = AblyRealtime(os.getenv("ABLY_SUBSCRIBER_KEY"))
-        self.channel = self.ably_client.channels.get(f"discord-gateway-v2-{db}")
-
         # Add Telegram typing manager - use improved version
         self.telegram_typing_manager = TelegramTypingManager()
 
         # Set up Ably for Telegram busy state updates
+        self.ably_client = None
+        self.channel = None
         self.telegram_busy_channel = None
+
+        ably_key = os.getenv("ABLY_SUBSCRIBER_KEY")
+        if not ably_key:
+            logger.warning(
+                "ABLY_SUBSCRIBER_KEY missing - gateway will run without Ably commands"
+            )
+            return
+
+        try:
+            self.ably_client = AblyRealtime(ably_key)
+            self.channel = self.ably_client.channels.get(f"discord-gateway-v2-{db}")
+        except Exception as exc:
+            logger.error(
+                "Failed to initialize AblyRealtime; continuing without Ably support",
+                exc_info=True,
+            )
+            self.ably_client = None
+            self.channel = None
 
     async def reload_client(self, deployment_id: str):
         """Reload a gateway client with fresh deployment data"""
@@ -1352,6 +1401,12 @@ class GatewayManager:
 
     async def setup_ably(self):
         """Set up Ably subscription for gateway commands"""
+
+        if not self.channel or not self.ably_client:
+            logger.warning(
+                "Ably client unavailable - skipping gateway command subscriptions"
+            )
+            return
 
         async def message_handler(message):
             try:
@@ -1432,15 +1487,26 @@ class GatewayManager:
                 logger.exception(e)
 
         # Subscribe to the channel
-        await self.channel.subscribe(message_handler)
-        logger.info("Subscribed to Ably channel for gateway commands")
+        try:
+            await self.channel.subscribe(message_handler)
+            logger.info("Subscribed to Ably channel for gateway commands")
+        except Exception as exc:
+            logger.error(
+                "Failed to subscribe to Ably gateway command channel",
+                exc_info=True,
+            )
+            return
 
         # Set up Ably for Telegram busy state updates
+        if not self.ably_client:
+            return
+
         try:
             # Subscribe to Telegram busy state updates
             telegram_channel = self.ably_client.channels.get(
                 f"busy-state-telegram-{db}"
             )
+            self.telegram_busy_channel = telegram_channel
 
             async def telegram_message_handler(message):
                 try:
@@ -1474,11 +1540,20 @@ class GatewayManager:
                 except Exception as e:
                     logger.error(f"Error handling Telegram busy state update: {e}")
 
-            await telegram_channel.subscribe(telegram_message_handler)
-            logger.info("Subscribed to Telegram busy state updates")
+            try:
+                await telegram_channel.subscribe(telegram_message_handler)
+                logger.info("Subscribed to Telegram busy state updates")
+            except Exception as exc:
+                logger.error(
+                    "Failed to subscribe to Telegram busy state channel",
+                    exc_info=True,
+                )
 
         except Exception as e:
-            logger.error(f"Failed to setup Telegram Ably subscription: {e}")
+            logger.error(
+                "Failed to setup Telegram Ably subscription",
+                exc_info=True,
+            )
 
     async def load_deployments(self):
         """Load all Discord HTTP deployments from database"""
@@ -1511,15 +1586,29 @@ class GatewayManager:
                     f"Invalid LOCAL_USER_ID format: {local_user_id}, error: {e}"
                 )
 
-        deployments = Deployment.find(deployment_filter)
-        for deployment in deployments:
-            # Skip deployments that are marked as invalid
-            if deployment.valid is False:
-                logger.info(f"Skipping invalid deployment {deployment.id}")
-                continue
+        try:
+            deployments = list(Deployment.find(deployment_filter))
+        except Exception as exc:
+            logger.error(
+                "Failed to load Discord deployments from database",
+                exc_info=True,
+            )
+            deployments = []
 
-            if deployment.secrets and deployment.secrets.discord.token:
-                await self.start_client(deployment)
+        for deployment in deployments:
+            try:
+                # Skip deployments that are marked as invalid
+                if deployment.valid is False:
+                    logger.info(f"Skipping invalid deployment {deployment.id}")
+                    continue
+
+                if deployment.secrets and deployment.secrets.discord.token:
+                    await self.start_client(deployment)
+            except Exception as exc:
+                logger.error(
+                    f"Failed to start gateway client for deployment {deployment.id}",
+                    exc_info=True,
+                )
 
         # Also load Telegram deployments for typing
         if local_api_url and local_api_url != "":
@@ -1540,18 +1629,32 @@ class GatewayManager:
                     f"Invalid LOCAL_USER_ID format for Telegram filter: {local_user_id}, error: {e}"
                 )
 
-        telegram_deployments = Deployment.find(telegram_filter)
+        try:
+            telegram_deployments = list(Deployment.find(telegram_filter))
+        except Exception as exc:
+            logger.error(
+                "Failed to load Telegram deployments from database",
+                exc_info=True,
+            )
+            telegram_deployments = []
+
         for deployment in telegram_deployments:
-            if (
-                deployment.secrets
-                and deployment.secrets.telegram
-                and deployment.secrets.telegram.token
-            ):
-                self.telegram_typing_manager.register_deployment(
-                    str(deployment.id), deployment.secrets.telegram.token
-                )
-                logger.info(
-                    f"Registered Telegram deployment {deployment.id} for typing"
+            try:
+                if (
+                    deployment.secrets
+                    and deployment.secrets.telegram
+                    and deployment.secrets.telegram.token
+                ):
+                    self.telegram_typing_manager.register_deployment(
+                        str(deployment.id), deployment.secrets.telegram.token
+                    )
+                    logger.info(
+                        f"Registered Telegram deployment {deployment.id} for typing"
+                    )
+            except Exception as exc:
+                logger.error(
+                    f"Failed to register Telegram deployment {deployment.id} for typing",
+                    exc_info=True,
                 )
 
     async def start_client(self, deployment: Deployment):
@@ -1587,33 +1690,41 @@ async def lifespan(app: FastAPI):
     manager = GatewayManager()
 
     # Set up Ably and load deployments
-    await manager.setup_ably()
-    await manager.load_deployments()
+    try:
+        await manager.setup_ably()
+    except Exception as exc:
+        logger.error("Gateway manager Ably setup failed", exc_info=True)
+
+    try:
+        await manager.load_deployments()
+    except Exception as exc:
+        logger.error("Gateway deployment loading failed", exc_info=True)
 
     # Store the manager in app state for access in routes if needed
     app.state.manager = manager
 
-    yield
-
-    # Clean up on shutdown
-    logger.info("Shutting down gateway manager")
-    # Stop all clients
-    stop_tasks = []
-    for deployment_id in list(manager.clients.keys()):
-        stop_tasks.append(manager.stop_client(deployment_id))
-
-    if stop_tasks:
-        await asyncio.gather(*stop_tasks, return_exceptions=True)
-
-    # Clean up Ably connections
     try:
-        if manager.ably_client:
-            await manager.ably_client.close()
-    except Exception as e:
-        logger.error(f"Error closing Ably client: {e}")
+        yield
+    finally:
+        # Clean up on shutdown
+        logger.info("Shutting down gateway manager")
+        # Stop all clients
+        stop_tasks = []
+        for deployment_id in list(manager.clients.keys()):
+            stop_tasks.append(manager.stop_client(deployment_id))
 
-    # Give tasks a moment to clean up
-    await asyncio.sleep(0.5)
+        if stop_tasks:
+            await asyncio.gather(*stop_tasks, return_exceptions=True)
+
+        # Clean up Ably connections
+        try:
+            if manager.ably_client:
+                await manager.ably_client.close()
+        except Exception as e:
+            logger.error(f"Error closing Ably client: {e}")
+
+        # Give tasks a moment to clean up
+        await asyncio.sleep(0.5)
 
 
 web_app = FastAPI(lifespan=lifespan)

@@ -97,7 +97,8 @@ To make it, you **plan, orchestrate, and execute multi-clip video productions** 
 6. **Edit & Assemble**
 
    * Concatenate all clips in order using media_editor tool.
-   * Mix generated audio (music + vocals if present). Use media_editor.
+   * Mix generated audio. Use media_editor. If you have multiple audio tracks (e.g. music and vocals), remember to include **all** of them.
+   * Be careful not to mix the same audio track in twice--sequential runs of this tool keep previous audio tracks.
    * Output a single cohesive multi-clip video.
 
 </Reel>

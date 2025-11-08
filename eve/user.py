@@ -1,4 +1,5 @@
 from bson import ObjectId
+from pydantic import BaseModel
 from typing import Optional, Literal, List, Dict
 
 from .mongo import (
@@ -56,6 +57,10 @@ class Transaction(Document):
     type: Literal["spend", "refund"]
 
 
+# todo: add more stats
+class UserStats(BaseModel):
+    messageCount: int = 0
+
 @Collection("users3")
 class User(Document):
     type: Optional[Literal["user", "agent"]] = "user"
@@ -80,6 +85,7 @@ class User(Document):
     # profile
     username: str
     userImage: Optional[str] = None
+    stats: Optional[UserStats] = UserStats()
 
     # preferences
     preferences: Optional[Dict] = {"agent_spend_threshold": 50}

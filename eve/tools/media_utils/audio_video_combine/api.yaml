@@ -12,7 +12,10 @@ parameters:
     description: Video URL
     required: true
   audio:
-    type: audio
-    label: Audio
-    description: Audio URL
+    type: array
+    items:
+      type: string
+    label: Audio tracks
+    description: Audio URLs to mix over the video
+    tip: These are superimposed on top of each other, not sequential.
     required: true

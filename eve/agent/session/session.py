@@ -218,7 +218,7 @@ async def build_system_message(
     tools: Dict[str, Tool],
 ):  # Get the last speaker ID for memory prioritization
     # Get concepts
-    concepts = Concept.find({"agent": actor.id})
+    concepts = Concept.find({"agent": actor.id, "deleted": {"$ne": True}})
 
     # Get time
     current_date_time = datetime.now(pytz.utc).strftime("%Y-%m-%d %H:%M:%S")
@@ -280,11 +280,19 @@ async def build_system_extras(
 
     # add trigger context
     if hasattr(session, "context") and session.context:
+        context_prompt = f"<Full Task Context>\n{session.context}\n\n**IMPORTANT: Ignore me, the user! You are just speaking to the other agents now. Make sure you stay relevant to the full task context throughout the conversation.</Full Task Context>"
         extras.append(
             ChatMessage(
                 session=session.id,
-                role="system",
-                content=session.context,
+                
+                
+                # debug this
+                # role="system",
+                role="user",
+                sender=ObjectId(str(context.initiating_user_id)),
+
+
+                content=context_prompt,
             )
         )
 
@@ -344,14 +352,18 @@ async def add_chat_message(
 
         # Get full user data for enrichment
         user = User.from_mongo(context.initiating_user_id)
-        user_data = None
-        if user:
-            user_data = {
-                "_id": str(user.id),
-                "username": user.username,
-                "name": user.username,  # Use username as name for consistency
-                "userImage": user.userImage,
-            }
+        
+        # increment stats
+        # stats = user.stats
+        # stats["messageCount"] += 1
+        # user.update(stats=stats.model_dump())
+
+        user_data = {
+            "_id": str(user.id),
+            "username": user.username,
+            "name": user.username,  # Use username as name for consistency
+            "userImage": user.userImage,
+        }
 
         message_dict = new_message.model_dump(by_alias=True)
         # Enrich sender with full user data if available
@@ -416,6 +428,15 @@ async def build_llm_context(
     )
     if len(system_extras) > 0:
         messages.extend(system_extras)
+
+
+    logger.info(f"\n\n\n\n\n\n\n=======================================================")
+    logger.info(f"messages after build_system_extras for session {session.id}:")
+    for message in messages:
+        logger.info(f"{message.role} {message.content}")
+        logger.info(f"--------------------------------")
+    logger.info(f"=======================================================\n\n\n\n\n\n\n")
+    
     existing_messages = select_messages(session)
     messages.extend(existing_messages)
     messages = label_message_channels(messages)
@@ -1089,6 +1110,11 @@ async def async_prompt_session(
                 tokens_spent = response.tokens_spent
 
             assistant_message.save()
+
+            # increment agent stats
+            # stats = actor.stats
+            # stats["messageCount"] += 1
+            # actor.update(stats=stats.model_dump())
 
             # No longer storing message IDs on session to avoid race conditions
             # session.messages.append(assistant_message.id)

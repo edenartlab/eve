@@ -86,6 +86,10 @@ async def handler(context: ToolContext):
         )
         new_message.save()
 
+        # stats = agent.stats
+        # stats["messageCount"] += 1
+        # agent.update(stats=stats.model_dump())
+
     elif context.args.get("role") in ["system", "user"]:
         
         # If we're going to prompt, run session prompt routine (it handles message addition)
