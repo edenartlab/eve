@@ -439,9 +439,9 @@ async def create_user_session_with_message(
         agent_message.save()
 
         # increment agent stats
-        stats = agent.stats
-        stats["messageCount"] += 1
-        agent.update(stats=stats.model_dump())
+        # stats = agent.stats
+        # stats["messageCount"] += 1
+        # agent.update(stats=stats.model_dump())
 
         logger.info(f"Created session {session.id} with agent-generated message for user {user.username}")
 
