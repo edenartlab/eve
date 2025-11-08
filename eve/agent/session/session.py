@@ -344,7 +344,7 @@ async def add_chat_message(
         
         # increment stats
         stats = user.stats
-        stats.messageCount += 1
+        stats["messageCount"] += 1
         user.update(stats=stats.model_dump())
 
         user_data = {
@@ -1047,7 +1047,7 @@ async def async_prompt_session(
 
             # increment agent stats
             stats = actor.stats
-            stats.messageCount += 1
+            stats["messageCount"] += 1
             actor.update(stats=stats.model_dump())
 
             # No longer storing message IDs on session to avoid race conditions
