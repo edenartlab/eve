@@ -1056,8 +1056,9 @@ class DeploymentSecretsEmail(BaseModel):
 
 # Gmail Models
 class DeploymentSettingsGmail(BaseModel):
-    reply_delay_seconds: int = 0
-    reply_variance_seconds: int = 0
+    reply_delay_minimum: Optional[float] = None
+    reply_delay_variance: Optional[float] = None
+    email_instructions: Optional[str] = None
     reply_from_address: Optional[str] = None
     reply_display_name: Optional[str] = None
     last_history_id: Optional[str] = None
