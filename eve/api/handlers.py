@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import modal
 import os
 import time
 import uuid
@@ -33,7 +34,7 @@ from eve.agent.session.models import (
     ChatMessageRequestInput,
     EmailDomain,
 )
-from eve.agent.session.memory_models import messages_to_text, select_messages
+from eve.agent.memory.memory_models import messages_to_text, select_messages
 from eve.agent.session.session import run_prompt_session, run_prompt_session_stream
 from eve.trigger import (
     Trigger,
@@ -237,7 +238,6 @@ def setup_session(
         "owner": ObjectId(request.creation_args.owner_id or user_id),
         "agents": agent_object_ids,
         "title": request.creation_args.title,
-        "scenario": request.creation_args.scenario,
         "session_key": request.creation_args.session_key,
         "platform": request.creation_args.platform,
         "status": "active",
@@ -254,6 +254,9 @@ def setup_session(
         session_kwargs["parent_session"] = ObjectId(
             request.creation_args.parent_session
         )
+
+    if request.creation_args.extras:
+        session_kwargs["extras"] = request.creation_args.extras
 
     session = Session(**session_kwargs)
     session.save()
@@ -453,6 +456,42 @@ async def handle_session_cancel(request: CancelSessionRequest):
     except Exception as e:
         logger.error(f"Error sending session cancel signal: {e}", exc_info=True)
         raise APIError(f"Failed to send cancel signal: {str(e)}", status_code=500)
+
+
+@handle_errors
+async def handle_session_status_update(request):
+    """Update the status of a session."""
+    try:
+        # Request is already an UpdateSessionStatusRequest from FastAPI
+        session = Session.from_mongo(ObjectId(request.session_id))
+
+        try:
+            db = os.getenv("DB", "STAGE").upper()
+            func = modal.Function.from_name(
+                f"api-{db.lower()}",
+                "handle_session_status_change_fn",
+                environment_name="main",
+            )
+            func.spawn(request.session_id, request.status)
+            session.update(status=request.status)
+            return {
+                "success": True,
+                "session_id": request.session_id,
+                "status": request.status,
+            }
+        except Exception as e:
+            logger.warning(
+                f"Failed to spawn Modal function for session status change: {e}"
+            )
+            session.update(status="paused")
+            return {"success": False, "error": str(e)}
+
+    except APIError:
+        raise
+
+    except Exception as e:
+        logger.error(f"Error updating session status: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
 
 
 @handle_errors

@@ -31,3 +31,9 @@ We invite you to contribute workflows that will become accessible to all creativ
 ## Agent Deploy Wiki
 
 [Get started with Eve](https://github.com/edenartlab/eve/wiki)
+
+## Local FalkorDB with Docker Compose
+
+- Run `docker compose up falkordb` to start a local FalkorDB instance (default port `6380` mapped to the container’s `6379` and web UI on `http://localhost:8380`).
+- Authentication is disabled by default. Set `FALKORDB_USERNAME` and `FALKORDB_PASSWORD` in your shell only if you enable credentials on a remote instance.
+- Use `redis-cli -h localhost -p 6380` (or another Redis client) to verify the database is reachable before running integrations. Override the host/UI ports with `FALKORDB_PORT` and `FALKORDB_WEB_PORT` if needed.

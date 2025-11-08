@@ -4,7 +4,7 @@ This module handles background processing of sessions that need memory formation
 
 Run locally:
 cd /Users/xandersteenbrugge/Documents/GitHub/Eden/eve
-DB=STAGE PYTHONPATH=/Users/xandersteenbrugge/Documents/GitHub/Eden python -m eve.agent.session.memory_cold_sessions_processor
+DB=STAGE PYTHONPATH=/Users/xandersteenbrugge/Documents/GitHub/Eden python -m eve.agent.memory.session.memory_cold_sessions_processor
 
 DEPLOYMENT COMMANDS:
 # Deploy to staging
@@ -31,7 +31,7 @@ import modal
 import sentry_sdk
 from loguru import logger
 
-from eve.agent.session.memory_constants import (
+from eve.agent.memory.memory_constants import (
     NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES,
     CONSIDER_COLD_AFTER_MINUTES,
     CLEANUP_COLD_SESSIONS_EVERY_MINUTES,
@@ -53,7 +53,7 @@ async def process_cold_sessions():
 
     try:
         from eve.agent.session.models import Session, ChatMessage
-        from eve.agent.session.memory import form_memories
+        from eve.agent.memory.service import memory_service
 
         current_time = datetime.now(timezone.utc)
         cutoff_time = current_time - timedelta(minutes=CONSIDER_COLD_AFTER_MINUTES)
@@ -67,7 +67,9 @@ async def process_cold_sessions():
         base_query = {
             "updatedAt": {"$gte": hard_filter_date, "$lt": cutoff_time},
             "status": "active",
-            "extras.exclude_memory": {"$ne": True},  # Exclude sessions with exclude_memory flag
+            "extras.exclude_memory": {
+                "$ne": True
+            },  # Exclude sessions with exclude_memory flag
         }
 
         # First batch: Sessions with memory_context that need processing
@@ -172,7 +174,7 @@ async def process_cold_sessions():
                 agent_id = session.agents[0]
 
                 # Process memory formation
-                success = await form_memories(agent_id, session)
+                success = await memory_service.form_memories(agent_id, session)
 
                 if success:
                     processed_count += 1

@@ -7,7 +7,7 @@ import re
 import pytz
 import uuid
 from fastapi import BackgroundTasks
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
 from bson import ObjectId
 from sentry_sdk import capture_exception
@@ -18,7 +18,6 @@ from eve.models import Model
 from eve.agent.session.debug_logger import SessionDebugger
 from eve.concepts import Concept
 from eve.agent.session.models import (
-    ActorSelectionMethod,
     ChatMessage,
     ChatMessageObservability,
     LLMTraceMetadata,
@@ -36,18 +35,21 @@ from eve.agent.session.session_llm import (
     LLMContext,
     async_prompt,
     async_prompt_stream,
+    is_fake_llm_mode,
+    should_force_fake_response,
+    is_test_mode_prompt,
 )
+from eve.agent.session.fake_utils import build_fake_tool_result_payload
 from eve.agent.session.models import LLMContextMetadata
 from eve.api.errors import handle_errors
 from eve.api.helpers import emit_update
 from eve.agent.session.session_prompts import system_template
 
-from eve.agent.session.memory import maybe_form_memories
-from eve.agent.session.memory_models import (
+from eve.agent.memory.memory_models import (
     get_sender_id_to_sender_name_map,
     select_messages,
 )
-from eve.agent.session.memory_assemble_context import assemble_memory_context
+from eve.agent.memory.service import memory_service
 
 from eve.agent.session.config import (
     get_default_session_llm_config,
@@ -103,33 +105,8 @@ def validate_prompt_session(session: Session, context: PromptSessionContext):
         or session.budget.manna_budget
         or session.budget.turn_budget
     )
-    if (
-        session.autonomy_settings
-        and session.autonomy_settings.auto_reply
-        and not has_budget
-    ):
-        raise ValueError("Session cannot have auto-reply enabled without a set budget")
     if has_budget:
         check_session_budget(session)
-
-
-def determine_actor_from_actor_selection_method(session: Session) -> Optional[Agent]:
-    selection_method = session.autonomy_settings.actor_selection_method
-    if (
-        session.autonomy_settings.actor_selection_method
-        == ActorSelectionMethod.RANDOM_EXCLUDE_LAST
-    ):
-        if not session.last_actor_id:
-            return random.choice(session.agents)
-        last_actor_id = session.last_actor_id
-        eligible_actors = [
-            agent_id for agent_id in session.agents if agent_id != last_actor_id
-        ]
-        return random.choice(eligible_actors)
-    elif selection_method == ActorSelectionMethod.RANDOM:
-        return random.choice(session.agents)
-    else:
-        raise ValueError(f"Invalid actor selection method: {selection_method}")
 
 
 def parse_mentions(content: str) -> List[str]:
@@ -151,9 +128,6 @@ async def determine_actors(
         for actor_agent_id in context.actor_agent_ids:
             requested_actor = ObjectId(actor_agent_id)
             actor_ids.append(requested_actor)
-    elif session.autonomy_settings and session.autonomy_settings.auto_reply:
-        actor_id = determine_actor_from_actor_selection_method(session)
-        actor_ids.append(actor_id)
     elif len(session.agents) > 1:
         mentions = parse_mentions(context.message.content)
         if len(mentions) > 0:
@@ -244,7 +218,7 @@ async def build_system_message(
     tools: Dict[str, Tool],
 ):  # Get the last speaker ID for memory prioritization
     # Get concepts
-    concepts = Concept.find({"agent": actor.id})
+    concepts = Concept.find({"agent": actor.id, "deleted": {"$ne": True}})
 
     # Get time
     current_date_time = datetime.now(pytz.utc).strftime("%Y-%m-%d %H:%M:%S")
@@ -263,7 +237,7 @@ async def build_system_message(
     # Get memory (unless excluded by session extras)
     memory = None
     if not (session.extras and session.extras.exclude_memory):
-        memory = await assemble_memory_context(
+        memory = await memory_service.assemble_memory_context(
             session,
             actor,
             user,
@@ -273,9 +247,8 @@ async def build_system_message(
     # Build system prompt with memory context
     content = system_template.render(
         name=actor.name,
-        current_date_time=current_date_time,
+        # current_date_time=current_date_time,
         description=actor.description,
-        scenario=session.scenario,
         persona=actor.persona,
         tools=tools,
         concepts=concepts,
@@ -288,7 +261,9 @@ async def build_system_message(
 
 
 async def build_system_extras(
-    session: Session, context: PromptSessionContext, config: LLMConfig
+    session: Session, 
+    context: PromptSessionContext, 
+    config: LLMConfig
 ):
     extras = []
 
@@ -304,6 +279,24 @@ async def build_system_extras(
     #     config.max_tokens = 1024
 
     # add trigger context
+    if hasattr(session, "context") and session.context:
+        context_prompt = f"<Full Task Context>\n{session.context}\n\n**IMPORTANT: Ignore me, the user! You are just speaking to the other agents now. Make sure you stay relevant to the full task context throughout the conversation.</Full Task Context>"
+        extras.append(
+            ChatMessage(
+                session=session.id,
+                
+                
+                # debug this
+                # role="system",
+                role="user",
+                sender=ObjectId(str(context.initiating_user_id)),
+
+
+                content=context_prompt,
+            )
+        )
+
+    # add trigger context# add trigger context
     if session.trigger:
         from eve.trigger import Trigger
 
@@ -321,7 +314,9 @@ async def build_system_extras(
 
 
 async def add_chat_message(
-    session: Session, context: PromptSessionContext, pin: bool = False
+    session: Session, 
+    context: PromptSessionContext, 
+    pin: bool = False
 ):
     new_message = ChatMessage(
         session=session.id,
@@ -357,14 +352,18 @@ async def add_chat_message(
 
         # Get full user data for enrichment
         user = User.from_mongo(context.initiating_user_id)
-        user_data = None
-        if user:
-            user_data = {
-                "_id": str(user.id),
-                "username": user.username,
-                "name": user.username,  # Use username as name for consistency
-                "userImage": user.userImage,
-            }
+        
+        # increment stats
+        # stats = user.stats
+        # stats["messageCount"] += 1
+        # user.update(stats=stats.model_dump())
+
+        user_data = {
+            "_id": str(user.id),
+            "username": user.username,
+            "name": user.username,  # Use username as name for consistency
+            "userImage": user.userImage,
+        }
 
         message_dict = new_message.model_dump(by_alias=True)
         # Enrich sender with full user data if available
@@ -415,6 +414,11 @@ async def build_llm_context(
     if tool_choice not in ["auto", "none"]:
         tool_choice = {"type": "function", "function": {"name": context.tool_choice}}
 
+    raw_prompt_text = (
+        context.message.content if context.message and context.message.content else None
+    )
+    force_fake = is_fake_llm_mode() or is_test_mode_prompt(raw_prompt_text)
+
     # build messages first to have context for thinking routing
     system_message = await build_system_message(session, actor, context, tools)
 
@@ -424,13 +428,22 @@ async def build_llm_context(
     )
     if len(system_extras) > 0:
         messages.extend(system_extras)
+
+
+    logger.info(f"\n\n\n\n\n\n\n=======================================================")
+    logger.info(f"messages after build_system_extras for session {session.id}:")
+    for message in messages:
+        logger.info(f"{message.role} {message.content}")
+        logger.info(f"--------------------------------")
+    logger.info(f"=======================================================\n\n\n\n\n\n\n")
+    
     existing_messages = select_messages(session)
     messages.extend(existing_messages)
     messages = label_message_channels(messages)
     messages = convert_message_roles(messages, actor.id)
 
     # Use agent's llm_settings if available, otherwise fallback to context or default
-    if actor.llm_settings:
+    if actor.llm_settings and not force_fake:
         from eve.agent.session.config import build_llm_config_from_agent_settings
 
         config = await build_llm_config_from_agent_settings(
@@ -464,6 +477,36 @@ async def build_llm_context(
     )
 
 
+def create_fake_tool_result(
+    tool: Tool,
+    tool_call: ToolCall,
+    user_id: Optional[str],
+    agent_id: Optional[str],
+    session_id: Optional[str],
+    message_id: Optional[str],
+    public: bool,
+) -> Dict[str, Any]:
+    """Create placeholder task and result data for fake chat mode."""
+    args = tool_call.args or {}
+    try:
+        tool_call.args = tool.prepare_args(args.copy())
+    except Exception as exc:
+        logger.warning(
+            f"Failed to normalize args for fake tool call {tool_call.tool}: {exc}"
+        )
+
+    result_payload = build_fake_tool_result_payload(
+        tool_call.tool, getattr(tool, "name", None)
+    )
+
+    return {
+        "status": "completed",
+        "result": result_payload,
+        "cost": 0,
+        "task": None,
+    }
+
+
 async def async_run_tool_call_with_cancellation(
     llm_context: LLMContext,
     tool_call: ToolCall,
@@ -483,6 +526,17 @@ async def async_run_tool_call_with_cancellation(
         return tool_call.result
 
     tool = llm_context.tools[tool_call.tool]
+
+    if is_fake_llm_mode() or should_force_fake_response(llm_context):
+        return create_fake_tool_result(
+            tool,
+            tool_call,
+            user_id=user_id,
+            agent_id=agent_id,
+            session_id=session_id,
+            message_id=message_id,
+            public=public,
+        )
 
     # Start the task
     try:
@@ -1057,6 +1111,11 @@ async def async_prompt_session(
 
             assistant_message.save()
 
+            # increment agent stats
+            # stats = actor.stats
+            # stats["messageCount"] += 1
+            # actor.update(stats=stats.model_dump())
+
             # No longer storing message IDs on session to avoid race conditions
             # session.messages.append(assistant_message.id)
 
@@ -1493,15 +1552,11 @@ async def _run_prompt_session_internal(
 
         # Schedule background tasks if available
         if background_tasks:
-            # Process auto-reply after all actors have completed
-            if session.autonomy_settings and session.autonomy_settings.auto_reply:
-                background_tasks.add_task(
-                    _queue_session_action_fastify_background_task, session
-                )
-
             # Process memory formation for all actors that participated
             for actor in actors:
-                background_tasks.add_task(maybe_form_memories, actor.id, session, actor)
+                background_tasks.add_task(
+                    memory_service.maybe_form_memories, actor.id, session, actor
+                )
 
             # Send success notification if configured
             if (
@@ -1579,7 +1634,8 @@ async def run_prompt_session_stream(
 
 @handle_errors
 async def run_prompt_session(
-    context: PromptSessionContext, background_tasks: BackgroundTasks
+    context: PromptSessionContext, 
+    background_tasks: BackgroundTasks
 ):
     session_id = str(context.session.id) if context.session else None
     debugger = SessionDebugger(session_id)
@@ -1596,25 +1652,6 @@ async def run_prompt_session(
         await emit_update(context.update_config, data, session_id=session_id)
 
     debugger.end_section("run_prompt_session")
-
-
-async def _queue_session_action_fastify_background_task(session: Session):
-    import httpx
-
-    if session.autonomy_settings:
-        await asyncio.sleep(session.autonomy_settings.reply_interval)
-
-    url = f"{os.getenv('EDEN_API_URL')}/sessions/prompt"
-    payload = {"session_id": str(session.id), "stream": True}
-    headers = {"Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}"}
-
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(url, headers=headers, json=payload)
-            response.raise_for_status()
-    except Exception as e:
-        logger.error(f"HTTP request failed: {str(e)}")
-        capture_exception(e)
 
 
 async def check_if_session_active(user_id: str, session_id: str) -> dict:

@@ -1,0 +1,43 @@
+name: Gigabrain
+description: AI-powered profile matching and intro generation for communities / brainstorms.
+tip: |-
+  This tool analyzes input user context (a profile or conversation per user) and generates intelligent matches with personalized introductions.
+  The tool will process profiles, generate embeddings, calculate match scores, and create personalized introductions for each match pair.
+cost_estimate: 50.0
+output_type: string
+active: true
+visible: true
+parameters:
+  user_profiles:
+    type: object
+    label: User Profiles
+    description: |-
+      Dictionary of user profiles where keys are user IDs / usernames and values are profile text descriptions / conversations.
+      Example: {"user1": "text...", "user2": "text...", ...}
+    required: true
+  config_path:
+    hide_from_agent: true
+    type: string
+    label: Config Path
+    description: |-
+      Path to the configuration YAML file for the matching pipeline.
+      Uses default config if not specified.
+    default: "config/config.yaml"
+    required: false
+  group_name:
+    hide_from_agent: true
+    type: string
+    label: Group Name
+    description: |-
+      Optional group name for organizing results and outputs.
+      Useful for running multiple matching sessions.
+    required: false
+  force:
+    hide_from_agent: true
+    type: boolean
+    label: Force Re-run
+    description: |-
+      Force re-run all pipeline steps even if cached results exist.
+      Useful when you want fresh embeddings or updated matches.
+    default: true
+    required: false

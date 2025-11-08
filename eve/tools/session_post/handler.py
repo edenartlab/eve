@@ -86,6 +86,10 @@ async def handler(context: ToolContext):
         )
         new_message.save()
 
+        # stats = agent.stats
+        # stats["messageCount"] += 1
+        # agent.update(stats=stats.model_dump())
+
     elif context.args.get("role") in ["system", "user"]:
         
         # If we're going to prompt, run session prompt routine (it handles message addition)
@@ -168,9 +172,15 @@ async def run_session_prompt(
     class RemoteSessionResponse(BaseModel):
         """All relevant results (or error report) from the remote session prompt"""    
         
-        outputs: List[str] = Field(description="A list of all requested successful media outputs, given the original request. Do not include intermediate results here -- only the desired output given the task.")
-        intermediate_outputs: Optional[List[str]] = Field(description="An optional list of all important **intermediate media urls** that were generated during the session, leading up to the final result. This does not include the original attachments provided by the user, or the final output.")
-        error: Optional[str] = Field(description="A human-readable error message that explains why the session failed to produce the requested outputs. Mutually exclusive with outputs -- **ONLY** set this if there was an error or the requested output was not successfully generated.")
+        outputs: List[str] = Field(
+            description="A list of all requested successful media outputs, given the original request. Do not include intermediate results here -- only the desired output given the task."
+        )
+        intermediate_outputs: Optional[List[str]] = Field(
+            description="An optional list of all important **intermediate media urls** that were generated during the session, leading up to the final result. This does not include the original attachments provided by the user, or the final output."
+        )
+        error: Optional[str] = Field(
+            description="A human-readable error message that explains why the session failed to produce the requested outputs. Mutually exclusive with outputs -- **ONLY** set this if there was an error or the requested output was not successfully generated."
+        )
         
     system_message = """
     You are a helpful assistant that summarizes the results of a remote session prompt.
@@ -190,7 +200,7 @@ async def run_session_prompt(
             ChatMessage(role="user", content="Summarize the results of the session."),
         ],
         config=LLMConfig(
-            model="claude-haiku-4-5",
+            model="claude-sonnet-4-5",
             # model="gpt-4o-mini",
             response_format=RemoteSessionResponse,
         ),

@@ -12,7 +12,7 @@ DEFAULT_SESSION_LLM_CONFIG_DEV = {
         ],
     ),
     "free": LLMConfig(
-        model="claude-haiku-4-5",
+        model="claude-sonnet-4-5",
         fallback_models=[
             "gpt-5-nano"
         ],
@@ -20,13 +20,13 @@ DEFAULT_SESSION_LLM_CONFIG_DEV = {
 }
 DEFAULT_SESSION_LLM_CONFIG_STAGE = {
     "premium": LLMConfig(
-        model="claude-haiku-4-5",
+        model="claude-sonnet-4-5",
         fallback_models=[
             "gpt-5-nano"
         ],
     ),
     "free": LLMConfig(
-        model="claude-haiku-4-5",
+        model="claude-sonnet-4-5",
         fallback_models=[
             "gpt-5-nano"
         ],
@@ -35,10 +35,10 @@ DEFAULT_SESSION_LLM_CONFIG_STAGE = {
 
 DEFAULT_SESSION_LLM_CONFIG_PROD = {
     "premium": LLMConfig(
-        model="claude-haiku-4-5",
+        model="claude-sonnet-4-5",
     ),
     "free": LLMConfig(
-        model="claude-haiku-4-5",
+        model="claude-sonnet-4-5",
     ),
 }
 
@@ -147,6 +147,21 @@ async def build_llm_config_from_agent_settings(
 
 async def route_thinking_effort(context_messages: list, instructions: str) -> str:
     """Route thinking effort based on context using a small LLM"""
+
+    fake_mode = os.getenv("FF_SESSION_FAKE_LLM", "").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+    if fake_mode:
+        return "medium"
+
+    for msg in reversed(context_messages or []):
+        content = getattr(msg, "content", None)
+        if content and ("===test" in content or "===tool" in content):
+            return "medium"
 
     # Extract last 5 messages for routing context
     routing_messages = (

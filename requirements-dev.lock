@@ -55,6 +55,7 @@ babel==2.17.0
     # via mkdocs-material
 backoff==2.2.1
     # via langfuse
+    # via posthog
 backrefs==5.9
     # via mkdocs-material
 beanie==1.22.6
@@ -63,11 +64,13 @@ bitarray==3.5.2
     # via eth-account
 blurhash==1.1.4
     # via eve
-boto3==1.39.11
+boto3==1.40.66
     # via aws-sam-translator
     # via eve
+    # via graphiti-core
+    # via langchain-aws
     # via runway
-botocore==1.39.11
+botocore==1.40.66
     # via boto3
     # via s3transfer
 bracex==2.6
@@ -80,6 +83,7 @@ certifi==2025.7.14
     # via httpcore
     # via httpx
     # via modal
+    # via opensearch-py
     # via requests
     # via sentry-sdk
 cffi==1.17.1
@@ -126,11 +130,14 @@ cytoolz==1.0.1
     # via eth-utils
 decorator==5.2.1
     # via moviepy
+diskcache==5.6.3
+    # via graphiti-core
 distlib==0.4.0
     # via virtualenv
 distro==1.9.0
     # via anthropic
     # via openai
+    # via posthog
     # via runwayml
 dnspython==2.7.0
     # via pymongo
@@ -171,8 +178,12 @@ eth-utils==5.3.0
     # via eth-rlp
     # via rlp
     # via web3
+events==0.5
+    # via opensearch-py
 fal-client==0.5.9
     # via eve
+falkordb==1.2.0
+    # via graphiti-core
 farcaster==0.7.12
     # via eve
 fastapi==0.116.1
@@ -237,6 +248,8 @@ googleapis-common-protos==1.70.0
     # via google-api-core
     # via grpc-google-iam-v1
     # via grpcio-status
+graphiti-core==0.22.0
+    # via eve
 grpc-google-iam-v1==0.14.2
     # via google-cloud-resource-manager
 grpcio==1.73.1
@@ -273,6 +286,7 @@ httpx==0.28.1
     # via fal-client
     # via google-genai
     # via langfuse
+    # via langsmith
     # via litellm
     # via mcp
     # via openai
@@ -309,6 +323,8 @@ iniconfig==2.1.0
     # via pytest
 instructor==1.9.2
     # via eve
+isodate==0.7.2
+    # via eve
 jinja2==3.1.6
     # via instructor
     # via litellm
@@ -325,6 +341,7 @@ jmespath==1.0.1
     # via botocore
 jsonpatch==1.33
     # via cfn-lint
+    # via langchain-core
 jsonpointer==3.0.0
     # via jsonpatch
 jsonref==1.1.0
@@ -335,8 +352,14 @@ jsonschema==4.25.0
     # via mcp
 jsonschema-specifications==2025.4.1
     # via jsonschema
+langchain-aws==0.2.35
+    # via graphiti-core
+langchain-core==0.3.79
+    # via langchain-aws
 langfuse==2.59.7
     # via eve
+langsmith==0.4.41
+    # via langchain-core
 lark==1.2.2
     # via python-hcl2
 lazy-model==0.2.0
@@ -390,6 +413,8 @@ multidict==6.6.3
     # via aiohttp
     # via grpclib
     # via yarl
+neo4j==6.0.2
+    # via graphiti-core
 networkx==3.5
     # via cfn-lint
     # via torch
@@ -397,7 +422,9 @@ nodeenv==1.9.1
     # via pre-commit
 numpy==2.3.1
     # via eve
+    # via graphiti-core
     # via imageio
+    # via langchain-aws
     # via moviepy
     # via pylance
     # via shapely
@@ -407,13 +434,20 @@ oauthlib==3.3.1
     # via tweepy
 openai==1.99.9
     # via eve
+    # via graphiti-core
     # via instructor
     # via litellm
+opensearch-py==3.0.0
+    # via graphiti-core
+orjson==3.11.4
+    # via langsmith
 packaging==24.2
     # via google-cloud-aiplatform
     # via google-cloud-bigquery
     # via huggingface-hub
+    # via langchain-core
     # via langfuse
+    # via langsmith
     # via mkdocs
     # via pytest
     # via replicate
@@ -441,6 +475,8 @@ platformdirs==4.3.8
     # via virtualenv
 pluggy==1.6.0
     # via pytest
+posthog==6.8.0
+    # via graphiti-core
 pre-commit==4.2.0
     # via instructor
 proglog==0.1.12
@@ -492,8 +528,12 @@ pydantic==2.11.7
     # via fastapi
     # via google-cloud-aiplatform
     # via google-genai
+    # via graphiti-core
     # via instructor
+    # via langchain-aws
+    # via langchain-core
     # via langfuse
+    # via langsmith
     # via lazy-model
     # via litellm
     # via mcp
@@ -524,6 +564,7 @@ pyhumps==3.8.0
 pyjwt==2.10.1
     # via clerk-backend-api
     # via eve
+    # via redis
 pylance==0.31.1
 pymdown-extensions==10.16.1
     # via mkdocs-material
@@ -541,11 +582,15 @@ pytest==8.4.1
 pytest-asyncio==1.1.0
 python-dateutil==2.9.0.post0
     # via botocore
+    # via falkordb
     # via ghp-import
     # via google-cloud-bigquery
+    # via opensearch-py
+    # via posthog
 python-dotenv==1.0.1
     # via eve
     # via farcaster
+    # via graphiti-core
     # via litellm
     # via moviepy
     # via pydantic-settings
@@ -559,6 +604,7 @@ python-telegram-bot==22.3
     # via eve
 pytz==2025.2
     # via eve
+    # via neo4j
 pyunormalize==16.0.0
     # via web3
 pyyaml==6.0.2
@@ -566,6 +612,7 @@ pyyaml==6.0.2
     # via cfn-lint
     # via eve
     # via huggingface-hub
+    # via langchain-core
     # via mkdocs
     # via mkdocs-get-deps
     # via pre-commit
@@ -576,6 +623,8 @@ pyyaml==6.0.2
     # via yamllint
 pyyaml-env-tag==1.1
     # via mkdocs
+redis==5.3.1
+    # via falkordb
 referencing==0.36.2
     # via jsonschema
     # via jsonschema-specifications
@@ -599,8 +648,12 @@ requests==2.32.4
     # via huggingface-hub
     # via instructor
     # via langfuse
+    # via langsmith
     # via mkdocs-material
+    # via opensearch-py
+    # via posthog
     # via requests-oauthlib
+    # via requests-toolbelt
     # via runway
     # via tiktoken
     # via transformers
@@ -609,6 +662,8 @@ requests==2.32.4
 requests-oauthlib==2.0.0
     # via eve
     # via tweepy
+requests-toolbelt==1.0.0
+    # via langsmith
 rich==14.0.0
     # via instructor
     # via modal
@@ -626,7 +681,7 @@ runway==2.8.4
     # via eve
 runwayml==3.11.0
     # via eve
-s3transfer==0.13.1
+s3transfer==0.14.0
     # via boto3
 safetensors==0.5.3
     # via eve
@@ -643,6 +698,7 @@ sigtools==4.0.1
     # via synchronicity
 six==1.17.0
     # via cfn-flip
+    # via posthog
     # via python-dateutil
 smmap==5.0.2
     # via gitdb
@@ -665,7 +721,9 @@ synchronicity==0.10.1
 tenacity==9.1.2
     # via eve
     # via google-genai
+    # via graphiti-core
     # via instructor
+    # via langchain-core
 tiktoken==0.9.0
     # via litellm
 tokenizers==0.22.1
@@ -713,8 +771,10 @@ typing-extensions==4.14.1
     # via google-cloud-aiplatform
     # via google-genai
     # via huggingface-hub
+    # via langchain-core
     # via modal
     # via openai
+    # via posthog
     # via pydantic
     # via pydantic-core
     # via pyee
@@ -737,6 +797,7 @@ tzlocal==5.3.1
 urllib3==2.5.0
     # via botocore
     # via docker
+    # via opensearch-py
     # via requests
     # via sentry-sdk
     # via types-requests
@@ -765,3 +826,5 @@ yarl==1.20.1
     # via aiohttp
 zipp==3.23.0
     # via importlib-metadata
+zstandard==0.25.0
+    # via langsmith

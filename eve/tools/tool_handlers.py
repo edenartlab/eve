@@ -1,6 +1,8 @@
 import importlib
+from eve.tool_constants import GIGABRAIN_TOOLS, ABRAHAM_TOOLS, VERDELIS_TOOLS
 
 handlers = {}
+
 
 # Map tool names to their import paths
 HANDLER_PATHS = {
@@ -31,7 +33,7 @@ HANDLER_PATHS = {
     "farcaster_search": "farcaster.farcaster_search.handler",
     "shopify": "shopify.handler",
     "news": "news.handler",
-    "reel": "reel.handler",
+    "reel": "media_utils.reel.handler",
     "runway": "runway.handler",
     "runway2": "runway2.handler",
     "runway3": "runway3.handler",
@@ -52,13 +54,10 @@ HANDLER_PATHS = {
     "tiktok_post": "tiktok.tiktok_post.handler",
     "session_post": "session_post.handler",
     "email_send": "email.email_send.handler",
-    "abraham_publish": "abraham.abraham_publish.handler",
-    "abraham_daily": "abraham.abraham_daily.handler",
-    "abraham_covenant": "abraham.abraham_covenant.handler",
-    "abraham_rest": "abraham.abraham_rest.handler",
-    "abraham_seed": "abraham.abraham_seed.handler",
-    "abraham_learn": "abraham.abraham_learn.handler",
-    "verdelis_story": "verdelis.verdelis_story.handler"
+    # Agent tools are added dynamically below
+    **{tool: f"abraham.{tool}.handler" for tool in ABRAHAM_TOOLS},
+    **{tool: f"verdelis.{tool}.handler" for tool in VERDELIS_TOOLS},
+    **{tool: f"gigabrain.{tool}.handler" for tool in GIGABRAIN_TOOLS},
 }
 
 

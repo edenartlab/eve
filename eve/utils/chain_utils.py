@@ -291,10 +291,14 @@ def safe_send(
     1) simulate, 2) estimate gas, 3) build+sign+send (EIP-1559 if available), 4) wait N confirmations.
     On inclusion timeout, optionally re-broadcast with higher fee using the same nonce.
     """
+
+    # if True:   # temporarily babysit txs
+    #     return "tx_simulated", "tx_simulated_receipt"
+
     owner_account = Account.from_key(private_key)
     addr = owner_account.address
 
-    # ---- 1) simulate
+    # ---- 1) simulate, revert if failure
     simulate_call(contract_function, addr, value=value, abi=abi)
 
     # ---- 2) nonce + gas + fees
@@ -369,8 +373,8 @@ def safe_send(
             f"✅ {op_name} confirmed: {tx_hex} | block={receipt.blockNumber} gasUsed={receipt.gasUsed}"
             + (f" effGasPrice={_fmt_gwei(eff)}" if eff is not None else "")
         )
-
-        return tx_hash, receipt
+        
+        return tx_hex, receipt
 
     except BlockchainError as first_err:
         # Check if transaction reverted (already mined) vs timeout (still pending)
@@ -418,7 +422,7 @@ def safe_send(
                 logger.info(
                     f"✅ {op_name} confirmed after speed-up: {tx_hex} | block={receipt.blockNumber}"
                 )
-                return tx_hash, receipt
+                return tx_hex, receipt
 
             except ValueError as e:
                 msg = e.args[0].get("message") if e.args and isinstance(e.args[0], dict) else str(e)

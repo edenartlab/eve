@@ -6,6 +6,7 @@ tip: |-
 
   For multi-speaker, format your text like:
   - "[1]: First speaker text [2]: Second speaker text [1]: First speaker more text"
+  (no special formatting needed for single speaker)
 
   Provide voice_audio as a list with one audio sample per speaker, ideally you want >30s per speaker.
 cost_estimate: 10.0

@@ -1,14 +1,18 @@
-from pathlib import Path
-import modal
 import asyncio
 import json
 import logging
 import os
 import re
-from typing import Dict, Optional, Tuple
+from datetime import timedelta
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+import modal
 import websockets
 import aiohttp
 from ably import AblyRealtime
+from bson import ObjectId
+
 
 from eve import db
 from eve.agent.agent import Agent
@@ -25,8 +29,14 @@ from eve.agent.deployments.typing_manager import (
     DiscordTypingManager,
     TelegramTypingManager,
 )
+from eve.agent.deployments.gmail import (
+    GmailClient,
+    parse_inbound_email,
+    unwrap_pubsub_message,
+)
 from eve.agent.deployments.utils import get_api_url
 from eve.api.api_requests import SessionCreationArgs, PromptSessionRequest
+from eve.api.errors import APIError
 import eve.mongo
 from fastapi import FastAPI, Request, HTTPException, Header
 from contextlib import asynccontextmanager
@@ -47,6 +57,12 @@ def construct_agent_chat_url(agent_username: str) -> str:
     """
     root_url = "app.eden.art" if db == "PROD" else "staging.app.eden.art"
     return f"https://{root_url}/chat/{agent_username}"
+
+
+def _is_gmail_platform(platform: Any) -> bool:
+    if isinstance(platform, ClientType):
+        return platform == ClientType.GMAIL
+    return str(platform) == ClientType.GMAIL.value
 
 
 logger = logging.getLogger(__name__)
@@ -91,6 +107,8 @@ image = (
     .env({"LOCAL_USER_ID": os.getenv("LOCAL_USER_ID") or ""})
     .add_local_python_source("eve", ignore=[])
 )
+
+WATCH_REFRESH_INTERVAL_HOURS = int(os.getenv("GMAIL_WATCH_REFRESH_HOURS", "6"))
 
 
 class GatewayOpCode:
@@ -309,7 +327,7 @@ class DiscordGatewayClient:
                 Deployment.find(
                     {
                         "platform": ClientType.DISCORD.value,
-                        "secrets.discord.application_id": {"$in": discord_ids},
+                        "config.discord.oauth_client_id": {"$in": discord_ids},
                         "valid": {"$ne": False},
                     }
                 )
@@ -327,6 +345,7 @@ class DiscordGatewayClient:
             logger.error(f"Error looking up mentioned agents: {e}")
 
         return mentioned_agent_ids
+
 
     async def _is_channel_allowlisted(
         self, channel_id: str, allowed_channels: list, trace_id: str
@@ -1046,7 +1065,19 @@ class DiscordGatewayClient:
                                     f"Authentication failed for deployment {self.deployment.id}: {data}"
                                 )
                                 # Mark the deployment as invalid in the database
-                                self._mark_deployment_invalid()
+                                self._mark_deployment_invalid(
+                                    reason="authentication_failed"
+                                )
+                                # Stop reconnection attempts
+                                self._reconnect = False
+                                break
+                            elif close_code == 4014 or "Disallowed intent" in str(data):
+                                logger.error(
+                                    f"Disallowed intents for deployment {self.deployment.id}: {data}"
+                                )
+                                self._mark_deployment_invalid(
+                                    reason="discord_disallowed_intents"
+                                )
                                 # Stop reconnection attempts
                                 self._reconnect = False
                                 break
@@ -1099,7 +1130,17 @@ class DiscordGatewayClient:
                         f"Authentication failed for deployment {self.deployment.id}: {e}"
                     )
                     # Mark the deployment as invalid in the database
-                    self._mark_deployment_invalid()
+                    self._mark_deployment_invalid(reason="authentication_failed")
+                    # Stop reconnection attempts
+                    self._reconnect = False
+                    break
+                if e.code == 4014 or (
+                    isinstance(e.reason, str) and "Disallowed intent" in e.reason
+                ):
+                    logger.error(
+                        f"Disallowed intents for deployment {self.deployment.id}: {e}"
+                    )
+                    self._mark_deployment_invalid(reason="discord_disallowed_intents")
                     # Stop reconnection attempts
                     self._reconnect = False
                     break
@@ -1119,7 +1160,15 @@ class DiscordGatewayClient:
                         f"Authentication failed for deployment {self.deployment.id}, marking as invalid"
                     )
                     # Mark the deployment as invalid in the database
-                    self._mark_deployment_invalid()
+                    self._mark_deployment_invalid(reason="authentication_failed")
+                    # Stop reconnection attempts
+                    self._reconnect = False
+                    break
+                if "4014" in str(e) or "Disallowed intent" in str(e):
+                    logger.error(
+                        f"Disallowed intents for deployment {self.deployment.id}, marking as invalid"
+                    )
+                    self._mark_deployment_invalid(reason="discord_disallowed_intents")
                     # Stop reconnection attempts
                     self._reconnect = False
                     break
@@ -1184,7 +1233,7 @@ class DiscordGatewayClient:
                 logger.error(f"Error closing Ably client for {self.deployment.id}: {e}")
             self.ably_client = None
 
-    def _mark_deployment_invalid(self):
+    def _mark_deployment_invalid(self, reason: str = "unspecified"):
         """Mark the deployment as invalid in the database"""
         try:
             # Fetch fresh deployment data to avoid overwriting other changes
@@ -1193,7 +1242,7 @@ class DiscordGatewayClient:
                 deployment.valid = False
                 deployment.save()
                 logger.info(
-                    f"Marked deployment {self.deployment.id} as invalid due to authentication failure"
+                    f"Marked deployment {self.deployment.id} as invalid (reason={reason})"
                 )
         except Exception as e:
             logger.error(
@@ -1267,14 +1316,31 @@ class DiscordGatewayClient:
 class GatewayManager:
     def __init__(self):
         self.clients: Dict[str, DiscordGatewayClient] = {}
-        self.ably_client = AblyRealtime(os.getenv("ABLY_SUBSCRIBER_KEY"))
-        self.channel = self.ably_client.channels.get(f"discord-gateway-v2-{db}")
-
         # Add Telegram typing manager - use improved version
         self.telegram_typing_manager = TelegramTypingManager()
 
         # Set up Ably for Telegram busy state updates
+        self.ably_client = None
+        self.channel = None
         self.telegram_busy_channel = None
+
+        ably_key = os.getenv("ABLY_SUBSCRIBER_KEY")
+        if not ably_key:
+            logger.warning(
+                "ABLY_SUBSCRIBER_KEY missing - gateway will run without Ably commands"
+            )
+            return
+
+        try:
+            self.ably_client = AblyRealtime(ably_key)
+            self.channel = self.ably_client.channels.get(f"discord-gateway-v2-{db}")
+        except Exception as exc:
+            logger.error(
+                "Failed to initialize AblyRealtime; continuing without Ably support",
+                exc_info=True,
+            )
+            self.ably_client = None
+            self.channel = None
 
     async def reload_client(self, deployment_id: str):
         """Reload a gateway client with fresh deployment data"""
@@ -1335,6 +1401,12 @@ class GatewayManager:
 
     async def setup_ably(self):
         """Set up Ably subscription for gateway commands"""
+
+        if not self.channel or not self.ably_client:
+            logger.warning(
+                "Ably client unavailable - skipping gateway command subscriptions"
+            )
+            return
 
         async def message_handler(message):
             try:
@@ -1415,15 +1487,26 @@ class GatewayManager:
                 logger.exception(e)
 
         # Subscribe to the channel
-        await self.channel.subscribe(message_handler)
-        logger.info("Subscribed to Ably channel for gateway commands")
+        try:
+            await self.channel.subscribe(message_handler)
+            logger.info("Subscribed to Ably channel for gateway commands")
+        except Exception as exc:
+            logger.error(
+                "Failed to subscribe to Ably gateway command channel",
+                exc_info=True,
+            )
+            return
 
         # Set up Ably for Telegram busy state updates
+        if not self.ably_client:
+            return
+
         try:
             # Subscribe to Telegram busy state updates
             telegram_channel = self.ably_client.channels.get(
                 f"busy-state-telegram-{db}"
             )
+            self.telegram_busy_channel = telegram_channel
 
             async def telegram_message_handler(message):
                 try:
@@ -1457,11 +1540,20 @@ class GatewayManager:
                 except Exception as e:
                     logger.error(f"Error handling Telegram busy state update: {e}")
 
-            await telegram_channel.subscribe(telegram_message_handler)
-            logger.info("Subscribed to Telegram busy state updates")
+            try:
+                await telegram_channel.subscribe(telegram_message_handler)
+                logger.info("Subscribed to Telegram busy state updates")
+            except Exception as exc:
+                logger.error(
+                    "Failed to subscribe to Telegram busy state channel",
+                    exc_info=True,
+                )
 
         except Exception as e:
-            logger.error(f"Failed to setup Telegram Ably subscription: {e}")
+            logger.error(
+                "Failed to setup Telegram Ably subscription",
+                exc_info=True,
+            )
 
     async def load_deployments(self):
         """Load all Discord HTTP deployments from database"""
@@ -1494,15 +1586,29 @@ class GatewayManager:
                     f"Invalid LOCAL_USER_ID format: {local_user_id}, error: {e}"
                 )
 
-        deployments = Deployment.find(deployment_filter)
-        for deployment in deployments:
-            # Skip deployments that are marked as invalid
-            if deployment.valid is False:
-                logger.info(f"Skipping invalid deployment {deployment.id}")
-                continue
+        try:
+            deployments = list(Deployment.find(deployment_filter))
+        except Exception as exc:
+            logger.error(
+                "Failed to load Discord deployments from database",
+                exc_info=True,
+            )
+            deployments = []
 
-            if deployment.secrets and deployment.secrets.discord.token:
-                await self.start_client(deployment)
+        for deployment in deployments:
+            try:
+                # Skip deployments that are marked as invalid
+                if deployment.valid is False:
+                    logger.info(f"Skipping invalid deployment {deployment.id}")
+                    continue
+
+                if deployment.secrets and deployment.secrets.discord.token:
+                    await self.start_client(deployment)
+            except Exception as exc:
+                logger.error(
+                    f"Failed to start gateway client for deployment {deployment.id}",
+                    exc_info=True,
+                )
 
         # Also load Telegram deployments for typing
         if local_api_url and local_api_url != "":
@@ -1523,18 +1629,32 @@ class GatewayManager:
                     f"Invalid LOCAL_USER_ID format for Telegram filter: {local_user_id}, error: {e}"
                 )
 
-        telegram_deployments = Deployment.find(telegram_filter)
+        try:
+            telegram_deployments = list(Deployment.find(telegram_filter))
+        except Exception as exc:
+            logger.error(
+                "Failed to load Telegram deployments from database",
+                exc_info=True,
+            )
+            telegram_deployments = []
+
         for deployment in telegram_deployments:
-            if (
-                deployment.secrets
-                and deployment.secrets.telegram
-                and deployment.secrets.telegram.token
-            ):
-                self.telegram_typing_manager.register_deployment(
-                    str(deployment.id), deployment.secrets.telegram.token
-                )
-                logger.info(
-                    f"Registered Telegram deployment {deployment.id} for typing"
+            try:
+                if (
+                    deployment.secrets
+                    and deployment.secrets.telegram
+                    and deployment.secrets.telegram.token
+                ):
+                    self.telegram_typing_manager.register_deployment(
+                        str(deployment.id), deployment.secrets.telegram.token
+                    )
+                    logger.info(
+                        f"Registered Telegram deployment {deployment.id} for typing"
+                    )
+            except Exception as exc:
+                logger.error(
+                    f"Failed to register Telegram deployment {deployment.id} for typing",
+                    exc_info=True,
                 )
 
     async def start_client(self, deployment: Deployment):
@@ -1570,33 +1690,41 @@ async def lifespan(app: FastAPI):
     manager = GatewayManager()
 
     # Set up Ably and load deployments
-    await manager.setup_ably()
-    await manager.load_deployments()
+    try:
+        await manager.setup_ably()
+    except Exception as exc:
+        logger.error("Gateway manager Ably setup failed", exc_info=True)
+
+    try:
+        await manager.load_deployments()
+    except Exception as exc:
+        logger.error("Gateway deployment loading failed", exc_info=True)
 
     # Store the manager in app state for access in routes if needed
     app.state.manager = manager
 
-    yield
-
-    # Clean up on shutdown
-    logger.info("Shutting down gateway manager")
-    # Stop all clients
-    stop_tasks = []
-    for deployment_id in list(manager.clients.keys()):
-        stop_tasks.append(manager.stop_client(deployment_id))
-
-    if stop_tasks:
-        await asyncio.gather(*stop_tasks, return_exceptions=True)
-
-    # Clean up Ably connections
     try:
-        if manager.ably_client:
-            await manager.ably_client.close()
-    except Exception as e:
-        logger.error(f"Error closing Ably client: {e}")
+        yield
+    finally:
+        # Clean up on shutdown
+        logger.info("Shutting down gateway manager")
+        # Stop all clients
+        stop_tasks = []
+        for deployment_id in list(manager.clients.keys()):
+            stop_tasks.append(manager.stop_client(deployment_id))
 
-    # Give tasks a moment to clean up
-    await asyncio.sleep(0.5)
+        if stop_tasks:
+            await asyncio.gather(*stop_tasks, return_exceptions=True)
+
+        # Clean up Ably connections
+        try:
+            if manager.ably_client:
+                await manager.ably_client.close()
+        except Exception as e:
+            logger.error(f"Error closing Ably client: {e}")
+
+        # Give tasks a moment to clean up
+        await asyncio.sleep(0.5)
 
 
 web_app = FastAPI(lifespan=lifespan)
@@ -1660,6 +1788,204 @@ async def telegram_webhook(
     except Exception as e:
         logger.error(f"Error handling Telegram webhook: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+async def _refresh_gmail_watches(
+    deployment_ids: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
+    deployments: List[Deployment] = []
+    results: List[Dict[str, Any]] = []
+
+    if deployment_ids:
+        for dep_id in deployment_ids:
+            try:
+                deployment = Deployment.from_mongo(ObjectId(dep_id))
+            except Exception as exc:
+                results.append(
+                    {
+                        "deployment_id": str(dep_id),
+                        "status": "error",
+                        "error": f"Deployment lookup failed: {exc}",
+                    }
+                )
+                continue
+
+            if not deployment or not _is_gmail_platform(deployment.platform):
+                results.append(
+                    {
+                        "deployment_id": str(dep_id),
+                        "status": "skipped",
+                        "reason": "Not a Gmail deployment",
+                    }
+                )
+                continue
+
+            deployments.append(deployment)
+    else:
+        deployments = list(
+            Deployment.find(
+                {"platform": ClientType.GMAIL.value, "valid": {"$ne": False}}
+            )
+        )
+
+    for deployment in deployments:
+        dep_id = str(deployment.id)
+        try:
+            agent = Agent.from_mongo(ObjectId(deployment.agent))
+        except Exception as exc:
+            results.append(
+                {
+                    "deployment_id": dep_id,
+                    "status": "error",
+                    "error": f"Agent lookup failed: {exc}",
+                }
+            )
+            continue
+
+        if not agent:
+            results.append(
+                {
+                    "deployment_id": dep_id,
+                    "status": "error",
+                    "error": "Agent not found",
+                }
+            )
+            continue
+
+        client = GmailClient(agent=agent, deployment=deployment)
+        try:
+            response = await client.ensure_watch()
+            results.append(
+                {
+                    "deployment_id": dep_id,
+                    "status": "refreshed",
+                    "expiration": response.get("expiration") if response else None,
+                    "historyId": response.get("historyId") if response else None,
+                }
+            )
+        except Exception as exc:
+            logger.error(
+                f"[GMAIL-WATCH] Failed to refresh watch for deployment {dep_id}: {exc}",
+                exc_info=True,
+            )
+            results.append(
+                {
+                    "deployment_id": dep_id,
+                    "status": "error",
+                    "error": str(exc),
+                }
+            )
+
+    return results
+
+
+# @web_app.post("/gmail/webhook")
+# async def gmail_webhook(request: Request):
+#     return {"status": "ok"}
+
+
+@web_app.post("/gmail/webhook")
+async def gmail_webhook(request: Request):
+    """Handle inbound Gmail notifications delivered via Pub/Sub push."""
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    try:
+        inner_payload, attributes = unwrap_pubsub_message(body)
+    except Exception as e:
+        logger.error(f"[GMAIL-WEBHOOK] Failed to decode payload: {e}", exc_info=True)
+        raise HTTPException(status_code=400, detail="Failed to decode Pub/Sub payload")
+
+    deployment_id = (
+        request.query_params.get("deployment_id")
+        or inner_payload.get("deployment_id")
+        or (attributes or {}).get("deployment_id")
+    )
+    if not deployment_id:
+        raise HTTPException(status_code=400, detail="deployment_id missing from payload")
+
+    try:
+        deployment = Deployment.from_mongo(ObjectId(deployment_id))
+    except Exception:
+        raise HTTPException(status_code=404, detail="Deployment not found")
+
+    if not deployment or not _is_gmail_platform(deployment.platform):
+        raise HTTPException(status_code=404, detail="Gmail deployment not found")
+
+    agent = Agent.from_mongo(ObjectId(deployment.agent))
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found for deployment")
+
+    gmail_client = GmailClient(agent=agent, deployment=deployment)
+
+    history_id = inner_payload.get("historyId") or inner_payload.get("history_id")
+    if history_id and not inner_payload.get("message_id"):
+        try:
+            result = await gmail_client.process_history_update(str(history_id))
+            return {"status": "history_processed", "result": result}
+        except APIError as exc:
+            logger.error(f"[GMAIL-WEBHOOK] History processing API error: {exc}")
+            raise HTTPException(status_code=exc.status_code or 500, detail=str(exc))
+        except Exception as exc:
+            logger.error(
+                f"[GMAIL-WEBHOOK] Failed to process history update: {exc}",
+                exc_info=True,
+            )
+            raise HTTPException(status_code=500, detail="Failed to process history update")
+
+    try:
+        email = parse_inbound_email(inner_payload)
+    except ValueError as exc:
+        logger.warning(f"[GMAIL-WEBHOOK] Ignoring payload: {exc}")
+        return {"status": "ignored", "reason": str(exc)}
+    except Exception as exc:
+        logger.error(f"[GMAIL-WEBHOOK] Failed to parse email payload: {exc}", exc_info=True)
+        raise HTTPException(status_code=400, detail="Invalid email payload")
+
+    try:
+        await gmail_client.process_inbound_email(email)
+    except APIError as exc:
+        logger.error(f"[GMAIL-WEBHOOK] Processing failed with API error: {exc}")
+        raise HTTPException(status_code=exc.status_code or 500, detail=str(exc))
+    except Exception as exc:
+        logger.error(f"[GMAIL-WEBHOOK] Error processing inbound email: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to process email")
+
+    return {"status": "processed"}
+
+
+@web_app.post("/gmail/watch/refresh")
+async def gmail_watch_refresh(request: Request):
+    """Manually refresh Gmail watches for one or more deployments."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    deployment_ids = body.get("deployment_ids") or body.get("deployment_id")
+    if isinstance(deployment_ids, str):
+        deployment_ids = [deployment_ids]
+    elif deployment_ids is not None and not isinstance(deployment_ids, list):
+        deployment_ids = [str(deployment_ids)]
+
+    results = await _refresh_gmail_watches(deployment_ids)
+    return {"results": results}
+
+
+if WATCH_REFRESH_INTERVAL_HOURS > 0:
+
+    @app.function(
+        image=image,
+        schedule=modal.Period(hours=WATCH_REFRESH_INTERVAL_HOURS),
+        timeout=600,
+    )
+    async def gmail_watch_refresher():
+        logger.info(
+            f"[GMAIL-WATCH] Periodic refresh triggered (interval={WATCH_REFRESH_INTERVAL_HOURS}h)"
+        )
+        await _refresh_gmail_watches()
 
 
 @app.function(

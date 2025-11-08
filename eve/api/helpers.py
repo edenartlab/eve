@@ -357,6 +357,7 @@ def get_platform_client(
     from eve.agent.deployments.captions import CaptionsClient
     from eve.agent.deployments.tiktok import TiktokClient
     from eve.agent.deployments.email import EmailClient
+    from eve.agent.deployments.gmail import GmailClient
 
     if platform == ClientType.DISCORD:
         return DiscordClient(agent=agent, deployment=deployment)
@@ -376,6 +377,8 @@ def get_platform_client(
         return TiktokClient(agent=agent, deployment=deployment)
     elif platform == ClientType.EMAIL:
         return EmailClient(agent=agent, deployment=deployment)
+    elif platform == ClientType.GMAIL:
+        return GmailClient(agent=agent, deployment=deployment)
 
 
 def authenticate_modal_key() -> bool:

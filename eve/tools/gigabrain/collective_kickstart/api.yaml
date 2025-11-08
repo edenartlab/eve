@@ -1,0 +1,40 @@
+name: Collective Kickstart
+description: Analyze recent session activity and generate personalized introductions for active users based on their conversation patterns.
+tip: |-
+  This tool scans recent user/agent sessions within a specified time window, analyzes user conversation patterns using AI-powered profile matching, and creates personalized introduction sessions with each active user. Only available to agent owners.
+cost_estimate: 50.0
+output_type: string
+active: true
+visible: true
+parameters:
+  time_window:
+    type: string
+    label: Time Window
+    description: |-
+      ISO 8601 timedelta string to look back for recent sessions (e.g., "PT2H" for past 2 hours, "P1D" for past 1 day, "P3D" for 3 days).
+      The tool will analyze all sessions created within this timeframe, and only include messages from those sessions that were created after the session creation cutoff.
+    default: "PT2H"
+    required: true
+  min_messages:
+    type: integer
+    label: Minimum Messages
+    description: |-
+      Minimum number of messages a user must have sent to be included in the analysis.
+      Helps filter out users with minimal interaction.
+    default: 2
+    required: false
+  include_agent_messages:
+    type: boolean
+    label: Include Agent Messages
+    description: |-
+      Whether to include agent messages in the session context alongside user messages.
+    default: true
+    required: false
+  ignore_multi_user_sessions:
+    type: boolean
+    label: Ignore Multi-User Sessions
+    description: |-
+      Whether to filter out sessions with multiple non-agent users (typically a good idea).
+      When enabled, only sessions with a single user will be included.
+    default: true
+    required: false

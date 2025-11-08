@@ -2,7 +2,14 @@
 Constants used by both tool.py and agent.py, extracted to break circular imports.
 """
 
+import os
+from pathlib import Path
 from typing import Literal
+
+def _discover_tools(subfolder: str):
+    tools_path = Path(__file__).parent / "tools" / subfolder
+    tools = [item.name for item in tools_path.iterdir() if item.is_dir() and not item.name.startswith('.') and not item.name.startswith('__')]
+    return tools
 
 OUTPUT_TYPES = Literal[
     "boolean", "string", "integer", "float", "array", "image", "video", "audio", "lora"
@@ -76,6 +83,10 @@ ALL_TOOLS = [
     "openai_image_generate",
 ]
 
+GIGABRAIN_TOOLS = _discover_tools("gigabrain")
+ABRAHAM_TOOLS = _discover_tools("abraham")
+VERDELIS_TOOLS = _discover_tools("verdelis")
+
 DISCORD_TOOLS = ["discord_post", "discord_search", "discord_broadcast_dm"]
 TELEGRAM_TOOLS = ["telegram_post"]
 TWITTER_TOOLS = ["tweet", "twitter_mentions", "twitter_search"]
@@ -112,7 +123,7 @@ CALCULATOR_MCP_TOOLS = ["calculator_calculate"]
 # SLACK_MCP_TOOLS = ["slack_post", "slack_search", "slack_channels"]
 
 TOOL_SETS = {
-    "create_image": ["create", "media_editor"], # "reel", "magic_8_ball"
+    "create_image": ["create", "media_editor", "reel"], #  "magic_8_ball"
     "create_video": [],  # deprecated
     "create_audio": ["elevenlabs", "elevenlabs_music", "elevenlabs_fx"],
     "vj_tools": ["texture_flow", "video_FX"],

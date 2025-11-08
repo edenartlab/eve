@@ -3,7 +3,6 @@ import logging
 import asyncio
 import signal
 import json
-import uuid
 import modal
 import replicate
 import sentry_sdk
@@ -19,10 +18,8 @@ from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 
 from eve import auth, db
-from eve.agent import Agent
-from eve.user import User
-from eve.tool import Tool
 from eve.api.runner_tasks import download_clip_models
+from eve.agent.session.models import Session
 from eve.api.handlers import (
     handle_create,
     handle_cancel,
@@ -31,6 +28,7 @@ from eve.api.handlers import (
     handle_agent_tools_update,
     handle_agent_tools_delete,
     handle_session_cancel,
+    handle_session_status_update,
     handle_v2_deployment_create,
     handle_v2_deployment_emission,
     handle_v2_deployment_interact,
@@ -59,6 +57,7 @@ from eve.concepts import (
 from eve.api.api_requests import (
     CancelRequest,
     CancelSessionRequest,
+    UpdateSessionStatusRequest,
     CreateDeploymentRequestV2,
     DeleteDeploymentRequestV2,
     DeploymentEmissionRequest,
@@ -87,17 +86,7 @@ from eve.api.api_functions import (
     run_task_replicate,
     cleanup_stale_busy_states,
 )
-from eve.agent.session.models import (
-    Session,
-    ChatMessage,
-    LLMConfig,
-    PromptSessionContext,
-)
-from eve.agent.session.session import (
-    add_chat_message, 
-    build_llm_context, 
-    async_prompt_session,
-)
+from eve.agent.session.run import remote_prompt_session, run_automatic_session
 
 
 app_name = f"api-{db.lower()}"
@@ -133,9 +122,9 @@ class SentryContextMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
-
 # Global flag for shutdown
 _shutdown_event = asyncio.Event()
+
 
 def handle_shutdown_signal(signum, frame):
     """Handle SIGINT/SIGTERM to close SSE connections immediately"""
@@ -295,6 +284,14 @@ async def cancel_session(
     _: dict = Depends(auth.authenticate_admin),
 ):
     return await handle_session_cancel(request)
+
+
+@web_app.post("/sessions/status")
+async def update_session_status(
+    request: UpdateSessionStatusRequest,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    return await handle_session_status_update(request)
 
 
 @web_app.post("/v2/deployments/create")
@@ -584,10 +581,10 @@ async def run_scheduled_triggers_fn():
     logger.info(sessions)
 
 
-
 ########################################################
 ## Remote Session Prompting
 ########################################################
+
 
 @app.function(image=image, max_containers=10, timeout=3600)
 async def remote_prompt_session_fn(
@@ -607,56 +604,8 @@ async def remote_prompt_session_fn(
         extra_tools=extra_tools,
     )
 
-async def remote_prompt_session(
-    session_id: str,
-    agent_id: str,
-    user_id: str,
-    content: str,
-    attachments: Optional[List[str]] = [],
-    extra_tools: Optional[List[str]] = [],
-):
-    logger.info(
-        f"Remote prompt: session={session_id}, agent={agent_id}, user={user_id}"
-    )
 
-    # Load models
-    session = Session.from_mongo(session_id)
-    agent = Agent.from_mongo(agent_id)
-    user = User.from_mongo(user_id)
-
-    # Create user message
-    new_message = ChatMessage(
-        role="user",
-        sender=user.id,
-        session=session.id,
-        content=content,
-        attachments=attachments,
-    )
-
-    # Build context
-    context = PromptSessionContext(
-        session=session,
-        initiating_user_id=str(user.id),
-        message=new_message,
-        llm_config=LLMConfig(model="claude-sonnet-4-5"),
-    )
-
-    if extra_tools:
-        context.extra_tools = {k: Tool.load(k) for k in extra_tools}
-
-    # Add message to session
-    await add_chat_message(session, context)
-
-    # Build LLM context and prompt
-    context = await build_llm_context(
-        session,
-        agent,
-        context,
-        trace_id=str(uuid.uuid4()),
-    )
-
-    # Run the prompt
-    async for m in async_prompt_session(session, context, agent):
-        pass
-
-    logger.info(f"Remote prompt completed for session {session_id}")
+@app.function(image=image, max_containers=4)
+async def handle_session_status_change_fn(session_id: str, status: str):
+    if status == "active":
+        await run_automatic_session(session_id)

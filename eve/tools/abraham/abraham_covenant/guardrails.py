@@ -1,9 +1,11 @@
 import json
 import re
+import sys
 import requests
 from typing import Dict, List, Any
 from loguru import logger
 from bson.errors import InvalidId
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from eve.agent.session.models import Session
 from eve.utils.file_utils import (
@@ -13,14 +15,50 @@ from eve.utils.file_utils import (
 )
 
 
+class IPFSDownloadError(Exception):
+    """Error during IPFS download operations."""
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    retry=retry_if_exception_type((requests.RequestException, IPFSDownloadError)),
+    before_sleep=lambda retry_state: logger.info(f"Retrying download (attempt {retry_state.attempt_number}/3)...")
+)
+def _download_from_gateway(url: str, timeout: int = 60) -> bytes:
+    """Download content from a single gateway with retry logic."""
+    try:
+        response = requests.get(url, timeout=timeout)
+        response.raise_for_status()
+        content_length = len(response.content)
+        if content_length == 0:
+            raise IPFSDownloadError("Content length is 0")
+        return response.content
+    except requests.exceptions.HTTPError as e:
+        # Non-gateway errors (404, 403, etc) should not be retried
+        if e.response.status_code not in [502, 503, 504]:
+            raise IPFSDownloadError(f"HTTP error {e.response.status_code}: {e}")
+        raise  # Gateway errors (502, 503, 504) will be retried by tenacity
+    except Exception as e:
+        raise IPFSDownloadError(f"Download failed: {e}")
+
+
 def download_from_ipfs(ipfs_hash: str) -> bytes:
-    """Download content from IPFS gateway."""
-    url = f"https://ipfs.io/ipfs/{ipfs_hash}"
-    response = requests.get(url, timeout=30)
-    response.raise_for_status()
-    content_length = len(response.content)
-    assert content_length > 0, "Content length is 0"
-    return response.content
+    """Download content from IPFS gateway with automatic fallback to multiple gateways"""
+    last_exception = None
+    for gateway in [
+        "https://ipfs.io/ipfs/",
+        "https://cloudflare-ipfs.com/ipfs/",
+        "https://dweb.link/ipfs/",
+        "https://gateway.pinata.cloud/ipfs/",
+    ]:
+        url = f"{gateway}{ipfs_hash}"
+        try:
+            return _download_from_gateway(url)
+        except Exception as e:
+            last_exception = e
+            continue
+    error_msg = f"Failed to download IPFS content {ipfs_hash} from all gateways"
+    raise IPFSDownloadError(f"{error_msg}. Last error: {last_exception}")
 
 
 def validate_json(content: bytes) -> Dict[str, Any]:
@@ -101,34 +139,45 @@ def extract_media_urls(markdown_text: str) -> List[str]:
     return unique_urls
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    retry=retry_if_exception_type(requests.RequestException),
+    before_sleep=lambda retry_state: logger.info(f"Retrying download (attempt {retry_state.attempt_number}/3)...")
+)
+def download_with_retry(url: str, timeout: int = 60) -> bytes:
+    """Download content from URL with retry logic."""
+    response = requests.get(url, timeout=timeout)
+    # Non-gateway errors should not be retried
+    if response.status_code >= 400:
+        if response.status_code not in [502, 503, 504]:
+            response.raise_for_status()
+    response.raise_for_status()
+    content_length = len(response.content)
+    if content_length == 0:
+        raise requests.RequestException("Content length is 0")
+    return response.content
+
+
 def validate_media_url(url: str) -> None:
-    """Validate a single media URL (image, video, or audio).
-
-    Args:
-        url: The media URL to validate
-
-    Raises:
-        ValueError: If the media is invalid or cannot be validated
-    """
+    """Validate a single media URL (image, video, or audio)."""
     media_type = get_media_type(url)
-
     try:
-        response = requests.get(url, timeout=30)
-        response.raise_for_status()
+        content = download_with_retry(url)
 
         # Validate based on media type
         if media_type == 'image':
-            ok, info = validate_image_bytes(response.content)
+            ok, info = validate_image_bytes(content)
             if not ok:
                 raise ValueError(f"Invalid image from {url}: {info.get('reason', 'unknown')}")
 
         elif media_type == 'video':
-            ok, info = validate_video_bytes(response.content)
+            ok, info = validate_video_bytes(content)
             if not ok:
                 raise ValueError(f"Invalid video from {url}: {info.get('reason', 'unknown')}")
 
         elif media_type == 'audio':
-            ok, info = validate_audio_bytes(response.content)
+            ok, info = validate_audio_bytes(content)
             if not ok:
                 raise ValueError(f"Invalid audio from {url}: {info.get('reason', 'unknown')}")
 
@@ -192,10 +241,9 @@ def validate_creation(title: str, tagline: str, poster_image: str, post: str, se
         if not poster_image.startswith(("http://", "https://")):
             raise ValueError(f"Invalid poster_image URL: {poster_image}")
 
-        response = requests.get(poster_image, timeout=30)
-        response.raise_for_status()
+        content = download_with_retry(poster_image)
 
-        ok, info = validate_image_bytes(response.content)
+        ok, info = validate_image_bytes(content)
         if not ok:
             raise ValueError(f"Invalid poster image {poster_image}: {info.get('reason', 'unknown')}")
 
@@ -241,5 +289,5 @@ def validate_ipfs_bundle(ipfs_hash: str) -> None:
 
 
 if __name__ == "__main__":
-    validate_ipfs_bundle("Qmaec8j6mbvsvG6PrF95ztYJrYL8iXqf57XWQNPaLtNSeh")
-    #validate_creation("Test Title", "Test Tagline", "https://d14i3advvh2bvd.cloudfront.net/58656ca3bf3013df15536f8cba11dbe224a353d866e5e5bbef070a377fb5bc36.jpeg", "Test Post containing an image: ![Test Image](https://d14i3advvh2bvd.cloudfront.net/cffc6e0704676f7ea9c2325943796df8a2a7ee56e9ed47e63e82c53b5da22e18.jpg), ![Test Image 2](https://d14i3advvh2bvd.cloudfront.net/48f4b354bd5711b4d2234a9b8f05b193e186df8639ca72273c068e8b4f1910f1.png)", "690201918de005f84abc8163")
+    ipfs_hash = sys.argv[1]
+    validate_ipfs_bundle(ipfs_hash)

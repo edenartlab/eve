@@ -97,46 +97,41 @@ def commit_daily_work(
         logger.info(f"IPFS post is valid: {ipfs_hash}")
 
         # Prepare contract function call
+        w3, owner, contract, abi = load_contract(
+            address=CONTRACT_ADDRESS_COVENANT,
+            abi_path=CONTRACT_ABI_COVENANT,
+            private_key=ABRAHAM_PRIVATE_KEY,
+            network=Network.ETH_MAINNET,
+        )
 
-        if False:
-            w3, owner, contract, abi = load_contract(
-                address=CONTRACT_ADDRESS_COVENANT,
-                abi_path=CONTRACT_ABI_COVENANT,
-                private_key=ABRAHAM_PRIVATE_KEY,
-                network=Network.ETH_MAINNET,
-            )
+        contract_function = contract.functions.commitDailyWork(
+            f"ipfs://{ipfs_hash}"
+        )
 
-            contract_function = contract.functions.commitDailyWork(
-                f"ipfs://{ipfs_hash}"
-            )
-
-            # Send transaction
-            tx_hash, _ = safe_send(
-                w3,
-                contract_function,
-                ABRAHAM_PRIVATE_KEY,
-                op_name="ABRAHAM_DAILY_WORK",
-                nonce=None,
-                value=0,
-                abi=abi,
-                # network=Network.ETH_SEPOLIA,
-                network=Network.ETH_MAINNET,
-            )
-        else:
-            tx_hash_hex = "test_hex"
-
+        # Send transaction
+        tx_hex, _ = safe_send(
+            w3,
+            contract_function,
+            ABRAHAM_PRIVATE_KEY,
+            op_name="ABRAHAM_DAILY_WORK",
+            nonce=None,
+            value=0,
+            abi=abi,
+            # network=Network.ETH_SEPOLIA,
+            network=Network.ETH_MAINNET,
+        )
+        
         # Build explorer URL
-        tx_hash_hex = tx_hash.hex()
-        if not tx_hash_hex.startswith("0x"):
-            tx_hash_hex = f"0x{tx_hash_hex}"
+        if not tx_hex.startswith("0x"):
+            tx_hex = f"0x{tx_hex}"
 
-        explorer_url = f"https://etherscan.io/tx/{tx_hash_hex}"
+        explorer_url = f"https://etherscan.io/tx/{tx_hex}"
 
-        logger.info(f"✅ Daily work committed successfully: {tx_hash_hex}")
+        logger.info(f"✅ Daily work committed successfully: {tx_hex}")
         logger.info(f"Explorer: {explorer_url}")
 
         return {
-            "tx_hash": tx_hash_hex,
+            "tx_hash": tx_hex,
             "ipfs_hash": ipfs_hash,
             "image_hash": poster_image_hash,
             "explorer_url": explorer_url,
@@ -173,9 +168,8 @@ async def handler(context: ToolContext):
 
     abraham_seed = AbrahamSeed.find_one({"session_id": ObjectId(session_id)})
     num_creations = len(AbrahamSeed.find({"status": "creation"}))
-    index = num_creations + 1
-
-    # raise Exception(f"Need to account for index for index : Index: {index}")
+    num_rest_days = num_creations // 6
+    index = num_creations + num_rest_days
 
     # Commit to blockchain
     try:
