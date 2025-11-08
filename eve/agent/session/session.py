@@ -277,11 +277,19 @@ async def build_system_extras(
 
     # add trigger context
     if hasattr(session, "context") and session.context:
+        context_prompt = f"<Full Task Context>\n{session.context}\n\n**IMPORTANT: Ignore me, the user! You are just speaking to the other agents now. Make sure you stay relevant to the full task context throughout the conversation.</Full Task Context>"
         extras.append(
             ChatMessage(
                 session=session.id,
-                role="system",
-                content=session.context,
+                
+                
+                # debug this
+                # role="system",
+                role="user",
+                sender=ObjectId(str(context.initiating_user_id)),
+
+
+                content=context_prompt,
             )
         )
 
@@ -412,6 +420,15 @@ async def build_llm_context(
     )
     if len(system_extras) > 0:
         messages.extend(system_extras)
+
+
+    logger.info(f"\n\n\n\n\n\n\n=======================================================")
+    logger.info(f"messages after build_system_extras:")
+    for message in messages:
+        logger.info(f"{message.role} {message.content}")
+        logger.info(f"--------------------------------")
+    logger.info(f"=======================================================\n\n\n\n\n\n\n")
+    
     existing_messages = select_messages(session)
     messages.extend(existing_messages)
     messages = label_message_channels(messages)
