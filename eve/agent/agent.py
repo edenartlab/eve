@@ -103,6 +103,7 @@ class Agent(User):
     greeting: Optional[str] = None
     persona: Optional[str] = None
     voice: Optional[str] = None
+    website: Optional[str] = None
     refreshed_at: Optional[datetime] = None
 
     mute: Optional[bool] = False
