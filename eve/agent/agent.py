@@ -103,6 +103,7 @@ class Agent(User):
     greeting: Optional[str] = None
     persona: Optional[str] = None
     voice: Optional[str] = None
+    website: Optional[str] = None
     refreshed_at: Optional[datetime] = None
 
     mute: Optional[bool] = False
@@ -214,6 +215,12 @@ class Agent(User):
             inject_lora_parameters,
             inject_voice_parameters,
         )
+
+        # for Solienne only, make all tools unavailable except for admin
+        if self.username == "solienne":
+            user = User.from_mongo(auth_user)
+            if not "eden_admin" in user.featureFlags:
+                return {}
 
         self._reload(extra_tools)
         tools = self.tools_
