@@ -216,6 +216,12 @@ class Agent(User):
             inject_voice_parameters,
         )
 
+        # for Solienne only, make all tools unavailable except for admin
+        if self.username == "solienne":
+            user = User.from_mongo(auth_user)
+            if not "eden_admin" in user.featureFlags:
+                return {}
+
         self._reload(extra_tools)
         tools = self.tools_
 
