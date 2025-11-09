@@ -610,5 +610,8 @@ async def handle_session_status_change_fn(
     session_id: str, 
     status: str
 ):
+    # todo - re-enable this
+    return
+
     if status == "active":
         await run_automatic_session(session_id)
