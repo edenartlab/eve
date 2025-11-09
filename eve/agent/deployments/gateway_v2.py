@@ -3,7 +3,6 @@ import json
 import logging
 import os
 import re
-from datetime import timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -345,7 +344,6 @@ class DiscordGatewayClient:
             logger.error(f"Error looking up mentioned agents: {e}")
 
         return mentioned_agent_ids
-
 
     async def _is_channel_allowlisted(
         self, channel_id: str, allowed_channels: list, trace_id: str
@@ -1904,7 +1902,9 @@ async def gmail_webhook(request: Request):
         or (attributes or {}).get("deployment_id")
     )
     if not deployment_id:
-        raise HTTPException(status_code=400, detail="deployment_id missing from payload")
+        raise HTTPException(
+            status_code=400, detail="deployment_id missing from payload"
+        )
 
     try:
         deployment = Deployment.from_mongo(ObjectId(deployment_id))
@@ -1933,7 +1933,9 @@ async def gmail_webhook(request: Request):
                 f"[GMAIL-WEBHOOK] Failed to process history update: {exc}",
                 exc_info=True,
             )
-            raise HTTPException(status_code=500, detail="Failed to process history update")
+            raise HTTPException(
+                status_code=500, detail="Failed to process history update"
+            )
 
     try:
         email = parse_inbound_email(inner_payload)
@@ -1941,8 +1943,11 @@ async def gmail_webhook(request: Request):
         logger.warning(f"[GMAIL-WEBHOOK] Ignoring payload: {exc}")
         return {"status": "ignored", "reason": str(exc)}
     except Exception as exc:
-        logger.error(f"[GMAIL-WEBHOOK] Failed to parse email payload: {exc}", exc_info=True)
+        logger.error(
+            f"[GMAIL-WEBHOOK] Failed to parse email payload: {exc}", exc_info=True
+        )
         raise HTTPException(status_code=400, detail="Invalid email payload")
+
 
     try:
         await gmail_client.process_inbound_email(email)
@@ -1950,7 +1955,9 @@ async def gmail_webhook(request: Request):
         logger.error(f"[GMAIL-WEBHOOK] Processing failed with API error: {exc}")
         raise HTTPException(status_code=exc.status_code or 500, detail=str(exc))
     except Exception as exc:
-        logger.error(f"[GMAIL-WEBHOOK] Error processing inbound email: {exc}", exc_info=True)
+        logger.error(
+            f"[GMAIL-WEBHOOK] Error processing inbound email: {exc}", exc_info=True
+        )
         raise HTTPException(status_code=500, detail="Failed to process email")
 
     return {"status": "processed"}

@@ -30,6 +30,7 @@ from eve.agent.session.models import (
     PromptSessionContext,
     Session,
     NotificationConfig,
+    SessionUpdateConfig,
 )
 from eve.agent.session.tracing import (
     trace_async_operation,
@@ -316,6 +317,14 @@ async def execute_trigger(
                 session=session_id, status="running", last_run_time=current_time
             )
 
+        if trigger.update_config:
+            try:
+                request.update_config = SessionUpdateConfig(**trigger.update_config)
+            except Exception as exc:
+                logger.warning(
+                    f"[TRIGGER] Failed to hydrate update_config for trigger {trigger.id}: {exc}"
+                )
+
         request.notification_config = NotificationConfig(
             user_id=str(user.id),
             notification_type="trigger_complete",
@@ -357,6 +366,7 @@ async def execute_trigger(
             session=session,
             initiating_user_id=request.user_id,
             message=message,
+            update_config=request.update_config,
             # thinking_override=trigger.think,
             thinking_override=False,
             extra_tools=extra_tools,

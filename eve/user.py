@@ -188,6 +188,7 @@ class User(Document):
             return new_user
         return cls(**user)
 
+    @classmethod
     def from_gmail(cls, email_address: str, fallback_username: Optional[str] = None):
         if not email_address:
             raise ValueError("email_address is required")
