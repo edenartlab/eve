@@ -1887,13 +1887,17 @@ async def gmail_webhook(request: Request):
     """Handle inbound Gmail notifications delivered via Pub/Sub push."""
     try:
         body = await request.json()
-    except Exception:
+    except Exception as exc:
+        logger.error("[GMAIL-WEBHOOK] Invalid JSON body: %s", exc)
         raise HTTPException(status_code=400, detail="Invalid JSON body")
 
     try:
         inner_payload, attributes = unwrap_pubsub_message(body)
     except Exception as e:
-        logger.error(f"[GMAIL-WEBHOOK] Failed to decode payload: {e}", exc_info=True)
+        logger.error(
+            f"[GMAIL-WEBHOOK] Failed to decode payload: {e}. Raw body: {body}",
+            exc_info=True,
+        )
         raise HTTPException(status_code=400, detail="Failed to decode Pub/Sub payload")
 
     deployment_id = (
@@ -1902,20 +1906,39 @@ async def gmail_webhook(request: Request):
         or (attributes or {}).get("deployment_id")
     )
     if not deployment_id:
+        logger.warning(
+            "[GMAIL-WEBHOOK] deployment_id missing (query=%s, attributes=%s, payload_keys=%s)",
+            dict(request.query_params),
+            attributes,
+            list(inner_payload.keys()),
+        )
         raise HTTPException(
             status_code=400, detail="deployment_id missing from payload"
         )
 
     try:
         deployment = Deployment.from_mongo(ObjectId(deployment_id))
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "[GMAIL-WEBHOOK] Deployment lookup failed for %s: %s", deployment_id, exc
+        )
         raise HTTPException(status_code=404, detail="Deployment not found")
 
     if not deployment or not _is_gmail_platform(deployment.platform):
+        logger.warning(
+            "[GMAIL-WEBHOOK] Deployment %s is not Gmail (platform=%s)",
+            deployment_id,
+            getattr(deployment, "platform", None),
+        )
         raise HTTPException(status_code=404, detail="Gmail deployment not found")
 
     agent = Agent.from_mongo(ObjectId(deployment.agent))
     if not agent:
+        logger.warning(
+            "[GMAIL-WEBHOOK] Agent %s not found for deployment %s",
+            deployment.agent,
+            deployment_id,
+        )
         raise HTTPException(status_code=404, detail="Agent not found for deployment")
 
     gmail_client = GmailClient(agent=agent, deployment=deployment)
