@@ -289,9 +289,15 @@ class UserMemory(Document):
         """Find a document or create and save a new one if it doesn't exist."""
         if defaults is None:
             defaults = {}
+        canonical_query = dict(query)
+        if "user_id" in canonical_query:
+            from eve.user import User
+
+            canonical_user_id = User.get_canonical_user_id(canonical_query["user_id"])
+            canonical_query["user_id"] = canonical_user_id
 
         try:
-            doc = cls.find_one(query)
+            doc = cls.find_one(canonical_query)
             if doc:
                 return doc
         except (TypeError, AttributeError) as e:
@@ -300,7 +306,7 @@ class UserMemory(Document):
 
         # If we get here, either find_one returned None or crashed
         # Create new instance and save it
-        new_doc = {**query, **defaults}
+        new_doc = {**canonical_query, **defaults}
         instance = cls(**new_doc)
         instance.save()
         return instance

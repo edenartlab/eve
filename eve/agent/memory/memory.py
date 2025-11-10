@@ -39,6 +39,35 @@ from eve.agent.memory.memory_constants import (
 )
 
 
+def _extract_related_users(
+    messages: List[ChatMessage], agent_id: ObjectId, *, user_only: bool = False
+) -> List[ObjectId]:
+    """Resolve related user ids to their canonical eden ids."""
+    candidate_ids: List[ObjectId] = []
+    for msg in messages:
+        sender = getattr(msg, "sender", None)
+        if not sender or sender == agent_id:
+            continue
+        if user_only and getattr(msg, "role", None) != "user":
+            continue
+        candidate_ids.append(sender)
+
+    if not candidate_ids:
+        return []
+
+    from eve.user import User
+
+    canonical_map = User.get_canonical_id_map(candidate_ids)
+    seen = set()
+    resolved: List[ObjectId] = []
+    for sender in candidate_ids:
+        canonical = canonical_map.get(sender) or sender
+        if canonical and canonical not in seen:
+            seen.add(canonical)
+            resolved.append(canonical)
+    return resolved
+
+
 def _is_user_memory_enabled(agent) -> bool:
     """
     Check if user memory is enabled for this agent
@@ -144,9 +173,7 @@ async def _save_all_memories(
 
     # Prepare common data
     message_ids = [msg.id for msg in messages]
-    related_users = list(
-        set([msg.sender for msg in messages if msg.sender and msg.sender != agent_id])
-    )
+    related_users = _extract_related_users(messages, agent_id)
     agent_owner = get_agent_owner(agent_id)
     session_id = session.id
 
@@ -210,6 +237,12 @@ async def _update_user_memory(
         if not agent_id or not user_id or not new_directive_memories:
             return
 
+        from eve.user import User
+
+        canonical_user_id = User.get_canonical_user_id(user_id)
+        if not canonical_user_id:
+            return
+
         # Check if user memory is enabled for this agent
         from eve.agent.agent import Agent
 
@@ -218,7 +251,7 @@ async def _update_user_memory(
             return
 
         user_memory = UserMemory.find_one_or_create(
-            {"agent_id": agent_id, "user_id": user_id}
+            {"agent_id": agent_id, "user_id": canonical_user_id}
         )
 
         await _add_memories_and_maybe_consolidate(
@@ -1117,14 +1150,8 @@ async def form_memories(
             )
 
         # Future TODO: this may break in multi-agent sessions:
-        related_users = list(
-            set(
-                [
-                    msg.sender
-                    for msg in session_messages
-                    if msg.sender and (msg.sender != agent_id and msg.role == "user")
-                ]
-            )
+        related_users = _extract_related_users(
+            session_messages, agent_id, user_only=True
         )
         last_speaker_id = related_users[-1] if related_users else None
 
