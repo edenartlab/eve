@@ -615,8 +615,18 @@ async def handler(context: ToolContext):
                     continue
 
                 # Find or create UserMemory document
+                canonical_user_id = User.get_canonical_user_id(user_id)
+                if not canonical_user_id:
+                    logger.warning(
+                        f"Could not resolve canonical user id for username: {username}"
+                    )
+                    failed_memory_updates.append(
+                        {"username": username, "error": "Canonical user ID not found"}
+                    )
+                    continue
+
                 user_memory = UserMemory.find_one_or_create(
-                    {"agent_id": agent.id, "user_id": user_id}
+                    {"agent_id": agent.id, "user_id": canonical_user_id}
                 )
 
                 # Prepend profile to any existing content (never overwrite)
