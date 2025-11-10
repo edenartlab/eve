@@ -1,7 +1,7 @@
 import re
 from bson import ObjectId
 from pydantic import BaseModel
-from typing import Optional, Literal, List, Dict
+from typing import Optional, Literal, List, Dict, Any, Iterable
 
 from .mongo import (
     Document,
@@ -68,6 +68,7 @@ class User(Document):
     type: Optional[Literal["user", "agent"]] = "user"
     isAdmin: Optional[bool] = False
     deleted: Optional[bool] = False
+    eden_user_id: Optional[ObjectId] = None
 
     # auth settings
     userId: Optional[str] = None
@@ -100,6 +101,21 @@ class User(Document):
     farcasterId: Optional[str] = None
     farcasterUsername: Optional[str] = None
 
+    def _ensure_ids(self):
+        if not self.id:
+            self.id = ObjectId()
+        if not self.eden_user_id:
+            self.eden_user_id = self.id
+
+    @property
+    def canonical_user_id(self) -> ObjectId:
+        self._ensure_ids()
+        return self.eden_user_id or self.id
+
+    def save(self, upsert_filter=None, **kwargs):
+        self._ensure_ids()
+        super().save(upsert_filter=upsert_filter, **kwargs)
+
     @classmethod
     def load(cls, username, cache=False):
         return super().load(username=username)
@@ -126,6 +142,7 @@ class User(Document):
             new_user = cls(
                 discordId=discord_id,
                 discordUsername=discord_username,
+                eden_user_id=None,
                 username=username,
             )
             new_user.save()
@@ -146,6 +163,7 @@ class User(Document):
             new_user = cls(
                 farcasterId=farcaster_id,
                 farcasterUsername=farcaster_username,
+                eden_user_id=None,
                 username=username,
             )
             new_user.save()
@@ -163,6 +181,7 @@ class User(Document):
             new_user = cls(
                 telegramId=telegram_id,
                 telegramUsername=telegram_username,
+                eden_user_id=None,
                 username=username,
             )
             new_user.save()
@@ -182,6 +201,7 @@ class User(Document):
             new_user = cls(
                 email=email.strip(),
                 normalizedEmail=normalized,
+                eden_user_id=None,
                 username=username,
             )
             new_user.save()
@@ -214,6 +234,7 @@ class User(Document):
         new_user = cls(
             email=email_address,
             normalizedEmail=normalized_email,
+            eden_user_id=None,
             username=username,
         )
         new_user.save()
@@ -228,3 +249,65 @@ class User(Document):
             username = f"{base_username}{counter}"
             counter += 1
         return username
+
+    @staticmethod
+    def _normalize_object_id(value: Optional[ObjectId]) -> Optional[ObjectId]:
+        if value is None:
+            return None
+        if isinstance(value, ObjectId):
+            return value
+        return ObjectId(value)
+
+    @classmethod
+    def get_canonical_id_map(
+        cls, user_ids: Iterable[Optional[ObjectId]]
+    ) -> Dict[ObjectId, ObjectId]:
+        normalized_ids = [
+            cls._normalize_object_id(user_id) for user_id in user_ids if user_id
+        ]
+        if not normalized_ids:
+            return {}
+
+        users = get_collection(cls.collection_name)
+        cursor = users.find(
+            {"_id": {"$in": normalized_ids}}, {"eden_user_id": 1},
+        )
+
+        canonical_lookup: Dict[ObjectId, ObjectId] = {}
+        for doc in cursor:
+            original_id: ObjectId = doc["_id"]
+            canonical_lookup[original_id] = doc.get("eden_user_id") or original_id
+
+        result: Dict[ObjectId, ObjectId] = {}
+        for original in normalized_ids:
+            result[original] = canonical_lookup.get(original, original)
+        return result
+
+    @classmethod
+    def get_canonical_user_id(
+        cls, user_id: Optional[ObjectId]
+    ) -> Optional[ObjectId]:
+        normalized = cls._normalize_object_id(user_id)
+        if not normalized:
+            return None
+        return cls.get_canonical_id_map([normalized]).get(normalized, normalized)
+
+
+@Collection("user_identities")
+class UserIdentity(Document):
+    provider: str
+    provider_user_id: str
+    eden_user_id: Optional[ObjectId] = None
+    status: Optional[Literal["pending", "linked", "unlinked"]] = "pending"
+    linked_at: Optional[str] = None
+    unlinked_at: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+
+@Collection("user_identity_history")
+class UserIdentityHistory(Document):
+    user_identity_id: ObjectId
+    eden_user_id: Optional[ObjectId] = None
+    actor_eden_user_id: Optional[ObjectId] = None
+    event_type: Literal["link", "unlink", "transfer"]
+    metadata: Optional[Dict[str, Any]] = None
