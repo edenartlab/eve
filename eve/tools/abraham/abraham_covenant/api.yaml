@@ -25,3 +25,7 @@ parameters:
     description: Blog post
     tip: Use markdown with typical media embeds including images and/or video
     required: true
+  video:
+    type: video
+    description: Video reel representing the blog post
+    required: true
