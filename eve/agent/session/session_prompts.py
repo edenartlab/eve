@@ -140,6 +140,10 @@ system_template = Template("""
     </Concepts>
     {% endif %}
   </Tools>
+  {% else %}
+  <Tools>
+    You do not have any tools for creating images or other media. Politely decline any requests to create media.
+  </Tools>
   {% endif %}
   {% if memory %}
   {{ memory }}

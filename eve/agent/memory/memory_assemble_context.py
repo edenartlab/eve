@@ -35,7 +35,7 @@ async def _assemble_user_memory(agent: Agent, user: User) -> str:
             return ""
         query_start = time.time()
         user_memory = UserMemory.find_one_or_create(
-            {"agent_id": agent.id, "user_id": user.id}
+            {"agent_id": agent.id, "user_id": user.canonical_user_id}
         )
         if user_memory:
             # Check if fully_formed_memory exists and is up-to-date
@@ -203,10 +203,10 @@ async def check_memory_freshness(session: Session, agent: Agent, user: User) -> 
             return False  # Refresh on error to be safe
 
     # Check user memory freshness
-    if str(user.id) and session.memory_context.user_memory_timestamp:
+    if str(user.canonical_user_id) and session.memory_context.user_memory_timestamp:
         try:
             user_memory = UserMemory.find_one(
-                {"agent_id": agent.id, "user_id": user.id}
+                {"agent_id": agent.id, "user_id": user.canonical_user_id}
             )
             if user_memory and user_memory.last_updated_at:
                 if (
