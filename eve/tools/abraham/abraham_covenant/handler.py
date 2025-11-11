@@ -39,6 +39,7 @@ def commit_daily_work(
     tagline: str,
     poster_image: str,
     blog_post: str,
+    video: str,
     session_id: str,
 ):
     """
@@ -49,6 +50,7 @@ def commit_daily_work(
         title: Title of the work
         tagline: Short description/tagline
         poster_image: URL to the poster image
+        video: URL to the video reel
         blog_post: Full blog post content
         session_id: Eden session ID
     """
@@ -62,6 +64,11 @@ def commit_daily_work(
         logger.info(f"Uploading poster image to IPFS: {poster_image}")
         image_cid = ipfs_pin(poster_image)
         poster_image_hash = image_cid.split("/")[-1]
+
+        # Upload video to IPFS
+        logger.info(f"Uploading video to IPFS: {video}")
+        video_cid = ipfs_pin(video)
+        video_hash = video_cid.split("/")[-1]
 
         # Extract and pin all media URLs from blog_post
         logger.info("Extracting media URLs from blog post")
@@ -81,6 +88,7 @@ def commit_daily_work(
             "external_url": f"https://abraham.ai/creation/{index}",
             "eden_session_id": session_id,
             "image": f"ipfs://{poster_image_hash}",
+            "animation_url": f"ipfs://{video_hash}",
             "attributes": [
                 # {"trait_type": "Artist", "value": "Abraham"},
             ],
@@ -134,6 +142,7 @@ def commit_daily_work(
             "tx_hash": tx_hex,
             "ipfs_hash": ipfs_hash,
             "image_hash": poster_image_hash,
+            "video_hash": video_hash,
             "explorer_url": explorer_url,
         }
 
@@ -155,6 +164,7 @@ async def handler(context: ToolContext):
     tagline = context.args.get("tagline")
     poster_image = context.args.get("poster_image")
     blog_post = context.args.get("post")
+    video = context.args.get("video")
     session_id = str(context.session)
 
     # Safety checks
@@ -165,6 +175,7 @@ async def handler(context: ToolContext):
     logger.info(f"Tagline: {tagline}")
     logger.info(f"Post: {blog_post}")
     logger.info(f"Poster image: {poster_image}")
+    logger.info(f"Video: {video}")
 
     abraham_seed = AbrahamSeed.find_one({"session_id": ObjectId(session_id)})
     num_creations = len(AbrahamSeed.find({"status": "creation"}))
@@ -179,6 +190,7 @@ async def handler(context: ToolContext):
             tagline=tagline,
             poster_image=poster_image,
             blog_post=blog_post,
+            video=video,
             session_id=session_id,
         )
 
@@ -191,6 +203,7 @@ async def handler(context: ToolContext):
                 tagline=tagline,
                 poster_image=poster_image,
                 blog_post=blog_post,
+                video=video,
                 session_id=session_id,
                 contract_address=CONTRACT_ADDRESS_COVENANT,
                 tx_hash=result["tx_hash"],
