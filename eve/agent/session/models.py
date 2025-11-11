@@ -171,7 +171,7 @@ class EdenMessageData(BaseModel):
 
 @Collection("channels")
 class Channel(Document):
-    type: Literal["eden", "discord", "telegram", "twitter", "farcaster"]
+    type: Literal["eden", "discord", "telegram", "twitter", "farcaster", "app"]
     key: Optional[str] = None
 
 
@@ -794,7 +794,7 @@ class Session(Document):
     last_actor_id: Optional[ObjectId] = None
     budget: SessionBudget = SessionBudget()
     platform: Optional[
-        Literal["discord", "telegram", "twitter", "farcaster", "gmail"]
+        Literal["discord", "telegram", "twitter", "farcaster", "gmail", "app"]
     ] = None
     trigger: Optional[ObjectId] = None
     active_requests: Optional[List[str]] = []
@@ -892,6 +892,7 @@ class ClientType(Enum):
     TIKTOK = "tiktok"
     GMAIL = "gmail"
     EMAIL = "email"
+    APP = "app"
 
 
 class NotificationType(Enum):
