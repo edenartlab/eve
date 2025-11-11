@@ -2,8 +2,11 @@ import json
 import os
 import aiohttp
 import logging
+import hmac
+import hashlib
+import secrets as python_secrets
 from typing import TYPE_CHECKING, Optional, Dict, Any, List
-
+from farcaster import Warpcast
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
@@ -15,7 +18,7 @@ from eve.agent.session.models import (
     DeploymentSecrets,
     DeploymentConfig,
 )
-from eve.api.api_requests import SessionCreationArgs
+from eve.api.api_requests import SessionCreationArgs, PromptSessionRequest
 from eve.api.errors import APIError
 from eve.agent.deployments import PlatformClient
 from eve.agent.deployments.neynar_client import NeynarClient
@@ -45,8 +48,6 @@ async def get_fid(secrets: DeploymentSecrets) -> int:
         )
         return user_info.get("fid")
     else:
-        from farcaster import Warpcast
-
         client = Warpcast(mnemonic=secrets.farcaster.mnemonic)
         user_info = client.get_me()
         return user_info.fid
@@ -93,9 +94,6 @@ async def post_cast(
         return cast_info
     else:
         # Use Warpcast client for mnemonic
-        logger.info("Using mnemonic-based authentication")
-        from farcaster import Warpcast
-
         client = Warpcast(mnemonic=secrets.farcaster.mnemonic)
         result = client.post_cast(text=text, embeds=embeds, parent=parent)
 
@@ -112,33 +110,28 @@ async def post_cast(
 
 
 class FarcasterClient(PlatformClient):
-    TOOLS = [
-        "farcaster_cast",
-        "farcaster_search",
-        "farcaster_mentions",
-    ]
 
-    def _uses_managed_signer(self, secrets: DeploymentSecrets) -> bool:
-        """Check if deployment uses managed signer or mnemonic"""
-        return uses_managed_signer(secrets)
+    # def _uses_managed_signer(self, secrets: DeploymentSecrets) -> bool:
+    #     """Check if deployment uses managed signer or mnemonic"""
+    #     return uses_managed_signer(secrets)
 
-    async def _get_fid_from_managed_signer(self, signer_uuid: str) -> int:
-        """Get FID from managed signer"""
-        neynar_client = NeynarClient()
-        user_info = await neynar_client.get_user_info_by_signer(signer_uuid)
-        return user_info.get("fid")
+    # async def _get_fid_from_managed_signer(self, signer_uuid: str) -> int:
+    #     """Get FID from managed signer"""
+    #     neynar_client = NeynarClient()
+    #     user_info = await neynar_client.get_user_info_by_signer(signer_uuid)
+    #     return user_info.get("fid")
 
-    async def _get_fid_from_mnemonic(self, mnemonic: str) -> int:
-        """Get FID from mnemonic using Warpcast client"""
-        from farcaster import Warpcast
+    # async def _get_fid_from_mnemonic(self, mnemonic: str) -> int:
+    #     """Get FID from mnemonic using Warpcast client"""
+    #     from farcaster import Warpcast
 
-        client = Warpcast(mnemonic=mnemonic)
-        user_info = client.get_me()
-        return user_info.fid
+    #     client = Warpcast(mnemonic=mnemonic)
+    #     user_info = client.get_me()
+    #     return user_info.fid
 
-    async def _get_fid(self, secrets: DeploymentSecrets) -> int:
-        """Get FID based on auth method"""
-        return await get_fid(secrets)
+    # async def _get_fid(self, secrets: DeploymentSecrets) -> int:
+    #     """Get FID based on auth method"""
+    #     return await get_fid(secrets)
 
     async def _post_cast(
         self,
@@ -158,17 +151,18 @@ class FarcasterClient(PlatformClient):
         )
 
     async def predeploy(
-        self, secrets: DeploymentSecrets, config: DeploymentConfig
+        self, 
+        secrets: DeploymentSecrets, 
+        config: DeploymentConfig
     ) -> tuple[DeploymentSecrets, DeploymentConfig]:
         """Verify Farcaster credentials"""
         try:
-            if self._uses_managed_signer(secrets):
+            if uses_managed_signer(secrets):
                 # Verify managed signer status
                 neynar_client = NeynarClient()
                 signer_status = await neynar_client.get_signer_status(
                     secrets.farcaster.signer_uuid
                 )
-
                 if signer_status.get("status") != "approved":
                     raise APIError(
                         f"Managed signer is not approved. Status: {signer_status.get('status')}",
@@ -176,11 +170,7 @@ class FarcasterClient(PlatformClient):
                     )
             else:
                 # Verify mnemonic credentials
-                from farcaster import Warpcast
-
                 client = Warpcast(mnemonic=secrets.farcaster.mnemonic)
-
-                # Test the credentials by getting user info
                 client.get_me()
         except APIError:
             raise
@@ -189,8 +179,6 @@ class FarcasterClient(PlatformClient):
 
         # Generate webhook secret if not provided
         if not secrets.farcaster.neynar_webhook_secret:
-            import secrets as python_secrets
-
             webhook_secret = python_secrets.token_urlsafe(32)
             secrets.farcaster.neynar_webhook_secret = webhook_secret
 
@@ -221,7 +209,7 @@ class FarcasterClient(PlatformClient):
             raise Exception("NEYNAR_WEBHOOK_ID not found in environment")
 
         # Get FID to add to webhook
-        fid = await self._get_fid(self.deployment.secrets)
+        fid = await get_fid(self.deployment.secrets)
 
         await self._update_webhook_fids(webhook_id, add_fid=fid)
 
@@ -255,7 +243,7 @@ class FarcasterClient(PlatformClient):
 
             # Use new_secrets parameter (not self.deployment.secrets which is stale)
             secrets = new_secrets or self.deployment.secrets
-            fid = await self._get_fid(secrets)
+            fid = await get_fid(secrets)
 
             if new_auto_reply and not old_auto_reply:
                 # Enable auto-reply: add FID to webhook
@@ -274,7 +262,7 @@ class FarcasterClient(PlatformClient):
         if webhook_id:
             try:
                 # Get FID to remove from webhook
-                fid = await self._get_fid(self.deployment.secrets)
+                fid = await get_fid(self.deployment.secrets)
 
                 await self._update_webhook_fids(webhook_id, remove_fid=fid)
             except Exception as e:
@@ -282,7 +270,7 @@ class FarcasterClient(PlatformClient):
 
         try:
             # Remove Farcaster tools
-            self.remove_tools()
+            self.remove_tools()  # this is disabled for now
         except Exception as e:
             logger.error(f"Failed to remove Farcaster tools: {e}")
 
@@ -292,218 +280,10 @@ class FarcasterClient(PlatformClient):
             "Interact() with the Farcaster client is not supported"
         )
 
-    async def handle_neynar_webhook(self, request: Request) -> None:
-        """Interact with the Farcaster client"""
-        import hmac
-        import hashlib
-
-        from eve.api.api_requests import PromptSessionRequest
-
-        logger.info("=== Received Neynar webhook ===")
-
-        # Verify Neynar webhook signature
-        body = await request.body()
-        signature = request.headers.get("X-Neynar-Signature")
-        if not signature:
-            logger.warning("Missing X-Neynar-Signature header")
-            return JSONResponse(
-                status_code=401, content={"error": "Missing signature header"}
-            )
-
-        # Find deployment by webhook secret - we'll store this in the deployment
-        # For now, let's extract the webhook secret from headers or find another way
-        webhook_data = await request.json()
-        cast_data = webhook_data.get("data", {})
-
-        logger.info(f"Webhook data received: {webhook_data}")
-
-        if not cast_data or "hash" not in cast_data:
-            logger.warning(f"Invalid cast data: {cast_data}")
-            return JSONResponse(status_code=400, content={"error": "Invalid cast data"})
-
-        # Use webhook secret from environment to verify signature
-        webhook_secret = os.getenv("NEYNAR_WEBHOOK_SECRET")
-        if not webhook_secret:
-            logger.error("NEYNAR_WEBHOOK_SECRET not configured in environment")
-            return JSONResponse(
-                status_code=401,
-                content={"error": "Webhook secret not configured"},
-            )
-
-        # Verify signature
-        computed_signature = hmac.new(
-            webhook_secret.encode(),
-            body,
-            hashlib.sha512,
-        ).hexdigest()
-
-        if not hmac.compare_digest(computed_signature, signature):
-            logger.warning(f"Invalid webhook signature. Expected: {computed_signature[:20]}..., Got: {signature[:20]}...")
-            return JSONResponse(
-                status_code=401,
-                content={"error": "Invalid webhook signature"},
-            )
-
-        logger.info("Webhook signature verified successfully")
-
-        # Find deployment by mentioned FID
-        cast_author_fid = cast_data["author"]["fid"]
-        cast_hash = cast_data["hash"]
-
-        logger.info(f"Processing cast {cast_hash} from FID {cast_author_fid}")
-
-        # Check if this is a self-mention (agent replying to itself) - ignore if so
-        deployment = None
-        farcaster_deployments = list(Deployment.find({"platform": "farcaster"}))
-        logger.info(f"Found {len(farcaster_deployments)} Farcaster deployments")
-
-        for d in farcaster_deployments:
-            if d.config and d.config.farcaster and d.config.farcaster.auto_reply:
-                try:
-                    # Create temporary client instance to use helper methods
-                    temp_client = FarcasterClient(deployment=d)
-                    fid = await temp_client._get_fid(d.secrets)
-
-                    logger.info(f"Checking deployment {d.id} with FID {fid}")
-
-                    # Skip if this cast is from the agent itself (prevent loops)
-                    if fid == cast_author_fid:
-                        logger.info(f"Skipping deployment {d.id} - cast is from the agent itself")
-                        return JSONResponse(status_code=200, content={"ok": True})
-
-                    # Check if agent was mentioned or parent author
-                    mentioned_fids = cast_data.get("mentioned_profiles", [])
-                    mentioned_fid_list = [profile["fid"] for profile in mentioned_fids]
-
-                    parent_cast = cast_data.get("parent_cast")
-                    parent_author_fid = (
-                        parent_cast.get("author", {}).get("fid")
-                        if parent_cast
-                        else None
-                    )
-
-                    logger.info(f"Mentioned FIDs: {mentioned_fid_list}, Parent author FID: {parent_author_fid}")
-
-                    if fid in mentioned_fid_list or fid == parent_author_fid:
-                        deployment = d
-                        logger.info(f"Found matching deployment {d.id} for FID {fid}")
-                        break
-
-                except Exception as e:
-                    logger.error(f"Error checking deployment {d.id}: {e}")
-                    continue
-
-        if not deployment:
-            logger.warning("No matching deployment found for this cast")
-            return JSONResponse(
-                status_code=200,
-                content={"ok": True, "message": "No matching deployment found"},
-            )
-
-        # Auto-reply check already done above in deployment selection
-
-        # Create chat request similar to Telegram
-        cast_hash = cast_data["hash"]
-        author = cast_data["author"]
-        author_username = author["username"]
-        author_fid = author["fid"]
-
-        logger.info(f"Processing cast from @{author_username} (FID: {author_fid})")
-
-        # Get or create user
-        user = User.from_farcaster(author_fid, author_username)
-        logger.info(f"Got user {user.id} for FID {author_fid}")
-
-        session_key = f"farcaster-{cast_hash}"
-
-        # attempt to get session by session_key
-        try:
-            session = Session.load(session_key=session_key)
-            logger.info(f"Found existing session {session.id} for cast {cast_hash}")
-
-            # Check if the session is deleted or archived - if so, reactivate it
-            needs_reactivation = False
-
-            if hasattr(session, "deleted") and session.deleted:
-                needs_reactivation = True
-            elif hasattr(session, "status") and session.status == "archived":
-                needs_reactivation = True
-
-            if needs_reactivation:
-                logger.info(f"Reactivating session {session.id}")
-                session.deleted = False
-                session.status = "active"
-                session.save()
-        except Exception as e:
-            if isinstance(e, eve.mongo.MongoDocumentNotFound):
-                logger.info(f"No existing session found for cast {cast_hash}, will create new one")
-                session = None
-            else:
-                raise e
-
-        cast_text = cast_data.get("text", "")
-        logger.info(f"Cast text: '{cast_text}'")
-
-        prompt_session_request = PromptSessionRequest(
-            user_id=str(user.id),
-            actor_agent_ids=[str(deployment.agent)],
-            message=ChatMessageRequestInput(
-                content=cast_text,
-                sender_name=author_username,
-            ),
-            update_config=SessionUpdateConfig(
-                deployment_id=str(deployment.id),
-                update_endpoint=f"{get_api_url()}/v2/deployments/emission",
-                farcaster_hash=cast_hash,
-                farcaster_author_fid=author_fid,
-            ),
-        )
-
-        # create session if it doesn't exist
-        if session:
-            prompt_session_request.session_id = str(session.id)
-            logger.info(f"Using existing session {session.id}")
-        else:
-            prompt_session_request.creation_args = SessionCreationArgs(
-                owner_id=str(user.id),
-                agents=[str(deployment.agent)],
-                title=f"Farcaster cast {cast_hash}",
-                session_key=session_key,
-                platform="farcaster",
-            )
-            logger.info(f"Will create new session with key {session_key}")
-
-        # Make async HTTP POST to /chat
-        eden_api_url = get_api_url()
-        prompt_url = f"{eden_api_url}/sessions/prompt"
-        logger.info(f"Sending prompt request to {prompt_url}")
-
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                prompt_url,
-                json=prompt_session_request.model_dump(),
-                headers={
-                    "Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}",
-                    "Content-Type": "application/json",
-                },
-            ) as response:
-                if response.status != 200:
-                    error_text = await response.text()
-                    logger.error(f"Failed to process chat request: {error_text}")
-                    return JSONResponse(
-                        status_code=500,
-                        content={
-                            "error": f"Failed to process chat request: {error_text}"
-                        },
-                    )
-                else:
-                    logger.info(f"Successfully sent prompt request, status: {response.status}")
-
-        logger.info("=== Webhook processing complete ===")
-        return JSONResponse(status_code=200, content={"ok": True})
-
     async def _update_webhook_fids(
-        self, webhook_id: str, add_fid: int = None, remove_fid: int = None
+        self, 
+        webhook_id: str, 
+        add_fid: int = None, remove_fid: int = None
     ) -> None:
         """Update webhook FID lists by adding or removing a FID"""
         neynar_api_key = os.getenv("NEYNAR_API_KEY")
@@ -575,6 +355,191 @@ class FarcasterClient(PlatformClient):
                     if update_response.status != 200:
                         error_text = await update_response.text()
                         raise Exception(f"Failed to update webhook: {error_text}")
+
+    async def handle_neynar_webhook(self, request: Request) -> None:
+        """Interact with the Farcaster client"""
+
+        logger.info("=== Received Neynar webhook ===")
+
+        # Verify Neynar webhook signature
+        body = await request.body()
+        signature = request.headers.get("X-Neynar-Signature")
+        if not signature:
+            logger.warning("Missing X-Neynar-Signature header")
+            return JSONResponse(
+                status_code=401, content={"error": "Missing signature header"}
+            )
+
+        # Find deployment by webhook secret - we'll store this in the deployment
+        # For now, let's extract the webhook secret from headers or find another way
+        webhook_data = await request.json()
+        cast_data = webhook_data.get("data", {})
+
+        logger.info(f"Webhook data received: {webhook_data}")
+
+        if not cast_data or "hash" not in cast_data:
+            logger.warning(f"Invalid cast data: {cast_data}")
+            return JSONResponse(status_code=400, content={"error": "Invalid cast data"})
+
+        # Use webhook secret from environment to verify signature
+        webhook_secret = os.getenv("NEYNAR_WEBHOOK_SECRET")
+        if not webhook_secret:
+            logger.error("NEYNAR_WEBHOOK_SECRET not configured in environment")
+            return JSONResponse(
+                status_code=401,
+                content={"error": "Webhook secret not configured"},
+            )
+
+        # Verify signature
+        computed_signature = hmac.new(
+            webhook_secret.encode(),
+            body,
+            hashlib.sha512,
+        ).hexdigest()
+
+        if not hmac.compare_digest(computed_signature, signature):
+            logger.error(f"Invalid webhook signature. Expected: {computed_signature[:20]}..., Got: {signature[:20]}...")
+            return JSONResponse(
+                status_code=401,
+                content={"error": "Invalid webhook signature"},
+            )
+
+        logger.info("Webhook signature verified successfully")
+
+        # Find deployment by mentioned FID
+        cast_author_fid = cast_data["author"]["fid"]
+        cast_hash = cast_data["hash"]
+
+        logger.info(f"Processing cast {cast_hash} from FID {cast_author_fid}")
+
+        # Check if this is a self-mention (agent replying to itself) - ignore if so
+        deployment = None
+        farcaster_deployments = list(Deployment.find({"platform": "farcaster"}))
+        logger.info(f"Found {len(farcaster_deployments)} Farcaster deployments")
+
+        # Extract mentioned FIDs and parent author FID once
+        mentioned_fid_list = [profile["fid"] for profile in cast_data.get("mentioned_profiles", [])]
+        parent_cast = cast_data.get("parent_cast")
+        parent_author_fid = parent_cast.get("author", {}).get("fid") if parent_cast else None
+
+        # Find matching deployment
+        for d in farcaster_deployments:
+            if not (d.config and d.config.farcaster and d.config.farcaster.auto_reply):
+                continue
+
+            try:
+                fid = await get_fid(d.secrets)
+
+                # Skip if cast is from the agent itself
+                if fid == cast_author_fid:
+                    return JSONResponse(status_code=200, content={"ok": True})
+
+                # Check if agent was mentioned or is parent author
+                if fid in mentioned_fid_list or fid == parent_author_fid:
+                    deployment = d
+                    break
+            except Exception as e:
+                logger.error(f"Error checking deployment {d.id}: {e}")
+
+        if not deployment:
+            logger.warning("No matching deployment found for this cast")
+            return JSONResponse(
+                status_code=200,
+                content={"ok": True, "message": "No matching deployment found"},
+            )
+
+        # Auto-reply check already done above in deployment selection
+
+        # Create chat request similar to Telegram
+        cast_hash = cast_data["hash"]
+        author = cast_data["author"]
+        author_username = author["username"]
+        author_fid = author["fid"]
+
+        logger.info(f"Processing cast from @{author_username} (FID: {author_fid})")
+
+        # Get or create user
+        user = User.from_farcaster(author_fid, author_username)
+        logger.info(f"Got user {user.id} for FID {author_fid}")
+
+        session_key = f"farcaster-{cast_hash}"
+
+        # attempt to get session by session_key
+        try:
+            session = Session.load(session_key=session_key)
+            logger.info(f"Found existing session {session.id} for cast {cast_hash}")
+
+            # Check if the session is deleted or archived - if so, reactivate it
+            if session.deleted or session.status == "archived":
+                session.update(deleted=False, status="active")
+
+        except Exception as e:
+            if isinstance(e, eve.mongo.MongoDocumentNotFound):
+                logger.info(f"No existing session found for cast {cast_hash}, will create new one")
+                session = None
+            else:
+                raise e
+
+        cast_text = cast_data.get("text", "")
+        logger.info(f"Cast text: '{cast_text}'")
+
+        prompt_session_request = PromptSessionRequest(
+            user_id=str(user.id),
+            actor_agent_ids=[str(deployment.agent)],
+            message=ChatMessageRequestInput(
+                content=cast_text,
+                sender_name=author_username,
+            ),
+            update_config=SessionUpdateConfig(
+                deployment_id=str(deployment.id),
+                update_endpoint=f"{get_api_url()}/v2/deployments/emission",
+                farcaster_hash=cast_hash,
+                farcaster_author_fid=author_fid,
+            ),
+        )
+
+        # create session if it doesn't exist
+        if session:
+            prompt_session_request.session_id = str(session.id)
+            logger.info(f"Using existing session {session.id}")
+        else:
+            prompt_session_request.creation_args = SessionCreationArgs(
+                owner_id=str(user.id),
+                agents=[str(deployment.agent)],
+                title=f"Farcaster cast {cast_hash}",
+                session_key=session_key,
+                platform="farcaster",
+            )
+            logger.info(f"Will create new session with key {session_key}")
+
+        # Make async HTTP POST to /chat
+        eden_api_url = get_api_url()
+        prompt_url = f"{eden_api_url}/sessions/prompt"
+        logger.info(f"Sending prompt request to {prompt_url}")
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                prompt_url,
+                json=prompt_session_request.model_dump(),
+                headers={
+                    "Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}",
+                    "Content-Type": "application/json",
+                },
+            ) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    logger.error(f"Failed to process chat request: {error_text}")
+                    return JSONResponse(
+                        status_code=500,
+                        content={
+                            "error": f"Failed to process chat request: {error_text}"
+                        },
+                    )
+                else:
+                    logger.info(f"Successfully sent prompt request, status: {response.status}")
+
+        logger.info("=== Webhook processing complete ===")
+        return JSONResponse(status_code=200, content={"ok": True})
 
     async def handle_emission(self, emission: "DeploymentEmissionRequest") -> None:
         """Handle an emission from the platform client"""

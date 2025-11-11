@@ -59,7 +59,10 @@ async def handler(context: ToolContext):
 
         # Post the main cast using the reusable helper function
         result = await post_cast(
-            secrets=deployment.secrets, text=text, embeds=embeds1 or None, parent=parent
+            secrets=deployment.secrets, 
+            text=text, 
+            embeds=embeds1 or None, 
+            parent=parent
         )
         cast_hash = result["hash"]
         cast_url = result["url"]
@@ -72,7 +75,11 @@ async def handler(context: ToolContext):
             fid = await get_fid(deployment.secrets)
             parent1 = {"hash": cast_hash, "fid": int(fid)}
             result2 = await post_cast(
-                secrets=deployment.secrets, text="", embeds=embeds2, parent=parent1
+                secrets=deployment.secrets, 
+                text="", 
+                embeds=embeds2, 
+                parent=parent1,
+                thread_hash=thread_hash,
             )
             cast_hash2 = result2["hash"]
             cast_url2 = result2["url"]
