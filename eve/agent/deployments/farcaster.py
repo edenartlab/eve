@@ -412,34 +412,29 @@ class FarcasterClient(PlatformClient):
 
         logger.info(f"Processing cast {cast_hash} from FID {cast_author_fid}")
 
-        # Check if this is a self-mention (agent replying to itself) - ignore if so
-        deployment = None
-        farcaster_deployments = list(Deployment.find({"platform": "farcaster"}))
-        logger.info(f"Found {len(farcaster_deployments)} Farcaster deployments")
-
-        # Extract mentioned FIDs and parent author FID once
+        # Extract mentioned FIDs and parent author FID
         mentioned_fid_list = [profile["fid"] for profile in cast_data.get("mentioned_profiles", [])]
         parent_cast = cast_data.get("parent_cast")
         parent_author_fid = parent_cast.get("author", {}).get("fid") if parent_cast else None
 
-        # Find matching deployment
-        for d in farcaster_deployments:
-            if not (d.config and d.config.farcaster and d.config.farcaster.auto_reply):
-                continue
+        # Get deployments with auto_reply enabled
+        auto_reply_deployments = [
+            d for d in Deployment.find({"platform": "farcaster"})
+            if d.config and d.config.farcaster and d.config.farcaster.auto_reply
+        ]
 
-            try:
-                fid = await get_fid(d.secrets)
+        # Build list of (deployment, fid) tuples
+        deployment_fids = [(d, await get_fid(d.secrets)) for d in auto_reply_deployments]
 
-                # Skip if cast is from the agent itself
-                if fid == cast_author_fid:
-                    return JSONResponse(status_code=200, content={"ok": True})
+        # Skip if cast is from any agent itself (prevent loops)
+        if any(fid == cast_author_fid for _, fid in deployment_fids):
+            return JSONResponse(status_code=200, content={"ok": True})
 
-                # Check if agent was mentioned or is parent author
-                if fid in mentioned_fid_list or fid == parent_author_fid:
-                    deployment = d
-                    break
-            except Exception as e:
-                logger.error(f"Error checking deployment {d.id}: {e}")
+        # Find first matching deployment
+        deployment = next(
+            (d for d, fid in deployment_fids if fid in mentioned_fid_list or fid == parent_author_fid),
+            None
+        )
 
         if not deployment:
             logger.warning("No matching deployment found for this cast")
