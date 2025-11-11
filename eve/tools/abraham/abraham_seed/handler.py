@@ -12,7 +12,7 @@ class AbrahamCreation(BaseModel):
     tagline: str
     poster_image: str
     blog_post: str
-    video: str
+    video: Optional[str] = None
     session_id: str
     contract_address: str
     tx_hash: str
