@@ -22,7 +22,7 @@ from eve.agent.session.models import Session
 from eve.agent.memory.memory import safe_update_memory_context
 
 
-async def _assemble_user_memory(agent: Agent, user: User) -> str:
+async def _assemble_user_memory(agent: Agent, user: Optional[User | ObjectId]) -> str:
     """
     Step 1: Assemble user memory content.
     Returns user_memory_content
@@ -33,9 +33,23 @@ async def _assemble_user_memory(agent: Agent, user: User) -> str:
     try:
         if not agent.user_memory_enabled:
             return ""
+
+        user_obj: Optional[User] = None
+        if isinstance(user, User):
+            user_obj = user
+        elif user:
+            try:
+                user_obj = User.from_mongo(user)
+            except Exception as load_error:  # pragma: no cover - defensive
+                logger.error(f"   ❌ Error loading user {user}: {load_error}")
+                return ""
+
+        if not user_obj or not getattr(user_obj, "canonical_user_id", None):
+            return ""
+
         query_start = time.time()
         user_memory = UserMemory.find_one_or_create(
-            {"agent_id": agent.id, "user_id": user.canonical_user_id}
+            {"agent_id": agent.id, "user_id": user_obj.canonical_user_id}
         )
         if user_memory:
             # Check if fully_formed_memory exists and is up-to-date

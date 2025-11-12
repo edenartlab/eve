@@ -1,47 +1,63 @@
 from eve.agent.session.config import DEFAULT_SESSION_SELECTION_LIMIT
 
+
 class MemoryType:
     def __init__(self, name: str, min_items: int, max_items: int, custom_prompt: str):
         self.name = name
         self.min_items = min_items
         self.max_items = max_items
         self.custom_prompt = custom_prompt
-    
+
+
 # Flag to easily switch between local and production memory settings (keep this in but always set to False in production):
 # Remember to also deploy bg apps with LODAL_DEV = False!
-LOCAL_DEV = False
+LOCAL_DEV = True
 
 # Memory formation settings:
 if LOCAL_DEV:
     MEMORY_LLM_MODEL_FAST = "gpt-5-mini"
     MEMORY_LLM_MODEL_SLOW = "gpt-5-mini"
 
-    MEMORY_FORMATION_MSG_INTERVAL   = 4   # Number of messages to wait before forming memories
-    MEMORY_FORMATION_TOKEN_INTERVAL = 200 # Number of tokens to wait before forming memories
+    MEMORY_FORMATION_MSG_INTERVAL = (
+        4  # Number of messages to wait before forming memories
+    )
+    MEMORY_FORMATION_TOKEN_INTERVAL = (
+        200  # Number of tokens to wait before forming memories
+    )
 
     # Normal memory settings:
     MAX_USER_MEMORIES_BEFORE_CONSOLIDATION = 3  # Number of individual memories to store before consolidating them into the agent's user_memory blob
-    MAX_N_EPISODES_TO_REMEMBER = 2  # Number of episodes to keep in context from a session
+    MAX_N_EPISODES_TO_REMEMBER = (
+        2  # Number of episodes to keep in context from a session
+    )
     # Collective memory settings:
-    MAX_AGENT_MEMORIES_BEFORE_CONSOLIDATION = 3 # Number of suggestions to store before consolidating them into the agent's collective memory blob
-    MAX_FACTS_PER_SHARD = 3 # Max number of facts to store per agent shard (fifo)
-    
+    MAX_AGENT_MEMORIES_BEFORE_CONSOLIDATION = 3  # Number of suggestions to store before consolidating them into the agent's collective memory blob
+    MAX_FACTS_PER_SHARD = 3  # Max number of facts to store per agent shard (fifo)
+
 else:
     MEMORY_LLM_MODEL_FAST = "gpt-5-mini"
     MEMORY_LLM_MODEL_SLOW = "gpt-5"
-    MEMORY_FORMATION_MSG_INTERVAL   = DEFAULT_SESSION_SELECTION_LIMIT - 5  # Number of messages to wait before forming memories
-    MEMORY_FORMATION_TOKEN_INTERVAL = 1000  # Number of tokens to wait before forming memories
+    MEMORY_FORMATION_MSG_INTERVAL = (
+        DEFAULT_SESSION_SELECTION_LIMIT - 5
+    )  # Number of messages to wait before forming memories
+    MEMORY_FORMATION_TOKEN_INTERVAL = (
+        1000  # Number of tokens to wait before forming memories
+    )
 
     # Normal memory settings:
     MAX_USER_MEMORIES_BEFORE_CONSOLIDATION = 5  # Number of individual memories to store before consolidating them into the agent's user_memory blob
-    MAX_N_EPISODES_TO_REMEMBER = 8  # Number of episodes to keep in context from a session
+    MAX_N_EPISODES_TO_REMEMBER = (
+        8  # Number of episodes to keep in context from a session
+    )
 
     # Collective memory settings:
-    MAX_AGENT_MEMORIES_BEFORE_CONSOLIDATION = 16 # Number of suggestions to store before consolidating them into the agent's collective memory blob
-    MAX_FACTS_PER_SHARD = 100 # Max number of facts to store per agent shard (fifo)
-    
+    MAX_AGENT_MEMORIES_BEFORE_CONSOLIDATION = 16  # Number of suggestions to store before consolidating them into the agent's collective memory blob
+    MAX_FACTS_PER_SHARD = 100  # Max number of facts to store per agent shard (fifo)
+
 # Configuration for cold session processing
-CONSIDER_COLD_AFTER_MINUTES = 10  # Consider a session cold if no activity for this many minutes
+CONSIDER_COLD_AFTER_MINUTES = (
+    10  # Consider a session cold if no activity for this many minutes
+)
 CLEANUP_COLD_SESSIONS_EVERY_MINUTES = 10  # Run the background task every N minutes
 
 SYNC_MEMORIES_ACROSS_SESSIONS_EVERY_N_MINUTES = 5
@@ -49,34 +65,60 @@ NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES = 4
 
 # LLMs cannot count tokens at all (weirdly), so instruct with word count:
 # Raw memory blobs:
-SESSION_EPISODE_MEMORY_MAX_WORDS    = 50  # Target word length for session episode memory
-SESSION_DIRECTIVE_MEMORY_MAX_WORDS  = 25  # Target word length for session directive memory
-SESSION_SUGGESTION_MEMORY_MAX_WORDS = 35  # Target word length for session suggestion memory
-SESSION_FACT_MEMORY_MAX_WORDS       = 30  # Target word length for session fact memory
+SESSION_EPISODE_MEMORY_MAX_WORDS = 50  # Target word length for session episode memory
+SESSION_DIRECTIVE_MEMORY_MAX_WORDS = (
+    25  # Target word length for session directive memory
+)
+SESSION_SUGGESTION_MEMORY_MAX_WORDS = (
+    35  # Target word length for session suggestion memory
+)
+SESSION_FACT_MEMORY_MAX_WORDS = 30  # Target word length for session fact memory
 # Consolidated memory blobs:
-USER_MEMORY_BLOB_MAX_WORDS  = 400   # Target word count for consolidated user memory blob
-AGENT_MEMORY_BLOB_MAX_WORDS = 1000  # Target word count for consolidated agent memory blob (shard)
+USER_MEMORY_BLOB_MAX_WORDS = 400  # Target word count for consolidated user memory blob
+AGENT_MEMORY_BLOB_MAX_WORDS = (
+    1000  # Target word count for consolidated agent memory blob (shard)
+)
 
 # Define different memory types and their extraction limits:
 MEMORY_TYPES = {
-    "episode":    MemoryType("episode",    1, 1, "Summary of given conversation segment for contextual recall. Will always be provided in the context of previous episodes and most recent messages."),
-    "directive":  MemoryType("directive",  0, 4, "Persistent instructions, preferences and personal context to remember for future interactions with this user."), 
-    "suggestion": MemoryType("suggestion", 0, 5, "New ideas, suggestions, insights, or context relevant to the shard that could help improve / evolve / form this shard's area of focus"),
-    "fact":       MemoryType("fact",       0, 2, "Atomic, verifiable, unchanging information that is relevant to the collective memory shard context and should be kept in memory FOREVER.")
+    "episode": MemoryType(
+        "episode",
+        1,
+        1,
+        "Summary of given conversation segment for contextual recall. Will always be provided in the context of previous episodes and most recent messages.",
+    ),
+    "directive": MemoryType(
+        "directive",
+        0,
+        4,
+        "Persistent instructions, preferences and personal context to remember for future interactions with this user.",
+    ),
+    "suggestion": MemoryType(
+        "suggestion",
+        0,
+        5,
+        "New ideas, suggestions, insights, or context relevant to the shard that could help improve / evolve / form this shard's area of focus",
+    ),
+    "fact": MemoryType(
+        "fact",
+        0,
+        2,
+        "Atomic, verifiable, unchanging information that is relevant to the collective memory shard context and should be kept in memory FOREVER.",
+    ),
 }
 
 #############################
 # Memory Extraction Prompts #
 #############################
 
-CONVERSATION_TEXT_TOKEN         = "-&&-conversation_text-&&-"
-SHARD_EXTRACTION_PROMPT_TOKEN   = "-&&-shard_extraction_prompt-&&-"
+CONVERSATION_TEXT_TOKEN = "-&&-conversation_text-&&-"
+SHARD_EXTRACTION_PROMPT_TOKEN = "-&&-shard_extraction_prompt-&&-"
 FULLY_FORMED_AGENT_MEMORY_TOKEN = "-&&-fully_formed_agent_memory-&&-"
 
 # Default memory extraction prompt for episodes and directives:
 REGULAR_MEMORY_EXTRACTION_PROMPT = f"""Task: Extract persistent memories from the provided conversation following these rules:
 
-1. EPISODE: {MEMORY_TYPES['episode'].custom_prompt}
+1. EPISODE: {MEMORY_TYPES["episode"].custom_prompt}
   - Create exactly one episodic memory (maximum {SESSION_EPISODE_MEMORY_MAX_WORDS} words each) that captures (in order of importance):
     a) WHAT HAPPENED: Key plans, decisions, problems solved, or actions taken
     b) WHY IT MATTERS: User goals, feedback, and emotional context if significant
@@ -86,8 +128,8 @@ REGULAR_MEMORY_EXTRACTION_PROMPT = f"""Task: Extract persistent memories from th
   - Remember this window only covers messages since the last memory pass, so highlight net-new developments rather than repeating older episodes.
   - Avoid commentary or analysis, create memories that stand on their own without context
 
-2. DIRECTIVE: {MEMORY_TYPES['directive'].custom_prompt}
-  Create {MEMORY_TYPES['directive'].min_items}-{MEMORY_TYPES['directive'].max_items} user memories (maximum {SESSION_DIRECTIVE_MEMORY_MAX_WORDS} words each) if there are personal updates (like progress on projects), long-lasting rules, preferences, or personal context that should be remembered consistently in all future interactions with this user. If none exist (likely), just return an empty array.
+2. DIRECTIVE: {MEMORY_TYPES["directive"].custom_prompt}
+  Create {MEMORY_TYPES["directive"].min_items}-{MEMORY_TYPES["directive"].max_items} user memories (maximum {SESSION_DIRECTIVE_MEMORY_MAX_WORDS} words each) if there are personal updates (like progress on projects), long-lasting rules, preferences, or personal context that should be remembered consistently in all future interactions with this user. If none exist (likely), just return an empty array.
    
   INCLUDE as directives:
   - Explicit behavioral rules ("always ask before X", "never do Y")
@@ -124,7 +166,7 @@ Now carefully read the conversation text and extract the episodes and directives
 Return **exactly** this JSON:
 {{{{
   "episode": ["list of exactly one factual digest (≤{SESSION_EPISODE_MEMORY_MAX_WORDS} words each)"],
-  "directive": ["list of {MEMORY_TYPES['directive'].min_items}-{MEMORY_TYPES['directive'].max_items} persistent rules (≤{SESSION_DIRECTIVE_MEMORY_MAX_WORDS} words each)"]
+  "directive": ["list of {MEMORY_TYPES["directive"].min_items}-{MEMORY_TYPES["directive"].max_items} persistent rules (≤{SESSION_DIRECTIVE_MEMORY_MAX_WORDS} words each)"]
 }}}}
 """
 
@@ -142,8 +184,8 @@ IMPORTANT: Below is the context / project / event / topic (shard) you are workin
 
 Your goal is to extract facts and suggestions relevant to the shard's context according to the following guidelines:
 
-1. FACTS: {MEMORY_TYPES['fact'].custom_prompt}
-  - Extract 0 to {MEMORY_TYPES['fact'].max_items} facts (maximum {SESSION_FACT_MEMORY_MAX_WORDS} words each). Typically, you will extract much less than {MEMORY_TYPES['fact'].max_items} #facts (often none at all).
+1. FACTS: {MEMORY_TYPES["fact"].custom_prompt}
+  - Extract 0 to {MEMORY_TYPES["fact"].max_items} facts (maximum {SESSION_FACT_MEMORY_MAX_WORDS} words each). Typically, you will extract much less than {MEMORY_TYPES["fact"].max_items} #facts (often none at all).
   - Each fact must be unique and verified statements - a specific piece of information coming from the user(s) that will never change.
   - Include source when provided ("Alice: deadline is May 1st" or "Bob: the max budget is $1000")
   - Facts must be self-contained and understandable without any additional context
@@ -155,8 +197,8 @@ Your goal is to extract facts and suggestions relevant to the shard's context ac
     b) Provide critical constraints or dependencies
     c) Establish relationships between entities
     
-2. SUGGESTIONS: {MEMORY_TYPES['suggestion'].custom_prompt}
-  - Extract maximum {MEMORY_TYPES['suggestion'].max_items} suggestions of maximum {SESSION_SUGGESTION_MEMORY_MAX_WORDS} words each
+2. SUGGESTIONS: {MEMORY_TYPES["suggestion"].custom_prompt}
+  - Extract maximum {MEMORY_TYPES["suggestion"].max_items} suggestions of maximum {SESSION_SUGGESTION_MEMORY_MAX_WORDS} words each
   - Suggestions are not immediately integrated into the shard memory, they are only suggestions to consider for future consolidation (happens in cycles)
   - Include rationale when provided ("X because Y") and note down when further consensus is needed, also remember when people disagree with existing ideas / suggestions and try to find a compromise.
   - Distinguish for example between:
@@ -180,8 +222,8 @@ Now carefully read the conversation text and extract the facts and suggestions:
 
 Return **exactly** this JSON:
 {{{{
-  "fact": ["list of {MEMORY_TYPES['fact'].min_items}-{MEMORY_TYPES['fact'].max_items} atomic facts (≤{SESSION_FACT_MEMORY_MAX_WORDS} words each)"],
-  "suggestion": ["list of {MEMORY_TYPES['suggestion'].min_items}-{MEMORY_TYPES['suggestion'].max_items} suggestions (≤{SESSION_SUGGESTION_MEMORY_MAX_WORDS} words each)"]
+  "fact": ["list of {MEMORY_TYPES["fact"].min_items}-{MEMORY_TYPES["fact"].max_items} atomic facts (≤{SESSION_FACT_MEMORY_MAX_WORDS} words each)"],
+  "suggestion": ["list of {MEMORY_TYPES["suggestion"].min_items}-{MEMORY_TYPES["suggestion"].max_items} suggestions (≤{SESSION_SUGGESTION_MEMORY_MAX_WORDS} words each)"]
 }}}}
 """
 
@@ -213,7 +255,7 @@ Return only the consolidated memory text, no additional formatting or explanatio
 
 ########################################################
 
-# Agent Memory Consolidation Prompt Template  
+# Agent Memory Consolidation Prompt Template
 AGENT_MEMORY_CONSOLIDATION_PROMPT = f"""You are synthesizing the collective memory of a community / org working on "{{shard_name}}" 
 Your task is to update an evolving collective memory based on new memories extracted from recent conversations with various members.
 

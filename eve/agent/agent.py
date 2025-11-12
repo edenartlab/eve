@@ -79,6 +79,10 @@ class AgentExtras(BaseModel):
         None,
         description="DEPRECATED: Permissions moved to agent_permissions collection",
     )
+    experimental_memory_backend: Optional[str] = Field(
+        default=None,
+        description="Optional override for the memory backend (e.g., 'graphiti').",
+    )
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 

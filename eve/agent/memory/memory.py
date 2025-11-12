@@ -945,6 +945,8 @@ async def _extract_all_memories(
             )
             traceback.print_exc()
 
+    logger.debug(f"========== Extracted data: {extracted_data}")
+    logger.debug(f"========== Memory to shard map: {memory_to_shard_map}")
     return extracted_data, memory_to_shard_map
 
 
