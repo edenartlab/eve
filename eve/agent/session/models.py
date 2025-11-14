@@ -849,27 +849,20 @@ class NotificationConfig:
 @dataclass
 class PromptSessionContext:
     session: Session
-    initiating_user_id: str  # The user who owns/initiates the session
+    initiating_user_id: str
     message: ChatMessageRequestInput
+    session_run_id: Optional[str] = None
     update_config: Optional[SessionUpdateConfig] = None
     actor_agent_ids: Optional[List[str]] = None
     llm_config: Optional[LLMConfig] = None
-
-    # overrides all tools if set, otherwise uses actor's tools
     tools: Optional[Dict[str, Any]] = None
-    # extra tools added to the base or actor's tools
     extra_tools: Optional[Dict[str, Any]] = None
     tool_choice: Optional[str] = None
-
     notification_config: Optional[NotificationConfig] = None
-    # Override agent's thinking policy per-message
     thinking_override: Optional[bool] = None
     acting_user_id: Optional[str] = None
     trigger: Optional[ObjectId] = None
-    api_key_id: Optional[str] = None  # API key ID to attach to messages
-
-    # The user whose permissions are used for tool authorization (defaults to initiating_user_id if not provided)
-    # trigger: Optional[Any] = None
+    api_key_id: Optional[str] = None
 
 
 @dataclass

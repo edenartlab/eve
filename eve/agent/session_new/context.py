@@ -143,8 +143,9 @@ def label_message_channels(messages: List[ChatMessage]):
 async def build_system_message(
     session: Session,
     actor: Agent,
-    user: User,
+    user: Optional[User],
     tools: Dict[str, Tool],
+    instrumentation=None,
 ):  # Get the last speaker ID for memory prioritization
     # Get concepts
     concepts = Concept.find({"agent": actor.id, "deleted": {"$ne": True}})
@@ -162,12 +163,13 @@ async def build_system_message(
 
     # Get memory (unless excluded by session extras)
     memory = None
-    if not (session.extras and session.extras.exclude_memory):
+    if user and not (session.extras and session.extras.exclude_memory):
         memory = await memory_service.assemble_memory_context(
             session,
             actor,
             user,
             reason="build_system_message",
+            instrumentation=instrumentation,
         )
 
     # Build system prompt with memory context
@@ -309,12 +311,14 @@ async def build_llm_context(
     context: PromptSessionContext,
     trace_id: Optional[str] = str(uuid.uuid4()),
 ):
+    instrumentation = getattr(context, "instrumentation", None)
     if context.initiating_user_id:
         user = User.from_mongo(context.initiating_user_id)
         tier = (
             "premium" if user.subscriptionTier and user.subscriptionTier > 0 else "free"
         )
     else:
+        user = None
         tier = "free"
 
     auth_user_id = context.acting_user_id or context.initiating_user_id
@@ -340,7 +344,13 @@ async def build_llm_context(
     force_fake = is_fake_llm_mode() or is_test_mode_prompt(raw_prompt_text)
 
     # build messages first to have context for thinking routing
-    system_message = await build_system_message(session, actor, context, tools)
+    system_message = await build_system_message(
+        session,
+        actor,
+        user,
+        tools,
+        instrumentation=instrumentation,
+    )
 
     messages = [system_message]
     context, base_config, system_extras = await build_system_extras(

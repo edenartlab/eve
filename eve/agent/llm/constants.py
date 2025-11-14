@@ -1,4 +1,6 @@
+from dataclasses import dataclass
 from enum import Enum
+from typing import Tuple
 
 
 class ModelProvider(Enum):
@@ -21,3 +23,45 @@ FALLBACK_MODEL_FREE = "gpt-5-nano"
 
 TEST_MODE_TEXT_STRING = "===test"
 TEST_MODE_TOOL_STRING = "===tool"
+
+
+@dataclass(frozen=True)
+class ModelDefaults:
+    model: str
+    provider: ModelProvider
+    fallbacks: Tuple[Tuple[str, ModelProvider], ...] = ()
+
+
+_DEFAULT_MODEL_MAP = {
+    ModelTier.PREMIUM: ModelDefaults(
+        model=DEFAULT_MODEL_PREMIUM,
+        provider=ModelProvider.ANTHROPIC,
+        fallbacks=((FALLBACK_MODEL_PREMIUM, ModelProvider.OPENAI),),
+    ),
+    ModelTier.FREE: ModelDefaults(
+        model=DEFAULT_MODEL_FREE,
+        provider=ModelProvider.ANTHROPIC,
+        fallbacks=((FALLBACK_MODEL_FREE, ModelProvider.OPENAI),),
+    ),
+}
+
+
+def get_provider_for_model(model_name: str) -> ModelProvider:
+    """Infer the model provider from a model identifier."""
+    name = model_name.lower()
+    if name.startswith("claude"):
+        return ModelProvider.ANTHROPIC
+    if name.startswith("gpt"):
+        return ModelProvider.OPENAI
+    if name.startswith("gemini"):
+        return ModelProvider.GEMINI
+    return ModelProvider.OPENAI
+
+
+def get_default_model_defaults(tier: ModelTier = ModelTier.PREMIUM) -> ModelDefaults:
+    """Return the default model/provider and fallback chain for a tier."""
+    defaults = _DEFAULT_MODEL_MAP.get(tier)
+    if defaults:
+        return defaults
+    # Fallback to premium if an unknown tier is provided
+    return _DEFAULT_MODEL_MAP[ModelTier.PREMIUM]

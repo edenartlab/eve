@@ -30,10 +30,9 @@ from eve.agent.session.models import (
 )
 from eve.agent.memory.memory_models import messages_to_text, select_messages
 from eve.agent.session_new.service import (
-    prepare_prompt_session,
-    run_prompt_session,
-    run_prompt_session_stream,
+    create_prompt_session_handle,
 )
+from eve.agent.session_new.setup import setup_session
 from eve.api.errors import handle_errors, APIError
 from eve.api.api_requests import (
     CancelRequest,
@@ -170,7 +169,8 @@ async def handle_agent_tools_delete(request: AgentToolsDeleteRequest):
 async def handle_prompt_session(
     request: PromptSessionRequest, background_tasks: BackgroundTasks
 ):
-    session, context = prepare_prompt_session(request, background_tasks)
+    handle = create_prompt_session_handle(request, background_tasks)
+    session_id = handle.session_id
 
     if request.stream:
 
@@ -178,7 +178,7 @@ async def handle_prompt_session(
             try:
                 from eve.utils import dumps_json
 
-                async for data in run_prompt_session_stream(context, background_tasks):
+                async for data in handle.stream_updates():
                     yield f"data: {dumps_json({'event': 'update', 'data': data})}\n\n"
                 yield f"data: {dumps_json({'event': 'done', 'data': ''})}\n\n"
             except Exception as e:
@@ -195,12 +195,10 @@ async def handle_prompt_session(
         )
 
     background_tasks.add_task(
-        run_prompt_session,
-        context=context,
-        background_tasks=background_tasks,
+        handle.run,
     )
 
-    return {"session_id": str(session.id)}
+    return {"session_id": session_id}
 
 
 @handle_errors

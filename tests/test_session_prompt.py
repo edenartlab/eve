@@ -158,15 +158,19 @@ class TestSessionPrompt:
         )
         background_tasks = BackgroundTasks()
 
-        with patch("eve.api.handlers.setup_session") as mock_setup:
-            mock_setup.return_value = mock_session
-            with patch("eve.api.handlers.run_prompt_session") as mock_run_prompt:
-                result = await handle_prompt_session(request, background_tasks)
+        mock_handle = MagicMock()
+        mock_handle.session_id = str(mock_session.id)
 
-                assert result == {"session_id": str(mock_session.id)}
-                mock_setup.assert_called_once_with(
-                    str(mock_session.id), request.user_id, request
-                )
+        with patch(
+            "eve.api.handlers.create_prompt_session_handle", return_value=mock_handle
+        ) as mock_create_handle, patch.object(
+            background_tasks, "add_task"
+        ) as mock_add_task:
+            result = await handle_prompt_session(request, background_tasks)
+
+            assert result == {"session_id": str(mock_session.id)}
+            mock_create_handle.assert_called_once_with(request, background_tasks)
+            mock_add_task.assert_called_once_with(mock_handle.run)
 
     @pytest.mark.asyncio
     async def test_handle_prompt_session_create_new_session(
@@ -186,13 +190,19 @@ class TestSessionPrompt:
         )
         background_tasks = BackgroundTasks()
 
-        with patch("eve.api.handlers.setup_session") as mock_setup:
-            mock_setup.return_value = mock_session
-            with patch("eve.api.handlers.run_prompt_session") as mock_run_prompt:
-                result = await handle_prompt_session(request, background_tasks)
+        mock_handle = MagicMock()
+        mock_handle.session_id = str(mock_session.id)
 
-                assert result == {"session_id": str(mock_session.id)}
-                mock_setup.assert_called_once_with(None, request.user_id, request)
+        with patch(
+            "eve.api.handlers.create_prompt_session_handle", return_value=mock_handle
+        ) as mock_create_handle, patch.object(
+            background_tasks, "add_task"
+        ) as mock_add_task:
+            result = await handle_prompt_session(request, background_tasks)
+
+            assert result == {"session_id": str(mock_session.id)}
+            mock_create_handle.assert_called_once_with(request, background_tasks)
+            mock_add_task.assert_called_once_with(mock_handle.run)
 
     @pytest.mark.asyncio
     async def test_handle_prompt_session_stream_response(self, mock_session):
@@ -215,16 +225,18 @@ class TestSessionPrompt:
             for data in mock_stream_data:
                 yield data
 
-        with patch("eve.api.handlers.setup_session") as mock_setup:
-            mock_setup.return_value = mock_session
-            with patch("eve.api.handlers.run_prompt_session_stream") as mock_stream:
-                mock_stream.return_value = mock_stream_generator()
+        mock_handle = MagicMock()
+        mock_handle.session_id = str(mock_session.id)
+        mock_handle.stream_updates.return_value = mock_stream_generator()
 
-                result = await handle_prompt_session(request, background_tasks)
+        with patch(
+            "eve.api.handlers.create_prompt_session_handle", return_value=mock_handle
+        ) as mock_create_handle:
+            result = await handle_prompt_session(request, background_tasks)
 
-                # For streaming, we expect a StreamingResponse
-                assert hasattr(result, "media_type")
-                assert result.media_type == "text/event-stream"
+            assert hasattr(result, "media_type")
+            assert result.media_type == "text/event-stream"
+            mock_create_handle.assert_called_once_with(request, background_tasks)
 
 
 if __name__ == "__main__":

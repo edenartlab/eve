@@ -1,5 +1,4 @@
 from typing import List, Optional
-
 from bson import ObjectId
 from fastapi import BackgroundTasks
 
@@ -15,7 +14,16 @@ from eve.api.api_requests import PromptSessionRequest
 from eve.api.errors import APIError
 from eve.trigger import Trigger
 
-from .notifications import async_title_session
+from eve.agent.session_new.functions import async_title_session
+from eve.agent.llm.util import is_test_mode_prompt
+
+
+def _is_test_prompt_request(request: PromptSessionRequest) -> bool:
+    if not request or not request.message:
+        return False
+    content = getattr(request.message, "content", None)
+    return bool(content and is_test_mode_prompt(content))
+
 
 def create_eden_message(
     session_id: ObjectId, message_type: EdenMessageType, agents: List[Agent]
@@ -49,6 +57,12 @@ def generate_session_title(
         return
 
     if request.creation_args and request.creation_args.title:
+        return
+
+    if _is_test_prompt_request(request):
+        if session.title != "test thread":
+            session.update(title="test thread")
+            session.title = "test thread"
         return
 
     if background_tasks:
@@ -103,6 +117,10 @@ def setup_session(
         session_kwargs["extras"] = request.creation_args.extras
 
     session = Session(**session_kwargs)
+
+    if _is_test_prompt_request(request):
+        session.title = "test thread"
+
     session.save()
 
     # Update trigger with session ID
