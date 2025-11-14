@@ -12,7 +12,13 @@ from eve.agent.llm.formatting import (
 )
 from eve.agent.llm.pricing import calculate_cost_usd
 from eve.agent.llm.providers import LLMProvider
-from eve.agent.session.models import LLMContext, LLMResponse, ToolCall, ChatMessage
+from eve.agent.session.models import (
+    LLMContext,
+    LLMResponse,
+    ToolCall,
+    ChatMessage,
+    LLMUsage,
+)
 
 
 class AnthropicProvider(LLMProvider):
@@ -128,8 +134,19 @@ class AnthropicProvider(LLMProvider):
                 thoughts.append(payload)
 
         usage = response.usage
+        prompt_tokens = usage.input_tokens if usage else None
+        completion_tokens = usage.output_tokens if usage else None
+        cache_creation_tokens = usage.cache_creation_input_tokens if usage else None
+        cache_read_tokens = usage.cache_read_input_tokens if usage else None
         total_tokens = (
-            (usage.input_tokens or 0) + (usage.output_tokens or 0) if usage else None
+            (prompt_tokens or 0) + (completion_tokens or 0) if usage else None
+        )
+        usage_payload = LLMUsage(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            cached_prompt_tokens=cache_read_tokens,
+            cached_completion_tokens=cache_creation_tokens,
+            total_tokens=total_tokens,
         )
 
         finish_reason = getattr(response, "stop_reason", None)
@@ -141,6 +158,9 @@ class AnthropicProvider(LLMProvider):
             tool_calls=tool_calls or None,
             stop=finish_reason,
             tokens_spent=total_tokens,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            usage=usage_payload,
             thought=thoughts or None,
         )
 
@@ -151,9 +171,21 @@ class AnthropicProvider(LLMProvider):
         usage = response.usage
         prompt_tokens = usage.input_tokens if usage else 0
         completion_tokens = usage.output_tokens if usage else 0
+        cache_creation_tokens = usage.cache_creation_input_tokens if usage else 0
+        cache_read_tokens = usage.cache_read_input_tokens if usage else 0
         _, _, total_cost = calculate_cost_usd(
             model, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens
         )
+        usage_payload = LLMUsage(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            cached_prompt_tokens=cache_read_tokens,
+            cached_completion_tokens=cache_creation_tokens,
+            total_tokens=(prompt_tokens or 0) + (completion_tokens or 0),
+            cost_usd=total_cost,
+        )
+        if llm_response.usage:
+            llm_response.usage.cost_usd = total_cost
 
         self.instrumentation.record_counter("llm.prompt_tokens", prompt_tokens or 0)
         self.instrumentation.record_counter(
@@ -166,8 +198,5 @@ class AnthropicProvider(LLMProvider):
             model=model,
             input_payload=None,
             output_payload=llm_response.content,
-            usage={
-                "prompt_tokens": prompt_tokens,
-                "completion_tokens": completion_tokens,
-            },
+            usage=usage_payload.model_dump(),
         )

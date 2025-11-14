@@ -181,11 +181,27 @@ class Channel(Document):
 class ChatMessageObservability(BaseModel):
     provider: Literal["langfuse"] = "langfuse"
     session_id: Optional[str] = None
+    session_run_id: Optional[str] = None
     trace_id: Optional[str] = None  # Langfuse trace ID
     generation_id: Optional[str] = None  # Langfuse generation ID
     tokens_spent: Optional[int] = None
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
+    cached_prompt_tokens: Optional[int] = None
+    cached_completion_tokens: Optional[int] = None
+    cost_usd: Optional[float] = None
     sentry_trace_id: Optional[str] = None  # Sentry distributed trace ID for correlation
+    usage: Optional["LLMUsage"] = None
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+class LLMUsage(BaseModel):
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
+    cached_prompt_tokens: Optional[int] = None
+    cached_completion_tokens: Optional[int] = None
+    total_tokens: Optional[int] = None
+    cost_usd: Optional[float] = None
 
 
 @Collection("messages")
@@ -875,6 +891,12 @@ class LLMResponse:
     tool_calls: Optional[List[ToolCall]] = None
     stop: Optional[str] = None
     tokens_spent: Optional[int] = None
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
+    cached_prompt_tokens: Optional[int] = None
+    cached_completion_tokens: Optional[int] = None
+    cost_usd: Optional[float] = None
+    usage: Optional[LLMUsage] = None
     thought: Optional[List[Dict[str, Any]]] = None
 
 

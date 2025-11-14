@@ -9,7 +9,7 @@ from google.genai import types as genai_types
 
 from eve.agent.llm.pricing import calculate_cost_usd
 from eve.agent.llm.providers import LLMProvider
-from eve.agent.session.models import LLMContext, LLMResponse, ChatMessage
+from eve.agent.session.models import LLMContext, LLMResponse, ChatMessage, LLMUsage
 
 
 class GoogleProvider(LLMProvider):
@@ -121,8 +121,15 @@ class GoogleProvider(LLMProvider):
                 stop_reason = candidate.finish_reason
 
         usage = response.usage_metadata
+        prompt_tokens = usage.input_tokens if usage else None
+        completion_tokens = usage.output_tokens if usage else None
         total_tokens = (
-            (usage.input_tokens or 0) + (usage.output_tokens or 0) if usage else None
+            (prompt_tokens or 0) + (completion_tokens or 0) if usage else None
+        )
+        usage_payload = LLMUsage(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
         )
 
         return LLMResponse(
@@ -130,6 +137,9 @@ class GoogleProvider(LLMProvider):
             tool_calls=None,
             stop=stop_reason,
             tokens_spent=total_tokens,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            usage=usage_payload,
             thought=None,
         )
 
@@ -148,6 +158,8 @@ class GoogleProvider(LLMProvider):
         _, _, total_cost = calculate_cost_usd(
             model, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens
         )
+        if llm_response.usage:
+            llm_response.usage.cost_usd = total_cost
 
         self.instrumentation.record_counter("llm.prompt_tokens", prompt_tokens or 0)
         self.instrumentation.record_counter(
@@ -163,6 +175,7 @@ class GoogleProvider(LLMProvider):
             usage={
                 "prompt_tokens": prompt_tokens,
                 "completion_tokens": completion_tokens,
+                "cost_usd": total_cost,
             },
         )
 

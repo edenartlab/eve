@@ -16,7 +16,7 @@ from eve.agent.llm.formatting import (
 )
 from eve.agent.llm.pricing import calculate_cost_usd
 from eve.agent.llm.providers import LLMProvider
-from eve.agent.session.models import LLMContext, LLMResponse, ToolCall
+from eve.agent.session.models import LLMContext, LLMResponse, ToolCall, LLMUsage
 
 
 class OpenAIProvider(LLMProvider):
@@ -106,13 +106,29 @@ class OpenAIProvider(LLMProvider):
         thought = getattr(message, "reasoning_content", None)
 
         usage = completion.usage
+        prompt_tokens = usage.prompt_tokens if usage else None
+        completion_tokens = usage.completion_tokens if usage else None
         total_tokens = usage.total_tokens if usage else None
+        usage_payload = LLMUsage(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            cached_prompt_tokens=getattr(
+                getattr(usage, "prompt_tokens_details", None), "cached_tokens", None
+            )
+            if usage
+            else None,
+            cached_completion_tokens=None,
+            total_tokens=total_tokens,
+        )
 
         return LLMResponse(
             content=content,
             tool_calls=tool_calls or None,
             stop=completion.choices[0].finish_reason,
             tokens_spent=total_tokens,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            usage=usage_payload,
             thought=thought,
         )
 
@@ -152,6 +168,7 @@ class OpenAIProvider(LLMProvider):
         _, _, total_cost = calculate_cost_usd(
             model, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens
         )
+        usage_payload.cost_usd = total_cost
 
         self.instrumentation.record_counter("llm.prompt_tokens", prompt_tokens or 0)
         self.instrumentation.record_counter(
@@ -167,6 +184,7 @@ class OpenAIProvider(LLMProvider):
             usage={
                 "prompt_tokens": prompt_tokens,
                 "completion_tokens": completion_tokens,
+                "cost_usd": total_cost,
             },
         )
 

@@ -1,6 +1,6 @@
 from typing import Optional, AsyncGenerator, Callable, Any, List
 
-from eve.agent.llm.constants import ModelProvider
+from eve.agent.llm.constants import ModelProvider, MODEL_PROVIDER_OVERRIDES
 from eve.agent.llm.providers import LLMProvider
 from eve.agent.session.models import LLMContext, LLMResponse, ToolCall
 from eve.agent.llm.util import (
@@ -36,7 +36,18 @@ def get_provider(
         return None
 
     provider_type = _detect_provider(model_name)
-    fallbacks = context.config.fallback_models or []
+    fallbacks = [
+        fb
+        for fb in (context.config.fallback_models or [])
+        if _detect_provider(fb) == provider_type
+    ]
+    dropped = set(context.config.fallback_models or []) - set(fallbacks)
+    if dropped and instrumentation:
+        instrumentation.log_event(
+            "Dropping fallback models with mismatched provider",
+            level="warning",
+            payload={"dropped": list(dropped), "provider": provider_type.value},
+        )
 
     if provider_type == ModelProvider.ANTHROPIC:
         from eve.agent.llm.providers.anthropic import AnthropicProvider
@@ -70,16 +81,23 @@ def get_provider(
 
 def _detect_provider(model_name: str) -> ModelProvider:
     normalized = model_name.lower()
-    if normalized.startswith("openai/"):
+    if "/" in normalized:
+        _, base = normalized.split("/", 1)
+    else:
+        base = normalized
+
+    if base in MODEL_PROVIDER_OVERRIDES:
+        return MODEL_PROVIDER_OVERRIDES[base]
+
+    if base.startswith("openai"):
         return ModelProvider.OPENAI
-    if normalized.startswith("anthropic/"):
+    if base.startswith("anthropic") or base.startswith("claude"):
         return ModelProvider.ANTHROPIC
-    if normalized.startswith("google/") or normalized.startswith("vertex/"):
+    if base.startswith("gemini") or base.startswith("vertex"):
         return ModelProvider.GEMINI
-    if normalized.startswith("claude") or "anthropic" in normalized:
-        return ModelProvider.ANTHROPIC
-    if normalized.startswith("gemini"):
-        return ModelProvider.GEMINI
+    if base.startswith("gpt"):
+        return ModelProvider.OPENAI
+
     return ModelProvider.OPENAI
 
 

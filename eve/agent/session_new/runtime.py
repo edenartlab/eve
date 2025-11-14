@@ -18,6 +18,7 @@ from eve.agent.session.models import (
     ChatMessage,
     ChatMessageObservability,
     LLMContext,
+    LLMUsage,
     PromptSessionContext,
     Session,
     SessionMemoryContext,
@@ -270,11 +271,17 @@ class PromptSessionRuntime:
                     tokens_spent = chunk.usage.total_tokens
 
         tool_calls = self._materialize_tool_calls(tool_calls_dict)
+        usage_payload = LLMUsage(
+            total_tokens=tokens_spent,
+            prompt_tokens=None,
+            completion_tokens=None,
+        )
         self._last_stream_result = {
             "content": content,
             "tool_calls": tool_calls,
             "stop_reason": stop_reason,
             "tokens_spent": tokens_spent,
+            "usage": usage_payload.model_dump(),
         }
         return
 
@@ -287,12 +294,19 @@ class PromptSessionRuntime:
             else:
                 response = await legacy_async_prompt(self.llm_context)
 
+        usage_dump = (
+            response.usage.model_dump()
+            if hasattr(response, "usage") and response.usage
+            else None
+        )
+
         return {
             "content": response.content,
             "tool_calls": response.tool_calls,
             "stop_reason": response.stop,
             "tokens_spent": response.tokens_spent,
             "thought": response.thought,
+            "usage": usage_dump,
         }
 
     def _materialize_tool_calls(
@@ -322,6 +336,14 @@ class PromptSessionRuntime:
     async def _persist_assistant_message(
         self, llm_result: Dict[str, Any]
     ) -> ChatMessage:
+        usage_payload = llm_result.get("usage")
+        usage_obj = None
+        if usage_payload:
+            if isinstance(usage_payload, dict):
+                usage_obj = LLMUsage(**usage_payload)
+            elif isinstance(usage_payload, LLMUsage):
+                usage_obj = usage_payload
+
         assistant_message = ChatMessage(
             session=self.session.id,
             sender=ObjectId(self.llm_context.metadata.trace_metadata.agent_id),
@@ -337,7 +359,24 @@ class PromptSessionRuntime:
                 session_id=self.llm_context.metadata.session_id,
                 trace_id=self.llm_context.metadata.trace_id,
                 generation_id=self.llm_context.metadata.generation_id,
+                session_run_id=self.session_run_id,
                 tokens_spent=llm_result.get("tokens_spent"),
+                prompt_tokens=(
+                    usage_obj.prompt_tokens if usage_obj else llm_result.get("prompt_tokens")
+                ),
+                completion_tokens=(
+                    usage_obj.completion_tokens
+                    if usage_obj
+                    else llm_result.get("completion_tokens")
+                ),
+                cached_prompt_tokens=(
+                    usage_obj.cached_prompt_tokens if usage_obj else None
+                ),
+                cached_completion_tokens=(
+                    usage_obj.cached_completion_tokens if usage_obj else None
+                ),
+                cost_usd=usage_obj.cost_usd if usage_obj else None,
+                usage=usage_obj,
             ),
             apiKey=ObjectId(self.api_key_id) if self.api_key_id else None,
         )

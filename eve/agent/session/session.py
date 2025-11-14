@@ -22,6 +22,7 @@ from eve.agent.session.models import (
     ChatMessageObservability,
     LLMTraceMetadata,
     LLMConfig,
+    LLMUsage,
     PromptSessionContext,
     Channel,
     Session,
@@ -1059,7 +1060,21 @@ async def async_prompt_session(
                             )
                         )
 
+                usage_obj = LLMUsage(total_tokens=tokens_spent)
+
                 # Create the final assistant message
+                usage_obj = response.usage
+                if usage_obj and not isinstance(usage_obj, LLMUsage):
+                    usage_obj = LLMUsage(**usage_obj)
+                if usage_obj is None:
+                    usage_obj = LLMUsage(
+                        prompt_tokens=response.prompt_tokens,
+                        completion_tokens=response.completion_tokens,
+                        cached_prompt_tokens=response.cached_prompt_tokens,
+                        cached_completion_tokens=response.cached_completion_tokens,
+                        total_tokens=response.tokens_spent,
+                    )
+
                 assistant_message = ChatMessage(
                     session=session.id,
                     sender=ObjectId(llm_context.metadata.trace_metadata.agent_id),
@@ -1074,7 +1089,9 @@ async def async_prompt_session(
                         session_id=llm_context.metadata.session_id,
                         trace_id=llm_context.metadata.trace_id,
                         generation_id=llm_context.metadata.generation_id,
+                        session_run_id=session_run_id,
                         tokens_spent=tokens_spent,
+                        usage=usage_obj,
                     ),
                     apiKey=ObjectId(api_key_id) if api_key_id else None,
                 )
@@ -1099,7 +1116,14 @@ async def async_prompt_session(
                         session_id=llm_context.metadata.session_id,
                         trace_id=llm_context.metadata.trace_id,
                         generation_id=llm_context.metadata.generation_id,
+                        session_run_id=session_run_id,
                         tokens_spent=response.tokens_spent,
+                        prompt_tokens=response.prompt_tokens,
+                        completion_tokens=response.completion_tokens,
+                        cached_prompt_tokens=response.cached_prompt_tokens,
+                        cached_completion_tokens=response.cached_completion_tokens,
+                        cost_usd=usage_obj.cost_usd,
+                        usage=usage_obj,
                     ),
                     apiKey=ObjectId(api_key_id) if api_key_id else None,
                 )

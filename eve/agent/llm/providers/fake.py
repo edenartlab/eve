@@ -13,7 +13,7 @@ from eve.agent.llm.util import (
     is_test_mode_prompt,
 )
 from eve.agent.session.fake_utils import build_fake_tool_result_payload
-from eve.agent.session.models import LLMContext, LLMResponse, ToolCall
+from eve.agent.session.models import LLMContext, LLMResponse, ToolCall, LLMUsage
 from eve.tool import Tool
 
 
@@ -102,6 +102,7 @@ async def async_prompt_fake(
             tool_calls=None,
             stop="stop",
             tokens_spent=0,
+            usage=LLMUsage(total_tokens=0, prompt_tokens=0, completion_tokens=0),
             thought=None,
         )
 
@@ -153,6 +154,7 @@ async def async_prompt_fake(
         tool_calls=tool_calls,
         stop=stop_reason,
         tokens_spent=0,
+        usage=LLMUsage(total_tokens=0, prompt_tokens=0, completion_tokens=0),
         thought=None,
     )
 

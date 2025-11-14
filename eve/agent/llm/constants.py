@@ -24,6 +24,22 @@ FALLBACK_MODEL_FREE = "gpt-5-nano"
 TEST_MODE_TEXT_STRING = "===test"
 TEST_MODE_TOOL_STRING = "===tool"
 
+MODEL_PROVIDER_OVERRIDES = {
+    # Anthropic
+    "claude-sonnet-4-5": ModelProvider.ANTHROPIC,
+    "claude-4-5-sonnet": ModelProvider.ANTHROPIC,
+    "claude-haiku-4-5": ModelProvider.ANTHROPIC,
+    "claude-4-5-haiku": ModelProvider.ANTHROPIC,
+    # OpenAI
+    "gpt-4o-mini": ModelProvider.OPENAI,
+    "gpt-5": ModelProvider.OPENAI,
+    "gpt-5-nano": ModelProvider.OPENAI,
+    "gpt-5-mini": ModelProvider.OPENAI,
+    # Gemini
+    "gemini-2.5-pro": ModelProvider.GEMINI,
+    "gemini-2.5-flash": ModelProvider.GEMINI,
+}
+
 
 @dataclass(frozen=True)
 class ModelDefaults:
