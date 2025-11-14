@@ -1,4 +1,6 @@
-from typing import Optional, AsyncGenerator, Callable, Any
+from typing import Optional, AsyncGenerator, Callable, Any, List
+
+from eve.agent.llm.constants import ModelProvider
 from eve.agent.llm.providers import LLMProvider
 from eve.agent.session.models import LLMContext, LLMResponse, ToolCall
 from eve.agent.llm.util import (
@@ -16,7 +18,9 @@ def set_provider_factory(factory: Optional[ProviderFactory]) -> None:
     _provider_factory_override = factory
 
 
-def get_provider(context: LLMContext) -> Optional[LLMProvider]:
+def get_provider(
+    context: LLMContext, instrumentation=None
+) -> Optional[LLMProvider]:
     """Resolve the appropriate provider for a context, if available."""
     if _provider_factory_override:
         provider = _provider_factory_override(context)
@@ -25,9 +29,58 @@ def get_provider(context: LLMContext) -> Optional[LLMProvider]:
 
     if should_force_fake_response(context):
         from eve.agent.llm.providers.fake import FakeProvider
-        return FakeProvider()
+        return FakeProvider(instrumentation=instrumentation)
+
+    model_name = (context.config.model or "").strip()
+    if not model_name:
+        return None
+
+    provider_type = _detect_provider(model_name)
+    fallbacks = context.config.fallback_models or []
+
+    if provider_type == ModelProvider.ANTHROPIC:
+        from eve.agent.llm.providers.anthropic import AnthropicProvider
+
+        return AnthropicProvider(
+            model=model_name,
+            fallbacks=fallbacks,
+            instrumentation=instrumentation,
+        )
+
+    if provider_type == ModelProvider.OPENAI:
+        from eve.agent.llm.providers.openai import OpenAIProvider
+
+        return OpenAIProvider(
+            model=model_name,
+            fallbacks=fallbacks,
+            instrumentation=instrumentation,
+        )
+
+    if provider_type == ModelProvider.GEMINI:
+        from eve.agent.llm.providers.google import GoogleProvider
+
+        return GoogleProvider(
+            model=model_name,
+            fallbacks=fallbacks,
+            instrumentation=instrumentation,
+        )
 
     return None
+
+
+def _detect_provider(model_name: str) -> ModelProvider:
+    normalized = model_name.lower()
+    if normalized.startswith("openai/"):
+        return ModelProvider.OPENAI
+    if normalized.startswith("anthropic/"):
+        return ModelProvider.ANTHROPIC
+    if normalized.startswith("google/") or normalized.startswith("vertex/"):
+        return ModelProvider.GEMINI
+    if normalized.startswith("claude") or "anthropic" in normalized:
+        return ModelProvider.ANTHROPIC
+    if normalized.startswith("gemini"):
+        return ModelProvider.GEMINI
+    return ModelProvider.OPENAI
 
 
 async def async_run_tool_call(

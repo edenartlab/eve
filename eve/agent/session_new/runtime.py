@@ -216,7 +216,7 @@ class PromptSessionRuntime:
             self.llm_context.tool_choice = "none"
 
     def _select_provider(self):
-        provider = get_provider(self.llm_context)
+        provider = get_provider(self.llm_context, instrumentation=self.instrumentation)
         provider_label = provider.__class__.__name__ if provider else "LegacyLiteLLM"
         self.debugger.log(
             "Selected LLM provider",
@@ -693,6 +693,7 @@ async def _run_single_actor_session(
             actor,
             context,
             trace_id=session_run_id,
+            instrumentation=instrumentation,
         )
 
         debugger.log("Starting prompt session", emoji="llm")
@@ -740,6 +741,7 @@ async def _run_multi_actor_sessions(
                     actor,
                     context,
                     trace_id=actor_session_run_id,
+                    instrumentation=instrumentation,
                 )
                 async for update in async_prompt_session(
                     session,

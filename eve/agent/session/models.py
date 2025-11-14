@@ -1,7 +1,7 @@
 import json
 import os
 from enum import Enum
-from typing import List, Optional, Dict, Any, Literal
+from typing import List, Optional, Dict, Any, Literal, TYPE_CHECKING
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
@@ -21,6 +21,9 @@ from eve.agent.session.file_config import (
     _url_has_extension,
 )
 from eve.agent.session.file_parser import process_attachments_for_message
+
+if TYPE_CHECKING:  # pragma: no cover
+    from eve.agent.session_new.instrumentation import PromptSessionInstrumentation
 
 
 class ToolCall(BaseModel):
@@ -722,6 +725,7 @@ class LLMContext:
     tool_choice: Optional[str] = None
     metadata: LLMContextMetadata = None
     enable_tracing: bool = True
+    instrumentation: Optional["PromptSessionInstrumentation"] = None
 
 
 class SessionSettings(BaseModel):

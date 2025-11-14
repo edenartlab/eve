@@ -310,6 +310,7 @@ async def build_llm_context(
     actor: Agent,
     context: PromptSessionContext,
     trace_id: Optional[str] = str(uuid.uuid4()),
+    instrumentation=None,
 ):
     instrumentation = getattr(context, "instrumentation", None)
     if context.initiating_user_id:
@@ -377,16 +378,15 @@ async def build_llm_context(
     else:
         config = context.llm_config or get_default_session_llm_config(tier)
 
-    return LLMContext(
+    llm_context = LLMContext(
         messages=messages,
         tools=tools,
         tool_choice=tool_choice,
         config=config,
         metadata=LLMContextMetadata(
-            # for observability purposes. not same as session.id
             session_id=f"{os.getenv('DB')}-{str(context.session.id)}",
             trace_name="prompt_session",
-            trace_id=trace_id,  # trace_id represents the entire prompt session
+            trace_id=trace_id,
             generation_name="prompt_session",
             trace_metadata=LLMTraceMetadata(
                 user_id=str(context.initiating_user_id)
@@ -397,3 +397,5 @@ async def build_llm_context(
             ),
         ),
     )
+    llm_context.instrumentation = instrumentation
+    return llm_context

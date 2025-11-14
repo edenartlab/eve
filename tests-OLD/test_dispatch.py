@@ -11,7 +11,6 @@ def test_dispatch():
         content="Who can tell me more about Juicebox?"
     )
     result = dispatch(session, new_message)
-    print(result)
 
 
 test_dispatch()
