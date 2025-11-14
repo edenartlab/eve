@@ -11,33 +11,28 @@ import random
 
 import aiohttp
 from bson import ObjectId
-from typing import List, Optional
 from fastapi import BackgroundTasks, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 
 from eve.agent.deployments.farcaster import FarcasterClient
 from eve.agent.deployments.utils import get_api_url
 from eve.agent.session.models import (
-    PromptSessionContext,
     Session,
     ChatMessage,
-    EdenMessageType,
-    EdenMessageData,
-    EdenMessageAgentData,
     Deployment,
     DeploymentConfig,
     DeploymentSecrets,
     Notification,
     NotificationChannel,
-    NotificationConfig,
     SessionUpdateConfig,
     ChatMessageRequestInput,
     EmailDomain,
 )
 from eve.agent.memory.memory_models import messages_to_text, select_messages
-from eve.agent.session.session import run_prompt_session, run_prompt_session_stream
-from eve.trigger import (
-    Trigger,
+from eve.agent.session_new.service import (
+    prepare_prompt_session,
+    run_prompt_session,
+    run_prompt_session_stream,
 )
 from eve.api.errors import handle_errors, APIError
 from eve.api.api_requests import (
@@ -171,144 +166,11 @@ async def handle_agent_tools_delete(request: AgentToolsDeleteRequest):
     return {"tools": tools}
 
 
-def create_eden_message(
-    session_id: ObjectId, message_type: EdenMessageType, agents: List[Agent]
-) -> ChatMessage:
-    """Create an eden message for agent operations"""
-    eden_message = ChatMessage(
-        session=session_id,
-        sender=ObjectId("000000000000000000000000"),  # System sender
-        role="eden",
-        content="",
-        eden_message_data=EdenMessageData(
-            message_type=message_type,
-            agents=[
-                EdenMessageAgentData(
-                    id=agent.id,
-                    name=agent.name or agent.username,
-                    avatar=agent.userImage,
-                )
-                for agent in agents
-            ],
-        ),
-    )
-    eden_message.save()
-    return eden_message
-
-
-def generate_session_title(
-    session: Session, request: PromptSessionRequest, background_tasks: BackgroundTasks
-):
-    from eve.agent.session.session import async_title_session
-
-    if session.title:
-        return
-
-    if request.creation_args and request.creation_args.title:
-        return
-
-    if background_tasks:
-        background_tasks.add_task(async_title_session, session, request.message.content)
-
-
-def setup_session(
-    background_tasks: BackgroundTasks,
-    session_id: Optional[str] = None,
-    user_id: Optional[str] = None,
-    request: PromptSessionRequest = None,
-):
-    if session_id:
-        session = Session.from_mongo(ObjectId(session_id))
-        if not session:
-            raise APIError(f"Session not found: {session_id}", status_code=404)
-
-        # TODO: titling
-        if background_tasks:
-            generate_session_title(session, request, background_tasks)
-        return session
-
-    if not request.creation_args:
-        raise APIError(
-            "Session creation requires additional parameters", status_code=400
-        )
-
-    # Create new session
-    agent_object_ids = [ObjectId(agent_id) for agent_id in request.creation_args.agents]
-    session_kwargs = {
-        "owner": ObjectId(request.creation_args.owner_id or user_id),
-        "agents": agent_object_ids,
-        "title": request.creation_args.title,
-        "session_key": request.creation_args.session_key,
-        "platform": request.creation_args.platform,
-        "status": "active",
-        "trigger": ObjectId(request.creation_args.trigger)
-        if request.creation_args.trigger
-        else None,
-    }
-
-    # Only include budget if it's not None, so default factory can work
-    if request.creation_args.budget is not None:
-        session_kwargs["budget"] = request.creation_args.budget
-
-    if request.creation_args.parent_session:
-        session_kwargs["parent_session"] = ObjectId(
-            request.creation_args.parent_session
-        )
-
-    if request.creation_args.extras:
-        session_kwargs["extras"] = request.creation_args.extras
-
-    session = Session(**session_kwargs)
-    session.save()
-
-    # Update trigger with session ID
-    if request.creation_args.trigger:
-        trigger = Trigger.from_mongo(ObjectId(request.creation_args.trigger))
-        if trigger and not trigger.deleted:
-            trigger.session = session.id
-            trigger.save()
-
-    # Create eden message for initial agent additions
-    agents = [Agent.from_mongo(agent_id) for agent_id in agent_object_ids]
-    agents = [agent for agent in agents if agent]  # Filter out None values
-    if agents:
-        create_eden_message(session.id, EdenMessageType.AGENT_ADD, agents)
-
-    # Generate title for new sessions if no title provided and we have background tasks
-    # TODO: titling
-    if background_tasks:
-        generate_session_title(session, request, background_tasks)
-
-    return session
-
-
 @handle_errors
 async def handle_prompt_session(
     request: PromptSessionRequest, background_tasks: BackgroundTasks
 ):
-    session = setup_session(
-        background_tasks, request.session_id, request.user_id, request
-    )
-    # Convert notification_config dict to NotificationConfig object if present
-    notification_config = None
-    if request.notification_config:
-        notification_config = NotificationConfig(**request.notification_config)
-
-    context = PromptSessionContext(
-        session=session,
-        initiating_user_id=request.user_id,
-        actor_agent_ids=request.actor_agent_ids,
-        message=request.message,
-        update_config=request.update_config,
-        llm_config=request.llm_config,
-        notification_config=notification_config,
-        thinking_override=request.thinking,  # Pass thinking override
-        acting_user_id=request.acting_user_id or request.user_id,
-        api_key_id=request.api_key_id,  # Pass API key ID to context
-        trigger=ObjectId(request.trigger)
-        if request.trigger
-        else None,  # Pass trigger ID to mark automated messages
-    )
+    session, context = prepare_prompt_session(request, background_tasks)
 
     if request.stream:
 

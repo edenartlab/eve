@@ -10,11 +10,12 @@ from eve.agent.memory.memory_constants import (
     SYNC_MEMORIES_ACROSS_SESSIONS_EVERY_N_MINUTES,
 )
 
-import time, traceback, asyncio
+import time
+import traceback
+import asyncio
 from loguru import logger
 
-from bson import ObjectId
-from typing import Optional, List, Dict, Any
+from typing import List, Dict, Any
 from datetime import datetime, timezone, timedelta
 from eve.agent import Agent
 from eve.user import User
@@ -199,7 +200,7 @@ async def check_memory_freshness(session: Session, agent: Agent, user: User) -> 
                     > session.memory_context.agent_memory_timestamp
                 ):
                     return False
-        except Exception as e:
+        except Exception:
             return False  # Refresh on error to be safe
 
     # Check user memory freshness
