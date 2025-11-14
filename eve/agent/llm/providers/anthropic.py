@@ -6,7 +6,10 @@ from typing import Any, Dict, List, Optional
 
 from anthropic import AsyncAnthropic
 
-from eve.agent.llm.formatting import construct_anthropic_tools, construct_observability_metadata
+from eve.agent.llm.formatting import (
+    construct_anthropic_tools,
+    construct_observability_metadata,
+)
 from eve.agent.llm.pricing import calculate_cost_usd
 from eve.agent.llm.providers import LLMProvider
 from eve.agent.session.models import LLMContext, LLMResponse, ToolCall, ChatMessage
@@ -34,9 +37,6 @@ class AnthropicProvider(LLMProvider):
             context.messages, include_thoughts=include_thoughts
         )
         tools = construct_anthropic_tools(context)
-        observability = (
-            construct_observability_metadata(context) if context.enable_tracing else {}
-        )
 
         last_error: Optional[Exception] = None
         for model_name in self.models:
@@ -49,14 +49,16 @@ class AnthropicProvider(LLMProvider):
             )
             try:
                 with stage:
-                    response = await self.client.messages.create(
-                        model=model_name,
-                        system=system_prompt,
-                        messages=conversation,
-                        max_tokens=context.config.max_tokens or 1024,
-                        tools=tools,
-                        metadata=observability or None,
-                    )
+                    request_kwargs = {
+                        "model": model_name,
+                        "system": system_prompt,
+                        "messages": conversation,
+                        "max_tokens": context.config.max_tokens or 1024,
+                    }
+                    if tools:
+                        request_kwargs["tools"] = tools
+
+                    response = await self.client.messages.create(**request_kwargs)
                     llm_response = self._to_llm_response(response)
                     self._record_usage(model_name, response, llm_response)
                     return llm_response
@@ -92,7 +94,9 @@ class AnthropicProvider(LLMProvider):
                 else:
                     conversation.append(schema)
 
-        system_prompt = "\n\n".join(part for part in system_prompt_parts if part) or None
+        system_prompt = (
+            "\n\n".join(part for part in system_prompt_parts if part) or None
+        )
         return system_prompt, conversation
 
     def _to_llm_response(self, response) -> LLMResponse:
@@ -128,10 +132,14 @@ class AnthropicProvider(LLMProvider):
             (usage.input_tokens or 0) + (usage.output_tokens or 0) if usage else None
         )
 
+        finish_reason = getattr(response, "stop_reason", None)
+        if finish_reason == "end_turn":
+            finish_reason = "stop"
+
         return LLMResponse(
             content="\n".join(text_parts).strip(),
             tool_calls=tool_calls or None,
-            stop=getattr(response, "stop_reason", None),
+            stop=finish_reason,
             tokens_spent=total_tokens,
             thought=thoughts or None,
         )

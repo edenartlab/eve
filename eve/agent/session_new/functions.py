@@ -7,7 +7,7 @@ from eve.agent.session.models import (
     LLMTraceMetadata,
     Session,
 )
-from eve.agent.llm.llm import async_prompt
+from eve.agent.llm.llm import async_prompt, get_provider
 from sentry_sdk import capture_exception
 import traceback
 import os
@@ -63,8 +63,12 @@ async def async_title_session(session: Session, initial_message_content: str):
         # Create LLM context
         llm_context = LLMContext(
             messages=messages,
-            tools={},  # No tools needed for title generation
-            config=LLMConfig(model="gpt-4o-mini", response_format=TitleResponse),
+            tools=[],
+            config=LLMConfig(
+                model="gpt-4o-mini",
+                fallback_models=["claude-haiku-4-5"],
+                response_format=TitleResponse,
+            ),
             metadata=LLMContextMetadata(
                 session_id=f"{os.getenv('DB')}-{str(session.id)}",
                 trace_name="FN_title_session",
@@ -78,7 +82,11 @@ async def async_title_session(session: Session, initial_message_content: str):
         )
 
         # Generate title using async_prompt
-        result = await async_prompt(llm_context)
+        provider = get_provider(llm_context)
+        if provider is None:
+            raise RuntimeError("No LLM provider available for session titling")
+
+        result = await async_prompt(llm_context, provider)
 
         # Parse the response
         if hasattr(result, "content") and result.content:

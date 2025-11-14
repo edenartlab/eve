@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletion
 from openai.types.chat.chat_completion_message import ChatCompletionMessage
+from pydantic import BaseModel
 
 from eve.agent.llm.formatting import (
     construct_observability_metadata,
@@ -51,10 +52,8 @@ class OpenAIProvider(LLMProvider):
         observability = (
             construct_observability_metadata(context) if context.enable_tracing else {}
         )
-        response_format = (
-            context.config.response_format.model_dump()
-            if context.config.response_format
-            else None
+        response_format_payload = self._build_response_format_payload(
+            context.config.response_format
         )
 
         last_error: Optional[Exception] = None
@@ -74,7 +73,7 @@ class OpenAIProvider(LLMProvider):
                         messages=messages,
                         tools=tools,
                         tool_choice=tool_choice,
-                        response_format=response_format,
+                        response_format=response_format_payload,
                         max_tokens=context.config.max_tokens,
                         metadata=observability or None,
                     )
@@ -154,14 +153,6 @@ class OpenAIProvider(LLMProvider):
             model, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens
         )
 
-        usage_payload: Dict[str, Any] = {
-            "model": model,
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": completion_tokens,
-            "total_tokens": usage.total_tokens if usage else None,
-            "cost_usd": total_cost,
-        }
-
         self.instrumentation.record_counter("llm.prompt_tokens", prompt_tokens or 0)
         self.instrumentation.record_counter(
             "llm.completion_tokens", completion_tokens or 0
@@ -186,3 +177,29 @@ class OpenAIProvider(LLMProvider):
             if provider == "openai":
                 return raw
         return model_name
+
+    def _build_response_format_payload(self, response_format):
+        if not response_format:
+            return None
+
+        if isinstance(response_format, dict):
+            return response_format
+
+        if isinstance(response_format, type) and issubclass(response_format, BaseModel):
+            schema = response_format.model_json_schema()
+            return {
+                "type": "json_schema",
+                "json_schema": {"name": response_format.__name__, "schema": schema},
+            }
+
+        if isinstance(response_format, BaseModel):
+            schema = response_format.model_json_schema()
+            return {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": response_format.__class__.__name__,
+                    "schema": schema,
+                },
+            }
+
+        return None

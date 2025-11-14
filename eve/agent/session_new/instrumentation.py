@@ -188,9 +188,6 @@ class PromptSessionInstrumentation:
             log = log.bind(payload=payload)
         log.log(level_name, message)
 
-        if self.debugger and self.debugger.enabled:
-            self.debugger.log(message, payload, level=level_name.lower(), emoji=emoji)
-
     def log_io(
         self,
         kind: str,
