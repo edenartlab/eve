@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import List, Optional, Dict
 
 from eve.agent.session.models import ChatMessage, LLMContext
@@ -92,6 +93,7 @@ def construct_observability_metadata(context: LLMContext) -> Dict[str, str]:
         "generation_id": context.metadata.generation_id,
     }
     if context.metadata.trace_metadata:
-        metadata["trace_metadata"] = context.metadata.trace_metadata.model_dump()
+        trace_payload = context.metadata.trace_metadata.model_dump()
+        metadata["trace_metadata"] = json.dumps(trace_payload)
         metadata["trace_user_id"] = context.metadata.trace_metadata.user_id
-    return metadata
+    return {k: (json.dumps(v) if isinstance(v, dict) else v) for k, v in metadata.items() if v is not None}

@@ -1,36 +1,38 @@
 import os
 from typing import Literal
-from eve.agent.session.models import LLMConfig
+
 from loguru import logger
+
+from eve.agent.llm.constants import DEFAULT_MODEL_FREE, DEFAULT_MODEL_PREMIUM
+from eve.agent.session.models import LLMConfig
 
 DEFAULT_SESSION_LLM_CONFIG_DEV = {
     "premium": LLMConfig(
-        # model="claude-haiku-4-5",
-        model="claude-sonnet-4-5",
-        fallback_models=["gpt-5-nano"],
+        model=DEFAULT_MODEL_PREMIUM,
+        fallback_models=["claude-sonnet-4-5", "openai/gpt-5-nano"],
     ),
     "free": LLMConfig(
-        model="claude-sonnet-4-5",
-        fallback_models=["gpt-5-nano"],
+        model=DEFAULT_MODEL_FREE,
+        fallback_models=["claude-sonnet-4-5", "openai/gpt-5-nano"],
     ),
 }
 DEFAULT_SESSION_LLM_CONFIG_STAGE = {
     "premium": LLMConfig(
-        model="claude-sonnet-4-5",
-        fallback_models=["gpt-5-nano"],
+        model=DEFAULT_MODEL_PREMIUM,
+        fallback_models=["claude-sonnet-4-5", "openai/gpt-5-nano"],
     ),
     "free": LLMConfig(
-        model="claude-sonnet-4-5",
-        fallback_models=["gpt-5-nano"],
+        model=DEFAULT_MODEL_FREE,
+        fallback_models=["claude-sonnet-4-5", "openai/gpt-5-nano"],
     ),
 }
 
 DEFAULT_SESSION_LLM_CONFIG_PROD = {
     "premium": LLMConfig(
-        model="claude-sonnet-4-5",
+        model=DEFAULT_MODEL_PREMIUM,
     ),
     "free": LLMConfig(
-        model="claude-sonnet-4-5",
+        model=DEFAULT_MODEL_FREE,
     ),
 }
 
@@ -39,20 +41,20 @@ DEFAULT_SESSION_SELECTION_LIMIT = 100
 # Master model configuration: tier -> [primary, fallback1, fallback2]
 MODEL_TIERS = {
     "high": [
-        "claude-sonnet-4-5",
-        "claude-haiku-4-5",
+        DEFAULT_MODEL_PREMIUM,
+        DEFAULT_MODEL_FREE,
         "openai/gpt-5-nano",
         "openai/gpt-4o-mini",
     ],
     "medium": [
-        "claude-sonnet-4-5",
-        "claude-haiku-4-5",
+        DEFAULT_MODEL_PREMIUM,
+        DEFAULT_MODEL_FREE,
         "openai/gpt-5-nano",
         "openai/gpt-4o-mini",
     ],
     "low": [
-        "claude-sonnet-4-5",
-        "claude-haiku-4-5",
+        DEFAULT_MODEL_PREMIUM,
+        DEFAULT_MODEL_FREE,
         "openai/gpt-5-nano",
         "openai/gpt-4o-mini",
     ],

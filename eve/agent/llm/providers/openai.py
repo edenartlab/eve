@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import os
 from contextlib import nullcontext
-from typing import List, Optional
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
 
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletion
@@ -14,7 +15,11 @@ from eve.agent.llm.formatting import (
     construct_tools,
     prepare_messages,
 )
-from eve.agent.llm.util import calculate_cost_usd
+from eve.agent.llm.util import (
+    calculate_cost_usd,
+    serialize_context_messages,
+    build_langfuse_prompt,
+)
 from eve.agent.llm.providers import LLMProvider
 from eve.agent.session.models import LLMContext, LLMResponse, ToolCall, LLMUsage
 
@@ -56,8 +61,17 @@ class OpenAIProvider(LLMProvider):
             context.config.response_format
         )
 
+        base_input_payload = self._build_input_payload(
+            context=context,
+            messages=messages,
+            tools=tools,
+            tool_choice=tool_choice,
+            metadata=observability,
+            response_format=response_format_payload,
+        )
+
         last_error: Optional[Exception] = None
-        for model_name in self.models:
+        for attempt_index, model_name in enumerate(self.models):
             canonical_name = self._normalize_model_name(model_name)
             stage = (
                 self.instrumentation.track_stage(
@@ -68,17 +82,36 @@ class OpenAIProvider(LLMProvider):
             )
             try:
                 with stage:
-                    response = await self.client.chat.completions.create(
+                    langfuse_input = dict(base_input_payload)
+                    langfuse_input["model"] = canonical_name
+                    langfuse_input["attempt"] = attempt_index + 1
+                    start_time = datetime.now(timezone.utc)
+                    request_kwargs = dict(
                         model=canonical_name,
                         messages=messages,
                         tools=tools,
                         tool_choice=tool_choice,
                         response_format=response_format_payload,
-                        max_tokens=context.config.max_tokens,
-                        metadata=observability or None,
+                        metadata=None,
                     )
+                    if context.config.max_tokens is not None:
+                        request_kwargs["max_tokens"] = context.config.max_tokens
+                    response = await self.client.chat.completions.create(**request_kwargs)
+                    end_time = datetime.now(timezone.utc)
                     llm_response = self._to_llm_response(response)
-                    self._record_usage(canonical_name, response, llm_response)
+                    self._record_usage(
+                        canonical_name,
+                        response,
+                        llm_response,
+                        input_payload=langfuse_input,
+                        output_payload=self._serialize_llm_response(llm_response),
+                        metadata={
+                            "provider": self.provider_name,
+                            "attempt": attempt_index + 1,
+                        },
+                        start_time=start_time,
+                        end_time=end_time,
+                    )
                     return llm_response
             except Exception as exc:
                 last_error = exc
@@ -157,7 +190,17 @@ class OpenAIProvider(LLMProvider):
         return tool_calls
 
     def _record_usage(
-        self, model: str, completion: ChatCompletion, response: LLMResponse
+        self,
+        model: str,
+        completion: ChatCompletion,
+        response: LLMResponse,
+        *,
+        input_payload: Optional[Dict[str, Any]] = None,
+        output_payload: Optional[Dict[str, Any]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        prompt: Optional[Dict[str, Any]] = None,
     ) -> None:
         if not self.instrumentation:
             return
@@ -165,7 +208,7 @@ class OpenAIProvider(LLMProvider):
         usage = completion.usage
         prompt_tokens = usage.prompt_tokens if usage else 0
         completion_tokens = usage.completion_tokens if usage else 0
-        _, _, total_cost = calculate_cost_usd(
+        prompt_cost, completion_cost, total_cost = calculate_cost_usd(
             model, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens
         )
         response.usage.cost_usd = total_cost
@@ -176,16 +219,43 @@ class OpenAIProvider(LLMProvider):
         )
         self.instrumentation.record_counter("llm.cost_usd", total_cost or 0)
 
+        cache_prompt = (
+            getattr(getattr(usage, "prompt_tokens_details", None), "cached_tokens", None)
+            if usage
+            else None
+        )
+        cache_completion = (
+            getattr(
+                getattr(usage, "completion_tokens_details", None), "cached_tokens", None
+            )
+            if usage
+            else None
+        )
+        usage_payload, usage_details, cost_details = (
+            self.instrumentation.build_langfuse_usage_payload(
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                cached_prompt_tokens=cache_prompt,
+                cached_completion_tokens=cache_completion,
+                cache_read_input_tokens=cache_prompt,
+                prompt_cost=prompt_cost,
+                completion_cost=completion_cost,
+                total_cost=total_cost,
+            )
+        )
+
         self.instrumentation.create_langfuse_generation(
             name=f"{self.provider_name}.generation",
             model=model,
-            input_payload=None,
-            output_payload=response.content,
-            usage={
-                "prompt_tokens": prompt_tokens,
-                "completion_tokens": completion_tokens,
-                "cost_usd": total_cost,
-            },
+            input_payload=input_payload,
+            output_payload=output_payload or self._serialize_llm_response(response),
+            usage=usage_payload,
+            usage_details=usage_details,
+            cost_details=cost_details,
+            metadata=metadata,
+            start_time=start_time,
+            end_time=end_time,
+            prompt=prompt,
         )
 
     @staticmethod
@@ -221,3 +291,28 @@ class OpenAIProvider(LLMProvider):
             }
 
         return None
+
+    def _build_input_payload(
+        self,
+        *,
+        context: LLMContext,
+        messages: List[dict],
+        tools: Optional[List[dict]],
+        tool_choice: Optional[str],
+        metadata: Dict[str, Any],
+        response_format: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            "messages": messages,
+            "tools": tools or [],
+            "tool_choice": tool_choice,
+            "max_tokens": context.config.max_tokens,
+            "reasoning_effort": context.config.reasoning_effort,
+            "fallback_models": list(context.config.fallback_models or []),
+        }
+        if metadata:
+            payload["metadata"] = metadata
+        if response_format:
+            payload["response_format"] = response_format
+        payload["context_messages"] = serialize_context_messages(context)
+        return {k: v for k, v in payload.items() if v not in (None, [], {})}

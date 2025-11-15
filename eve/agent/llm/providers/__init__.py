@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from types import SimpleNamespace
-from typing import AsyncGenerator, Any, Optional
+from typing import AsyncGenerator, Any, Dict, Optional
 import json
 
 from eve.agent.session.models import LLMContext, LLMResponse
@@ -58,3 +58,20 @@ class LLMProvider(ABC):
             usage=SimpleNamespace(total_tokens=response.tokens_spent or 0),
         )
         return chunk
+
+    @staticmethod
+    def _serialize_llm_response(response: LLMResponse) -> Dict[str, Any]:
+        """Return a JSON-serializable representation of an LLM response."""
+        payload: Dict[str, Any] = {
+            "content": response.content,
+            "stop": response.stop,
+            "tokens_spent": response.tokens_spent,
+            "prompt_tokens": response.prompt_tokens,
+            "completion_tokens": response.completion_tokens,
+            "thought": response.thought,
+        }
+        if response.tool_calls:
+            payload["tool_calls"] = [tc.model_dump() for tc in response.tool_calls]
+        if response.usage:
+            payload["usage"] = response.usage.model_dump(exclude_none=True)
+        return {k: v for k, v in payload.items() if v not in (None, [], {})}

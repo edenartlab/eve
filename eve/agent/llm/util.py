@@ -1,15 +1,11 @@
 import os
-from typing import Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from litellm import litellm
 from loguru import logger
 
 from eve.agent.llm.constants import TEST_MODE_TEXT_STRING, TEST_MODE_TOOL_STRING
-from eve.agent.session.models import (
-    ChatMessage,
-    LLMContext,
-    ToolCall,
-)
+from eve.agent.session.models import ChatMessage, LLMContext, ToolCall
 
 
 def validate_input(context: LLMContext) -> None:
@@ -99,3 +95,25 @@ def calculate_cost_usd(
 
     total = (prompt_cost or 0.0) + (completion_cost or 0.0)
     return prompt_cost or 0.0, completion_cost or 0.0, total
+
+
+def serialize_context_messages(context: LLMContext) -> List[Dict[str, Optional[str]]]:
+    """Return a simplified representation of the chat history for observability."""
+    serialized: List[Dict[str, Optional[str]]] = []
+    for message in context.messages:
+        entry: Dict[str, Optional[str]] = {
+            "role": getattr(message, "role", None),
+            "content": getattr(message, "content", None),
+        }
+        if message.tool_calls:
+            entry["tool_calls"] = [tc.model_dump(exclude_none=True) for tc in message.tool_calls]  # type: ignore[arg-type]
+        serialized.append(entry)
+    return serialized
+
+
+def build_langfuse_prompt(context: LLMContext) -> Dict[str, Any]:
+    """Construct a Langfuse-compatible prompt structure from the LLM context."""
+    return {
+        "type": "chat",
+        "messages": serialize_context_messages(context),
+    }

@@ -6,9 +6,10 @@ import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from loguru import logger
+from packaging.version import Version
 
 from eve.agent.session.debug_logger import SessionDebugger, DEBUG_SESSION
 
@@ -19,11 +20,16 @@ except ImportError:  # pragma: no cover - sentry may not be installed in tests
 
 try:
     from langfuse import Langfuse
-    from langfuse.client import StatefulGenerationClient, StatefulSpanClient
+    from langfuse.client import (
+        StatefulGenerationClient,
+        StatefulSpanClient,
+        StatefulTraceClient,
+    )
 except ImportError:  # pragma: no cover - langfuse optional
     Langfuse = None  # type: ignore
     StatefulGenerationClient = None  # type: ignore
     StatefulSpanClient = None  # type: ignore
+    StatefulTraceClient = None  # type: ignore
 
 
 def _bool_env(name: str, default: bool = False) -> bool:
@@ -134,6 +140,7 @@ class PromptSessionInstrumentation:
         sentry_enabled: Optional[bool] = None,
         langfuse_enabled: Optional[bool] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        trace_input: Optional[Any] = None,
     ):
         self.session_id = session_id
         self.session_run_id = session_run_id or str(uuid.uuid4())
@@ -141,6 +148,8 @@ class PromptSessionInstrumentation:
         self.agent_id = agent_id
         self.trace_name = trace_name
         self.extra_metadata = metadata or {}
+        self._langfuse_trace_input = trace_input
+        self._langfuse_trace_output: Optional[Any] = None
         self._start_clock = time.perf_counter()
 
         debug_flag = (
@@ -170,10 +179,101 @@ class PromptSessionInstrumentation:
         self._langfuse_client: Optional[Langfuse] = None
         self._langfuse_trace_started = False
         self._langfuse_default_tags = ["prompt_session"]
+        self._langfuse_trace: Optional[StatefulTraceClient] = None
+        self._langfuse_supports_prompt = False
 
     # --------------------------------------------------------------------- #
     # Logging helpers
     # --------------------------------------------------------------------- #
+    @staticmethod
+    def _coerce_int(value: Optional[Any]) -> Optional[int]:
+        if value in (None, ""):
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _coerce_float(value: Optional[Any]) -> Optional[float]:
+        if value in (None, ""):
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    @classmethod
+    def build_langfuse_usage_payload(
+        cls,
+        *,
+        prompt_tokens: Optional[Any] = None,
+        completion_tokens: Optional[Any] = None,
+        cached_prompt_tokens: Optional[Any] = None,
+        cached_completion_tokens: Optional[Any] = None,
+        cache_creation_input_tokens: Optional[Any] = None,
+        cache_read_input_tokens: Optional[Any] = None,
+        prompt_cost: Optional[Any] = None,
+        completion_cost: Optional[Any] = None,
+        total_cost: Optional[Any] = None,
+    ) -> Tuple[
+        Optional[Dict[str, Any]],
+        Optional[Dict[str, int]],
+        Optional[Dict[str, float]],
+    ]:
+        pt = cls._coerce_int(prompt_tokens)
+        ct = cls._coerce_int(completion_tokens)
+        total_tokens = None
+        if pt is not None or ct is not None:
+            total_tokens = (pt or 0) + (ct or 0)
+
+        usage: Dict[str, Any] = {}
+        if pt is not None:
+            usage["prompt_tokens"] = pt
+        if ct is not None:
+            usage["completion_tokens"] = ct
+        if total_tokens is not None:
+            usage["total_tokens"] = total_tokens
+        cached_pt = cls._coerce_int(cached_prompt_tokens)
+        cached_ct = cls._coerce_int(cached_completion_tokens)
+        if cached_pt is not None:
+            usage["cached_prompt_tokens"] = cached_pt
+        if cached_ct is not None:
+            usage["cached_completion_tokens"] = cached_ct
+        total_cost_float = cls._coerce_float(total_cost)
+        if total_cost_float is not None:
+            usage["total_cost"] = total_cost_float
+
+        usage_details: Dict[str, int] = {}
+        if pt is not None:
+            usage_details["input"] = pt
+        if ct is not None:
+            usage_details["output"] = ct
+        if total_tokens is not None:
+            usage_details["total"] = total_tokens
+        cache_creation = cls._coerce_int(cache_creation_input_tokens)
+        cache_read = cls._coerce_int(cache_read_input_tokens)
+        if cache_creation is not None:
+            usage_details["cache_creation_input_tokens"] = cache_creation
+        if cache_read is not None:
+            usage_details["cache_read_input_tokens"] = cache_read
+
+        cost_details: Dict[str, float] = {}
+        prompt_cost_float = cls._coerce_float(prompt_cost)
+        completion_cost_float = cls._coerce_float(completion_cost)
+        if prompt_cost_float is not None:
+            cost_details["prompt_cost"] = prompt_cost_float
+        if completion_cost_float is not None:
+            cost_details["completion_cost"] = completion_cost_float
+        if total_cost_float is not None:
+            cost_details["total_cost"] = total_cost_float
+
+        return (
+            usage or None,
+            usage_details or None,
+            cost_details or None,
+        )
+
     def log_event(
         self,
         message: str,
@@ -266,6 +366,20 @@ class PromptSessionInstrumentation:
             user_id=self.user_id,
         )
 
+    def set_trace_input(self, payload: Any) -> None:
+        self._langfuse_trace_input = payload
+        if self._langfuse_trace:
+            self._langfuse_trace.update(input=payload)
+
+    def set_trace_output(self, payload: Any) -> None:
+        self._langfuse_trace_output = payload
+        if self._langfuse_trace:
+            self._langfuse_trace.update(output=payload)
+
+    def _refresh_langfuse_metadata(self) -> None:
+        if self._langfuse_trace:
+            self._langfuse_trace.update(metadata=self._merge_metadata({}))
+
     def update_context(
         self,
         *,
@@ -287,6 +401,7 @@ class PromptSessionInstrumentation:
                 session_id=self.session_id, session_run_id=self.session_run_id
             )
         self._bind_logger()
+        self._refresh_langfuse_metadata()
 
     def _start_stage(
         self,
@@ -491,18 +606,16 @@ class PromptSessionInstrumentation:
         client = self._ensure_langfuse_client()
         if not client or self._langfuse_trace_started:
             return
-        metadata = {
-            **self.extra_metadata,
-            "session_run_id": self.session_run_id,
-        }
-        client.trace(
+        metadata = self._merge_metadata({"session_run_id": self.session_run_id})
+        self._langfuse_trace = client.trace(
             id=self.session_run_id,
             name=self.trace_name,
             user_id=self.user_id,
             session_id=self.session_id,
             metadata=metadata,
             tags=self._langfuse_default_tags,
-            input=None,
+            input=self._langfuse_trace_input,
+            output=self._langfuse_trace_output,
         )
         self._langfuse_trace_started = True
 
@@ -534,42 +647,69 @@ class PromptSessionInstrumentation:
         model: Optional[str] = None,
         input_payload: Optional[Any] = None,
         output_payload: Optional[Any] = None,
-        usage: Optional[Dict[str, int]] = None,
+        usage: Optional[Dict[str, Any]] = None,
+        usage_details: Optional[Dict[str, int]] = None,
+        cost_details: Optional[Dict[str, float]] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        prompt: Optional[Any] = None,
     ) -> Optional[StatefulGenerationClient]:
         self.ensure_langfuse_trace()
         client = self._ensure_langfuse_client()
         if not client:
             return None
+        log_payload: Dict[str, Any] = {
+            "trace_id": self.session_run_id,
+            "name": name,
+            "model": model,
+            "usage": usage,
+            "usage_details": usage_details,
+            "cost_details": cost_details,
+        }
+        if metadata:
+            log_payload["metadata"] = metadata
+        if input_payload is not None:
+            log_payload["input_payload"] = input_payload
+        if output_payload is not None:
+            log_payload["output_payload"] = output_payload
+        logger.debug(f"Langfuse generation payload: {log_payload}")
         return client.generation(
             trace_id=self.session_run_id,
             name=name,
             model=model,
             input=input_payload,
             output=output_payload,
-            usage_details=usage,
+            usage=usage,
+            usage_details=usage_details,
+            cost_details=cost_details,
             metadata=self._merge_metadata(metadata),
-            start_time=_now_utc(),
-            end_time=_now_utc(),
+            start_time=start_time or _now_utc(),
+            end_time=end_time or _now_utc(),
         )
 
-    def finalize_langfuse(self) -> None:
-        if self._langfuse_client:
-            try:
-                summary = self.summary()
-                self._langfuse_client.event(
-                    trace_id=self.session_run_id,
-                    name="prompt_session_summary",
-                    start_time=_now_utc(),
-                    metadata=summary,
-                )
-                self._langfuse_client.flush()
-            except Exception as exc:  # pragma: no cover
-                self.log_event(
-                    "Langfuse flush failed",
-                    level="warning",
-                    payload={"error": str(exc)},
-                )
+    def finalize_langfuse(self, summary: Optional[Dict[str, Any]] = None) -> None:
+        if not self._langfuse_client:
+            return
+        summary = summary or self.summary()
+        try:
+            if not self._langfuse_trace_started:
+                self.ensure_langfuse_trace()
+            if summary and not self._langfuse_trace_output:
+                self.set_trace_output(summary)
+            self._langfuse_client.event(
+                trace_id=self.session_run_id,
+                name="prompt_session_summary",
+                start_time=_now_utc(),
+                metadata=summary,
+            )
+            self._langfuse_client.flush()
+        except Exception as exc:  # pragma: no cover
+            self.log_event(
+                "Langfuse flush failed",
+                level="warning",
+                payload={"error": str(exc)},
+            )
 
     def _merge_metadata(self, metadata: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         merged = {
@@ -604,8 +744,19 @@ class PromptSessionInstrumentation:
                 payload={"total_duration_ms": summary["total_duration_ms"]},
                 emoji="warning",
             )
-        self.finalize_langfuse()
+        self.finalize_langfuse(summary=summary)
         return summary
+
+    def _detect_langfuse_prompt_support(self) -> bool:
+        try:
+            import langfuse
+
+            version = getattr(langfuse, "__version__", None)
+            if version is None:
+                return False
+            return Version(version) >= Version("2.7.3")
+        except Exception:
+            return False
 
 
 @contextmanager

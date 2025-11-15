@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import AsyncIterator, Optional, Tuple
+from typing import AsyncIterator, Optional, Tuple, Any, Dict
 
 from bson import ObjectId
 from contextlib import nullcontext
@@ -10,6 +10,7 @@ from eve.agent.session.models import (
     PromptSessionContext,
     Session,
     UpdateType,
+    LLMConfig,
 )
 from eve.agent.session_new.instrumentation import PromptSessionInstrumentation
 from eve.agent.session_new.runtime import _run_prompt_session_internal
@@ -126,6 +127,7 @@ def create_prompt_session_handle(
         session_run_id=context.session_run_id,
         user_id=context.initiating_user_id,
     )
+    instrumentation.set_trace_input(_build_trace_input_payload(context))
     context.instrumentation = instrumentation
     return PromptSessionHandle(
         session=session,
@@ -161,6 +163,46 @@ def build_prompt_session_context(
         trigger=ObjectId(request.trigger) if request.trigger else None,
         session_run_id=session_run_id,
     )
+
+
+def _serialize_llm_config_for_trace(
+    llm_config: Optional[LLMConfig],
+) -> Optional[Dict[str, Any]]:
+    if not llm_config:
+        return None
+    payload: Dict[str, Any] = {
+        "model": llm_config.model,
+        "fallback_models": list(llm_config.fallback_models or []),
+        "max_tokens": llm_config.max_tokens,
+        "reasoning_effort": llm_config.reasoning_effort,
+    }
+    if llm_config.thinking:
+        payload["thinking"] = llm_config.thinking.model_dump(exclude_none=True)
+    return {k: v for k, v in payload.items() if v not in (None, [], {})}
+
+
+def _build_trace_input_payload(context: PromptSessionContext) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {
+        "session_run_id": context.session_run_id,
+    }
+    message = getattr(context, "message", None)
+    if message:
+        if hasattr(message, "model_dump"):
+            payload["message"] = message.model_dump(exclude_none=True)
+        else:
+            payload["message"] = {k: v for k, v in vars(message).items() if v is not None}
+    llm_config_payload = _serialize_llm_config_for_trace(context.llm_config)
+    if llm_config_payload:
+        payload["llm_config"] = llm_config_payload
+    tools = getattr(context, "tools", None)
+    if tools:
+        if isinstance(tools, dict):
+            payload["tools"] = list(tools.keys())
+        else:
+            payload["tools"] = [getattr(t, "name", str(idx)) for idx, t in enumerate(tools)]
+    if context.tool_choice:
+        payload["tool_choice"] = context.tool_choice
+    return {k: v for k, v in payload.items() if v not in (None, [], {})}
 
 
 def prepare_prompt_session(
