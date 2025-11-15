@@ -179,7 +179,7 @@ class SessionDebugger:
             "data_type": data.get("type", "unknown"),
             "data_size": len(json.dumps(data, default=str)),
         }
-        self.log(f"SSE Broadcast", broadcast_info, emoji="broadcast")
+        self.log("SSE Broadcast", broadcast_info, emoji="broadcast")
 
 
 def debug_session_method(func):

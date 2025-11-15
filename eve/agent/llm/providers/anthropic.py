@@ -14,7 +14,6 @@ from eve.agent.llm.providers import LLMProvider
 from eve.agent.llm.util import (
     calculate_cost_usd,
     serialize_context_messages,
-    build_langfuse_prompt,
 )
 from eve.agent.session.models import (
     LLMContext,

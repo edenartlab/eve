@@ -4,7 +4,7 @@ import json
 import os
 from contextlib import nullcontext
 import uuid
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from bson import ObjectId
 from fastapi import BackgroundTasks
@@ -362,7 +362,9 @@ class PromptSessionRuntime:
                 session_run_id=self.session_run_id,
                 tokens_spent=llm_result.get("tokens_spent"),
                 prompt_tokens=(
-                    usage_obj.prompt_tokens if usage_obj else llm_result.get("prompt_tokens")
+                    usage_obj.prompt_tokens
+                    if usage_obj
+                    else llm_result.get("prompt_tokens")
                 ),
                 completion_tokens=(
                     usage_obj.completion_tokens
