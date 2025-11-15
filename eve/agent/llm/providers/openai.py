@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from contextlib import nullcontext
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletion
@@ -14,7 +14,7 @@ from eve.agent.llm.formatting import (
     construct_tools,
     prepare_messages,
 )
-from eve.agent.llm.pricing import calculate_cost_usd
+from eve.agent.llm.util import calculate_cost_usd
 from eve.agent.llm.providers import LLMProvider
 from eve.agent.session.models import LLMContext, LLMResponse, ToolCall, LLMUsage
 
@@ -168,7 +168,7 @@ class OpenAIProvider(LLMProvider):
         _, _, total_cost = calculate_cost_usd(
             model, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens
         )
-        usage_payload.cost_usd = total_cost
+        response.usage.cost_usd = total_cost
 
         self.instrumentation.record_counter("llm.prompt_tokens", prompt_tokens or 0)
         self.instrumentation.record_counter(

@@ -1063,16 +1063,16 @@ async def async_prompt_session(
                 usage_obj = LLMUsage(total_tokens=tokens_spent)
 
                 # Create the final assistant message
-                usage_obj = response.usage
+                usage_obj = llm_context.usage
                 if usage_obj and not isinstance(usage_obj, LLMUsage):
                     usage_obj = LLMUsage(**usage_obj)
                 if usage_obj is None:
                     usage_obj = LLMUsage(
-                        prompt_tokens=response.prompt_tokens,
-                        completion_tokens=response.completion_tokens,
-                        cached_prompt_tokens=response.cached_prompt_tokens,
-                        cached_completion_tokens=response.cached_completion_tokens,
-                        total_tokens=response.tokens_spent,
+                        prompt_tokens=llm_context.prompt_tokens,
+                        completion_tokens=llm_context.completion_tokens,
+                        cached_prompt_tokens=llm_context.cached_prompt_tokens,
+                        cached_completion_tokens=llm_context.cached_completion_tokens,
+                        total_tokens=llm_context.tokens_spent,
                     )
 
                 assistant_message = ChatMessage(

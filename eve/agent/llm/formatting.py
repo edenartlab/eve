@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-import os
 from typing import List, Optional, Dict
 
 from eve.agent.session.models import ChatMessage, LLMContext
@@ -52,9 +50,7 @@ def construct_tools(context: LLMContext) -> Optional[List[dict]]:
     else:
         iter_tools = tools
 
-    tool_schemas = [
-        tool.openai_schema(exclude_hidden=True) for tool in iter_tools
-    ]
+    tool_schemas = [tool.openai_schema(exclude_hidden=True) for tool in iter_tools]
 
     # Gemini/Vertex: enum values must be strings and parameter type must be "string"
     if context.config.model and (

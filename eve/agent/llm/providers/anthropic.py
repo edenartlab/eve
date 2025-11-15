@@ -8,10 +8,9 @@ from anthropic import AsyncAnthropic
 
 from eve.agent.llm.formatting import (
     construct_anthropic_tools,
-    construct_observability_metadata,
 )
-from eve.agent.llm.pricing import calculate_cost_usd
 from eve.agent.llm.providers import LLMProvider
+from eve.agent.llm.util import calculate_cost_usd
 from eve.agent.session.models import (
     LLMContext,
     LLMResponse,

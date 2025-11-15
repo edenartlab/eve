@@ -1,4 +1,5 @@
 from bson import ObjectId
+from eve.agent.llm.constants import DEFAULT_MODEL_FREE, FALLBACK_MODEL_FREE
 from eve.agent.session.models import (
     ChatMessage,
     LLMContext,
@@ -65,8 +66,8 @@ async def async_title_session(session: Session, initial_message_content: str):
             messages=messages,
             tools=[],
             config=LLMConfig(
-                model="gpt-4o-mini",
-                fallback_models=["claude-haiku-4-5"],
+                model=FALLBACK_MODEL_FREE,
+                fallback_models=[DEFAULT_MODEL_FREE],
                 response_format=TitleResponse,
             ),
             metadata=LLMContextMetadata(

@@ -7,7 +7,7 @@ from typing import List, Optional
 import google.genai as genai
 from google.genai import types as genai_types
 
-from eve.agent.llm.pricing import calculate_cost_usd
+from eve.agent.llm.util import calculate_cost_usd
 from eve.agent.llm.providers import LLMProvider
 from eve.agent.session.models import LLMContext, LLMResponse, ChatMessage, LLMUsage
 

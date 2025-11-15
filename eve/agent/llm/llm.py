@@ -1,4 +1,4 @@
-from typing import Optional, AsyncGenerator, Callable, Any, List
+from typing import Optional, AsyncGenerator, Callable, Any, List, Tuple
 
 from eve.agent.llm.constants import ModelProvider, MODEL_PROVIDER_OVERRIDES
 from eve.agent.llm.providers import LLMProvider
@@ -18,9 +18,46 @@ def set_provider_factory(factory: Optional[ProviderFactory]) -> None:
     _provider_factory_override = factory
 
 
-def get_provider(
-    context: LLMContext, instrumentation=None
-) -> Optional[LLMProvider]:
+class FallbackChainProvider(LLMProvider):
+    """Proxy provider that sequentially tries multiple providers until one succeeds."""
+
+    def __init__(
+        self,
+        providers: List[LLMProvider],
+        *,
+        instrumentation=None,
+    ) -> None:
+        super().__init__(instrumentation=instrumentation)
+        self._providers = providers
+
+    async def prompt(self, context: LLMContext) -> LLMResponse:
+        last_error: Optional[Exception] = None
+        for provider in self._providers:
+            try:
+                return await provider.prompt(context)
+            except Exception as exc:  # pragma: no cover - each provider logs failures
+                last_error = exc
+        if last_error:
+            raise last_error
+        raise RuntimeError("No providers available for prompt request")
+
+    async def prompt_stream(
+        self, context: LLMContext
+    ) -> AsyncGenerator[Any, None]:
+        last_error: Optional[Exception] = None
+        for provider in self._providers:
+            try:
+                async for chunk in provider.prompt_stream(context):
+                    yield chunk
+                return
+            except Exception as exc:  # pragma: no cover - each provider logs failures
+                last_error = exc
+        if last_error:
+            raise last_error
+        raise RuntimeError("No providers available for streaming request")
+
+
+def get_provider(context: LLMContext, instrumentation=None) -> Optional[LLMProvider]:
     """Resolve the appropriate provider for a context, if available."""
     if _provider_factory_override:
         provider = _provider_factory_override(context)
@@ -29,54 +66,33 @@ def get_provider(
 
     if should_force_fake_response(context):
         from eve.agent.llm.providers.fake import FakeProvider
+
         return FakeProvider(instrumentation=instrumentation)
 
     model_name = (context.config.model or "").strip()
     if not model_name:
         return None
 
-    provider_type = _detect_provider(model_name)
-    fallbacks = [
-        fb
-        for fb in (context.config.fallback_models or [])
-        if _detect_provider(fb) == provider_type
-    ]
-    dropped = set(context.config.fallback_models or []) - set(fallbacks)
-    if dropped and instrumentation:
-        instrumentation.log_event(
-            "Dropping fallback models with mismatched provider",
-            level="warning",
-            payload={"dropped": list(dropped), "provider": provider_type.value},
-        )
+    all_models = [model_name] + list(context.config.fallback_models or [])
+    provider_chain = _build_provider_chain(all_models)
+    if not provider_chain:
+        return None
 
-    if provider_type == ModelProvider.ANTHROPIC:
-        from eve.agent.llm.providers.anthropic import AnthropicProvider
-
-        return AnthropicProvider(
-            model=model_name,
-            fallbacks=fallbacks,
+    providers: List[LLMProvider] = []
+    for provider_type, provider_models in provider_chain:
+        instance = _instantiate_provider(
+            provider_type,
+            provider_models,
             instrumentation=instrumentation,
         )
+        if instance is not None:
+            providers.append(instance)
 
-    if provider_type == ModelProvider.OPENAI:
-        from eve.agent.llm.providers.openai import OpenAIProvider
-
-        return OpenAIProvider(
-            model=model_name,
-            fallbacks=fallbacks,
-            instrumentation=instrumentation,
-        )
-
-    if provider_type == ModelProvider.GEMINI:
-        from eve.agent.llm.providers.google import GoogleProvider
-
-        return GoogleProvider(
-            model=model_name,
-            fallbacks=fallbacks,
-            instrumentation=instrumentation,
-        )
-
-    return None
+    if not providers:
+        return None
+    if len(providers) == 1:
+        return providers[0]
+    return FallbackChainProvider(providers, instrumentation=instrumentation)
 
 
 def _detect_provider(model_name: str) -> ModelProvider:
@@ -99,6 +115,68 @@ def _detect_provider(model_name: str) -> ModelProvider:
         return ModelProvider.OPENAI
 
     return ModelProvider.OPENAI
+
+
+def _build_provider_chain(
+    models: List[str],
+) -> List[Tuple[ModelProvider, List[str]]]:
+    """Group consecutive models by provider while preserving order."""
+    chain: List[Tuple[ModelProvider, List[str]]] = []
+    for raw_name in models:
+        name = (raw_name or "").strip()
+        if not name:
+            continue
+        provider = _detect_provider(name)
+        if chain and chain[-1][0] == provider:
+            chain[-1][1].append(name)
+            continue
+        chain.append((provider, [name]))
+    return chain
+
+
+def _instantiate_provider(
+    provider_type: ModelProvider,
+    models: List[str],
+    *,
+    instrumentation=None,
+) -> Optional[LLMProvider]:
+    if not models:
+        return None
+    model, *fallbacks = models
+
+    if provider_type == ModelProvider.ANTHROPIC:
+        from eve.agent.llm.providers.anthropic import AnthropicProvider
+
+        return AnthropicProvider(
+            model=model,
+            fallbacks=fallbacks,
+            instrumentation=instrumentation,
+        )
+
+    if provider_type == ModelProvider.OPENAI:
+        from eve.agent.llm.providers.openai import OpenAIProvider
+
+        return OpenAIProvider(
+            model=model,
+            fallbacks=fallbacks,
+            instrumentation=instrumentation,
+        )
+
+    if provider_type == ModelProvider.GEMINI:
+        from eve.agent.llm.providers.google import GoogleProvider
+
+        return GoogleProvider(
+            model=model,
+            fallbacks=fallbacks,
+            instrumentation=instrumentation,
+        )
+
+    if provider_type == ModelProvider.FAKE:
+        from eve.agent.llm.providers.fake import FakeProvider
+
+        return FakeProvider(instrumentation=instrumentation)
+
+    return None
 
 
 async def async_run_tool_call(
