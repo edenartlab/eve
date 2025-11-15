@@ -5,7 +5,7 @@ tip: |-
 cost_estimate: 4
 output_type: image
 active: true
-visible: true
+visible: false
 replicate_model: bytedance/seedream-3
 handler: replicate
 parameters:
