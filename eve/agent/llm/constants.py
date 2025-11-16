@@ -15,10 +15,10 @@ class ModelTier(Enum):
     FREE = "free"
 
 
-DEFAULT_MODEL_PREMIUM = "gpt-4o-mini"
-DEFAULT_MODEL_FREE = "gpt-4o-mini"
+DEFAULT_MODEL_PREMIUM = "claude-4-5-sonnet"
+DEFAULT_MODEL_FREE = "claude-4-5-haiku"
 
-FALLBACK_MODEL_PREMIUM = "gpt-5-nano"
+FALLBACK_MODEL_PREMIUM = "gpt-5"
 FALLBACK_MODEL_FREE = "gpt-5-nano"
 
 TEST_MODE_TEXT_STRING = "===test"
@@ -26,9 +26,7 @@ TEST_MODE_TOOL_STRING = "===tool"
 
 MODEL_PROVIDER_OVERRIDES = {
     # Anthropic
-    "claude-sonnet-4-5": ModelProvider.ANTHROPIC,
     "claude-4-5-sonnet": ModelProvider.ANTHROPIC,
-    "claude-haiku-4-5": ModelProvider.ANTHROPIC,
     "claude-4-5-haiku": ModelProvider.ANTHROPIC,
     # OpenAI
     "gpt-4o-mini": ModelProvider.OPENAI,
