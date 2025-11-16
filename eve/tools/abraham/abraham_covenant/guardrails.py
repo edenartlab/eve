@@ -223,7 +223,7 @@ def validate_eden_session_id(data: Dict[str, Any]) -> None:
         raise ValueError(f"Invalid eden_session_id: {e}")
 
 
-def validate_creation(title: str, tagline: str, poster_image: str, post: str, session_id: str) -> None:
+def validate_creation(title: str, tagline: str, poster_image: str, post: str, video: str, session_id: str) -> None:
     """Validate a creation with all its media assets.
 
     Args:
@@ -242,7 +242,6 @@ def validate_creation(title: str, tagline: str, poster_image: str, post: str, se
             raise ValueError(f"Invalid poster_image URL: {poster_image}")
 
         content = download_with_retry(poster_image)
-
         ok, info = validate_image_bytes(content)
         if not ok:
             raise ValueError(f"Invalid poster image {poster_image}: {info.get('reason', 'unknown')}")
@@ -252,6 +251,18 @@ def validate_creation(title: str, tagline: str, poster_image: str, post: str, se
 
         for idx, url in enumerate(media_urls, 1):
             validate_media_url(url)
+
+        # Validate video
+        if not video:
+            raise ValueError("Missing video")
+
+        if not video.startswith(("http://", "https://")):
+            raise ValueError(f"Invalid video URL: {video}")
+
+        content = download_with_retry(video)
+        ok, info = validate_video_bytes(content)
+        if not ok:
+            raise ValueError(f"Invalid video {video}: {info.get('reason', 'unknown')}")
 
         # Validate session ID
         try:

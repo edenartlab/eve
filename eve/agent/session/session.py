@@ -432,12 +432,12 @@ async def build_llm_context(
         messages.extend(system_extras)
 
 
-    logger.info(f"\n\n\n\n\n\n\n=======================================================")
-    logger.info(f"messages after build_system_extras for session {session.id}:")
-    for message in messages:
-        logger.info(f"{message.role} {message.content}")
-        logger.info(f"--------------------------------")
-    logger.info(f"=======================================================\n\n\n\n\n\n\n")
+    # logger.info(f"\n\n\n\n\n\n\n=======================================================")
+    # logger.info(f"messages after build_system_extras for session {session.id}:")
+    # for message in messages:
+    #     logger.info(f"{message.role} {message.content}")
+    #     logger.info(f"--------------------------------")
+    # logger.info(f"=======================================================\n\n\n\n\n\n\n")
     
     existing_messages = select_messages(session)
     messages.extend(existing_messages)
