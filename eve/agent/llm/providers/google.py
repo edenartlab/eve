@@ -8,12 +8,12 @@ from typing import Any, Dict, List, Optional
 import google.genai as genai
 from google.genai import types as genai_types
 
+from eve.agent.llm.providers import LLMProvider
 from eve.agent.llm.util import (
     calculate_cost_usd,
     serialize_context_messages,
 )
-from eve.agent.llm.providers import LLMProvider
-from eve.agent.session.models import LLMContext, LLMResponse, ChatMessage, LLMUsage
+from eve.agent.session.models import ChatMessage, LLMContext, LLMResponse, LLMUsage
 
 
 class GoogleProvider(LLMProvider):
@@ -171,7 +171,9 @@ class GoogleProvider(LLMProvider):
         payload["context_messages"] = serialize_context_messages(context)
         return {k: v for k, v in payload.items() if v not in (None, [], {})}
 
-    def _to_llm_response(self, response: genai_types.GenerateContentResponse) -> LLMResponse:
+    def _to_llm_response(
+        self, response: genai_types.GenerateContentResponse
+    ) -> LLMResponse:
         text_segments: List[str] = []
         stop_reason = None
 

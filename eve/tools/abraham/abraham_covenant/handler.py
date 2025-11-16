@@ -1,26 +1,24 @@
-import os
 import logging
+import os
 from datetime import datetime
+
 from bson import ObjectId
 
-from eve.tool import ToolContext
 from eve.agent import Agent
-from eve.utils.ipfs_utils import pin as ipfs_pin
-from eve.utils.chain_utils import (
-    safe_send,
-    BlockchainError,
-    load_contract,
-    Network,
-)
-from eve.tools.abraham.abraham_seed.handler import (
-    AbrahamSeed, 
-    AbrahamCreation
-)
+from eve.tool import ToolContext
 from eve.tools.abraham.abraham_covenant.guardrails import (
-    validate_ipfs_bundle, 
-    validate_creation, 
-    extract_media_urls
+    extract_media_urls,
+    validate_creation,
+    validate_ipfs_bundle,
 )
+from eve.tools.abraham.abraham_seed.handler import AbrahamCreation, AbrahamSeed
+from eve.utils.chain_utils import (
+    BlockchainError,
+    Network,
+    load_contract,
+    safe_send,
+)
+from eve.utils.ipfs_utils import pin as ipfs_pin
 
 # Initialize logger
 logger = logging.getLogger(__name__)
@@ -112,9 +110,7 @@ def commit_daily_work(
             network=Network.ETH_MAINNET,
         )
 
-        contract_function = contract.functions.commitDailyWork(
-            f"ipfs://{ipfs_hash}"
-        )
+        contract_function = contract.functions.commitDailyWork(f"ipfs://{ipfs_hash}")
 
         # Send transaction
         tx_hex, _ = safe_send(
@@ -128,7 +124,7 @@ def commit_daily_work(
             # network=Network.ETH_SEPOLIA,
             network=Network.ETH_MAINNET,
         )
-        
+
         # Build explorer URL
         if not tx_hex.startswith("0x"):
             tx_hex = f"0x{tx_hex}"
@@ -170,7 +166,7 @@ async def handler(context: ToolContext):
     # Safety checks
     validate_creation(title, tagline, poster_image, blog_post, session_id)
 
-    logger.info(f"Creation validated successfully!")
+    logger.info("Creation validated successfully!")
     logger.info(f"Title: {title}")
     logger.info(f"Tagline: {tagline}")
     logger.info(f"Post: {blog_post}")

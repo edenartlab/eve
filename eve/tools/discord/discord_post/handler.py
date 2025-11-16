@@ -1,11 +1,13 @@
+import io
+import os
+
+import aiohttp
+import discord
+from loguru import logger
+
 from eve.agent.agent import Agent
 from eve.agent.session.models import Deployment
 from eve.tool import ToolContext
-import discord
-import aiohttp
-import io
-import os
-from loguru import logger
 
 
 async def handler(context: ToolContext):

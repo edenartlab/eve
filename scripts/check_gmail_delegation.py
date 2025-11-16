@@ -14,10 +14,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 from pathlib import Path
 from typing import Iterable, Optional
 
-import logging
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 

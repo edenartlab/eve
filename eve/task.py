@@ -1,24 +1,24 @@
 import asyncio
 import traceback
-from bson import ObjectId
-from typing import Dict, Any, Optional, Literal, List
-from functools import wraps
 from datetime import datetime, timezone
+from functools import wraps
+from typing import Any, Dict, List, Literal, Optional
 
-from .user import Manna, Transaction
-from .mongo import Document, Collection
-from . import utils
 import sentry_sdk
+from bson import ObjectId
 from loguru import logger
 
+from . import utils
+from .mongo import Collection, Document
 
 # A list of tools that output media but do not result in new Creations
 from .tool_constants import (
+    CALCULATOR_MCP_TOOLS,
+    CONTEXT7_MCP_TOOLS,
     EDEN_DB_TOOLS,
     SOCIAL_MEDIA_TOOLS,
-    CONTEXT7_MCP_TOOLS,
-    CALCULATOR_MCP_TOOLS,
 )
+from .user import Manna, Transaction
 
 NON_CREATION_TOOLS = [
     *EDEN_DB_TOOLS,
@@ -207,7 +207,7 @@ async def _task_handler(func, *args, **kwargs):
     task_update = {}
     n_samples = task.args.get("n_samples", 1)
     output_type = task.output_type
-    is_creation_tool = not task.tool in NON_CREATION_TOOLS
+    is_creation_tool = task.tool not in NON_CREATION_TOOLS
 
     if task.tool == "create":
         n_samples = 1
@@ -226,11 +226,19 @@ async def _task_handler(func, *args, **kwargs):
                 user=str(task.user) if task.user else None,
                 agent=str(task.agent) if task.agent else None,
                 session=str(task.session) if task.session else None,
-                message=str(task.message) if hasattr(task, "message") and task.message else None,
-                tool_call_id=str(task.tool_call_id) if hasattr(task, "tool_call_id") and task.tool_call_id else None,
+                message=str(task.message)
+                if hasattr(task, "message") and task.message
+                else None,
+                tool_call_id=str(task.tool_call_id)
+                if hasattr(task, "tool_call_id") and task.tool_call_id
+                else None,
             )
 
-            if output_type in ["image", "video", "audio", "lora"] and is_creation_tool and result.get("output"):
+            if (
+                output_type in ["image", "video", "audio", "lora"]
+                and is_creation_tool
+                and result.get("output")
+            ):
                 result["output"] = (
                     result["output"]
                     if isinstance(result["output"], list)

@@ -1,9 +1,9 @@
 import asyncio
-from datetime import datetime, timezone
 import json
 import os
-from contextlib import nullcontext
 import uuid
+from contextlib import nullcontext
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from bson import ObjectId
@@ -11,6 +11,9 @@ from fastapi import BackgroundTasks
 from loguru import logger
 
 from eve.agent.agent import Agent
+from eve.agent.llm.llm import async_prompt as provider_async_prompt
+from eve.agent.llm.llm import async_prompt_stream as provider_async_prompt_stream
+from eve.agent.llm.llm import get_provider
 from eve.agent.memory.memory_models import select_messages
 from eve.agent.memory.service import memory_service
 from eve.agent.session.debug_logger import SessionDebugger
@@ -26,21 +29,10 @@ from eve.agent.session.models import (
     ToolCall,
     UpdateType,
 )
-from eve.agent.llm.llm import (
-    async_prompt as provider_async_prompt,
-    async_prompt_stream as provider_async_prompt_stream,
-    get_provider,
-)
-from eve.agent.session.session_llm import (
-    async_prompt as legacy_async_prompt,
-    async_prompt_stream as legacy_async_prompt_stream,
-)
 from eve.agent.session.tracing import trace_async_operation
 from eve.utils import dumps_json
 
 from .budget import update_session_budget
-from .util import validate_prompt_session
-from .instrumentation import PromptSessionInstrumentation
 from .context import (
     add_chat_message,
     build_llm_context,
@@ -48,12 +40,14 @@ from .context import (
     determine_actors,
     label_message_channels,
 )
+from .instrumentation import PromptSessionInstrumentation
 from .notifications import (
     _send_session_notification,
     check_if_session_active,
     create_session_message_notification,
 )
 from .tools import process_tool_calls
+from .util import validate_prompt_session
 
 
 class SessionCancelledException(Exception):
@@ -84,9 +78,7 @@ class PromptSessionRuntime:
         self.api_key_id = api_key_id
         self.instrumentation = instrumentation
         self.debugger = (
-            instrumentation.debugger
-            if instrumentation and instrumentation.debugger
-            else SessionDebugger(str(session.id) if session else None)
+            instrumentation.debugger if instrumentation else SessionDebugger()
         )
         self.cancellation_event = asyncio.Event()
         self.tool_cancellation_events: Dict[str, asyncio.Event] = {}
@@ -235,11 +227,7 @@ class PromptSessionRuntime:
         async with trace_async_operation(
             "llm.stream", model=self.llm_context.config.model
         ):
-            stream_iter = (
-                provider_async_prompt_stream(self.llm_context, provider)
-                if provider
-                else legacy_async_prompt_stream(self.llm_context)
-            )
+            stream_iter = provider_async_prompt_stream(self.llm_context, provider)
             async for chunk in stream_iter:
                 self._ensure_not_cancelled()
 
@@ -289,10 +277,7 @@ class PromptSessionRuntime:
         async with trace_async_operation(
             "llm.prompt", model=self.llm_context.config.model
         ):
-            if provider:
-                response = await provider_async_prompt(self.llm_context, provider)
-            else:
-                response = await legacy_async_prompt(self.llm_context)
+            response = await provider_async_prompt(self.llm_context, provider)
 
         usage_dump = (
             response.usage.model_dump()
@@ -719,7 +704,6 @@ async def _run_single_actor_session(
     stream: bool,
     is_client_platform: bool,
     session_run_id: str,
-    debugger: SessionDebugger,
     instrumentation: Optional[PromptSessionInstrumentation] = None,
 ):
     stage_cm = (
@@ -728,7 +712,6 @@ async def _run_single_actor_session(
         else nullcontext()
     )
     with stage_cm:
-        debugger.log("Building LLM context", emoji="llm")
         llm_context = await build_llm_context(
             session,
             actor,
@@ -737,7 +720,6 @@ async def _run_single_actor_session(
             instrumentation=instrumentation,
         )
 
-        debugger.log("Starting prompt session", emoji="llm")
         async for update in async_prompt_session(
             session,
             llm_context,
@@ -749,10 +731,11 @@ async def _run_single_actor_session(
             instrumentation=instrumentation,
         ):
             formatted_update = format_session_update(update, context)
-            debugger.log_update(
-                update.type.value if hasattr(update, "type") else "unknown",
-                formatted_update,
-            )
+            if instrumentation:
+                instrumentation.log_update(
+                    formatted_update.get("type", update.type.value),
+                    formatted_update,
+                )
             yield formatted_update
 
 
@@ -795,6 +778,11 @@ async def _run_multi_actor_sessions(
                     instrumentation=instrumentation,
                 ):
                     formatted_update = format_session_update(update, context)
+                    if instrumentation:
+                        instrumentation.log_update(
+                            formatted_update.get("type", update.type.value),
+                            formatted_update,
+                        )
                     await update_queue.put(formatted_update)
             except Exception as e:
                 await update_queue.put(
@@ -838,12 +826,7 @@ async def _run_prompt_session_internal(
 ):
     """Internal function that handles both streaming and non-streaming"""
     session = context.session
-    session_id = str(session.id) if session else None
-    debugger = (
-        instrumentation.debugger
-        if instrumentation and instrumentation.debugger
-        else SessionDebugger(session_id)
-    )
+    debugger = instrumentation.debugger
 
     stage_cm = (
         instrumentation.track_stage("prompt_session.runtime", level="info")
@@ -911,7 +894,6 @@ async def _run_prompt_session_internal(
                         stream=stream,
                         is_client_platform=is_client_platform,
                         session_run_id=session_run_id,
-                        debugger=debugger,
                         instrumentation=instrumentation,
                     ):
                         yield update

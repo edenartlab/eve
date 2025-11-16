@@ -1,5 +1,5 @@
-from eve.agent.session.models import Session, PromptSessionContext
-from eve.agent.session_new.budget import check_session_budget
+from eve.agent.session.budget import check_session_budget
+from eve.agent.session.models import PromptSessionContext, Session
 
 
 def validate_prompt_session(session: Session, context: PromptSessionContext):

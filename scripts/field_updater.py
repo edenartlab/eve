@@ -22,11 +22,11 @@ DB=PROD PYTHONPATH=/Users/xandersteenbrugge/Documents/GitHub/Eden python -m eve.
 
 """
 
-import sys
-import json
 import argparse
+import json
+import sys
 import traceback
-from typing import Dict, Any, Optional, Union
+from typing import Any, Dict, Optional, Union
 
 from loguru import logger
 
@@ -190,7 +190,7 @@ Examples:
             logger.info(f"Error: Invalid JSON in filter query: {e}")
             sys.exit(1)
 
-    logger.info(f"Starting field update process...")
+    logger.info("Starting field update process...")
     logger.info(f"Collection: {args.collection}")
     logger.info(f"Field: {args.field}")
     logger.info(f"Value: {field_value} (type: {type(field_value).__name__})")

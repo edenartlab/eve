@@ -1,18 +1,21 @@
-import os
 import copy
-import yaml
-from pymongo import MongoClient
-from pymongo.server_api import ServerApi
+import os
 from datetime import datetime, timezone
+from typing import Annotated, Any, Dict, List, Optional, Union
+
+import yaml
 from bson import ObjectId
-from typing import Optional, List, Dict, Any, Union
 from pydantic import (
     BaseModel,
-    Field,
     ConfigDict,
+    Field,
     ValidationError,
 )
+from pydantic.json_schema import SkipJsonSchema
+from pymongo import MongoClient
+from pymongo.server_api import ServerApi
 
+from eve.base import VersionableBaseModel, generate_edit_model, recreate_base_model
 
 # Global connection pool
 _mongo_client = None
@@ -104,7 +107,6 @@ class Document(BaseModel):
     )
 
     @classmethod
-    
     def get_collection(cls):
         """Override this method to provide the correct collection for the model."""
         collection_name = getattr(cls, "collection_name", cls.__name__.lower())
@@ -358,10 +360,6 @@ class MongoDocumentNotFound(Exception):
 
 
 ###################################
-
-from eve.base import VersionableBaseModel, generate_edit_model, recreate_base_model
-from typing import Annotated
-from pydantic.json_schema import SkipJsonSchema
 
 
 class VersionableDocument(Document, VersionableBaseModel):

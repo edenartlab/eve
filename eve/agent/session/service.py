@@ -1,24 +1,24 @@
+import uuid
+from contextlib import nullcontext
 from dataclasses import dataclass
-from typing import AsyncIterator, Optional, Tuple, Any, Dict
+from typing import Any, AsyncIterator, Dict, Optional, Tuple
 
 from bson import ObjectId
-from contextlib import nullcontext
 from fastapi import BackgroundTasks
+from loguru import logger
 
+from eve.agent.session.instrumentation import PromptSessionInstrumentation
 from eve.agent.session.models import (
+    LLMConfig,
     NotificationConfig,
     PromptSessionContext,
     Session,
     UpdateType,
-    LLMConfig,
 )
-from eve.agent.session_new.instrumentation import PromptSessionInstrumentation
-from eve.agent.session_new.runtime import _run_prompt_session_internal
+from eve.agent.session.runtime import _run_prompt_session_internal
+from eve.agent.session.setup import setup_session
 from eve.api.api_requests import PromptSessionRequest
 from eve.api.helpers import emit_update
-from loguru import logger
-import uuid
-from eve.agent.session_new.setup import setup_session
 
 
 @dataclass
@@ -48,11 +48,15 @@ class PromptSessionHandle:
         session_id = self.session_id
         success = True
         inst = self.instrumentation
-        stage_cm = inst.track_stage("handle.run", level="info") if inst else nullcontext()
+        stage_cm = (
+            inst.track_stage("handle.run", level="info") if inst else nullcontext()
+        )
         try:
             with stage_cm:
                 async for data in self.iter_updates(stream=False):
-                    await emit_update(self.context.update_config, data, session_id=session_id)
+                    await emit_update(
+                        self.context.update_config, data, session_id=session_id
+                    )
         except Exception:
             success = False
             raise
@@ -65,7 +69,11 @@ class PromptSessionHandle:
         session_id = self.session_id
         inst = self.instrumentation
         success = True
-        stage_cm = inst.track_stage("handle.stream_updates", level="info") if inst else nullcontext()
+        stage_cm = (
+            inst.track_stage("handle.stream_updates", level="info")
+            if inst
+            else nullcontext()
+        )
         try:
             with stage_cm:
                 async for data in self.iter_updates(stream=True):
@@ -119,7 +127,9 @@ def create_prompt_session_handle(
             user_id=request.user_id,
             request=request,
         )
-    context_stage = instrumentation.track_stage("build_prompt_session_context", level="info")
+    context_stage = instrumentation.track_stage(
+        "build_prompt_session_context", level="info"
+    )
     with context_stage:
         context = build_prompt_session_context(session, request)
     instrumentation.update_context(
@@ -143,11 +153,12 @@ def build_prompt_session_context(
 ) -> PromptSessionContext:
     """Create PromptSessionContext objects from an API request."""
     session_run_id = str(uuid.uuid4())
-    notification_config = (
-        NotificationConfig(**request.notification_config)
-        if request.notification_config
-        else None
-    )
+    notification_config = None
+    if request.notification_config:
+        if isinstance(request.notification_config, NotificationConfig):
+            notification_config = request.notification_config
+        else:
+            notification_config = NotificationConfig(**request.notification_config)
 
     return PromptSessionContext(
         session=session,
@@ -190,7 +201,9 @@ def _build_trace_input_payload(context: PromptSessionContext) -> Dict[str, Any]:
         if hasattr(message, "model_dump"):
             payload["message"] = message.model_dump(exclude_none=True)
         else:
-            payload["message"] = {k: v for k, v in vars(message).items() if v is not None}
+            payload["message"] = {
+                k: v for k, v in vars(message).items() if v is not None
+            }
     llm_config_payload = _serialize_llm_config_for_trace(context.llm_config)
     if llm_config_payload:
         payload["llm_config"] = llm_config_payload
@@ -199,7 +212,9 @@ def _build_trace_input_payload(context: PromptSessionContext) -> Dict[str, Any]:
         if isinstance(tools, dict):
             payload["tools"] = list(tools.keys())
         else:
-            payload["tools"] = [getattr(t, "name", str(idx)) for idx, t in enumerate(tools)]
+            payload["tools"] = [
+                getattr(t, "name", str(idx)) for idx, t in enumerate(tools)
+            ]
     if context.tool_choice:
         payload["tool_choice"] = context.tool_choice
     return {k: v for k, v in payload.items() if v not in (None, [], {})}

@@ -15,12 +15,12 @@ from eve.agent.llm.formatting import (
     construct_tools,
     prepare_messages,
 )
+from eve.agent.llm.providers import LLMProvider
 from eve.agent.llm.util import (
     calculate_cost_usd,
     serialize_context_messages,
 )
-from eve.agent.llm.providers import LLMProvider
-from eve.agent.session.models import LLMContext, LLMResponse, ToolCall, LLMUsage
+from eve.agent.session.models import LLMContext, LLMResponse, LLMUsage, ToolCall
 
 
 class OpenAIProvider(LLMProvider):
@@ -95,7 +95,9 @@ class OpenAIProvider(LLMProvider):
                     )
                     if context.config.max_tokens is not None:
                         request_kwargs["max_tokens"] = context.config.max_tokens
-                    response = await self.client.chat.completions.create(**request_kwargs)
+                    response = await self.client.chat.completions.create(
+                        **request_kwargs
+                    )
                     end_time = datetime.now(timezone.utc)
                     llm_response = self._to_llm_response(response)
                     self._record_usage(
@@ -219,7 +221,9 @@ class OpenAIProvider(LLMProvider):
         self.instrumentation.record_counter("llm.cost_usd", total_cost or 0)
 
         cache_prompt = (
-            getattr(getattr(usage, "prompt_tokens_details", None), "cached_tokens", None)
+            getattr(
+                getattr(usage, "prompt_tokens_details", None), "cached_tokens", None
+            )
             if usage
             else None
         )

@@ -35,14 +35,17 @@ Safety Features:
 import argparse
 import os
 import sys
-from typing import List, Dict, Any
+from typing import Any, Dict, List
+
 from loguru import logger
 
 # Add parent directory to path to import eve modules
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 
-def find_documents_with_freetools(collection, doc_type: str = "agent") -> List[Dict[str, Any]]:
+def find_documents_with_freetools(
+    collection, doc_type: str = "agent"
+) -> List[Dict[str, Any]]:
     """
     Find all documents in users3 that have 'freeTools' in their featureFlags array.
 
@@ -53,27 +56,22 @@ def find_documents_with_freetools(collection, doc_type: str = "agent") -> List[D
     Returns:
         List of documents containing 'freeTools' in featureFlags array
     """
-    query = {
-        "featureFlags": "freeTools"
-    }
+    query = {"featureFlags": "freeTools"}
 
     # Add type filter if specified
     if doc_type:
         query["type"] = doc_type
 
     # Project only fields we need for logging and verification
-    projection = {
-        "_id": 1,
-        "username": 1,
-        "type": 1,
-        "featureFlags": 1
-    }
+    projection = {"_id": 1, "username": 1, "type": 1, "featureFlags": 1}
 
     documents = list(collection.find(query, projection))
     return documents
 
 
-def remove_freetools_from_featureflags(collection, doc_type: str = "agent", dry_run: bool = True, verbose: bool = False) -> Dict[str, int]:
+def remove_freetools_from_featureflags(
+    collection, doc_type: str = "agent", dry_run: bool = True, verbose: bool = False
+) -> Dict[str, int]:
     """
     Remove 'freeTools' from the featureFlags array in affected documents.
 
@@ -86,14 +84,10 @@ def remove_freetools_from_featureflags(collection, doc_type: str = "agent", dry_
     Returns:
         Dictionary with statistics about the operation
     """
-    stats = {
-        "total_found": 0,
-        "total_modified": 0,
-        "errors": 0
-    }
+    stats = {"total_found": 0, "total_modified": 0, "errors": 0}
 
     logger.info("=" * 80)
-    logger.info(f"Starting migration: Remove 'freeTools' from featureFlags array")
+    logger.info("Starting migration: Remove 'freeTools' from featureFlags array")
     if doc_type:
         logger.info(f"Filtering by type: {doc_type}")
     logger.info("=" * 80)
@@ -103,7 +97,9 @@ def remove_freetools_from_featureflags(collection, doc_type: str = "agent", dry_
     affected_docs = find_documents_with_freetools(collection, doc_type)
     stats["total_found"] = len(affected_docs)
 
-    logger.info(f"Found {stats['total_found']} document(s) with 'freeTools' in featureFlags array")
+    logger.info(
+        f"Found {stats['total_found']} document(s) with 'freeTools' in featureFlags array"
+    )
 
     if stats["total_found"] == 0:
         logger.info("No documents to modify. Migration complete.")
@@ -136,15 +132,18 @@ def remove_freetools_from_featureflags(collection, doc_type: str = "agent", dry_
             # Actually perform the update using $pull operator
             try:
                 result = collection.update_one(
-                    {"_id": doc_id},
-                    {"$pull": {"featureFlags": "freeTools"}}
+                    {"_id": doc_id}, {"$pull": {"featureFlags": "freeTools"}}
                 )
 
                 if result.modified_count > 0:
                     stats["total_modified"] += 1
-                    logger.success(f"  ✓ Successfully removed 'freeTools' from featureFlags")
+                    logger.success(
+                        "  ✓ Successfully removed 'freeTools' from featureFlags"
+                    )
                 else:
-                    logger.warning(f"  ⚠ No modification made (document may have been updated already)")
+                    logger.warning(
+                        "  ⚠ No modification made (document may have been updated already)"
+                    )
 
             except Exception as e:
                 stats["errors"] += 1
@@ -157,13 +156,15 @@ def remove_freetools_from_featureflags(collection, doc_type: str = "agent", dry_
     logger.info("=" * 80)
     logger.info("Migration Summary")
     logger.info("=" * 80)
-    logger.info(f"Documents found with 'freeTools' in featureFlags: {stats['total_found']}")
+    logger.info(
+        f"Documents found with 'freeTools' in featureFlags: {stats['total_found']}"
+    )
 
     if dry_run:
-        logger.info(f"Mode: DRY RUN (no changes made)")
+        logger.info("Mode: DRY RUN (no changes made)")
         logger.info(f"Documents that would be modified: {stats['total_found']}")
     else:
-        logger.info(f"Mode: EXECUTION")
+        logger.info("Mode: EXECUTION")
         logger.info(f"Documents successfully modified: {stats['total_modified']}")
         logger.info(f"Errors encountered: {stats['errors']}")
 
@@ -201,7 +202,7 @@ Examples:
   python scripts/remove_freetools_preview.py --database prod --type user --execute --verbose
 
 IMPORTANT: Always run with --dry-run first to verify the changes!
-        """
+        """,
     )
 
     parser.add_argument(
@@ -209,7 +210,7 @@ IMPORTANT: Always run with --dry-run first to verify the changes!
         "--db",
         choices=["staging", "prod"],
         default="staging",
-        help="Database to run against (default: staging). Use 'prod' for production database."
+        help="Database to run against (default: staging). Use 'prod' for production database.",
     )
 
     parser.add_argument(
@@ -217,27 +218,27 @@ IMPORTANT: Always run with --dry-run first to verify the changes!
         "-t",
         choices=["agent", "user", "all"],
         default="agent",
-        help="Filter by document type (default: agent). Use 'all' to process both agents and users."
+        help="Filter by document type (default: agent). Use 'all' to process both agents and users.",
     )
 
     parser.add_argument(
         "--execute",
         action="store_true",
-        help="Actually perform the migration (default is dry-run mode)"
+        help="Actually perform the migration (default is dry-run mode)",
     )
 
     parser.add_argument(
         "--dry-run",
         action="store_true",
         default=True,
-        help="Run in dry-run mode (show changes without applying them) - this is the default"
+        help="Run in dry-run mode (show changes without applying them) - this is the default",
     )
 
     parser.add_argument(
         "--verbose",
         "-v",
         action="store_true",
-        help="Print verbose output including full document details"
+        help="Print verbose output including full document details",
     )
 
     args = parser.parse_args()
@@ -252,7 +253,6 @@ IMPORTANT: Always run with --dry-run first to verify the changes!
 
     # Import eve.mongo AFTER setting the environment variable
     from eve.mongo import get_collection
-    from bson import ObjectId
 
     # Determine document type filter
     doc_type = None if args.type == "all" else args.type
@@ -273,12 +273,16 @@ IMPORTANT: Always run with --dry-run first to verify the changes!
         logger.warning("⚠️  WARNING: You are about to modify documents in the database!")
         logger.warning(f"⚠️  TARGET DATABASE: {database}")
         logger.warning(f"⚠️  DOCUMENT TYPE: {args.type}")
-        logger.warning("⚠️  This will remove 'freeTools' from the featureFlags array in affected documents.")
+        logger.warning(
+            "⚠️  This will remove 'freeTools' from the featureFlags array in affected documents."
+        )
         logger.warning("")
         logger.warning("⚠️  Recommended: Create a database backup before proceeding!")
         logger.warning("")
 
-        response = input(f"Are you sure you want to proceed on {database} database? Type 'yes' to continue: ")
+        response = input(
+            f"Are you sure you want to proceed on {database} database? Type 'yes' to continue: "
+        )
         if response.lower() != "yes":
             logger.info("Migration cancelled by user.")
             return 1
@@ -293,7 +297,7 @@ IMPORTANT: Always run with --dry-run first to verify the changes!
             collection=collection,
             doc_type=doc_type,
             dry_run=dry_run,
-            verbose=args.verbose
+            verbose=args.verbose,
         )
 
         # Exit with appropriate code
@@ -307,6 +311,7 @@ IMPORTANT: Always run with --dry-run first to verify the changes!
     except Exception as e:
         logger.error(f"Fatal error during migration: {e}")
         import traceback
+
         traceback.print_exc()
         return 1
 

@@ -1,28 +1,37 @@
 import json
 import re
 import sys
+from typing import Any, Dict, List
+
 import requests
-from typing import Dict, List, Any
-from loguru import logger
 from bson.errors import InvalidId
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from loguru import logger
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from eve.agent.session.models import Session
 from eve.utils.file_utils import (
+    validate_audio_bytes,
     validate_image_bytes,
     validate_video_bytes,
-    validate_audio_bytes,
 )
 
 
 class IPFSDownloadError(Exception):
     """Error during IPFS download operations."""
 
+
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=10),
     retry=retry_if_exception_type((requests.RequestException, IPFSDownloadError)),
-    before_sleep=lambda retry_state: logger.info(f"Retrying download (attempt {retry_state.attempt_number}/3)...")
+    before_sleep=lambda retry_state: logger.info(
+        f"Retrying download (attempt {retry_state.attempt_number}/3)..."
+    ),
 )
 def _download_from_gateway(url: str, timeout: int = 60) -> bytes:
     """Download content from a single gateway with retry logic."""
@@ -64,7 +73,7 @@ def download_from_ipfs(ipfs_hash: str) -> bytes:
 def validate_json(content: bytes) -> Dict[str, Any]:
     """Validate that content is valid JSON and return parsed data."""
     try:
-        data = json.loads(content.decode('utf-8'))
+        data = json.loads(content.decode("utf-8"))
         return data
     except (json.JSONDecodeError, UnicodeDecodeError) as e:
         raise ValueError(f"Content is not valid JSON: {e}")
@@ -77,28 +86,31 @@ def validate_image_field(data: Dict[str, Any]) -> None:
         raise ValueError("Missing 'image' field in JSON")
 
     image_value = data.get("image")
-    if not image_value.startswith("ipfs://"):        
+    if not image_value.startswith("ipfs://"):
         raise ValueError(f"Image field does not start with 'ipfs://': {image_value}")
 
     ipfs_hash = image_value.replace("ipfs://", "")
     image_bytes = download_from_ipfs(ipfs_hash)
     ok, info = validate_image_bytes(image_bytes)
     if not ok:
-        raise ValueError(f"Invalid image {source}: {info.get('reason', 'unknown')}")
+        raise ValueError(f"Invalid image: {info.get('reason', 'unknown')}")
 
 
 def get_media_type(url: str) -> str:
     """Determine media type from URL extensions."""
     url_lower = url.lower()
 
-    if any(url_lower.endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg']):
-        return 'image'
-    elif any(url_lower.endswith(ext) for ext in ['.mp4', '.webm', '.mov']):
-        return 'video'
-    elif any(url_lower.endswith(ext) for ext in ['.mp3', '.wav']):
-        return 'audio'
+    if any(
+        url_lower.endswith(ext)
+        for ext in [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg"]
+    ):
+        return "image"
+    elif any(url_lower.endswith(ext) for ext in [".mp4", ".webm", ".mov"]):
+        return "video"
+    elif any(url_lower.endswith(ext) for ext in [".mp3", ".wav"]):
+        return "audio"
     else:
-        return 'unknown'
+        return "unknown"
 
 
 def extract_media_urls(markdown_text: str) -> List[str]:
@@ -107,14 +119,16 @@ def extract_media_urls(markdown_text: str) -> List[str]:
         return []
 
     # Media extensions
-    media_exts = r'jpg|jpeg|png|gif|webp|bmp|svg|mp4|webm|mov|mp3|wav'
+    media_exts = r"jpg|jpeg|png|gif|webp|bmp|svg|mp4|webm|mov|mp3|wav"
 
     # Match markdown images/media: ![alt](url) or [text](url)
     # This pattern extracts only the URL from inside the parentheses
-    markdown_pattern = rf'!?\[.*?\]\((https?://[^\)]+\.(?:{media_exts}))\)'
+    markdown_pattern = rf"!?\[.*?\]\((https?://[^\)]+\.(?:{media_exts}))\)"
 
     # Match HTML tags: <img>, <video>, <audio>, <source>
-    html_pattern = rf'<(?:img|video|audio|source)[^>]+src=["\']([^"\']+\.(?:{media_exts}))["\']'
+    html_pattern = (
+        rf'<(?:img|video|audio|source)[^>]+src=["\']([^"\']+\.(?:{media_exts}))["\']'
+    )
 
     # Match plain URLs with media extensions (but exclude those inside brackets)
     # Exclude ] and ( to avoid matching URLs in markdown alt text
@@ -125,7 +139,9 @@ def extract_media_urls(markdown_text: str) -> List[str]:
     urls.extend(re.findall(html_pattern, markdown_text, re.IGNORECASE))
 
     # For plain URLs, first remove all markdown image syntax to avoid duplicates
-    text_without_markdown = re.sub(markdown_pattern, '', markdown_text, flags=re.IGNORECASE)
+    text_without_markdown = re.sub(
+        markdown_pattern, "", markdown_text, flags=re.IGNORECASE
+    )
     urls.extend(re.findall(plain_pattern, text_without_markdown, re.IGNORECASE))
 
     # Remove duplicates while preserving order
@@ -143,7 +159,9 @@ def extract_media_urls(markdown_text: str) -> List[str]:
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=10),
     retry=retry_if_exception_type(requests.RequestException),
-    before_sleep=lambda retry_state: logger.info(f"Retrying download (attempt {retry_state.attempt_number}/3)...")
+    before_sleep=lambda retry_state: logger.info(
+        f"Retrying download (attempt {retry_state.attempt_number}/3)..."
+    ),
 )
 def download_with_retry(url: str, timeout: int = 60) -> bytes:
     """Download content from URL with retry logic."""
@@ -166,20 +184,26 @@ def validate_media_url(url: str) -> None:
         content = download_with_retry(url)
 
         # Validate based on media type
-        if media_type == 'image':
+        if media_type == "image":
             ok, info = validate_image_bytes(content)
             if not ok:
-                raise ValueError(f"Invalid image from {url}: {info.get('reason', 'unknown')}")
+                raise ValueError(
+                    f"Invalid image from {url}: {info.get('reason', 'unknown')}"
+                )
 
-        elif media_type == 'video':
+        elif media_type == "video":
             ok, info = validate_video_bytes(content)
             if not ok:
-                raise ValueError(f"Invalid video from {url}: {info.get('reason', 'unknown')}")
+                raise ValueError(
+                    f"Invalid video from {url}: {info.get('reason', 'unknown')}"
+                )
 
-        elif media_type == 'audio':
+        elif media_type == "audio":
             ok, info = validate_audio_bytes(content)
             if not ok:
-                raise ValueError(f"Invalid audio from {url}: {info.get('reason', 'unknown')}")
+                raise ValueError(
+                    f"Invalid audio from {url}: {info.get('reason', 'unknown')}"
+                )
 
         else:
             raise ValueError(f"Unknown media type for {url}")
@@ -223,7 +247,9 @@ def validate_eden_session_id(data: Dict[str, Any]) -> None:
         raise ValueError(f"Invalid eden_session_id: {e}")
 
 
-def validate_creation(title: str, tagline: str, poster_image: str, post: str, session_id: str) -> None:
+def validate_creation(
+    title: str, tagline: str, poster_image: str, post: str, session_id: str
+) -> None:
     """Validate a creation with all its media assets.
 
     Args:
@@ -245,7 +271,9 @@ def validate_creation(title: str, tagline: str, poster_image: str, post: str, se
 
         ok, info = validate_image_bytes(content)
         if not ok:
-            raise ValueError(f"Invalid poster image {poster_image}: {info.get('reason', 'unknown')}")
+            raise ValueError(
+                f"Invalid poster image {poster_image}: {info.get('reason', 'unknown')}"
+            )
 
         # Validate media in post
         media_urls = extract_media_urls(post)
@@ -263,7 +291,7 @@ def validate_creation(title: str, tagline: str, poster_image: str, post: str, se
         if len(post) < 20:
             raise Exception("Blog post must be at least 20 characters long")
 
-        logger.info(f"Creation validated successfully!")
+        logger.info("Creation validated successfully!")
 
     except Exception as e:
         logger.error(f"✗✗✗ VALIDATION FAILED ✗✗✗\nError: {e}")

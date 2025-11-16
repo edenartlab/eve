@@ -1,93 +1,93 @@
-import os
-import logging
 import asyncio
-import signal
 import json
+import logging
+import os
+import signal
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import List, Optional
+
 import modal
 import replicate
 import sentry_sdk
-from typing import Optional, List
-from pathlib import Path
-from fastapi.responses import JSONResponse
-from fastapi import FastAPI, Depends, BackgroundTasks, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.security import APIKeyHeader, HTTPBearer
 from starlette.middleware.base import BaseHTTPMiddleware
-from fastapi.exceptions import RequestValidationError
-from datetime import datetime, timezone
-from contextlib import asynccontextmanager
 
 from eve import auth, db
-from eve.api.runner_tasks import download_clip_models
 from eve.agent.session.models import Session
+from eve.agent.session.run import remote_prompt_session, run_automatic_session
+from eve.api.api_functions import (
+    cancel_stuck_tasks_fn,
+    cleanup_stale_busy_states,
+    embed_recent_creations,
+    generate_lora_thumbnails_fn,
+    rotate_agent_metadata_fn,
+    run,
+    run_task,
+    run_task_replicate,
+)
+from eve.api.api_requests import (
+    AgentPromptsExtractionRequest,
+    AgentToolsDeleteRequest,
+    AgentToolsUpdateRequest,
+    CancelRequest,
+    CancelSessionRequest,
+    CreateConceptRequest,
+    CreateDeploymentRequestV2,
+    CreateNotificationRequest,
+    CreateTriggerRequest,
+    DeleteDeploymentRequestV2,
+    DeleteTriggerRequest,
+    DeploymentEmissionRequest,
+    DeploymentInteractRequest,
+    EmbedSearchRequest,
+    PromptSessionRequest,
+    RunTriggerRequest,
+    TaskRequest,
+    UpdateConceptRequest,
+    UpdateDeploymentRequestV2,
+    UpdateSessionStatusRequest,
+)
 from eve.api.handlers import (
-    handle_create,
-    handle_cancel,
-    handle_prompt_session,
-    handle_replicate_webhook,
-    handle_agent_tools_update,
     handle_agent_tools_delete,
-    handle_session_cancel,
-    handle_session_status_update,
-    handle_v2_deployment_create,
-    handle_v2_deployment_emission,
-    handle_v2_deployment_interact,
-    handle_v2_deployment_update,
-    handle_v2_deployment_delete,
-    handle_v2_deployment_farcaster_neynar_webhook,
-    handle_v2_deployment_email_inbound,
+    handle_agent_tools_update,
+    handle_cancel,
+    handle_create,
     handle_create_notification,
     handle_embedsearch,
     handle_extract_agent_prompts,
+    handle_prompt_session,
+    handle_replicate_webhook,
+    handle_session_cancel,
+    handle_session_status_update,
+    handle_v2_deployment_create,
+    handle_v2_deployment_delete,
+    handle_v2_deployment_email_inbound,
+    handle_v2_deployment_emission,
+    handle_v2_deployment_farcaster_neynar_webhook,
+    handle_v2_deployment_interact,
+    handle_v2_deployment_update,
 )
-from eve.trigger import (
-    handle_trigger_create,
-    handle_trigger_delete,
-    handle_trigger_stop,
-    handle_trigger_run,
-    handle_trigger_get,
-    execute_trigger,
-    Trigger,
-)
+from eve.api.runner_tasks import download_clip_models
 from eve.concepts import (
     create_concept_thumbnail,
     handle_concept_create,
     handle_concept_update,
 )
-from eve.api.api_requests import (
-    CancelRequest,
-    CancelSessionRequest,
-    UpdateSessionStatusRequest,
-    CreateDeploymentRequestV2,
-    DeleteDeploymentRequestV2,
-    DeploymentEmissionRequest,
-    DeploymentInteractRequest,
-    CreateTriggerRequest,
-    DeleteTriggerRequest,
-    RunTriggerRequest,
-    CreateConceptRequest,
-    UpdateConceptRequest,
-    PromptSessionRequest,
-    TaskRequest,
-    AgentToolsUpdateRequest,
-    AgentToolsDeleteRequest,
-    UpdateDeploymentRequestV2,
-    CreateNotificationRequest,
-    EmbedSearchRequest,
-    AgentPromptsExtractionRequest,
+from eve.trigger import (
+    Trigger,
+    execute_trigger,
+    handle_trigger_create,
+    handle_trigger_delete,
+    handle_trigger_get,
+    handle_trigger_run,
+    handle_trigger_stop,
 )
-from eve.api.api_functions import (
-    cancel_stuck_tasks_fn,
-    generate_lora_thumbnails_fn,
-    rotate_agent_metadata_fn,
-    embed_recent_creations,
-    run,
-    run_task,
-    run_task_replicate,
-    cleanup_stale_busy_states,
-)
-from eve.agent.session.run import remote_prompt_session, run_automatic_session
-
 
 app_name = f"api-{db.lower()}"
 logging.getLogger("ably").setLevel(logging.WARNING)
@@ -370,7 +370,7 @@ async def embed(request: Request, _: dict = Depends(auth.authenticate_admin)):
     """Generate CLIP embedding for a text query"""
     import torch
     import torch.nn.functional as F
-    from transformers import CLIPProcessor, CLIPModel
+    from transformers import CLIPModel, CLIPProcessor
 
     body = await request.json()
     query = body.get("query")
@@ -606,10 +606,7 @@ async def remote_prompt_session_fn(
 
 
 @app.function(image=image, max_containers=4, timeout=3600)
-async def handle_session_status_change_fn(
-    session_id: str, 
-    status: str
-):
+async def handle_session_status_change_fn(session_id: str, status: str):
     # todo - re-enable this
     return
 

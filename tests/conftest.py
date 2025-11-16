@@ -62,7 +62,9 @@ class FakeCollection:
         return None
 
     def find(
-        self, query: Dict[str, Any] | None = None, projection: Dict[str, int] | None = None
+        self,
+        query: Dict[str, Any] | None = None,
+        projection: Dict[str, int] | None = None,
     ):
         query = query or {}
         matched = [

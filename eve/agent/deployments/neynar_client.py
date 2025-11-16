@@ -1,7 +1,8 @@
-import os
-import aiohttp
 import logging
-from typing import Optional, Dict, Any, List
+import os
+from typing import Any, Dict, List, Optional
+
+import aiohttp
 from farcaster import Warpcast
 
 logger = logging.getLogger(__name__)
@@ -23,9 +24,7 @@ class NeynarClient:
             "Content-Type": "application/json",
         }
 
-    async def create_managed_signer(
-        self, developer_mnemonic: str
-    ) -> Dict[str, Any]:
+    async def create_managed_signer(self, developer_mnemonic: str) -> Dict[str, Any]:
         """
         Create a managed signer using the developer's mnemonic for sponsorship
 
@@ -56,7 +55,7 @@ class NeynarClient:
 
                 if not signer_uuid or not public_key:
                     raise Exception(
-                        f"Invalid response from Neynar: missing signer_uuid or public_key"
+                        "Invalid response from Neynar: missing signer_uuid or public_key"
                     )
 
             # Step 2: Sign the public key with developer's mnemonic
@@ -126,7 +125,9 @@ class NeynarClient:
         signer_data = await self.get_signer_status(signer_uuid)
 
         if signer_data.get("status") != "approved":
-            raise Exception(f"Signer is not approved, status: {signer_data.get('status')}")
+            raise Exception(
+                f"Signer is not approved, status: {signer_data.get('status')}"
+            )
 
         fid = signer_data.get("fid")
         if not fid:
@@ -215,7 +216,9 @@ class NeynarClient:
                             if verify_response.status == 200:
                                 full_cast = await verify_response.json()
                                 cast_data = full_cast.get("cast", {})
-                                logger.info(f"Full cast verification - parent_hash: {cast_data.get('parent_hash')}, thread_hash: {cast_data.get('thread_hash')}")
+                                logger.info(
+                                    f"Full cast verification - parent_hash: {cast_data.get('parent_hash')}, thread_hash: {cast_data.get('thread_hash')}"
+                                )
                     except Exception as e:
                         logger.warning(f"Failed to verify full cast details: {e}")
 

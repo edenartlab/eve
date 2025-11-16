@@ -1,17 +1,18 @@
 import logging
 import os
-import tempfile
+from typing import Any, List, Optional
+
 import modal
 from bson import ObjectId
-from typing import Dict, Any, Optional, List
-from fastapi import FastAPI, Depends, BackgroundTasks, Request
-from eve.mongo import Document, Collection
-from eve.utils.media_utils import create_thumbnail
-from eve.api.errors import handle_errors, APIError
+from fastapi import BackgroundTasks
+
 from eve.api.api_requests import (
     CreateConceptRequest,
     UpdateConceptRequest,
 )
+from eve.api.errors import APIError, handle_errors
+from eve.mongo import Collection, Document
+from eve.utils.media_utils import create_thumbnail
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -30,7 +31,7 @@ class Concept(Document):
     # args: Optional[Dict[str, Any]] = None
     # sdxl_lora: str
     # flux_lora: str
-    
+
     creationCount: int = 0
 
 
@@ -54,8 +55,7 @@ def create_concept_thumbnail(concept: Concept) -> str:
 
 @handle_errors
 async def handle_concept_create(
-    request: CreateConceptRequest,
-    background_tasks: BackgroundTasks
+    request: CreateConceptRequest, background_tasks: BackgroundTasks
 ):
     # Log the incoming request to check for name field
     logger.info(f"Creating concept with request: {request}")
@@ -70,11 +70,9 @@ async def handle_concept_create(
         # create_concept_thumbnail_fn.spawn(concept)
         db = os.getenv("DB", "STAGE").upper()
         func = modal.Function.from_name(
-            f"api-{db.lower()}",
-            "create_concept_thumbnail", 
-            environment_name="main"
+            f"api-{db.lower()}", "create_concept_thumbnail", environment_name="main"
         )
-        job = func.spawn(concept)
+        func.spawn(concept)
 
     return {
         "id": str(concept.id),
@@ -83,8 +81,7 @@ async def handle_concept_create(
 
 @handle_errors
 async def handle_concept_update(
-    request: UpdateConceptRequest,
-    background_tasks: BackgroundTasks
+    request: UpdateConceptRequest, background_tasks: BackgroundTasks
 ):
     # Log the incoming request to check for name field
     logger.info(f"Creating concept with request: {request}")
@@ -99,13 +96,10 @@ async def handle_concept_update(
         # create_concept_thumbnail_fn.spawn(concept)
         db = os.getenv("DB", "STAGE").upper()
         func = modal.Function.from_name(
-            f"api-{db.lower()}",
-            "create_concept_thumbnail", 
-            environment_name="main"
+            f"api-{db.lower()}", "create_concept_thumbnail", environment_name="main"
         )
-        job = func.spawn(concept)
+        func.spawn(concept)
 
     return {
         "id": str(concept.id),
     }
-

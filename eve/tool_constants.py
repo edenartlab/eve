@@ -2,14 +2,21 @@
 Constants used by both tool.py and agent.py, extracted to break circular imports.
 """
 
-import os
 from pathlib import Path
 from typing import Literal
 
+
 def _discover_tools(subfolder: str):
     tools_path = Path(__file__).parent / "tools" / subfolder
-    tools = [item.name for item in tools_path.iterdir() if item.is_dir() and not item.name.startswith('.') and not item.name.startswith('__')]
+    tools = [
+        item.name
+        for item in tools_path.iterdir()
+        if item.is_dir()
+        and not item.name.startswith(".")
+        and not item.name.startswith("__")
+    ]
     return tools
+
 
 OUTPUT_TYPES = Literal[
     "boolean", "string", "integer", "float", "array", "image", "video", "audio", "lora"
@@ -62,7 +69,7 @@ ALL_TOOLS = [
     "thinksound",
     "stable_audio",
     "transcription",
-    "elevenlabs_music", 
+    "elevenlabs_music",
     "elevenlabs_fx",
     # editing
     "media_editor",
@@ -112,7 +119,7 @@ SOCIAL_MEDIA_TOOLS = [
 ]
 
 EDEN_DB_TOOLS = [
-    "search_collections", 
+    "search_collections",
     "add_to_collection",
     "search_agents",
     "search_models",
@@ -125,7 +132,7 @@ CALCULATOR_MCP_TOOLS = ["calculator_calculate"]
 # SLACK_MCP_TOOLS = ["slack_post", "slack_search", "slack_channels"]
 
 TOOL_SETS = {
-    "create_image": ["create", "media_editor", "reel"], #  "magic_8_ball"
+    "create_image": ["create", "media_editor", "reel"],  #  "magic_8_ball"
     "create_video": [],  # deprecated
     "create_audio": ["elevenlabs", "elevenlabs_music", "elevenlabs_fx"],
     "vj_tools": ["texture_flow", "video_FX"],

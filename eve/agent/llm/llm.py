@@ -1,12 +1,9 @@
-from typing import Optional, AsyncGenerator, Callable, Any, List, Tuple
+from typing import Any, AsyncGenerator, Callable, List, Optional, Tuple
 
-from eve.agent.llm.constants import ModelProvider, MODEL_PROVIDER_OVERRIDES
+from eve.agent.llm.constants import MODEL_PROVIDER_OVERRIDES, ModelProvider
 from eve.agent.llm.providers import LLMProvider
+from eve.agent.llm.util import should_force_fake_response, validate_input
 from eve.agent.session.models import LLMContext, LLMResponse, ToolCall
-from eve.agent.llm.util import (
-    validate_input,
-    should_force_fake_response,
-)
 
 ProviderFactory = Callable[[LLMContext], Optional[LLMProvider]]
 _provider_factory_override: Optional[ProviderFactory] = None
@@ -41,9 +38,7 @@ class FallbackChainProvider(LLMProvider):
             raise last_error
         raise RuntimeError("No providers available for prompt request")
 
-    async def prompt_stream(
-        self, context: LLMContext
-    ) -> AsyncGenerator[Any, None]:
+    async def prompt_stream(self, context: LLMContext) -> AsyncGenerator[Any, None]:
         last_error: Optional[Exception] = None
         for provider in self._providers:
             try:
@@ -211,17 +206,34 @@ async def async_run_tool_call(
 
 async def async_prompt(
     context: LLMContext,
-    provider: LLMProvider,
+    provider: Optional[LLMProvider] = None,
 ) -> LLMResponse:
+    """Execute a prompt against the resolved provider.
+
+    When a provider isn't supplied, resolve one automatically using the context's
+    model metadata. This keeps backwards compatibility with legacy call sites
+    while still allowing callers to inject a specific provider.
+    """
     validate_input(context)
-    return await provider.prompt(context)
+    resolved_provider = provider or get_provider(context)
+    if resolved_provider is None:
+        raise RuntimeError(
+            f"No LLM provider available for model {context.config.model}"
+        )
+    return await resolved_provider.prompt(context)
 
 
 async def async_prompt_stream(
     context: LLMContext,
-    provider: LLMProvider,
+    provider: Optional[LLMProvider] = None,
 ) -> AsyncGenerator[Any, None]:
     validate_input(context)
 
-    async for chunk in provider.prompt_stream(context):
+    resolved_provider = provider or get_provider(context)
+    if resolved_provider is None:
+        raise RuntimeError(
+            f"No LLM provider available for model {context.config.model}"
+        )
+
+    async for chunk in resolved_provider.prompt_stream(context):
         yield chunk

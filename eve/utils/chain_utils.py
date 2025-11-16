@@ -1,14 +1,14 @@
 import json
-import time
-import os
 import logging
+import os
+import time
 from enum import Enum
-from typing import Optional, Tuple, Dict, Any
+from typing import Any, Dict, Optional, Tuple
 
-from web3 import Web3
-from web3.exceptions import ContractLogicError, TimeExhausted
 from eth_account import Account
 from eth_utils import to_text
+from web3 import Web3
+from web3.exceptions import ContractLogicError, TimeExhausted
 
 # Initialize logger
 logger = logging.getLogger(__name__)
@@ -27,11 +27,13 @@ class Network(Enum):
 
 # ---------- Errors ----------
 
+
 class BlockchainError(Exception):
     pass
 
 
 # ---------- Helpers ----------
+
 
 def _fmt_gwei(wei: int) -> str:
     return f"{wei / 1_000_000_000:.3f} gwei"
@@ -46,6 +48,7 @@ def _explorer_url(tx_hash_hex: str, network: Network = Network.BASE_SEPOLIA) -> 
         return f"https://etherscan.io/tx/{tx_hash_hex}"
     else:
         raise ValueError(f"Unknown network: {network}")
+
 
 def make_w3(network: Network = Network.BASE_SEPOLIA) -> Web3:
     if network == Network.BASE_SEPOLIA:
@@ -69,9 +72,13 @@ def resolve_nonce(w3: Web3, address: str, provided_nonce: Optional[int]) -> int:
     if provided_nonce is None:
         return pending_nonce
     if provided_nonce > pending_nonce:
-        logger.warning(f"Provided nonce {provided_nonce} > pending {pending_nonce}; tx will queue until gaps fill.")
+        logger.warning(
+            f"Provided nonce {provided_nonce} > pending {pending_nonce}; tx will queue until gaps fill."
+        )
     elif provided_nonce < pending_nonce:
-        logger.warning(f"Provided nonce {provided_nonce} < pending {pending_nonce}; using {pending_nonce}.")
+        logger.warning(
+            f"Provided nonce {provided_nonce} < pending {pending_nonce}; using {pending_nonce}."
+        )
         return pending_nonce
     return provided_nonce
 
@@ -115,6 +122,7 @@ def suggest_fees(
 
     return {"maxFeePerGas": max_fee, "maxPriorityFeePerGas": prio}
 
+
 def decode_custom_error(error_data: str, abi: list) -> str:
     """
     Decode a custom Solidity error from hex data.
@@ -128,20 +136,20 @@ def decode_custom_error(error_data: str, abi: list) -> str:
     params_data = error_data[10:]
 
     # Find matching error in ABI
-    errors = [item for item in abi if item.get('type') == 'error']
+    errors = [item for item in abi if item.get("type") == "error"]
 
     for error in errors:
-        name = error['name']
-        inputs = error.get('inputs', [])
+        name = error["name"]
+        inputs = error.get("inputs", [])
 
         # Build signature and calculate selector
         if inputs:
-            param_types = ','.join(inp['type'] for inp in inputs)
-            signature = f'{name}({param_types})'
+            param_types = ",".join(inp["type"] for inp in inputs)
+            signature = f"{name}({param_types})"
         else:
-            signature = f'{name}()'
+            signature = f"{name}()"
 
-        calc_selector = '0x' + Web3.keccak(text=signature).hex()[:8]
+        calc_selector = "0x" + Web3.keccak(text=signature).hex()[:8]
 
         if calc_selector == selector:
             # Decode parameters if any
@@ -151,29 +159,32 @@ def decode_custom_error(error_data: str, abi: list) -> str:
                     decoded_params = []
 
                     for i, inp in enumerate(inputs):
-                        param_type = inp['type']
-                        param_name = inp.get('name', f'param{i}')
+                        param_type = inp["type"]
+                        param_name = inp.get("name", f"param{i}")
 
-                        if param_type == 'address':
+                        if param_type == "address":
                             offset = i * 32
-                            addr_bytes = param_bytes[offset:offset+32]
-                            address = '0x' + addr_bytes[-20:].hex()
-                            decoded_params.append(f'{param_name}={address}')
-                        elif param_type.startswith('uint'):
+                            addr_bytes = param_bytes[offset : offset + 32]
+                            address = "0x" + addr_bytes[-20:].hex()
+                            decoded_params.append(f"{param_name}={address}")
+                        elif param_type.startswith("uint"):
                             offset = i * 32
-                            value = int.from_bytes(param_bytes[offset:offset+32], 'big')
-                            decoded_params.append(f'{param_name}={value}')
+                            value = int.from_bytes(
+                                param_bytes[offset : offset + 32], "big"
+                            )
+                            decoded_params.append(f"{param_name}={value}")
                         else:
-                            decoded_params.append(f'{param_name}=<{param_type}>')
+                            decoded_params.append(f"{param_name}=<{param_type}>")
 
-                    return f'{name}({", ".join(decoded_params)})'
+                    return f"{name}({', '.join(decoded_params)})"
                 except Exception:
                     return signature
             else:
-                return f'{name}()'
+                return f"{name}()"
 
     # Unknown error
-    return f'Unknown error {selector}'
+    return f"Unknown error {selector}"
+
 
 def _extract_revert_msg(err_dict: Dict[str, Any]) -> str:
     data = err_dict.get("data")
@@ -181,12 +192,13 @@ def _extract_revert_msg(err_dict: Dict[str, Any]) -> str:
         # Skip selector + offset boilerplate to get the string; or use eth_abi:
         try:
             # 4 bytes selector + 32 offset + 32 len = 68 bytes header
-            msg_len = int(data[136:136+64], 16)
-            raw = bytes.fromhex(data[200:200+msg_len*2])
+            msg_len = int(data[136 : 136 + 64], 16)
+            raw = bytes.fromhex(data[200 : 200 + msg_len * 2])
             return to_text(raw)
         except Exception:
             pass
     return err_dict.get("message", "execution reverted")
+
 
 def simulate_call(
     contract_function,
@@ -204,7 +216,7 @@ def simulate_call(
     except ContractLogicError as e:
         # Try to decode custom error if ABI provided
         error_msg = str(e)
-        if abi and hasattr(e, 'args') and e.args:
+        if abi and hasattr(e, "args") and e.args:
             try:
                 error_data = e.args[0] if isinstance(e.args[0], str) else str(e.args[0])
                 decoded = decode_custom_error(error_data, abi)
@@ -213,7 +225,11 @@ def simulate_call(
                 pass  # Fall back to original error message
         raise BlockchainError(f"Simulation reverted: {error_msg}") from e
     except ValueError as e:
-        msg = _extract_revert_msg(e.args[0]) if e.args and isinstance(e.args[0], dict) else str(e)
+        msg = (
+            _extract_revert_msg(e.args[0])
+            if e.args and isinstance(e.args[0], dict)
+            else str(e)
+        )
         raise BlockchainError(f"Simulation failed: {msg}") from e
     except Exception as e:
         raise BlockchainError(f"Simulation failed: {e}") from e
@@ -232,8 +248,11 @@ def estimate_gas(
     let caller decide a default fallback.
     """
     params = {"from": from_address, "nonce": nonce, "value": value}
-    if fee_params and {"maxFeePerGas","maxPriorityFeePerGas"} <= fee_params.keys():
-        params |= {"maxFeePerGas": fee_params["maxFeePerGas"], "maxPriorityFeePerGas": fee_params["maxPriorityFeePerGas"]}
+    if fee_params and {"maxFeePerGas", "maxPriorityFeePerGas"} <= fee_params.keys():
+        params |= {
+            "maxFeePerGas": fee_params["maxFeePerGas"],
+            "maxPriorityFeePerGas": fee_params["maxPriorityFeePerGas"],
+        }
     est = contract_function.estimate_gas(params)
     return min(int(est * 1.20), gas_limit_cap)
 
@@ -244,7 +263,7 @@ def wait_for_confirmations(
     confirmations=3,
     inclusion_timeout_s=120,
     conf_timeout_s=180,
-    poll_interval=1.0
+    poll_interval=1.0,
 ):
     """
     Wait for inclusion, verify success, then wait N block confirmations.
@@ -252,21 +271,30 @@ def wait_for_confirmations(
     tx_hex = tx_hash.hex()
     logger.info(f"Waiting for inclusion: {tx_hex} (timeout={inclusion_timeout_s}s)")
     try:
-        receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=inclusion_timeout_s)
+        receipt = w3.eth.wait_for_transaction_receipt(
+            tx_hash, timeout=inclusion_timeout_s
+        )
     except TimeExhausted as e:
-        raise BlockchainError(f"Transaction not mined within {inclusion_timeout_s}s: {tx_hex}") from e
+        raise BlockchainError(
+            f"Transaction not mined within {inclusion_timeout_s}s: {tx_hex}"
+        ) from e
     if receipt.status != 1:
-        raise BlockchainError(f"Transaction reverted in block {receipt.blockNumber}: {tx_hash.hex()}")
+        raise BlockchainError(
+            f"Transaction reverted in block {receipt.blockNumber}: {tx_hash.hex()}"
+        )
     target = receipt.blockNumber + confirmations
     t0 = time.time()
     while w3.eth.block_number < target:
         if time.time() - t0 > conf_timeout_s:
-            raise BlockchainError(f"Timed out waiting for {confirmations} confirmations: {tx_hash.hex()}")
+            raise BlockchainError(
+                f"Timed out waiting for {confirmations} confirmations: {tx_hash.hex()}"
+            )
         time.sleep(poll_interval)
     return receipt
 
 
 # ---------- Core: safe_send ----------
+
 
 def safe_send(
     w3: Web3,
@@ -307,10 +335,17 @@ def safe_send(
 
     try:
         gas_limit = estimate_gas(
-            contract_function, addr, use_nonce, value=value, gas_limit_cap=gas_limit_cap, fee_params=fee_params
+            contract_function,
+            addr,
+            use_nonce,
+            value=value,
+            gas_limit_cap=gas_limit_cap,
+            fee_params=fee_params,
         )
     except Exception as e:
-        logger.warning(f"{op_name}: gas estimate failed: {e}; using default={default_gas_limit}")
+        logger.warning(
+            f"{op_name}: gas estimate failed: {e}; using default={default_gas_limit}"
+        )
         gas_limit = default_gas_limit
 
     # Guard against RPC oddities: ensure maxFeePerGas >= maxPriorityFeePerGas
@@ -349,11 +384,17 @@ def safe_send(
     try:
         tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
     except ValueError as e:
-        msg = e.args[0].get("message") if e.args and isinstance(e.args[0], dict) else str(e)
+        msg = (
+            e.args[0].get("message")
+            if e.args and isinstance(e.args[0], dict)
+            else str(e)
+        )
         if "replacement transaction underpriced" in msg.lower():
             raise BlockchainError(f"{op_name}: replacement underpriced") from e
         if "nonce too low" in msg.lower():
-            raise BlockchainError(f"{op_name}: nonce too low (another tx likely mined)") from e
+            raise BlockchainError(
+                f"{op_name}: nonce too low (another tx likely mined)"
+            ) from e
         if "insufficient funds" in msg.lower():
             raise BlockchainError(f"{op_name}: insufficient funds for gas") from e
         raise BlockchainError(f"{op_name}: broadcast error: {msg}") from e
@@ -365,7 +406,12 @@ def safe_send(
     # ---- 4) wait for confirmations, possibly speed up if stuck
     try:
         receipt = wait_for_confirmations(
-            w3=w3, tx_hash=tx_hash, confirmations=confirmations, conf_timeout_s=timeout_s, inclusion_timeout_s=timeout_s, poll_interval=poll_interval
+            w3=w3,
+            tx_hash=tx_hash,
+            confirmations=confirmations,
+            conf_timeout_s=timeout_s,
+            inclusion_timeout_s=timeout_s,
+            poll_interval=poll_interval,
         )
 
         eff = receipt.get("effectiveGasPrice")
@@ -373,7 +419,7 @@ def safe_send(
             f"✅ {op_name} confirmed: {tx_hex} | block={receipt.blockNumber} gasUsed={receipt.gasUsed}"
             + (f" effGasPrice={_fmt_gwei(eff)}" if eff is not None else "")
         )
-        
+
         return tx_hex, receipt
 
     except BlockchainError as first_err:
@@ -386,7 +432,9 @@ def safe_send(
         if not speed_up_on_timeout:
             raise
 
-        logger.warning(f"{op_name}: {first_err}. Attempting speed-up replacement (same nonce).")
+        logger.warning(
+            f"{op_name}: {first_err}. Attempting speed-up replacement (same nonce)."
+        )
 
         # Fetch current head fees and bump
         attempts = 0
@@ -395,18 +443,34 @@ def safe_send(
             attempts += 1
             bump_fees = suggest_fees(w3, urgency="urgent")
             if "maxFeePerGas" in bump_fees:
-                bump_fees["maxFeePerGas"] = int(max(bump_fees["maxFeePerGas"], fee_params.get("maxFeePerGas", 0)) * speed_up_bump)
-                bump_fees["maxPriorityFeePerGas"] = int(max(bump_fees["maxPriorityFeePerGas"], fee_params.get("maxPriorityFeePerGas", 0)) * speed_up_bump)
+                bump_fees["maxFeePerGas"] = int(
+                    max(bump_fees["maxFeePerGas"], fee_params.get("maxFeePerGas", 0))
+                    * speed_up_bump
+                )
+                bump_fees["maxPriorityFeePerGas"] = int(
+                    max(
+                        bump_fees["maxPriorityFeePerGas"],
+                        fee_params.get("maxPriorityFeePerGas", 0),
+                    )
+                    * speed_up_bump
+                )
                 tx_fields = {**common_fields, **bump_fees, "type": 2}
             else:
-                bump_fees["gasPrice"] = int(max(bump_fees["gasPrice"], fee_params.get("gasPrice", 0)) * speed_up_bump)
+                bump_fees["gasPrice"] = int(
+                    max(bump_fees["gasPrice"], fee_params.get("gasPrice", 0))
+                    * speed_up_bump
+                )
                 tx_fields = {**common_fields, **bump_fees}
 
             tx_replacement = contract_function.build_transaction(tx_fields)
-            signed_replacement = w3.eth.account.sign_transaction(tx_replacement, private_key=private_key)
+            signed_replacement = w3.eth.account.sign_transaction(
+                tx_replacement, private_key=private_key
+            )
 
             try:
-                tx_hash = w3.eth.send_raw_transaction(signed_replacement.raw_transaction)
+                tx_hash = w3.eth.send_raw_transaction(
+                    signed_replacement.raw_transaction
+                )
                 tx_hex = tx_hash.hex()
                 logger.info(
                     f"↻ Speed-up attempt {attempts}: {_fmt_gwei(bump_fees.get('maxFeePerGas', bump_fees.get('gasPrice', 0)))} → {tx_hex}  {_explorer_url(tx_hex, network)}"
@@ -425,7 +489,11 @@ def safe_send(
                 return tx_hex, receipt
 
             except ValueError as e:
-                msg = e.args[0].get("message") if e.args and isinstance(e.args[0], dict) else str(e)
+                msg = (
+                    e.args[0].get("message")
+                    if e.args and isinstance(e.args[0], dict)
+                    else str(e)
+                )
                 last_err = BlockchainError(f"Speed-up broadcast failed: {msg}")
                 logger.warning(str(last_err))
                 # Continue loop to try second bump
@@ -442,7 +510,7 @@ def load_contract(
     address: str,
     abi_path: str,
     private_key: str,
-    network: Network = Network.BASE_SEPOLIA
+    network: Network = Network.BASE_SEPOLIA,
 ):
     """
     Loads a contract from an address and ABI.

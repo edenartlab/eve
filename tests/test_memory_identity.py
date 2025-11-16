@@ -21,7 +21,9 @@ class DummySession:
             setattr(self, key, value)
 
 
-def create_user(username: str, *, user_id: str | None = None, canonical: ObjectId | None = None) -> User:
+def create_user(
+    username: str, *, user_id: str | None = None, canonical: ObjectId | None = None
+) -> User:
     user = User(username=username, userId=user_id)
     if canonical:
         user.eden_user_id = canonical

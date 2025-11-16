@@ -11,7 +11,8 @@ Uses Sentry for tracing to provide visibility into:
 import functools
 import os
 from contextlib import asynccontextmanager, contextmanager
-from typing import Optional, Dict, Any, Callable
+from typing import Any, Callable, Dict, Optional
+
 import sentry_sdk
 
 
@@ -72,7 +73,7 @@ def start_transaction(
     user_id: Optional[str] = None,
     agent_id: Optional[str] = None,
     trigger_id: Optional[str] = None,
-    **additional_tags
+    **additional_tags,
 ) -> Optional[Any]:
     """
     Start a new Sentry transaction for a top-level operation.
@@ -153,6 +154,7 @@ def trace_function(operation_name: Optional[str] = None, **default_tags):
         def validate_prompt_session(session, context):
             # your code here
     """
+
     def decorator(func: Callable):
         op_name = operation_name or f"function.{func.__name__}"
 
@@ -167,6 +169,7 @@ def trace_function(operation_name: Optional[str] = None, **default_tags):
                 return func(*args, **kwargs)
 
         return wrapper
+
     return decorator
 
 
@@ -179,6 +182,7 @@ def trace_async_function(operation_name: Optional[str] = None, **default_tags):
         async def determine_actors(session, context):
             # your async code here
     """
+
     def decorator(func: Callable):
         op_name = operation_name or f"function.{func.__name__}"
 
@@ -193,10 +197,16 @@ def trace_async_function(operation_name: Optional[str] = None, **default_tags):
                 return await func(*args, **kwargs)
 
         return wrapper
+
     return decorator
 
 
-def add_breadcrumb(message: str, category: str = "info", level: str = "info", data: Optional[Dict[str, Any]] = None):
+def add_breadcrumb(
+    message: str,
+    category: str = "info",
+    level: str = "info",
+    data: Optional[Dict[str, Any]] = None,
+):
     """
     Add a breadcrumb to the current scope for debugging.
 
@@ -210,8 +220,5 @@ def add_breadcrumb(message: str, category: str = "info", level: str = "info", da
         return
 
     sentry_sdk.add_breadcrumb(
-        message=message,
-        category=category,
-        level=level,
-        data=data or {}
+        message=message, category=category, level=level, data=data or {}
     )

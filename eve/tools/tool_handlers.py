@@ -1,5 +1,6 @@
 import importlib
-from eve.tool_constants import GIGABRAIN_TOOLS, ABRAHAM_TOOLS, VERDELIS_TOOLS
+
+from eve.tool_constants import ABRAHAM_TOOLS, GIGABRAIN_TOOLS, VERDELIS_TOOLS
 
 handlers = {}
 

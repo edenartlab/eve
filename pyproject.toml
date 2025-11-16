@@ -73,13 +73,25 @@ requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = { find = { include = ["eve*"], exclude = ["tests*", "scripts*", "docker*"] } }
+packages = { find = { include = ["eve*"], exclude = [
+    "tests*",
+    "scripts*",
+    "docker*"
+] } }
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+ignore = ["E501", "F403", "E402", "F405"]
+extend-select = ["I"]
 
 [tool.rye]
 dev-dependencies = [
     "uvicorn>=0.32.0",
     "ruff>=0.7.4",
     "pre-commit>=4.0.1",
+    "pyright>=1.1.390",
     "pylance>=0.19.2",
     "pytest>=8.3.3",
     "pytest-asyncio>=0.24.0",
@@ -87,6 +99,7 @@ dev-dependencies = [
 
 [project.scripts]
 eve = "eve.cli:cli"
+check-imports = "scripts.check_imports:main"
 
 [tool.pytest.ini_options]
 markers = [

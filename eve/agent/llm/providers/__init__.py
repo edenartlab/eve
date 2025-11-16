@@ -1,12 +1,12 @@
+import json
 from abc import ABC, abstractmethod
 from types import SimpleNamespace
-from typing import AsyncGenerator, Any, Dict, Optional
-import json
+from typing import Any, AsyncGenerator, Dict, Optional
 
 from eve.agent.session.models import LLMContext, LLMResponse
 
 try:
-    from eve.agent.session_new.instrumentation import PromptSessionInstrumentation
+    from eve.agent.session.instrumentation import PromptSessionInstrumentation
 except Exception:  # pragma: no cover - optional import for legacy contexts
     PromptSessionInstrumentation = None  # type: ignore
 

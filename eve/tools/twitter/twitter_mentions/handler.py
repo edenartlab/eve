@@ -1,7 +1,7 @@
 from eve.agent.agent import Agent
-from eve.tools.twitter import X
 from eve.agent.session.models import Deployment
 from eve.tool import ToolContext
+from eve.tools.twitter import X
 
 
 async def handler(context: ToolContext):

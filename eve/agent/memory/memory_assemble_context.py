@@ -1,26 +1,25 @@
-from eve.agent.memory.memory_models import (
-    SessionMemory,
-    UserMemory,
-    AgentMemory,
-    select_messages,
-)
+import asyncio
+import time
+import traceback
+from datetime import datetime, timedelta, timezone
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
+from loguru import logger
+
+from eve.agent import Agent
+from eve.agent.memory.memory import safe_update_memory_context
 from eve.agent.memory.memory_constants import (
     MAX_N_EPISODES_TO_REMEMBER,
     SYNC_MEMORIES_ACROSS_SESSIONS_EVERY_N_MINUTES,
 )
-
-import time
-import traceback
-import asyncio
-from loguru import logger
-
-from typing import List, Dict, Any, Optional
-from datetime import datetime, timezone, timedelta
-from eve.agent import Agent
-from eve.user import User
+from eve.agent.memory.memory_models import (
+    AgentMemory,
+    SessionMemory,
+    UserMemory,
+    select_messages,
+)
 from eve.agent.session.models import Session
-from eve.agent.memory.memory import safe_update_memory_context
-from typing import TYPE_CHECKING
+from eve.user import User
 
 if TYPE_CHECKING:  # pragma: no cover
     from eve.agent.session_new.instrumentation import PromptSessionInstrumentation

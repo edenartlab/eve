@@ -5,6 +5,8 @@ from typing import Any, Dict, Optional
 from loguru import logger
 from sentry_sdk import capture_exception
 
+from eve.agent.llm.providers.fake import build_fake_tool_result_payload
+from eve.agent.llm.util import is_fake_llm_mode, should_force_fake_response
 from eve.agent.session.models import (
     ChatMessage,
     LLMContext,
@@ -13,8 +15,6 @@ from eve.agent.session.models import (
     ToolCall,
     UpdateType,
 )
-from eve.agent.llm.util import is_fake_llm_mode, should_force_fake_response
-from eve.agent.session.fake_utils import build_fake_tool_result_payload
 from eve.agent.session.tracing import add_breadcrumb
 from eve.tool import Tool
 

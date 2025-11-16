@@ -2,7 +2,6 @@ from jinja2 import Template
 
 from eve.tool import Tool, ToolContext
 
-
 init_message = """
 You have been provided a set of attachments (URLs to media files), along with a request to perform certain media editing tasks. You have access to three specialized tools:
 

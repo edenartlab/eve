@@ -24,13 +24,14 @@ MEDIA_EDITOR
 """
 
 import os
+
 from bson import ObjectId
-from eve.tool import Tool, ToolContext
-from eve.models import Model
-from eve.user import User
 from loguru import logger
 
+from eve.models import Model
 from eve.s3 import get_full_url
+from eve.tool import Tool, ToolContext
+from eve.user import User
 from eve.utils import get_media_attributes
 
 

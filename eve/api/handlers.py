@@ -1,66 +1,68 @@
 import asyncio
-import json
-import logging
-import modal
-import os
-import time
-import uuid
 import hashlib
 import hmac
+import json
+import logging
+import os
 import random
+import time
+import uuid
 
 import aiohttp
+import modal
 from bson import ObjectId
 from fastapi import BackgroundTasks, Request
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
+from eve.agent import Agent
 from eve.agent.deployments.farcaster import FarcasterClient
 from eve.agent.deployments.utils import get_api_url
+from eve.agent.llm.llm import async_prompt
+from eve.agent.memory.memory_models import messages_to_text, select_messages
 from eve.agent.session.models import (
-    Session,
     ChatMessage,
+    ChatMessageRequestInput,
     Deployment,
     DeploymentConfig,
     DeploymentSecrets,
+    EmailDomain,
+    LLMConfig,
+    LLMContext,
+    LLMContextMetadata,
+    LLMTraceMetadata,
     Notification,
     NotificationChannel,
+    Session,
     SessionUpdateConfig,
-    ChatMessageRequestInput,
-    EmailDomain,
 )
-from eve.agent.memory.memory_models import messages_to_text, select_messages
-from eve.agent.session_new.service import (
+from eve.agent.session.service import (
     create_prompt_session_handle,
 )
-from eve.agent.session_new.setup import setup_session
-from eve.api.errors import handle_errors, APIError
 from eve.api.api_requests import (
+    AgentToolsDeleteRequest,
+    AgentToolsUpdateRequest,
     CancelRequest,
     CancelSessionRequest,
     CreateDeploymentRequestV2,
+    CreateNotificationRequest,
     DeleteDeploymentRequestV2,
     DeploymentEmissionRequest,
     DeploymentInteractRequest,
     PromptSessionRequest,
-    TaskRequest,
-    AgentToolsUpdateRequest,
-    AgentToolsDeleteRequest,
-    UpdateDeploymentRequestV2,
-    CreateNotificationRequest,
     SessionCreationArgs,
+    TaskRequest,
+    UpdateDeploymentRequestV2,
 )
+from eve.api.errors import APIError, handle_errors
 from eve.api.helpers import (
     get_platform_client,
 )
-from eve.utils import serialize_json
-from eve.tools.replicate_tool import replicate_update_task
-from eve.agent.session.session_llm import LLMContext, LLMConfig, async_prompt
-from eve.agent.session.models import LLMContextMetadata, LLMTraceMetadata
-from eve.mongo import get_collection, MongoDocumentNotFound
+from eve.mongo import MongoDocumentNotFound, get_collection
 from eve.task import Task
 from eve.tool import Tool
-from eve.agent import Agent
+from eve.tools.replicate_tool import replicate_update_task
 from eve.user import User
+from eve.utils import serialize_json
 
 logger = logging.getLogger(__name__)
 db = os.getenv("DB", "STAGE").upper()
@@ -205,7 +207,9 @@ async def handle_prompt_session(
 async def handle_session_stream(session_id: str):
     """Stream SSE updates for a session."""
     import uuid
+
     from fastapi.responses import StreamingResponse
+
     from eve.api.sse_manager import sse_manager
 
     # Verify session exists
@@ -771,8 +775,9 @@ async def handle_create_notification(request: CreateNotificationRequest):
     return {"id": str(notification.id), "message": "Notification created successfully"}
 
 
-import torch, torch.nn.functional as F
-from transformers import CLIPProcessor, CLIPModel
+import torch
+import torch.nn.functional as F
+from transformers import CLIPModel, CLIPProcessor
 
 MODEL_NAME = "openai/clip-vit-large-patch14"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -869,6 +874,7 @@ async def handle_extract_agent_prompts(request):
     - memory_instructions: Instructions for how agent should store/recall memories
     """
     from pydantic import BaseModel, Field
+
     from eve.agent.session.models import Session
 
     class AgentPromptsResponse(BaseModel):

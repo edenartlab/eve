@@ -3,39 +3,42 @@ Agent Memory System for Eden - Refactored Version
 """
 
 import logging
+import os
 import time
 import traceback
 import uuid
-import os
-from typing import List, Dict, Any, Tuple
 from datetime import datetime, timezone
-from bson import ObjectId
-from pydantic import Field, create_model
-from loguru import logger
+from typing import Any, Dict, List, Tuple
 
-from eve.agent.session.session_llm import async_prompt, LLMContext, LLMConfig
-from eve.agent.session.models import (
-    ChatMessage,
-    Session,
-    LLMContextMetadata,
-    LLMTraceMetadata,
-    SessionMemoryContext,
-)
-from eve.agent.memory.memory_models import (
-    SessionMemory,
-    UserMemory,
-    AgentMemory,
-    get_agent_owner,
-    messages_to_text,
-    _get_recent_messages,
-    _format_memories_with_age,
-    select_messages,
-    calculate_dynamic_limits,
-)
+from bson import ObjectId
+from loguru import logger
+from pydantic import Field, create_model
+
+from eve.agent.llm.llm import async_prompt
 from eve.agent.memory.memory_constants import *
 from eve.agent.memory.memory_constants import (
     MEMORY_LLM_MODEL_FAST,
     MEMORY_LLM_MODEL_SLOW,
+)
+from eve.agent.memory.memory_models import (
+    AgentMemory,
+    SessionMemory,
+    UserMemory,
+    _format_memories_with_age,
+    _get_recent_messages,
+    calculate_dynamic_limits,
+    get_agent_owner,
+    messages_to_text,
+    select_messages,
+)
+from eve.agent.session.models import (
+    ChatMessage,
+    LLMConfig,
+    LLMContext,
+    LLMContextMetadata,
+    LLMTraceMetadata,
+    Session,
+    SessionMemoryContext,
 )
 
 
@@ -752,8 +755,6 @@ async def _regenerate_fully_formed_agent_memory(shard: AgentMemory):
     try:
         shard_content = []
 
-        shard_context = f"## You have an active collective memory shard called {shard.shard_name}.\nContext for this memory collection:\n{shard.extraction_prompt}\n"
-
         # Batch load both facts and suggestions in a single call
         unabsorbed_memory_ids = getattr(shard, "unabsorbed_memory_ids", [])
         all_memory_ids = shard.facts + unabsorbed_memory_ids
@@ -866,7 +867,7 @@ async def _extract_all_memories(
     session_id = session.id
 
     if LOCAL_DEV:
-        logger.debug(f"Running _extract_all_memories...")
+        logger.debug("Running _extract_all_memories...")
 
     # Extract regular memories (episode and directive)
     regular_memories = await extract_memories_with_llm(
@@ -920,7 +921,7 @@ async def _extract_all_memories(
                 conversation_text=conversation_text,
                 extraction_prompt=populated_prompt,
                 extraction_elements=["fact", "suggestion"],
-                generation_name=f"FN_form_memories_extract_shard_memories",
+                generation_name="FN_form_memories_extract_shard_memories",
                 agent_id=agent_id,
                 model=MEMORY_LLM_MODEL_SLOW,
                 session_id=session_id,
@@ -958,7 +959,7 @@ def should_form_memories(
     """
 
     if LOCAL_DEV:
-        logger.debug(f"Running should_form_memories...")
+        logger.debug("Running should_form_memories...")
 
     try:
         session_messages = select_messages(session)
@@ -1010,10 +1011,10 @@ def should_form_memories(
 
         # Weight tokens from different sources differently:
         from eve.agent.memory.memory_models import (
-            USER_MULTIPLIER,
-            TOOL_MULTIPLIER,
-            OTHER_MULTIPLIER,
             AGENT_MULTIPLIER,
+            OTHER_MULTIPLIER,
+            TOOL_MULTIPLIER,
+            USER_MULTIPLIER,
         )
 
         weight_adjusted_text_char_length = (

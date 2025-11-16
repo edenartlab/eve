@@ -1,3 +1,4 @@
+import copy
 import os
 import re
 import uuid
@@ -8,7 +9,17 @@ from bson import ObjectId
 from loguru import logger
 
 from eve.agent.agent import Agent
-from eve.agent.session.config import get_default_session_llm_config
+from eve.agent.llm.prompts.system_template import SYSTEM_TEMPLATE
+from eve.agent.llm.util import is_fake_llm_mode, is_test_mode_prompt
+from eve.agent.memory.memory_models import (
+    get_sender_id_to_sender_name_map,
+    select_messages,
+)
+from eve.agent.memory.service import memory_service
+from eve.agent.session.config import (
+    build_llm_config_from_agent_settings,
+    get_default_session_llm_config,
+)
 from eve.agent.session.models import (
     Channel,
     ChatMessage,
@@ -21,17 +32,7 @@ from eve.agent.session.models import (
     SessionMemoryContext,
     UpdateType,
 )
-from eve.agent.llm.util import (
-    is_fake_llm_mode,
-    is_test_mode_prompt,
-)
-from eve.agent.llm.prompts.system_template import SYSTEM_TEMPLATE
 from eve.agent.session.tracing import add_breadcrumb
-from eve.agent.memory.memory_models import (
-    get_sender_id_to_sender_name_map,
-    select_messages,
-)
-from eve.agent.memory.service import memory_service
 from eve.concepts import Concept
 from eve.models import Model
 from eve.tool import Tool
@@ -193,17 +194,6 @@ async def build_system_extras(
 ):
     extras = []
 
-    # deprecated when we move to new farcaster gateway (wip in abraham)
-    # if context.update_config and context.update_config.farcaster_hash:
-    #     extras.append(
-    #         ChatMessage(
-    #             session=session.id,
-    #             role="system",
-    #             content="You are currently replying to a Farcaster cast. The maximum length before the fold is 320 characters, and the maximum length is 1024 characters, so attempt to be concise in your response.",
-    #         )
-    #     )
-    #     config.max_tokens = 1024
-
     # add trigger context
     if hasattr(session, "context") and session.context:
         context_prompt = f"<Full Task Context>\n{session.context}\n\n**IMPORTANT: Ignore me, the user! You are just speaking to the other agents now. Make sure you stay relevant to the full task context throughout the conversation.</Full Task Context>"
@@ -234,7 +224,7 @@ async def build_system_extras(
                 )
             )
 
-    return context, config, extras
+    return context, extras
 
 
 async def add_chat_message(
@@ -354,8 +344,8 @@ async def build_llm_context(
     )
 
     messages = [system_message]
-    context, base_config, system_extras = await build_system_extras(
-        session, context, context.llm_config or get_default_session_llm_config(tier)
+    context, system_extras = await build_system_extras(
+        session, context, context.llm_config
     )
     if len(system_extras) > 0:
         messages.extend(system_extras)
@@ -365,18 +355,19 @@ async def build_llm_context(
     messages = label_message_channels(messages)
     messages = convert_message_roles(messages, actor.id)
 
-    # Use agent's llm_settings if available, otherwise fallback to context or default
-    if actor.llm_settings and not force_fake:
-        from eve.agent.session.config import build_llm_config_from_agent_settings
-
-        config = await build_llm_config_from_agent_settings(
-            actor,
-            tier,
-            thinking_override=getattr(context, "thinking_override", None),
-            context_messages=messages,  # Pass existing messages for routing context
-        )
-    else:
-        config = context.llm_config or get_default_session_llm_config(tier)
+    config = copy.deepcopy(context.llm_config) if context.llm_config else None
+    if not config:
+        if actor.llm_settings and not force_fake:
+            config = await build_llm_config_from_agent_settings(
+                actor,
+                tier,
+                thinking_override=getattr(context, "thinking_override", None),
+                context_messages=messages,
+            )
+        else:
+            config = get_default_session_llm_config(
+                "premium" if tier != "free" else "free"
+            )
 
     llm_context = LLMContext(
         messages=messages,

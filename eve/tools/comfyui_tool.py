@@ -1,10 +1,11 @@
 import os
+from typing import Dict, List, Optional
+
 import modal
 from pydantic import BaseModel, Field
-from typing import List, Optional, Dict
 
-from ..tool import Tool, ToolContext, tool_context
 from ..task import Task
+from ..tool import Tool, ToolContext, tool_context
 from ..user import User
 
 

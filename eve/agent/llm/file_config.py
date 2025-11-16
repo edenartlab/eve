@@ -4,8 +4,7 @@ Configuration constants and helper utilities for file attachment handling.
 
 import os
 import re
-from urllib.parse import urlparse, unquote
-
+from urllib.parse import unquote, urlparse
 
 # File attachment configuration
 TEXT_ATTACHMENT_MAX_LENGTH = 20000  # Maximum character limit for text attachments
@@ -25,7 +24,9 @@ SUPPORTED_PDF_EXTENSION = (".pdf",)
 SUPPORTED_CSV_EXTENSION = (".csv",)
 
 # All non-media file extensions (text, PDF, CSV) - used for Discord attachment URL handling
-SUPPORTED_NON_MEDIA_EXTENSIONS = SUPPORTED_TEXT_EXTENSIONS + SUPPORTED_PDF_EXTENSION + SUPPORTED_CSV_EXTENSION
+SUPPORTED_NON_MEDIA_EXTENSIONS = (
+    SUPPORTED_TEXT_EXTENSIONS + SUPPORTED_PDF_EXTENSION + SUPPORTED_CSV_EXTENSION
+)
 
 
 # Unsupported file types with conversion instructions
@@ -75,7 +76,7 @@ def _extract_extension_from_url(url: str) -> str:
         # Fallback: try to extract extension from the URL string directly
         # This handles cases where URL parsing might fail
         # Match pattern: dot followed by 2-5 alphanumeric characters before query/fragment/end
-        match = re.search(r'\.([a-zA-Z0-9]{2,5})(?:[?#]|$)', url)
+        match = re.search(r"\.([a-zA-Z0-9]{2,5})(?:[?#]|$)", url)
         if match:
             return f".{match.group(1).lower()}"
         return ""

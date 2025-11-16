@@ -1,7 +1,9 @@
 import tempfile
+
 import modal
-from eve.tool import ToolContext
 from loguru import logger
+
+from eve.tool import ToolContext
 
 
 async def handler(context: ToolContext):
@@ -22,15 +24,19 @@ async def handler(context: ToolContext):
     seed = args.get("seed", 42)
     voice_audio = args.get("voice_audio")  # List of audio URLs or None
 
-    logger.info(f"Calling VibeVoice Modal app...")
+    logger.info("Calling VibeVoice Modal app...")
     logger.info(f"Text: {text[:100]}...")
-    logger.info(f"CFG Scale: {cfg_scale}, Diffusion Steps: {diffusion_steps}, Seed: {seed}")
+    logger.info(
+        f"CFG Scale: {cfg_scale}, Diffusion Steps: {diffusion_steps}, Seed: {seed}"
+    )
     if voice_audio:
         logger.info(f"Voice audio files: {len(voice_audio)}")
 
     try:
         # Get the Modal function
-        VibeVoiceContainer = modal.Cls.from_name("VibeVoice-audio-app", "VibeVoiceContainer")
+        VibeVoiceContainer = modal.Cls.from_name(
+            "VibeVoice-audio-app", "VibeVoiceContainer"
+        )
 
         # Call the generate method remotely
         audio_bytes = VibeVoiceContainer().generate.remote(

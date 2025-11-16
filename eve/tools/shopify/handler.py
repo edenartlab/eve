@@ -1,7 +1,8 @@
-import requests
+import base64
 import json
 import uuid
-import base64
+
+import requests
 
 from eve.agent.agent import Agent
 from eve.agent.session.models import Deployment

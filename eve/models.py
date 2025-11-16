@@ -1,7 +1,8 @@
-from bson import ObjectId
-from typing import Dict, Any, Optional, List
+from typing import Any, Dict, List, Optional
 
-from .mongo import Document, Collection
+from bson import ObjectId
+
+from .mongo import Collection, Document
 
 
 @Collection("models3")

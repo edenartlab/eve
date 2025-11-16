@@ -1,17 +1,18 @@
-import os
 import asyncio
-import aiohttp
+import os
 from datetime import datetime, timedelta, timezone
-from typing import List, Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
+
+import aiohttp
 import discord
 from loguru import logger
+from pydantic import BaseModel
 
 from eve.agent.agent import Agent
 from eve.agent.session.models import Deployment, Session
+from eve.tool import ToolContext
 from eve.user import User
 from eve.utils import serialize_json
-from eve.tool import ToolContext
-from pydantic import BaseModel
 
 
 def construct_agent_chat_url(agent_username: str) -> str:

@@ -16,11 +16,11 @@ from eve.agent.llm.util import (
     serialize_context_messages,
 )
 from eve.agent.session.models import (
+    ChatMessage,
     LLMContext,
     LLMResponse,
-    ToolCall,
-    ChatMessage,
     LLMUsage,
+    ToolCall,
 )
 
 

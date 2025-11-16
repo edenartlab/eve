@@ -1,11 +1,12 @@
-from bson import ObjectId
-from typing import Optional, Dict, Any, Literal
+from typing import Any, Dict, Literal, Optional
 
-from eve.mongo import Collection, Document
-from eve.agent.deployments import Deployment
-from eve.agent.deployments.farcaster import post_cast, get_fid
+from bson import ObjectId
+
 from eve.agent import Agent
+from eve.agent.deployments import Deployment
+from eve.agent.deployments.farcaster import get_fid, post_cast
 from eve.agent.session.models import Session
+from eve.mongo import Collection, Document
 from eve.tool import ToolContext
 
 
@@ -59,10 +60,7 @@ async def handler(context: ToolContext):
 
         # Post the main cast using the reusable helper function
         result = await post_cast(
-            secrets=deployment.secrets, 
-            text=text, 
-            embeds=embeds1 or None, 
-            parent=parent
+            secrets=deployment.secrets, text=text, embeds=embeds1 or None, parent=parent
         )
         cast_hash = result["hash"]
         cast_url = result["url"]
@@ -75,9 +73,9 @@ async def handler(context: ToolContext):
             fid = await get_fid(deployment.secrets)
             parent1 = {"hash": cast_hash, "fid": int(fid)}
             result2 = await post_cast(
-                secrets=deployment.secrets, 
-                text="", 
-                embeds=embeds2, 
+                secrets=deployment.secrets,
+                text="",
+                embeds=embeds2,
                 parent=parent1,
                 thread_hash=thread_hash,
             )

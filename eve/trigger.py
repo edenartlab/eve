@@ -1,42 +1,36 @@
 import logging
 import os
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Literal, Optional
+
 import pytz
 import sentry_sdk
-from jinja2 import Template
-from typing import Optional, Dict, Any, Literal, List
-from bson import ObjectId
-from datetime import datetime, timezone
 from apscheduler.triggers.cron import CronTrigger
+from bson import ObjectId
 from fastapi import BackgroundTasks
+from jinja2 import Template
 
 from eve.agent import Agent
-from eve.user import User
-from eve.mongo import Collection, Document
-from eve.api.errors import handle_errors, APIError
+from eve.agent.session.context import add_chat_message, build_llm_context
+from eve.agent.session.models import (
+    ChatMessageRequestInput,
+    NotificationConfig,
+    PromptSessionContext,
+    Session,
+    SessionUpdateConfig,
+)
+from eve.agent.session.runtime import async_prompt_session
+from eve.agent.session.tracing import add_breadcrumb, trace_async_operation
 from eve.api.api_requests import (
     CreateTriggerRequest,
     DeleteTriggerRequest,
-    RunTriggerRequest,
     PromptSessionRequest,
+    RunTriggerRequest,
     SessionCreationArgs,
 )
-from eve.agent.session.session import (
-    add_chat_message,
-    async_prompt_session,
-    build_llm_context,
-)
-from eve.agent.session.models import (
-    ChatMessageRequestInput,
-    PromptSessionContext,
-    Session,
-    NotificationConfig,
-    SessionUpdateConfig,
-)
-from eve.agent.session.tracing import (
-    trace_async_operation,
-    add_breadcrumb,
-)
-
+from eve.api.errors import APIError, handle_errors
+from eve.mongo import Collection, Document
+from eve.user import User
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -119,7 +113,7 @@ async def handle_trigger_create(
         raise APIError("Failed to calculate next scheduled run time", status_code=400)
     logger.info(f"New Trigger next scheduled run: {next_run}")
 
-    trigger_name = request.name or f"Untitled Task"
+    trigger_name = request.name or "Untitled Task"
     think = False  # TODO
 
     # Create trigger in database
@@ -255,6 +249,7 @@ async def execute_trigger(
 ) -> Session:
     # Start distributed tracing transaction
     import sentry_sdk
+
     transaction = sentry_sdk.start_transaction(
         name="trigger_execution",
         op="trigger.execute",
@@ -266,7 +261,7 @@ async def execute_trigger(
         sentry_sdk.Hub.current.scope.span = transaction
 
     try:
-        from eve.api.handlers import setup_session
+        from eve.agent.session.service import create_prompt_session_handle
 
         trigger = Trigger.from_mongo(trigger_id)
         if not trigger:
@@ -340,18 +335,6 @@ async def execute_trigger(
             failure_message=f'Your task "{trigger.name}" has failed',
         )
 
-        # Setup session
-        async with trace_async_operation("trigger.setup_session", session_id=str(request.session_id) if request.session_id else None):
-            session = setup_session(
-                # background_tasks,
-                None,
-                request.session_id,
-                request.user_id,
-                request,
-            )
-            if transaction:
-                transaction.set_data("session_id", str(session.id))
-
         # Prepare trigger prompt
         async with trace_async_operation("trigger.prepare_prompt"):
             trigger_prompt, extra_tools = await prepare_trigger_prompt(
@@ -360,18 +343,25 @@ async def execute_trigger(
 
         # Create artwork generation message
         message = ChatMessageRequestInput(role="user", content=trigger_prompt)
+        request.message = message
 
-        # Create context with selected model
-        context = PromptSessionContext(
-            session=session,
-            initiating_user_id=request.user_id,
-            message=message,
-            update_config=request.update_config,
-            # thinking_override=trigger.think,
-            thinking_override=False,
-            extra_tools=extra_tools,
-            trigger=trigger.id,
-        )
+        background_tasks = BackgroundTasks()
+        async with trace_async_operation(
+            "trigger.setup_session",
+            session_id=str(request.session_id) if request.session_id else None,
+        ):
+            handle = create_prompt_session_handle(request, background_tasks)
+            session = handle.session
+            context = handle.context
+            if transaction and session:
+                transaction.set_data("session_id", str(session.id))
+
+        # Augment context with trigger-specific overrides
+        context.extra_tools = extra_tools
+        context.thinking_override = False
+        context.trigger = trigger.id
+        if request.update_config and not context.update_config:
+            context.update_config = request.update_config
 
         # Add user message to session
         async with trace_async_operation("trigger.add_message"):
@@ -395,7 +385,7 @@ async def execute_trigger(
     except Exception as e:
         logger.error(f"Error executing trigger {trigger.id}: {str(e)}")
         sentry_sdk.capture_exception(e)
-        return session
+        raise
 
     finally:
         logger.info(f"Trigger execution cleanup completed for {trigger.id}")
@@ -440,6 +430,10 @@ async def handle_trigger_run(
         from eve.trigger import execute_trigger
 
         session = await execute_trigger(trigger_id)
+        if not session:
+            raise APIError(
+                f"Trigger {trigger_id} did not produce a session", status_code=500
+            )
         session_id = str(session.id)
 
         return {

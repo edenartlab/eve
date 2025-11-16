@@ -1,11 +1,14 @@
-from eve.tool import ToolContext
-import openai
-import instructor
-from jinja2 import Template
-from pydantic import BaseModel, Field
 from typing import List
 
-from ....task import CreationsCollection, Creation
+import instructor
+import openai
+from jinja2 import Template
+from pydantic import BaseModel, Field
+
+from eve.tool import ToolContext
+
+from ....task import Creation, CreationsCollection
+
 # from ... import utils
 
 

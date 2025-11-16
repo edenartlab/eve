@@ -3,13 +3,13 @@ Debug logging utility for session operations.
 Can be toggled on/off via environment variable or runtime configuration.
 """
 
-import os
-import logging
 import functools
-from typing import Any, Optional
 import json
-from datetime import datetime
+import logging
+import os
 import sys
+from datetime import datetime
+from typing import Any, Optional
 
 # Environment variable to control debug logging
 DEBUG_SESSION = os.getenv("DEBUG_SESSION", "false").lower() == "true"
@@ -54,32 +54,15 @@ class SessionDebugger:
         self, session_id: Optional[str] = None, enabled: Optional[bool] = None
     ):
         self.session_id = session_id
-        self.session_run_id: Optional[str] = None
         self.enabled = enabled if enabled is not None else DEBUG_SESSION
         self._indent_level = 0
-
-    def set_session_context(
-        self,
-        *,
-        session_id: Optional[str] = None,
-        session_run_id: Optional[str] = None,
-    ):
-        if session_id is not None:
-            self.session_id = session_id
-        if session_run_id is not None:
-            self.session_run_id = session_run_id
 
     def _format_message(
         self, message: str, data: Optional[Any] = None, emoji: str = "debug"
     ) -> str:
         """Format a debug message with session context and emoji"""
         indent = "  " * self._indent_level
-        info_parts = []
-        if self.session_id:
-            info_parts.append(f"id={self.session_id}")
-        if self.session_run_id:
-            info_parts.append(f"run={self.session_run_id}")
-        session_info = f"[{' '.join(info_parts)}]" if info_parts else "[NoSession]"
+        session_info = f"[{self.session_id[:8]}]" if self.session_id else "[NoSession]"
         emoji_icon = self.EMOJI.get(emoji, self.EMOJI["debug"])
         timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
 

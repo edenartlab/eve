@@ -1,14 +1,14 @@
 import os
 from tempfile import NamedTemporaryFile
-from elevenlabs.client import ElevenLabs
-from openai import OpenAI
 from typing import Iterator
+
+from elevenlabs.client import ElevenLabs
+from loguru import logger
+from openai import OpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from eve import utils
 from eve.tool import ToolContext
-from loguru import logger
-
 
 eleven = ElevenLabs(api_key=os.getenv("ELEVEN_API_KEY"))
 

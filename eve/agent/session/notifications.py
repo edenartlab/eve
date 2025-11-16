@@ -1,4 +1,5 @@
 import os
+
 from sentry_sdk import capture_exception
 
 from eve.agent.session.models import NotificationConfig
@@ -84,8 +85,9 @@ async def _send_session_notification(
     error: str = None,
 ):
     """Send a notification about session completion"""
-    import httpx
     from datetime import datetime, timezone
+
+    import httpx
 
     try:
         api_url = os.getenv("EDEN_API_URL")

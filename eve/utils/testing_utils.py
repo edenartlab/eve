@@ -1,9 +1,10 @@
 from __future__ import annotations
+
 import os
 import random
-import requests
 from datetime import datetime
 
+import requests
 from loguru import logger
 
 

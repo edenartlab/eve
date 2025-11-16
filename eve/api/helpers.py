@@ -1,19 +1,18 @@
 import os
 import subprocess
-from typing import Optional
-import aiohttp
-from ably import AblyRest
-import traceback
 import time
+import traceback
+from typing import Optional
 
+import aiohttp
 import modal
-
-from eve.agent.deployments import PlatformClient
-from eve.agent import Agent
-from eve.api.api_requests import UpdateConfig
-from eve.agent.session.models import Deployment, ClientType
+from ably import AblyRest
 from loguru import logger
 
+from eve.agent import Agent
+from eve.agent.deployments import PlatformClient
+from eve.agent.session.models import ClientType, Deployment
+from eve.api.api_requests import UpdateConfig
 
 db = os.getenv("DB", "STAGE").upper()
 busy_state_dict = modal.Dict.from_name(
@@ -348,16 +347,16 @@ def get_platform_client(
     agent: Agent, platform: ClientType, deployment: Optional[Deployment] = None
 ) -> PlatformClient:
     """Helper function to get the appropriate platform client"""
-    from eve.agent.deployments.discord import DiscordClient
-    from eve.agent.deployments.telegram import TelegramClient
-    from eve.agent.deployments.farcaster import FarcasterClient
-    from eve.agent.deployments.twitter import TwitterClient
-    from eve.agent.deployments.shopify import ShopifyClient
-    from eve.agent.deployments.printify import PrintifyClient
     from eve.agent.deployments.captions import CaptionsClient
-    from eve.agent.deployments.tiktok import TiktokClient
+    from eve.agent.deployments.discord import DiscordClient
     from eve.agent.deployments.email import EmailClient
+    from eve.agent.deployments.farcaster import FarcasterClient
     from eve.agent.deployments.gmail import GmailClient
+    from eve.agent.deployments.printify import PrintifyClient
+    from eve.agent.deployments.shopify import ShopifyClient
+    from eve.agent.deployments.telegram import TelegramClient
+    from eve.agent.deployments.tiktok import TiktokClient
+    from eve.agent.deployments.twitter import TwitterClient
 
     if platform == ClientType.DISCORD:
         return DiscordClient(agent=agent, deployment=deployment)

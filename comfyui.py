@@ -18,31 +18,32 @@ DB=PROD WORKSPACE=video modal deploy comfyui.py
 DB=PROD WORKSPACE=video2 modal deploy comfyui.py
 """
 
-from bson import ObjectId
-from pathlib import Path
-from loguru import logger
-import os
-import re
-import git
-import time
-import json
-import glob
 import copy
-import modal
-import shutil
-import urllib
-import tarfile
+import glob
+import json
+import os
 import pathlib
-import tempfile
-import subprocess
-import traceback
+import re
+import shutil
 import socket
+import subprocess
+import tarfile
+import tempfile
+import time
+import traceback
+import urllib
+from pathlib import Path
+
+import git
+import modal
+from bson import ObjectId
+from loguru import logger
 
 import eve.utils as eden_utils
-from eve.tool import Tool
 from eve.mongo import get_collection
-from eve.task import task_handler_method
 from eve.s3 import get_full_url
+from eve.task import task_handler_method
+from eve.tool import Tool
 
 GPUs = {
     "A100": "A100-40GB",  # Changed from modal.gpu.A100()
@@ -68,8 +69,10 @@ test_inactive = True if os.getenv("TEST_INACTIVE") else False
 
 # Run a bunch of checks to verify input args:
 if test_all and specific_tests:
-    logger.info(f"WARNING: can't have both TEST_ALL and SPECIFIC_TEST at the same time...")
-    logger.info(f"Running TEST_ALL instead")
+    logger.info(
+        "WARNING: can't have both TEST_ALL and SPECIFIC_TEST at the same time..."
+    )
+    logger.info("Running TEST_ALL instead")
     specific_tests = []
 
 logger.info("========================================")
@@ -97,7 +100,7 @@ def install_comfyui():
     result = subprocess.run(["git", "init", "."], check=True, capture_output=True)
     logger.info(f"Git init output: {result.stdout.decode()}")
 
-    logger.info(f"Adding ComfyUI remote and fetching")
+    logger.info("Adding ComfyUI remote and fetching")
     result = subprocess.run(
         [
             "git",
@@ -180,7 +183,7 @@ def install_custom_nodes():
                 logger.info(
                     "DEBUG_MODE is already set to False or not found in ControlFlowUtils helper.py"
                 )
-    except:
+    except Exception:
         pass
 
 
@@ -419,7 +422,9 @@ def restore_state_from_volume():
         total_restored += restored_files
         logger.info(f"Restored {restored_files} files to {path}")
 
-    logger.info(f"Successfully restored {total_restored} files from persistent volume cache")
+    logger.info(
+        f"Successfully restored {total_restored} files from persistent volume cache"
+    )
 
 
 def download_files(force_redownload=False):
@@ -543,7 +548,7 @@ def download_files(force_redownload=False):
 
 def get_workflows():
     """Get list of workflows to test based on environment variables."""
-    workflows_dir = pathlib.Path(f"/root/workspace/workflows")
+    workflows_dir = pathlib.Path("/root/workspace/workflows")
     if not workflows_dir.exists():
         raise Exception(f"Workflows directory not found: {workflows_dir}")
 
@@ -568,7 +573,9 @@ def get_workflows():
             f"====> Running tests for subset of workflows: {' | '.join(workflow_names)}"
         )
     else:
-        logger.info(f"====> Running tests for all workflows: {' | '.join(workflow_names)}")
+        logger.info(
+            f"====> Running tests for all workflows: {' | '.join(workflow_names)}"
+        )
 
     # Then filter based on status if TEST_INACTIVE is not set
     if not os.getenv("TEST_INACTIVE"):
@@ -688,7 +695,9 @@ def test_workflows():
     comfyui = ComfyUI()
     try:
         comfyui._start()  # This will set server_address and start the server
-        logger.info(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Server started successfully")
+        logger.info(
+            f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Server started successfully"
+        )
         logger.info(f"Server startup took {time.time() - server_start:.2f}s")
     except Exception as e:
         logger.info(f"Error starting ComfyUI server: {e}")
@@ -698,7 +707,9 @@ def test_workflows():
     # For each workflow
     for workflow_idx, workflow in enumerate(workflows, 1):
         workflow_test_start = time.time()
-        logger.info(f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] Testing workflow: {workflow}")
+        logger.info(
+            f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] Testing workflow: {workflow}"
+        )
 
         # Get list of test files
         test_files = get_test_files(workflow)
@@ -816,7 +827,9 @@ def test_workflows():
                                     raise Exception(
                                         f"Output file not found: {full_path}"
                                     )
-                                logger.info(f"====> Verified output file exists: {full_path}")
+                                logger.info(
+                                    f"====> Verified output file exists: {full_path}"
+                                )
 
                 test_duration = time.time() - test_start
                 logger.info(
@@ -930,13 +943,13 @@ def test_workflows():
             "Reinitializing ComfyUI to check startup time after all files are downloaded..."
         )
         reinit_start = time.time()
-        
+
         # Stop the existing ComfyUI server first
         try:
             comfyui._stop_server()
         except Exception as e:
             logger.info(f"Warning: Error stopping existing server: {e}")
-        
+
         # Create new instance and start
         comfyui = ComfyUI()
         try:
@@ -1071,7 +1084,12 @@ class ComfyUI:
         logger.info(f"DEBUG: ComfyUI server started in {self.launch_time:.2f}s")
 
     def _execute(
-        self, workflow_name: str, args: dict, user: str = None, agent: str = None, session: str = None
+        self,
+        workflow_name: str,
+        args: dict,
+        user: str = None,
+        agent: str = None,
+        session: str = None,
     ):
         try:
             logger.info("\n" + "=" * 60)
@@ -1140,7 +1158,9 @@ class ComfyUI:
             # Debug: Check server again before queuing prompt
             server_stats = self.get_server_stats()
             if "error" in server_stats:
-                logger.info("DEBUG: ERROR - Server not responding before queuing prompt!")
+                logger.info(
+                    "DEBUG: ERROR - Server not responding before queuing prompt!"
+                )
                 raise Exception(
                     "ComfyUI server stopped responding before queuing prompt"
                 )
@@ -1185,7 +1205,12 @@ class ComfyUI:
     @modal.method()
     @task_handler_method
     async def run_task(
-        self, tool_key: str, args: dict, user: str = None, agent: str = None, session: str = None
+        self,
+        tool_key: str,
+        args: dict,
+        user: str = None,
+        agent: str = None,
+        session: str = None,
     ):
         return self._execute(tool_key, args, user, agent, session)
 
@@ -1263,15 +1288,13 @@ class ComfyUI:
             logger.info("DEBUG: Stopping ComfyUI server...")
             # Kill any existing ComfyUI processes
             result = subprocess.run(
-                ["pkill", "-f", "main.py"], 
-                capture_output=True, 
-                text=True
+                ["pkill", "-f", "main.py"], capture_output=True, text=True
             )
             if result.returncode == 0:
                 logger.info("DEBUG: ComfyUI server process killed")
             else:
                 logger.info("DEBUG: No ComfyUI server process found to kill")
-            
+
             # Wait a moment for the process to fully terminate
             time.sleep(2)
         except Exception as e:
@@ -1384,9 +1407,6 @@ class ComfyUI:
     def _inject_embedding_mentions_sdxl(
         self, text, embedding_trigger, embeddings_filename, lora_mode, lora_strength
     ):
-        # Hardcoded computation of the token_strength for the embedding trigger:
-        token_strength = 0.5 + lora_strength / 2
-
         reference = f"(embedding:{embeddings_filename})"
 
         # Make two deep copies of the input text:
@@ -1440,7 +1460,7 @@ class ComfyUI:
             if lora_trigger_text not in text:
                 text = f"{lora_trigger_text}, {text}"
 
-        logger.info(f"Performed FLUX LoRA trigger injection:")
+        logger.info("Performed FLUX LoRA trigger injection:")
         logger.info(orig_text)
         logger.info("Changed to:")
         logger.info(text)
@@ -1504,7 +1524,9 @@ class ComfyUI:
                 raise IOError(f"Failed to extract tar file: {e}")
 
         extracted_files = os.listdir(destination_folder)
-        logger.info(f"Found {len(extracted_files)} files in LORA bundle: {extracted_files}")
+        logger.info(
+            f"Found {len(extracted_files)} files in LORA bundle: {extracted_files}"
+        )
 
         lora_filename = None
         embeddings_filename = None
@@ -1756,7 +1778,7 @@ class ComfyUI:
             return url
 
         logger.info("===== Injecting comfyui args into workflow =====")
-        plogger.info(args)
+        logger.info(args)
 
         embedding_triggers = {"lora": None, "lora2": None}
         lora_trigger_texts = {"lora": None, "lora2": None}
@@ -1837,7 +1859,7 @@ class ComfyUI:
                     embedding_triggers[key] = lora.get("args", {}).get("name")
                     try:
                         lora_trigger_texts[key] = lora.get("lora_trigger_text")
-                    except:  # old flux LoRA's:
+                    except Exception:  # old flux LoRA's:
                         lora_trigger_texts[key] = lora.get("args", {}).get(
                             "caption_prefix"
                         )
@@ -1857,8 +1879,7 @@ class ComfyUI:
             if key == "prompt":
                 if "flux" in base_model:
                     if not (
-                        ("subj_1" in value)
-                        and ("subj_2" in value)
+                        ("subj_1" in value) and ("subj_2" in value)
                     ):  # Skip trigger injection
                         for lora_key in ["lora", "lora2"]:
                             if args.get(f"use_{lora_key}", False):

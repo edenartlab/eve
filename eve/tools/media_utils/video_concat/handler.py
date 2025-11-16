@@ -1,7 +1,9 @@
-from eve.tool import ToolContext
 import os
-import tempfile
 import subprocess
+import tempfile
+
+from eve.tool import ToolContext
+
 # from ... import utils
 
 

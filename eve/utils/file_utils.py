@@ -1,17 +1,18 @@
-import os
 import io
-import re
+import os
 import pathlib
-import tempfile
+import re
 import subprocess
-import requests
-import httpx
-import boto3
+import tempfile
 from io import BytesIO
-from tqdm import tqdm
-from safetensors.torch import load_file, save_file
+
+import boto3
+import httpx
+import requests
 from loguru import logger
 from PIL import Image, UnidentifiedImageError
+from safetensors.torch import load_file, save_file
+from tqdm import tqdm
 
 from .constants import USE_MEDIA_CACHE
 
@@ -106,11 +107,12 @@ def _save_to_volume_cache(url, local_filepath):
             # Commit volume changes if we have access to modal
             try:
                 import modal
+
                 logger.debug(f"Modal module available: {modal}")
                 # Try to get the volume and commit changes
                 # This will only work if we're in a Modal function with volume access
                 # We can't directly access the volume object, so we rely on Modal's auto-commit
-            except:
+            except Exception:
                 pass
 
     except Exception as e:
@@ -332,22 +334,28 @@ def validate_video_bytes(video_bytes: bytes) -> tuple[bool, dict]:
             result = subprocess.run(
                 [
                     "ffprobe",
-                    "-v", "error",
-                    "-select_streams", "v:0",
-                    "-show_entries", "stream=codec_name,width,height,duration",
-                    "-show_entries", "format=format_name,duration",
-                    "-of", "json",
-                    tmp_path
+                    "-v",
+                    "error",
+                    "-select_streams",
+                    "v:0",
+                    "-show_entries",
+                    "stream=codec_name,width,height,duration",
+                    "-show_entries",
+                    "format=format_name,duration",
+                    "-of",
+                    "json",
+                    tmp_path,
                 ],
                 capture_output=True,
                 text=True,
-                timeout=10
+                timeout=10,
             )
 
             if result.returncode != 0:
                 return False, {"reason": f"ffprobe failed: {result.stderr.strip()}"}
 
             import json
+
             probe_data = json.loads(result.stdout)
 
             # Extract video stream info
@@ -370,7 +378,7 @@ def validate_video_bytes(video_bytes: bytes) -> tuple[bool, dict]:
                 "format": codec,
                 "container": format_name,
                 "duration": duration,
-                "size": (width, height)
+                "size": (width, height),
             }
 
         finally:
@@ -406,22 +414,28 @@ def validate_audio_bytes(audio_bytes: bytes) -> tuple[bool, dict]:
             result = subprocess.run(
                 [
                     "ffprobe",
-                    "-v", "error",
-                    "-select_streams", "a:0",
-                    "-show_entries", "stream=codec_name,sample_rate,duration,channels",
-                    "-show_entries", "format=format_name,duration",
-                    "-of", "json",
-                    tmp_path
+                    "-v",
+                    "error",
+                    "-select_streams",
+                    "a:0",
+                    "-show_entries",
+                    "stream=codec_name,sample_rate,duration,channels",
+                    "-show_entries",
+                    "format=format_name,duration",
+                    "-of",
+                    "json",
+                    tmp_path,
                 ],
                 capture_output=True,
                 text=True,
-                timeout=10
+                timeout=10,
             )
 
             if result.returncode != 0:
                 return False, {"reason": f"ffprobe failed: {result.stderr.strip()}"}
 
             import json
+
             probe_data = json.loads(result.stdout)
 
             # Extract audio stream info
@@ -445,7 +459,7 @@ def validate_audio_bytes(audio_bytes: bytes) -> tuple[bool, dict]:
                 "container": format_name,
                 "duration": duration,
                 "sample_rate": sample_rate,
-                "channels": channels
+                "channels": channels,
             }
 
         finally:
@@ -508,4 +522,3 @@ def is_valid_image_url(url: str, *, timeout=(5, 15), max_bytes=8 * 1024 * 1024):
         return False, {"reason": f"Network error: {e.__class__.__name__}"}
     except Exception as e:
         return False, {"reason": f"Other error: {e.__class__.__name__}"}
-

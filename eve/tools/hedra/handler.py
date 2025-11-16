@@ -1,12 +1,14 @@
-from eve.tool import ToolContext
-import os
-import logging
-import requests
-import tempfile
 import asyncio
+import logging
+import os
 import subprocess
-from ... import utils
+import tempfile
 
+import requests
+
+from eve.tool import ToolContext
+
+from ... import utils
 
 logger = logging.getLogger()
 logging.basicConfig(level=logging.INFO)
@@ -207,7 +209,9 @@ async def handler(context: ToolContext):
             return {"output": download_url}
 
         elif status == "error":
-            logger.error(f"Error from Hedra: Raw generation response: {status_response}")
+            logger.error(
+                f"Error from Hedra: Raw generation response: {status_response}"
+            )
             raise Exception(
                 f"Video generation failed: {status_response.get('error_message', 'Unknown error')}"
             )

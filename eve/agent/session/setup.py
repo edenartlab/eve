@@ -1,8 +1,11 @@
 from typing import List, Optional
+
 from bson import ObjectId
 from fastapi import BackgroundTasks
 
 from eve.agent import Agent
+from eve.agent.llm.util import is_test_mode_prompt
+from eve.agent.session.functions import async_title_session
 from eve.agent.session.models import (
     ChatMessage,
     EdenMessageAgentData,
@@ -13,9 +16,6 @@ from eve.agent.session.models import (
 from eve.api.api_requests import PromptSessionRequest
 from eve.api.errors import APIError
 from eve.trigger import Trigger
-
-from eve.agent.session_new.functions import async_title_session
-from eve.agent.llm.util import is_test_mode_prompt
 
 
 def _is_test_prompt_request(request: PromptSessionRequest) -> bool:

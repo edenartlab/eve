@@ -1,18 +1,19 @@
+import os
+import traceback
+import uuid
+
 from bson import ObjectId
-from eve.agent.llm.constants import DEFAULT_MODEL_FREE, FALLBACK_MODEL_FREE
+from sentry_sdk import capture_exception
+
+from eve.agent.llm.llm import async_prompt, get_provider
 from eve.agent.session.models import (
     ChatMessage,
-    LLMContext,
     LLMConfig,
+    LLMContext,
     LLMContextMetadata,
     LLMTraceMetadata,
     Session,
 )
-from eve.agent.llm.llm import async_prompt, get_provider
-from sentry_sdk import capture_exception
-import traceback
-import os
-import uuid
 
 
 async def async_title_session(session: Session, initial_message_content: str):

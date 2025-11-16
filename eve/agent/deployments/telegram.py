@@ -1,27 +1,27 @@
+import json
 import os
 import re
-import json
 from typing import Optional
 
 from ably import AblyRest
 from fastapi import Request
+from loguru import logger
 
 from eve.agent.agent import Agent
+from eve.agent.deployments import PlatformClient
+from eve.agent.deployments.utils import get_api_url
 from eve.agent.session.models import (
     ChatMessageRequestInput,
-    SessionUpdateConfig,
     Deployment,
-    DeploymentSecrets,
     DeploymentConfig,
+    DeploymentSecrets,
+    SessionUpdateConfig,
+    UpdateType,
 )
 from eve.api.api_requests import PromptSessionRequest
 from eve.api.errors import APIError
-from eve.agent.deployments import PlatformClient
-from eve.agent.deployments.utils import get_api_url
-from eve.agent.session.models import UpdateType
 from eve.user import User
 from eve.utils import prepare_result
-from loguru import logger
 
 db = os.getenv("DB", "STAGE").upper()
 
@@ -35,8 +35,9 @@ class TelegramClient(PlatformClient):
         self, secrets: DeploymentSecrets, config: DeploymentConfig
     ) -> tuple[DeploymentSecrets, DeploymentConfig]:
         """Validate Telegram token, generate webhook secret and add Telegram tools"""
-        from telegram import Bot
         import secrets as python_secrets
+
+        from telegram import Bot
 
         # Validate bot token and get bot info
         try:
@@ -146,6 +147,7 @@ class TelegramClient(PlatformClient):
         """Handle Telegram webhook interactions"""
         try:
             import aiohttp
+
             import eve.mongo
 
             # Parse the webhook update
@@ -412,21 +414,19 @@ class TelegramClient(PlatformClient):
 
                 # Reactivate if needed
                 if hasattr(session, "deleted") and session.deleted:
-                    logger.info(
-                        f"[TELEGRAM-INTERACT] Session was deleted, reactivating"
-                    )
+                    logger.info("[TELEGRAM-INTERACT] Session was deleted, reactivating")
                     session.deleted = False
                     session.status = "active"
                     session.save()
                 elif hasattr(session, "status") and session.status == "archived":
                     logger.info(
-                        f"[TELEGRAM-INTERACT] Session was archived, reactivating"
+                        "[TELEGRAM-INTERACT] Session was archived, reactivating"
                     )
                     session.status = "active"
                     session.save()
             except eve.mongo.MongoDocumentNotFound:
                 logger.info(
-                    f"[TELEGRAM-INTERACT] No existing session found, will create new one"
+                    "[TELEGRAM-INTERACT] No existing session found, will create new one"
                 )
 
             # Build session request

@@ -1,9 +1,11 @@
+from datetime import datetime
+from typing import Literal, Optional
+
+from bson import ObjectId
+from pydantic import BaseModel
+
 from eve.mongo import Collection, Document
 from eve.tool import ToolContext
-from bson import ObjectId
-from typing import Literal, Optional
-from pydantic import BaseModel
-from datetime import datetime
 
 
 class AbrahamCreation(BaseModel):

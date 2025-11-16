@@ -106,7 +106,9 @@ def serialize_context_messages(context: LLMContext) -> List[Dict[str, Optional[s
             "content": getattr(message, "content", None),
         }
         if message.tool_calls:
-            entry["tool_calls"] = [tc.model_dump(exclude_none=True) for tc in message.tool_calls]  # type: ignore[arg-type]
+            entry["tool_calls"] = [
+                tc.model_dump(exclude_none=True) for tc in message.tool_calls
+            ]  # type: ignore[arg-type]
         serialized.append(entry)
     return serialized
 

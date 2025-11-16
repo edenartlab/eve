@@ -1,29 +1,29 @@
 import json
 import os
-from enum import Enum
-from typing import List, Optional, Dict, Any, Literal, TYPE_CHECKING
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from enum import Enum
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional
 
 from bson import ObjectId
-from pydantic import ConfigDict, Field, BaseModel, field_serializer
 from loguru import logger
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
-from eve.utils import download_file, image_to_base64, prepare_result, dumps_json
-from eve.mongo import Collection, Document
-from eve.tool import Tool
-from eve.agent.session.file_config import (
+from eve.agent.llm.file_config import (
+    FILE_CACHE_DIR,
     IMAGE_MAX_SIZE,
     IMAGE_QUALITY,
-    FILE_CACHE_DIR,
     SUPPORTED_MEDIA_EXTENSIONS,
     TEXT_ATTACHMENT_MAX_LENGTH,
     _url_has_extension,
 )
-from eve.agent.session.file_parser import process_attachments_for_message
+from eve.agent.llm.file_parser import process_attachments_for_message
+from eve.mongo import Collection, Document
+from eve.tool import Tool
+from eve.utils import download_file, dumps_json, image_to_base64, prepare_result
 
 if TYPE_CHECKING:  # pragma: no cover
-    from eve.agent.session_new.instrumentation import PromptSessionInstrumentation
+    from eve.agent.session.instrumentation import PromptSessionInstrumentation
 
 
 class ToolCall(BaseModel):
@@ -1149,11 +1149,11 @@ class Deployment(Document):
     @classmethod
     def convert_to_mongo(cls, schema: dict, **kwargs) -> dict:
         """Encrypt secrets before saving to MongoDB"""
+        from eve.utils.data_utils import serialize_json
         from eve.utils.kms_encryption import (
             encrypt_deployment_secrets,
             get_kms_encryption,
         )
-        from eve.utils.data_utils import serialize_json
 
         kms = get_kms_encryption()
 

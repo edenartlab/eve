@@ -1,8 +1,9 @@
 from __future__ import annotations
+
 import json
+from datetime import date, datetime
+
 from bson import ObjectId
-from datetime import datetime, date
-from typing import Dict, Optional
 
 from .. import s3
 from .validation_utils import is_downloadable_file
@@ -33,9 +34,7 @@ def upload_result(result, save_thumbnails=False, save_blurhash=False):
 
     if isinstance(result, dict):
         if result.get("_skip_upload_processing"):
-            return {
-                k: v for k, v in result.items() if k != "_skip_upload_processing"
-            }
+            return {k: v for k, v in result.items() if k != "_skip_upload_processing"}
         exlude_result_processing_keys = ["subtool_calls"]
         return {
             k: upload_result(

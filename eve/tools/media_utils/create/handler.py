@@ -11,12 +11,14 @@ TODO:
 """
 
 import os
+
 from bson import ObjectId
-from eve.s3 import get_full_url
-from eve.agent import Agent
-from eve.tool import Tool, ToolContext
-from eve.models import Model
 from loguru import logger
+
+from eve.agent import Agent
+from eve.models import Model
+from eve.s3 import get_full_url
+from eve.tool import Tool, ToolContext
 
 # from eve.api.api import create
 from eve.user import User
@@ -122,7 +124,6 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
     init_image = reference_images[0] if len(reference_images) > 0 else None
     extras = args.get("extras", [])
     controlnet = "controlnet" in extras
-    double_character = "double_character" in extras
     seed = args.get("seed", None)
     aspect_ratio = args.get("aspect_ratio", "auto")
     model_preference = args.get("model_preference")

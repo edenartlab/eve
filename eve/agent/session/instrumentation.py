@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from loguru import logger
 from packaging.version import Version
 
-from eve.agent.session.debug_logger import SessionDebugger, DEBUG_SESSION
+from eve.agent.session.debug_logger import SessionDebugger
 
 try:
     import sentry_sdk
@@ -39,7 +39,6 @@ def _bool_env(name: str, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
-DEFAULT_DEBUG_ENABLED = _bool_env("SESSION_OBS_DEBUG", DEBUG_SESSION)
 DEFAULT_SENTRY_ENABLED = _bool_env("SESSION_OBS_SENTRY", bool(os.getenv("SENTRY_DSN")))
 DEFAULT_LANGFUSE_ENABLED = _bool_env(
     "SESSION_OBS_LANGFUSE",
@@ -148,14 +147,11 @@ class PromptSessionInstrumentation:
         self.agent_id = agent_id
         self.trace_name = trace_name
         self.extra_metadata = metadata or {}
+        self.debugger = SessionDebugger(session_id=session_id, enabled=debug_enabled)
         self._langfuse_trace_input = trace_input
         self._langfuse_trace_output: Optional[Any] = None
         self._start_clock = time.perf_counter()
 
-        debug_flag = (
-            debug_enabled if debug_enabled is not None else DEFAULT_DEBUG_ENABLED
-        )
-        self.debugger = SessionDebugger(session_id, enabled=debug_flag)
         self._structured_logger = None
         self._bind_logger()
 
@@ -283,6 +279,13 @@ class PromptSessionInstrumentation:
         emoji: Optional[str] = None,
     ) -> None:
         level_name = _normalize_level(level)
+        if self.debugger:
+            self.debugger.log(
+                message,
+                payload,
+                level=level_name.lower(),
+                emoji=emoji,
+            )
         log = self._structured_logger
         if payload:
             log = log.bind(payload=payload)
@@ -305,6 +308,13 @@ class PromptSessionInstrumentation:
     def log_update(
         self, update_type: str, payload: Optional[Dict[str, Any]] = None
     ) -> None:
+        if self.debugger:
+            self.debugger.log(
+                f"Update: {update_type}",
+                payload or {},
+                level="debug",
+                emoji="update",
+            )
         self.log_event(
             f"Session update: {update_type}",
             level="debug",
@@ -396,10 +406,6 @@ class PromptSessionInstrumentation:
             self.agent_id = agent_id
         if user_id is not None:
             self.user_id = user_id
-        if self.debugger:
-            self.debugger.set_session_context(
-                session_id=self.session_id, session_run_id=self.session_run_id
-            )
         self._bind_logger()
         self._refresh_langfuse_metadata()
 
@@ -673,7 +679,7 @@ class PromptSessionInstrumentation:
             log_payload["input_payload"] = input_payload
         if output_payload is not None:
             log_payload["output_payload"] = output_payload
-        logger.debug(f"Langfuse generation payload: {log_payload}")
+        # logger.debug(f"Langfuse generation payload: {log_payload}")
         return client.generation(
             trace_id=self.session_run_id,
             name=name,

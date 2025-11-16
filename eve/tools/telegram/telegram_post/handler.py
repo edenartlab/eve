@@ -1,7 +1,8 @@
-from eve.agent.deployments import Deployment
-from eve.agent import Agent
-from eve.tool import ToolContext
 from telegram import Bot
+
+from eve.agent import Agent
+from eve.agent.deployments import Deployment
+from eve.tool import ToolContext
 
 
 async def handler(context: ToolContext):

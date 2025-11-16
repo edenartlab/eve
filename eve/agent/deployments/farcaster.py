@@ -1,32 +1,33 @@
-import json
-import os
-import aiohttp
-import logging
-import hmac
 import hashlib
+import hmac
+import json
+import logging
+import os
 import secrets as python_secrets
-from typing import TYPE_CHECKING, Optional, Dict, Any, List
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
+import aiohttp
 from farcaster import Warpcast
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
-from eve.agent.session.models import (
-    ChatMessageRequestInput,
-    Session,
-    SessionUpdateConfig,
-    Deployment,
-    DeploymentSecrets,
-    DeploymentConfig,
-)
-from eve.api.api_requests import SessionCreationArgs, PromptSessionRequest
-from eve.api.errors import APIError
+import eve.mongo
 from eve.agent.deployments import PlatformClient
 from eve.agent.deployments.neynar_client import NeynarClient
 from eve.agent.deployments.utils import get_api_url
-from eve.agent.session.models import UpdateType
-from eve.utils import prepare_result
+from eve.agent.session.models import (
+    ChatMessageRequestInput,
+    Deployment,
+    DeploymentConfig,
+    DeploymentSecrets,
+    Session,
+    SessionUpdateConfig,
+    UpdateType,
+)
+from eve.api.api_requests import PromptSessionRequest, SessionCreationArgs
+from eve.api.errors import APIError
 from eve.user import User
-import eve.mongo
+from eve.utils import prepare_result
 
 if TYPE_CHECKING:
     from eve.api.api_requests import DeploymentEmissionRequest
@@ -63,7 +64,9 @@ async def post_cast(
 
     Returns dict with cast info including hash, url, thread_hash
     """
-    logger.info(f"post_cast called - text: '{text[:100] if text else '(empty)'}...', embeds: {embeds}, parent: {parent}")
+    logger.info(
+        f"post_cast called - text: '{text[:100] if text else '(empty)'}...', embeds: {embeds}, parent: {parent}"
+    )
 
     if uses_managed_signer(secrets):
         # Use Neynar API for managed signer
@@ -87,7 +90,9 @@ async def post_cast(
 
         cast_info = {
             "hash": cast_hash,
-            "url": f"https://warpcast.com/{username}/{cast_hash}" if username and cast_hash else None,
+            "url": f"https://warpcast.com/{username}/{cast_hash}"
+            if username and cast_hash
+            else None,
             "thread_hash": thread_hash,
         }
         logger.info(f"Successfully posted cast via managed signer: {cast_info}")
@@ -110,7 +115,6 @@ async def post_cast(
 
 
 class FarcasterClient(PlatformClient):
-
     # def _uses_managed_signer(self, secrets: DeploymentSecrets) -> bool:
     #     """Check if deployment uses managed signer or mnemonic"""
     #     return uses_managed_signer(secrets)
@@ -151,9 +155,7 @@ class FarcasterClient(PlatformClient):
         )
 
     async def predeploy(
-        self, 
-        secrets: DeploymentSecrets, 
-        config: DeploymentConfig
+        self, secrets: DeploymentSecrets, config: DeploymentConfig
     ) -> tuple[DeploymentSecrets, DeploymentConfig]:
         """Verify Farcaster credentials"""
         try:
@@ -281,9 +283,7 @@ class FarcasterClient(PlatformClient):
         )
 
     async def _update_webhook_fids(
-        self, 
-        webhook_id: str, 
-        add_fid: int = None, remove_fid: int = None
+        self, webhook_id: str, add_fid: int = None, remove_fid: int = None
     ) -> None:
         """Update webhook FID lists by adding or removing a FID"""
         neynar_api_key = os.getenv("NEYNAR_API_KEY")
@@ -398,7 +398,9 @@ class FarcasterClient(PlatformClient):
         ).hexdigest()
 
         if not hmac.compare_digest(computed_signature, signature):
-            logger.error(f"Invalid webhook signature. Expected: {computed_signature[:20]}..., Got: {signature[:20]}...")
+            logger.error(
+                f"Invalid webhook signature. Expected: {computed_signature[:20]}..., Got: {signature[:20]}..."
+            )
             return JSONResponse(
                 status_code=401,
                 content={"error": "Invalid webhook signature"},
@@ -413,18 +415,25 @@ class FarcasterClient(PlatformClient):
         logger.info(f"Processing cast {cast_hash} from FID {cast_author_fid}")
 
         # Extract mentioned FIDs and parent author FID
-        mentioned_fid_list = [profile["fid"] for profile in cast_data.get("mentioned_profiles", [])]
+        mentioned_fid_list = [
+            profile["fid"] for profile in cast_data.get("mentioned_profiles", [])
+        ]
         parent_cast = cast_data.get("parent_cast")
-        parent_author_fid = parent_cast.get("author", {}).get("fid") if parent_cast else None
+        parent_author_fid = (
+            parent_cast.get("author", {}).get("fid") if parent_cast else None
+        )
 
         # Get deployments with auto_reply enabled
         auto_reply_deployments = [
-            d for d in Deployment.find({"platform": "farcaster"})
+            d
+            for d in Deployment.find({"platform": "farcaster"})
             if d.config and d.config.farcaster and d.config.farcaster.auto_reply
         ]
 
         # Build list of (deployment, fid) tuples
-        deployment_fids = [(d, await get_fid(d.secrets)) for d in auto_reply_deployments]
+        deployment_fids = [
+            (d, await get_fid(d.secrets)) for d in auto_reply_deployments
+        ]
 
         # Skip if cast is from any agent itself (prevent loops)
         if any(fid == cast_author_fid for _, fid in deployment_fids):
@@ -432,8 +441,12 @@ class FarcasterClient(PlatformClient):
 
         # Find first matching deployment
         deployment = next(
-            (d for d, fid in deployment_fids if fid in mentioned_fid_list or fid == parent_author_fid),
-            None
+            (
+                d
+                for d, fid in deployment_fids
+                if fid in mentioned_fid_list or fid == parent_author_fid
+            ),
+            None,
         )
 
         if not deployment:
@@ -470,7 +483,9 @@ class FarcasterClient(PlatformClient):
 
         except Exception as e:
             if isinstance(e, eve.mongo.MongoDocumentNotFound):
-                logger.info(f"No existing session found for cast {cast_hash}, will create new one")
+                logger.info(
+                    f"No existing session found for cast {cast_hash}, will create new one"
+                )
                 session = None
             else:
                 raise e
@@ -531,7 +546,9 @@ class FarcasterClient(PlatformClient):
                         },
                     )
                 else:
-                    logger.info(f"Successfully sent prompt request, status: {response.status}")
+                    logger.info(
+                        f"Successfully sent prompt request, status: {response.status}"
+                    )
 
         logger.info("=== Webhook processing complete ===")
         return JSONResponse(status_code=200, content={"ok": True})
@@ -560,7 +577,9 @@ class FarcasterClient(PlatformClient):
 
             if update_type == UpdateType.ASSISTANT_MESSAGE:
                 content = emission.content
-                logger.info(f"Processing ASSISTANT_MESSAGE with content length: {len(content) if content else 0}")
+                logger.info(
+                    f"Processing ASSISTANT_MESSAGE with content length: {len(content) if content else 0}"
+                )
                 if content:
                     try:
                         logger.info(f"Posting assistant message: '{content[:100]}...'")
@@ -579,7 +598,7 @@ class FarcasterClient(PlatformClient):
 
             elif update_type == UpdateType.TOOL_COMPLETE:
                 result = emission.result
-                logger.info(f"Processing TOOL_COMPLETE")
+                logger.info("Processing TOOL_COMPLETE")
                 if not result:
                     logger.debug("No tool result to post")
                     return
@@ -599,18 +618,25 @@ class FarcasterClient(PlatformClient):
 
                     # Extract URLs from outputs (up to 4 for Farcaster limit)
                     # Wrap in embed URLs for proper Open Graph video tags
-                    from eve.api.helpers import get_eden_creation_url
-                    import urllib.parse
                     import os
+                    import urllib.parse
 
-                    root_url = "app.eden.art" if os.getenv("DB", "STAGE").upper() == "PROD" else "staging.app.eden.art"
+                    from eve.api.helpers import get_eden_creation_url
+
+                    root_url = (
+                        "app.eden.art"
+                        if os.getenv("DB", "STAGE").upper() == "PROD"
+                        else "staging.app.eden.art"
+                    )
 
                     urls = []
                     for output in outputs[:4]:
                         if isinstance(output, dict):
                             # Prefer creation page URL for proper Open Graph video tags
                             if "creation" in output:
-                                creation_url = get_eden_creation_url(str(output["creation"]))
+                                creation_url = get_eden_creation_url(
+                                    str(output["creation"])
+                                )
                                 urls.append(creation_url)
                             elif "url" in output:
                                 # Wrap raw URLs in our video embed endpoint
@@ -633,7 +659,10 @@ class FarcasterClient(PlatformClient):
                                 f"Posted tool result cast with {len(urls)} embeds in reply to {cast_hash}. Result: {result}"
                             )
                         except Exception as e:
-                            logger.error(f"Failed to post cast with embeds: {str(e)}", exc_info=True)
+                            logger.error(
+                                f"Failed to post cast with embeds: {str(e)}",
+                                exc_info=True,
+                            )
                             raise
                     else:
                         logger.warning(
@@ -653,7 +682,9 @@ class FarcasterClient(PlatformClient):
                         text=f"Error: {error_msg}",
                         parent={"hash": cast_hash, "fid": int(author_fid)},
                     )
-                    logger.info(f"Posted error message cast in reply to {cast_hash}. Result: {result}")
+                    logger.info(
+                        f"Posted error message cast in reply to {cast_hash}. Result: {result}"
+                    )
                 except Exception as e:
                     logger.error(f"Failed to post error cast: {str(e)}", exc_info=True)
                     # Don't re-raise for error posts to avoid infinite loops

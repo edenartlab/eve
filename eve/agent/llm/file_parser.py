@@ -8,25 +8,25 @@ This module handles parsing of:
 - Images, videos, and audio (for attachment context)
 """
 
-import os
 import csv
-from typing import List, Dict, Any, Tuple
-from loguru import logger
+import os
+from typing import List, Tuple
 
 import magic
 import pdfplumber
+from loguru import logger
 
-from eve.utils import download_file
-from eve.agent.session.file_config import (
-    TEXT_ATTACHMENT_MAX_LENGTH,
+from eve.agent.llm.file_config import (
     CSV_DIALECT_SAMPLE_SIZE,
     FILE_CACHE_DIR,
     SUPPORTED_CSV_EXTENSION,
-    SUPPORTED_TEXT_EXTENSIONS,
     SUPPORTED_PDF_EXTENSION,
+    SUPPORTED_TEXT_EXTENSIONS,
+    TEXT_ATTACHMENT_MAX_LENGTH,
     UNSUPPORTED_FILE_FORMATS,
     _url_has_extension,
 )
+from eve.utils import download_file
 
 
 class ParsedAttachment:
@@ -83,7 +83,7 @@ def _parse_csv_file(attachment_file: str, attachment_url: str) -> ParsedAttachme
                 name=file_name,
                 content="",
                 url=attachment_url,
-                error="CSV file is empty"
+                error="CSV file is empty",
             )
 
         # Detect CSV dialect and parse
@@ -98,17 +98,14 @@ def _parse_csv_file(attachment_file: str, attachment_url: str) -> ParsedAttachme
         rows = list(csv_reader)
 
         # Check if CSV has meaningful content (non-empty cells)
-        has_content = any(
-            any(cell.strip() for cell in row)
-            for row in rows
-        )
+        has_content = any(any(cell.strip() for cell in row) for row in rows)
 
         if not has_content:
             return ParsedAttachment(
                 name=file_name,
                 content="",
                 url=attachment_url,
-                error="CSV file is empty"
+                error="CSV file is empty",
             )
 
         # Helper function to sanitize cell content for markdown tables
@@ -116,7 +113,9 @@ def _parse_csv_file(attachment_file: str, attachment_url: str) -> ParsedAttachme
             if cell is None:
                 return ""
             # Replace pipes and newlines that would break markdown tables
-            cell_str = str(cell).replace("|", "\\|").replace("\n", " ").replace("\r", " ")
+            cell_str = (
+                str(cell).replace("|", "\\|").replace("\n", " ").replace("\r", " ")
+            )
             return cell_str.strip()
 
         # Find the maximum number of columns
@@ -147,8 +146,7 @@ def _parse_csv_file(attachment_file: str, attachment_url: str) -> ParsedAttachme
         # Limit content using the constant
         if len(csv_content) > TEXT_ATTACHMENT_MAX_LENGTH:
             csv_content = (
-                csv_content[:TEXT_ATTACHMENT_MAX_LENGTH]
-                + "\n\n[Content truncated...]"
+                csv_content[:TEXT_ATTACHMENT_MAX_LENGTH] + "\n\n[Content truncated...]"
             )
             was_truncated = True
 
@@ -157,7 +155,7 @@ def _parse_csv_file(attachment_file: str, attachment_url: str) -> ParsedAttachme
             content=csv_content,
             url=attachment_url,
             truncated=was_truncated,
-            is_text=True
+            is_text=True,
         )
 
     except Exception as read_error:
@@ -166,7 +164,7 @@ def _parse_csv_file(attachment_file: str, attachment_url: str) -> ParsedAttachme
             name=attachment_url.split("/")[-1],
             content="",
             url=attachment_url,
-            error=f"CSV file, but could not read: {str(read_error)}"
+            error=f"CSV file, but could not read: {str(read_error)}",
         )
 
 
@@ -200,7 +198,7 @@ def _parse_text_file(attachment_file: str, attachment_url: str) -> ParsedAttachm
                 content=text_content,
                 url=attachment_url,
                 truncated=was_truncated,
-                is_text=True
+                is_text=True,
             )
     except Exception as read_error:
         logger.error(f"Error reading text file {attachment_file}: {read_error}")
@@ -208,7 +206,7 @@ def _parse_text_file(attachment_file: str, attachment_url: str) -> ParsedAttachm
             name=attachment_url.split("/")[-1],
             content="",
             url=attachment_url,
-            error=f"Text file, but could not read: {str(read_error)}"
+            error=f"Text file, but could not read: {str(read_error)}",
         )
 
 
@@ -250,14 +248,14 @@ def _parse_pdf_file(attachment_file: str, attachment_url: str) -> ParsedAttachme
                     content=text_content,
                     url=attachment_url,
                     truncated=was_truncated,
-                    is_text=True
+                    is_text=True,
                 )
             else:
                 return ParsedAttachment(
                     name=file_name,
                     content="",
                     url=attachment_url,
-                    error="PDF file with no extractable text"
+                    error="PDF file with no extractable text",
                 )
     except Exception as read_error:
         logger.error(f"Error reading PDF file {attachment_file}: {read_error}")
@@ -265,7 +263,7 @@ def _parse_pdf_file(attachment_file: str, attachment_url: str) -> ParsedAttachme
             name=attachment_url.split("/")[-1],
             content="",
             url=attachment_url,
-            error=f"PDF file, but could not extract text: {str(read_error)}"
+            error=f"PDF file, but could not extract text: {str(read_error)}",
         )
 
 
@@ -295,7 +293,11 @@ def parse_attachment(attachment_url: str) -> ParsedAttachment:
         file_name = attachment_url.split("/")[-1]
 
         # Handle CSV files first (before text/plain check, since CSVs can be detected as text/plain)
-        if mime_type == "text/csv" or mime_type == "application/csv" or _url_has_extension(attachment_url, SUPPORTED_CSV_EXTENSION):
+        if (
+            mime_type == "text/csv"
+            or mime_type == "application/csv"
+            or _url_has_extension(attachment_url, SUPPORTED_CSV_EXTENSION)
+        ):
             return _parse_csv_file(attachment_file, attachment_url)
 
         # Handle text files (.txt, .md, .plain)
@@ -307,7 +309,9 @@ def parse_attachment(attachment_url: str) -> ParsedAttachment:
             return _parse_text_file(attachment_file, attachment_url)
 
         # Handle PDF files
-        elif mime_type == "application/pdf" or _url_has_extension(attachment_url, SUPPORTED_PDF_EXTENSION):
+        elif mime_type == "application/pdf" or _url_has_extension(
+            attachment_url, SUPPORTED_PDF_EXTENSION
+        ):
             return _parse_pdf_file(attachment_file, attachment_url)
 
         # Handle video files
@@ -317,7 +321,7 @@ def parse_attachment(attachment_url: str) -> ParsedAttachment:
                 content=f"{attachment_url} (The asset is a video, the corresponding image attachment is its first frame.)",
                 url=attachment_url,
                 is_visual=True,
-                is_video=True
+                is_video=True,
             )
 
         # Handle audio files
@@ -326,7 +330,7 @@ def parse_attachment(attachment_url: str) -> ParsedAttachment:
                 name=file_name,
                 content=f"{attachment_url} (The asset is an audio file.)",
                 url=attachment_url,
-                is_audio=True
+                is_audio=True,
             )
 
         # Handle image files
@@ -335,7 +339,7 @@ def parse_attachment(attachment_url: str) -> ParsedAttachment:
                 name=file_name,
                 content=f"{attachment_url}",
                 url=attachment_url,
-                is_visual=True
+                is_visual=True,
             )
 
         # Handle unsupported file types with helpful messages
@@ -345,17 +349,14 @@ def parse_attachment(attachment_url: str) -> ParsedAttachment:
             if file_ext in UNSUPPORTED_FILE_FORMATS:
                 error_msg = f"⚠️ UNSUPPORTED FILE TYPE: {file_name} - {UNSUPPORTED_FILE_FORMATS[file_ext]}"
                 return ParsedAttachment(
-                    name=file_name,
-                    content="",
-                    url=attachment_url,
-                    error=error_msg
+                    name=file_name, content="", url=attachment_url, error=error_msg
                 )
             else:
                 return ParsedAttachment(
                     name=file_name,
                     content="",
                     url=attachment_url,
-                    error=f"Unsupported file type - Mime type: {mime_type}"
+                    error=f"Unsupported file type - Mime type: {mime_type}",
                 )
 
     except Exception as e:
@@ -364,7 +365,7 @@ def parse_attachment(attachment_url: str) -> ParsedAttachment:
             name=attachment_url.split("/")[-1],
             content="",
             url=attachment_url,
-            error=str(e)
+            error=str(e),
         )
 
 

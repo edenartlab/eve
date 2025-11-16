@@ -1,15 +1,17 @@
-from eve.agent.agent import Agent
-from eve.agent.session.models import Deployment
-import requests
-from datetime import datetime, timedelta
-from eve.utils import file_utils as utils
-from eve.tool import ToolContext
-from typing import Dict, Any
-import tempfile
 import asyncio
 import json
 import re
+import tempfile
+from datetime import datetime, timedelta
+from typing import Any, Dict
+
+import requests
 from loguru import logger
+
+from eve.agent.agent import Agent
+from eve.agent.session.models import Deployment
+from eve.tool import ToolContext
+from eve.utils import file_utils as utils
 
 
 async def handler(context: ToolContext):
