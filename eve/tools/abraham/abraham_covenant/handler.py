@@ -167,8 +167,19 @@ async def handler(context: ToolContext):
     video = context.args.get("video")
     session_id = str(context.session)
 
+    if not title:
+        raise Exception("Title is required")
+    if not tagline:
+        raise Exception("Tagline is required")
+    if not poster_image:
+        raise Exception("Poster image is required")
+    if not blog_post:
+        raise Exception("Blog post is required")
+    if not video:
+        raise Exception("Video is required")
+
     # Safety checks
-    validate_creation(title, tagline, poster_image, blog_post, session_id)
+    validate_creation(title, tagline, poster_image, blog_post, video, session_id)
 
     logger.info(f"Creation validated successfully!")
     logger.info(f"Title: {title}")
