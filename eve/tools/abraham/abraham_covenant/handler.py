@@ -231,6 +231,7 @@ async def handler(context: ToolContext):
                     "tx_hash": result["tx_hash"],
                     "ipfs_hash": result["ipfs_hash"],
                     "explorer_url": result["explorer_url"],
+                    "url": f"https://abraham.ai/creation/{index}",
                 }
             ]
         }
