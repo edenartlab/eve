@@ -435,7 +435,7 @@ app = modal.App(
     secrets=[
         modal.Secret.from_name("eve-secrets"),
         modal.Secret.from_name(f"eve-secrets-{db}"),
-        modal.Secret.from_name("abraham-secrets"),
+        # modal.Secret.from_name("abraham-secrets"),
     ],
 )
 
