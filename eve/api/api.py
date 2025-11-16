@@ -607,7 +607,7 @@ async def remote_prompt_session_fn(
 
 @app.function(image=image, max_containers=4, timeout=3600)
 async def handle_session_status_change_fn(
-    session_id: str, 
+    session_id: str,
     status: str
 ):
     # todo - re-enable this
@@ -615,3 +615,20 @@ async def handle_session_status_change_fn(
 
     if status == "active":
         await run_automatic_session(session_id)
+
+
+########################################################
+## Farcaster Webhook Processing
+########################################################
+
+
+@app.function(image=image, max_containers=10, timeout=3600)
+async def process_farcaster_cast_fn(
+    cast_hash: str,
+    cast_data: dict,
+    deployment_id: str,
+):
+    """Modal wrapper for Farcaster cast processing"""
+    from eve.agent.deployments.farcaster import process_farcaster_cast
+
+    return await process_farcaster_cast(cast_hash, cast_data, deployment_id)
