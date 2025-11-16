@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Optional, Dict, Any, List, Literal
 from farcaster import Warpcast
 from fastapi import Request
 from fastapi.responses import JSONResponse
-from datetime import datetime
+from datetime import datetime, timezone
 from bson import ObjectId
 
 from eve.agent.session.models import (
@@ -35,6 +35,7 @@ from eve.api.errors import APIError
 from eve.agent.deployments import PlatformClient
 from eve.agent.deployments.neynar_client import NeynarClient
 from eve.agent.deployments.utils import get_api_url
+from eve.agent.session.session_prompts import social_media_template
 from eve.utils import prepare_result
 from eve.user import User
 from eve.agent.agent import Agent
@@ -102,20 +103,12 @@ async def post_cast(
             parent=parent,
         )
 
-        logger.info(f"Neynar post_cast result: {result}")
-
         # Normalize Neynar response format
         cast_data = result.get("cast", {})
         cast_hash = cast_data.get("hash")
         author = cast_data.get("author", {})
         username = author.get("username")
         thread_hash = cast_data.get("thread_hash")
-
-        logger.info("-1-1-1-1-1-1-1")
-        logger.info(f"THE THREAD HASH IS {thread_hash}")
-        logger.info(f"THE CAST HASH IS {cast_hash}")
-
-        
 
         cast_info = {
             "hash": cast_hash,
@@ -252,8 +245,11 @@ async def process_farcaster_cast(
     """Process a Farcaster cast event - main processing logic"""
     event_doc = None
 
-    logger.info("AA11")
     try:
+        neynar_api_key = os.getenv("NEYNAR_API_KEY")
+        if not neynar_api_key:
+            raise Exception("NEYNAR_API_KEY not found in environment")
+
         # Load the event document (already created in webhook handler)
         event_doc = FarcasterEvent.find_one({"cast_hash": cast_hash})
         if not event_doc:
@@ -270,22 +266,13 @@ async def process_farcaster_cast(
             raise Exception("Agent not found")
 
         # Extract cast info
-        logger.info(f"THE KEYS ARE {cast_data.keys()}")
-
-        logger.info(cast_data)
         thread_hash = cast_data.get("thread_hash")
-
-
-
-
-        logger.info(f"THE THREAD HASH IS {thread_hash}")
         author = cast_data["author"]
         author_username = author["username"]
         author_fid = author["fid"]
         content = cast_data.get("text", "")
         parent_hash = cast_data.get("parent_hash")
 
-        logger.info("\n\n\n\n\n\n\n\nAA13 12!@!!! -32-32-3-23-2-33-2-323-24\n\n\n\n\n\n\n") 
         # Get or create user and update profile
         user = User.from_farcaster(author_fid, author_username)
         await induct_user(user, author)
@@ -299,13 +286,12 @@ async def process_farcaster_cast(
         # Create session key based on thread_hash or cast_hash
         if thread_hash:
             session_key = f"FC-{thread_hash}"
-            logger.info(f"THE SESSION KEY IS 111 {session_key}")
         else:
             session_key = f"FC-{cast_hash}"
-            logger.info(f"THE SESSION KEY IS 222 {session_key}")
 
         try:
             session = Session.load(session_key=session_key)
+            
             # Reactivate if deleted or archived
             if session.deleted or session.status == "archived":
                 session.update(deleted=False, status="active")
@@ -313,7 +299,8 @@ async def process_farcaster_cast(
         except MongoDocumentNotFound:
             # Create new session
             session = Session(
-                owner=user.id,
+                # owner=user.id,
+                owner=agent.owner,
                 agents=[agent.id],
                 title=f"Farcaster session",
                 session_key=session_key,
@@ -322,44 +309,57 @@ async def process_farcaster_cast(
             )
             session.save()
 
+            # Put in Farcaster usage instructions
+            created_at = datetime.now(timezone.utc)
+            farcaster_instructions = "Don't reply to the word hubaloo"
+            social_instructions = social_media_template.render(
+                has_farcaster=True,
+                farcaster_instructions=farcaster_instructions,
+            )
+            instruction_message = ChatMessage(
+                createdAt=created_at,
+                session=session.id,
+                channel=Channel(type="farcaster", key=cast_hash),
+                role="user",
+                content=social_instructions,
+                sender=agent.owner
+            )
+            instruction_message.save()
+            
             # Reconstruct thread: if this cast is not the original, get previous casts
             if thread_hash and thread_hash != cast_hash:
-                neynar_api_key = os.getenv("NEYNAR_API_KEY")
-                if neynar_api_key:
-                    try:
-                        prev_casts = await fetch_cast_ancestry(cast_hash, neynar_api_key, include_self=False)
-                        agent_fid = agent.farcasterId
+                logger.info(f"Reconstructing thread for cast {cast_hash}")
+                try:
+                    prev_casts = await fetch_cast_ancestry(cast_hash, neynar_api_key, include_self=False)
+                    agent_fid = agent.farcasterId
 
-                        for pc in prev_casts:
-                            cast_hash_, author_fid_, author_username_, text_, media_urls_, timestamp_ = await unpack_cast(pc)
-                            media_urls_ = upload_to_s3(media_urls_)
-                            created_at = datetime.strptime(timestamp_, "%Y-%m-%dT%H:%M:%S.%fZ")
+                    for pc in prev_casts:
+                        cast_hash_, author_fid_, author_username_, text_, media_urls_, timestamp_ = await unpack_cast(pc)
+                        media_urls_ = upload_to_s3(media_urls_)
+                        created_at = datetime.strptime(timestamp_, "%Y-%m-%dT%H:%M:%S.%fZ")
 
-                            if author_fid_ == agent_fid:
-                                role = "assistant"
-                                cast_user = agent
-                            else:
-                                role = "user"
-                                cast_user = User.from_farcaster(author_fid_, author_username_)
+                        if author_fid_ == agent_fid:
+                            role = "assistant"
+                            cast_user = agent
+                        else:
+                            role = "user"
+                            cast_user = User.from_farcaster(author_fid_, author_username_)
 
-                            message = ChatMessage(
-                                createdAt=created_at,
-                                session=session.id,
-                                channel=Channel(type="farcaster", key=cast_hash_),
-                                role=role,
-                                content=text_,
-                                sender=cast_user.id,
-                                attachments=media_urls_,
-                            )
-                            message.save()
-                    except Exception as e:
-                        logger.error(f"Error reconstructing thread: {e}")
+                        message = ChatMessage(
+                            createdAt=created_at,
+                            session=session.id,
+                            channel=Channel(type="farcaster", key=cast_hash_),
+                            role=role,
+                            content=text_,
+                            sender=cast_user.id,
+                            attachments=media_urls_,
+                        )
+                        message.save()
+                except Exception as e:
+                    logger.error(f"Error reconstructing thread: {e}")
 
         # Load farcaster tool
         farcaster_tool = Tool.load("farcaster_cast")
-
-
-        logger.info("AA15")
 
         # Create prompt context
         context = PromptSessionContext(
@@ -394,17 +394,13 @@ async def process_farcaster_cast(
         # Execute prompt session
         new_messages = []
         async for update in async_prompt_session(session, context, agent):
-            logger.info("!!!! THE UPDATED MESSAGE IS !!!!!")
-            logger.info(update)
             if update.type == UpdateType.ASSISTANT_MESSAGE:
                 new_messages.append(update.message)
-
 
         # Update event doc with success
         event_doc.update(
             status="completed",
             session_id=session.id,
-            # message_id=new_messages[0].id if new_messages else None,
             message_id=message.id,
         )
 
@@ -648,16 +644,12 @@ class FarcasterClient(PlatformClient):
         webhook_data = await request.json()
         cast_data = webhook_data.get("data", {})
 
-        logger.info(f"Webhook data received: {webhook_data}")
-
         if not cast_data or "hash" not in cast_data:
             logger.warning(f"Invalid cast data: {cast_data}")
             return JSONResponse(status_code=400, content={"error": "Invalid cast data"})
 
         # Use webhook secret from environment to verify signature
         webhook_secret = os.getenv("NEYNAR_WEBHOOK_SECRET")
-
-        logger.info(f"Webhook s!!ecret: {webhook_secret}")
 
         # return JSONResponse(status_code=200, content={"ok": True})
         if not webhook_secret:
@@ -680,8 +672,6 @@ class FarcasterClient(PlatformClient):
                 status_code=401,
                 content={"error": "Invalid webhook signature"},
             )
-
-        logger.info("Webhook signature verified successfully")
 
         # Find deployment by mentioned FID
         cast_author_fid = cast_data["author"]["fid"]
@@ -754,18 +744,18 @@ class FarcasterClient(PlatformClient):
 
         # Spawn modal function to handle heavy processing using Modal lookup
         try:
-            if 1:
+            spawn = True
+            if spawn:
                 func = modal.Function.from_name(
                     f"api-{db.lower()}",
                     "process_farcaster_cast_fn",
                     environment_name="main",
                 )
                 func.spawn(cast_hash, cast_data, str(deployment.id))
-                logger.info(f"Spawned modal task for cast {cast_hash}")
+                logger.info(f"Spawned task for cast {cast_hash}")
             else:
                 logger.info(f"Processing cast {cast_hash} locally")
                 await process_farcaster_cast(cast_hash, cast_data, str(deployment.id))
-                logger.info(f"Processed c2123ast {cast_hash} locally")
         except Exception as e:
             logger.error(f"Failed to spawn Modal function: {e}")
             # Update event doc with failure
@@ -775,7 +765,6 @@ class FarcasterClient(PlatformClient):
                 content={"error": f"Failed to spawn processing task: {str(e)}"}
             )
 
-        logger.info("=== Webhook processing complete (spawned modal task) ===")
         return JSONResponse(status_code=200, content={"ok": True})
 
     async def handle_emission(self, emission: "DeploymentEmissionRequest") -> None:

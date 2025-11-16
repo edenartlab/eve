@@ -6,6 +6,7 @@ import random
 import re
 import pytz
 import uuid
+from jinja2 import Template
 from fastapi import BackgroundTasks
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
@@ -60,6 +61,22 @@ from eve.agent.session.tracing import (
     add_breadcrumb,
 )
 from loguru import logger
+
+twitter_notification_template = Template("""
+│ 📨 TWITTER NOTIFICATION
+│ From: @{{ username }}
+│ Tweet ID: {{ tweet_id }}
+├─────────────────────────────────────
+{{ content }}
+""")
+
+farcaster_notification_template = Template("""
+│ 📨 FARCASTER NOTIFICATION
+│ From: FID {{ fid }}
+│ Farcaster Hash: {{ farcaster_hash }}
+├─────────────────────────────────────
+{{ content }}
+""")
 
 
 class SessionCancelledException(Exception):
@@ -203,9 +220,18 @@ def label_message_channels(messages: List[ChatMessage]):
         if message.channel and message.channel.type == "farcaster" and message.sender:
             sender = user_map.get(message.sender)
             sender_farcaster_fid = sender.farcasterId if sender else "Unknown"
+
+            # Wrap message content in Farcaster metadata
+            message.content = farcaster_notification_template.render(
+                farcaster_hash=message.channel.key,
+                fid=sender_farcaster_fid,
+                content=message.content,
+            )
+
             # Prepend the Farcaster metadata to the message content
-            prepend_text = f"<<Farcaster Hash: {message.channel.key}, FID: {sender_farcaster_fid}>>"
-            message.content = f"{prepend_text} {message.content}"
+            # prepend_text = f"<<Farcaster Hash: {message.channel.key}, FID: {sender_farcaster_fid}>>"
+            # message.content = f"{prepend_text} {message.content}"
+
         labeled_messages.append(message)
 
     return labeled_messages

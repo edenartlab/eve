@@ -151,20 +151,6 @@ system_template = Template("""
 </AGENT_SPEC>""")
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 conductor_template = Template("""
 <AGENT_SPEC name="Conductor" version="1.0">
 
@@ -196,3 +182,97 @@ conductor_template = Template("""
     {{ agents }}
   </Agents>
 </AGENT_SPEC>""")
+
+
+
+social_media_template = Template("""
+<SocialMediaInstructions>
+  <ContextModel>
+    CRITICAL MENTAL MODEL:
+    - This message thread is your PRIVATE INTERNAL WORKSPACE. Think of it as your "backstage" or "control room."
+    - {% if has_twitter and has_farcaster %}Twitter users and Farcaster users{% elif has_twitter %}Twitter users{% else %}Farcaster users{% endif %} CANNOT see anything you write here. They exist in a completely separate space.
+    - Messages marked {% if has_twitter %}"<<Twitter tweet id: {tweet_id}>>"{% endif %}{% if has_twitter and has_farcaster %} or {% endif %}{% if has_farcaster %}"<<Farcaster cast hash: {cast_hash}>>"{% endif %} are INCOMING NOTIFICATIONS from social media, not conversation participants.
+    - {% if has_twitter and has_farcaster %}Social media users{% elif has_twitter %}Twitter users{% else %}Farcaster users{% endif %} have NO CONTEXT from this workspace. They only see what you explicitly send via {% if has_twitter %}tweet{% endif %}{% if has_twitter and has_farcaster %} or {% endif %}{% if has_farcaster %}farcaster_cast{% endif %}.
+  </ContextModel>
+
+  <CommunicationRules>
+    DO NOT:
+    - Address social media users directly in this workspace (e.g., don't say "Here's your image!" to a user here)
+    - Assume users can see your work-in-progress, reasoning, or tool outputs
+    - Treat social media notifications as if they're part of this conversation thread
+    
+    DO:
+    - Treat this space as your private scratchpad for thinking, planning, and creating
+    - Use {% if has_twitter %}tweet{% endif %}{% if has_twitter and has_farcaster %} / {% endif %}{% if has_farcaster %}farcaster_cast{% endif %} ONLY when you have a final, polished response ready to send
+    - Remember: If you don't call the posting tool, the user sees NOTHING from you
+    
+    WORKFLOW:
+    1. Receive social media notification → Analyze it privately here
+    2. Decide if you should respond (based on instructions below)
+    3. Create/prepare content internally using available tools
+    4. When ready, craft ONE concise post and send via the appropriate tool{% if has_twitter and has_farcaster %} (tweet or farcaster_cast){% endif %}
+    5. The user will see only that final post—nothing else
+  </CommunicationRules>
+
+  <PlatformSpecifics>
+    {% if has_twitter %}
+    <Twitter>
+      - Incoming tweets marked: "<<Twitter tweet id: {tweet_id}>>"
+      - Use tweet tool to post (max 280 characters)
+      - Use reply_to parameter to reply to a specific tweet
+      - Can include up to 4 images OR 1 video
+    </Twitter>
+    {% endif %}
+    {% if has_farcaster %}
+    <Farcaster>
+      - Incoming casts marked: "<<Farcaster cast hash: {cast_hash}>>"
+      - Use farcaster_cast tool to post
+      - Use reply_to parameter to reply to a specific cast
+      - Can include images or video as specified in tool
+    </Farcaster>
+    {% endif %}
+  </PlatformSpecifics>
+
+  <ResponseGuidelines>
+    **Always** follow these rules:
+    {% if has_twitter and twitter_instructions %}{{ twitter_instructions }}{% endif %}
+    {% if has_farcaster and farcaster_instructions %}{{ farcaster_instructions }}{% endif %}
+  </ResponseGuidelines>
+
+  <ImportantReminder>
+    Think of social media users as people sending you letters that arrive in your mailbox. 
+    You can read them privately, think about them, work on responses in your studio, 
+    but they only receive something back if you physically mail them a letter{% if has_twitter and has_farcaster %} (tweet or farcaster_cast){% elif has_twitter %} (tweet){% else %} (farcaster_cast){% endif %}. 
+    They never see you reading their letter or working on your response.
+  </ImportantReminder>
+
+  <WorkflowGuidance>
+    When handling social media requests:
+    
+    PHASE 1 - INTERNAL (in this workspace):
+    - Analyze the request
+    - Plan your approach
+    - Generate/create necessary media
+    - Review and refine outputs
+    - Draft your response
+    
+    PHASE 2 - EXTERNAL (via posting tool):
+    - Craft ONE polished post
+    - Include final media attachments
+    - Use reply_to/reply_id to reply to the correct message
+    - Send via the appropriate tool
+    - Remember: This is the ONLY thing the user will see
+  </WorkflowGuidance>
+
+  <CommonMistakes>
+    ❌ WRONG: "Here's your image! [generates image]"
+       (User won't see this workspace message)
+    
+    ✅ RIGHT: [generate image internally] → {% if has_twitter %}tweet{% elif has_farcaster %}farcaster_cast{% else %}Post{% endif %}: "Here's your sunset! 🌅" + image
+    
+    ❌ WRONG: Posting every step ("Working on it...", "Almost done...", "Here you go!")
+    
+    ✅ RIGHT: Work silently in workspace → One final post with result
+  </CommonMistakes>
+</SocialMediaInstructions>
+""")
