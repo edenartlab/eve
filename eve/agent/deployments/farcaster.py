@@ -464,15 +464,15 @@ class FarcasterClient(PlatformClient):
         return secrets, config
 
     async def postdeploy(self) -> None:
-        """Add FID to existing webhook or skip if auto_reply disabled"""
+        """Add FID to existing webhook or skip if enable_cast disabled"""
         if not self.deployment:
             raise ValueError("Deployment is required for postdeploy")
 
-        # Only proceed if auto_reply is enabled
+        # Only proceed if enable_cast is enabled
         if not (
             self.deployment.config
             and self.deployment.config.farcaster
-            and self.deployment.config.farcaster.auto_reply
+            and self.deployment.config.farcaster.enable_cast
         ):
             return
 
@@ -497,19 +497,19 @@ class FarcasterClient(PlatformClient):
         if not self.deployment:
             raise ValueError("Deployment is required for update")
 
-        # Check if auto_reply setting changed
-        old_auto_reply = (
-            old_config.farcaster.auto_reply
+        # Check if enable_cast setting changed
+        old_enable_cast = (
+            old_config.farcaster.enable_cast
             if old_config and old_config.farcaster
             else False
         )
-        new_auto_reply = (
-            new_config.farcaster.auto_reply
+        new_enable_cast = (
+            new_config.farcaster.enable_cast
             if new_config and new_config.farcaster
             else False
         )
 
-        if old_auto_reply != new_auto_reply:
+        if old_enable_cast != new_enable_cast:
             webhook_id = os.getenv("NEYNAR_WEBHOOK_ID")
             if not webhook_id:
                 raise Exception("NEYNAR_WEBHOOK_ID not found in environment")
@@ -518,10 +518,10 @@ class FarcasterClient(PlatformClient):
             secrets = new_secrets or self.deployment.secrets
             fid = await get_fid(secrets)
 
-            if new_auto_reply and not old_auto_reply:
+            if new_enable_cast and not old_enable_cast:
                 # Enable auto-reply: add FID to webhook
                 await self._update_webhook_fids(webhook_id, add_fid=fid)
-            elif not new_auto_reply and old_auto_reply:
+            elif not new_enable_cast and old_enable_cast:
                 # Disable auto-reply: remove FID from webhook
                 await self._update_webhook_fids(webhook_id, remove_fid=fid)
 
@@ -656,6 +656,10 @@ class FarcasterClient(PlatformClient):
 
         # Use webhook secret from environment to verify signature
         webhook_secret = os.getenv("NEYNAR_WEBHOOK_SECRET")
+
+        logger.info(f"Webhook s!!ecret: {webhook_secret}")
+
+        # return JSONResponse(status_code=200, content={"ok": True})
         if not webhook_secret:
             logger.error("NEYNAR_WEBHOOK_SECRET not configured in environment")
             return JSONResponse(
@@ -690,14 +694,14 @@ class FarcasterClient(PlatformClient):
         parent_author = cast_data.get("parent_author") or {}
         parent_author_fid = parent_author.get("fid")
 
-        # Get deployments with auto_reply enabled
-        auto_reply_deployments = [
+        # Get deployments with enable_cast enabled
+        active_farcaster_deployments = [
             d for d in Deployment.find({"platform": "farcaster"})
-            if d.config and d.config.farcaster and d.config.farcaster.auto_reply
+            if d.config and d.config.farcaster and d.config.farcaster.enable_cast
         ]
 
         # Build list of (deployment, fid) tuples
-        deployment_fids = [(d, await get_fid(d.secrets)) for d in auto_reply_deployments]
+        deployment_fids = [(d, await get_fid(d.secrets)) for d in active_farcaster_deployments]
 
         # Skip if cast is from any agent itself (prevent loops)
         if any(fid == cast_author_fid for _, fid in deployment_fids):
