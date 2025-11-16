@@ -8,7 +8,7 @@ import secrets as python_secrets
 import uuid
 import modal
 
-from typing import TYPE_CHECKING, Optional, Dict, Any, List
+from typing import TYPE_CHECKING, Optional, Dict, Any, List, Literal
 from farcaster import Warpcast
 from fastapi import Request
 from fastapi.responses import JSONResponse
@@ -29,6 +29,7 @@ from eve.agent.session.models import (
     UpdateType,
 )
 from eve import db
+from eve.mongo import Collection, Document, MongoDocumentNotFound
 from eve.api.api_requests import SessionCreationArgs, PromptSessionRequest
 from eve.api.errors import APIError
 from eve.agent.deployments import PlatformClient
@@ -39,12 +40,24 @@ from eve.user import User
 from eve.agent.agent import Agent
 from eve.tool import Tool
 from eve.agent.session.session import add_chat_message, build_llm_context, async_prompt_session
-import eve.mongo
 
 if TYPE_CHECKING:
     from eve.api.api_requests import DeploymentEmissionRequest
 
 logger = logging.getLogger(__name__)
+
+
+@Collection("farcaster_events")
+class FarcasterEvent(Document):
+    cast_hash: str
+    event: Optional[Dict[str, Any]] = None
+    content: Optional[str] = None
+    status: Literal["running", "completed", "failed"]
+    error: Optional[str] = None
+    session_id: Optional[ObjectId] = None
+    message_id: Optional[ObjectId] = None
+    reply_cast: Optional[str] = None
+    reply_fid: Optional[int] = None
 
 
 def uses_managed_signer(secrets: DeploymentSecrets) -> bool:
@@ -97,6 +110,12 @@ async def post_cast(
         author = cast_data.get("author", {})
         username = author.get("username")
         thread_hash = cast_data.get("thread_hash")
+
+        logger.info("-1-1-1-1-1-1-1")
+        logger.info(f"THE THREAD HASH IS {thread_hash}")
+        logger.info(f"THE CAST HASH IS {cast_hash}")
+
+        
 
         cast_info = {
             "hash": cast_hash,
@@ -231,8 +250,6 @@ async def process_farcaster_cast(
     deployment_id: str,
 ):
     """Process a Farcaster cast event - main processing logic"""
-    from eve.tools.farcaster.farcaster_cast.handler import FarcasterEvent
-
     event_doc = None
 
     logger.info("AA11")
@@ -253,14 +270,20 @@ async def process_farcaster_cast(
             raise Exception("Agent not found")
 
         # Extract cast info
-        logger.info("THE KEYS ARE", cast_data.keys())
+        logger.info(f"THE KEYS ARE {cast_data.keys()}")
+
+        logger.info(cast_data)
         thread_hash = cast_data.get("thread_hash")
-        
-        logger.info("THE THREAD HASH IS", thread_hash)
+
+
+
+
+        logger.info(f"THE THREAD HASH IS {thread_hash}")
         author = cast_data["author"]
         author_username = author["username"]
         author_fid = author["fid"]
         content = cast_data.get("text", "")
+        parent_hash = cast_data.get("parent_hash")
 
         logger.info("\n\n\n\n\n\n\n\nAA13 12!@!!! -32-32-3-23-2-33-2-323-24\n\n\n\n\n\n\n") 
         # Get or create user and update profile
@@ -276,14 +299,10 @@ async def process_farcaster_cast(
         # Create session key based on thread_hash or cast_hash
         if thread_hash:
             session_key = f"FC-{thread_hash}"
-            logger.info("THE SESSION KEY IS 111", session_key)
+            logger.info(f"THE SESSION KEY IS 111 {session_key}")
         else:
             session_key = f"FC-{cast_hash}"
-            logger.info("THE SESSION KEY IS 222", session_key)
-
-        
-        # Try to get existing session
-        from eve.mongo import MongoDocumentNotFound
+            logger.info(f"THE SESSION KEY IS 222 {session_key}")
 
         try:
             session = Session.load(session_key=session_key)
@@ -362,7 +381,7 @@ async def process_farcaster_cast(
         )
 
         # Add user message to session
-        await add_chat_message(session, context)
+        message = await add_chat_message(session, context)
 
         # Build LLM context
         context = await build_llm_context(
@@ -375,17 +394,25 @@ async def process_farcaster_cast(
         # Execute prompt session
         new_messages = []
         async for update in async_prompt_session(session, context, agent):
+            logger.info("!!!! THE UPDATED MESSAGE IS !!!!!")
+            logger.info(update)
             if update.type == UpdateType.ASSISTANT_MESSAGE:
                 new_messages.append(update.message)
+
 
         # Update event doc with success
         event_doc.update(
             status="completed",
             session_id=session.id,
-            message_id=new_messages[0].id if new_messages else None,
+            # message_id=new_messages[0].id if new_messages else None,
+            message_id=message.id,
         )
 
-        return {"status": "completed", "session_id": str(session.id)}
+        return {
+            "status": "completed", 
+            "session_id": str(session.id),
+            "message_id": str(message.id)
+        }
 
     except Exception as e:
         logger.exception(f"Error processing Farcaster cast {cast_hash}: {e}")
@@ -703,25 +730,27 @@ class FarcasterClient(PlatformClient):
         logger.info(f"Found matching deployment {deployment.id} via {match_reason}")
 
         # De-duplicate: check if we've already processed this cast
-        from eve.tools.farcaster.farcaster_cast.handler import FarcasterEvent
-
         cast_hash = cast_data["hash"]
         if FarcasterEvent.find_one({"cast_hash": cast_hash}):
             logger.info(f"Cast {cast_hash} already processed, skipping")
             return JSONResponse(status_code=200, content={"ok": True, "message": "Duplicate cast"})
 
+
         # Save event immediately to prevent duplicate processing
+        parent_hash = cast_data.get("parent_hash")
         event_doc = FarcasterEvent(
             cast_hash=cast_hash,
             event=cast_data,
+            content=cast_data.get("text"),
             status="running",
+            reply_fid=parent_author_fid if parent_hash else None,
+            reply_cast=parent_hash
         )
         event_doc.save()
 
         # Spawn modal function to handle heavy processing using Modal lookup
-
         try:
-            if 0:
+            if 1:
                 func = modal.Function.from_name(
                     f"api-{db.lower()}",
                     "process_farcaster_cast_fn",

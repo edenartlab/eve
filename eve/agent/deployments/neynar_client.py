@@ -203,7 +203,7 @@ class NeynarClient:
                 result = await response.json()
                 logger.info(f"Neynar cast response: {result}")
 
-                # Fetch full cast details to verify threading
+                # Fetch full cast details to get thread_hash
                 cast_hash = result.get("cast", {}).get("hash")
                 if cast_hash:
                     try:
@@ -215,7 +215,12 @@ class NeynarClient:
                             if verify_response.status == 200:
                                 full_cast = await verify_response.json()
                                 cast_data = full_cast.get("cast", {})
-                                logger.info(f"Full cast verification - parent_hash: {cast_data.get('parent_hash')}, thread_hash: {cast_data.get('thread_hash')}")
+                                thread_hash = cast_data.get('thread_hash')
+                                parent_hash = cast_data.get('parent_hash')
+                                logger.info(f"Full cast verification - parent_hash: {parent_hash}, thread_hash: {thread_hash}")
+                                # Add thread_hash to the result
+                                if thread_hash and "cast" in result:
+                                    result["cast"]["thread_hash"] = thread_hash
                     except Exception as e:
                         logger.warning(f"Failed to verify full cast details: {e}")
 
