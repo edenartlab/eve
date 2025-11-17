@@ -219,7 +219,8 @@ class Agent(User):
         # for Solienne only, make all tools unavailable except for admin
         if self.username == "solienne":
             user = User.from_mongo(auth_user)
-            if not "eden_admin" in user.featureFlags:
+            solienne_whitelist = ["ameesia77", "farcaster_ameesia", "farcaster_kristicoronado", "farcaster_seth", "farcaster_gene", "farcaster_sethgoldstein", "farcaster_xanderst", "farcaster_jmill"]
+            if not "eden_admin" in user.featureFlags and user.username not in solienne_whitelist:
                 return {}
 
         self._reload(extra_tools)
