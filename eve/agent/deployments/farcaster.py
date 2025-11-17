@@ -291,6 +291,8 @@ async def process_farcaster_cast(
 
         try:
             session = Session.load(session_key=session_key)
+            if session.platform != "farcaster":
+                session.update(platform="farcaster")
             
             # Reactivate if deleted or archived
             if session.deleted or session.status == "archived":
@@ -319,12 +321,11 @@ async def process_farcaster_cast(
             instruction_message = ChatMessage(
                 createdAt=created_at,
                 session=session.id,
-                channel=Channel(type="farcaster", key=cast_hash),
+                # channel=Channel(type="farcaster", key=cast_hash),
                 role="user",
                 content=social_instructions,
                 sender=agent.owner
             )
-            instruction_message.save()
             
             # Reconstruct thread: if this cast is not the original, get previous casts
             if thread_hash and thread_hash != cast_hash:
@@ -337,6 +338,10 @@ async def process_farcaster_cast(
                         cast_hash_, author_fid_, author_username_, text_, media_urls_, timestamp_ = await unpack_cast(pc)
                         media_urls_ = upload_to_s3(media_urls_)
                         created_at = datetime.strptime(timestamp_, "%Y-%m-%dT%H:%M:%S.%fZ")
+
+                        # if the cast is older than the instruction message, adjust the instruction message timestamp
+                        if created_at < instruction_message.createdAt:
+                            instruction_message.createdAt = created_at - timedelta(minutes=1)
 
                         if author_fid_ == agent_fid:
                             role = "assistant"
@@ -357,6 +362,9 @@ async def process_farcaster_cast(
                         message.save()
                 except Exception as e:
                     logger.error(f"Error reconstructing thread: {e}")
+
+        # Save instruction message only after timestamp adjusted to be earlier than ancestor casts
+        instruction_message.save()
 
         # Load farcaster tool
         farcaster_tool = Tool.load("farcaster_cast")
@@ -744,7 +752,7 @@ class FarcasterClient(PlatformClient):
 
         # Spawn modal function to handle heavy processing using Modal lookup
         try:
-            spawn = True
+            spawn = False
             if spawn:
                 func = modal.Function.from_name(
                     f"api-{db.lower()}",
