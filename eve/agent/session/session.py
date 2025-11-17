@@ -17,6 +17,7 @@ from eve.agent.agent import Agent
 from eve.tool import Tool
 from eve.models import Model
 from eve.agent.session.debug_logger import SessionDebugger
+from eve.agent.session.config import build_llm_config_from_agent_settings
 from eve.concepts import Concept
 from eve.agent.session.models import (
     ChatMessage,
@@ -31,6 +32,7 @@ from eve.agent.session.models import (
     UpdateType,
     SessionBudget,
     SessionMemoryContext,
+    Deployment
 )
 from eve.agent.session.session_llm import (
     LLMContext,
@@ -44,7 +46,7 @@ from eve.agent.session.fake_utils import build_fake_tool_result_payload
 from eve.agent.session.models import LLMContextMetadata
 from eve.api.errors import handle_errors
 from eve.api.helpers import emit_update
-from eve.agent.session.session_prompts import system_template
+from eve.agent.session.session_prompts import system_template, social_media_template
 
 from eve.agent.memory.memory_models import (
     get_sender_id_to_sender_name_map,
@@ -219,7 +221,7 @@ def label_message_channels(messages: List[ChatMessage]):
     for message in messages:
         if message.channel and message.channel.type == "farcaster" and message.sender:
             sender = user_map.get(message.sender)
-            sender_farcaster_fid = sender.farcasterId if sender else "Unknown"
+            sender_farcaster_fid = sender.farcasterUsername if sender.farcasterUsername else sender.username
 
             # Wrap message content in Farcaster metadata
             message.content = farcaster_notification_template.render(
@@ -231,6 +233,16 @@ def label_message_channels(messages: List[ChatMessage]):
             # Prepend the Farcaster metadata to the message content
             # prepend_text = f"<<Farcaster Hash: {message.channel.key}, FID: {sender_farcaster_fid}>>"
             # message.content = f"{prepend_text} {message.content}"
+
+        elif message.channel and message.channel.type == "twitter":
+            sender = user_map.get(message.sender)
+            sender_twitter_username = sender.twitterUsername if sender.twitterUsername else sender.username
+            
+            message.content = twitter_notification_template.render(
+                username=sender_twitter_username,
+                tweet_id=message.channel.key,
+                content=message.content,
+            )
 
         labeled_messages.append(message)
 
@@ -270,6 +282,23 @@ async def build_system_message(
             reason="build_system_message",
         )
 
+    # Put in Farcaster usage instructions
+    social_instructions = None
+    if session.platform == "farcaster":
+        deployment = Deployment.find_one({"agent": actor.id, "platform": "farcaster"})
+        farcaster_instructions = deployment.config.farcaster.instructions or ""
+        social_instructions = social_media_template.render(
+            has_farcaster=True,
+            farcaster_instructions=farcaster_instructions,
+        )
+    elif session.platform == "twitter":
+        deployment = Deployment.find_one({"agent": actor.id, "platform": "twitter"})
+        twitter_instructions = "Don't reply to the word hubaloo" # deployment.config.twitter.instructions or ""
+        social_instructions = social_media_template.render(
+            has_twitter=True,
+            twitter_instructions=twitter_instructions,
+        )
+        
     # Build system prompt with memory context
     content = system_template.render(
         name=actor.name,
@@ -281,6 +310,7 @@ async def build_system_message(
         loras=lora_docs,
         voice=actor.voice,
         memory=memory,
+        social_instructions=social_instructions,
     )
 
     return ChatMessage(session=session.id, role="system", content=content)
@@ -452,7 +482,9 @@ async def build_llm_context(
 
     messages = [system_message]
     context, base_config, system_extras = await build_system_extras(
-        session, context, context.llm_config or get_default_session_llm_config(tier)
+        session, 
+        context, 
+        context.llm_config or get_default_session_llm_config(tier)
     )
     if len(system_extras) > 0:
         messages.extend(system_extras)
@@ -472,8 +504,6 @@ async def build_llm_context(
 
     # Use agent's llm_settings if available, otherwise fallback to context or default
     if actor.llm_settings and not force_fake:
-        from eve.agent.session.config import build_llm_config_from_agent_settings
-
         config = await build_llm_config_from_agent_settings(
             actor,
             tier,

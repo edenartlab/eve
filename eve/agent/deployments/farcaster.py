@@ -35,7 +35,6 @@ from eve.api.errors import APIError
 from eve.agent.deployments import PlatformClient
 from eve.agent.deployments.neynar_client import NeynarClient
 from eve.agent.deployments.utils import get_api_url
-from eve.agent.session.session_prompts import social_media_template
 from eve.utils import prepare_result
 from eve.user import User
 from eve.agent.agent import Agent
@@ -311,22 +310,6 @@ async def process_farcaster_cast(
             )
             session.save()
 
-            # Put in Farcaster usage instructions
-            created_at = datetime.now(timezone.utc)
-            farcaster_instructions = "Don't reply to the word hubaloo"
-            social_instructions = social_media_template.render(
-                has_farcaster=True,
-                farcaster_instructions=farcaster_instructions,
-            )
-            instruction_message = ChatMessage(
-                createdAt=created_at,
-                session=session.id,
-                # channel=Channel(type="farcaster", key=cast_hash),
-                role="user",
-                content=social_instructions,
-                sender=agent.owner
-            )
-            
             # Reconstruct thread: if this cast is not the original, get previous casts
             if thread_hash and thread_hash != cast_hash:
                 logger.info(f"Reconstructing thread for cast {cast_hash}")
@@ -338,10 +321,6 @@ async def process_farcaster_cast(
                         cast_hash_, author_fid_, author_username_, text_, media_urls_, timestamp_ = await unpack_cast(pc)
                         media_urls_ = upload_to_s3(media_urls_)
                         created_at = datetime.strptime(timestamp_, "%Y-%m-%dT%H:%M:%S.%fZ")
-
-                        # if the cast is older than the instruction message, adjust the instruction message timestamp
-                        if created_at < instruction_message.createdAt:
-                            instruction_message.createdAt = created_at - timedelta(minutes=1)
 
                         if author_fid_ == agent_fid:
                             role = "assistant"
@@ -362,9 +341,6 @@ async def process_farcaster_cast(
                         message.save()
                 except Exception as e:
                     logger.error(f"Error reconstructing thread: {e}")
-
-        # Save instruction message only after timestamp adjusted to be earlier than ancestor casts
-        instruction_message.save()
 
         # Load farcaster tool
         farcaster_tool = Tool.load("farcaster_cast")
