@@ -3,7 +3,7 @@ description: Post a cast to Farcaster
 tip: |-
   This tool allows an agent to cast to Farcaster. 
   
-  When you are responding to a message labeled "📨 FARCASTER NOTIFICATION", always use the message's given Farcaster Hash and FID as the parent_hash and parent_fid arguments.
+  When you are responding to a message labeled "📨 FARCASTER NOTIFICATION", always use the message's given Farcaster Hash as the parent_hash argument.
 
   Note: This tool is the ONLY way Farcaster users see your responses. Messages in this thread are YOUR PRIVATE WORKSPACE—Farcaster users cannot see them. They only see the results of this tool. A tweet must have a final, self-contained, user-facing message ready.
 cost_estimate: 0
@@ -27,8 +27,4 @@ parameters:
     type: string
     description: Cast hash of the parent cast you are replying to another cast.
     tip: Only leave this blank if you are creating a new cast thread.
-    required: false
-  parent_fid:
-    type: integer
-    description: Optional parent cast author FID if replying to another cast
     required: false

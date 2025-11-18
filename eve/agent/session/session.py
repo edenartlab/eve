@@ -74,7 +74,7 @@ twitter_notification_template = Template("""
 
 farcaster_notification_template = Template("""
 │ 📨 FARCASTER NOTIFICATION
-│ From: FID {{ fid }}
+│ From: {{ farcaster_username }} (FID {{ fid }})
 │ Farcaster Hash: {{ farcaster_hash }}
 ├─────────────────────────────────────
 {{ content }}
@@ -221,12 +221,12 @@ def label_message_channels(messages: List[ChatMessage]):
     for message in messages:
         if message.channel and message.channel.type == "farcaster" and message.sender:
             sender = user_map.get(message.sender)
-            sender_farcaster_fid = sender.farcasterUsername if sender.farcasterUsername else sender.username
 
             # Wrap message content in Farcaster metadata
             message.content = farcaster_notification_template.render(
                 farcaster_hash=message.channel.key,
-                fid=sender_farcaster_fid,
+                farcaster_username=sender.farcasterUsername,
+                fid=sender.farcasterId,
                 content=message.content,
             )
 
@@ -236,10 +236,10 @@ def label_message_channels(messages: List[ChatMessage]):
 
         elif message.channel and message.channel.type == "twitter":
             sender = user_map.get(message.sender)
-            sender_twitter_username = sender.twitterUsername if sender.twitterUsername else sender.username
             
+            # Wrap message content in Twitter metadata
             message.content = twitter_notification_template.render(
-                username=sender_twitter_username,
+                username=sender.twitterUsername,
                 tweet_id=message.channel.key,
                 content=message.content,
             )

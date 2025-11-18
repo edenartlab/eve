@@ -50,6 +50,7 @@ logger = logging.getLogger(__name__)
 @Collection("farcaster_events")
 class FarcasterEvent(Document):
     cast_hash: str
+    cast_fid: Optional[int] = None
     event: Optional[Dict[str, Any]] = None
     content: Optional[str] = None
     status: Literal["running", "completed", "failed"]
@@ -718,6 +719,7 @@ class FarcasterClient(PlatformClient):
         parent_hash = cast_data.get("parent_hash")
         event_doc = FarcasterEvent(
             cast_hash=cast_hash,
+            cast_fid=cast_author_fid,
             event=cast_data,
             content=cast_data.get("text"),
             status="running",
