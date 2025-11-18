@@ -23,8 +23,8 @@ parameters:
     required: false
     items:
       type: string
-  parent_hash:
+  reply_to:
     type: string
-    description: Cast hash of the parent cast you are replying to another cast.
+    description: Cast hash of the parent cast you are replying to.
     tip: Only leave this blank if you are creating a new cast thread.
     required: false
