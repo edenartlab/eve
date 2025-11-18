@@ -46,6 +46,7 @@ from eve.agent.session.fake_utils import build_fake_tool_result_payload
 from eve.agent.session.models import LLMContextMetadata
 from eve.api.errors import handle_errors
 from eve.api.helpers import emit_update
+from eve.api.sse_manager import sse_manager
 from eve.agent.session.session_prompts import system_template, social_media_template
 
 from eve.agent.memory.memory_models import (
@@ -293,7 +294,7 @@ async def build_system_message(
         )
     elif session.platform == "twitter":
         deployment = Deployment.find_one({"agent": actor.id, "platform": "twitter"})
-        twitter_instructions = "Don't reply to the word hubaloo" # deployment.config.twitter.instructions or ""
+        twitter_instructions = deployment.config.twitter.instructions or ""
         social_instructions = social_media_template.render(
             has_twitter=True,
             twitter_instructions=twitter_instructions,
@@ -379,6 +380,7 @@ async def add_chat_message(
     new_message = ChatMessage(
         session=session.id,
         sender=ObjectId(str(context.initiating_user_id)),
+        channel=context.message.channel,
         role=context.message.role,
         content=context.message.content,
         attachments=context.message.attachments or [],
@@ -405,9 +407,6 @@ async def add_chat_message(
 
     # Broadcast user message to SSE connections for real-time updates
     try:
-        from eve.api.sse_manager import sse_manager
-        from eve.user import User
-
         # Get full user data for enrichment
         user = User.from_mongo(context.initiating_user_id)
         

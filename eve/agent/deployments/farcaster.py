@@ -351,6 +351,7 @@ async def process_farcaster_cast(
             session=session,
             initiating_user_id=str(user.id),
             message=ChatMessageRequestInput(
+                channel=Channel(type="farcaster", key=cast_hash),
                 content=content,
                 sender_name=author_username,
                 attachments=media_urls if media_urls else None,
@@ -378,7 +379,7 @@ async def process_farcaster_cast(
 
         # Execute prompt session
         new_messages = []
-        async for update in async_prompt_session(session, context, agent):
+        async for update in async_prompt_session(session, context, agent, is_client_platform=True):
             if update.type == UpdateType.ASSISTANT_MESSAGE:
                 new_messages.append(update.message)
 
