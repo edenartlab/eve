@@ -787,9 +787,7 @@ class SessionMemoryContext(BaseModel):
 class SessionExtras(BaseModel):
     """Additional session configuration flags"""
 
-    exclude_memory: Optional[bool] = (
-        False  # If True, memory won't be passed to system prompt
-    )
+    exclude_memory: Optional[bool] = False  # If True, memory excluded from system prompt
     is_public: Optional[bool] = False  # If True, session is publicly accessible
     gmail_thread_id: Optional[str] = None
     gmail_initial_message_id: Optional[str] = None

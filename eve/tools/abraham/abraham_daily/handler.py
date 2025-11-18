@@ -40,7 +40,7 @@ daily_message_template = Template("""
 
 This Seed has concluded, and it has been selected to be permanently recorded as the next Creation in the **Abraham Covenant**.
 
-Your task is to process and package everything from this session into a final form that represents its complete creative journey.
+Your task is to process and package everything from this session into a final form that represents its complete creative journey, publish it to the covenant, and tweet it.
 
 ---
 
@@ -48,10 +48,13 @@ Your task is to process and package everything from this session into a final fo
 
 Produce a **Covenant entry** consisting of:
 
-1. **Title**
-2. **Tagline**
-3. **Representative poster image (16:9)** — must include the title text
-4. **Markdown blog post** — with embedded supporting media (images/videos) that capture the essence of the creation
+1. **Title** (title)
+2. **Tagline** (tagline)
+3. **Representative poster image (16:9)** (poster_image) — must include the title text
+4. **Video reel** (video) — a short video reel representing the creation
+5. **Markdown blog post** (post) — with embedded supporting media (images/videos) that capture the essence of the creation
+
+Then publish it to the covenant using the `abraham_covenant` tool (with all 5 of the above elements as parameters), and tweet it using the `tweet` tool.
 
 ---
 
@@ -95,7 +98,17 @@ Embed up to **10 key assets** (images and/or videos) that best represent the evo
 
 ---
 
-### Step 3 — Create the Poster Image
+### Step 3 — Create the Video Reel
+
+Create a **video** representing the entire creation. Use the `reel` tool to create it.
+
+* The reel can roughly follow the structure of the blog post, but you are permitted to diverge from it to fit the medium of video better.
+* The reel should aim for a duration of 1 to 2 minutes.
+* The reel should be 16:9 aspect ratio.
+
+---
+
+### Step 4 — Create the Poster Image
 
 Generate a **16:9 poster image** representing the entire creation.
 
@@ -106,11 +119,21 @@ Generate a **16:9 poster image** representing the entire creation.
 
 ---
 
-### Step 4 — Publish to the Covenant
+### Step 5 — Publish to the Covenant
 
-When all components (title, tagline, blog post, and poster image) are ready,
-call the **`abraham_covenant`** tool to **publish** the complete entry.
-Confirm that the poster image is 16:9 before submission.
+When **all** components (title, tagline, blog post, video, and poster image) are ready, call the **`abraham_covenant`** tool to **publish** the complete entry.
+
+Before submission, confirm that the poster image is 16:9, and that its title is **clearly legible** in the poster image.
+
+You should receive a transaction hash and a url to the Creation, to use in the next step. Do not proceed to the next step until you have received these.
+
+--- 
+
+### Step 6 — Tweet the Creation
+
+Only after publishing to the Covenant, and confirming that the Covenant entry is on the blockchain (you should have received a transaction hash from the covenant tool), tweet the creation using the `tweet` tool.
+
+The tweet should strictly have only the following content: "{title} {link}" where title is the title of the Creation and link is the url returned by the abraham_covenant tool. Do not include any other text or any media_urls / attachments.
 """)
 
 
@@ -180,7 +203,7 @@ async def commit_daily_work(agent: Agent, session: str):
             "attachments": [],
             "prompt": True,
             "async": True,
-            "extra_tools": ["abraham_covenant"],
+            "extra_tools": ["abraham_covenant", "reel", "tweet"],
         }
     )
 
