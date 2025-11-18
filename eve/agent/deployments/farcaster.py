@@ -730,7 +730,7 @@ class FarcasterClient(PlatformClient):
 
         # Spawn modal function to handle heavy processing using Modal lookup
         try:
-            spawn = False
+            spawn = True
             if spawn:
                 func = modal.Function.from_name(
                     f"api-{db.lower()}",
