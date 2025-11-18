@@ -25,11 +25,13 @@ async def handler(context: ToolContext):
     # Get parameters from args
     text = context.args.get("text", "")
     embeds = context.args.get("embeds") or []
-    parent_hash = context.args.get("parent_hash")
+    parent_hash = context.args.get("reply_to")
     
     # get parent FID
-    parent_event = FarcasterEvent.find_one({"cast_hash": parent_hash})
-    parent_fid = parent_event.cast_fid
+    parent_fid = None
+    if parent_hash:
+        parent_event = FarcasterEvent.find_one({"cast_hash": parent_hash})
+        parent_fid = parent_event.cast_fid
     
     # Validate required parameters
     if not text and not embeds:

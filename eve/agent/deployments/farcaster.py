@@ -403,6 +403,11 @@ async def process_farcaster_cast(
 
 
 class FarcasterClient(PlatformClient):
+    TOOLS = [
+        "farcaster_cast",
+        "farcaster_mentions",
+        "farcaster_search",
+    ]
 
     async def predeploy(
         self, 
