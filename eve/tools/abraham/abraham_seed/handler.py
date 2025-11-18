@@ -56,11 +56,17 @@ async def handler(context: ToolContext):
     cast_hash = context.args.get("cast_hash")
     image = context.args.get("image")
 
-    # Validate required fields
-    if not all([title, proposal, tagline, cast_hash, image]):
-        raise ValueError(
-            "All parameters are required: title, proposal, tagline, cast_hash, image"
-        )
+    # Validate required fields individually
+    if not title:
+        raise ValueError("Parameter 'title' is required")
+    if not proposal:
+        raise ValueError("Parameter 'proposal' is required")
+    if not tagline:
+        raise ValueError("Parameter 'tagline' is required")
+    if not cast_hash:
+        raise ValueError("Parameter 'cast_hash' is required")
+    if not image:
+        raise ValueError("Parameter 'image' is required")
 
     # Generate URL
     url = f"https://abraham.ai/seeds/{context.session}"
