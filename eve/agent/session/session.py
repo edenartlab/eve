@@ -7,7 +7,7 @@ import re
 import pytz
 import uuid
 from fastapi import BackgroundTasks
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 from datetime import datetime, timezone
 from bson import ObjectId
 from sentry_sdk import capture_exception
@@ -38,10 +38,12 @@ from eve.agent.session.session_llm import (
     is_fake_llm_mode,
     should_force_fake_response,
     is_test_mode_prompt,
+    build_cost_metadata_from_usage,
 )
 from eve.agent.session.fake_utils import build_fake_tool_result_payload
 from eve.agent.session.models import LLMContextMetadata
 from eve.api.errors import handle_errors
+from eve.api.rate_limiter import RateLimiter
 from eve.api.helpers import emit_update
 from eve.agent.session.session_prompts import system_template
 
@@ -64,6 +66,45 @@ from loguru import logger
 
 class SessionCancelledException(Exception):
     """Exception raised when a session is cancelled via Ably signal."""
+
+
+def _to_object_id(value: Optional[Union[str, ObjectId]]) -> Optional[ObjectId]:
+    if not value:
+        return None
+    if isinstance(value, ObjectId):
+        return value
+    return ObjectId(str(value))
+
+
+def _resolve_triggering_user_id(
+    context: PromptSessionContext,
+) -> Optional[ObjectId]:
+    return _to_object_id(context.acting_user_id or context.initiating_user_id)
+
+
+def _resolve_agent_owner_id(actor: Agent) -> Optional[ObjectId]:
+    return _to_object_id(getattr(actor, "owner", None))
+
+
+def _resolve_billed_user_id(
+    context: PromptSessionContext,
+    actor: Agent,
+    is_client_platform: bool,
+) -> Optional[ObjectId]:
+    """
+    Determine which user should be billed for a response.
+    Defaults to the triggering user unless the agent owner sponsors usage.
+    """
+    agent_owner_id = _resolve_agent_owner_id(actor)
+    owner_pays = getattr(actor, "owner_pays", "off") or "off"
+
+    if agent_owner_id:
+        if owner_pays == "full":
+            return agent_owner_id
+        if owner_pays == "deployments" and is_client_platform:
+            return agent_owner_id
+
+    return _resolve_triggering_user_id(context)
 
 
 def check_session_budget(session: Session):
@@ -320,14 +361,18 @@ async def add_chat_message(
     context: PromptSessionContext, 
     pin: bool = False
 ):
+    triggering_user_id = _resolve_triggering_user_id(context)
+    sender_id = _to_object_id(context.initiating_user_id)
+
     new_message = ChatMessage(
         session=session.id,
-        sender=ObjectId(str(context.initiating_user_id)),
+        sender=sender_id,
         role=context.message.role,
         content=context.message.content,
         attachments=context.message.attachments or [],
         trigger=context.trigger,
         apiKey=ObjectId(context.api_key_id) if context.api_key_id else None,
+        triggering_user=triggering_user_id,
     )
 
     # save farcaster origin info
@@ -852,6 +897,7 @@ async def async_prompt_session(
     is_client_platform: bool = False,
     session_run_id: Optional[str] = None,
     api_key_id: Optional[str] = None,
+    context: Optional[PromptSessionContext] = None,
 ):
     # Generate session_run_id if not provided to prevent None from being added to active_requests
     if session_run_id is None:
@@ -943,6 +989,19 @@ async def async_prompt_session(
         prompt_session_finished = False
         tokens_spent = 0
         tool_was_cancelled = False  # Track if any tool was cancelled
+        triggering_user_id = _resolve_triggering_user_id(context) if context else None
+        agent_owner_id = _resolve_agent_owner_id(actor)
+        billed_user_id = (
+            _resolve_billed_user_id(context, actor, is_client_platform)
+            if context
+            else None
+        )
+        billed_user_doc = None
+        rate_limiter = None
+        if os.environ.get("FF_RATE_LIMITS") == "yes" and billed_user_id:
+            billed_user_doc = User.from_mongo(billed_user_id)
+            if billed_user_doc:
+                rate_limiter = RateLimiter()
 
         while not prompt_session_finished:
             # Check for cancellation before each iteration
@@ -993,12 +1052,18 @@ async def async_prompt_session(
                 llm_context.tools = {}
                 llm_context.tool_choice = "none"
 
+            if rate_limiter and billed_user_doc:
+                await rate_limiter.check_message_rate_limit(billed_user_doc)
+
             if stream:
                 # For streaming, we need to collect the content as it comes in
                 content = ""
                 tool_calls_dict = {}  # Track tool calls by index to accumulate arguments
                 stop_reason = None
                 tokens_spent = 0  # Initialize tokens_spent for streaming
+                stream_usage = None
+                stream_model = None
+                stream_hidden_params = None
 
                 async with trace_async_operation(
                     "llm.stream", model=llm_context.config.model
@@ -1038,7 +1103,14 @@ async def async_prompt_session(
 
                         # Capture token usage from streaming response
                         if hasattr(chunk, "usage") and chunk.usage:
+                            stream_usage = chunk.usage
                             tokens_spent = chunk.usage.total_tokens
+
+                        if hasattr(chunk, "model") and getattr(chunk, "model", None):
+                            stream_model = chunk.model
+
+                        if hasattr(chunk, "_hidden_params"):
+                            stream_hidden_params = getattr(chunk, "_hidden_params")
 
                 # Convert accumulated tool calls to ToolCall objects
                 tool_calls = None
@@ -1065,6 +1137,12 @@ async def async_prompt_session(
                         )
 
                 # Create the final assistant message
+                stream_cost = build_cost_metadata_from_usage(
+                    model_name=stream_model or llm_context.config.model,
+                    usage_obj=stream_usage,
+                    hidden_params=stream_hidden_params,
+                )
+
                 assistant_message = ChatMessage(
                     session=session.id,
                     sender=ObjectId(llm_context.metadata.trace_metadata.agent_id),
@@ -1080,8 +1158,12 @@ async def async_prompt_session(
                         trace_id=llm_context.metadata.trace_id,
                         generation_id=llm_context.metadata.generation_id,
                         tokens_spent=tokens_spent,
+                        cost=stream_cost,
                     ),
                     apiKey=ObjectId(api_key_id) if api_key_id else None,
+                    triggering_user=triggering_user_id,
+                    billed_user=billed_user_id,
+                    agent_owner=agent_owner_id,
                 )
             else:
                 # Non-streaming path
@@ -1105,8 +1187,12 @@ async def async_prompt_session(
                         trace_id=llm_context.metadata.trace_id,
                         generation_id=llm_context.metadata.generation_id,
                         tokens_spent=response.tokens_spent,
+                        cost=response.cost_metadata,
                     ),
                     apiKey=ObjectId(api_key_id) if api_key_id else None,
+                    triggering_user=triggering_user_id,
+                    billed_user=billed_user_id,
+                    agent_owner=agent_owner_id,
                 )
                 stop_reason = response.stop
                 tokens_spent = response.tokens_spent
@@ -1467,6 +1553,7 @@ async def _run_prompt_session_internal(
                     is_client_platform=is_client_platform,
                     session_run_id=session_run_id,
                     api_key_id=context.api_key_id,
+                    context=context,
                 ):
                     formatted_update = format_session_update(update, context)
                     debugger.log_update(
@@ -1497,6 +1584,7 @@ async def _run_prompt_session_internal(
                             is_client_platform=is_client_platform,
                             session_run_id=actor_session_run_id,
                             api_key_id=context.api_key_id,
+                            context=context,
                         ):
                             formatted_update = format_session_update(update, context)
                             await queue.put(formatted_update)

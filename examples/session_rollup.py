@@ -55,7 +55,7 @@ async def example_session():
     )
 
     # Create context and add custom tool
-    context = PromptSessionContext(
+    prompt_context = PromptSessionContext(
         session=session,
         initiating_user_id=request.user_id,
         message=message,
@@ -65,17 +65,19 @@ async def example_session():
         extra_tools={custom_tool.key: custom_tool},
     )
 
-    await add_chat_message(session, context)
+    await add_chat_message(session, prompt_context)
 
     # Run session
-    context = await build_llm_context(
+    llm_context = await build_llm_context(
         session, 
         agent, 
-        context, 
+        prompt_context, 
     )
     
     # Execute the prompt session
-    async for _ in async_prompt_session(session, context, agent, rollup=True):
+    async for _ in async_prompt_session(
+        session, llm_context, agent, rollup=True, context=prompt_context
+    ):
         pass
         
 

@@ -2,14 +2,21 @@
 Constants used by both tool.py and agent.py, extracted to break circular imports.
 """
 
-import os
 from pathlib import Path
 from typing import Literal
 
+
 def _discover_tools(subfolder: str):
     tools_path = Path(__file__).parent / "tools" / subfolder
-    tools = [item.name for item in tools_path.iterdir() if item.is_dir() and not item.name.startswith('.') and not item.name.startswith('__')]
+    tools = [
+        item.name
+        for item in tools_path.iterdir()
+        if item.is_dir()
+        and not item.name.startswith(".")
+        and not item.name.startswith("__")
+    ]
     return tools
+
 
 OUTPUT_TYPES = Literal[
     "boolean", "string", "integer", "float", "array", "image", "video", "audio", "lora"
@@ -62,7 +69,7 @@ ALL_TOOLS = [
     "thinksound",
     "stable_audio",
     "transcription",
-    "elevenlabs_music", 
+    "elevenlabs_music",
     "elevenlabs_fx",
     # editing
     "media_editor",
@@ -112,7 +119,7 @@ SOCIAL_MEDIA_TOOLS = [
 ]
 
 EDEN_DB_TOOLS = [
-    "search_collections", 
+    "search_collections",
     "add_to_collection",
     "search_agents",
     "search_models",
@@ -120,15 +127,12 @@ EDEN_DB_TOOLS = [
 
 CONTEXT7_MCP_TOOLS = ["context7_resolve_library_id"]
 CALCULATOR_MCP_TOOLS = ["calculator_calculate"]
-# Future MCP server tools can be added here
-# GITHUB_MCP_TOOLS = ["github_search", "github_issues", "github_prs"]
-# SLACK_MCP_TOOLS = ["slack_post", "slack_search", "slack_channels"]
 
 TOOL_SETS = {
-    "create_image": ["create", "media_editor", "reel"], #  "magic_8_ball"
+    "create_image": ["create", "media_editor"],  #  "magic_8_ball"
     "create_video": [],  # deprecated
     "create_audio": ["elevenlabs", "elevenlabs_music", "elevenlabs_fx"],
-    "vj_tools": ["texture_flow", "video_FX"],
+    "vj_tools": ["texture_flow", "video_FX", "reel"],
     "news": [],  # deprecated
     "manage_collections": ["search_collections", "add_to_collection"],
     "social_media_tools": SOCIAL_MEDIA_TOOLS,
@@ -146,11 +150,7 @@ TOOL_SETS = {
 
 BASE_TOOLS = [
     "create",
-    "create_video",
-    "elevenlabs",
-    "musicgen",
     "media_editor",
-    "news",
 ]
 
 FLUX_LORA_TXT2IMG_TOOLS = ["flux_dev_lora", "flux_dev"]

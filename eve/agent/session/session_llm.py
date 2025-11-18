@@ -5,16 +5,18 @@ import uuid
 import json
 from types import SimpleNamespace
 import litellm
-from litellm import acompletion, aresponses
+from litellm import acompletion, aresponses, cost_per_token
 from typing import Callable, List, AsyncGenerator, Optional, Dict, Any
 
 from eve.agent.session.models import (
     ChatMessage,
+    ChatMessageCostDetails,
     LLMContext,
     LLMConfig,
     LLMContextMetadata,
     LLMResponse,
     LLMTraceMetadata,
+    TokenUsageBreakdown,
     ToolCall,
 )
 from loguru import logger
@@ -339,6 +341,128 @@ def construct_observability_metadata(context: LLMContext):
     return metadata
 
 
+def _get_value(obj: Optional[object], attr: str):
+    if obj is None:
+        return None
+    if isinstance(obj, dict):
+        return obj.get(attr)
+    return getattr(obj, attr, None)
+
+
+def _to_int(value: Optional[object]) -> Optional[int]:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _build_token_breakdown(
+    total: Optional[int], cached: Optional[int]
+) -> Optional[TokenUsageBreakdown]:
+    if total is None and cached is None:
+        return None
+
+    breakdown = TokenUsageBreakdown(
+        total=total,
+        cached=cached,
+    )
+
+    if total is not None:
+        if cached is not None:
+            breakdown.uncached = max(total - cached, 0)
+        else:
+            breakdown.uncached = total
+
+    return breakdown
+
+
+def _normalize_hidden_params(value: Optional[object]) -> Dict[str, Any]:
+    if value is None:
+        return {}
+    if isinstance(value, dict):
+        return value
+    if hasattr(value, "model_dump"):
+        try:
+            return value.model_dump()
+        except Exception:
+            return {}
+    return {}
+
+
+def build_cost_metadata_from_usage(
+    model_name: Optional[str],
+    usage_obj: Optional[object],
+    hidden_params: Optional[object] = None,
+) -> Optional[ChatMessageCostDetails]:
+    if usage_obj is None:
+        return None
+
+    prompt_tokens = _to_int(_get_value(usage_obj, "prompt_tokens"))
+    completion_tokens = _to_int(_get_value(usage_obj, "completion_tokens"))
+    prompt_tokens_details = _get_value(usage_obj, "prompt_tokens_details")
+    completion_tokens_details = _get_value(usage_obj, "completion_tokens_details")
+
+    cached_prompt_tokens = _to_int(_get_value(prompt_tokens_details, "cached_tokens"))
+    if cached_prompt_tokens is None:
+        cached_prompt_tokens = _to_int(_get_value(usage_obj, "cache_read_input_tokens"))
+
+    cache_creation_tokens = _to_int(
+        _get_value(usage_obj, "cache_creation_input_tokens")
+    )
+
+    cached_completion_tokens = _to_int(
+        _get_value(completion_tokens_details, "cached_tokens")
+    )
+
+    input_breakdown = _build_token_breakdown(prompt_tokens, cached_prompt_tokens)
+    output_breakdown = _build_token_breakdown(
+        completion_tokens,
+        cached_completion_tokens,
+    )
+
+    hidden = _normalize_hidden_params(hidden_params)
+    custom_provider = hidden.get("custom_llm_provider")
+    region_name = hidden.get("region_name")
+    service_tier = hidden.get("service_tier")
+
+    amount = None
+    if model_name and (prompt_tokens is not None or completion_tokens is not None):
+        try:
+            prompt_cost, completion_cost = cost_per_token(
+                model=model_name,
+                prompt_tokens=prompt_tokens or 0,
+                completion_tokens=completion_tokens or 0,
+                cache_creation_input_tokens=cache_creation_tokens or 0,
+                cache_read_input_tokens=cached_prompt_tokens or 0,
+                custom_llm_provider=custom_provider,
+                region_name=region_name,
+                service_tier=service_tier,
+            )
+            amount = (prompt_cost or 0.0) + (completion_cost or 0.0)
+        except Exception as exc:
+            logging.warning(
+                "Failed to calculate LiteLLM cost for model %s: %s",
+                model_name,
+                exc,
+            )
+
+    if (
+        amount is None
+        and input_breakdown is None
+        and output_breakdown is None
+    ):
+        return None
+
+    return ChatMessageCostDetails(
+        model=model_name,
+        amount=amount,
+        input_tokens=input_breakdown,
+        output_tokens=output_breakdown,
+    )
+
+
 def construct_tools(context: LLMContext) -> Optional[List[dict]]:
     tools = context.tools or {}
 
@@ -606,12 +730,22 @@ async def async_prompt_litellm(
     # Always restore original callback
     litellm.success_callback = original_callback
 
+    usage_block = getattr(response, "usage", None)
+    cost_metadata = build_cost_metadata_from_usage(
+        model_name=getattr(response, "model", model),
+        usage_obj=usage_block,
+        hidden_params=getattr(response, "_hidden_params", None),
+    )
+
+    tokens_spent = usage_block.total_tokens if usage_block else None
+
     return LLMResponse(
         content=response.choices[0].message.content or "",
         tool_calls=tool_calls or None,
         stop=response.choices[0].finish_reason,
-        tokens_spent=response.usage.total_tokens,
+        tokens_spent=tokens_spent,
         thought=thought,
+        cost_metadata=cost_metadata,
     )
 
 
@@ -861,10 +995,20 @@ async def async_prompt_litellm_responses(
             if content:
                 break
 
+    usage_block = getattr(response, "usage", None)
+    cost_metadata = build_cost_metadata_from_usage(
+        model_name=getattr(response, "model", context.config.model),
+        usage_obj=usage_block,
+        hidden_params=getattr(response, "_hidden_params", None),
+    )
+
+    tokens_spent = usage_block.total_tokens if usage_block else None
+
     return LLMResponse(
         content=content,
         tool_calls=tool_calls or None,
         stop="stop" if response.status == "completed" else (response.status or "stop"),
-        tokens_spent=response.usage.total_tokens if response.usage else 0,
+        tokens_spent=tokens_spent,
         thought=thought,
+        cost_metadata=cost_metadata,
     )

@@ -362,7 +362,7 @@ async def process_farcaster_cast(
         logger.info("AA15")
 
         # Create prompt context
-        context = PromptSessionContext(
+        prompt_context = PromptSessionContext(
             session=session,
             initiating_user_id=str(user.id),
             message=ChatMessageRequestInput(
@@ -381,19 +381,21 @@ async def process_farcaster_cast(
         )
 
         # Add user message to session
-        message = await add_chat_message(session, context)
+        message = await add_chat_message(session, prompt_context)
 
         # Build LLM context
-        context = await build_llm_context(
+        llm_context = await build_llm_context(
             session,
             agent,
-            context,
+            prompt_context,
             trace_id=str(uuid.uuid4()),
         )
 
         # Execute prompt session
         new_messages = []
-        async for update in async_prompt_session(session, context, agent):
+        async for update in async_prompt_session(
+            session, llm_context, agent, context=prompt_context
+        ):
             logger.info("!!!! THE UPDATED MESSAGE IS !!!!!")
             logger.info(update)
             if update.type == UpdateType.ASSISTANT_MESSAGE:

@@ -362,7 +362,7 @@ async def execute_trigger(
         message = ChatMessageRequestInput(role="user", content=trigger_prompt)
 
         # Create context with selected model
-        context = PromptSessionContext(
+        prompt_context = PromptSessionContext(
             session=session,
             initiating_user_id=request.user_id,
             message=message,
@@ -375,19 +375,21 @@ async def execute_trigger(
 
         # Add user message to session
         async with trace_async_operation("trigger.add_message"):
-            await add_chat_message(session, context)
+            await add_chat_message(session, prompt_context)
 
         # Build LLM context
         async with trace_async_operation("trigger.build_context"):
-            context = await build_llm_context(
+            llm_context = await build_llm_context(
                 session,
                 agent,
-                context,
+                prompt_context,
             )
 
         # Execute the prompt session (this will have its own transaction)
         add_breadcrumb("Starting prompt session", category="trigger")
-        async for _ in async_prompt_session(session, context, agent):
+        async for _ in async_prompt_session(
+            session, llm_context, agent, context=prompt_context
+        ):
             pass
 
         return session

@@ -1,35 +1,29 @@
 import os
 from typing import Literal
-from eve.agent.session.models import LLMConfig
+
 from loguru import logger
+
+from eve.agent.session.models import LLMConfig
 
 DEFAULT_SESSION_LLM_CONFIG_DEV = {
     "premium": LLMConfig(
         # model="claude-haiku-4-5",
         model="claude-sonnet-4-5",
-        fallback_models=[
-            "gpt-5-nano"
-        ],
+        fallback_models=["gpt-5-nano"],
     ),
     "free": LLMConfig(
         model="claude-sonnet-4-5",
-        fallback_models=[
-            "gpt-5-nano"
-        ],
+        fallback_models=["gpt-5-nano"],
     ),
 }
 DEFAULT_SESSION_LLM_CONFIG_STAGE = {
     "premium": LLMConfig(
         model="claude-sonnet-4-5",
-        fallback_models=[
-            "gpt-5-nano"
-        ],
+        fallback_models=["gpt-5-nano"],
     ),
     "free": LLMConfig(
         model="claude-sonnet-4-5",
-        fallback_models=[
-            "gpt-5-nano"
-        ],
+        fallback_models=["gpt-5-nano"],
     ),
 }
 
@@ -46,9 +40,23 @@ DEFAULT_SESSION_SELECTION_LIMIT = 100
 
 # Master model configuration: tier -> [primary, fallback1, fallback2]
 MODEL_TIERS = {
-    "high": ["claude-sonnet-4-5", "claude-haiku-4-5", "openai/gpt-5-nano", "openai/gpt-4o-mini"],
-    "medium": ["claude-sonnet-4-5","claude-haiku-4-5", "openai/gpt-5-nano", "openai/gpt-4o-mini"],
-    "low": ["claude-sonnet-4-5", "claude-haiku-4-5", "openai/gpt-5-nano", "openai/gpt-4o-mini"],
+    "high": [
+        "claude-sonnet-4-5",
+        "claude-haiku-4-5",
+        "openai/gpt-5-nano",
+        "openai/gpt-4o-mini",
+    ],
+    "medium": [
+        "claude-sonnet-4-5",
+        "claude-haiku-4-5",
+        "openai/gpt-5-nano",
+        "openai/gpt-4o-mini",
+    ],
+    "low": [
+        "claude-haiku-4-5",
+        "openai/gpt-5-nano",
+        "openai/gpt-4o-mini",
+    ],
 }
 
 
@@ -59,6 +67,7 @@ def get_default_session_llm_config(tier: Literal["premium", "free"] = "free"):
         return DEFAULT_SESSION_LLM_CONFIG_PROD[tier]
     else:
         return DEFAULT_SESSION_LLM_CONFIG_STAGE[tier]
+
 
 async def build_llm_config_from_agent_settings(
     agent,
@@ -130,16 +139,6 @@ async def build_llm_config_from_agent_settings(
         fallback_models=fallback_models,
         thinking=thinking_settings,
         reasoning_effort=reasoning_effort,
-    )
-
-    # Single log showing final LLM configuration
-    override_info = (
-        f" (override: {thinking_override})" if thinking_override is not None else ""
-    )
-    tier_info = (
-        f" (tier: {tier})"
-        if tier == "free" and model_profile != "low"
-        else f" (tier: {tier})"
     )
 
     return config
