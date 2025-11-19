@@ -36,11 +36,11 @@ parameters:
     type: float
     label: CFG Scale
     description: |-
-      Classifier-free guidance scale. Higher values = more guidance and adherence to the text, lower values: more randomness, variation and expressiveness (at the cost of more word errors)
-      Range: 1.2 - 1.5. Recommended: 1.35
-    default: 1.35
-    minimum: 1.0
-    maximum: 2.0
+      Classifier-free guidance scale. Higher values = more guidance and adherence to the voice, lower values: more randomness, variation and expressiveness (at the cost of more word errors)
+      Range: 1.2 - 2.5. Recommended: 1.8
+    default: 1.8
+    minimum: 1.2
+    maximum: 2.5
     step: 0.01
   diffusion_steps:
     type: integer
