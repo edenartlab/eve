@@ -109,3 +109,11 @@ markers = [
     "integration: marks tests that require integration setup",
     "asyncio: marks async tests (handled by pytest-asyncio plugin)"
 ]
+filterwarnings = [
+    "ignore::DeprecationWarning:pydub.utils",
+    "ignore::pydantic.warnings.PydanticDeprecatedSince20",
+    "ignore:unclosed.*:ResourceWarning",
+    "ignore:Unclosed client session:ResourceWarning",
+]
+log_cli_level = "WARNING"
+log_level = "WARNING"

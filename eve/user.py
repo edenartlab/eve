@@ -101,6 +101,8 @@ class User(Document):
     telegramUsername: Optional[str] = None
     farcasterId: Optional[str] = None
     farcasterUsername: Optional[str] = None
+    twitterId: Optional[str] = None
+    twitterUsername: Optional[str] = None
 
     def _ensure_ids(self):
         if not self.id:
@@ -164,6 +166,24 @@ class User(Document):
             new_user = cls(
                 farcasterId=farcaster_id,
                 farcasterUsername=farcaster_username,
+                eden_user_id=None,
+                username=username,
+            )
+            new_user.save()
+            return new_user
+        return cls(**user)
+
+    @classmethod
+    def from_twitter(cls, twitter_id, twitter_username):
+        twitter_id = str(twitter_id)
+        twitter_username = str(twitter_username)
+        users = get_collection(cls.collection_name)
+        user = users.find_one({"twitterId": twitter_id})
+        if not user:
+            username = cls._get_unique_username(f"twitter_{twitter_username}")
+            new_user = cls(
+                twitterId=twitter_id,
+                twitterUsername=twitter_username,
                 eden_user_id=None,
                 username=username,
             )

@@ -73,7 +73,9 @@ async def example_session():
     )
 
     # Execute the prompt session
-    async for _ in async_prompt_session(session, context, agent, rollup=True):
+    async for _ in async_prompt_session(
+        session, llm_context=context, agent=agent, rollup=True, context=handle.context
+    ):
         pass
 
 

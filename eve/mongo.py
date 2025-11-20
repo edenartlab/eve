@@ -98,13 +98,18 @@ class Document(BaseModel):
     updatedAt: Optional[datetime] = None
 
     model_config = ConfigDict(
-        json_encoders={
-            ObjectId: str,
-            datetime: lambda v: v.isoformat(),
-        },
         populate_by_name=True,
         arbitrary_types_allowed=True,
     )
+
+    @classmethod
+    def model_serializer(cls, value):
+        """Custom serializer for ObjectId and datetime types"""
+        if isinstance(value, ObjectId):
+            return str(value)
+        if isinstance(value, datetime):
+            return value.isoformat()
+        return value
 
     @classmethod
     def get_collection(cls):

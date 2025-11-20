@@ -11,7 +11,6 @@ from fastapi import BackgroundTasks
 from jinja2 import Template
 
 from eve.agent import Agent
-from eve.agent.session.context import add_chat_message, build_llm_context
 from eve.agent.session.models import (
     ChatMessageRequestInput,
     NotificationConfig,
@@ -19,8 +18,15 @@ from eve.agent.session.models import (
     Session,
     SessionUpdateConfig,
 )
-from eve.agent.session.runtime import async_prompt_session
-from eve.agent.session.tracing import add_breadcrumb, trace_async_operation
+from eve.agent.session.session import (
+    add_chat_message,
+    async_prompt_session,
+    build_llm_context,
+)
+from eve.agent.session.tracing import (
+    add_breadcrumb,
+    trace_async_operation,
+)
 from eve.api.api_requests import (
     CreateTriggerRequest,
     DeleteTriggerRequest,
@@ -261,7 +267,7 @@ async def execute_trigger(
         sentry_sdk.Hub.current.scope.span = transaction
 
     try:
-        from eve.agent.session.service import create_prompt_session_handle
+        from eve.api.handlers import setup_session
 
         trigger = Trigger.from_mongo(trigger_id)
         if not trigger:
@@ -335,6 +341,21 @@ async def execute_trigger(
             failure_message=f'Your task "{trigger.name}" has failed',
         )
 
+        # Setup session
+        async with trace_async_operation(
+            "trigger.setup_session",
+            session_id=str(request.session_id) if request.session_id else None,
+        ):
+            session = setup_session(
+                # background_tasks,
+                None,
+                request.session_id,
+                request.user_id,
+                request,
+            )
+            if transaction:
+                transaction.set_data("session_id", str(session.id))
+
         # Prepare trigger prompt
         async with trace_async_operation("trigger.prepare_prompt"):
             trigger_prompt, extra_tools = await prepare_trigger_prompt(
@@ -343,41 +364,36 @@ async def execute_trigger(
 
         # Create artwork generation message
         message = ChatMessageRequestInput(role="user", content=trigger_prompt)
-        request.message = message
 
-        background_tasks = BackgroundTasks()
-        async with trace_async_operation(
-            "trigger.setup_session",
-            session_id=str(request.session_id) if request.session_id else None,
-        ):
-            handle = create_prompt_session_handle(request, background_tasks)
-            session = handle.session
-            context = handle.context
-            if transaction and session:
-                transaction.set_data("session_id", str(session.id))
-
-        # Augment context with trigger-specific overrides
-        context.extra_tools = extra_tools
-        context.thinking_override = False
-        context.trigger = trigger.id
-        if request.update_config and not context.update_config:
-            context.update_config = request.update_config
+        # Create context with selected model
+        prompt_context = PromptSessionContext(
+            session=session,
+            initiating_user_id=request.user_id,
+            message=message,
+            update_config=request.update_config,
+            # thinking_override=trigger.think,
+            thinking_override=False,
+            extra_tools=extra_tools,
+            trigger=trigger.id,
+        )
 
         # Add user message to session
         async with trace_async_operation("trigger.add_message"):
-            await add_chat_message(session, context)
+            await add_chat_message(session, prompt_context)
 
         # Build LLM context
         async with trace_async_operation("trigger.build_context"):
-            context = await build_llm_context(
+            llm_context = await build_llm_context(
                 session,
                 agent,
-                context,
+                prompt_context,
             )
 
         # Execute the prompt session (this will have its own transaction)
         add_breadcrumb("Starting prompt session", category="trigger")
-        async for _ in async_prompt_session(session, context, agent):
+        async for _ in async_prompt_session(
+            session, llm_context, agent, context=prompt_context
+        ):
             pass
 
         return session
@@ -385,7 +401,7 @@ async def execute_trigger(
     except Exception as e:
         logger.error(f"Error executing trigger {trigger.id}: {str(e)}")
         sentry_sdk.capture_exception(e)
-        raise
+        return session
 
     finally:
         logger.info(f"Trigger execution cleanup completed for {trigger.id}")
@@ -430,10 +446,6 @@ async def handle_trigger_run(
         from eve.trigger import execute_trigger
 
         session = await execute_trigger(trigger_id)
-        if not session:
-            raise APIError(
-                f"Trigger {trigger_id} did not produce a session", status_code=500
-            )
         session_id = str(session.id)
 
         return {

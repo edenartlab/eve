@@ -110,7 +110,8 @@ async def build_llm_config_from_agent_settings(
 async def route_thinking_effort(
     context_messages: List, instructions: Optional[str]
 ) -> str:
-    """Route thinking effort level using a lightweight LLM."""
+    """Route thinking effort based on context using a small LLM"""
+
     fake_mode = os.getenv("FF_SESSION_FAKE_LLM", "").lower() in {
         "1",
         "true",

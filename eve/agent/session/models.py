@@ -178,6 +178,33 @@ class Channel(Document):
     key: Optional[str] = None
 
 
+class TokenUsageBreakdown(BaseModel):
+    total: Optional[int] = None
+    cached: Optional[int] = None
+    uncached: Optional[int] = None
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+class ChatMessageCostDetails(BaseModel):
+    model: Optional[str] = None
+    amount: Optional[float] = None
+    currency: str = "usd"
+    input_tokens: Optional[TokenUsageBreakdown] = None
+    output_tokens: Optional[TokenUsageBreakdown] = None
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+class LLMUsage(BaseModel):
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
+    cached_prompt_tokens: Optional[int] = None
+    cached_completion_tokens: Optional[int] = None
+    total_tokens: Optional[int] = None
+    cost_usd: Optional[float] = None
+
+
 class ChatMessageObservability(BaseModel):
     provider: Literal["langfuse"] = "langfuse"
     session_id: Optional[str] = None
@@ -191,17 +218,8 @@ class ChatMessageObservability(BaseModel):
     cached_completion_tokens: Optional[int] = None
     cost_usd: Optional[float] = None
     sentry_trace_id: Optional[str] = None  # Sentry distributed trace ID for correlation
-    usage: Optional["LLMUsage"] = None
+    usage: Optional[LLMUsage] = None
     model_config = ConfigDict(arbitrary_types_allowed=True)
-
-
-class LLMUsage(BaseModel):
-    prompt_tokens: Optional[int] = None
-    completion_tokens: Optional[int] = None
-    cached_prompt_tokens: Optional[int] = None
-    cached_completion_tokens: Optional[int] = None
-    total_tokens: Optional[int] = None
-    cost_usd: Optional[float] = None
 
 
 @Collection("messages")
@@ -218,6 +236,9 @@ class ChatMessage(Document):
     channel: Optional[Channel] = None
     session: Optional[ObjectId] = None
     sender: Optional[ObjectId] = None
+    triggering_user: Optional[ObjectId] = None
+    billed_user: Optional[ObjectId] = None
+    agent_owner: Optional[ObjectId] = None
     eden_message_data: Optional[EdenMessageData] = None
     reply_to: Optional[ObjectId] = None
     pinned: Optional[bool] = False
@@ -786,7 +807,7 @@ class SessionExtras(BaseModel):
     """Additional session configuration flags"""
 
     exclude_memory: Optional[bool] = (
-        False  # If True, memory won't be passed to system prompt
+        False  # If True, memory excluded from system prompt
     )
     is_public: Optional[bool] = False  # If True, session is publicly accessible
     gmail_thread_id: Optional[str] = None
@@ -898,6 +919,7 @@ class LLMResponse:
     cost_usd: Optional[float] = None
     usage: Optional[LLMUsage] = None
     thought: Optional[List[Dict[str, Any]]] = None
+    cost_metadata: Optional[ChatMessageCostDetails] = None
 
 
 class ClientType(Enum):
@@ -983,7 +1005,8 @@ class DeploymentSecretsTelegram(BaseModel):
 # Farcaster Models
 class DeploymentSettingsFarcaster(BaseModel):
     webhook_id: Optional[str] = None
-    auto_reply: Optional[bool] = False
+    enable_cast: Optional[bool] = False
+    instructions: Optional[str] = None
 
 
 class DeploymentSecretsFarcaster(BaseModel):

@@ -38,6 +38,18 @@ class GoogleProvider(LLMProvider):
             )
         self.client = genai.Client(api_key=api_key)
         self.async_models = self.client.aio.models
+        self._aio_session = None
+
+    async def _ensure_cleanup(self):
+        """Ensure async resources are cleaned up"""
+        try:
+            # Access the internal httpx client and close it
+            if hasattr(self.async_models, "_client"):
+                client = self.async_models._client
+                if hasattr(client, "aclose"):
+                    await client.aclose()
+        except Exception:
+            pass  # Ignore cleanup errors silently
 
     async def prompt(self, context: LLMContext) -> LLMResponse:
         if context.tools:
@@ -95,6 +107,8 @@ class GoogleProvider(LLMProvider):
                         start_time=start_time,
                         end_time=end_time,
                     )
+                    # Clean up async resources before returning
+                    await self._ensure_cleanup()
                     return llm_response
             except Exception as exc:
                 last_error = exc
@@ -105,6 +119,8 @@ class GoogleProvider(LLMProvider):
                         payload={"error": str(exc)},
                     )
 
+        # Clean up async resources before raising
+        await self._ensure_cleanup()
         if last_error:
             raise last_error
         raise RuntimeError("Failed to obtain Google response")
@@ -130,7 +146,7 @@ class GoogleProvider(LLMProvider):
                 continue
 
             role = "user" if message.role == "user" else "model"
-            parts = [genai_types.Part.from_text(text)]
+            parts = [genai_types.Part(text=text)]
             contents.append(genai_types.Content(role=role, parts=parts))
 
         system_instruction = "\n\n".join(system_parts) if system_parts else None
@@ -186,8 +202,8 @@ class GoogleProvider(LLMProvider):
                 stop_reason = candidate.finish_reason
 
         usage = response.usage_metadata
-        prompt_tokens = usage.input_tokens if usage else None
-        completion_tokens = usage.output_tokens if usage else None
+        prompt_tokens = usage.prompt_token_count if usage else None
+        completion_tokens = usage.candidates_token_count if usage else None
         total_tokens = (
             (prompt_tokens or 0) + (completion_tokens or 0) if usage else None
         )

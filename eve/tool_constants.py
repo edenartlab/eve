@@ -127,15 +127,12 @@ EDEN_DB_TOOLS = [
 
 CONTEXT7_MCP_TOOLS = ["context7_resolve_library_id"]
 CALCULATOR_MCP_TOOLS = ["calculator_calculate"]
-# Future MCP server tools can be added here
-# GITHUB_MCP_TOOLS = ["github_search", "github_issues", "github_prs"]
-# SLACK_MCP_TOOLS = ["slack_post", "slack_search", "slack_channels"]
 
 TOOL_SETS = {
     "create_image": ["create", "media_editor", "reel"],  #  "magic_8_ball"
     "create_video": [],  # deprecated
     "create_audio": ["elevenlabs", "elevenlabs_music", "elevenlabs_fx"],
-    "vj_tools": ["texture_flow", "video_FX"],
+    "vj_tools": ["texture_flow", "video_FX", "reel"],
     "news": [],  # deprecated
     "manage_collections": ["search_collections", "add_to_collection"],
     "social_media_tools": SOCIAL_MEDIA_TOOLS,
@@ -153,11 +150,7 @@ TOOL_SETS = {
 
 BASE_TOOLS = [
     "create",
-    "create_video",
-    "elevenlabs",
-    "musicgen",
     "media_editor",
-    "news",
 ]
 
 FLUX_LORA_TXT2IMG_TOOLS = ["flux_dev_lora", "flux_dev"]

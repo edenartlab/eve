@@ -3,6 +3,7 @@ import os
 from datetime import datetime
 
 from bson import ObjectId
+from web3 import Web3
 
 from eve.agent import Agent
 from eve.tool import ToolContext
@@ -58,6 +59,9 @@ def commit_daily_work(
         if not CONTRACT_ADDRESS_COVENANT:
             raise BlockchainError("CONTRACT_ADDRESS_COVENANT not configured")
 
+        # Convert address to checksum format
+        contract_address = Web3.to_checksum_address(CONTRACT_ADDRESS_COVENANT)
+
         # Upload poster image to IPFS
         logger.info(f"Uploading poster image to IPFS: {poster_image}")
         image_cid = ipfs_pin(poster_image)
@@ -104,7 +108,7 @@ def commit_daily_work(
 
         # Prepare contract function call
         w3, owner, contract, abi = load_contract(
-            address=CONTRACT_ADDRESS_COVENANT,
+            address=contract_address,
             abi_path=CONTRACT_ABI_COVENANT,
             private_key=ABRAHAM_PRIVATE_KEY,
             network=Network.ETH_MAINNET,
@@ -140,6 +144,7 @@ def commit_daily_work(
             "image_hash": poster_image_hash,
             "video_hash": video_hash,
             "explorer_url": explorer_url,
+            "contract_address": contract_address,
         }
 
     except BlockchainError as e:
@@ -148,6 +153,18 @@ def commit_daily_work(
 
 
 async def handler(context: ToolContext):
+    """
+    Save an Abraham Seed as a Creation to Covenant
+
+    Args:
+        args: Dictionary containing:
+            - title: Title of the creation
+            - tagline: Short description/tagline
+            - poster_image: URL to the poster image
+            - video: URL to the video reel
+            - blog_post: Full blog post content
+            - session_id: Eden session ID
+    """
     if not context.agent:
         raise Exception("Agent is required")
     agent = Agent.from_mongo(context.agent)
@@ -163,8 +180,19 @@ async def handler(context: ToolContext):
     video = context.args.get("video")
     session_id = str(context.session)
 
+    if not title:
+        raise Exception("Title is required")
+    if not tagline:
+        raise Exception("Tagline is required")
+    if not poster_image:
+        raise Exception("Poster image is required")
+    if not blog_post:
+        raise Exception("Blog post is required")
+    if not video:
+        raise Exception("Video is required")
+
     # Safety checks
-    validate_creation(title, tagline, poster_image, blog_post, session_id)
+    validate_creation(title, tagline, poster_image, blog_post, video, session_id)
 
     logger.info("Creation validated successfully!")
     logger.info(f"Title: {title}")
@@ -190,23 +218,25 @@ async def handler(context: ToolContext):
             session_id=session_id,
         )
 
+        creation = AbrahamCreation(
+            index=index,
+            title=title,
+            tagline=tagline,
+            poster_image=poster_image,
+            blog_post=blog_post,
+            video=video,
+            session_id=session_id,
+            contract_address=result["contract_address"],
+            tx_hash=result["tx_hash"],
+            ipfs_hash=result["ipfs_hash"],
+            explorer_url=result["explorer_url"],
+            minted_at=datetime.now(),
+        )
+
         # Update creation status
         abraham_seed.update(
             status="creation",
-            creation=AbrahamCreation(
-                index=index,
-                title=title,
-                tagline=tagline,
-                poster_image=poster_image,
-                blog_post=blog_post,
-                video=video,
-                session_id=session_id,
-                contract_address=CONTRACT_ADDRESS_COVENANT,
-                tx_hash=result["tx_hash"],
-                ipfs_hash=result["ipfs_hash"],
-                explorer_url=result["explorer_url"],
-                minted_at=datetime.now(),
-            ).model_dump(),
+            creation=creation.model_dump(),
         )
 
         return {
@@ -216,9 +246,11 @@ async def handler(context: ToolContext):
                     "tx_hash": result["tx_hash"],
                     "ipfs_hash": result["ipfs_hash"],
                     "explorer_url": result["explorer_url"],
+                    "url": f"https://abraham.ai/creation/{index}",
                 }
             ]
         }
+
     except Exception as e:
         logger.error(f"Failed to commit daily work: {e}")
         raise

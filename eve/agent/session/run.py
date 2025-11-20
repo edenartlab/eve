@@ -59,7 +59,7 @@ async def remote_prompt_session(
     )
 
     # Build context
-    context = PromptSessionContext(
+    prompt_context = PromptSessionContext(
         session=session,
         initiating_user_id=str(user.id),
         message=new_message,
@@ -67,22 +67,24 @@ async def remote_prompt_session(
     )
 
     if extra_tools:
-        context.extra_tools = {k: Tool.load(k) for k in extra_tools}
+        prompt_context.extra_tools = {k: Tool.load(k) for k in extra_tools}
 
     # Add message to session
     if content or attachments:
-        await add_chat_message(session, context)
+        await add_chat_message(session, prompt_context)
 
     # Build LLM context and prompt
-    context = await build_llm_context(
+    llm_context = await build_llm_context(
         session,
         agent,
-        context,
+        prompt_context,
         trace_id=str(uuid.uuid4()),
     )
 
     # Run the prompt
-    async for m in async_prompt_session(session, context, agent):
+    async for m in async_prompt_session(
+        session, llm_context, agent, context=prompt_context
+    ):
         pass
 
     logger.info(f"Remote prompt completed for session {session_id}")

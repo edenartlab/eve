@@ -1,26 +1,10 @@
-from typing import Any, Dict, Literal, Optional
-
 from bson import ObjectId
 
 from eve.agent import Agent
 from eve.agent.deployments import Deployment
-from eve.agent.deployments.farcaster import get_fid, post_cast
+from eve.agent.deployments.farcaster import FarcasterEvent, get_fid, post_cast
 from eve.agent.session.models import Session
-from eve.mongo import Collection, Document
 from eve.tool import ToolContext
-
-
-@Collection("farcaster_events")
-class FarcasterEvent(Document):
-    cast_hash: str
-    event: Optional[Dict[str, Any]] = None
-    status: Literal["running", "completed", "failed"]
-    error: Optional[str] = None
-    session_id: Optional[ObjectId] = None
-    message_id: Optional[ObjectId] = None
-    reply_cast: Optional[Dict[str, Any]] = None
-    reply_fid: Optional[int] = None
-
 
 # TODO: save message id to FarcasterEvent
 
@@ -36,8 +20,13 @@ async def handler(context: ToolContext):
     # Get parameters from args
     text = context.args.get("text", "")
     embeds = context.args.get("embeds") or []
-    parent_hash = context.args.get("parent_hash")
-    parent_fid = context.args.get("parent_fid")
+    parent_hash = context.args.get("reply_to")
+
+    # get parent FID
+    parent_fid = None
+    if parent_hash:
+        parent_event = FarcasterEvent.find_one({"cast_hash": parent_hash})
+        parent_fid = parent_event.cast_fid
 
     # Validate required parameters
     if not text and not embeds:
@@ -88,19 +77,20 @@ async def handler(context: ToolContext):
             session = Session.from_mongo(context.session)
             cast_hash = outputs[0].get("cast_hash")
             session.update(session_key=f"FC-{thread_hash}")
-
             # NEXT TRY: shouldn't this be using thread_hash
 
-        TARGET_FID = agent.farcasterId
+        # TARGET_FID = agent.farcasterId
 
         # save casts as farcaster events
         for output in outputs:
             event = FarcasterEvent(
                 session_id=ObjectId(context.session),
-                # message_id=new_messages[0].id,
+                message_id=ObjectId(context.message),
+                content=text,
                 cast_hash=output.get("cast_hash"),
-                reply_cast=output,
-                reply_fid=TARGET_FID,
+                cast_fid=int(agent.farcasterId),
+                reply_cast=parent_hash,
+                reply_fid=parent_fid,
                 status="completed",
                 event=None,
             )
