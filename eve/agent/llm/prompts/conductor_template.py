@@ -1,6 +1,6 @@
 from jinja2 import Template
 
-CONDUCTOR_TEMPLATE = Template("""
+conductor_template = Template("""
 <AGENT_SPEC name="Conductor" version="1.0">
 
   <Summary>

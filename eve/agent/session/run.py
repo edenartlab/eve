@@ -10,9 +10,7 @@ from pydantic import BaseModel, Field
 
 from eve.agent import Agent
 from eve.agent.llm.llm import async_prompt
-from eve.agent.llm.prompts.conductor_template import (
-    CONDUCTOR_TEMPLATE as conductor_template,
-)
+from eve.agent.llm.prompts.conductor_template import conductor_template
 from eve.agent.session.context import (
     add_chat_message,
     build_llm_context,

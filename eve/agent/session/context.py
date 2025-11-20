@@ -9,7 +9,7 @@ from bson import ObjectId
 from loguru import logger
 
 from eve.agent.agent import Agent
-from eve.agent.llm.prompts.system_template import SYSTEM_TEMPLATE
+from eve.agent.llm.prompts.system_template import system_template
 from eve.agent.llm.util import is_fake_llm_mode, is_test_mode_prompt
 from eve.agent.memory.memory_models import (
     get_sender_id_to_sender_name_map,
@@ -174,7 +174,7 @@ async def build_system_message(
         )
 
     # Build system prompt with memory context
-    content = SYSTEM_TEMPLATE.render(
+    content = system_template.render(
         name=actor.name,
         # current_date_time=current_date_time,
         description=actor.description,

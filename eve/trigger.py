@@ -11,6 +11,10 @@ from fastapi import BackgroundTasks
 from jinja2 import Template
 
 from eve.agent import Agent
+from eve.agent.session.context import (
+    add_chat_message,
+    build_llm_context,
+)
 from eve.agent.session.models import (
     ChatMessageRequestInput,
     NotificationConfig,
@@ -18,11 +22,7 @@ from eve.agent.session.models import (
     Session,
     SessionUpdateConfig,
 )
-from eve.agent.session.session import (
-    add_chat_message,
-    async_prompt_session,
-    build_llm_context,
-)
+from eve.agent.session.runtime import async_prompt_session
 from eve.agent.session.tracing import (
     add_breadcrumb,
     trace_async_operation,

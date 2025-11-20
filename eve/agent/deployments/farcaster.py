@@ -19,6 +19,10 @@ from eve.agent.agent import Agent
 from eve.agent.deployments import PlatformClient
 from eve.agent.deployments.neynar_client import NeynarClient
 from eve.agent.deployments.utils import get_api_url
+from eve.agent.session.context import (
+    add_chat_message,
+    build_llm_context,
+)
 from eve.agent.session.models import (
     Channel,
     ChatMessage,
@@ -32,11 +36,7 @@ from eve.agent.session.models import (
     SessionUpdateConfig,
     UpdateType,
 )
-from eve.agent.session.session import (
-    add_chat_message,
-    async_prompt_session,
-    build_llm_context,
-)
+from eve.agent.session.runtime import async_prompt_session
 from eve.api.errors import APIError
 from eve.mongo import Collection, Document, MongoDocumentNotFound
 from eve.tool import Tool

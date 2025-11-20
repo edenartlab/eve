@@ -8,7 +8,7 @@ from loguru import logger
 
 from eve.agent.agent import Agent, AgentPermission
 from eve.agent.llm.llm import async_prompt
-from eve.agent.llm.prompts.system_template import SYSTEM_TEMPLATE as system_template
+from eve.agent.llm.prompts.system_template import system_template
 from eve.agent.memory.memory_models import messages_to_text
 from eve.agent.memory.service import memory_service
 from eve.agent.session.models import ChatMessage, LLMConfig, LLMContext, Session

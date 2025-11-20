@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import base64
+import logging as logger
 import os
 from contextlib import nullcontext
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 import google.genai as genai
+import httpx
 from google.genai import types as genai_types
 
 from eve.agent.llm.providers import LLMProvider
@@ -57,7 +61,7 @@ class GoogleProvider(LLMProvider):
                 "Google Gemini provider does not yet support tool usage"
             )
 
-        system_instruction, contents = self._prepare_contents(context.messages)
+        system_instruction, contents = await self._prepare_contents(context.messages)
 
         config = genai_types.GenerateContentConfig(
             system_instruction=system_instruction,
@@ -129,7 +133,29 @@ class GoogleProvider(LLMProvider):
         response = await self.prompt(context)
         yield self._response_to_chunk(response)
 
-    def _prepare_contents(
+    @staticmethod
+    def _get_mime_type(url: str) -> str:
+        """Determine MIME type from URL extension"""
+        ext = urlparse(url).path.lower().split(".")[-1]
+        mime_types = {
+            "jpg": "image/jpeg",
+            "jpeg": "image/jpeg",
+            "png": "image/png",
+            "gif": "image/gif",
+            "webp": "image/webp",
+            "bmp": "image/bmp",
+        }
+        return mime_types.get(ext, "image/jpeg")
+
+    async def _fetch_image(self, url: str) -> tuple[bytes, str]:
+        """Fetch image from URL and return bytes and MIME type"""
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, timeout=30.0)
+            response.raise_for_status()
+            mime_type = self._get_mime_type(url)
+            return response.content, mime_type
+
+    async def _prepare_contents(
         self, messages: List[ChatMessage]
     ) -> (Optional[str], List[genai_types.Content]):
         system_parts: List[str] = []
@@ -142,12 +168,33 @@ class GoogleProvider(LLMProvider):
                 continue
 
             text = message.content or ""
-            if not text.strip():
-                continue
+            parts: List[genai_types.Part] = []
 
-            role = "user" if message.role == "user" else "model"
-            parts = [genai_types.Part(text=text)]
-            contents.append(genai_types.Content(role=role, parts=parts))
+            # Add text content if present
+            if text.strip():
+                parts.append(genai_types.Part(text=text))
+
+            # Add image attachments if present
+            if message.attachments:
+                for attachment_url in message.attachments:
+                    try:
+                        # Fetch and encode the image
+                        image_bytes, mime_type = await self._fetch_image(attachment_url)
+                        encoded_image = base64.b64encode(image_bytes).decode("utf-8")
+
+                        # Create inline data blob
+                        blob = genai_types.Blob(mime_type=mime_type, data=encoded_image)
+                        parts.append(genai_types.Part(inline_data=blob))
+                    except Exception as e:
+                        # Log error but continue processing other attachments
+                        logger.warning(
+                            f"Warning: Failed to fetch image {attachment_url}: {e}"
+                        )
+
+            # Only add content if there are parts
+            if parts:
+                role = "user" if message.role == "user" else "model"
+                contents.append(genai_types.Content(role=role, parts=parts))
 
         system_instruction = "\n\n".join(system_parts) if system_parts else None
         return system_instruction, contents
