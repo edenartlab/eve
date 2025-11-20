@@ -11,7 +11,7 @@ from eve.agent.session.runtime import async_prompt_session
 from eve.agent.session.service import create_prompt_session_handle
 from eve.api.api_requests import PromptSessionRequest, SessionCreationArgs
 from eve.auth import get_my_eden_user
-from eve.tool import Tool
+from eve.tool import Tool, ToolContext
 
 
 # Define a custom tool as a pydantic model
@@ -24,10 +24,8 @@ class EdenDescription(BaseModel):
     )
 
 
-async def custom_handler(
-    args: Dict[str, Any], user: str = None, agent: str = None, session: str = None
-) -> Dict[str, Any]:
-    result = f"Eden is {args['description']} and its sentiment {args['sentiment']}"
+async def custom_handler(tool_context: ToolContext) -> Dict[str, Any]:
+    result = f"Eden is {tool_context.args['description']} and its sentiment {tool_context.args['sentiment']}"
     return {"output": result}
 
 
@@ -71,9 +69,7 @@ async def example_session():
     )
 
     # Execute the prompt session
-    async for _ in async_prompt_session(
-        session, llm_context=context, agent=agent, context=handle.context
-    ):
+    async for _ in async_prompt_session(session, llm_context=context, agent=agent):
         pass
 
 

@@ -54,7 +54,7 @@ async def example_thinking_session():
     # Create context with thinking model configuration
     llm_config = LLMConfig(
         model="claude-sonnet-4-5-20250929",
-        llm_settings=LLMThinkingSettings(
+        thinking=LLMThinkingSettings(
             policy="auto",
             effort_instructions="Use low when I ask you to think about Hanoi Problem, but high for anything else, especially when I ask you to think about the best college to go to for an introvert.",
         ),
@@ -88,9 +88,7 @@ async def example_thinking_session():
     )
 
     # Execute the prompt session
-    async for _ in async_prompt_session(
-        session, llm_context=context, agent=agent, context=handle.context
-    ):
+    async for _ in async_prompt_session(session, llm_context=context, agent=agent):
         pass
 
     # it should now be available under your sessions with Eve

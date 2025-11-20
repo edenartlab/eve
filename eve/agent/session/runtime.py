@@ -618,7 +618,7 @@ class PromptSessionRuntime:
 async def async_prompt_session(
     session: Session,
     llm_context: LLMContext,
-    actor: Agent,
+    agent: Agent,
     stream: bool = False,
     is_client_platform: bool = False,
     session_run_id: Optional[str] = None,
@@ -628,7 +628,7 @@ async def async_prompt_session(
     runtime = PromptSessionRuntime(
         session,
         llm_context,
-        actor,
+        agent,
         stream=stream,
         is_client_platform=is_client_platform,
         session_run_id=session_run_id,
