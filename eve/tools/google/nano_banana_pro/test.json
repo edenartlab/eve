@@ -1,0 +1,18 @@
+{
+    "messages": [
+        {
+            "role": "user",
+            "content": "put a party hat on the dog",
+            "attachments": ["https://edenartlab-prod-data.s3.us-east-1.amazonaws.com/661de4cb0baabb985905761d29c7460ccde31b7908d60188afc7c7a966d1791f.jpg"]
+        },
+        {
+            "role": "model",
+            "content": "Here's a dog with a party hat",
+            "attachments": ["https://dtut5r9j4w7j4.cloudfront.net/50d8cea36fc20ef3da02937a7ad04e784eaaa8e04d2d528b24ea1427d0757db9.png"]
+        },
+        {
+            "role": "user",
+            "content": "put sunglasses on the dog and make the hat blue and white polka dots"
+        }
+    ]
+}

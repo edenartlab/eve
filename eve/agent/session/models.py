@@ -830,7 +830,7 @@ class Session(Document):
         default_factory=SessionMemoryContext
     )
     title: Optional[str] = None
-    session_type: Optional[Literal["chat", "passive", "automatic"]] = "chat"
+    session_type: Optional[Literal["chat", "natural", "automatic"]] = "chat"
     settings: SessionSettings = Field(default_factory=SessionSettings)
     last_actor_id: Optional[ObjectId] = None
     budget: SessionBudget = SessionBudget()
