@@ -851,6 +851,7 @@ async def _run_prompt_session_internal(
                 },
                 emoji="actor" if actors else "warning",
             )
+
             if instrumentation:
                 instrumentation.set_gauge("actor_count", len(actors))
                 if len(actors) == 1:

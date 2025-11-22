@@ -55,9 +55,7 @@ async def example_session():
     )
 
     # Execute the prompt session
-    async for _ in async_prompt_session(
-        session, llm_context=context, agent=agent, context=handle.context
-    ):
+    async for _ in async_prompt_session(session, llm_context=context, agent=agent):
         pass
 
 

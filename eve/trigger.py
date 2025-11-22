@@ -391,9 +391,7 @@ async def execute_trigger(
 
         # Execute the prompt session (this will have its own transaction)
         add_breadcrumb("Starting prompt session", category="trigger")
-        async for _ in async_prompt_session(
-            session, llm_context, agent, context=prompt_context
-        ):
+        async for _ in async_prompt_session(session, llm_context, agent):
             pass
 
         return session
