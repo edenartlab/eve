@@ -263,3 +263,12 @@ class AgentPromptsExtractionRequest(BaseModel):
     user_id: str
     session_id: str
     agent_name: Optional[str] = None
+
+
+class RegenerateAgentMemoryRequest(BaseModel):
+    shard_id: str
+
+
+class RegenerateUserMemoryRequest(BaseModel):
+    agent_id: str
+    user_id: str

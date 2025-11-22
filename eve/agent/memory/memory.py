@@ -962,7 +962,18 @@ def should_form_memories(
         logger.debug("Running should_form_memories...")
 
     try:
-        session_messages = select_messages(session)
+        # Ensure memory_context exists and get last_memory_message_id
+        safe_update_memory_context(session, {})
+        last_memory_message_id = (
+            session.memory_context.last_memory_message_id
+            if session.memory_context
+            else None
+        )
+
+        # Pass last_memory_message_id to ensure we fetch enough messages
+        session_messages = select_messages(
+            session, last_memory_message_id=last_memory_message_id
+        )
 
         if not agent_id or not session_messages or len(session_messages) == 0:
             return False, None, None
@@ -973,16 +984,15 @@ def should_form_memories(
         # Find the position of the last memory formation message
         last_memory_position = -1
         try:
-            if session.memory_context.last_memory_message_id:
+            if last_memory_message_id:
                 last_memory_position = message_id_to_index.get(
-                    session.memory_context.last_memory_message_id, -1
+                    last_memory_message_id, -1
                 )
         except Exception as e:
             logger.error(
                 f"Error getting last memory position for session {session.id}: {e}"
             )
             traceback.print_exc()
-            safe_update_memory_context(session, {})
 
         # Get recent messages since last memory formation
         recent_messages = session_messages[last_memory_position + 1 :]
@@ -1094,7 +1104,14 @@ async def form_memories(
     last_message_id: ObjectId = None
 
     try:
-        session_messages = select_messages(session)
+        # Get last_memory_message_id BEFORE selecting messages
+        safe_update_memory_context(session, {})  # Ensure memory_context exists
+        old_last_memory_message_id = session.memory_context.last_memory_message_id
+
+        # Pass last_memory_message_id to ensure we fetch enough messages
+        session_messages = select_messages(
+            session, last_memory_message_id=old_last_memory_message_id
+        )
 
         if not agent_id or not session_messages:
             return False
@@ -1102,8 +1119,6 @@ async def form_memories(
         last_message_id = session_messages[-1].id
 
         # Get messages since last memory formation BEFORE claiming
-        safe_update_memory_context(session, {})  # Ensure memory_context exists
-        old_last_memory_message_id = session.memory_context.last_memory_message_id
         recent_messages = _get_recent_messages(
             session_messages, old_last_memory_message_id
         )

@@ -475,14 +475,49 @@ def get_agent_owner(agent_id: ObjectId) -> Optional[ObjectId]:
 
 
 def select_messages(
-    session: Session, selection_limit: Optional[int] = DEFAULT_SESSION_SELECTION_LIMIT
+    session: Session,
+    selection_limit: Optional[int] = DEFAULT_SESSION_SELECTION_LIMIT,
+    last_memory_message_id: Optional[ObjectId] = None,
 ):
+    """
+    Select messages from a session with an optional selection limit.
+
+    Args:
+        session: The session to select messages from
+        selection_limit: Maximum number of recent messages to select
+        last_memory_message_id: If provided, ensures we fetch enough messages to include
+                                everything since this message (takes max of this and selection_limit)
+    """
     messages = ChatMessage.get_collection()
+
+    # If last_memory_message_id is provided, calculate how many messages we need
+    effective_limit = selection_limit
+    if last_memory_message_id is not None and selection_limit is not None:
+        # Get the timestamp of the last memory message
+        last_memory_msg = messages.find_one(
+            {"_id": last_memory_message_id}, {"createdAt": 1}
+        )
+
+        if last_memory_msg and last_memory_msg.get("createdAt"):
+            # Count messages since last_memory_message_id (including messages created after it)
+            messages_since_last = messages.count_documents(
+                {
+                    "session": session.id,
+                    "role": {"$ne": "eden"},
+                    "createdAt": {"$gt": last_memory_msg["createdAt"]},
+                }
+            )
+
+            # Use the larger of selection_limit or messages_since_last to ensure we get everything
+            # Add a small buffer to account for edge cases
+            effective_limit = max(selection_limit, messages_since_last + 5)
+
     selected_messages = messages.find(
         {"session": session.id, "role": {"$ne": "eden"}}
     ).sort("createdAt", -1)
-    if selection_limit is not None:
-        selected_messages = selected_messages.limit(selection_limit)
+
+    if effective_limit is not None:
+        selected_messages = selected_messages.limit(effective_limit)
     selected_messages = list(selected_messages)
 
     pinned_messages = messages.find({"session": session.id, "pinned": True})

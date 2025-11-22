@@ -968,3 +968,62 @@ async def handle_extract_agent_prompts(request):
         "memory_instructions": memory_instructions.strip(),
         "cost": cost,
     }
+
+
+@handle_errors
+async def handle_regenerate_agent_memory(request):
+    """Regenerate fully_formed_memory for an agent memory shard."""
+    from eve.agent.memory.memory import _regenerate_fully_formed_agent_memory
+    from eve.agent.memory.memory_models import AgentMemory
+
+    try:
+        shard_id = ObjectId(request.shard_id)
+        logger.info(f"Regenerating agent memory for shard {shard_id}")
+
+        # Load shard
+        shard = AgentMemory.from_mongo(shard_id)
+        if not shard:
+            logger.error(f"Shard not found: {shard_id}")
+            raise APIError("Shard not found", status_code=404)
+
+        # Regenerate
+        await _regenerate_fully_formed_agent_memory(shard)
+
+        return {"success": True, "shard_id": str(shard_id)}
+    except APIError:
+        raise
+    except Exception as e:
+        logger.error(
+            f"Error regenerating agent memory for shard {request.shard_id}: {e}"
+        )
+        return {"success": False, "error": str(e)}
+
+
+@handle_errors
+async def handle_regenerate_user_memory(request):
+    """Regenerate fully_formed_memory for a user memory document."""
+    from eve.agent.memory.memory import _regenerate_fully_formed_user_memory
+    from eve.agent.memory.memory_models import UserMemory
+
+    try:
+        agent_id = ObjectId(request.agent_id)
+        user_id = ObjectId(request.user_id)
+        logger.info(f"Regenerating user memory for agent {agent_id}, user {user_id}")
+
+        # Load user memory
+        user_memory = UserMemory.find_one({"agent_id": agent_id, "user_id": user_id})
+        if not user_memory:
+            logger.error(f"User memory not found for agent {agent_id}, user {user_id}")
+            raise APIError("User memory not found", status_code=404)
+
+        # Regenerate
+        await _regenerate_fully_formed_user_memory(user_memory)
+
+        return {"success": True, "user_id": str(user_id)}
+    except APIError:
+        raise
+    except Exception as e:
+        logger.error(
+            f"Error regenerating user memory for agent {request.agent_id}, user {request.user_id}: {e}"
+        )
+        return {"success": False, "error": str(e)}
