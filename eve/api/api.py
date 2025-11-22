@@ -444,7 +444,7 @@ workflows_dir = root_dir / ".." / "workflows"
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    .env({"DB": db, "MODAL_SERVE": os.getenv("MODAL_SERVE", "False")})
+    .env({"DB": db, "MODAL_SERVE": "1"})
     .apt_install("git", "libmagic1", "ffmpeg", "wget")
     .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
     .run_function(download_clip_models)

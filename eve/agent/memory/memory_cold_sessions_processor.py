@@ -204,7 +204,7 @@ db = os.getenv("DB", "STAGE").upper()
 root_dir = Path(__file__).parent.parent.parent.parent
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    .env({"DB": db, "MODAL_SERVE": os.getenv("MODAL_SERVE", "False")})
+    .env({"DB": db, "MODAL_SERVE": "1"})
     .apt_install(
         "git",
         "libmagic1",
