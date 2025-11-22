@@ -39,6 +39,8 @@ from eve.api.handlers import (
     handle_create_notification,
     handle_embedsearch,
     handle_extract_agent_prompts,
+    handle_regenerate_agent_memory,
+    handle_regenerate_user_memory,
 )
 from eve.trigger import (
     handle_trigger_create,
@@ -75,6 +77,8 @@ from eve.api.api_requests import (
     CreateNotificationRequest,
     EmbedSearchRequest,
     AgentPromptsExtractionRequest,
+    RegenerateAgentMemoryRequest,
+    RegenerateUserMemoryRequest,
 )
 from eve.api.api_functions import (
     cancel_stuck_tasks_fn,
@@ -362,6 +366,21 @@ async def extract_agent_prompts(
     request: AgentPromptsExtractionRequest, _: dict = Depends(auth.authenticate_admin)
 ):
     return await handle_extract_agent_prompts(request)
+
+
+# Memory regeneration endpoints
+@web_app.post("/memory/regenerate-agent-memory")
+async def regenerate_agent_memory(
+    request: RegenerateAgentMemoryRequest, _: dict = Depends(auth.authenticate_admin)
+):
+    return await handle_regenerate_agent_memory(request)
+
+
+@web_app.post("/memory/regenerate-user-memory")
+async def regenerate_user_memory(
+    request: RegenerateUserMemoryRequest, _: dict = Depends(auth.authenticate_admin)
+):
+    return await handle_regenerate_user_memory(request)
 
 
 # Simple embed endpoint that just returns the embedding vector
