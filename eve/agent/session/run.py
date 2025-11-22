@@ -5,7 +5,6 @@ from datetime import datetime
 from typing import List, Literal, Optional
 
 import pytz
-from bson import ObjectId
 from pydantic import BaseModel, Field
 
 from eve.agent import Agent
@@ -23,7 +22,6 @@ from eve.agent.session.models import (
     Session,
 )
 from eve.agent.session.runtime import async_prompt_session
-from eve.auth import get_my_eden_user
 from eve.tool import Tool
 from eve.user import User
 
@@ -84,80 +82,6 @@ async def remote_prompt_session(
         pass
 
     logger.info(f"Remote prompt completed for session {session_id}")
-
-
-async def conductor():
-    # available_agents = ["iannis", "glitch_gigabrain", "dadagan", "xander2"]
-    available_agents = ["iannis", "glitch_gigabrain", "plantoid-49"]
-    session_id = "690b68d99aa43032fcc0349e"
-
-    user = get_my_eden_user()
-
-    agents = ""
-    for agent_ in available_agents:
-        agent = Agent.load(agent_)
-        agents += (
-            f'  <Agent name="{agent.username}" description="{agent.description}" />\n'
-        )
-
-    conductor_message = conductor_template.render(
-        current_date_time=datetime.now(pytz.utc).strftime("%Y-%m-%d %H:%M:%S"),
-        agents=agents,
-    )
-
-    messages = ChatMessage.find({"session": ObjectId(session_id)})
-
-    class ConductorResponse(BaseModel):
-        """Form an intention for the next speaker"""
-
-        speaker: Literal[*available_agents] = Field(
-            description="The speaker who should speak next"
-        )
-        hint: Optional[str] = Field(
-            description="A hint to the speaker to keep turn. Turn constraints/budgets/phase reminders **only**."
-        )
-
-    # Build LLM context with custom tools
-    context = LLMContext(
-        messages=[
-            ChatMessage(role="system", content=conductor_message),
-            *messages,
-            ChatMessage(
-                role="user",
-                content="<Task>Determine who should speak next, and issue a conservative hint if necessary.</Task>",
-            ),
-        ],
-        config=LLMConfig(model="claude-sonnet-4-5", response_format=ConductorResponse),
-    )
-
-    # print("=================")
-    # for message in messages:
-    #     print(message.role, message.content)
-    #     print("---")
-    # print("=================")
-
-    # raise Exception("Stop here")
-
-    # Do a single turn prompt with forced tool usage
-    response = await async_prompt(context)
-    # print(response)
-    output = ConductorResponse(**json.loads(response.content))
-
-    agent = Agent.load(output.speaker)
-    user_id = str(user.id)
-    agent_id = str(agent.id)
-
-    # print("selected agent: ", output.speaker)
-    # print("hint: ", output.hint)
-
-    await remote_prompt_session(
-        session_id=session_id,
-        agent_id=agent_id,
-        user_id=user_id,
-        content=None,
-        attachments=[],
-        extra_tools=[],
-    )
 
 
 async def run_automatic_session(session_id: str):

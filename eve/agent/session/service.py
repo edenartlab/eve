@@ -7,6 +7,7 @@ from bson import ObjectId
 from fastapi import BackgroundTasks
 from loguru import logger
 
+from eve.agent.session.context import add_chat_message
 from eve.agent.session.instrumentation import PromptSessionInstrumentation
 from eve.agent.session.models import (
     LLMConfig,
@@ -34,17 +35,29 @@ class PromptSessionHandle:
     def session_id(self) -> Optional[str]:
         return str(self.session.id) if self.session else None
 
-    def iter_updates(self, stream: bool = False) -> AsyncIterator[dict]:
-        """Expose the raw session update generator for advanced callers."""
-        return _run_prompt_session_internal(
+    async def add_message(self) -> None:
+        """Add user message to session. Can be called alone if you only want to add a message."""
+        if self.context.initiating_user_id:
+            await add_chat_message(self.session, self.context)
+
+    async def run_orchestration(self, stream: bool = False) -> AsyncIterator[dict]:
+        """Run prompt orchestration. Assumes message is already added."""
+        async for update in _run_prompt_session_internal(
             self.context,
             self.background_tasks,
             stream=stream,
             instrumentation=self.instrumentation,
-        )
+        ):
+            yield update
+
+    async def iter_updates(self, stream: bool = False) -> AsyncIterator[dict]:
+        """Convenience: add message, then run orchestration."""
+        await self.add_message()
+        async for update in self.run_orchestration(stream):
+            yield update
 
     async def run(self) -> None:
-        """Default non-streaming execution that emits updates to configured channels."""
+        """Run orchestration and emit updates. Call add_message() first if needed."""
         session_id = self.session_id
         success = True
         inst = self.instrumentation
@@ -53,7 +66,7 @@ class PromptSessionHandle:
         )
         try:
             with stage_cm:
-                async for data in self.iter_updates(stream=False):
+                async for data in self.run_orchestration(stream=False):
                     await emit_update(
                         self.context.update_config, data, session_id=session_id
                     )
@@ -65,7 +78,7 @@ class PromptSessionHandle:
                 inst.finalize(success=success)
 
     async def stream_updates(self) -> AsyncIterator[dict]:
-        """Streaming execution that also mirrors updates to SSE subscribers."""
+        """Stream orchestration updates. Call add_message() first if needed."""
         session_id = self.session_id
         inst = self.instrumentation
         success = True
@@ -76,7 +89,7 @@ class PromptSessionHandle:
         )
         try:
             with stage_cm:
-                async for data in self.iter_updates(stream=True):
+                async for data in self.run_orchestration(stream=True):
                     if session_id:
                         try:
                             from eve.api.sse_manager import sse_manager
@@ -236,6 +249,7 @@ async def run_prompt_session(
     handle = PromptSessionHandle(
         context.session, context, background_tasks, instrumentation=instrumentation
     )
+    await handle.add_message()
     await handle.run()
 
 
@@ -246,5 +260,6 @@ async def run_prompt_session_stream(
     handle = PromptSessionHandle(
         context.session, context, background_tasks, instrumentation=instrumentation
     )
+    await handle.add_message()
     async for data in handle.stream_updates():
         yield data

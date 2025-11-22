@@ -34,7 +34,6 @@ from eve.utils import dumps_json
 
 from .budget import update_session_budget
 from .context import (
-    add_chat_message,
     build_llm_context,
     convert_message_roles,
     determine_actors,
@@ -838,9 +837,6 @@ async def _run_prompt_session_internal(
         try:
             debugger.log("Validating prompt session", emoji="info")
             validate_prompt_session(session, context)
-
-            if context.initiating_user_id:
-                await add_chat_message(session, context)
 
             actors = await determine_actors(session, context)
             debugger.log(

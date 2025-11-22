@@ -174,6 +174,9 @@ async def handle_prompt_session(
     handle = create_prompt_session_handle(request, background_tasks)
     session_id = handle.session_id
 
+    # Add user message first (decoupled from orchestration)
+    await handle.add_message()
+
     if request.stream:
 
         async def event_generator():
