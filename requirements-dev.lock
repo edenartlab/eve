@@ -26,7 +26,7 @@ aiosignal==1.4.0
     # via aiohttp
 annotated-types==0.7.0
     # via pydantic
-anthropic==0.58.2
+anthropic==0.74.1
     # via eve
 anyio==4.9.0
     # via anthropic
@@ -144,6 +144,7 @@ dnspython==2.7.0
 docker==7.1.0
     # via runway
 docstring-parser==0.17.0
+    # via anthropic
     # via google-cloud-aiplatform
     # via instructor
 elevenlabs==2.10.0

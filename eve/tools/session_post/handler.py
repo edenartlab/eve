@@ -218,9 +218,6 @@ async def run_session_prompt(
 
     output = RemoteSessionResponse(**json.loads(response.content))
 
-    # if output.error:
-    #     raise Exception(output.error)
-
     if output.error:
         result = {
             "output": [],
