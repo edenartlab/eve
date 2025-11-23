@@ -35,6 +35,15 @@ class TwitterClient(PlatformClient):
             # Add Twitter tools to agent
             self.add_tools()
 
+            # Add twitter username to agent's social_accounts
+            self.agent.get_collection().update_one(
+                {"_id": self.agent.id},
+                {
+                    "$set": {f"social_accounts.twitter": secrets.twitter.username},
+                    "$currentDate": {"updatedAt": True},
+                },
+            )
+
             return secrets, config
         except Exception as e:
             logger.error(f"Invalid Twitter credentials: {str(e)}")
@@ -47,6 +56,15 @@ class TwitterClient(PlatformClient):
     async def stop(self) -> None:
         """Stop Twitter client"""
         self.remove_tools()
+
+        # Remove twitter from agent's social_accounts
+        self.agent.get_collection().update_one(
+            {"_id": self.agent.id},
+            {
+                "$unset": {"social_accounts.twitter": ""},
+                "$currentDate": {"updatedAt": True},
+            },
+        )
 
     async def interact(self, request: Request) -> None:
         """Interact with the Twitter client"""

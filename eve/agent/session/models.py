@@ -984,6 +984,7 @@ class DeploymentSecretsTelegram(BaseModel):
 
 # Farcaster Models
 class DeploymentSettingsFarcaster(BaseModel):
+    username: Optional[str] = None
     webhook_id: Optional[str] = None
     enable_cast: Optional[bool] = False
     instructions: Optional[str] = None
