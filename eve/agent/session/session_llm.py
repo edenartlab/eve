@@ -341,23 +341,6 @@ def construct_observability_metadata(context: LLMContext):
     return metadata
 
 
-def _get_value(obj: Optional[object], attr: str):
-    if obj is None:
-        return None
-    if isinstance(obj, dict):
-        return obj.get(attr)
-    return getattr(obj, attr, None)
-
-
-def _to_int(value: Optional[object]) -> Optional[int]:
-    if value is None:
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
 def _build_token_breakdown(
     total: Optional[int], cached: Optional[int]
 ) -> Optional[TokenUsageBreakdown]:
@@ -390,6 +373,23 @@ def _normalize_hidden_params(value: Optional[object]) -> Dict[str, Any]:
             return {}
     return {}
 
+
+def _get_value(obj: Optional[object], attr: str):
+    if obj is None:
+        return None
+    if isinstance(obj, dict):
+        return obj.get(attr)
+    return getattr(obj, attr, None)
+
+
+def _to_int(value: Optional[object]) -> Optional[int]:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+        
 
 def build_cost_metadata_from_usage(
     model_name: Optional[str],
