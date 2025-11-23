@@ -824,13 +824,13 @@ class Session(Document):
     channel: Optional[Channel] = None
     parent_session: Optional[ObjectId] = None
     agents: List[ObjectId] = Field(default_factory=list)
-    status: Literal["active", "paused", "stopped", "archived"] = "active"
+    status: Literal["active", "paused", "running", "archived"] = "active"
     messages: List[ObjectId] = Field(default_factory=list)
     memory_context: Optional[SessionMemoryContext] = Field(
         default_factory=SessionMemoryContext
     )
     title: Optional[str] = None
-    session_type: Optional[Literal["normal", "natural", "automatic"]] = "normal"
+    session_type: Literal["normal", "natural", "automatic"] = "normal"
     settings: SessionSettings = Field(default_factory=SessionSettings)
     last_actor_id: Optional[ObjectId] = None
     budget: SessionBudget = SessionBudget()

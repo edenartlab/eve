@@ -695,7 +695,47 @@ def format_session_update(update: SessionUpdate, context: PromptSessionContext) 
     return data
 
 
-async def _run_single_actor_session(
+async def _run_actor_sessions(
+    session: Session,
+    context: PromptSessionContext,
+    actors: List[Agent],
+    *,
+    stream: bool,
+    is_client_platform: bool,
+    session_run_id: str,
+    instrumentation: Optional[PromptSessionInstrumentation] = None,
+):
+    """Run prompt sessions for one or more actors.
+
+    Single actor: Fast path with direct yield
+    Multiple actors: Parallel execution with queue-based update collection
+    """
+    if len(actors) == 1:
+        # Fast path: single actor, direct yield
+        async for update in _run_single_actor(
+            session,
+            context,
+            actors[0],
+            stream=stream,
+            is_client_platform=is_client_platform,
+            session_run_id=session_run_id,
+            instrumentation=instrumentation,
+        ):
+            yield update
+    else:
+        # Multi-actor: parallel execution
+        async for update in _run_multiple_actors(
+            session,
+            context,
+            actors,
+            stream=stream,
+            is_client_platform=is_client_platform,
+            instrumentation=instrumentation,
+        ):
+            yield update
+
+
+async def _run_single_actor(
     session: Session,
     context: PromptSessionContext,
     actor: Agent,
@@ -705,6 +745,7 @@ async def _run_single_actor_session(
     session_run_id: str,
     instrumentation: Optional[PromptSessionInstrumentation] = None,
 ):
+    """Run prompt session for a single actor (fast path)."""
     stage_cm = (
         instrumentation.track_stage(f"actor:{actor.id}", level="info")
         if instrumentation
@@ -738,7 +779,7 @@ async def _run_single_actor_session(
             yield formatted_update
 
 
-async def _run_multi_actor_sessions(
+async def _run_multiple_actors(
     session: Session,
     context: PromptSessionContext,
     actors: List[Agent],
@@ -747,6 +788,7 @@ async def _run_multi_actor_sessions(
     is_client_platform: bool,
     instrumentation: Optional[PromptSessionInstrumentation] = None,
 ):
+    """Run prompt sessions for multiple actors in parallel."""
     update_queue: asyncio.Queue = asyncio.Queue()
     tasks = []
 
@@ -824,8 +866,20 @@ async def _run_prompt_session_internal(
     instrumentation: Optional[PromptSessionInstrumentation] = None,
 ):
     """Internal function that handles both streaming and non-streaming"""
+    from loguru import logger as loguru_logger
+
     session = context.session
-    debugger = instrumentation.debugger
+    debugger = instrumentation.debugger if instrumentation else SessionDebugger()
+
+    loguru_logger.info(
+        f"[ORCH] _run_prompt_session_internal called for session {session.id}"
+    )
+    loguru_logger.info(
+        f"[ORCH] Session: type={session.session_type}, status={session.status}, agents={session.agents}"
+    )
+    loguru_logger.info(
+        f"[ORCH] Context: initiating_user_id={context.initiating_user_id}, message={context.message}"
+    )
 
     stage_cm = (
         instrumentation.track_stage("prompt_session.runtime", level="info")
@@ -836,9 +890,37 @@ async def _run_prompt_session_internal(
     with stage_cm:
         try:
             debugger.log("Validating prompt session", emoji="info")
+            loguru_logger.info("[ORCH] Validating prompt session")
             validate_prompt_session(session, context)
+            loguru_logger.info("[ORCH] Validation passed")
 
+            # Status check for automatic sessions
+            if session.session_type == "automatic":
+                loguru_logger.info(
+                    f"[ORCH] Automatic session, checking status={session.status}"
+                )
+                if session.status in ("paused", "archived"):
+                    debugger.log(
+                        f"Session status is '{session.status}', skipping orchestration",
+                        level="info",
+                        emoji="info",
+                    )
+                    loguru_logger.info(f"[ORCH] Skipping - session is {session.status}")
+                    return
+                if session.status == "running":
+                    debugger.log(
+                        "Session is already running elsewhere, skipping",
+                        level="info",
+                        emoji="info",
+                    )
+                    loguru_logger.info("[ORCH] Skipping - session is already running")
+                    return
+
+            loguru_logger.info("[ORCH] Calling determine_actors")
             actors = await determine_actors(session, context)
+            loguru_logger.info(
+                f"[ORCH] determine_actors returned {len(actors) if actors else 0} actors: {[a.username for a in actors] if actors else []}"
+            )
             debugger.log(
                 f"Found {len(actors)} actor(s)",
                 {
@@ -883,27 +965,16 @@ async def _run_prompt_session_internal(
                 )
 
             try:
-                if len(actors) == 1:
-                    async for update in _run_single_actor_session(
-                        session,
-                        context,
-                        actors[0],
-                        stream=stream,
-                        is_client_platform=is_client_platform,
-                        session_run_id=session_run_id,
-                        instrumentation=instrumentation,
-                    ):
-                        yield update
-                else:
-                    async for update in _run_multi_actor_sessions(
-                        session,
-                        context,
-                        actors,
-                        stream=stream,
-                        is_client_platform=is_client_platform,
-                        instrumentation=instrumentation,
-                    ):
-                        yield update
+                async for update in _run_actor_sessions(
+                    session,
+                    context,
+                    actors,
+                    stream=stream,
+                    is_client_platform=is_client_platform,
+                    session_run_id=session_run_id,
+                    instrumentation=instrumentation,
+                ):
+                    yield update
             finally:
                 if context.update_config:
                     from eve.api.typing_coordinator import update_busy_state

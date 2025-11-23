@@ -46,46 +46,81 @@ def parse_mentions(content: str) -> List[str]:
 async def determine_actors(
     session: Session, context: PromptSessionContext
 ) -> List[Agent]:
+    """Determine which agent(s) should respond in this session.
+
+    Actor selection logic:
+    1. If actor_agent_ids explicitly specified in context, use those
+    2. If session_type is "automatic", use conductor to select next speaker
+    3. If session_type is "normal" or "natural":
+       - Single agent: return that agent
+       - Multiple agents: parse @mentions from message content
+    """
+    logger.info(f"[ACTORS] determine_actors called for session {session.id}")
+    logger.info(
+        f"[ACTORS] session_type={session.session_type}, agents={session.agents}"
+    )
+    logger.info(f"[ACTORS] context.actor_agent_ids={context.actor_agent_ids}")
+
     add_breadcrumb(
         "Determining actors for session",
         category="session",
-        data={"session_id": str(session.id)},
+        data={"session_id": str(session.id), "session_type": session.session_type},
     )
-    actor_ids = []
 
+    # 1. Explicit actor override from context
     if context.actor_agent_ids:
-        # Multiple actors specified in the context
-        for actor_agent_id in context.actor_agent_ids:
-            requested_actor = ObjectId(actor_agent_id)
-            actor_ids.append(requested_actor)
-    elif len(session.agents) > 1:
-        mentions = parse_mentions(context.message.content)
-        if len(mentions) > 0:
-            for mention in mentions:
-                for agent_id in session.agents:
-                    agent = Agent.from_mongo(agent_id)
-                    if agent.username == mention:
-                        actor_ids.append(agent_id)
-                        break
-            if not actor_ids:
-                raise ValueError("No mentioned agents found in session")
+        logger.info(
+            f"[ACTORS] Using explicit actor_agent_ids: {context.actor_agent_ids}"
+        )
+        actors = [Agent.from_mongo(ObjectId(aid)) for aid in context.actor_agent_ids]
+        if actors:
+            session.update(last_actor_id=actors[0].id)
+        logger.info(f"[ACTORS] Returning {len(actors)} explicit actors")
+        return actors
 
-    if not actor_ids:
-        # TODO: do something more graceful than returning empty list if no actors are determined
+    # 2. Automatic session: use conductor to select next speaker
+    if session.session_type == "automatic":
+        logger.info("[ACTORS] Automatic session - calling conductor_select_actor")
+        from eve.agent.session.conductor import conductor_select_actor
+
+        actor = await conductor_select_actor(session)
+        logger.info(f"[ACTORS] Conductor selected actor: {actor.username} ({actor.id})")
+        session.update(last_actor_id=actor.id)
+        return [actor]
+
+    # 3. Normal/natural session
+    if not session.agents:
+        logger.info("[ACTORS] No agents in session, returning empty list")
         return []
 
-    actors = []
-    for actor_id in actor_ids:
-        actor = Agent.from_mongo(actor_id)
-        actors.append(actor)
+    # Single agent: return it directly
+    if len(session.agents) == 1:
+        logger.info("[ACTORS] Single agent session, returning that agent")
+        actor = Agent.from_mongo(session.agents[0])
+        session.update(last_actor_id=actor.id)
+        return [actor]
 
-    # Update last_actor_id to the first actor for backwards compatibility
-    if actors:
-        # session.last_actor_id = actors[0].id
-        # session.save()
-        session.update(last_actor_id=actors[0].id)
+    # Multiple agents: parse @mentions from message
+    logger.info("[ACTORS] Multiple agents, parsing @mentions from message")
+    mentions = parse_mentions(context.message.content) if context.message else []
+    logger.info(f"[ACTORS] Found mentions: {mentions}")
+    if mentions:
+        actors = []
+        for mention in mentions:
+            for agent_id in session.agents:
+                agent = Agent.from_mongo(agent_id)
+                if agent.username == mention:
+                    actors.append(agent)
+                    break
+        if actors:
+            session.update(last_actor_id=actors[0].id)
+            logger.info(f"[ACTORS] Returning {len(actors)} mentioned actors")
+            return actors
+        raise ValueError(f"No mentioned agents found in session. Mentions: {mentions}")
 
-    return actors
+    # No actors determined
+    logger.info("[ACTORS] No actors determined, returning empty list")
+    return []
 
 
 def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
