@@ -1,7 +1,9 @@
 from typing import TYPE_CHECKING
+
 from fastapi import Request
+
 from eve.agent.deployments import PlatformClient
-from eve.agent.session.models import DeploymentSecrets, DeploymentConfig
+from eve.agent.session.models import DeploymentConfig, DeploymentSecrets
 
 if TYPE_CHECKING:
     from eve.api.api_requests import DeploymentEmissionRequest
@@ -19,10 +21,10 @@ class CaptionsClient(PlatformClient):
         # Validate that required fields are present
         if not secrets:
             raise ValueError("Deployment secrets are required")
-            
+
         if not secrets.captions:
             raise ValueError("Captions secrets are required")
-        
+
         if not secrets.captions.api_key:
             raise ValueError("api_key is required")
 

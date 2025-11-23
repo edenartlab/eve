@@ -1,10 +1,11 @@
 import sys
-import click
 import traceback
-import multiprocessing
 from pathlib import Path
 
+import click
+
 from eve.agent.session.models import ClientType
+
 from ..agent import Agent
 
 
@@ -110,8 +111,9 @@ def start(agent: str, db: str, platforms: tuple, local: bool):
 )
 def api(host: str, port: int, reload: bool, db: str, remote_debug: bool):
     """Start the Eve API server"""
-    import uvicorn
     import os
+
+    import uvicorn
 
     # Set the LOCAL_DEBUG environment variable if the flag is set
     if not remote_debug:

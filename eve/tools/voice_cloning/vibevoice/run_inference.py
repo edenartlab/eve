@@ -10,22 +10,20 @@ node into a simple generate_audio() function with full multi-speaker support.
 
 import logging
 import os
-import sys
 import re
-import torch
+import sys
+from typing import Any, Dict, List, Optional, Union
+
 import numpy as np
-from typing import Optional, Union, List, Dict, Any
+import torch
 
 # Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='[VibeVoice] %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format="[VibeVoice] %(message)s")
 logger = logging.getLogger("VibeVoice")
 
 # Add vvembed to path
 current_dir = os.path.dirname(os.path.abspath(__file__))
-vvembed_path = os.path.join(current_dir, 'vvembed')
+vvembed_path = os.path.join(current_dir, "vvembed")
 if vvembed_path not in sys.path:
     sys.path.insert(0, vvembed_path)
 
@@ -34,7 +32,7 @@ def get_optimal_device():
     """Get the best available device (cuda, mps, or cpu)"""
     if torch.cuda.is_available():
         return "cuda"
-    elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
         return "mps"
     else:
         return "cpu"
@@ -71,6 +69,7 @@ class VibeVoiceInference:
             self.current_quantize_llm = "full precision"
 
             import gc
+
             gc.collect()
 
             if torch.cuda.is_available():
@@ -82,8 +81,13 @@ class VibeVoiceInference:
         except Exception as e:
             logger.error(f"Error freeing memory: {e}")
 
-    def load_model(self, model_path: str, tokenizer_path: str, attention_type: str = "auto",
-                   quantize_llm: str = "full precision"):
+    def load_model(
+        self,
+        model_path: str,
+        tokenizer_path: str,
+        attention_type: str = "auto",
+        quantize_llm: str = "full precision",
+    ):
         """Load VibeVoice model
 
         Args:
@@ -92,23 +96,27 @@ class VibeVoiceInference:
             quantize_llm: LLM quantization mode ("full precision", "8bit", or "4bit")
         """
         # Check if we need to reload
-        if (self.model is None or
-            self.current_model_path != model_path or
-            self.current_attention_type != attention_type or
-            self.current_quantize_llm != quantize_llm):
-
+        if (
+            self.model is None
+            or self.current_model_path != model_path
+            or self.current_attention_type != attention_type
+            or self.current_quantize_llm != quantize_llm
+        ):
             if self.model is not None:
-                logger.info(f"Reloading model with new settings...")
+                logger.info("Reloading model with new settings...")
                 self.free_memory()
 
             try:
                 # Import the inference model
-                from modular.modeling_vibevoice_inference import VibeVoiceForConditionalGenerationInference
-                from processor.vibevoice_processor import VibeVoiceProcessor
+                import warnings
 
                 # Suppress verbose logs
                 import transformers
-                import warnings
+                from modular.modeling_vibevoice_inference import (
+                    VibeVoiceForConditionalGenerationInference,
+                )
+                from processor.vibevoice_processor import VibeVoiceProcessor
+
                 transformers.logging.set_verbosity_error()
                 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -132,7 +140,9 @@ class VibeVoiceInference:
                 # Handle quantization
                 if quantize_llm != "full precision":
                     if not torch.cuda.is_available():
-                        raise Exception("Quantization requires CUDA GPU. Please use 'full precision' on CPU/MPS.")
+                        raise Exception(
+                            "Quantization requires CUDA GPU. Please use 'full precision' on CPU/MPS."
+                        )
 
                     from transformers import BitsAndBytesConfig
 
@@ -142,17 +152,28 @@ class VibeVoiceInference:
                             load_in_4bit=True,
                             bnb_4bit_compute_dtype=torch.bfloat16,
                             bnb_4bit_use_double_quant=True,
-                            bnb_4bit_quant_type='nf4',
-                            llm_int8_skip_modules=["lm_head", "prediction_head", "acoustic_connector",
-                                                   "semantic_connector", "diffusion_head"]
+                            bnb_4bit_quant_type="nf4",
+                            llm_int8_skip_modules=[
+                                "lm_head",
+                                "prediction_head",
+                                "acoustic_connector",
+                                "semantic_connector",
+                                "diffusion_head",
+                            ],
                         )
                     else:  # 8bit
                         logger.info("Quantizing LLM component to 8-bit...")
                         bnb_config = BitsAndBytesConfig(
                             load_in_8bit=True,
                             bnb_8bit_compute_dtype=torch.bfloat16,
-                            llm_int8_skip_modules=["lm_head", "prediction_head", "acoustic_connector",
-                                                   "semantic_connector", "acoustic_tokenizer", "semantic_tokenizer"],
+                            llm_int8_skip_modules=[
+                                "lm_head",
+                                "prediction_head",
+                                "acoustic_connector",
+                                "semantic_connector",
+                                "acoustic_tokenizer",
+                                "semantic_tokenizer",
+                            ],
                             llm_int8_threshold=3.0,
                             llm_int8_has_fp16_weight=False,
                         )
@@ -166,20 +187,17 @@ class VibeVoiceInference:
 
                 # Load model
                 import time
+
                 start_time = time.time()
                 self.model = VibeVoiceForConditionalGenerationInference.from_pretrained(
-                    model_path,
-                    **model_kwargs
+                    model_path, **model_kwargs
                 )
                 elapsed = time.time() - start_time
                 logger.info(f"Model loaded in {elapsed:.2f} seconds")
 
                 # Load processor
                 logger.info("Loading VibeVoice processor...")
-                processor_kwargs = {
-                    "trust_remote_code": True,
-                    "local_files_only": True
-                }
+                processor_kwargs = {"trust_remote_code": True, "local_files_only": True}
 
                 # Try to find Qwen tokenizer
                 tokenizer_path = self._find_qwen_tokenizer(tokenizer_path)
@@ -188,8 +206,7 @@ class VibeVoiceInference:
                     processor_kwargs["language_model_pretrained_name"] = tokenizer_path
 
                 self.processor = VibeVoiceProcessor.from_pretrained(
-                    model_path,
-                    **processor_kwargs
+                    model_path, **processor_kwargs
                 )
 
                 # Move to device if not quantized
@@ -198,7 +215,7 @@ class VibeVoiceInference:
                     if device == "cuda":
                         try:
                             self.model = self.model.cuda()
-                        except:
+                        except Exception:
                             pass
                     elif device == "mps":
                         self.model = self.model.to("mps")
@@ -219,15 +236,21 @@ class VibeVoiceInference:
         tokenizer_dir = model_path
         if os.path.exists(tokenizer_dir):
             required_files = ["tokenizer_config.json", "vocab.json", "merges.txt"]
-            if all(os.path.exists(os.path.join(tokenizer_dir, f)) for f in required_files):
+            if all(
+                os.path.exists(os.path.join(tokenizer_dir, f)) for f in required_files
+            ):
                 return tokenizer_dir
 
-        print(f"Couldn't find needed files for tokenizer in {tokenizer_dir}, searching in HF hub dir...")
+        print(
+            f"Couldn't find needed files for tokenizer in {tokenizer_dir}, searching in HF hub dir..."
+        )
 
         # Check HuggingFace cache
         hf_cache_paths = [
             os.path.expanduser("~/.cache/huggingface/hub"),
-            os.path.join(os.environ.get("HF_HOME", ""), "hub") if os.environ.get("HF_HOME") else None,
+            os.path.join(os.environ.get("HF_HOME", ""), "hub")
+            if os.environ.get("HF_HOME")
+            else None,
         ]
 
         for cache_path in hf_cache_paths:
@@ -239,7 +262,9 @@ class VibeVoiceInference:
                         for snapshot in os.listdir(snapshots_dir):
                             snapshot_path = os.path.join(snapshots_dir, snapshot)
                             if os.path.isdir(snapshot_path):
-                                if os.path.exists(os.path.join(snapshot_path, "tokenizer_config.json")):
+                                if os.path.exists(
+                                    os.path.join(snapshot_path, "tokenizer_config.json")
+                                ):
                                     return snapshot_path
 
         print("WARNING: Qwen tokenizer not found. Using synthetic voice.")
@@ -260,16 +285,16 @@ class VibeVoiceInference:
         formant2 = 1200 + speaker_idx * 150
 
         voice_sample = (
-            0.6 * np.sin(2 * np.pi * base_freq * t) +
-            0.25 * np.sin(2 * np.pi * base_freq * 2 * t) +
-            0.15 * np.sin(2 * np.pi * base_freq * 3 * t) +
-            0.1 * np.sin(2 * np.pi * formant1 * t) * np.exp(-t * 2) +
-            0.05 * np.sin(2 * np.pi * formant2 * t) * np.exp(-t * 3) +
-            0.02 * np.random.normal(0, 1, len(t))
+            0.6 * np.sin(2 * np.pi * base_freq * t)
+            + 0.25 * np.sin(2 * np.pi * base_freq * 2 * t)
+            + 0.15 * np.sin(2 * np.pi * base_freq * 3 * t)
+            + 0.1 * np.sin(2 * np.pi * formant1 * t) * np.exp(-t * 2)
+            + 0.05 * np.sin(2 * np.pi * formant2 * t) * np.exp(-t * 3)
+            + 0.02 * np.random.normal(0, 1, len(t))
         )
 
         vibrato_freq = 4 + speaker_idx * 0.3
-        envelope = (np.exp(-t * 0.3) * (1 + 0.1 * np.sin(2 * np.pi * vibrato_freq * t)))
+        envelope = np.exp(-t * 0.3) * (1 + 0.1 * np.sin(2 * np.pi * vibrato_freq * t))
         voice_sample *= envelope * 0.08
 
         return voice_sample.astype(np.float32)
@@ -289,44 +314,63 @@ class VibeVoiceInference:
         if isinstance(voice_audio, str):
             try:
                 import librosa
+
                 # librosa.load automatically resamples to target sample rate
-                voice_audio, sr = librosa.load(voice_audio, sr=target_sample_rate, mono=True)
+                voice_audio, sr = librosa.load(
+                    voice_audio, sr=target_sample_rate, mono=True
+                )
                 logger.info(f"Loaded audio and resampled to {target_sample_rate} Hz")
             except ImportError:
                 logger.warning("librosa not installed, falling back to soundfile")
                 try:
                     import soundfile as sf
+
                     voice_audio, sr = sf.read(voice_audio)
                     voice_audio = voice_audio.astype(np.float32)
 
                     # Ensure mono
                     if voice_audio.ndim > 1:
-                        voice_audio = voice_audio[0] if voice_audio.shape[0] == 1 else voice_audio[:, 0]
+                        voice_audio = (
+                            voice_audio[0]
+                            if voice_audio.shape[0] == 1
+                            else voice_audio[:, 0]
+                        )
 
                     # Resample using librosa if available, otherwise use basic resampling
                     if sr != target_sample_rate:
                         try:
                             import librosa
-                            voice_audio = librosa.resample(voice_audio, orig_sr=sr, target_sr=target_sample_rate)
+
+                            voice_audio = librosa.resample(
+                                voice_audio, orig_sr=sr, target_sr=target_sample_rate
+                            )
                         except ImportError:
                             # Fallback to basic linear interpolation
-                            logger.warning(f"Resampling from {sr} Hz to {target_sample_rate} Hz using basic interpolation. Install librosa for better quality.")
-                            target_length = int(len(voice_audio) * target_sample_rate / sr)
+                            logger.warning(
+                                f"Resampling from {sr} Hz to {target_sample_rate} Hz using basic interpolation. Install librosa for better quality."
+                            )
+                            target_length = int(
+                                len(voice_audio) * target_sample_rate / sr
+                            )
                             voice_audio = np.interp(
                                 np.linspace(0, len(voice_audio), target_length),
                                 np.arange(len(voice_audio)),
-                                voice_audio
+                                voice_audio,
                             )
                 except Exception as e:
                     raise Exception(f"Failed to load audio file: {e}")
         else:
             # If numpy array provided, ensure it's 1D
             if voice_audio.ndim > 1:
-                voice_audio = voice_audio[0] if voice_audio.shape[0] == 1 else voice_audio[:, 0]
+                voice_audio = (
+                    voice_audio[0] if voice_audio.shape[0] == 1 else voice_audio[:, 0]
+                )
 
             # For numpy arrays, we assume they're already at the target sample rate
             # since we can't auto-detect the sample rate from raw arrays
-            logger.info("Received numpy array input - assuming it's already at 24000 Hz")
+            logger.info(
+                "Received numpy array input - assuming it's already at 24000 Hz"
+            )
 
         # Normalize
         audio_max = np.abs(voice_audio).max()
@@ -346,16 +390,17 @@ class VibeVoiceInference:
             Formatted text with proper "Speaker N:" prefixes, with newlines between speakers
         """
         # First check if text has [N]: format and convert to Speaker N: format
-        bracket_pattern = r'\[(\d+)\]\s*:'
+        bracket_pattern = r"\[(\d+)\]\s*:"
         if re.search(bracket_pattern, text):
             # Convert [N]: to Speaker N:
             def replace_bracket(match):
                 speaker_num = match.group(1)
-                return f'Speaker {speaker_num}:'
+                return f"Speaker {speaker_num}:"
+
             text = re.sub(bracket_pattern, replace_bracket, text)
 
         # Detect if this is multi-speaker text
-        speaker_pattern = r'Speaker\s+(\d+)\s*:'
+        speaker_pattern = r"Speaker\s+(\d+)\s*:"
         speaker_matches = list(re.finditer(speaker_pattern, text, re.IGNORECASE))
         unique_speakers = len(set([m.group(1) for m in speaker_matches]))
         is_multi_speaker = unique_speakers > 1
@@ -378,20 +423,20 @@ class VibeVoiceInference:
                 # Extract and clean the speaker's text
                 speaker_text = text[start:end].strip()
                 # Clean up excessive whitespace within the text
-                speaker_text = ' '.join(speaker_text.split())
+                speaker_text = " ".join(speaker_text.split())
 
                 if speaker_text:  # Only add non-empty segments
                     segments.append(f"{speaker_label} {speaker_text}")
 
             # Join segments with newlines so processor can map voices correctly
-            text = '\n'.join(segments)
+            text = "\n".join(segments)
         else:
             # Single speaker: remove newlines and clean up whitespace
-            text = text.replace('\n', ' ').replace('\r', ' ')
-            text = ' '.join(text.split())
+            text = text.replace("\n", " ").replace("\r", " ")
+            text = " ".join(text.split())
 
         # If text already has proper "Speaker N:" format, return as-is
-        if re.match(r'^\s*Speaker\s+\d+\s*:', text, re.IGNORECASE):
+        if re.match(r"^\s*Speaker\s+\d+\s*:", text, re.IGNORECASE):
             return text
 
         # Otherwise, prefix with Speaker 1
@@ -407,11 +452,11 @@ class VibeVoiceInference:
             Number of unique speakers detected
         """
         # First check for [N]: format
-        bracket_pattern = r'\[(\d+)\]\s*:'
+        bracket_pattern = r"\[(\d+)\]\s*:"
         bracket_matches = re.findall(bracket_pattern, text)
 
         # Also check for "Speaker N:" patterns
-        speaker_pattern = r'Speaker\s+(\d+)\s*:'
+        speaker_pattern = r"Speaker\s+(\d+)\s*:"
         speaker_matches = re.findall(speaker_pattern, text, re.IGNORECASE)
 
         # Combine both patterns
@@ -424,10 +469,17 @@ class VibeVoiceInference:
         speaker_nums = set(int(m) for m in all_matches)
         return len(speaker_nums)
 
-    def generate(self, text: str, voice_samples: Optional[List[np.ndarray]] = None,
-                 cfg_scale: float = 1.3, seed: int = 42, diffusion_steps: int = 20,
-                 use_sampling: bool = False, temperature: float = 0.95,
-                 top_p: float = 0.95) -> Dict[str, Any]:
+    def generate(
+        self,
+        text: str,
+        voice_samples: Optional[List[np.ndarray]] = None,
+        cfg_scale: float = 1.3,
+        seed: int = 42,
+        diffusion_steps: int = 20,
+        use_sampling: bool = False,
+        temperature: float = 0.95,
+        top_p: float = 0.95,
+    ) -> Dict[str, Any]:
         """Generate audio using VibeVoice model
 
         Args:
@@ -458,10 +510,10 @@ class VibeVoiceInference:
 
         # Set diffusion steps
         self.model.set_ddpm_inference_steps(diffusion_steps)
-        
+
         # Format text for VibeVoice
         formatted_text = self._format_text_for_vibevoice(text)
-        print(f"Formatted text")
+        print("Formatted text")
         print(formatted_text)
 
         # Detect number of speakers
@@ -472,17 +524,23 @@ class VibeVoiceInference:
         if voice_samples is None:
             # Create synthetic voices for each speaker
             logger.info(f"Creating {num_speakers} synthetic voice(s)")
-            voice_samples = [self._create_synthetic_voice_sample(i) for i in range(num_speakers)]
+            voice_samples = [
+                self._create_synthetic_voice_sample(i) for i in range(num_speakers)
+            ]
         else:
             # Validate voice samples count
             if len(voice_samples) < num_speakers:
-                logger.warning(f"Only {len(voice_samples)} voice sample(s) provided for {num_speakers} speaker(s)")
+                logger.warning(
+                    f"Only {len(voice_samples)} voice sample(s) provided for {num_speakers} speaker(s)"
+                )
                 logger.warning("Generating synthetic voices for missing speakers")
                 # Pad with synthetic voices
                 for i in range(len(voice_samples), num_speakers):
                     voice_samples.append(self._create_synthetic_voice_sample(i))
             elif len(voice_samples) > num_speakers:
-                logger.warning(f"More voice samples ({len(voice_samples)}) than speakers ({num_speakers})")
+                logger.warning(
+                    f"More voice samples ({len(voice_samples)}) than speakers ({num_speakers})"
+                )
                 logger.warning(f"Using only first {num_speakers} voice sample(s)")
                 voice_samples = voice_samples[:num_speakers]
 
@@ -491,13 +549,15 @@ class VibeVoiceInference:
             [formatted_text],
             voice_samples=[voice_samples],  # Wrap in list as expected by processor
             return_tensors="pt",
-            return_attention_mask=True
+            return_attention_mask=True,
         )
 
         # Move to device
         device = next(self.model.parameters()).device
-        inputs = {k: v.to(device) if isinstance(v, torch.Tensor) else v
-                 for k, v in inputs.items()}
+        inputs = {
+            k: v.to(device) if isinstance(v, torch.Tensor) else v
+            for k, v in inputs.items()
+        }
 
         logger.info(f"Generating audio with {diffusion_steps} diffusion steps...")
 
@@ -522,7 +582,7 @@ class VibeVoiceInference:
                     do_sample=False,
                 )
 
-            if hasattr(output, 'speech_outputs') and output.speech_outputs:
+            if hasattr(output, "speech_outputs") and output.speech_outputs:
                 speech_tensors = output.speech_outputs
 
                 if isinstance(speech_tensors, list) and len(speech_tensors) > 0:
@@ -537,10 +597,7 @@ class VibeVoiceInference:
                 if audio_np.ndim > 1:
                     audio_np = audio_np.squeeze()
 
-                return {
-                    "waveform": audio_np,
-                    "sample_rate": 24000
-                }
+                return {"waveform": audio_np, "sample_rate": 24000}
             else:
                 raise Exception("Failed to generate audio - no speech outputs")
 
@@ -630,7 +687,9 @@ def generate_audio(
             for i, audio in enumerate(voice_audio):
                 prepared_audio = _inference._prepare_voice_audio(audio)
                 voice_samples.append(prepared_audio)
-            logger.info(f"Prepared {len(voice_samples)} voice sample(s) for multi-speaker")
+            logger.info(
+                f"Prepared {len(voice_samples)} voice sample(s) for multi-speaker"
+            )
         else:
             # Single speaker: prepare single audio
             prepared_audio = _inference._prepare_voice_audio(voice_audio)
@@ -651,7 +710,7 @@ def generate_audio(
         diffusion_steps=diffusion_steps,
         use_sampling=use_sampling,
         temperature=temperature,
-        top_p=top_p
+        top_p=top_p,
     )
 
     # Free memory if requested
@@ -667,15 +726,29 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="VibeVoice Standalone Inference")
-    parser.add_argument("--text", type=str, required=True, help="Text to convert to speech")
-    parser.add_argument("--model_path", type=str, required=True, help="Path to model directory")
-    parser.add_argument("--output", type=str, default="output.mp3", help="Output file path")
-    parser.add_argument("--voice_audio", type=str, help="Reference audio for voice cloning")
+    parser.add_argument(
+        "--text", type=str, required=True, help="Text to convert to speech"
+    )
+    parser.add_argument(
+        "--model_path", type=str, required=True, help="Path to model directory"
+    )
+    parser.add_argument(
+        "--output", type=str, default="output.mp3", help="Output file path"
+    )
+    parser.add_argument(
+        "--voice_audio", type=str, help="Reference audio for voice cloning"
+    )
     parser.add_argument("--cfg_scale", type=float, default=1.3, help="CFG scale")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
-    parser.add_argument("--diffusion_steps", type=int, default=20, help="Diffusion steps")
-    parser.add_argument("--quantize_llm", type=str, default="full precision",
-                       choices=["full precision", "4bit", "8bit"])
+    parser.add_argument(
+        "--diffusion_steps", type=int, default=20, help="Diffusion steps"
+    )
+    parser.add_argument(
+        "--quantize_llm",
+        type=str,
+        default="full precision",
+        choices=["full precision", "4bit", "8bit"],
+    )
 
     args = parser.parse_args()
 
@@ -688,12 +761,13 @@ if __name__ == "__main__":
         seed=args.seed,
         diffusion_steps=args.diffusion_steps,
         quantize_llm=args.quantize_llm,
-        free_memory_after=True
+        free_memory_after=True,
     )
 
     # Save audio
     try:
         import soundfile as sf
+
         sf.write(args.output, audio["waveform"], audio["sample_rate"])
         print(f"Audio saved to {args.output}")
     except ImportError:

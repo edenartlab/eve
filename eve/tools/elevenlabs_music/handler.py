@@ -1,11 +1,11 @@
 import os
 from tempfile import NamedTemporaryFile
-from elevenlabs.client import ElevenLabs
 from typing import Iterator
+
+from elevenlabs.client import ElevenLabs
 
 from eve import utils
 from eve.tool import ToolContext
-
 
 eleven = ElevenLabs(api_key=os.getenv("ELEVEN_API_KEY"))
 

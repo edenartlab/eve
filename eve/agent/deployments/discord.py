@@ -1,18 +1,17 @@
-import os
 import json
+import os
 
 import aiohttp
 from ably import AblyRest
 from fastapi import Request
 from loguru import logger
 
-from eve.api.errors import APIError
 from eve.agent.deployments import PlatformClient
 from eve.agent.deployments.utils import get_api_url
-from eve.agent.session.models import DeploymentSecrets, DeploymentConfig
-from eve.agent.session.models import UpdateType
-from eve.utils import prepare_result
+from eve.agent.session.models import DeploymentConfig, DeploymentSecrets, UpdateType
+from eve.api.errors import APIError
 from eve.api.helpers import get_eden_creation_url
+from eve.utils import prepare_result
 
 db = os.getenv("DB", "STAGE").upper()
 
@@ -154,7 +153,7 @@ class DiscordClient(PlatformClient):
         """
         channel_id = emission.update_config.discord_channel_id
         message_id = emission.update_config.discord_message_id
-        discord_user_id = getattr(emission.update_config, 'discord_user_id', None)
+        discord_user_id = getattr(emission.update_config, "discord_user_id", None)
 
         is_dm = discord_user_id is not None and channel_id is None
 
@@ -170,11 +169,7 @@ class DiscordClient(PlatformClient):
         return is_dm, channel_id, message_id, discord_user_id
 
     def _build_message_payload(
-        self,
-        emission,
-        is_dm: bool,
-        channel_id: str,
-        message_id: str
+        self, emission, is_dm: bool, channel_id: str, message_id: str
     ) -> dict:
         """Build the message payload based on emission type"""
         payload = {}
@@ -243,13 +238,9 @@ class DiscordClient(PlatformClient):
                             }
                         ]
                 else:
-                    logger.warning(
-                        "No valid URLs found in tool result for Discord"
-                    )
+                    logger.warning("No valid URLs found in tool result for Discord")
             else:
-                logger.warning(
-                    "Unexpected tool result structure for Discord emission"
-                )
+                logger.warning("Unexpected tool result structure for Discord emission")
 
         elif update_type == UpdateType.ERROR:
             error_msg = emission.error or "Unknown error occurred"
@@ -282,14 +273,14 @@ class DiscordClient(PlatformClient):
             chunk = remaining[:max_length]
 
             # Look for the last newline in this chunk
-            last_newline = chunk.rfind('\n')
+            last_newline = chunk.rfind("\n")
 
             if last_newline > 0 and last_newline > max_length * 0.5:
                 # Use newline as break point if it's not too early
                 split_point = last_newline + 1
             else:
                 # Otherwise, try to break at a space
-                last_space = chunk.rfind(' ')
+                last_space = chunk.rfind(" ")
                 if last_space > 0 and last_space > max_length * 0.5:
                     split_point = last_space + 1
                 else:
@@ -302,10 +293,7 @@ class DiscordClient(PlatformClient):
         return chunks
 
     async def _send_dm_message(
-        self,
-        discord_user_id: str,
-        payload: dict,
-        headers: dict
+        self, discord_user_id: str, payload: dict, headers: dict
     ) -> None:
         """Send a message via Discord DM, chunking if necessary"""
         async with aiohttp.ClientSession() as session:
@@ -339,19 +327,22 @@ class DiscordClient(PlatformClient):
                     chunk_payload.pop("message_reference", None)
                     chunk_payload.pop("components", None)
 
-                async with session.post(url, headers=headers, json=chunk_payload) as response:
+                async with session.post(
+                    url, headers=headers, json=chunk_payload
+                ) as response:
                     if response.status == 200:
-                        logger.info(f"Successfully sent Discord DM chunk {i+1}/{len(chunks)} to user {discord_user_id}")
+                        logger.info(
+                            f"Successfully sent Discord DM chunk {i + 1}/{len(chunks)} to user {discord_user_id}"
+                        )
                     else:
                         error_text = await response.text()
-                        logger.error(f"Failed to send Discord message chunk {i+1}: {error_text}")
+                        logger.error(
+                            f"Failed to send Discord message chunk {i + 1}: {error_text}"
+                        )
                         raise Exception(f"Failed to send Discord message: {error_text}")
 
     async def _send_channel_message(
-        self,
-        channel_id: str,
-        payload: dict,
-        headers: dict
+        self, channel_id: str, payload: dict, headers: dict
     ) -> None:
         """Send a message to a Discord channel, chunking if necessary"""
         url = f"https://discord.com/api/v10/channels/{channel_id}/messages"
@@ -370,12 +361,18 @@ class DiscordClient(PlatformClient):
                     chunk_payload.pop("message_reference", None)
                     chunk_payload.pop("components", None)
 
-                async with session.post(url, headers=headers, json=chunk_payload) as response:
+                async with session.post(
+                    url, headers=headers, json=chunk_payload
+                ) as response:
                     if response.status == 200:
-                        logger.info(f"Successfully sent Discord message chunk {i+1}/{len(chunks)} to channel {channel_id}")
+                        logger.info(
+                            f"Successfully sent Discord message chunk {i + 1}/{len(chunks)} to channel {channel_id}"
+                        )
                     else:
                         error_text = await response.text()
-                        logger.error(f"Failed to send Discord message chunk {i+1}: {error_text}")
+                        logger.error(
+                            f"Failed to send Discord message chunk {i + 1}: {error_text}"
+                        )
                         raise Exception(f"Failed to send Discord message: {error_text}")
 
     async def handle_emission(self, emission) -> None:
@@ -385,12 +382,16 @@ class DiscordClient(PlatformClient):
                 raise ValueError("Deployment is required for handle_emission")
 
             # Validate and extract context
-            is_dm, channel_id, message_id, discord_user_id = self._validate_emission_context(emission)
+            is_dm, channel_id, message_id, discord_user_id = (
+                self._validate_emission_context(emission)
+            )
             if is_dm is None:  # Validation failed
                 return
 
             # Build message payload
-            payload = self._build_message_payload(emission, is_dm, channel_id, message_id)
+            payload = self._build_message_payload(
+                emission, is_dm, channel_id, message_id
+            )
             if not payload or not payload.get("content"):
                 logger.debug("No content to send")
                 return
@@ -407,5 +408,7 @@ class DiscordClient(PlatformClient):
                 await self._send_channel_message(channel_id, payload, headers)
 
         except Exception as e:
-            logger.error("Error handling Discord emission: {error}", error=str(e), exc_info=True)
+            logger.error(
+                "Error handling Discord emission: {error}", error=str(e), exc_info=True
+            )
             raise

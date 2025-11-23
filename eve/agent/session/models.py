@@ -1,26 +1,29 @@
 import json
 import os
-from enum import Enum
-from typing import List, Optional, Dict, Any, Literal
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from enum import Enum
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional
 
 from bson import ObjectId
-from pydantic import ConfigDict, Field, BaseModel, field_serializer
 from loguru import logger
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
-from eve.utils import download_file, image_to_base64, prepare_result, dumps_json
-from eve.mongo import Collection, Document
-from eve.tool import Tool
-from eve.agent.session.file_config import (
+from eve.agent.llm.file_config import (
+    FILE_CACHE_DIR,
     IMAGE_MAX_SIZE,
     IMAGE_QUALITY,
-    FILE_CACHE_DIR,
     SUPPORTED_MEDIA_EXTENSIONS,
     TEXT_ATTACHMENT_MAX_LENGTH,
     _url_has_extension,
 )
-from eve.agent.session.file_parser import process_attachments_for_message
+from eve.agent.llm.file_parser import process_attachments_for_message
+from eve.mongo import Collection, Document
+from eve.tool import Tool
+from eve.utils import download_file, dumps_json, image_to_base64, prepare_result
+
+if TYPE_CHECKING:  # pragma: no cover
+    from eve.agent.session.instrumentation import PromptSessionInstrumentation
 
 
 class ToolCall(BaseModel):
@@ -193,14 +196,29 @@ class ChatMessageCostDetails(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
+class LLMUsage(BaseModel):
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
+    cached_prompt_tokens: Optional[int] = None
+    cached_completion_tokens: Optional[int] = None
+    total_tokens: Optional[int] = None
+    cost_usd: Optional[float] = None
+
+
 class ChatMessageObservability(BaseModel):
     provider: Literal["langfuse"] = "langfuse"
     session_id: Optional[str] = None
+    session_run_id: Optional[str] = None
     trace_id: Optional[str] = None  # Langfuse trace ID
     generation_id: Optional[str] = None  # Langfuse generation ID
     tokens_spent: Optional[int] = None
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
+    cached_prompt_tokens: Optional[int] = None
+    cached_completion_tokens: Optional[int] = None
+    cost_usd: Optional[float] = None
     sentry_trace_id: Optional[str] = None  # Sentry distributed trace ID for correlation
-    cost: Optional[ChatMessageCostDetails] = None
+    usage: Optional[LLMUsage] = None
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
@@ -744,6 +762,7 @@ class LLMContext:
     tool_choice: Optional[str] = None
     metadata: LLMContextMetadata = None
     enable_tracing: bool = True
+    instrumentation: Optional["PromptSessionInstrumentation"] = None
 
 
 class SessionSettings(BaseModel):
@@ -787,7 +806,9 @@ class SessionMemoryContext(BaseModel):
 class SessionExtras(BaseModel):
     """Additional session configuration flags"""
 
-    exclude_memory: Optional[bool] = False  # If True, memory excluded from system prompt
+    exclude_memory: Optional[bool] = (
+        False  # If True, memory excluded from system prompt
+    )
     is_public: Optional[bool] = False  # If True, session is publicly accessible
     gmail_thread_id: Optional[str] = None
     gmail_initial_message_id: Optional[str] = None
@@ -803,13 +824,13 @@ class Session(Document):
     channel: Optional[Channel] = None
     parent_session: Optional[ObjectId] = None
     agents: List[ObjectId] = Field(default_factory=list)
-    status: Literal["active", "paused", "stopped", "archived"] = "active"
+    status: Literal["active", "paused", "running", "archived"] = "active"
     messages: List[ObjectId] = Field(default_factory=list)
     memory_context: Optional[SessionMemoryContext] = Field(
         default_factory=SessionMemoryContext
     )
     title: Optional[str] = None
-    session_type: Optional[Literal["chat", "passive", "automatic"]] = "chat"
+    session_type: Literal["normal", "natural", "automatic"] = "normal"
     settings: SessionSettings = Field(default_factory=SessionSettings)
     last_actor_id: Optional[ObjectId] = None
     budget: SessionBudget = SessionBudget()
@@ -869,27 +890,20 @@ class NotificationConfig:
 @dataclass
 class PromptSessionContext:
     session: Session
-    initiating_user_id: str  # The user who owns/initiates the session
+    initiating_user_id: str
     message: ChatMessageRequestInput
+    session_run_id: Optional[str] = None
     update_config: Optional[SessionUpdateConfig] = None
     actor_agent_ids: Optional[List[str]] = None
     llm_config: Optional[LLMConfig] = None
-
-    # overrides all tools if set, otherwise uses actor's tools
     tools: Optional[Dict[str, Any]] = None
-    # extra tools added to the base or actor's tools
     extra_tools: Optional[Dict[str, Any]] = None
     tool_choice: Optional[str] = None
-
     notification_config: Optional[NotificationConfig] = None
-    # Override agent's thinking policy per-message
     thinking_override: Optional[bool] = None
     acting_user_id: Optional[str] = None
     trigger: Optional[ObjectId] = None
-    api_key_id: Optional[str] = None  # API key ID to attach to messages
-
-    # The user whose permissions are used for tool authorization (defaults to initiating_user_id if not provided)
-    # trigger: Optional[Any] = None
+    api_key_id: Optional[str] = None
 
 
 @dataclass
@@ -898,6 +912,12 @@ class LLMResponse:
     tool_calls: Optional[List[ToolCall]] = None
     stop: Optional[str] = None
     tokens_spent: Optional[int] = None
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
+    cached_prompt_tokens: Optional[int] = None
+    cached_completion_tokens: Optional[int] = None
+    cost_usd: Optional[float] = None
+    usage: Optional[LLMUsage] = None
     thought: Optional[List[Dict[str, Any]]] = None
     cost_metadata: Optional[ChatMessageCostDetails] = None
 
@@ -984,6 +1004,7 @@ class DeploymentSecretsTelegram(BaseModel):
 
 # Farcaster Models
 class DeploymentSettingsFarcaster(BaseModel):
+    username: Optional[str] = None
     webhook_id: Optional[str] = None
     enable_cast: Optional[bool] = False
     instructions: Optional[str] = None
@@ -1152,11 +1173,11 @@ class Deployment(Document):
     @classmethod
     def convert_to_mongo(cls, schema: dict, **kwargs) -> dict:
         """Encrypt secrets before saving to MongoDB"""
+        from eve.utils.data_utils import serialize_json
         from eve.utils.kms_encryption import (
             encrypt_deployment_secrets,
             get_kms_encryption,
         )
-        from eve.utils.data_utils import serialize_json
 
         kms = get_kms_encryption()
 

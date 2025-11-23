@@ -1,72 +1,68 @@
 import asyncio
-import json
-import logging
-import modal
-import os
-import time
-import uuid
 import hashlib
 import hmac
+import json
+import logging
+import os
 import random
+import time
+import uuid
 
 import aiohttp
+import modal
 from bson import ObjectId
-from typing import List, Optional
 from fastapi import BackgroundTasks, Request
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
+from eve.agent import Agent
 from eve.agent.deployments.farcaster import FarcasterClient
 from eve.agent.deployments.utils import get_api_url
+from eve.agent.llm.llm import async_prompt
+from eve.agent.memory.memory_models import messages_to_text, select_messages
 from eve.agent.session.models import (
-    PromptSessionContext,
-    Session,
     ChatMessage,
-    EdenMessageType,
-    EdenMessageData,
-    EdenMessageAgentData,
+    ChatMessageRequestInput,
     Deployment,
     DeploymentConfig,
     DeploymentSecrets,
+    EmailDomain,
+    LLMConfig,
+    LLMContext,
+    LLMContextMetadata,
+    LLMTraceMetadata,
     Notification,
     NotificationChannel,
-    NotificationConfig,
+    Session,
     SessionUpdateConfig,
-    ChatMessageRequestInput,
-    EmailDomain,
 )
-from eve.agent.memory.memory_models import messages_to_text, select_messages
-from eve.agent.session.session import run_prompt_session, run_prompt_session_stream
-from eve.trigger import (
-    Trigger,
+from eve.agent.session.service import (
+    create_prompt_session_handle,
 )
-from eve.api.errors import handle_errors, APIError
 from eve.api.api_requests import (
+    AgentToolsDeleteRequest,
+    AgentToolsUpdateRequest,
     CancelRequest,
     CancelSessionRequest,
     CreateDeploymentRequestV2,
+    CreateNotificationRequest,
     DeleteDeploymentRequestV2,
     DeploymentEmissionRequest,
     DeploymentInteractRequest,
     PromptSessionRequest,
-    TaskRequest,
-    AgentToolsUpdateRequest,
-    AgentToolsDeleteRequest,
-    UpdateDeploymentRequestV2,
-    CreateNotificationRequest,
     SessionCreationArgs,
+    TaskRequest,
+    UpdateDeploymentRequestV2,
 )
+from eve.api.errors import APIError, handle_errors
 from eve.api.helpers import (
     get_platform_client,
 )
-from eve.utils import serialize_json
-from eve.tools.replicate_tool import replicate_update_task
-from eve.agent.session.session_llm import LLMContext, LLMConfig, async_prompt
-from eve.agent.session.models import LLMContextMetadata, LLMTraceMetadata
-from eve.mongo import get_collection, MongoDocumentNotFound
+from eve.mongo import MongoDocumentNotFound, get_collection
 from eve.task import Task
 from eve.tool import Tool
-from eve.agent import Agent
+from eve.tools.replicate_tool import replicate_update_task
 from eve.user import User
+from eve.utils import serialize_json
 
 logger = logging.getLogger(__name__)
 db = os.getenv("DB", "STAGE").upper()
@@ -171,144 +167,15 @@ async def handle_agent_tools_delete(request: AgentToolsDeleteRequest):
     return {"tools": tools}
 
 
-def create_eden_message(
-    session_id: ObjectId, message_type: EdenMessageType, agents: List[Agent]
-) -> ChatMessage:
-    """Create an eden message for agent operations"""
-    eden_message = ChatMessage(
-        session=session_id,
-        sender=ObjectId("000000000000000000000000"),  # System sender
-        role="eden",
-        content="",
-        eden_message_data=EdenMessageData(
-            message_type=message_type,
-            agents=[
-                EdenMessageAgentData(
-                    id=agent.id,
-                    name=agent.name or agent.username,
-                    avatar=agent.userImage,
-                )
-                for agent in agents
-            ],
-        ),
-    )
-    eden_message.save()
-    return eden_message
-
-
-def generate_session_title(
-    session: Session, request: PromptSessionRequest, background_tasks: BackgroundTasks
-):
-    from eve.agent.session.session import async_title_session
-
-    if session.title:
-        return
-
-    if request.creation_args and request.creation_args.title:
-        return
-
-    if background_tasks:
-        background_tasks.add_task(async_title_session, session, request.message.content)
-
-
-def setup_session(
-    background_tasks: BackgroundTasks,
-    session_id: Optional[str] = None,
-    user_id: Optional[str] = None,
-    request: PromptSessionRequest = None,
-):
-    if session_id:
-        session = Session.from_mongo(ObjectId(session_id))
-        if not session:
-            raise APIError(f"Session not found: {session_id}", status_code=404)
-
-        # TODO: titling
-        if background_tasks:
-            generate_session_title(session, request, background_tasks)
-        return session
-
-    if not request.creation_args:
-        raise APIError(
-            "Session creation requires additional parameters", status_code=400
-        )
-
-    # Create new session
-    agent_object_ids = [ObjectId(agent_id) for agent_id in request.creation_args.agents]
-    session_kwargs = {
-        "owner": ObjectId(request.creation_args.owner_id or user_id),
-        "agents": agent_object_ids,
-        "title": request.creation_args.title,
-        "session_key": request.creation_args.session_key,
-        "platform": request.creation_args.platform,
-        "status": "active",
-        "trigger": ObjectId(request.creation_args.trigger)
-        if request.creation_args.trigger
-        else None,
-    }
-
-    # Only include budget if it's not None, so default factory can work
-    if request.creation_args.budget is not None:
-        session_kwargs["budget"] = request.creation_args.budget
-
-    if request.creation_args.parent_session:
-        session_kwargs["parent_session"] = ObjectId(
-            request.creation_args.parent_session
-        )
-
-    if request.creation_args.extras:
-        session_kwargs["extras"] = request.creation_args.extras
-
-    session = Session(**session_kwargs)
-    session.save()
-
-    # Update trigger with session ID
-    if request.creation_args.trigger:
-        trigger = Trigger.from_mongo(ObjectId(request.creation_args.trigger))
-        if trigger and not trigger.deleted:
-            trigger.session = session.id
-            trigger.save()
-
-    # Create eden message for initial agent additions
-    agents = [Agent.from_mongo(agent_id) for agent_id in agent_object_ids]
-    agents = [agent for agent in agents if agent]  # Filter out None values
-    if agents:
-        create_eden_message(session.id, EdenMessageType.AGENT_ADD, agents)
-
-    # Generate title for new sessions if no title provided and we have background tasks
-    # TODO: titling
-    if background_tasks:
-        generate_session_title(session, request, background_tasks)
-
-    return session
-
-
 @handle_errors
 async def handle_prompt_session(
     request: PromptSessionRequest, background_tasks: BackgroundTasks
 ):
-    session = setup_session(
-        background_tasks, request.session_id, request.user_id, request
-    )
-    # Convert notification_config dict to NotificationConfig object if present
-    notification_config = None
-    if request.notification_config:
-        notification_config = NotificationConfig(**request.notification_config)
+    handle = create_prompt_session_handle(request, background_tasks)
+    session_id = handle.session_id
 
-    context = PromptSessionContext(
-        session=session,
-        initiating_user_id=request.user_id,
-        actor_agent_ids=request.actor_agent_ids,
-        message=request.message,
-        update_config=request.update_config,
-        llm_config=request.llm_config,
-        notification_config=notification_config,
-        thinking_override=request.thinking,  # Pass thinking override
-        acting_user_id=request.acting_user_id or request.user_id,
-        api_key_id=request.api_key_id,  # Pass API key ID to context
-        trigger=ObjectId(request.trigger)
-        if request.trigger
-        else None,  # Pass trigger ID to mark automated messages
-    )
+    # Add user message first (decoupled from orchestration)
+    await handle.add_message()
 
     if request.stream:
 
@@ -316,7 +183,7 @@ async def handle_prompt_session(
             try:
                 from eve.utils import dumps_json
 
-                async for data in run_prompt_session_stream(context, background_tasks):
+                async for data in handle.stream_updates():
                     yield f"data: {dumps_json({'event': 'update', 'data': data})}\n\n"
                 yield f"data: {dumps_json({'event': 'done', 'data': ''})}\n\n"
             except Exception as e:
@@ -333,19 +200,82 @@ async def handle_prompt_session(
         )
 
     background_tasks.add_task(
-        run_prompt_session,
-        context=context,
-        background_tasks=background_tasks,
+        handle.run,
     )
 
-    return {"session_id": str(session.id)}
+    return {"session_id": session_id}
+
+
+@handle_errors
+async def handle_session_message(
+    request: PromptSessionRequest, background_tasks: BackgroundTasks
+):
+    """Add a message to a session without running orchestration.
+
+    Same interface as /sessions/prompt, but only adds the message and returns.
+    Creates a new session if session_id is not provided.
+    """
+    handle = create_prompt_session_handle(request, background_tasks)
+    session_id = handle.session_id
+
+    # Add user message only (no orchestration)
+    await handle.add_message()
+
+    return {"session_id": session_id, "message": "Message added successfully"}
+
+
+@handle_errors
+async def handle_session_run(
+    request: PromptSessionRequest, background_tasks: BackgroundTasks
+):
+    """Run orchestration on a session without adding a message.
+
+    Same interface as /sessions/prompt, but only runs orchestration.
+    Requires session_id to be provided.
+    """
+    if not request.session_id:
+        raise APIError("session_id is required for /sessions/run", status_code=400)
+
+    handle = create_prompt_session_handle(request, background_tasks)
+    session_id = handle.session_id
+
+    # Run orchestration only (no message addition)
+    if request.stream:
+
+        async def event_generator():
+            try:
+                from eve.utils import dumps_json
+
+                async for data in handle.stream_updates():
+                    yield f"data: {dumps_json({'event': 'update', 'data': data})}\n\n"
+                yield f"data: {dumps_json({'event': 'done', 'data': ''})}\n\n"
+            except Exception as e:
+                logger.error("Error in event_generator", exc_info=True)
+                yield f"data: {dumps_json({'event': 'error', 'data': {'error': str(e)}})}\n\n"
+
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+            },
+        )
+
+    background_tasks.add_task(
+        handle.run,
+    )
+
+    return {"session_id": session_id}
 
 
 @handle_errors
 async def handle_session_stream(session_id: str):
     """Stream SSE updates for a session."""
     import uuid
+
     from fastapi.responses import StreamingResponse
+
     from eve.api.sse_manager import sse_manager
 
     # Verify session exists
@@ -460,31 +390,58 @@ async def handle_session_cancel(request: CancelSessionRequest):
 
 @handle_errors
 async def handle_session_status_update(request):
-    """Update the status of a session."""
-    try:
-        # Request is already an UpdateSessionStatusRequest from FastAPI
-        session = Session.from_mongo(ObjectId(request.session_id))
+    """Update the status of a session.
 
-        try:
-            db = os.getenv("DB", "STAGE").upper()
-            func = modal.Function.from_name(
-                f"api-{db.lower()}",
-                "handle_session_status_change_fn",
-                environment_name="main",
-            )
-            func.spawn(request.session_id, request.status)
-            session.update(status=request.status)
-            return {
-                "success": True,
-                "session_id": request.session_id,
-                "status": request.status,
-            }
-        except Exception as e:
-            logger.warning(
-                f"Failed to spawn Modal function for session status change: {e}"
-            )
-            session.update(status="paused")
-            return {"success": False, "error": str(e)}
+    For automatic sessions, setting status to 'active' will start the automatic
+    session loop (runs orchestration, then schedules next run after delay).
+    """
+    try:
+        session = Session.from_mongo(ObjectId(request.session_id))
+        old_status = session.status
+        new_status = request.status
+
+        # Update the status
+        session.update(status=new_status)
+
+        # Check if we need to start an automatic session
+        should_start_automatic = (
+            session.session_type == "automatic"
+            and new_status == "active"
+            and old_status != "active"  # Only if transitioning to active
+        )
+
+        if should_start_automatic:
+            # Check if running on Modal or locally
+            if os.getenv("MODAL_SERVE") == "1":
+                # Production: spawn Modal function
+                try:
+                    db = os.getenv("DB", "STAGE").upper()
+                    func = modal.Function.from_name(
+                        f"api-{db.lower()}",
+                        "handle_session_status_change_fn",
+                        environment_name="main",
+                    )
+                    func.spawn(request.session_id, request.status)
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to spawn Modal function for automatic session: {e}"
+                    )
+                    session.update(status="paused")
+                    return {"success": False, "error": str(e)}
+            else:
+                # Local development: start automatic session in-process
+                import asyncio
+
+                from eve.agent.session.automatic import start_automatic_session
+
+                asyncio.create_task(start_automatic_session(request.session_id))
+
+        return {
+            "success": True,
+            "session_id": request.session_id,
+            "status": new_status,
+            "automatic_session_started": should_start_automatic,
+        }
 
     except APIError:
         raise
@@ -911,8 +868,9 @@ async def handle_create_notification(request: CreateNotificationRequest):
     return {"id": str(notification.id), "message": "Notification created successfully"}
 
 
-import torch, torch.nn.functional as F
-from transformers import CLIPProcessor, CLIPModel
+import torch
+import torch.nn.functional as F
+from transformers import CLIPModel, CLIPProcessor
 
 MODEL_NAME = "openai/clip-vit-large-patch14"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -1009,6 +967,7 @@ async def handle_extract_agent_prompts(request):
     - memory_instructions: Instructions for how agent should store/recall memories
     """
     from pydantic import BaseModel, Field
+
     from eve.agent.session.models import Session
 
     class AgentPromptsResponse(BaseModel):
@@ -1104,8 +1063,8 @@ async def handle_extract_agent_prompts(request):
 @handle_errors
 async def handle_regenerate_agent_memory(request):
     """Regenerate fully_formed_memory for an agent memory shard."""
-    from eve.agent.memory.memory_models import AgentMemory
     from eve.agent.memory.memory import _regenerate_fully_formed_agent_memory
+    from eve.agent.memory.memory_models import AgentMemory
 
     try:
         shard_id = ObjectId(request.shard_id)
@@ -1124,15 +1083,17 @@ async def handle_regenerate_agent_memory(request):
     except APIError:
         raise
     except Exception as e:
-        logger.error(f"Error regenerating agent memory for shard {request.shard_id}: {e}")
+        logger.error(
+            f"Error regenerating agent memory for shard {request.shard_id}: {e}"
+        )
         return {"success": False, "error": str(e)}
 
 
 @handle_errors
 async def handle_regenerate_user_memory(request):
     """Regenerate fully_formed_memory for a user memory document."""
-    from eve.agent.memory.memory_models import UserMemory
     from eve.agent.memory.memory import _regenerate_fully_formed_user_memory
+    from eve.agent.memory.memory_models import UserMemory
 
     try:
         agent_id = ObjectId(request.agent_id)
@@ -1140,10 +1101,7 @@ async def handle_regenerate_user_memory(request):
         logger.info(f"Regenerating user memory for agent {agent_id}, user {user_id}")
 
         # Load user memory
-        user_memory = UserMemory.find_one({
-            "agent_id": agent_id,
-            "user_id": user_id
-        })
+        user_memory = UserMemory.find_one({"agent_id": agent_id, "user_id": user_id})
         if not user_memory:
             logger.error(f"User memory not found for agent {agent_id}, user {user_id}")
             raise APIError("User memory not found", status_code=404)
@@ -1155,5 +1113,7 @@ async def handle_regenerate_user_memory(request):
     except APIError:
         raise
     except Exception as e:
-        logger.error(f"Error regenerating user memory for agent {request.agent_id}, user {request.user_id}: {e}")
+        logger.error(
+            f"Error regenerating user memory for agent {request.agent_id}, user {request.user_id}: {e}"
+        )
         return {"success": False, "error": str(e)}

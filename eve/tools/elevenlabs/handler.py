@@ -1,14 +1,13 @@
 import os
 import random
-import instructor
 from tempfile import NamedTemporaryFile
-from typing import List, Literal
+from typing import Iterator, List, Literal
+
+import instructor
 from elevenlabs.client import ElevenLabs
 
 # from elevenlabs.types.voice_settings import VoiceSettings
 from openai import OpenAI
-from typing import Iterator
-
 
 from eve import utils
 from eve.tool import ToolContext

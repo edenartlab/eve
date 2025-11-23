@@ -1,8 +1,10 @@
 import os
-import aiohttp
 from datetime import datetime, timedelta
-from eve.agent.deployments import Deployment
+
+import aiohttp
+
 from eve.agent import Agent
+from eve.agent.deployments import Deployment
 from eve.tool import ToolContext
 
 

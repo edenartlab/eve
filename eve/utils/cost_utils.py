@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 from typing import Any, Dict
+
 from pyparsing import (
     Forward,
     Keyword,
@@ -106,7 +108,9 @@ def _build_expression_parser(variables: Dict[str, Any]) -> ParserElement:
                 f"Cannot take .length of value of type {type(val).__name__}"
             ) from e
 
-    operand <<= (_base_operand + length_suffix).setParseAction(length_action) | _base_operand
+    operand <<= (_base_operand + length_suffix).setParseAction(
+        length_action
+    ) | _base_operand
 
     # Define evaluation functions for unary and binary operators.  The
     # parse actions receive a nested list structure representing the

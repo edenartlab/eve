@@ -1,9 +1,11 @@
 import json
+
 import modal
 from bson import ObjectId
-from eve.tool import ToolContext
-from eve.agent.agent import Agent, AgentPermission
 from loguru import logger
+
+from eve.agent.agent import Agent, AgentPermission
+from eve.tool import ToolContext
 
 
 def check_agent_owner_permission(agent: Agent, user_id: ObjectId) -> bool:
@@ -22,11 +24,9 @@ def check_agent_owner_permission(agent: Agent, user_id: ObjectId) -> bool:
         return True
 
     # Check agent_permissions collection for owner-level permission
-    permission = AgentPermission.find_one({
-        "agent": agent.id,
-        "user": user_id,
-        "level": "owner"
-    })
+    permission = AgentPermission.find_one(
+        {"agent": agent.id, "user": user_id, "level": "owner"}
+    )
 
     return permission is not None
 
@@ -39,15 +39,11 @@ async def handler(context: ToolContext):
     """
     # Validate that agent context exists
     if not context.agent:
-        return {
-            "output": "Error: This tool requires an agent context."
-        }
+        return {"output": "Error: This tool requires an agent context."}
 
     # Validate that user context exists
     if not context.user:
-        return {
-            "output": "Error: This tool requires a user context."
-        }
+        return {"output": "Error: This tool requires a user context."}
 
     # Load agent
     agent = Agent.from_mongo(context.agent)
@@ -56,9 +52,7 @@ async def handler(context: ToolContext):
     is_owner = check_agent_owner_permission(agent, ObjectId(context.user))
 
     if not is_owner:
-        return {
-            "output": "This tool can only be run by an agent owner."
-        }
+        return {"output": "This tool can only be run by an agent owner."}
 
     args = context.args
 
@@ -70,7 +64,7 @@ async def handler(context: ToolContext):
     group_name = args.get("group_name")
     force = args.get("force", False)
 
-    logger.info(f"Calling Gigabrain Modal app for profile matching...")
+    logger.info("Calling Gigabrain Modal app for profile matching...")
     logger.info(f"Number of user profiles: {len(user_profiles)}")
     logger.info(f"Config path: {config_path}")
     if group_name:
@@ -83,8 +77,7 @@ async def handler(context: ToolContext):
 
         # Get the Modal function
         run_matching_pipeline = modal.Function.from_name(
-            "profile-matching",
-            "run_matching_pipeline"
+            "profile-matching", "run_matching_pipeline"
         )
 
         # Call the function remotely
@@ -95,7 +88,7 @@ async def handler(context: ToolContext):
             force=force,
         )
 
-        logger.info(f"Matching pipeline completed successfully")
+        logger.info("Matching pipeline completed successfully")
 
         # Log results - check for error or success
         if result.get("error"):

@@ -1,42 +1,42 @@
 import logging
 import os
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Literal, Optional
+
 import pytz
 import sentry_sdk
-from jinja2 import Template
-from typing import Optional, Dict, Any, Literal, List
-from bson import ObjectId
-from datetime import datetime, timezone
 from apscheduler.triggers.cron import CronTrigger
+from bson import ObjectId
 from fastapi import BackgroundTasks
+from jinja2 import Template
 
 from eve.agent import Agent
-from eve.user import User
-from eve.mongo import Collection, Document
-from eve.api.errors import handle_errors, APIError
-from eve.api.api_requests import (
-    CreateTriggerRequest,
-    DeleteTriggerRequest,
-    RunTriggerRequest,
-    PromptSessionRequest,
-    SessionCreationArgs,
-)
-from eve.agent.session.session import (
+from eve.agent.session.context import (
     add_chat_message,
-    async_prompt_session,
     build_llm_context,
 )
 from eve.agent.session.models import (
     ChatMessageRequestInput,
+    NotificationConfig,
     PromptSessionContext,
     Session,
-    NotificationConfig,
     SessionUpdateConfig,
 )
+from eve.agent.session.runtime import async_prompt_session
 from eve.agent.session.tracing import (
-    trace_async_operation,
     add_breadcrumb,
+    trace_async_operation,
 )
-
+from eve.api.api_requests import (
+    CreateTriggerRequest,
+    DeleteTriggerRequest,
+    PromptSessionRequest,
+    RunTriggerRequest,
+    SessionCreationArgs,
+)
+from eve.api.errors import APIError, handle_errors
+from eve.mongo import Collection, Document
+from eve.user import User
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -119,7 +119,7 @@ async def handle_trigger_create(
         raise APIError("Failed to calculate next scheduled run time", status_code=400)
     logger.info(f"New Trigger next scheduled run: {next_run}")
 
-    trigger_name = request.name or f"Untitled Task"
+    trigger_name = request.name or "Untitled Task"
     think = False  # TODO
 
     # Create trigger in database
@@ -255,6 +255,7 @@ async def execute_trigger(
 ) -> Session:
     # Start distributed tracing transaction
     import sentry_sdk
+
     transaction = sentry_sdk.start_transaction(
         name="trigger_execution",
         op="trigger.execute",
@@ -341,7 +342,10 @@ async def execute_trigger(
         )
 
         # Setup session
-        async with trace_async_operation("trigger.setup_session", session_id=str(request.session_id) if request.session_id else None):
+        async with trace_async_operation(
+            "trigger.setup_session",
+            session_id=str(request.session_id) if request.session_id else None,
+        ):
             session = setup_session(
                 # background_tasks,
                 None,
@@ -387,9 +391,7 @@ async def execute_trigger(
 
         # Execute the prompt session (this will have its own transaction)
         add_breadcrumb("Starting prompt session", category="trigger")
-        async for _ in async_prompt_session(
-            session, llm_context, agent, context=prompt_context
-        ):
+        async for _ in async_prompt_session(session, llm_context, agent):
             pass
 
         return session

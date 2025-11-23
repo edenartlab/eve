@@ -19,7 +19,7 @@ import json
 import os
 import random
 from dataclasses import dataclass
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from email import message_from_bytes
 from email.header import decode_header, make_header
 from email.message import EmailMessage
@@ -51,14 +51,12 @@ from eve.agent.session.models import (
 )
 from eve.api.api_requests import (
     DeploymentInteractRequest,
-    PromptSessionRequest,
-    SessionCreationArgs,
 )
 from eve.api.errors import APIError
 from eve.user import User
 
 MAX_LENGTH_FOR_FULL_VARIANCE = 1800
-from eve.agent.session.session import add_chat_message
+from eve.agent.session.context import add_chat_message
 from eve.trigger import Trigger, calculate_next_scheduled_run
 
 
@@ -612,11 +610,10 @@ class GmailClient(PlatformClient):
             gmail_message_id=email.message_id,
             gmail_history_id=email.history_id,
             gmail_from_address=email.from_address,
-            gmail_to_address=
-                email.to_address
-                or settings.reply_from_address
-                or secrets.reply_alias
-                or secrets.delegated_user,
+            gmail_to_address=email.to_address
+            or settings.reply_from_address
+            or secrets.reply_alias
+            or secrets.delegated_user,
             gmail_subject=email.subject,
         )
 
@@ -894,7 +891,9 @@ class GmailClient(PlatformClient):
             )
             return
 
-        scheduled_for = datetime.now(timezone.utc) + timedelta(seconds=max(delay_seconds, 0.0))
+        scheduled_for = datetime.now(timezone.utc) + timedelta(
+            seconds=max(delay_seconds, 0.0)
+        )
         schedule = {
             "timezone": "UTC",
             "year": scheduled_for.year,
@@ -938,9 +937,7 @@ class GmailClient(PlatformClient):
         )
 
         trigger_name = (
-            email.subject
-            or (email.from_name or email.from_address)
-            or "Gmail reply"
+            email.subject or (email.from_name or email.from_address) or "Gmail reply"
         )
 
         update_config_payload = (

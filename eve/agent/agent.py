@@ -1,21 +1,18 @@
 import json
 import traceback
-import openai
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Literal, Optional
+
 import instructor
-from datetime import timezone
-
-from loguru import logger
-
+import openai
 from bson import ObjectId
-from typing import Optional, Literal, Any, Dict, List
-from datetime import datetime
+from loguru import logger
+from pydantic import BaseModel, ConfigDict, Field
 
-from pydantic import Field, BaseModel, ConfigDict
-
-from ..tool_constants import TOOL_SETS
-from ..mongo import Collection, get_collection
 from ..models import Model
-from ..user import User, Manna
+from ..mongo import Collection, get_collection
+from ..tool_constants import TOOL_SETS
+from ..user import Manna, User
 
 
 class Suggestion(BaseModel):
@@ -174,12 +171,12 @@ class Agent(User):
 
     def _reload(self, extra_tools: list[str] = []):
         """Reload all tools, loras, and deployments from mongo"""
-        from ..tool import get_tools_from_mongo
         from ..agent.session.models import Deployment
+        from ..tool import get_tools_from_mongo
         from .tool_loaders import (
+            get_agent_specific_tools,
             load_deployments,
             load_lora_docs,
-            get_agent_specific_tools,
         )
 
         # Load deployments to memory
@@ -209,18 +206,30 @@ class Agent(User):
 
     def get_tools(self, cache=True, auth_user: str = None, extra_tools: list[str] = []):
         from .tool_loaders import (
-            inject_deployment_parameters,
-            remove_non_deployed_platform_tools,
             filter_tools_by_feature_flags,
+            inject_deployment_parameters,
             inject_lora_parameters,
             inject_voice_parameters,
+            remove_non_deployed_platform_tools,
         )
 
         # for Solienne only, make all tools unavailable except for admin
         if self.username == "solienne":
             user = User.from_mongo(auth_user)
-            solienne_whitelist = ["ameesia77", "farcaster_ameesia", "farcaster_kristicoronado", "farcaster_seth", "farcaster_gene", "farcaster_sethgoldstein", "farcaster_xanderst", "farcaster_jmill"]
-            if not "eden_admin" in user.featureFlags and user.username not in solienne_whitelist:
+            solienne_whitelist = [
+                "ameesia77",
+                "farcaster_ameesia",
+                "farcaster_kristicoronado",
+                "farcaster_seth",
+                "farcaster_gene",
+                "farcaster_sethgoldstein",
+                "farcaster_xanderst",
+                "farcaster_jmill",
+            ]
+            if (
+                "eden_admin" not in user.featureFlags
+                and user.username not in solienne_whitelist
+            ):
                 return {}
 
         self._reload(extra_tools)

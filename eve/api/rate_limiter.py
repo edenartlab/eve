@@ -1,11 +1,12 @@
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-import asyncio
+
 from bson import ObjectId
 
 from eve.api.errors import APIError
-from eve.user import User
 from eve.task import Task
+from eve.user import User
 
 
 @dataclass

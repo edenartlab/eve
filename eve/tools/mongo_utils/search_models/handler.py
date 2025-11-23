@@ -1,14 +1,15 @@
-from eve.tool import ToolContext
-import openai
-import instructor
-from jinja2 import Template
-from pydantic import BaseModel, Field
 from typing import List
 
-from ....utils import load_template
+import instructor
+import openai
+from jinja2 import Template
+from pydantic import BaseModel, Field
+
+from eve.tool import ToolContext
+
 from ....models import Model
 from ....mongo import get_collection
-
+from ....utils import load_template
 
 model_template = load_template("model_doc")
 

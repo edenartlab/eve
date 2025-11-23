@@ -13,10 +13,12 @@ TODO:
 """
 
 import os
+
+from loguru import logger
+
+from eve.models import Model
 from eve.s3 import get_full_url
 from eve.tool import Tool, ToolContext
-from eve.models import Model
-from loguru import logger
 
 
 async def handler(context: ToolContext):

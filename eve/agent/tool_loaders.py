@@ -2,11 +2,11 @@
 Tool loaders - dynamic parameter injection and filtering for platform-specific tools
 """
 
-from typing import Dict, Any, Callable, Optional, List
-from loguru import logger
-import sentry_sdk
 import traceback
+from typing import Any, Callable, Dict, List, Optional
 
+import sentry_sdk
+from loguru import logger
 
 # Registry of tool parameter loaders
 # Maps tool name -> loader function that takes deployment and returns parameter updates
@@ -31,16 +31,16 @@ def _get_platform_tool_sets():
     global PLATFORM_TOOL_SETS
     if PLATFORM_TOOL_SETS["discord"] is None:
         from ..tool_constants import (
-            DISCORD_TOOLS,
-            TELEGRAM_TOOLS,
-            TWITTER_TOOLS,
-            FARCASTER_TOOLS,
-            SHOPIFY_TOOLS,
-            PRINTIFY_TOOLS,
             CAPTIONS_TOOLS,
-            TIKTOK_TOOLS,
+            DISCORD_TOOLS,
             EMAIL_TOOLS,
+            FARCASTER_TOOLS,
             GMAIL_TOOLS,
+            PRINTIFY_TOOLS,
+            SHOPIFY_TOOLS,
+            TELEGRAM_TOOLS,
+            TIKTOK_TOOLS,
+            TWITTER_TOOLS,
         )
 
         PLATFORM_TOOL_SETS.update(
@@ -81,9 +81,10 @@ def get_agent_specific_tools(username: str) -> List[str]:
         ]
     elif username == "verdelis":
         return ["verdelis_story"]
-    
+
     if "gigabrain" in username.lower():
         from ..tool_constants import GIGABRAIN_TOOLS
+
         return GIGABRAIN_TOOLS
 
     return []

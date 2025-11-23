@@ -1,11 +1,10 @@
-from pymongo import MongoClient
 import os
+
 from bson import ObjectId
 from dotenv import load_dotenv
-from datetime import datetime, timezone
+from pymongo import MongoClient
 
 from eve.agent import Agent
-from eve.models import Model
 
 load_dotenv()
 

@@ -1,16 +1,20 @@
-import os
-import io
-import boto3
+import datetime
+import gzip
 import hashlib
+import io
+import json
 import mimetypes
-import magic
-import requests
+import os
+import tarfile
 import tempfile
-import replicate
-from pydub import AudioSegment
 from typing import Iterator
-from PIL import Image
 
+import boto3
+import magic
+import replicate
+import requests
+from PIL import Image
+from pydub import AudioSegment
 
 s3 = boto3.client(
     "s3",
@@ -60,7 +64,7 @@ def upload_file_from_url(url, name=None, file_type=None):
         return url, filename
 
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
     }
     with requests.get(url, stream=True, headers=headers) as r:
         r.raise_for_status()
@@ -96,21 +100,22 @@ def upload_file(file, name=None, file_type=None):
 def upload_buffer(buffer, name=None, file_type=None):
     """Uploads a buffer to an S3 bucket and returns the file URL."""
 
-    assert file_type in [
-        None,
-        ".jpg",
-        ".webp",
-        ".png",
-        ".mp3",
-        ".mp4",
-        ".flac",
-        ".wav",
-        ".tar",
-        ".zip",
-        ".safetensors",
-    ], (
-        "file_type must be one of ['.jpg', '.webp', '.png', '.mp3', '.mp4', '.flac', '.wav', '.tar', '.zip', '.safetensors']"
-    )
+    assert (
+        file_type
+        in [
+            None,
+            ".jpg",
+            ".webp",
+            ".png",
+            ".mp3",
+            ".mp4",
+            ".flac",
+            ".wav",
+            ".tar",
+            ".zip",
+            ".safetensors",
+        ]
+    ), "file_type must be one of ['.jpg', '.webp', '.png', '.mp3', '.mp4', '.flac', '.wav', '.tar', '.zip', '.safetensors']"
 
     if isinstance(buffer, Iterator):
         buffer = b"".join(buffer)
@@ -217,43 +222,38 @@ def copy_file_to_bucket(source_bucket, dest_bucket, source_key, dest_key=None):
     return file_url
 
 
-
-
 ########################################################
 ########################################################
-
-
-
-
 
 
 # https://chatgpt.com/c/68dbf846-933c-832a-91be-0dcb6be3647b
 
 
 # big_export.py
-import os, io, json, tarfile, gzip, hashlib, datetime
-import boto3
-from botocore.exceptions import ClientError
+
 
 try:
     import zstandard as zstd  # optional, for .zst
+
     HAS_ZSTD = True
 except Exception:
     HAS_ZSTD = False
 
+
 class MultipartUploadWriter:
     """File-like object: writes bytes into S3 Multipart Upload."""
+
     def __init__(
-        self, 
-        bucket, 
-        key, 
-        part_size=128*1024*1024,  # 128MB parts (~400 parts for 50GB)
+        self,
+        bucket,
+        key,
+        part_size=128 * 1024 * 1024,  # 128MB parts (~400 parts for 50GB)
         content_type="application/x-tar",
         content_disposition=None,
         kms_key_id=None,
         storage_class="STANDARD",
         tags=None,
-        metadata=None
+        metadata=None,
     ):
         self.s3 = s3
         self.bucket = bucket
@@ -349,6 +349,7 @@ class MultipartUploadWriter:
             except Exception:
                 pass
 
+
 def _open_tar_sink(muw: MultipartUploadWriter, compression: str):
     """
     Returns (tarfile_obj, sink_to_close, content_ext, content_type)
@@ -360,7 +361,9 @@ def _open_tar_sink(muw: MultipartUploadWriter, compression: str):
         return tf, gz, ".tar.gz", "application/gzip"
     elif compression == "zst":
         if not HAS_ZSTD:
-            raise RuntimeError("zstandard not installed; pip install zstandard or use 'gz'/'none'")
+            raise RuntimeError(
+                "zstandard not installed; pip install zstandard or use 'gz'/'none'"
+            )
         cctx = zstd.ZstdCompressor(level=10)
         zfh = cctx.stream_writer(muw)  # file-like
         tf = tarfile.open(fileobj=zfh, mode="w|", format=tarfile.PAX_FORMAT)
@@ -370,32 +373,38 @@ def _open_tar_sink(muw: MultipartUploadWriter, compression: str):
         tf = tarfile.open(fileobj=muw, mode="w|", format=tarfile.PAX_FORMAT)
         return tf, None, ".tar", "application/x-tar"
 
+
 def stream_export_to_s3(
-    *, 
+    *,
     user_id: str,
     items: list[dict],
     compression: str = "none",  # "none" | "gz" | "zst"
     exports_bucket: str | None = None,
-    kms_key_id: str | None = None
+    kms_key_id: str | None = None,
 ) -> dict:
     """
     items: list of {"s3_bucket": "...", "s3_key": "...", "arcname": "path/in/archive.ext"}
     Returns dict with {bucket, key, filename, sha256}
     """
-    exports_bucket = exports_bucket or os.getenv("AWS_EXPORTS_BUCKET_NAME") or os.getenv("AWS_BUCKET_NAME")
+    exports_bucket = (
+        exports_bucket
+        or os.getenv("AWS_EXPORTS_BUCKET_NAME")
+        or os.getenv("AWS_BUCKET_NAME")
+    )
     ts = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
     base_filename = f"user-{user_id}-export-{ts}"
     s3_key_prefix = f"exports/{user_id}/{ts}/"
     # We’ll decide extension/content-type after we pick compression
-    dummy_key = s3_key_prefix + base_filename  # temporary; writer gets final key
 
     # open sink (figures out extension + content-type)
     # Create the writer AFTER knowing extension/content-type (we need to set ContentType/Disposition on MPU)
     # So, we first create a dummy writer, detect, then recreate? Instead: call _open_tar_sink after creating writer with chosen types.
     # We'll determine these before instantiating writer:
-    ext_map = {"none": (".tar", "application/x-tar"),
-               "gz": (".tar.gz", "application/gzip"),
-               "zst": (".tar.zst", "application/zstd")}
+    ext_map = {
+        "none": (".tar", "application/x-tar"),
+        "gz": (".tar.gz", "application/gzip"),
+        "zst": (".tar.zst", "application/zstd"),
+    }
     content_ext, content_type = ext_map[compression]
 
     filename = base_filename + content_ext
@@ -436,12 +445,14 @@ def stream_export_to_s3(
             tf.addfile(ti, fileobj=body)
 
             manifest["count"] += 1
-            manifest["items"].append({
-                "name": arcname,
-                "size": size,
-                "src": f"s3://{src_bucket}/{src_key}",
-                "last_modified": head["LastModified"].isoformat()
-            })
+            manifest["items"].append(
+                {
+                    "name": arcname,
+                    "size": size,
+                    "src": f"s3://{src_bucket}/{src_key}",
+                    "last_modified": head["LastModified"].isoformat(),
+                }
+            )
 
         tf.close()
         if secondary_sink is not None:

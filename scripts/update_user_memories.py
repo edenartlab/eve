@@ -33,7 +33,8 @@ import argparse
 import os
 import sys
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
+
 from loguru import logger
 
 # CRITICAL: Set the DB environment variable BEFORE adding eve to path
@@ -62,7 +63,9 @@ def find_user_by_username(users_collection, username: str) -> Optional[Dict[str,
     return user_doc
 
 
-def find_memory_by_user_id(memory_collection, user_id, agent_id: str) -> Optional[Dict[str, Any]]:
+def find_memory_by_user_id(
+    memory_collection, user_id, agent_id: str
+) -> Optional[Dict[str, Any]]:
     """
     Find a memory document in the memory_user collection by user_id and agent_id.
 
@@ -83,13 +86,14 @@ def find_memory_by_user_id(memory_collection, user_id, agent_id: str) -> Optiona
     memory_doc = memory_collection.find_one(query)
     return memory_doc
 
+
 def process_user_profiles(
     users_collection,
     memory_collection,
     profiles_dir: Path,
     agent_id: str,
     execute: bool = False,
-    verbose: bool = False
+    verbose: bool = False,
 ) -> Dict[str, int]:
     """
     Process all .md files in the profiles directory and update memory content.
@@ -113,7 +117,7 @@ def process_user_profiles(
         "memories_not_found": 0,
         "updated": 0,
         "would_update": 0,
-        "errors": 0
+        "errors": 0,
     }
 
     logger.info("=" * 80)
@@ -146,7 +150,7 @@ def process_user_profiles(
             user_doc = find_user_by_username(users_collection, username)
 
             if not user_doc:
-                logger.warning(f"  ⚠ User not found in users3 collection")
+                logger.warning("  ⚠ User not found in users3 collection")
                 stats["users_not_found"] += 1
                 logger.info("-" * 80)
                 continue
@@ -164,7 +168,7 @@ def process_user_profiles(
             memory_doc = find_memory_by_user_id(memory_collection, user_id, agent_id)
 
             if not memory_doc:
-                logger.warning(f"  ⚠ Memory not found in memory_user collection")
+                logger.warning("  ⚠ Memory not found in memory_user collection")
                 stats["memories_not_found"] += 1
                 logger.info("-" * 80)
                 continue
@@ -177,73 +181,80 @@ def process_user_profiles(
             logger.info(f"  Old content length: {len(old_content)} characters")
 
             # Print current content
-            logger.info(f"  Current memory_user.content:")
+            logger.info("  Current memory_user.content:")
             logger.info(f"  {'-' * 60}")
             if old_content:
                 logger.info(f"{old_content}")
             else:
-                logger.info(f"  (empty)")
+                logger.info("  (empty)")
             logger.info(f"  {'-' * 60}")
 
             # Step 3: Read content from markdown file
             try:
-                with open(md_file, 'r', encoding='utf-8') as f:
+                with open(md_file, "r", encoding="utf-8") as f:
                     new_content = f.read()
 
                 logger.info(f"  ✓ Read markdown file: {len(new_content)} characters")
 
                 # Print new content
-                logger.info(f"  New content from markdown file:")
+                logger.info("  New content from markdown file:")
                 logger.info(f"  {'-' * 60}")
                 if new_content:
                     logger.info(f"{new_content}")
                 else:
-                    logger.info(f"  (empty)")
+                    logger.info("  (empty)")
                 logger.info(f"  {'-' * 60}")
 
                 # Step 4: Compare and update if different
                 if old_content == new_content:
-                    logger.info(f"  ℹ Content is identical, no update needed")
+                    logger.info("  ℹ Content is identical, no update needed")
                 else:
-                    logger.info(f"  ⚠ Content differs:")
+                    logger.info("  ⚠ Content differs:")
                     logger.info(f"    Old: {len(old_content)} chars")
                     logger.info(f"    New: {len(new_content)} chars")
 
                     if execute:
                         # Actually perform the update
-                        from bson import ObjectId
+
                         result = memory_collection.update_one(
-                            {"_id": memory_id},
-                            {"$set": {"content": new_content}}
+                            {"_id": memory_id}, {"$set": {"content": new_content}}
                         )
 
                         if result.modified_count > 0:
-                            logger.success(f"  ✓ UPDATED memory document")
+                            logger.success("  ✓ UPDATED memory document")
                             stats["updated"] += 1
 
                             # Verify the update by reading back from database
                             updated_doc = memory_collection.find_one({"_id": memory_id})
                             if updated_doc:
                                 updated_content = updated_doc.get("content", "")
-                                logger.info(f"  Post-update memory_user.content:")
+                                logger.info("  Post-update memory_user.content:")
                                 logger.info(f"  {'-' * 60}")
                                 if updated_content:
                                     logger.info(f"{updated_content}")
                                 else:
-                                    logger.info(f"  (empty)")
+                                    logger.info("  (empty)")
                                 logger.info(f"  {'-' * 60}")
 
                                 # Verify it matches what we intended to write
                                 if updated_content == new_content:
-                                    logger.success(f"  ✓ Verified: Database content matches markdown file")
+                                    logger.success(
+                                        "  ✓ Verified: Database content matches markdown file"
+                                    )
                                 else:
-                                    logger.error(f"  ✗ Verification failed: Database content does not match!")
+                                    logger.error(
+                                        "  ✗ Verification failed: Database content does not match!"
+                                    )
                             else:
-                                logger.error(f"  ✗ Could not read back document for verification")
+                                logger.error(
+                                    "  ✗ Could not read back document for verification"
+                                )
                         else:
-                            logger.warning(f"  ⚠ Update command executed but no document was modified")
+                            logger.warning(
+                                "  ⚠ Update command executed but no document was modified"
+                            )
                     else:
-                        logger.info(f"  [DRY RUN] Would update memory document")
+                        logger.info("  [DRY RUN] Would update memory document")
                         stats["would_update"] += 1
 
             except Exception as read_error:
@@ -257,6 +268,7 @@ def process_user_profiles(
             logger.error(f"  ✗ Error processing {username}: {e}")
             if verbose:
                 import traceback
+
                 traceback.print_exc()
 
         logger.info("-" * 80)
@@ -302,35 +314,35 @@ Examples:
 
   # Execute with verbose output
   python scripts/update_user_memories.py --execute --verbose
-        """
+        """,
     )
 
     parser.add_argument(
         "--profiles-dir",
         type=str,
         default="/Users/xandersteenbrugge/Downloads/0b1744872b9d9160a0154aa571debe024fd9136dc9f79168562e80a15726c7e3/user_profiles",
-        help="Directory containing .md profile files (default: specified in script)"
+        help="Directory containing .md profile files (default: specified in script)",
     )
 
     parser.add_argument(
         "--verbose",
         "-v",
         action="store_true",
-        help="Print verbose output including full document details"
+        help="Print verbose output including full document details",
     )
 
     parser.add_argument(
         "--agent-id",
         type=str,
         default="690235d0231996f69255e900",
-        help="Agent ID to filter memories by (default: 690235d0231996f69255e900)"
+        help="Agent ID to filter memories by (default: 690235d0231996f69255e900)",
     )
 
     parser.add_argument(
         "--execute",
         action="store_true",
         default=False,
-        help="Actually perform database updates. Without this flag, runs in dry-run mode (default: False)"
+        help="Actually perform database updates. Without this flag, runs in dry-run mode (default: False)",
     )
 
     args = parser.parse_args()
@@ -377,7 +389,7 @@ Examples:
         logger.info("")
 
         response = input("Are you sure you want to proceed? Type 'yes' to continue: ")
-        if response.lower() != 'yes':
+        if response.lower() != "yes":
             logger.info("Operation cancelled by user.")
             return 0
 
@@ -396,7 +408,7 @@ Examples:
             profiles_dir=profiles_dir,
             agent_id=args.agent_id,
             execute=args.execute,
-            verbose=args.verbose
+            verbose=args.verbose,
         )
 
         # Exit with appropriate code
@@ -410,6 +422,7 @@ Examples:
     except Exception as e:
         logger.error(f"Fatal error during processing: {e}")
         import traceback
+
         traceback.print_exc()
         return 1
 

@@ -1,12 +1,15 @@
-from eve.tool import ToolContext
-import openai
+from typing import List
+
 import instructor
+import openai
 from jinja2 import Template
 from pydantic import BaseModel, Field
-from typing import List
+
+from eve.tool import ToolContext
 
 from ....agent import Agent
 from ....mongo import get_collection
+
 # from ... import utils
 
 
@@ -103,7 +106,7 @@ async def handler(context: ToolContext):
     )
 
     # Make LLM call
-    system_message = f"""You are a search assistant that helps find relevant Agents based on natural language queries. Analyze the provided items and return only the most relevant matches for the query.
+    system_message = """You are a search assistant that helps find relevant Agents based on natural language queries. Analyze the provided items and return only the most relevant matches for the query.
     Be selective - only return items that truly match the query's intent."""
 
     client = instructor.from_openai(openai.AsyncOpenAI())

@@ -6,8 +6,9 @@ Usage:
     modal deploy deploy_gpu_modal_image.py
 """
 
-import modal
 from pathlib import Path
+
+import modal
 
 # Get the root directory
 root_dir = Path(__file__).parent
@@ -18,10 +19,7 @@ downloads_vol = modal.Volume.from_name("vibevoice-volume", create_if_missing=Tru
 # Build the image with the same dependencies as comfyui.py
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    .apt_install(
-        "git",
-        "git-lfs"
-    )
+    .apt_install("git", "git-lfs")
     .pip_install(
         "librosa",
         "torch",
@@ -29,22 +27,23 @@ image = (
         "torchaudio",
         "soundfile",
         "loguru",
-        "requests"
+        "requests",
     )
     .run_commands(
         # Clone VibeVoice-ComfyUI repository at specific commit
         "cd /root && git clone https://github.com/Enemyx-net/VibeVoice-ComfyUI.git",
         "cd /root/VibeVoice-ComfyUI && git checkout 9185f531ac45fc67576f9877caf1a6c8c7d340b5",
         # Install repository requirements
-        "cd /root/VibeVoice-ComfyUI && pip install -r requirements.txt"
+        "cd /root/VibeVoice-ComfyUI && pip install -r requirements.txt",
     )
     .add_local_file(
         local_path=str(root_dir / "run_inference.py"),
-        remote_path="/root/VibeVoice-ComfyUI/run_inference.py"
+        remote_path="/root/VibeVoice-ComfyUI/run_inference.py",
     )
 )
 
 app = modal.App(name="VibeVoice-audio-app")
+
 
 @app.cls(
     image=image,
@@ -63,8 +62,8 @@ class VibeVoiceContainer:
 
     @modal.enter()
     def enter(self):
-        import subprocess
         import os
+        import subprocess
         import sys
 
         print("Container started with GPU and dependencies")
@@ -79,12 +78,19 @@ class VibeVoiceContainer:
         os.makedirs(repo_models_dir, exist_ok=True)
 
         # Download VibeVoice-Large-Q8 model to persistent storage
-        vibevoice_persistent_path = os.path.join(persistent_models_dir, "VibeVoice-Large-Q8")
+        vibevoice_persistent_path = os.path.join(
+            persistent_models_dir, "VibeVoice-Large-Q8"
+        )
         if not os.path.exists(vibevoice_persistent_path):
             print("Downloading VibeVoice-Large-Q8 model...")
             subprocess.run(
-                ["git", "clone", "https://huggingface.co/FabioSarracino/VibeVoice-Large-Q8", vibevoice_persistent_path],
-                check=True
+                [
+                    "git",
+                    "clone",
+                    "https://huggingface.co/FabioSarracino/VibeVoice-Large-Q8",
+                    vibevoice_persistent_path,
+                ],
+                check=True,
             )
             print("VibeVoice-Large-Q8 model downloaded successfully")
         else:
@@ -94,15 +100,22 @@ class VibeVoiceContainer:
         vibevoice_repo_path = os.path.join(repo_models_dir, "VibeVoice-Large-Q8")
         if not os.path.exists(vibevoice_repo_path):
             os.symlink(vibevoice_persistent_path, vibevoice_repo_path)
-            print(f"Created symlink: {vibevoice_repo_path} -> {vibevoice_persistent_path}")
+            print(
+                f"Created symlink: {vibevoice_repo_path} -> {vibevoice_persistent_path}"
+            )
 
         # Download Qwen2.5-1.5B model to persistent storage
         qwen_persistent_path = os.path.join(persistent_models_dir, "Qwen2.5-1.5B")
         if not os.path.exists(qwen_persistent_path):
             print("Downloading Qwen2.5-1.5B model...")
             subprocess.run(
-                ["git", "clone", "https://huggingface.co/Qwen/Qwen2.5-1.5B", qwen_persistent_path],
-                check=True
+                [
+                    "git",
+                    "clone",
+                    "https://huggingface.co/Qwen/Qwen2.5-1.5B",
+                    qwen_persistent_path,
+                ],
+                check=True,
             )
             print("Qwen2.5-1.5B model downloaded successfully")
         else:
@@ -117,7 +130,7 @@ class VibeVoiceContainer:
             print(f"Created symlink: {qwen_repo_path} -> {qwen_persistent_path}")
 
         print("All models ready")
-        print(f"Model paths:")
+        print("Model paths:")
         print(f"  VibeVoice: {vibevoice_repo_path}")
         print(f"  Tokenizer: {qwen_repo_path}")
 
@@ -136,7 +149,7 @@ class VibeVoiceContainer:
             model_path=self.model_path,
             tokenizer_path=self.tokenizer_path,
             attention_type="auto",
-            quantize_llm="full precision"
+            quantize_llm="full precision",
         )
         print("Model successfully pre-loaded onto GPU and ready for inference")
         print("Subsequent requests will use the hot-loaded model without reloading")
@@ -170,6 +183,7 @@ class VibeVoiceContainer:
         """
         import os
         import tempfile
+
         import soundfile as sf
         from loguru import logger
 
@@ -177,9 +191,10 @@ class VibeVoiceContainer:
         voice_audio_paths = None
         if voice_audio:
             import requests
+
             voice_audio_paths = []
             for i, audio_url in enumerate(voice_audio):
-                logger.info(f"Downloading voice audio {i+1}: {audio_url}")
+                logger.info(f"Downloading voice audio {i + 1}: {audio_url}")
                 response = requests.get(audio_url)
                 response.raise_for_status()
 
@@ -194,11 +209,15 @@ class VibeVoiceContainer:
                 voice_audio_paths = voice_audio_paths[0]
                 logger.info("Single voice audio - using single-speaker mode")
             else:
-                logger.info(f"Multiple voice audio - using multi-speaker mode with {len(voice_audio_paths)} speakers")
+                logger.info(
+                    f"Multiple voice audio - using multi-speaker mode with {len(voice_audio_paths)} speakers"
+                )
 
-        logger.info(f"Generating audio with VibeVoice using hot-loaded model")
+        logger.info("Generating audio with VibeVoice using hot-loaded model")
         logger.info(f"Text: {text[:100]}...")
-        logger.info(f"CFG Scale: {cfg_scale}, Diffusion Steps: {diffusion_steps}, Seed: {seed}")
+        logger.info(
+            f"CFG Scale: {cfg_scale}, Diffusion Steps: {diffusion_steps}, Seed: {seed}"
+        )
 
         # Prepare voice samples if provided
         voice_samples = None
@@ -210,7 +229,9 @@ class VibeVoiceContainer:
                 for i, audio in enumerate(voice_audio_paths):
                     prepared_audio = self.inference._prepare_voice_audio(audio)
                     voice_samples.append(prepared_audio)
-                logger.info(f"Prepared {len(voice_samples)} voice sample(s) for multi-speaker")
+                logger.info(
+                    f"Prepared {len(voice_samples)} voice sample(s) for multi-speaker"
+                )
             else:
                 # Single speaker: prepare single audio
                 prepared_audio = self.inference._prepare_voice_audio(voice_audio_paths)
@@ -233,7 +254,7 @@ class VibeVoiceContainer:
         # Save to temporary file and read bytes
         temp_output = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
         sf.write(temp_output.name, audio_data["waveform"], audio_data["sample_rate"])
-        logger.info(f"Audio generated successfully using hot-loaded model")
+        logger.info("Audio generated successfully using hot-loaded model")
 
         # Read the audio file as bytes
         with open(temp_output.name, "rb") as f:
@@ -272,7 +293,7 @@ def main():
         text="Hello, this is a test of VibeVoice text to speech.",
         cfg_scale=1.33,
         diffusion_steps=30,
-        seed=42
+        seed=42,
     )
     print(f"VibeVoice Result: Received {len(audio_bytes)} bytes of audio data")
 

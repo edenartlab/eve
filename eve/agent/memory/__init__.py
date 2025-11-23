@@ -1,7 +1,7 @@
 """Helpers for accessing the memory backends used by Eve."""
 
+from .backends import GraphitiMemoryBackend, MemoryBackend, MongoMemoryBackend
 from .graphiti import GraphitiConfig, init_graphiti
-from .backends import MemoryBackend, MongoMemoryBackend, GraphitiMemoryBackend
 from .service import MemoryService, memory_service
 
 __all__ = [

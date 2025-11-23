@@ -1,10 +1,11 @@
-import os
 import logging
-from pathlib import Path
+import os
 import sys
+from pathlib import Path
+
 from dotenv import load_dotenv
-from pydantic import SecretStr
 from loguru import logger
+from pydantic import SecretStr
 
 home_dir = str(Path.home())
 db = os.getenv("DB", "STAGE").upper()
@@ -100,13 +101,13 @@ def setup_eve():
             return event  # Send everything else to Sentry
 
         # Only import integrations needed for ERROR tracking, not performance tracing
-        from sentry_sdk.integrations.logging import LoggingIntegration
-        from sentry_sdk.integrations.stdlib import StdlibIntegration
-        from sentry_sdk.integrations.excepthook import ExcepthookIntegration
-        from sentry_sdk.integrations.dedupe import DedupeIntegration
-        from sentry_sdk.integrations.atexit import AtexitIntegration
-        from sentry_sdk.integrations.modules import ModulesIntegration
         from sentry_sdk.integrations.argv import ArgvIntegration
+        from sentry_sdk.integrations.atexit import AtexitIntegration
+        from sentry_sdk.integrations.dedupe import DedupeIntegration
+        from sentry_sdk.integrations.excepthook import ExcepthookIntegration
+        from sentry_sdk.integrations.logging import LoggingIntegration
+        from sentry_sdk.integrations.modules import ModulesIntegration
+        from sentry_sdk.integrations.stdlib import StdlibIntegration
         from sentry_sdk.integrations.threading import ThreadingIntegration
 
         sentry_sdk.init(

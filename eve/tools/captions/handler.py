@@ -1,7 +1,8 @@
 import asyncio
 import random
+from typing import Any, Dict
+
 import requests
-from typing import Dict, Any
 
 from eve.agent.agent import Agent
 from eve.agent.session.models import Deployment

@@ -1,7 +1,8 @@
 from __future__ import annotations
-import time
-import random
+
 import asyncio
+import random
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pprint import pformat
 
@@ -12,9 +13,10 @@ def log_memory_info():
     """
     Log basic GPU, RAM, and disk usage percentages using nvidia-smi for GPU metrics.
     """
-    import psutil
     import shutil
     import subprocess
+
+    import psutil
 
     # GPU VRAM using nvidia-smi
     try:

@@ -1,15 +1,18 @@
-from eve.tool import ToolContext
-import anthropic
+import asyncio
 import json
+import os
 import shutil
 import subprocess
-import os
 import uuid
 from pathlib import Path
-import asyncio
-from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field
+from typing import Any, Dict, List, Optional
+
+import anthropic
 from instructor.function_calls import openai_schema
+from pydantic import BaseModel, Field
+
+from eve.tool import ToolContext
+
 from .... import utils
 
 
@@ -155,7 +158,9 @@ class MediaFiles(BaseModel):
         for i, video_path in enumerate(self.videos, 1):
             info = probe_media_with_streams(video_path)
             if "error" in info:
-                media_items.append(f"- Video {i}: {video_path} (Error: {info['error']})")
+                media_items.append(
+                    f"- Video {i}: {video_path} (Error: {info['error']})"
+                )
                 continue
 
             duration = info.get("duration", "unknown")
@@ -172,7 +177,9 @@ class MediaFiles(BaseModel):
         for i, audio_path in enumerate(self.audios, 1):
             info = probe_media_with_streams(audio_path)
             if "error" in info:
-                media_items.append(f"- Audio {i}: {audio_path} (Error: {info['error']})")
+                media_items.append(
+                    f"- Audio {i}: {audio_path} (Error: {info['error']})"
+                )
                 continue
 
             duration = info.get("duration", "unknown")
@@ -337,9 +344,7 @@ def validate_and_prepare_media(
                 shutil.copy2(original_handler, new_path)
                 video_paths.append(new_path)
             except Exception as e:
-                raise FFmpegError(
-                    f"Failed to handle video {video_url}: {str(e)}", ""
-                )
+                raise FFmpegError(f"Failed to handle video {video_url}: {str(e)}", "")
 
         audio_paths = []
         for idx, audio_url in enumerate(args.get("audios", []), start=1):
@@ -354,9 +359,7 @@ def validate_and_prepare_media(
                 shutil.copy2(original_handler, new_path)
                 audio_paths.append(new_path)
             except Exception as e:
-                raise FFmpegError(
-                    f"Failed to handle audio {audio_url}: {str(e)}", ""
-                )
+                raise FFmpegError(f"Failed to handle audio {audio_url}: {str(e)}", "")
 
         return MediaFiles(images=image_paths, videos=video_paths, audios=audio_paths)
 

@@ -3,13 +3,13 @@ Debug logging utility for session operations.
 Can be toggled on/off via environment variable or runtime configuration.
 """
 
-import os
-import logging
 import functools
-from typing import Any, Optional
 import json
-from datetime import datetime
+import logging
+import os
 import sys
+from datetime import datetime
+from typing import Any, Optional
 
 # Environment variable to control debug logging
 DEBUG_SESSION = os.getenv("DEBUG_SESSION", "false").lower() == "true"
@@ -162,7 +162,7 @@ class SessionDebugger:
             "data_type": data.get("type", "unknown"),
             "data_size": len(json.dumps(data, default=str)),
         }
-        self.log(f"SSE Broadcast", broadcast_info, emoji="broadcast")
+        self.log("SSE Broadcast", broadcast_info, emoji="broadcast")
 
 
 def debug_session_method(func):

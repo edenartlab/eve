@@ -1,8 +1,7 @@
 from jinja2 import Template
 
-from eve.tool import Tool, ToolContext
 from eve.agent import Agent
-
+from eve.tool import Tool, ToolContext
 
 init_message = """
 <Intro>

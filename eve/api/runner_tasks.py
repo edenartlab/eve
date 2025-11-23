@@ -1,28 +1,25 @@
-import traceback
 import random
+import tempfile
+import traceback
+from datetime import datetime, timedelta, timezone
+from io import BytesIO
+from typing import List
+
+import instructor
 import openai
 import requests
-import tempfile
-import instructor
-from typing import List
-from datetime import datetime, timedelta, timezone
-from bson.objectid import ObjectId
-from pydantic import BaseModel, Field, ConfigDict
-from PIL import Image
-from io import BytesIO
-import aiohttp
-import os
 import sentry_sdk
+from bson.objectid import ObjectId
 from loguru import logger
+from PIL import Image
+from pydantic import BaseModel, ConfigDict, Field
 
 from eve import utils
 from eve.agent import Agent, refresh_agent
-from eve.agent.deployments import Deployment
+from eve.models import Model
+from eve.mongo import get_collection
 from eve.task import Task
 from eve.tool import Tool
-from eve.mongo import get_collection
-from eve.models import Model
-from eve.api.api_requests import UpdateConfig
 
 
 async def cancel_stuck_tasks():
@@ -186,9 +183,9 @@ async def generate_lora_thumbnails():
                     )
                     thumbnails.append(thumbnail)
 
-                assert len(thumbnails) == 4, (
-                    f"Expected 4 thumbnails, got {len(thumbnails)}"
-                )
+                assert (
+                    len(thumbnails) == 4
+                ), f"Expected 4 thumbnails, got {len(thumbnails)}"
 
                 logger.debug("Thumbnails", thumbnails)
 

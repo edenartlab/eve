@@ -1,7 +1,9 @@
-from eve.tool import ToolContext
-from playwright.async_api import async_playwright
 import asyncio
 from collections import Counter
+
+from playwright.async_api import async_playwright
+
+from eve.tool import ToolContext
 
 
 async def wait_for_content(page) -> bool:

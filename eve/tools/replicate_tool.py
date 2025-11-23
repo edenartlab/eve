@@ -1,21 +1,22 @@
+import asyncio
 import os
 import re
-import modal
-import asyncio
 import tempfile
+from datetime import datetime, timezone
+from typing import Dict, Optional
+
+import modal
 import replicate
 from bson import ObjectId
 from pydantic import Field
-from typing import Dict, Optional
-from datetime import datetime, timezone
 
-from .. import s3
-from .. import utils
-from ..tool import Tool, ToolContext, tool_context
+from .. import s3, utils
+
 # from ..agent.session.models import Session
 from ..models import Model
-from ..task import Task, Creation
 from ..mongo import get_collection
+from ..task import Creation, Task
+from ..tool import Tool, ToolContext, tool_context
 
 
 @tool_context("replicate")

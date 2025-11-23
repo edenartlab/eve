@@ -1,6 +1,9 @@
-from eve.tool import ToolContext
 import os
+
 from PIL import Image
+
+from eve.tool import ToolContext
+
 # from ... import utils
 
 

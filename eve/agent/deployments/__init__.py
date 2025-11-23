@@ -1,10 +1,10 @@
-from typing import TYPE_CHECKING, Optional
-from fastapi import Request
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING, Optional
+
+from fastapi import Request
 
 from eve.agent.agent import Agent
-from eve.agent.session.models import DeploymentSecrets, DeploymentConfig, Deployment
-
+from eve.agent.session.models import Deployment, DeploymentConfig, DeploymentSecrets
 
 if TYPE_CHECKING:
     from eve.api.api_requests import DeploymentEmissionRequest
@@ -41,7 +41,7 @@ class PlatformClient(ABC):
         old_config: Optional[DeploymentConfig] = None,
         new_config: Optional[DeploymentConfig] = None,
         old_secrets: Optional[DeploymentSecrets] = None,
-        new_secrets: Optional[DeploymentSecrets] = None
+        new_secrets: Optional[DeploymentSecrets] = None,
     ) -> None:
         """
         Platform-specific actions when deployment config/secrets are updated.

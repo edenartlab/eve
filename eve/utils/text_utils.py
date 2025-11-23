@@ -1,7 +1,8 @@
 from __future__ import annotations
+
 import os
 import re
-import textwrap
+
 from PIL import ImageFont
 
 

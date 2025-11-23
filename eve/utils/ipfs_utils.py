@@ -1,9 +1,15 @@
-import requests
-import os
 import logging
+import os
+from typing import Any, Mapping, Union
 from urllib.parse import urlparse
-from typing import Union, Mapping, Any
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+
+import requests
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 # Initialize logger
 logger = logging.getLogger(__name__)
@@ -22,7 +28,9 @@ class IPFSError(Exception):
     stop=stop_after_attempt(5),
     wait=wait_exponential(multiplier=1, min=2, max=32),
     retry=retry_if_exception_type((IPFSError, requests.RequestException)),
-    before_sleep=lambda retry_state: logger.info(f"Retrying IPFS upload (attempt {retry_state.attempt_number}/5)...")
+    before_sleep=lambda retry_state: logger.info(
+        f"Retrying IPFS upload (attempt {retry_state.attempt_number}/5)..."
+    ),
 )
 def pin(data: Union[str, Mapping[str, Any]]) -> str:
     """
@@ -66,7 +74,9 @@ def pin(data: Union[str, Mapping[str, Any]]) -> str:
         logger.info(f"Uploading local file to IPFS: {filename}...")
         with open(data, "rb") as f:
             files = {"file": (filename, f)}
-            r = requests.post(file_endpoint, files=files, headers=auth_headers, timeout=60)
+            r = requests.post(
+                file_endpoint, files=files, headers=auth_headers, timeout=60
+            )
 
     else:
         raise ValueError("Data must be json, URL, or local file path")

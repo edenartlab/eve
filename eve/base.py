@@ -1,18 +1,19 @@
 import copy
 import warnings
-from pydantic import BaseModel, Field, create_model
 from typing import (
     Any,
-    List,
     Dict,
+    List,
+    Literal,
     Optional,
+    Tuple,
     Type,
     Union,
-    Literal,
-    Tuple,
-    get_origin,
     get_args,
+    get_origin,
 )
+
+from pydantic import BaseModel, Field, create_model
 
 from . import utils
 
@@ -371,9 +372,9 @@ def parse_props(field: str, props: dict) -> Tuple[Type, dict, dict]:
 
     # Handle choices
     if props["type"] in ["integer", "float", "string"] and "choices" in props:
-        #field_kwargs["choices"] = props["choices"]
+        # field_kwargs["choices"] = props["choices"]
         return Literal[tuple(props["choices"])], field_kwargs, json_schema_extra
-        
+
     # Handle file types
     if props["type"] in ["image", "video", "audio", "lora", "zip"]:
         json_schema_extra["file_type"] = props["type"]
@@ -389,17 +390,17 @@ def parse_props(field: str, props: dict) -> Tuple[Type, dict, dict]:
             # Handle arrays with multiple allowed item types
             item_types = []
             file_types = []
-            
+
             for item_option in props["items"]["anyOf"]:
                 item_type = get_python_type(item_option)
                 item_types.append(item_type)
-                
+
                 if item_option["type"] in ["image", "video", "audio", "lora", "zip"]:
                     file_types.append(item_option["type"])
-            
+
             if file_types:
                 json_schema_extra["file_type"] = "|".join(file_types)
-            
+
             item_type = Union[tuple(item_types)]
         elif props["items"]["type"] == "object":
             fields, model_config = parse_schema(props["items"])

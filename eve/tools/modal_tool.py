@@ -1,5 +1,6 @@
-import modal
 import os
+
+import modal
 
 from ..task import Task
 from ..tool import Tool, ToolContext, tool_context
@@ -13,7 +14,9 @@ class ModalTool(Tool):
         func = modal.Function.from_name(
             f"api-{db.lower()}", "run", environment_name="main"
         )
-        result = await func.remote.aio(tool_key=self.parent_tool or self.key, args=context.args)
+        result = await func.remote.aio(
+            tool_key=self.parent_tool or self.key, args=context.args
+        )
         return result
 
     @Tool.handle_start_task
@@ -45,4 +48,5 @@ class ModalTool(Tool):
         except Exception as e:
             # Modal cancellation might fail, but task is already marked cancelled
             from loguru import logger
+
             logger.warning(f"Failed to cancel Modal function {task.handler_id}: {e}")

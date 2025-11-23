@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 import pathlib
+
 from jinja2 import Template
 
 

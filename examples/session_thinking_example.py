@@ -1,12 +1,18 @@
 import asyncio
-from fastapi import BackgroundTasks
-from eve.api.api_requests import PromptSessionRequest, SessionCreationArgs
-from eve.api.handlers import setup_session
-from eve.agent.session.models import PromptSessionContext, ChatMessageRequestInput, LLMConfig, LLMThinkingSettings
-from eve.agent.session.session import add_chat_message, build_llm_context, async_prompt_session
-from eve.auth import get_my_eden_user
-from eve.agent import Agent
 
+from fastapi import BackgroundTasks
+
+from eve.agent import Agent
+from eve.agent.session.context import add_chat_message, build_llm_context
+from eve.agent.session.models import (
+    ChatMessageRequestInput,
+    LLMConfig,
+    LLMThinkingSettings,
+)
+from eve.agent.session.runtime import async_prompt_session
+from eve.agent.session.service import create_prompt_session_handle
+from eve.api.api_requests import PromptSessionRequest, SessionCreationArgs
+from eve.auth import get_my_eden_user
 
 
 async def example_thinking_session():
@@ -14,19 +20,6 @@ async def example_thinking_session():
 
     user = get_my_eden_user()
     agent = Agent.load("eve")
-
-    # Create session request
-    request = PromptSessionRequest(
-        user_id=str(user.id),
-        creation_args=SessionCreationArgs(
-            owner_id=str(user.id),
-            agents=[str(agent.id)],
-            title="Thinking Model Example Session"
-        )
-    )
-
-    # Setup session
-    session = setup_session(background_tasks, request.session_id, request.user_id, request)
 
     # Create message with a complex reasoning problem
     message = ChatMessageRequestInput(
@@ -61,39 +54,45 @@ async def example_thinking_session():
     # Create context with thinking model configuration
     llm_config = LLMConfig(
         model="claude-sonnet-4-5-20250929",
-        llm_settings=LLMThinkingSettings(
+        thinking=LLMThinkingSettings(
             policy="auto",
-            effort_instructions="Use low when I ask you to think about Hanoi Problem, but high for anything else, especially when I ask you to think about the best college to go to for an introvert."
-        )
+            effort_instructions="Use low when I ask you to think about Hanoi Problem, but high for anything else, especially when I ask you to think about the best college to go to for an introvert.",
+        ),
         # todo: fix this
         # thinking=True,
         # thinking_budget_tokens=10000
     )
-    
-    prompt_context = PromptSessionContext(
-        session=session,
-        initiating_user_id=request.user_id,
+
+    request = PromptSessionRequest(
+        user_id=str(user.id),
         message=message,
-        llm_config=llm_config
+        llm_config=llm_config,
+        creation_args=SessionCreationArgs(
+            owner_id=str(user.id),
+            agents=[str(agent.id)],
+            title="Thinking Model Example Session",
+        ),
     )
 
-    await add_chat_message(session, prompt_context)
+    handle = create_prompt_session_handle(request, background_tasks)
+    session = handle.session
+    context = handle.context
+
+    await add_chat_message(session, context)
 
     # Run session
-    llm_context = await build_llm_context(
-        session, 
-        agent, 
-        prompt_context, 
+    context = await build_llm_context(
+        session,
+        agent,
+        context,
     )
 
     # Execute the prompt session
-    async for _ in async_prompt_session(
-        session, llm_context, agent, context=prompt_context
-    ):
+    async for _ in async_prompt_session(session, llm_context=context, agent=agent):
         pass
-    
+
     # it should now be available under your sessions with Eve
-    
+
 
 if __name__ == "__main__":
     asyncio.run(example_thinking_session())

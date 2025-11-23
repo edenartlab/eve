@@ -5,10 +5,15 @@ import aiohttp
 from fastapi import Request
 from loguru import logger
 
-from eve.api.errors import APIError
 from eve.agent.agent import Agent
 from eve.agent.deployments import PlatformClient
-from eve.agent.session.models import Deployment, DeploymentConfig, DeploymentSecrets, UpdateType
+from eve.agent.session.models import (
+    Deployment,
+    DeploymentConfig,
+    DeploymentSecrets,
+    UpdateType,
+)
+from eve.api.errors import APIError
 
 
 class EmailClient(PlatformClient):

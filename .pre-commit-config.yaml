@@ -3,6 +3,12 @@ repos:
     rev: v2.3.0
     hooks:
       - id: check-yaml
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.7.4
+    hooks:
+      - id: ruff
+        args: ["--fix"]
+      - id: ruff-format
   - repo: https://github.com/PyCQA/autoflake
     rev: v2.3.1
     hooks:
@@ -17,3 +23,4 @@ repos:
         entry: '^\s*print\('
         language: pygrep
         types: [python]
+        exclude: ^(examples|scripts|tests|eve/tools)/
