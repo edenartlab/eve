@@ -1,28 +1,44 @@
-from eve.agent.memory.memory_models import (
-    SessionMemory,
-    UserMemory,
-    AgentMemory,
-    select_messages,
-)
-from eve.agent.memory.memory_constants import (
-    MAX_N_EPISODES_TO_REMEMBER,
-    LOCAL_DEV,
-    SYNC_MEMORIES_ACROSS_SESSIONS_EVERY_N_MINUTES,
-)
+import asyncio
+import time
+import traceback
+from datetime import datetime, timedelta, timezone
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-import time, traceback, asyncio
 from loguru import logger
 
-from bson import ObjectId
-from typing import Optional, List, Dict, Any
-from datetime import datetime, timezone, timedelta
 from eve.agent import Agent
-from eve.user import User
-from eve.agent.session.models import Session
 from eve.agent.memory.memory import safe_update_memory_context
+from eve.agent.memory.memory_constants import (
+    MAX_N_EPISODES_TO_REMEMBER,
+    SYNC_MEMORIES_ACROSS_SESSIONS_EVERY_N_MINUTES,
+)
+from eve.agent.memory.memory_models import (
+    AgentMemory,
+    SessionMemory,
+    UserMemory,
+    select_messages,
+)
+from eve.agent.session.models import Session
+from eve.user import User
+
+if TYPE_CHECKING:  # pragma: no cover
+    from eve.agent.session_new.instrumentation import PromptSessionInstrumentation
+from contextlib import nullcontext
 
 
-async def _assemble_user_memory(agent: Agent, user: User) -> str:
+def _log_debug(
+    message: str, instrumentation=None, payload: Optional[Dict[str, Any]] = None
+):
+    if instrumentation:
+        instrumentation.log_event(message, level="debug", payload=payload)
+    else:
+        if payload:
+            logger.debug(f"{message} | {payload}")
+        else:
+            logger.debug(message)
+
+
+async def _assemble_user_memory(agent: Agent, user: User, instrumentation=None) -> str:
     """
     Step 1: Assemble user memory content.
     Returns user_memory_content
@@ -51,8 +67,13 @@ async def _assemble_user_memory(agent: Agent, user: User) -> str:
                 user_memory_content = user_memory.fully_formed_memory or ""
 
         query_time = time.time() - query_start
-        logger.debug(
-            f"   ⏱️  User Memory Assembly: {query_time:.3f}s (user_memory: {'yes' if user_memory else 'no'})"
+        _log_debug(
+            "   ⏱️  User Memory Assembly",
+            instrumentation,
+            {
+                "duration_s": round(query_time, 3),
+                "has_memory": bool(user_memory),
+            },
         )
 
     except Exception as e:
@@ -63,7 +84,7 @@ async def _assemble_user_memory(agent: Agent, user: User) -> str:
 
 
 async def _get_episode_memories(
-    session: Session, force_refresh: bool = False
+    session: Session, force_refresh: bool = False, instrumentation=None
 ) -> List[Dict[str, Any]]:
     """
     Get episode memories with smart caching in session.
@@ -72,10 +93,6 @@ async def _get_episode_memories(
     # Check if we have cached episodes:
     safe_update_memory_context(session, {})  # Ensure memory_context exists
     if not force_refresh and session.memory_context.cached_episode_memories is not None:
-        if LOCAL_DEV:
-            logger.debug(
-                f"   ⚡ Using cached episode memories ({len(session.memory_context.cached_episode_memories)} episodes)"
-            )
         return session.memory_context.cached_episode_memories
 
     # Query and cache episode memories
@@ -115,8 +132,13 @@ async def _get_episode_memories(
         )
 
         query_time = time.time() - query_start
-        logger.debug(
-            f"   ⏱️  Episode memory query & cache: {query_time:.3f}s ({len(episode_memories)} episodes)"
+        _log_debug(
+            "   ⏱️  Episode memory query & cache",
+            instrumentation,
+            {
+                "duration_s": round(query_time, 3),
+                "episode_count": len(episode_memories),
+            },
         )
 
         return cached_episodes
@@ -127,7 +149,9 @@ async def _get_episode_memories(
         return []
 
 
-async def _assemble_agent_memories(agent: Agent) -> List[Dict[str, str]]:
+async def _assemble_agent_memories(
+    agent: Agent, instrumentation=None
+) -> List[Dict[str, str]]:
     """
     Step 3: Assemble agent collective memories from active shards.
     Returns list of memory shards with name and content.
@@ -165,8 +189,13 @@ async def _assemble_agent_memories(agent: Agent) -> List[Dict[str, str]]:
                     )
 
         query_time = time.time() - query_start
-        logger.debug(
-            f"   ⏱️  Agent Memory Assembly: {query_time:.3f}s ({len(agent_collective_memories)} active shards)"
+        _log_debug(
+            "   ⏱️  Agent Memory Assembly",
+            instrumentation,
+            {
+                "duration_s": round(query_time, 3),
+                "active_shards": len(agent_collective_memories),
+            },
         )
 
     except Exception as e:
@@ -199,7 +228,7 @@ async def check_memory_freshness(session: Session, agent: Agent, user: User) -> 
                     > session.memory_context.agent_memory_timestamp
                 ):
                     return False
-        except Exception as e:
+        except Exception:
             return False  # Refresh on error to be safe
 
     # Check user memory freshness
@@ -277,6 +306,7 @@ async def assemble_memory_context(
     force_refresh: bool = False,
     reason: str = "unknown",
     skip_save: bool = False,
+    instrumentation: Optional["PromptSessionInstrumentation"] = None,
 ) -> str:
     """
     Assemble relevant memories for context injection into prompts.
@@ -290,73 +320,86 @@ async def assemble_memory_context(
     Returns:
         Formatted memory context string for prompt injection.
     """
-    start_time = time.time()
-
-    logger.debug(
-        f"\n🧠 MEMORY ASSEMBLY - Agent: {str(agent.id)}, Session: {str(session.id)}"
+    stage_scope = (
+        instrumentation.track_stage(
+            "memory.assemble_context",
+            level="info",
+            metadata={"reason": reason, "force_refresh": force_refresh},
+        )
+        if instrumentation
+        else nullcontext()
     )
 
-    # Check if we can use cached memory context
-    safe_update_memory_context(session, {})  # Ensure memory_context exists
-    if (session.memory_context.cached_memory_context is not None) and not force_refresh:
-        memory_timestamp = session.memory_context.memory_context_timestamp
-        if memory_timestamp and memory_timestamp.tzinfo is None:
-            memory_timestamp = memory_timestamp.replace(tzinfo=timezone.utc)
+    with stage_scope as stage:
+        start_time = time.time()
 
-        time_since_context_refresh = datetime.now(timezone.utc) - (
-            memory_timestamp or datetime.min.replace(tzinfo=timezone.utc)
+        # Check if we can use cached memory context
+        safe_update_memory_context(session, {})  # Ensure memory_context exists
+        if (
+            session.memory_context.cached_memory_context is not None
+        ) and not force_refresh:
+            memory_timestamp = session.memory_context.memory_context_timestamp
+            if memory_timestamp and memory_timestamp.tzinfo is None:
+                memory_timestamp = memory_timestamp.replace(tzinfo=timezone.utc)
+
+            time_since_context_refresh = datetime.now(timezone.utc) - (
+                memory_timestamp or datetime.min.replace(tzinfo=timezone.utc)
+            )
+
+            if time_since_context_refresh < timedelta(
+                minutes=SYNC_MEMORIES_ACROSS_SESSIONS_EVERY_N_MINUTES
+            ):
+                # Optional: Check if memories were updated by other sessions
+                if 1:  # or await check_memory_freshness(session, agent, user):
+                    if instrumentation and hasattr(stage, "annotate"):
+                        stage.annotate(cache_hit=True)
+                    return session.memory_context.cached_memory_context
+            else:
+                reason = "syncing_session_memories"
+
+        _log_debug(
+            "   🔄 Rebuilding memory context",
+            instrumentation,
+            {"reason": reason},
         )
 
-        if time_since_context_refresh < timedelta(
-            minutes=SYNC_MEMORIES_ACROSS_SESSIONS_EVERY_N_MINUTES
-        ):
-            # Optional: Check if memories were updated by other sessions
-            if 1:  # or await check_memory_freshness(session, agent, user):
-                logger.debug(
-                    f"   ⚡ Using cached memory context ({time.time() - start_time:.3f}s)"
+        # Rebuild memory context
+
+        session_messages = select_messages(session)
+        session_users = list(
+            set([m.sender for m in session_messages if m.role == "user"])
+        )
+        max_n_user_memories_to_assemble = 4
+
+        # 1. Get user memory (multiple queries if needed)
+        if len(session_users) <= max_n_user_memories_to_assemble:
+            # Assemble memories for all unique users in the session
+            user_memory_contents = []
+
+            users = User.find({"_id": {"$in": session_users}}) if session_users else []
+            for user in users:
+                user_content = await _assemble_user_memory(
+                    agent, user, instrumentation=instrumentation
                 )
-                if LOCAL_DEV:
-                    logger.debug(
-                        f"\n\n------------- Cached Memory Context --------------\n{session.memory_context.cached_memory_context}"
-                    )
-                    logger.debug(
-                        "-----------------------------------------------------------\n\n"
-                    )
-                return session.memory_context.cached_memory_context
+                if user_content.strip():  # Only include non-empty memories
+                    user_memory_contents.append(user_content)
+
+            # Combine all user memories
+            user_memory_content = (
+                "\n\n".join(user_memory_contents) if user_memory_contents else ""
+            )
         else:
-            reason = "syncing_session_memories"
+            user_memory_content = ""
 
-    logger.debug(f"   🔄 Rebuilding memory context... Reason: {reason}")
-
-    # Rebuild memory context
-
-    session_messages = select_messages(session)
-    session_users = list(set([m.sender for m in session_messages if m.role == "user"]))
-    max_n_user_memories_to_assemble = 4
-
-    # 1. Get user memory (multiple queries if needed)
-    if len(session_users) <= max_n_user_memories_to_assemble:
-        # Assemble memories for all unique users in the session
-        user_memory_contents = []
-
-        users = User.find({"_id": {"$in": session_users}}) if session_users else []
-        for user in users:
-            user_content = await _assemble_user_memory(agent, user)
-            if user_content.strip():  # Only include non-empty memories
-                user_memory_contents.append(user_content)
-
-        # Combine all user memories
-        user_memory_content = (
-            "\n\n".join(user_memory_contents) if user_memory_contents else ""
-        )
-    else:
-        user_memory_content = ""
-
-    # 2. Get agent memories (1 query)
-    agent_collective_memories = await _assemble_agent_memories(agent)
+        # 2. Get agent memories (1 query)
+    agent_collective_memories = await _assemble_agent_memories(
+        agent, instrumentation=instrumentation
+    )
 
     # 3. Get episode memories (0-1 queries with caching)
-    episode_memories = await _get_episode_memories(session, force_refresh=force_refresh)
+    episode_memories = await _get_episode_memories(
+        session, force_refresh=force_refresh, instrumentation=instrumentation
+    )
 
     # 4. Build XML context
     memory_context = _build_memory_xml(
@@ -380,12 +423,13 @@ async def assemble_memory_context(
         session.save()
 
     total_time = time.time() - start_time
-    logger.debug(f"   ✓ Memory context rebuilt and cached ({total_time:.3f}s)")
+    _log_debug(
+        "   ✓ Memory context rebuilt and cached",
+        instrumentation,
+        {"duration_s": round(total_time, 3)},
+    )
 
-    if LOCAL_DEV:
-        logger.debug(
-            f"\n\n------------- Rebuilt Memory Context --------------\n{memory_context}"
-        )
-        logger.debug("-----------------------------------------------------------\n\n")
+    if instrumentation and hasattr(stage, "annotate"):
+        stage.annotate(cache_hit=False, duration_s=total_time)
 
     return memory_context

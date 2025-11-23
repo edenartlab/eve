@@ -8,8 +8,8 @@ from urllib.parse import urlparse
 import openai
 from PIL import Image
 
-from eve.utils import download_file
 from eve.tool import ToolContext
+from eve.utils import download_file
 
 # Maximum dimension (width or height) for resizing
 MAX_DIMENSION = 2048

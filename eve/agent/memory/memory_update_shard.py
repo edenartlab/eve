@@ -8,11 +8,11 @@ of the AgentMemory shard belonging to that agent.
 """
 
 import traceback
+
 from bson import ObjectId
 from loguru import logger
 
-from eve.agent.memory.memory_models import SessionMemory, AgentMemory
-
+from eve.agent.memory.memory_models import AgentMemory, SessionMemory
 
 """
 

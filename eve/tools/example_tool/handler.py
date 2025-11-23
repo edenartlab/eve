@@ -1,5 +1,6 @@
-from ...utils import download_file
 from ...tool import ToolContext
+from ...utils import download_file
+
 
 async def handler(context: ToolContext):
     # you can download files
@@ -7,9 +8,9 @@ async def handler(context: ToolContext):
     image_path = download_file(path, "myimg1.jpg")
 
     # you can call other tools
-    #from ...tool import Tool
-    #txt2img = Tool.load(key="txt2img")
-    #result = await txt2img.run(args)
+    # from ...tool import Tool
+    # txt2img = Tool.load(key="txt2img")
+    # result = await txt2img.run(args)
 
     result = {
         "output": image_path,
@@ -17,6 +18,6 @@ async def handler(context: ToolContext):
             "key1": "value1",
             "key2": "value2",
             "key3": "value3",
-        }
+        },
     }
     return result

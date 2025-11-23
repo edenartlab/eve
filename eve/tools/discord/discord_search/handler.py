@@ -1,16 +1,17 @@
-from eve.agent.session.models import ChatMessage, LLMConfig, LLMContext
-from eve.agent.session.session_llm import ToolMetadataBuilder, async_prompt
-from eve.agent.agent import Agent
-from eve.agent.session.models import Deployment
-from eve.tool import ToolContext
-from pydantic import BaseModel
-import discord
-from datetime import datetime, timedelta, timezone
 import re
 import traceback
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
-from loguru import logger
 
+import discord
+from loguru import logger
+from pydantic import BaseModel
+
+from eve.agent.agent import Agent
+from eve.agent.llm.llm import async_prompt
+from eve.agent.llm.metadata import ToolMetadataBuilder
+from eve.agent.session.models import ChatMessage, Deployment, LLMConfig, LLMContext
+from eve.tool import ToolContext
 
 DISCORD_EPOCH_MS = 1420070400000
 MENTION_PATTERN = re.compile(r"<@!?(\d+)>")

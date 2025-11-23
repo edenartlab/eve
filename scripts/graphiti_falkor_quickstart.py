@@ -20,7 +20,6 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from dotenv import load_dotenv
-
 from graphiti_core import Graphiti
 from graphiti_core.driver.falkordb_driver import FalkorDriver
 from graphiti_core.nodes import EpisodeType

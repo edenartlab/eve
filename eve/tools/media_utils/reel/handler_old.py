@@ -1,31 +1,31 @@
-import os
-import logging
-from elevenlabs.client import ElevenLabs
-from bson.objectid import ObjectId
 import asyncio
-import tempfile
+import logging
+import os
 import random
+import tempfile
 from io import BytesIO
-from pydub import AudioSegment
-from pydub.utils import ratio_to_db
-from pydantic import BaseModel, Field
-from anthropic import Anthropic
-import requests
-import instructor
 from typing import List
 
-from ... import s3
-from ... import utils
+import instructor
+import requests
+from anthropic import Anthropic
+from bson.objectid import ObjectId
+from elevenlabs.client import ElevenLabs
+from loguru import logger
+from pydantic import BaseModel, Field
+from pydub import AudioSegment
+from pydub.utils import ratio_to_db
+
+from ... import s3, utils
 from ...agent import Agent
+from ...mongo import get_collection
+from ...tool import Tool, ToolContext
+
 # import voice
 # from tool import load_tool_from_dir
-
 # from ...tools import load_tool
 # from ... import voice
 from ...tools.elevenlabs.handler import select_random_voice
-from ...tool import Tool, ToolContext
-from ...mongo import get_collection
-from loguru import logger
 
 # Suppress verbose httpx logging - only show warnings and errors
 logging.getLogger("httpx").setLevel(logging.WARNING)

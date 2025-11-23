@@ -19,6 +19,10 @@ from eve.agent.agent import Agent
 from eve.agent.deployments import PlatformClient
 from eve.agent.deployments.neynar_client import NeynarClient
 from eve.agent.deployments.utils import get_api_url
+from eve.agent.session.context import (
+    add_chat_message,
+    build_llm_context,
+)
 from eve.agent.session.models import (
     Channel,
     ChatMessage,
@@ -33,11 +37,7 @@ from eve.agent.session.models import (
     SessionUpdateConfig,
     UpdateType,
 )
-from eve.agent.session.session import (
-    add_chat_message,
-    async_prompt_session,
-    build_llm_context,
-)
+from eve.agent.session.runtime import async_prompt_session
 from eve.api.errors import APIError
 from eve.mongo import Collection, Document, MongoDocumentNotFound
 from eve.tool import Tool
@@ -292,7 +292,7 @@ async def process_farcaster_cast(
         author_username = author["username"]
         author_fid = author["fid"]
         content = cast_data.get("text", "")
-        parent_hash = cast_data.get("parent_hash")
+        # parent_hash = cast_data.get("parent_hash")
 
         # Get or create user and update profile
         user = User.from_farcaster(author_fid, author_username)
@@ -412,9 +412,7 @@ async def process_farcaster_cast(
 
         # Execute prompt session
         new_messages = []
-        async for update in async_prompt_session(
-            session, llm_context, agent, context=prompt_context
-        ):
+        async for update in async_prompt_session(session, llm_context, agent):
             logger.info("!!!! THE UPDATED MESSAGE IS !!!!!")
             logger.info(update)
             if update.type == UpdateType.ASSISTANT_MESSAGE:

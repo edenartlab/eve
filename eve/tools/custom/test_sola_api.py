@@ -5,6 +5,7 @@ Demonstrates various API calls and outputs results as JSON.
 
 import json
 from datetime import datetime, timedelta
+
 from sola_calendar_api import SolaCalendarAPI
 
 
@@ -13,7 +14,7 @@ def print_json(data, title=""):
     if title:
         print(f"\n{'=' * 80}")
         print(f"{title}")
-        print('=' * 80)
+        print("=" * 80)
     print(json.dumps(data, indent=2, default=str))
 
 
@@ -32,7 +33,7 @@ def test_sola_api(group_id: int, timezone: str = "America/Argentina/Buenos_Aires
         "test_timestamp": datetime.now().isoformat(),
         "group_id": group_id,
         "timezone": timezone,
-        "tests": {}
+        "tests": {},
     }
 
     # Test 1: Get upcoming events (first page)
@@ -42,14 +43,11 @@ def test_sola_api(group_id: int, timezone: str = "America/Argentina/Buenos_Aires
         results["tests"]["upcoming_events"] = {
             "status": "success",
             "count": len(upcoming_response.get("events", [])),
-            "data": upcoming_response
+            "data": upcoming_response,
         }
         print_json(upcoming_response)
     except Exception as e:
-        results["tests"]["upcoming_events"] = {
-            "status": "error",
-            "error": str(e)
-        }
+        results["tests"]["upcoming_events"] = {"status": "error", "error": str(e)}
         print_json({"error": str(e)})
 
     # Test 2: Get events on today's date
@@ -61,18 +59,11 @@ def test_sola_api(group_id: int, timezone: str = "America/Argentina/Buenos_Aires
             "status": "success",
             "date": today,
             "count": len(events_today),
-            "data": events_today
+            "data": events_today,
         }
-        print_json({
-            "date": today,
-            "count": len(events_today),
-            "events": events_today
-        })
+        print_json({"date": today, "count": len(events_today), "events": events_today})
     except Exception as e:
-        results["tests"]["events_today"] = {
-            "status": "error",
-            "error": str(e)
-        }
+        results["tests"]["events_today"] = {"status": "error", "error": str(e)}
         print_json({"error": str(e)})
 
     # Test 3: Get events in the next 7 days
@@ -82,17 +73,11 @@ def test_sola_api(group_id: int, timezone: str = "America/Argentina/Buenos_Aires
         results["tests"]["next_7_days"] = {
             "status": "success",
             "count": len(next_week),
-            "data": next_week
+            "data": next_week,
         }
-        print_json({
-            "count": len(next_week),
-            "events": next_week
-        })
+        print_json({"count": len(next_week), "events": next_week})
     except Exception as e:
-        results["tests"]["next_7_days"] = {
-            "status": "error",
-            "error": str(e)
-        }
+        results["tests"]["next_7_days"] = {"status": "error", "error": str(e)}
         print_json({"error": str(e)})
 
     # Test 4: Get events in the next 30 days
@@ -102,17 +87,11 @@ def test_sola_api(group_id: int, timezone: str = "America/Argentina/Buenos_Aires
         results["tests"]["next_30_days"] = {
             "status": "success",
             "count": len(next_month),
-            "data": next_month
+            "data": next_month,
         }
-        print_json({
-            "count": len(next_month),
-            "events": next_month
-        })
+        print_json({"count": len(next_month), "events": next_month})
     except Exception as e:
-        results["tests"]["next_30_days"] = {
-            "status": "error",
-            "error": str(e)
-        }
+        results["tests"]["next_30_days"] = {"status": "error", "error": str(e)}
         print_json({"error": str(e)})
 
     # Test 5: Index events by date (upcoming only)
@@ -123,7 +102,7 @@ def test_sola_api(group_id: int, timezone: str = "America/Argentina/Buenos_Aires
             "status": "success",
             "dates_count": len(indexed_events),
             "dates": list(indexed_events.keys()),
-            "data": indexed_events
+            "data": indexed_events,
         }
         # Create summary
         summary = {
@@ -131,14 +110,11 @@ def test_sola_api(group_id: int, timezone: str = "America/Argentina/Buenos_Aires
             "dates_with_counts": {
                 date: len(events) for date, events in indexed_events.items()
             },
-            "full_data": indexed_events
+            "full_data": indexed_events,
         }
         print_json(summary)
     except Exception as e:
-        results["tests"]["indexed_events"] = {
-            "status": "error",
-            "error": str(e)
-        }
+        results["tests"]["indexed_events"] = {"status": "error", "error": str(e)}
         print_json({"error": str(e)})
 
     # Test 6: Get events in a specific date range
@@ -152,19 +128,18 @@ def test_sola_api(group_id: int, timezone: str = "America/Argentina/Buenos_Aires
             "start_date": today.strftime("%Y-%m-%d"),
             "end_date": two_weeks.strftime("%Y-%m-%d"),
             "count": len(range_events),
-            "data": range_events
+            "data": range_events,
         }
-        print_json({
-            "start_date": today.strftime("%Y-%m-%d"),
-            "end_date": two_weeks.strftime("%Y-%m-%d"),
-            "count": len(range_events),
-            "events": range_events
-        })
+        print_json(
+            {
+                "start_date": today.strftime("%Y-%m-%d"),
+                "end_date": two_weeks.strftime("%Y-%m-%d"),
+                "count": len(range_events),
+                "events": range_events,
+            }
+        )
     except Exception as e:
-        results["tests"]["date_range"] = {
-            "status": "error",
-            "error": str(e)
-        }
+        results["tests"]["date_range"] = {"status": "error", "error": str(e)}
         print_json({"error": str(e)})
 
     # Test 7: Search events by title
@@ -175,14 +150,11 @@ def test_sola_api(group_id: int, timezone: str = "America/Argentina/Buenos_Aires
             "status": "success",
             "search_term": "",
             "count": len(search_results.get("events", [])),
-            "data": search_results
+            "data": search_results,
         }
         print_json(search_results)
     except Exception as e:
-        results["tests"]["search_title"] = {
-            "status": "error",
-            "error": str(e)
-        }
+        results["tests"]["search_title"] = {"status": "error", "error": str(e)}
         print_json({"error": str(e)})
 
     # Test 8: Get a specific event by ID (if we have one)
@@ -198,7 +170,7 @@ def test_sola_api(group_id: int, timezone: str = "America/Argentina/Buenos_Aires
             results["tests"]["event_by_id"] = {
                 "status": "success",
                 "event_id": event_id,
-                "data": event_details
+                "data": event_details,
             }
             print_json(event_details)
 
@@ -209,41 +181,48 @@ def test_sola_api(group_id: int, timezone: str = "America/Argentina/Buenos_Aires
                 results["tests"]["event_participants"] = {
                     "status": "success",
                     "event_id": event_id,
-                    "data": participants
+                    "data": participants,
                 }
                 print_json(participants)
             except Exception as e:
                 results["tests"]["event_participants"] = {
                     "status": "error",
-                    "error": str(e)
+                    "error": str(e),
                 }
                 print_json({"error": str(e)})
         else:
             results["tests"]["event_by_id"] = {
                 "status": "skipped",
-                "reason": "No events found to test with"
+                "reason": "No events found to test with",
             }
             print_json({"status": "skipped", "reason": "No events found"})
     except Exception as e:
-        results["tests"]["event_by_id"] = {
-            "status": "error",
-            "error": str(e)
-        }
+        results["tests"]["event_by_id"] = {"status": "error", "error": str(e)}
         print_json({"error": str(e)})
 
     # Save complete results to file
-    output_filename = f"sola_api_test_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-    with open(output_filename, 'w') as f:
+    output_filename = (
+        f"sola_api_test_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    )
+    with open(output_filename, "w") as f:
         json.dump(results, f, indent=2, default=str)
 
     print_json({}, f"COMPLETE RESULTS SAVED TO: {output_filename}")
-    print_json({
-        "output_file": output_filename,
-        "total_tests": len(results["tests"]),
-        "successful": sum(1 for t in results["tests"].values() if t.get("status") == "success"),
-        "failed": sum(1 for t in results["tests"].values() if t.get("status") == "error"),
-        "skipped": sum(1 for t in results["tests"].values() if t.get("status") == "skipped")
-    })
+    print_json(
+        {
+            "output_file": output_filename,
+            "total_tests": len(results["tests"]),
+            "successful": sum(
+                1 for t in results["tests"].values() if t.get("status") == "success"
+            ),
+            "failed": sum(
+                1 for t in results["tests"].values() if t.get("status") == "error"
+            ),
+            "skipped": sum(
+                1 for t in results["tests"].values() if t.get("status") == "skipped"
+            ),
+        }
+    )
 
     return results
 

@@ -1,22 +1,19 @@
-import os
-import isodate
-import asyncio
-import aiohttp
-import pytz
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Set
-from collections import defaultdict
+
+import isodate
 from bson import ObjectId
 from loguru import logger
 
-from eve.tool import ToolContext
 from eve.agent.agent import Agent, AgentPermission
-from eve.agent.session.models import Session, ChatMessage, LLMContext, LLMConfig
+from eve.agent.llm.llm import async_prompt
+from eve.agent.llm.prompts.system_template import system_template
 from eve.agent.memory.memory_models import messages_to_text
-from eve.agent.session.session_llm import async_prompt
-from eve.agent.session.session_prompts import system_template
 from eve.agent.memory.service import memory_service
+from eve.agent.session.models import ChatMessage, LLMConfig, LLMContext, Session
 from eve.concepts import Concept
+from eve.tool import ToolContext
 from eve.user import User
 from eve.utils import serialize_json
 
@@ -287,10 +284,10 @@ async def call_profile_matching_handler(
         Profile matching results dict
     """
     # Import the profile_matching handler
+    from eve.tool import ToolContext
     from eve.tools.gigabrain.profile_matching.handler import (
         handler as profile_matching_handler,
     )
-    from eve.tool import ToolContext
 
     # Create a mock context for the profile_matching tool
     mock_context = ToolContext(
@@ -345,9 +342,6 @@ Generate a friendly, personalized introduction message that presents these conne
 
     # Get concepts
     concepts = Concept.find({"agent": agent.id, "deleted": {"$ne": True}})
-
-    # Get current date/time
-    current_date_time = datetime.now(pytz.utc).strftime("%Y-%m-%d %H:%M:%S")
 
     memory = await memory_service.assemble_memory_context(
         session,
@@ -417,7 +411,7 @@ async def create_user_session_with_message(
             users=[user.id],
             platform=None,
             status="active",
-            title=f"Collective Intelligence Kickstart",
+            title="Collective Intelligence Kickstart",
         )
 
         # Save the session

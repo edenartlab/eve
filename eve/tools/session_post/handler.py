@@ -1,25 +1,28 @@
 import json
+from typing import List, Optional
+
 import modal
 from bson import ObjectId
-from typing import Optional, List
+from fastapi import BackgroundTasks
 from pydantic import BaseModel, Field
 
+from eve import db
 from eve.agent import Agent
-from eve.user import User
-from eve.tool import Tool, ToolContext
-from eve.api.api import remote_prompt_session
-from eve.api.handlers import setup_session
-from eve.api.api_requests import PromptSessionRequest, SessionCreationArgs
+from eve.agent.llm.llm import async_prompt
+from eve.agent.session.context import add_chat_message
 from eve.agent.session.models import (
-    PromptSessionContext,
+    ChatMessage,
+    ChatMessageRequestInput,
     LLMConfig,
     LLMContext,
+    PromptSessionContext,
     Session,
-    ChatMessage,
 )
-from eve.agent.session.session import add_chat_message
-from eve.agent.session.session_llm import async_prompt
-from eve import db
+from eve.agent.session.service import create_prompt_session_handle
+from eve.api.api import remote_prompt_session
+from eve.api.api_requests import PromptSessionRequest, SessionCreationArgs
+from eve.tool import Tool, ToolContext
+from eve.user import User
 
 
 async def handler(context: ToolContext):
@@ -44,7 +47,11 @@ async def handler(context: ToolContext):
     if session_id is None:
         title = context.args.get("title")
         if not title:
-            title = f"Session spawned from {context.session}" if context.session else "New Session"
+            title = (
+                f"Session spawned from {context.session}"
+                if context.session
+                else "New Session"
+            )
         request = PromptSessionRequest(
             user_id=str(user.id),
             creation_args=SessionCreationArgs(
@@ -52,12 +59,15 @@ async def handler(context: ToolContext):
                 agents=[str(agent.id)],
                 title=title,
                 parent_session=context.session,
-                extras={
-                    "is_public": context.args.get("public", False)
-                },
+                extras={"is_public": context.args.get("public", False)},
             ),
         )
-        new_session = setup_session(None, request.session_id, request.user_id, request)
+        placeholder_request = request.model_copy()
+        placeholder_request.message = ChatMessageRequestInput(
+            role="system", content="Initializing session"
+        )
+        handle = create_prompt_session_handle(placeholder_request, BackgroundTasks())
+        new_session = handle.session
         session_id = str(new_session.id)
 
     if context.message and context.tool_call_id:
@@ -91,7 +101,6 @@ async def handler(context: ToolContext):
         # agent.update(stats=stats.model_dump())
 
     elif context.args.get("role") in ["system", "user"]:
-        
         # If we're going to prompt, run session prompt routine (it handles message addition)
         if context.args.get("prompt"):
             result = await run_session_prompt(
@@ -102,9 +111,9 @@ async def handler(context: ToolContext):
                 attachments=context.args.get("attachments") or [],
                 extra_tools=context.args.get("extra_tools") or [],
                 async_mode=context.args.get("async"),
-            )            
+            )
             return result
-        
+
         else:
             # Otherwise, just add the message manually, but don't prompt
             new_message = ChatMessage(
@@ -144,8 +153,7 @@ async def run_session_prompt(
     # If async_mode, spawn session prompt and return immediately
     if async_mode:
         remote_fn = modal.Function.from_name(
-            f"api-{db.lower()}", 
-            "remote_prompt_session_fn"
+            f"api-{db.lower()}", "remote_prompt_session_fn"
         )
         remote_fn.spawn(
             session_id=session_id,
@@ -153,7 +161,7 @@ async def run_session_prompt(
             user_id=user_id,
             content=content,
             attachments=attachments,
-            extra_tools=extra_tools
+            extra_tools=extra_tools,
         )
 
         return {"output": {"session_id": session_id}}
@@ -170,8 +178,8 @@ async def run_session_prompt(
 
     # Get structured output from the remote session prompt
     class RemoteSessionResponse(BaseModel):
-        """All relevant results (or error report) from the remote session prompt"""    
-        
+        """All relevant results (or error report) from the remote session prompt"""
+
         outputs: List[str] = Field(
             description="A list of all requested successful media outputs, given the original request. Do not include intermediate results here -- only the desired output given the task."
         )
@@ -181,7 +189,7 @@ async def run_session_prompt(
         error: Optional[str] = Field(
             description="A human-readable error message that explains why the session failed to produce the requested outputs. Mutually exclusive with outputs -- **ONLY** set this if there was an error or the requested output was not successfully generated."
         )
-        
+
     system_message = """
     You are a helpful assistant that summarizes the results of a remote session prompt.
 
@@ -189,7 +197,7 @@ async def run_session_prompt(
     If it was successful, list all the successful outputs. If there were any important intermediate results, list them in the intermediate_outputs field.
     If it was not successful, provide a human-readable error message that explains why the session failed to produce the requested outputs.
     """
-    
+
     messages = ChatMessage.find({"session": ObjectId(session_id)})
 
     # Build LLM context with custom tools
@@ -207,10 +215,8 @@ async def run_session_prompt(
     )
 
     response = await async_prompt(context)
-    
-    output = RemoteSessionResponse(
-        **json.loads(response.content)
-    )
+
+    output = RemoteSessionResponse(**json.loads(response.content))
 
     # if output.error:
     #     raise Exception(output.error)

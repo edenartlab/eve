@@ -1,6 +1,7 @@
-from eve.tool import ToolContext
-import tempfile
 import subprocess
+import tempfile
+
+from eve.tool import ToolContext
 
 
 async def handler(context: ToolContext):
@@ -21,11 +22,15 @@ async def handler(context: ToolContext):
     # Check if video has existing audio
     probe_cmd = [
         "ffprobe",
-        "-v", "error",
-        "-select_streams", "a:0",
-        "-show_entries", "stream=codec_type",
-        "-of", "default=noprint_wrappers=1:nokey=1",
-        video_file
+        "-v",
+        "error",
+        "-select_streams",
+        "a:0",
+        "-show_entries",
+        "stream=codec_type",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        video_file,
     ]
     result = subprocess.run(probe_cmd, capture_output=True, text=True)
     video_has_audio = result.stdout.strip() == "audio"
@@ -48,14 +53,20 @@ async def handler(context: ToolContext):
     # First, process each new audio track (trim/pad to video duration)
     filter_parts = []
     for i, _ in enumerate(audio_files, start=1):
-        filter_parts.append(f"[{i}:a]atrim=0:{video_duration},asetpts=PTS-STARTPTS,apad[a{i}]")
+        filter_parts.append(
+            f"[{i}:a]atrim=0:{video_duration},asetpts=PTS-STARTPTS,apad[a{i}]"
+        )
 
     # Then mix all tracks together
     if video_has_audio:
         # Include video's existing audio in the mix
         num_inputs = len(audio_files) + 1
-        mix_inputs = "[0:a]" + "".join(f"[a{i}]" for i in range(1, len(audio_files) + 1))
-        filter_parts.append(f"{mix_inputs}amix=inputs={num_inputs}:duration=first:dropout_transition=0[aout]")
+        mix_inputs = "[0:a]" + "".join(
+            f"[a{i}]" for i in range(1, len(audio_files) + 1)
+        )
+        filter_parts.append(
+            f"{mix_inputs}amix=inputs={num_inputs}:duration=first:dropout_transition=0[aout]"
+        )
     else:
         # Mix only the new audio tracks
         num_inputs = len(audio_files)
@@ -65,22 +76,31 @@ async def handler(context: ToolContext):
         else:
             # Multiple tracks, mix them
             mix_inputs = "".join(f"[a{i}]" for i in range(1, len(audio_files) + 1))
-            filter_parts.append(f"{mix_inputs}amix=inputs={num_inputs}:duration=first:dropout_transition=0[aout]")
+            filter_parts.append(
+                f"{mix_inputs}amix=inputs={num_inputs}:duration=first:dropout_transition=0[aout]"
+            )
 
     filter_complex = ";".join(filter_parts)
 
-    cmd.extend([
-        "-filter_complex",
-        filter_complex,
-        "-map", "0:v",
-        "-map", "[aout]",
-        "-c:v", "copy",
-        "-c:a", "aac",
-        "-t", str(video_duration),
-        "-movflags",
-        "+faststart",
-        output_file.name,
-    ])
+    cmd.extend(
+        [
+            "-filter_complex",
+            filter_complex,
+            "-map",
+            "0:v",
+            "-map",
+            "[aout]",
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-t",
+            str(video_duration),
+            "-movflags",
+            "+faststart",
+            output_file.name,
+        ]
+    )
 
     subprocess.run(cmd)
 

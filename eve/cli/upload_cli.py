@@ -1,5 +1,7 @@
 import click
+
 from ..s3 import upload_file
+
 
 @click.command()
 @click.option(
@@ -11,7 +13,7 @@ from ..s3 import upload_file
 @click.argument("files", nargs=-1, required=False)
 def upload(db: str, files: tuple):
     """Upload agents to mongo"""
-    
+
     for file in files:
         try:
             result = upload_file(file)
@@ -22,8 +24,4 @@ def upload(db: str, files: tuple):
                 )
             )
         except Exception as e:
-            click.echo(
-                click.style(
-                    f"Failed to upload file {file}: {e}", fg="red"
-                )
-            )
+            click.echo(click.style(f"Failed to upload file {file}: {e}", fg="red"))

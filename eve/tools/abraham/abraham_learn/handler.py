@@ -1,8 +1,9 @@
+import asyncio
 import math
 
-from eve.tool import Tool, ToolContext
 from eve.agent import Agent
 from eve.agent.session.models import Session
+from eve.tool import Tool, ToolContext
 from eve.tools.abraham.abraham_seed.handler import AbrahamSeed
 
 
@@ -102,12 +103,14 @@ async def commit_daily_work(agent: Agent, session: str):
         # print("total_messages", total_messages)
         # print("--------------------------------")
 
-        candidates.append({
-            "session": session,
-            "score": score,
-            "unique_users": unique_users,
-            "total_messages": total_messages,
-        })
+        candidates.append(
+            {
+                "session": session,
+                "score": score,
+                "unique_users": unique_users,
+                "total_messages": total_messages,
+            }
+        )
 
     candidates = sorted(candidates, key=lambda x: x["score"], reverse=True)
 
@@ -129,7 +132,7 @@ async def commit_daily_work(agent: Agent, session: str):
     await session_post.async_run(
         {
             "role": "user",
-            "user_id": str(context.user),
+            # "user_id": str(context.user),
             "agent_id": str(agent.id),
             "session": str(winner["session"].id),
             "content": daily_message,
@@ -170,7 +173,6 @@ async def handler(context: ToolContext):
     if agent.username != "abraham":
         raise Exception("Agent is not Abraham")
 
-
     abraham_seeds = AbrahamSeed.find()
     sessions = Session.find({"_id": {"$in": [a.session_id for a in abraham_seeds]}})
     for session in sessions:
@@ -182,9 +184,6 @@ async def handler(context: ToolContext):
         # for msg in user_messages:
         #     print(msg.content)
 
-
-
-
     return {"output": [{"message": "Learn from last week"}]}
 
 
@@ -192,6 +191,5 @@ if __name__ == "__main__":
     agent = Agent.load("abraham")
     tool_context = ToolContext(
         agent=str(agent.id),
-        user=str(get_my_eden_user().id),
     )
     asyncio.run(handler(tool_context))

@@ -1,7 +1,10 @@
-from eve.tool import ToolContext
-import openai
 import json
 import tempfile
+
+import openai
+
+from eve.tool import ToolContext
+
 from ... import utils
 
 

@@ -1,8 +1,9 @@
-from eve.tool import ToolContext
 import base64
 import os
+
 import openai
 
+from eve.tool import ToolContext
 
 SAFETY_CODES = {"moderation_blocked", "content_policy_violation"}
 

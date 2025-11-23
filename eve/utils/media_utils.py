@@ -1,30 +1,32 @@
 from __future__ import annotations
-import os
-import math
-import magic
+
 import base64
+import math
+import os
+import subprocess
 import tempfile
 import textwrap
-import subprocess
+from io import BytesIO
+from typing import List
+
 import blurhash
+import magic
 import numpy as np
 import requests
-from typing import List
-from PIL import Image, ImageFont, ImageDraw
-from io import BytesIO
 from loguru import logger
+from PIL import Image, ImageDraw, ImageFont
 
 try:
     # MoviePy 2.x
-    from moviepy import VideoFileClip, ImageClip, AudioClip
+    from moviepy import AudioClip, ImageClip, VideoFileClip
 except ImportError:
     # MoviePy 1.x
-    from moviepy.editor import VideoFileClip, ImageClip, AudioClip
+    from moviepy.editor import AudioClip, ImageClip, VideoFileClip
 
 import replicate
 
 from .. import s3
-from .file_utils import get_file_handler, download_file
+from .file_utils import download_file, get_file_handler
 from .text_utils import get_font, wrap_text
 
 

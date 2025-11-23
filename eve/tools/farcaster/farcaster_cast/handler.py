@@ -1,15 +1,10 @@
 from bson import ObjectId
 
-from eve.mongo import Collection, Document
-from eve.tool import ToolContext
 from eve.agent import Agent
-from eve.agent.session.models import Session
 from eve.agent.deployments import Deployment
-from eve.agent.deployments.farcaster import (
-    post_cast, 
-    get_fid, 
-    FarcasterEvent
-)
+from eve.agent.deployments.farcaster import FarcasterEvent, get_fid, post_cast
+from eve.agent.session.models import Session
+from eve.tool import ToolContext
 
 # TODO: save message id to FarcasterEvent
 
@@ -26,13 +21,13 @@ async def handler(context: ToolContext):
     text = context.args.get("text", "")
     embeds = context.args.get("embeds") or []
     parent_hash = context.args.get("reply_to")
-    
+
     # get parent FID
     parent_fid = None
     if parent_hash:
         parent_event = FarcasterEvent.find_one({"cast_hash": parent_hash})
         parent_fid = parent_event.cast_fid
-    
+
     # Validate required parameters
     if not text and not embeds:
         raise Exception("Either text content or embeds must be provided")
@@ -54,10 +49,7 @@ async def handler(context: ToolContext):
 
         # Post the main cast using the reusable helper function
         result = await post_cast(
-            secrets=deployment.secrets, 
-            text=text, 
-            embeds=embeds1 or None, 
-            parent=parent
+            secrets=deployment.secrets, text=text, embeds=embeds1 or None, parent=parent
         )
         cast_hash = result["hash"]
         cast_url = result["url"]
@@ -70,9 +62,9 @@ async def handler(context: ToolContext):
             fid = await get_fid(deployment.secrets)
             parent1 = {"hash": cast_hash, "fid": int(fid)}
             result2 = await post_cast(
-                secrets=deployment.secrets, 
-                text="", 
-                embeds=embeds2, 
+                secrets=deployment.secrets,
+                text="",
+                embeds=embeds2,
                 parent=parent1,
                 thread_hash=thread_hash,
             )

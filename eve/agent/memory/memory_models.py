@@ -1,18 +1,19 @@
-import traceback
 import math
-from typing import List, Optional, Dict
-from bson import ObjectId
-from eve.mongo import Collection, Document
+import traceback
 from datetime import datetime, timezone
+from typing import Dict, List, Optional
+
+from bson import ObjectId
 from loguru import logger
 
 from eve.agent.memory.memory_constants import (
-    MAX_FACTS_PER_SHARD,
     MAX_AGENT_MEMORIES_BEFORE_CONSOLIDATION,
+    MAX_FACTS_PER_SHARD,
     MemoryType,
 )
-from eve.agent.session.models import ChatMessage, Session
 from eve.agent.session.config import DEFAULT_SESSION_SELECTION_LIMIT
+from eve.agent.session.models import ChatMessage, Session
+from eve.mongo import Collection, Document
 from eve.user import User
 
 # Multipliers on the char/token count of different message types for memory importance / formation triggers:
@@ -190,7 +191,7 @@ def messages_to_text(
                         )
                         content += tool_result_content
                         char_counts_by_source["tool"] += len(tool_result_content)
-                    except Exception as e:
+                    except Exception:
                         # Fallback: just mention tool was used with results
                         fallback_content = f"\n[{tc.tool} completed with results]"
                         content += fallback_content
@@ -476,7 +477,7 @@ def get_agent_owner(agent_id: ObjectId) -> Optional[ObjectId]:
 def select_messages(
     session: Session,
     selection_limit: Optional[int] = DEFAULT_SESSION_SELECTION_LIMIT,
-    last_memory_message_id: Optional[ObjectId] = None
+    last_memory_message_id: Optional[ObjectId] = None,
 ):
     """
     Select messages from a session with an optional selection limit.
@@ -494,17 +495,18 @@ def select_messages(
     if last_memory_message_id is not None and selection_limit is not None:
         # Get the timestamp of the last memory message
         last_memory_msg = messages.find_one(
-            {"_id": last_memory_message_id},
-            {"createdAt": 1}
+            {"_id": last_memory_message_id}, {"createdAt": 1}
         )
 
         if last_memory_msg and last_memory_msg.get("createdAt"):
             # Count messages since last_memory_message_id (including messages created after it)
-            messages_since_last = messages.count_documents({
-                "session": session.id,
-                "role": {"$ne": "eden"},
-                "createdAt": {"$gt": last_memory_msg["createdAt"]}
-            })
+            messages_since_last = messages.count_documents(
+                {
+                    "session": session.id,
+                    "role": {"$ne": "eden"},
+                    "createdAt": {"$gt": last_memory_msg["createdAt"]},
+                }
+            )
 
             # Use the larger of selection_limit or messages_since_last to ensure we get everything
             # Add a small buffer to account for edge cases

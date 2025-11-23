@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional, Dict, Any
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from bson import ObjectId
 
@@ -37,6 +37,7 @@ class MemoryService:
         force_refresh: bool = False,
         reason: str = "unknown",
         skip_save: bool = False,
+        instrumentation=None,
     ) -> str:
         return await self._backend.assemble_memory_context(
             session,
@@ -45,6 +46,7 @@ class MemoryService:
             force_refresh=force_refresh,
             reason=reason,
             skip_save=skip_save,
+            instrumentation=instrumentation,
         )
 
     async def maybe_form_memories(

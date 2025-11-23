@@ -1,18 +1,20 @@
-import os
 import asyncio
-import requests
-import tempfile
 import mimetypes
+import os
+import tempfile
 from urllib.parse import urlparse
+
+import requests
+
 from google import genai
 from google.oauth2 import service_account
 
 
-async def veo_handler(args: dict, model: str):
-    if not args.get("prompt") and not args.get("image"):
-        raise ValueError("At least one of prompt or image is required")
+def create_gcp_client(gcp_location: str = None):
+    """Create and return a Google GenAI client configured for Vertex AI."""
+    if gcp_location is None:
+        gcp_location = os.environ["GCP_LOCATION"]
 
-    # --- setup gcp client ----
     service_account_info = {
         "type": os.environ["GCP_TYPE"],
         "project_id": os.environ["GCP_PROJECT_ID"],
@@ -30,12 +32,20 @@ async def veo_handler(args: dict, model: str):
         service_account_info, scopes=["https://www.googleapis.com/auth/cloud-platform"]
     )
 
-    client = genai.Client(
+    return genai.Client(
         vertexai=True,
         project=os.environ["GCP_PROJECT_ID"],
-        location=os.environ["GCP_LOCATION"],
+        location=gcp_location,
         credentials=credentials,
     )
+
+
+async def veo_handler(args: dict, model: str):
+    if not args.get("prompt") and not args.get("image"):
+        raise ValueError("At least one of prompt or image is required")
+
+    # --- setup gcp client ----
+    client = create_gcp_client()
 
     # ---- get image and setup args ----
     config_dict = {

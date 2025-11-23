@@ -2,7 +2,6 @@ from jinja2 import Template
 
 from eve.tool import Tool, ToolContext
 
-
 init_message = """
 <Reel>
 A reel is a short film of around 30 seconds up to 5 minutes in length. It is for making a commercial, movie trailer, short film, advertisement, music video, or some other short coherent time format.

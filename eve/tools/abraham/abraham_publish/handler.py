@@ -1,9 +1,8 @@
 from jinja2 import Template
 
-from eve.tool import Tool, ToolContext
-from eve.agent.deployments import Deployment
 from eve.agent import Agent
-
+from eve.agent.deployments import Deployment
+from eve.tool import Tool, ToolContext
 
 init_message = """
 <Intro>
@@ -112,19 +111,21 @@ async def handler(context: ToolContext):
         reference_images=reference_images,
     )
 
-    result = await session_post.async_run({
-        "role": "user",
-        "user_id": str(context.user),
-        "agent_id": str(agent.id),
-        "title": title,
-        "content": user_message,
-        "attachments": [],
-        "pin": True,
-        "prompt": True,
-        "async": True,
-        "extra_tools": ["farcaster_cast", "abraham_seed"],
-        "public": True,
-    })
+    result = await session_post.async_run(
+        {
+            "role": "user",
+            "user_id": str(context.user),
+            "agent_id": str(agent.id),
+            "title": title,
+            "content": user_message,
+            "attachments": [],
+            "pin": True,
+            "prompt": True,
+            "async": True,
+            "extra_tools": ["farcaster_cast", "abraham_seed"],
+            "public": True,
+        }
+    )
 
     # print("THE RESULT")
     # print(result)

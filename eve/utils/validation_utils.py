@@ -1,7 +1,8 @@
 from __future__ import annotations
+
 import os
 import shlex
-from typing import Union, Tuple, Set
+from typing import Set, Tuple, Union
 
 
 class CommandValidator:
@@ -78,6 +79,7 @@ def get_human_readable_error(error_list):
 
 def is_downloadable_file(value):
     import replicate
+
     return isinstance(value, replicate.helpers.FileOutput) or (
         isinstance(value, str)
         and (
@@ -86,7 +88,20 @@ def is_downloadable_file(value):
                 value.startswith(("http://", "https://"))
                 and "x.com" not in value
                 and "pbs.twimg.com" not in value
-                and not any(value.endswith(ext) for ext in [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", "html", "htm"])
+                and not any(
+                    value.endswith(ext)
+                    for ext in [
+                        ".pdf",
+                        ".doc",
+                        ".docx",
+                        ".xls",
+                        ".xlsx",
+                        ".ppt",
+                        ".pptx",
+                        "html",
+                        "htm",
+                    ]
+                )
             )
         )
     )

@@ -1,15 +1,16 @@
 import re
+from typing import Any, Dict, Iterable, List, Literal, Optional
+
 from bson import ObjectId
+from loguru import logger
 from pydantic import BaseModel
-from typing import Optional, Literal, List, Dict, Any, Iterable
 
 from .mongo import (
-    Document,
     Collection,
+    Document,
     MongoDocumentNotFound,
     get_collection,
 )
-from loguru import logger
 
 
 @Collection("mannas")
@@ -291,7 +292,8 @@ class User(Document):
 
         users = get_collection(cls.collection_name)
         cursor = users.find(
-            {"_id": {"$in": normalized_ids}}, {"eden_user_id": 1},
+            {"_id": {"$in": normalized_ids}},
+            {"eden_user_id": 1},
         )
 
         canonical_lookup: Dict[ObjectId, ObjectId] = {}
@@ -305,9 +307,7 @@ class User(Document):
         return result
 
     @classmethod
-    def get_canonical_user_id(
-        cls, user_id: Optional[ObjectId]
-    ) -> Optional[ObjectId]:
+    def get_canonical_user_id(cls, user_id: Optional[ObjectId]) -> Optional[ObjectId]:
         normalized = cls._normalize_object_id(user_id)
         if not normalized:
             return None

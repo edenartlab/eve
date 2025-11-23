@@ -1,27 +1,31 @@
 import os
 from typing import Optional
-from fastapi.security import APIKeyHeader, HTTPBearer, HTTPAuthorizationCredentials
-from fastapi import WebSocket, HTTPException, Depends, status
-from bson import ObjectId
+
 import httpx
+from bson import ObjectId
+from fastapi import Depends, HTTPException, WebSocket, status
+from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
+from . import EDEN_API_KEY
 from .mongo import get_collection
 from .user import User
-from . import EDEN_API_KEY
 
 # Lazy load Clerk SDK to avoid circular import issues
 _clerk = None
+
 
 def get_clerk():
     global _clerk
     if _clerk is None:
         try:
             from clerk_backend_api import Clerk
+
             _clerk = Clerk(bearer_auth=os.getenv("CLERK_SECRET_KEY"))
         except ImportError as e:
             raise ImportError(f"Failed to import Clerk SDK: {e}") from e
     return _clerk
+
 
 api_key_header = APIKeyHeader(name="X-Api-Key", auto_error=False)
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -99,7 +103,7 @@ async def get_clerk_session(
     """Verify Clerk session and return user data"""
     try:
         from clerk_backend_api.jwks_helpers import AuthenticateRequestOptions
-        
+
         clerk = get_clerk()
         # Create a mock httpx.Request with the token
         mock_request = httpx.Request(

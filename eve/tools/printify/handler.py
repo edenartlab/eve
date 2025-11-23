@@ -1,12 +1,13 @@
-import requests
-import uuid
 import traceback
-from typing import Dict, Any
+import uuid
+from typing import Any, Dict
+
+import requests
+from loguru import logger
 
 from eve.agent.agent import Agent
 from eve.agent.session.models import Deployment
 from eve.tool import ToolContext
-from loguru import logger
 
 
 async def handler(context: ToolContext):

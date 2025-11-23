@@ -1,7 +1,8 @@
-import time
 import logging
-import requests
+import time
 from datetime import datetime, timedelta
+
+import requests
 
 from eve.agent.deployments import Deployment
 
@@ -9,19 +10,21 @@ from eve.agent.deployments import Deployment
 class X:
     def __init__(self, deployment: Deployment):
         import os
-        
+
         # OAuth 2.0 only mode
         self.access_token = deployment.secrets.twitter.access_token
         self.refresh_token = deployment.secrets.twitter.refresh_token
         self.twitter_id = deployment.secrets.twitter.twitter_id
         self.user_id = deployment.secrets.twitter.twitter_id  # For compatibility
         self.username = deployment.secrets.twitter.username
-        
+
         # Get app credentials from environment
         self.consumer_key = os.getenv("TWITTER_INTEGRATIONS_CLIENT_ID")
         self.consumer_secret = os.getenv("TWITTER_INTEGRATIONS_CLIENT_SECRET")
-        self.bearer_token = self.access_token  # OAuth 2.0 access token can be used as bearer
-        
+        self.bearer_token = (
+            self.access_token
+        )  # OAuth 2.0 access token can be used as bearer
+
         if not all([self.access_token, self.twitter_id, self.username]):
             raise ValueError("Missing required OAuth 2.0 credentials")
 
@@ -33,10 +36,10 @@ class X:
     def _make_request(self, method, url, **kwargs):
         """Makes a request to the Twitter API using OAuth 2.0."""
         # Always use bearer token authentication for OAuth 2.0
-        if 'headers' not in kwargs:
-            kwargs['headers'] = {}
-        kwargs['headers']['Authorization'] = f'Bearer {self.access_token}'
-        
+        if "headers" not in kwargs:
+            kwargs["headers"] = {}
+        kwargs["headers"]["Authorization"] = f"Bearer {self.access_token}"
+
         if method.lower() == "get":
             response = requests.get(url, **kwargs)
         else:

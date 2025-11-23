@@ -1,8 +1,9 @@
 import functools
 import logging
+from typing import Any, Callable
+
 import sentry_sdk
 from fastapi import HTTPException
-from typing import Callable, Any
 
 logger = logging.getLogger(__name__)
 

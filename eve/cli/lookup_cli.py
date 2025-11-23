@@ -2,8 +2,8 @@ import click
 from bson import ObjectId
 from bson.errors import InvalidId
 
-from ..user import User
 from ..task import Creation
+from ..user import User
 from ..utils import dumps_json
 
 
@@ -19,14 +19,16 @@ def print_document(doc_id, doc_dict, doc_type):
 
     # Print the rest of the document
     # Remove _id from the dict since we already printed it
-    doc_dict_copy = {k: v for k, v in doc_dict.items() if k != '_id'}
+    doc_dict_copy = {k: v for k, v in doc_dict.items() if k != "_id"}
 
     # Convert ObjectIds to strings for better display
     for key, value in doc_dict_copy.items():
         if isinstance(value, ObjectId):
             doc_dict_copy[key] = str(value)
         elif isinstance(value, list):
-            doc_dict_copy[key] = [str(v) if isinstance(v, ObjectId) else v for v in value]
+            doc_dict_copy[key] = [
+                str(v) if isinstance(v, ObjectId) else v for v in value
+            ]
 
     formatted_doc = dumps_json(doc_dict_copy, indent=2)
     click.echo(click.style(formatted_doc, fg="white"))
@@ -51,7 +53,7 @@ def lookup(db: str, name: str):
             # Get the raw document from mongo to display all fields
             users_collection = User.get_collection()
             user_doc = users_collection.find_one({"username": name})
-            print_document(user_doc['_id'], user_doc, "user")
+            print_document(user_doc["_id"], user_doc, "user")
             return
     except Exception:
         # User not found, continue to next search
@@ -65,7 +67,7 @@ def lookup(db: str, name: str):
         creation_doc = creations_collection.find_one({"_id": creation_id})
 
         if creation_doc:
-            print_document(creation_doc['_id'], creation_doc, "creation")
+            print_document(creation_doc["_id"], creation_doc, "creation")
             return
     except (InvalidId, Exception):
         # Not a valid ObjectId or creation not found

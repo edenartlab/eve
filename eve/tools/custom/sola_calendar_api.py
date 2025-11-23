@@ -3,11 +3,12 @@ Sola.day Calendar API Wrapper
 Provides flexible access to calendar events with date-based filtering and indexing.
 """
 
-import requests
 from datetime import datetime, timedelta
-from typing import Optional, Dict, List, Union, Literal
-from dateutil import parser as date_parser
+from typing import Dict, List, Literal, Optional, Union
+
 import pytz
+import requests
+from dateutil import parser as date_parser
 
 
 class SolaCalendarAPI:
@@ -18,8 +19,11 @@ class SolaCalendarAPI:
 
     BASE_URL = "https://sola-event-scrape-MO58.replit.app"
 
-    def __init__(self, default_group_id: Optional[int] = None,
-                 default_timezone: str = "America/Argentina/Buenos_Aires"):
+    def __init__(
+        self,
+        default_group_id: Optional[int] = None,
+        default_timezone: str = "America/Argentina/Buenos_Aires",
+    ):
         """
         Initialize the API wrapper.
 
@@ -31,13 +35,15 @@ class SolaCalendarAPI:
         self.default_timezone = default_timezone
         self.session = requests.Session()
 
-    def get_events(self,
-                   group_id: Optional[int] = None,
-                   collection: Literal["upcoming", "past", "all"] = "upcoming",
-                   search_title: Optional[str] = None,
-                   timezone: Optional[str] = None,
-                   page: int = 1,
-                   limit: int = 25) -> Dict:
+    def get_events(
+        self,
+        group_id: Optional[int] = None,
+        collection: Literal["upcoming", "past", "all"] = "upcoming",
+        search_title: Optional[str] = None,
+        timezone: Optional[str] = None,
+        page: int = 1,
+        limit: int = 25,
+    ) -> Dict:
         """
         Search for events with flexible filtering.
 
@@ -54,7 +60,9 @@ class SolaCalendarAPI:
         """
         group_id = group_id or self.default_group_id
         if group_id is None:
-            raise ValueError("group_id is required (set default_group_id or pass as parameter)")
+            raise ValueError(
+                "group_id is required (set default_group_id or pass as parameter)"
+            )
 
         timezone = timezone or self.default_timezone
 
@@ -63,7 +71,7 @@ class SolaCalendarAPI:
             "collection": collection,
             "timezone": timezone,
             "page": page,
-            "limit": min(limit, 100)
+            "limit": min(limit, 100),
         }
 
         if search_title:
@@ -120,9 +128,11 @@ class SolaCalendarAPI:
         response.raise_for_status()
         return response.json()
 
-    def get_user_events(self,
-                       username: str,
-                       tab: Literal["attending", "hosting", "co-hosting"] = "attending") -> Dict:
+    def get_user_events(
+        self,
+        username: str,
+        tab: Literal["attending", "hosting", "co-hosting"] = "attending",
+    ) -> Dict:
         """
         Get events a user is attending, hosting, or co-hosting.
 
@@ -134,15 +144,19 @@ class SolaCalendarAPI:
             Dict with user's events
         """
         params = {"tab": tab}
-        response = self.session.get(f"{self.BASE_URL}/users/{username}/events", params=params)
+        response = self.session.get(
+            f"{self.BASE_URL}/users/{username}/events", params=params
+        )
         response.raise_for_status()
         return response.json()
 
-    def get_events_by_date_range(self,
-                                  start_date: Union[str, datetime],
-                                  end_date: Union[str, datetime],
-                                  group_id: Optional[int] = None,
-                                  timezone: Optional[str] = None) -> List[Dict]:
+    def get_events_by_date_range(
+        self,
+        start_date: Union[str, datetime],
+        end_date: Union[str, datetime],
+        group_id: Optional[int] = None,
+        timezone: Optional[str] = None,
+    ) -> List[Dict]:
         """
         Get events within a specific date range.
 
@@ -178,7 +192,7 @@ class SolaCalendarAPI:
                 collection="all",
                 timezone=timezone,
                 page=page,
-                limit=100
+                limit=100,
             )
 
             events = response.get("events", [])
@@ -197,10 +211,12 @@ class SolaCalendarAPI:
 
         return filtered_events
 
-    def get_events_on_date(self,
-                          date: Union[str, datetime],
-                          group_id: Optional[int] = None,
-                          timezone: Optional[str] = None) -> List[Dict]:
+    def get_events_on_date(
+        self,
+        date: Union[str, datetime],
+        group_id: Optional[int] = None,
+        timezone: Optional[str] = None,
+    ) -> List[Dict]:
         """
         Get events on a specific date.
 
@@ -226,12 +242,16 @@ class SolaCalendarAPI:
         start_of_day = date
         end_of_day = date + timedelta(days=1) - timedelta(microseconds=1)
 
-        return self.get_events_by_date_range(start_of_day, end_of_day, group_id, timezone)
+        return self.get_events_by_date_range(
+            start_of_day, end_of_day, group_id, timezone
+        )
 
-    def index_events_by_date(self,
-                            group_id: Optional[int] = None,
-                            collection: Literal["upcoming", "past", "all"] = "upcoming",
-                            timezone: Optional[str] = None) -> Dict[str, List[Dict]]:
+    def index_events_by_date(
+        self,
+        group_id: Optional[int] = None,
+        collection: Literal["upcoming", "past", "all"] = "upcoming",
+        timezone: Optional[str] = None,
+    ) -> Dict[str, List[Dict]]:
         """
         Create a date-indexed dictionary of events.
 
@@ -252,7 +272,7 @@ class SolaCalendarAPI:
                 collection=collection,
                 timezone=timezone,
                 page=page,
-                limit=100
+                limit=100,
             )
 
             events = response.get("events", [])
@@ -273,10 +293,12 @@ class SolaCalendarAPI:
 
         return events_by_date
 
-    def get_upcoming_events_next_n_days(self,
-                                       n_days: int,
-                                       group_id: Optional[int] = None,
-                                       timezone: Optional[str] = None) -> List[Dict]:
+    def get_upcoming_events_next_n_days(
+        self,
+        n_days: int,
+        group_id: Optional[int] = None,
+        timezone: Optional[str] = None,
+    ) -> List[Dict]:
         """
         Get upcoming events in the next N days.
 
@@ -296,9 +318,11 @@ class SolaCalendarAPI:
 
 
 # Convenience function for simple use cases
-def get_events_by_date(date: Union[str, datetime],
-                      group_id: int,
-                      timezone: str = "America/Argentina/Buenos_Aires") -> List[Dict]:
+def get_events_by_date(
+    date: Union[str, datetime],
+    group_id: int,
+    timezone: str = "America/Argentina/Buenos_Aires",
+) -> List[Dict]:
     """
     Simple function to get events on a specific date.
 

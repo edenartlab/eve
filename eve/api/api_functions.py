@@ -5,23 +5,24 @@ These are Modal functions and helper utilities that are not FastAPI routes.
 
 import os
 import time
+
 import replicate
 import sentry_sdk
+from loguru import logger
 
 from eve import utils
-from eve.mongo import get_collection
-from eve.s3 import get_full_url
-from eve.task import task_handler_func, Task
-from eve.tool import Tool, ToolContext
-from eve.tools.tool_handlers import load_handler
-from eve.tools.replicate_tool import replicate_update_task
+from eve.api.helpers import busy_state_dict
 from eve.api.runner_tasks import (
     cancel_stuck_tasks,
     generate_lora_thumbnails,
     rotate_agent_metadata,
 )
-from eve.api.helpers import busy_state_dict
-from loguru import logger
+from eve.mongo import get_collection
+from eve.s3 import get_full_url
+from eve.task import Task, task_handler_func
+from eve.tool import Tool, ToolContext
+from eve.tools.replicate_tool import replicate_update_task
+from eve.tools.tool_handlers import load_handler
 
 db = os.getenv("DB", "STAGE").upper()
 
@@ -57,13 +58,13 @@ async def rotate_agent_metadata_fn():
 
 
 async def run(
-    tool_key: str, 
-    args: dict, 
-    user: str = None, 
-    agent: str = None, 
+    tool_key: str,
+    args: dict,
+    user: str = None,
+    agent: str = None,
     session: str = None,
-    message: str = None, 
-    tool_call_id: str = None
+    message: str = None,
+    tool_call_id: str = None,
 ):
     handler = load_handler(tool_key)
     context = ToolContext(
@@ -80,13 +81,13 @@ async def run(
 
 @task_handler_func
 async def run_task(
-    tool_key: str, 
-    args: dict, 
-    user: str = None, 
-    agent: str = None, 
-    session: str = None, 
-    message: str = None, 
-    tool_call_id: str = None
+    tool_key: str,
+    args: dict,
+    user: str = None,
+    agent: str = None,
+    session: str = None,
+    message: str = None,
+    tool_call_id: str = None,
 ):
     handler = load_handler(tool_key)
     context = ToolContext(
@@ -233,21 +234,23 @@ async def cleanup_stale_busy_states():
 async def embed_recent_creations():
     """Embed recent creations (images & videos) that don't have embeddings yet."""
     try:
-        import io, json, subprocess
-        import requests
+        import io
+        import json
+        import subprocess
         from datetime import datetime, timedelta, timezone
-        from PIL import Image
+
+        import requests
         import torch
         import torch.nn.functional as F
-        from transformers import CLIPProcessor, CLIPModel
-        from pymongo import UpdateOne
         from bson.binary import Binary, BinaryVectorDtype
+        from PIL import Image
+        from pymongo import UpdateOne
+        from transformers import CLIPModel, CLIPProcessor
 
         logger.info("Starting embed_recent_creations job")
 
         # ---- Settings ----
         MODEL_NAME = "openai/clip-vit-large-patch14"
-        IMAGE_BATCH = 8  # how many images to embed at once
         VIDEO_FRAMES = 8  # how many frames to sample per video
         VIDEO_POOLING = "mean"  # "mean" | "self_sim" | "max"
         INCLUDE_THUMBNAIL_FRAME = (

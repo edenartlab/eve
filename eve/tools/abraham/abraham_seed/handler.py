@@ -1,25 +1,25 @@
-import os
 import logging
-from eve.mongo import Collection, Document
-from eve.tool import ToolContext
-from bson import ObjectId
-from typing import Literal, Optional
-from pydantic import BaseModel
+import os
 from datetime import datetime
+from typing import Literal, Optional
 
+from bson import ObjectId
+from pydantic import BaseModel
 from web3 import Web3
 
-from eve.utils.ipfs_utils import pin as ipfs_pin
-from eve.utils.chain_utils import (
-    safe_send,
-    BlockchainError,
-    load_contract,
-    Network,
-)
+from eve.mongo import Collection, Document
+from eve.tool import ToolContext
 from eve.tools.abraham.abraham_seed.guardrails import (
     validate_ipfs_bundle,
     validate_seed,
 )
+from eve.utils.chain_utils import (
+    BlockchainError,
+    Network,
+    load_contract,
+    safe_send,
+)
+from eve.utils.ipfs_utils import pin as ipfs_pin
 
 # Initialize logger
 logger = logging.getLogger(__name__)
@@ -208,7 +208,7 @@ async def handler(context: ToolContext):
     # Safety checks
     validate_seed(title, tagline, proposal, image, session_id)
 
-    logger.info(f"Seed validated successfully!")
+    logger.info("Seed validated successfully!")
     logger.info(f"Title: {title}")
     logger.info(f"Tagline: {tagline}")
     logger.info(f"Proposal: {proposal}")
@@ -258,7 +258,7 @@ async def handler(context: ToolContext):
                 "explorer_url": result["explorer_url"],
             }
         }
-        
+
     except Exception as e:
         logger.error(f"Failed to mint seed: {e}")
         raise

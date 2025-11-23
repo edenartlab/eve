@@ -1,17 +1,18 @@
-import os
-import json
-import requests
 import html as html_module
+import json
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+
+import requests
 from bson import ObjectId
 from loguru import logger
 
-from ..mongo import get_collection
 from ..agent import Agent
-from ..user import User
+from ..mongo import get_collection
 from ..task import Task
+from ..user import User
 from . import data_utils
 
 
@@ -96,7 +97,7 @@ def export_user_data(
             try:
                 agent = Agent.from_mongo(agent_id)
                 agent_names_cache[agent_id] = agent.name if agent else "Unknown Agent"
-            except:
+            except Exception:
                 agent_names_cache[agent_id] = "Unknown Agent"
         return agent_names_cache[agent_id]
 
@@ -339,7 +340,7 @@ def export_user_data(
                                 tool_call_data["status"] = tool_content.get(
                                     "status", tc.get("status", "")
                                 )
-                        except:
+                        except Exception:
                             pass  # Keep original if parsing fails
 
                 message_data["tool_calls"].append(tool_call_data)
@@ -435,7 +436,7 @@ def export_user_data(
                                     else:
                                         # Fallback for non-dict content
                                         html_content += f"<div>{html_module.escape(str(tool_content))}</div>"
-                                except:
+                                except Exception:
                                     # If parsing fails, show raw content
                                     html_content += f"<div>{html_module.escape(tool_msg.get('content', ''))}</div>"
                         else:
@@ -476,7 +477,7 @@ def export_user_data(
     with open(html_path, "w") as f:
         f.write(html_content)
 
-    logger.info(f"Export completed successfully!")
+    logger.info("Export completed successfully!")
     logger.info(f"Export directory: {export_dir}")
     logger.info(f"- JSON file: {json_path}")
     logger.info(f"- HTML file: {html_path}")

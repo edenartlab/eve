@@ -1,13 +1,14 @@
-from datetime import datetime, timezone
 import math
+from datetime import datetime, timezone
+
 from jinja2 import Template
 
-from eve.tool import Tool, ToolContext
-from eve.user import User
 from eve.agent import Agent
 from eve.agent.session.models import Session
+from eve.tool import Tool, ToolContext
 from eve.tools.abraham.abraham_rest.handler import rest
 from eve.tools.abraham.abraham_seed.handler import AbrahamSeed
+from eve.user import User
 
 
 def user_score(msg_count: int) -> float:
@@ -169,22 +170,26 @@ async def commit_daily_work(agent: Agent, session: str):
             [
                 {
                     "user_id": user_id,
-                    "username": User.from_mongo(user_id).username.replace("farcaster_", ""),
-                    "message_count": count
-                } 
+                    "username": User.from_mongo(user_id).username.replace(
+                        "farcaster_", ""
+                    ),
+                    "message_count": count,
+                }
                 for user_id, count in messages_per_user.items()
             ],
             key=lambda x: x["message_count"],
-            reverse=True
+            reverse=True,
         )
 
-        candidates.append({
-            "session": session,
-            "score": score,
-            "unique_users": unique_users,
-            "total_messages": total_messages,
-            "users": users_sorted,
-        })
+        candidates.append(
+            {
+                "session": session,
+                "score": score,
+                "unique_users": unique_users,
+                "total_messages": total_messages,
+                "users": users_sorted,
+            }
+        )
 
     candidates = sorted(candidates, key=lambda x: x["score"], reverse=True)
     winner = candidates[0]

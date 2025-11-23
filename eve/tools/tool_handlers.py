@@ -1,5 +1,6 @@
 import importlib
-from eve.tool_constants import GIGABRAIN_TOOLS, ABRAHAM_TOOLS, VERDELIS_TOOLS
+
+from eve.tool_constants import ABRAHAM_TOOLS, GIGABRAIN_TOOLS, VERDELIS_TOOLS
 
 handlers = {}
 
@@ -49,6 +50,7 @@ HANDLER_PATHS = {
     "openai_image_edit": "openai_image_edit.handler",
     "veo2": "google.veo2.handler",
     "veo3": "google.veo3.handler",
+    "nano_banana_pro": "google.nano_banana_pro.handler",
     "captions": "captions.handler",
     "printify": "printify.handler",
     "tiktok_post": "tiktok.tiktok_post.handler",

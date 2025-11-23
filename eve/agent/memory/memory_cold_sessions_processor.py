@@ -25,17 +25,18 @@ modal app stop memory_process_cold_sessions
 
 import os
 import traceback
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
 import modal
 import sentry_sdk
 from loguru import logger
 
 from eve.agent.memory.memory_constants import (
-    NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES,
-    CONSIDER_COLD_AFTER_MINUTES,
     CLEANUP_COLD_SESSIONS_EVERY_MINUTES,
+    CONSIDER_COLD_AFTER_MINUTES,
     LOCAL_DEV,
+    NEVER_FORM_MEMORIES_LESS_THAN_N_MESSAGES,
 )
 
 
@@ -52,8 +53,8 @@ async def process_cold_sessions():
     logger.debug("🧠 Processing cold sessions for memory formation...")
 
     try:
-        from eve.agent.session.models import Session, ChatMessage
         from eve.agent.memory.service import memory_service
+        from eve.agent.session.models import ChatMessage, Session
 
         current_time = datetime.now(timezone.utc)
         cutoff_time = current_time - timedelta(minutes=CONSIDER_COLD_AFTER_MINUTES)
@@ -81,7 +82,7 @@ async def process_cold_sessions():
             },
         }
 
-        logger.debug(f"Running queries...")
+        logger.debug("Running queries...")
         cold_sessions_with_context = Session.find(
             query_with_context, limit=MAX_SESSIONS_TO_PROCESS // 2
         )
@@ -203,7 +204,7 @@ db = os.getenv("DB", "STAGE").upper()
 root_dir = Path(__file__).parent.parent.parent.parent
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    .env({"DB": db, "MODAL_SERVE": os.getenv("MODAL_SERVE", "False")})
+    .env({"DB": db, "MODAL_SERVE": "1"})
     .apt_install(
         "git",
         "libmagic1",

@@ -1,9 +1,9 @@
 from fastapi import Request
-
 from loguru import logger
-from eve.api.errors import APIError
+
 from eve.agent.deployments import PlatformClient
-from eve.agent.session.models import DeploymentSecrets, DeploymentConfig
+from eve.agent.session.models import DeploymentConfig, DeploymentSecrets
+from eve.api.errors import APIError
 
 
 class TiktokClient(PlatformClient):

@@ -3,42 +3,40 @@ import json
 import logging
 import os
 import re
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+import aiohttp
 import modal
 import websockets
-import aiohttp
 from ably import AblyRealtime
 from bson import ObjectId
+from fastapi import FastAPI, Header, HTTPException, Request
 
-
-from eve import db
+import eve.mongo
 from eve.agent.agent import Agent
-from eve.user import User
-from eve.agent.session.models import (
-    ChatMessageRequestInput,
-    Session,
-    SessionUpdateConfig,
-    Deployment,
-    ClientType,
-)
-from eve.agent.session.file_config import SUPPORTED_NON_MEDIA_EXTENSIONS
-from eve.agent.deployments.typing_manager import (
-    DiscordTypingManager,
-    TelegramTypingManager,
-)
 from eve.agent.deployments.gmail import (
     GmailClient,
     parse_inbound_email,
     unwrap_pubsub_message,
 )
+from eve.agent.deployments.typing_manager import (
+    DiscordTypingManager,
+    TelegramTypingManager,
+)
 from eve.agent.deployments.utils import get_api_url
-from eve.api.api_requests import SessionCreationArgs, PromptSessionRequest
+from eve.agent.llm.file_config import SUPPORTED_NON_MEDIA_EXTENSIONS
+from eve.agent.session.models import (
+    ChatMessageRequestInput,
+    ClientType,
+    Deployment,
+    Session,
+    SessionUpdateConfig,
+)
+from eve.api.api_requests import PromptSessionRequest, SessionCreationArgs
 from eve.api.errors import APIError
-import eve.mongo
-from fastapi import FastAPI, Request, HTTPException, Header
-from contextlib import asynccontextmanager
+from eve.user import User
 
 # Override the imported db with uppercase version for Ably channel consistency
 db = os.getenv("DB", "STAGE").upper()
@@ -1332,7 +1330,7 @@ class GatewayManager:
         try:
             self.ably_client = AblyRealtime(ably_key)
             self.channel = self.ably_client.channels.get(f"discord-gateway-v2-{db}")
-        except Exception as exc:
+        except Exception:
             logger.error(
                 "Failed to initialize AblyRealtime; continuing without Ably support",
                 exc_info=True,
@@ -1488,7 +1486,7 @@ class GatewayManager:
         try:
             await self.channel.subscribe(message_handler)
             logger.info("Subscribed to Ably channel for gateway commands")
-        except Exception as exc:
+        except Exception:
             logger.error(
                 "Failed to subscribe to Ably gateway command channel",
                 exc_info=True,
@@ -1541,13 +1539,13 @@ class GatewayManager:
             try:
                 await telegram_channel.subscribe(telegram_message_handler)
                 logger.info("Subscribed to Telegram busy state updates")
-            except Exception as exc:
+            except Exception:
                 logger.error(
                     "Failed to subscribe to Telegram busy state channel",
                     exc_info=True,
                 )
 
-        except Exception as e:
+        except Exception:
             logger.error(
                 "Failed to setup Telegram Ably subscription",
                 exc_info=True,
@@ -1586,7 +1584,7 @@ class GatewayManager:
 
         try:
             deployments = list(Deployment.find(deployment_filter))
-        except Exception as exc:
+        except Exception:
             logger.error(
                 "Failed to load Discord deployments from database",
                 exc_info=True,
@@ -1602,7 +1600,7 @@ class GatewayManager:
 
                 if deployment.secrets and deployment.secrets.discord.token:
                     await self.start_client(deployment)
-            except Exception as exc:
+            except Exception:
                 logger.error(
                     f"Failed to start gateway client for deployment {deployment.id}",
                     exc_info=True,
@@ -1629,7 +1627,7 @@ class GatewayManager:
 
         try:
             telegram_deployments = list(Deployment.find(telegram_filter))
-        except Exception as exc:
+        except Exception:
             logger.error(
                 "Failed to load Telegram deployments from database",
                 exc_info=True,
@@ -1649,7 +1647,7 @@ class GatewayManager:
                     logger.info(
                         f"Registered Telegram deployment {deployment.id} for typing"
                     )
-            except Exception as exc:
+            except Exception:
                 logger.error(
                     f"Failed to register Telegram deployment {deployment.id} for typing",
                     exc_info=True,
@@ -1690,12 +1688,12 @@ async def lifespan(app: FastAPI):
     # Set up Ably and load deployments
     try:
         await manager.setup_ably()
-    except Exception as exc:
+    except Exception:
         logger.error("Gateway manager Ably setup failed", exc_info=True)
 
     try:
         await manager.load_deployments()
-    except Exception as exc:
+    except Exception:
         logger.error("Gateway deployment loading failed", exc_info=True)
 
     # Store the manager in app state for access in routes if needed
@@ -1970,7 +1968,6 @@ async def gmail_webhook(request: Request):
             f"[GMAIL-WEBHOOK] Failed to parse email payload: {exc}", exc_info=True
         )
         raise HTTPException(status_code=400, detail="Invalid email payload")
-
 
     try:
         await gmail_client.process_inbound_email(email)
