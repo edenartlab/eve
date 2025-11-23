@@ -15,7 +15,7 @@ class ModelTier(Enum):
     FREE = "free"
 
 
-DEFAULT_MODEL_PREMIUM = "claude-haiku-4-5"
+DEFAULT_MODEL_PREMIUM = "claude-sonnet-4-5"
 DEFAULT_MODEL_FREE = "claude-haiku-4-5"
 
 FALLBACK_MODEL_PREMIUM = "gpt-5"
