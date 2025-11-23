@@ -35,6 +35,7 @@ from eve.api.api_requests import (
     SessionCreationArgs,
 )
 from eve.api.errors import APIError, handle_errors
+from eve.api.handlers import setup_session
 from eve.mongo import Collection, Document
 from eve.user import User
 
@@ -254,8 +255,6 @@ async def execute_trigger(
     # background_tasks: BackgroundTasks,
 ) -> Session:
     # Start distributed tracing transaction
-    import sentry_sdk
-
     transaction = sentry_sdk.start_transaction(
         name="trigger_execution",
         op="trigger.execute",
@@ -266,13 +265,11 @@ async def execute_trigger(
         # Set as active span (correct API)
         sentry_sdk.Hub.current.scope.span = transaction
 
+    trigger = Trigger.from_mongo(trigger_id)
+    if not trigger:
+        raise APIError(f"Trigger not found: {trigger_id}", status_code=404)
+
     try:
-        from eve.api.handlers import setup_session
-
-        trigger = Trigger.from_mongo(trigger_id)
-        if not trigger:
-            raise APIError(f"Trigger not found: {trigger_id}", status_code=404)
-
         if trigger.status in ["finished", "running", "paused"]:
             logger.info(f"Trigger {trigger.id} is {trigger.status}, skipping...")
             return
