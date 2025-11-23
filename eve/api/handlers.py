@@ -207,6 +207,69 @@ async def handle_prompt_session(
 
 
 @handle_errors
+async def handle_session_message(
+    request: PromptSessionRequest, background_tasks: BackgroundTasks
+):
+    """Add a message to a session without running orchestration.
+
+    Same interface as /sessions/prompt, but only adds the message and returns.
+    Creates a new session if session_id is not provided.
+    """
+    handle = create_prompt_session_handle(request, background_tasks)
+    session_id = handle.session_id
+
+    # Add user message only (no orchestration)
+    await handle.add_message()
+
+    return {"session_id": session_id, "message": "Message added successfully"}
+
+
+@handle_errors
+async def handle_session_run(
+    request: PromptSessionRequest, background_tasks: BackgroundTasks
+):
+    """Run orchestration on a session without adding a message.
+
+    Same interface as /sessions/prompt, but only runs orchestration.
+    Requires session_id to be provided.
+    """
+    if not request.session_id:
+        raise APIError("session_id is required for /sessions/run", status_code=400)
+
+    handle = create_prompt_session_handle(request, background_tasks)
+    session_id = handle.session_id
+
+    # Run orchestration only (no message addition)
+    if request.stream:
+
+        async def event_generator():
+            try:
+                from eve.utils import dumps_json
+
+                async for data in handle.stream_updates():
+                    yield f"data: {dumps_json({'event': 'update', 'data': data})}\n\n"
+                yield f"data: {dumps_json({'event': 'done', 'data': ''})}\n\n"
+            except Exception as e:
+                logger.error("Error in event_generator", exc_info=True)
+                yield f"data: {dumps_json({'event': 'error', 'data': {'error': str(e)}})}\n\n"
+
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+            },
+        )
+
+    background_tasks.add_task(
+        handle.run,
+    )
+
+    return {"session_id": session_id}
+
+
+@handle_errors
 async def handle_session_stream(session_id: str):
     """Stream SSE updates for a session."""
     import uuid
@@ -327,31 +390,58 @@ async def handle_session_cancel(request: CancelSessionRequest):
 
 @handle_errors
 async def handle_session_status_update(request):
-    """Update the status of a session."""
-    try:
-        # Request is already an UpdateSessionStatusRequest from FastAPI
-        session = Session.from_mongo(ObjectId(request.session_id))
+    """Update the status of a session.
 
-        try:
-            db = os.getenv("DB", "STAGE").upper()
-            func = modal.Function.from_name(
-                f"api-{db.lower()}",
-                "handle_session_status_change_fn",
-                environment_name="main",
-            )
-            func.spawn(request.session_id, request.status)
-            session.update(status=request.status)
-            return {
-                "success": True,
-                "session_id": request.session_id,
-                "status": request.status,
-            }
-        except Exception as e:
-            logger.warning(
-                f"Failed to spawn Modal function for session status change: {e}"
-            )
-            session.update(status="paused")
-            return {"success": False, "error": str(e)}
+    For automatic sessions, setting status to 'active' will start the automatic
+    session loop (runs orchestration, then schedules next run after delay).
+    """
+    try:
+        session = Session.from_mongo(ObjectId(request.session_id))
+        old_status = session.status
+        new_status = request.status
+
+        # Update the status
+        session.update(status=new_status)
+
+        # Check if we need to start an automatic session
+        should_start_automatic = (
+            session.session_type == "automatic"
+            and new_status == "active"
+            and old_status != "active"  # Only if transitioning to active
+        )
+
+        if should_start_automatic:
+            # Check if running on Modal or locally
+            if os.getenv("MODAL_SERVE") == "1":
+                # Production: spawn Modal function
+                try:
+                    db = os.getenv("DB", "STAGE").upper()
+                    func = modal.Function.from_name(
+                        f"api-{db.lower()}",
+                        "handle_session_status_change_fn",
+                        environment_name="main",
+                    )
+                    func.spawn(request.session_id, request.status)
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to spawn Modal function for automatic session: {e}"
+                    )
+                    session.update(status="paused")
+                    return {"success": False, "error": str(e)}
+            else:
+                # Local development: start automatic session in-process
+                import asyncio
+
+                from eve.agent.session.automatic import start_automatic_session
+
+                asyncio.create_task(start_automatic_session(request.session_id))
+
+        return {
+            "success": True,
+            "session_id": request.session_id,
+            "status": new_status,
+            "automatic_session_started": should_start_automatic,
+        }
 
     except APIError:
         raise

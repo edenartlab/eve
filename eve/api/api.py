@@ -68,6 +68,8 @@ from eve.api.handlers import (
     handle_regenerate_user_memory,
     handle_replicate_webhook,
     handle_session_cancel,
+    handle_session_message,
+    handle_session_run,
     handle_session_status_update,
     handle_v2_deployment_create,
     handle_v2_deployment_delete,
@@ -279,7 +281,28 @@ async def prompt_session(
     background_tasks: BackgroundTasks,
     _: dict = Depends(auth.authenticate_admin),
 ):
+    """Add a message to a session and run orchestration (combined operation)."""
     return await handle_prompt_session(request, background_tasks)
+
+
+@web_app.post("/sessions/message")
+async def session_message(
+    request: PromptSessionRequest,
+    background_tasks: BackgroundTasks,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    """Add a message to a session without running orchestration."""
+    return await handle_session_message(request, background_tasks)
+
+
+@web_app.post("/sessions/run")
+async def session_run(
+    request: PromptSessionRequest,
+    background_tasks: BackgroundTasks,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    """Run orchestration on a session without adding a message."""
+    return await handle_session_run(request, background_tasks)
 
 
 @web_app.post("/sessions/cancel")
@@ -626,9 +649,6 @@ async def remote_prompt_session_fn(
 
 @app.function(image=image, max_containers=4, timeout=3600)
 async def handle_session_status_change_fn(session_id: str, status: str):
-    # todo - re-enable this
-    return
-
     if status == "active":
         await run_automatic_session(session_id)
 
