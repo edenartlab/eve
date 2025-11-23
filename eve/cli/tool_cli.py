@@ -15,6 +15,7 @@ from .. import load_env
 api_tools_order = [
     "txt2img",
     "flux_dev",
+    "flux_kontext",
     "layer_diffusion",
     "remix",
     "inpaint",

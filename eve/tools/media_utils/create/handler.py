@@ -11,12 +11,14 @@ TODO:
 """
 
 import os
+
 from bson import ObjectId
-from eve.s3 import get_full_url
-from eve.agent import Agent
-from eve.tool import Tool, ToolContext
-from eve.models import Model
 from loguru import logger
+
+from eve.agent import Agent
+from eve.models import Model
+from eve.s3 import get_full_url
+from eve.tool import Tool, ToolContext
 
 # from eve.api.api import create
 from eve.user import User
@@ -122,7 +124,6 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
     init_image = reference_images[0] if len(reference_images) > 0 else None
     extras = args.get("extras", [])
     controlnet = "controlnet" in extras
-    double_character = "double_character" in extras
     seed = args.get("seed", None)
     aspect_ratio = args.get("aspect_ratio", "auto")
     model_preference = args.get("model_preference")
@@ -140,6 +141,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
         # just use one of the image editing tools for now, even when there's a lora
         # init image takes precedence over lora
         image_tool = {
+            "flux": "flux_kontext",
             "seedream": "seedream4",
             "openai": "openai_image_edit",
             "nano_banana": "nano_banana",
@@ -308,6 +310,27 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
         result = await flux_dev.async_run(args, save_thumbnails=True)
         # Todo: incorporate style_image / style_strength ?
+
+    #########################################################
+    # Flux Kontext
+    elif image_tool == "flux_kontext":
+        flux_kontext = Tool.load("flux_kontext")
+
+        if aspect_ratio == "auto":
+            aspect_ratio = "match_input_image"
+
+        args = {
+            "prompt": prompt,
+            "init_image": init_image,
+            "n_samples": n_samples,
+            "aspect_ratio": aspect_ratio,
+            "fast": False,
+        }
+
+        if seed:
+            args["seed"] = seed
+
+        result = await flux_kontext.async_run(args, save_thumbnails=True)0
 
     # Nano Banana
     elif image_tool == "nano_banana":
