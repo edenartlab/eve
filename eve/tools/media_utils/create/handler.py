@@ -330,7 +330,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
         if seed:
             args["seed"] = seed
 
-        result = await flux_kontext.async_run(args, save_thumbnails=True)0
+        result = await flux_kontext.async_run(args, save_thumbnails=True)
 
     # Nano Banana
     elif image_tool == "nano_banana":
