@@ -35,7 +35,6 @@ from eve.api.api_requests import (
     SessionCreationArgs,
 )
 from eve.api.errors import APIError, handle_errors
-from eve.api.handlers import setup_session
 from eve.mongo import Collection, Document
 from eve.user import User
 
@@ -254,6 +253,8 @@ async def execute_trigger(
     trigger_id: str,
     # background_tasks: BackgroundTasks,
 ) -> Session:
+    from eve.agent.session.setup import setup_session
+
     # Start distributed tracing transaction
     transaction = sentry_sdk.start_transaction(
         name="trigger_execution",
