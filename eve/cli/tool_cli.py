@@ -28,6 +28,7 @@ api_tools_order = [
     "beeple_ai",
     "txt2img_test",
     "flux_redux",
+    "flux_kontext",
     "mars-id",
     "background_removal_video",
     "animate_3D",

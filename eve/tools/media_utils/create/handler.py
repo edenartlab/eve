@@ -141,6 +141,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
         # just use one of the image editing tools for now, even when there's a lora
         # init image takes precedence over lora
         image_tool = {
+            "flux": "flux_kontext",
             "seedream": "seedream4",
             "openai": "openai_image_edit",
             "nano_banana": "nano_banana",
@@ -309,6 +310,27 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
         result = await flux_dev.async_run(args, save_thumbnails=True)
         # Todo: incorporate style_image / style_strength ?
+
+    #########################################################
+    # Flux Kontext
+    elif image_tool == "flux_kontext":
+        flux_kontext = Tool.load("flux_kontext")
+
+        if aspect_ratio == "auto":
+            aspect_ratio = "match_input_image"
+
+        args = {
+            "prompt": prompt,
+            "init_image": init_image,
+            "n_samples": n_samples,
+            "aspect_ratio": aspect_ratio,
+            "fast": False,
+        }
+
+        if seed:
+            args["seed"] = seed
+
+        result = await flux_kontext.async_run(args, save_thumbnails=True)
 
     # Nano Banana
     elif image_tool == "nano_banana":
