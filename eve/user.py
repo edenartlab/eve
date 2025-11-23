@@ -90,6 +90,7 @@ class User(Document):
     username: str
     userImage: Optional[str] = None
     stats: Optional[UserStats] = UserStats()
+    social_accounts: Optional[Dict[str, Any]] = {}
 
     # preferences
     preferences: Optional[Dict] = {"agent_spend_threshold": 50}

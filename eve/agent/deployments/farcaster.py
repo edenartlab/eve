@@ -30,6 +30,7 @@ from eve.agent.session.models import (
     Deployment,
     DeploymentConfig,
     DeploymentSecrets,
+    DeploymentSettingsFarcaster,
     LLMConfig,
     PromptSessionContext,
     Session,
@@ -448,6 +449,7 @@ class FarcasterClient(PlatformClient):
         self, secrets: DeploymentSecrets, config: DeploymentConfig
     ) -> tuple[DeploymentSecrets, DeploymentConfig]:
         """Verify Farcaster credentials"""
+        farcaster_username = None
         try:
             if uses_managed_signer(secrets):
                 # Verify managed signer status
@@ -460,10 +462,16 @@ class FarcasterClient(PlatformClient):
                         f"Managed signer is not approved. Status: {signer_status.get('status')}",
                         status_code=400,
                     )
+                # Get username from managed signer
+                user_info = await neynar_client.get_user_info_by_signer(
+                    secrets.farcaster.signer_uuid
+                )
+                farcaster_username = user_info.get("username")
             else:
                 # Verify mnemonic credentials
                 client = Warpcast(mnemonic=secrets.farcaster.mnemonic)
-                client.get_me()
+                user_info = client.get_me()
+                farcaster_username = user_info.username
         except APIError:
             raise
         except Exception as e:
@@ -477,6 +485,20 @@ class FarcasterClient(PlatformClient):
         try:
             # Add Farcaster tools to agent
             self.add_tools()
+
+            # Add farcaster username to agent's social_accounts
+            if farcaster_username:
+                self.agent.get_collection().update_one(
+                    {"_id": self.agent.id},
+                    {
+                        "$set": {"social_accounts.farcaster": farcaster_username},
+                        "$currentDate": {"updatedAt": True},
+                    },
+                )
+                # Also save username to config
+                if not config.farcaster:
+                    config.farcaster = DeploymentSettingsFarcaster()
+                config.farcaster.username = farcaster_username
         except Exception as e:
             raise APIError(f"Failed to add Farcaster tools: {str(e)}", status_code=400)
 
@@ -565,6 +587,18 @@ class FarcasterClient(PlatformClient):
             self.remove_tools()  # this is disabled for now
         except Exception as e:
             logger.error(f"Failed to remove Farcaster tools: {e}")
+
+        # Remove farcaster from agent's social_accounts
+        try:
+            self.agent.get_collection().update_one(
+                {"_id": self.agent.id},
+                {
+                    "$unset": {"social_accounts.farcaster": ""},
+                    "$currentDate": {"updatedAt": True},
+                },
+            )
+        except Exception as e:
+            logger.error(f"Failed to remove farcaster from social_accounts: {e}")
 
     async def interact(self, request: Request) -> None:
         """Interact with the Farcaster client"""
