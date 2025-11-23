@@ -131,6 +131,7 @@ class ToolCall(BaseModel):
 
         if self.status == "failed":
             result["is_error"] = True
+            result["content"] = self.error
 
         return result
 
