@@ -16,6 +16,7 @@ from ..utils import CLICK_COLORS, dumps_json, prepare_result, save_test_results
 api_tools_order = [
     "txt2img",
     "flux_dev",
+    "flux_kontext",
     "layer_diffusion",
     "remix",
     "inpaint",
