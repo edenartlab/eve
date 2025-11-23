@@ -87,22 +87,12 @@ class SessionCancelledException(Exception):
     """Exception raised when a session is cancelled via Ably signal."""
 
 
-def _to_object_id(value: Optional[Union[str, ObjectId]]) -> Optional[ObjectId]:
-    if not value:
-        return None
-    if isinstance(value, ObjectId):
-        return value
-    return ObjectId(str(value))
-
-
 def _resolve_triggering_user_id(
     context: PromptSessionContext,
 ) -> Optional[ObjectId]:
-    return _to_object_id(context.acting_user_id or context.initiating_user_id)
-
-
-def _resolve_agent_owner_id(actor: Agent) -> Optional[ObjectId]:
-    return _to_object_id(getattr(actor, "owner", None))
+    if not context.acting_user_id and not context.initiating_user_id:
+        return None
+    return ObjectId(str(context.acting_user_id or context.initiating_user_id))
 
 
 def _resolve_billed_user_id(
@@ -114,14 +104,12 @@ def _resolve_billed_user_id(
     Determine which user should be billed for a response.
     Defaults to the triggering user unless the agent owner sponsors usage.
     """
-    agent_owner_id = _resolve_agent_owner_id(actor)
     owner_pays = getattr(actor, "owner_pays", "off") or "off"
 
-    if agent_owner_id:
-        if owner_pays == "full":
-            return agent_owner_id
-        if owner_pays == "deployments" and is_client_platform:
-            return agent_owner_id
+    if owner_pays == "full":
+        return actor.owner
+    if owner_pays == "deployments" and is_client_platform:
+        return actor.owner
 
     return _resolve_triggering_user_id(context)
 
@@ -418,7 +406,7 @@ async def add_chat_message(
     pin: bool = False
 ):
     triggering_user_id = _resolve_triggering_user_id(context)
-    sender_id = _to_object_id(context.initiating_user_id)
+    sender_id = ObjectId(str(context.initiating_user_id))
 
     new_message = ChatMessage(
         session=session.id,
@@ -1046,7 +1034,6 @@ async def async_prompt_session(
         tokens_spent = 0
         tool_was_cancelled = False  # Track if any tool was cancelled
         triggering_user_id = _resolve_triggering_user_id(context) if context else None
-        agent_owner_id = _resolve_agent_owner_id(actor)
         billed_user_id = (
             _resolve_billed_user_id(context, actor, is_client_platform)
             if context
@@ -1219,7 +1206,7 @@ async def async_prompt_session(
                     apiKey=ObjectId(api_key_id) if api_key_id else None,
                     triggering_user=triggering_user_id,
                     billed_user=billed_user_id,
-                    agent_owner=agent_owner_id,
+                    agent_owner=actor.owner,
                 )
             else:
                 # Non-streaming path
@@ -1248,7 +1235,7 @@ async def async_prompt_session(
                     apiKey=ObjectId(api_key_id) if api_key_id else None,
                     triggering_user=triggering_user_id,
                     billed_user=billed_user_id,
-                    agent_owner=agent_owner_id,
+                    agent_owner=actor.owner,
                 )
                 stop_reason = response.stop
                 tokens_spent = response.tokens_spent
