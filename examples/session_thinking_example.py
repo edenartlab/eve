@@ -70,24 +70,26 @@ async def example_thinking_session():
         # thinking_budget_tokens=10000
     )
     
-    context = PromptSessionContext(
+    prompt_context = PromptSessionContext(
         session=session,
         initiating_user_id=request.user_id,
         message=message,
         llm_config=llm_config
     )
 
-    await add_chat_message(session, context)
+    await add_chat_message(session, prompt_context)
 
     # Run session
-    context = await build_llm_context(
+    llm_context = await build_llm_context(
         session, 
         agent, 
-        context, 
+        prompt_context, 
     )
 
     # Execute the prompt session
-    async for _ in async_prompt_session(session, context, agent):
+    async for _ in async_prompt_session(
+        session, llm_context, agent, context=prompt_context
+    ):
         pass
     
     # it should now be available under your sessions with Eve

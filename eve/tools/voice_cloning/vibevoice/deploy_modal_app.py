@@ -151,7 +151,7 @@ class VibeVoiceContainer:
         self,
         text: str,
         voice_audio: list[str] = None,
-        cfg_scale: float = 1.33,
+        cfg_scale: float = 1.8,
         diffusion_steps: int = 30,
         seed: int = 42,
     ):

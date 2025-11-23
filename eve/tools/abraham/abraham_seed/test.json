@@ -1,7 +1,8 @@
 {
-  "title": "Test Creation",
+  "title": "Test Seed",
   "proposal": "A test proposal for a creation",
   "tagline": "Testing the seed system",
-  "cast_hash": "0x1234567890abcdef",
-  "image": "https://example.com/image.png"
+  "cast_hash": "0x2f10bdae0d9c756822f04c7145115e3d110313be",
+  "session_id": "691da378c7629186ddccd5f4",
+  "image": "https://edenartlab-prod-data.s3.us-east-1.amazonaws.com/bb88e857586a358ce3f02f92911588207fbddeabff62a3d6a479517a646f053c.jpg"
 }

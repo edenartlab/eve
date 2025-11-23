@@ -1,10 +1,29 @@
 import litellm
 import pytest
+import sys
+import types
 from bson import ObjectId
 from typing import Dict
 from pydantic import BaseModel
 from litellm import ModelResponse
 from typing import Optional
+from types import SimpleNamespace
+
+
+# Provide a lightweight rate limiter stub to avoid circular imports during tests
+rate_limiter_stub = types.ModuleType("eve.api.rate_limiter")
+
+
+class _TestRateLimiter:
+    async def check_agent_rate_limit(self, *args, **kwargs):
+        return None
+
+    async def check_manna_spend_rate_limit(self, *args, **kwargs):
+        return None
+
+
+rate_limiter_stub.RateLimiter = _TestRateLimiter
+sys.modules.setdefault("eve.api.rate_limiter", rate_limiter_stub)
 
 from eve.agent.session.models import (
     LLMContextMetadata,
@@ -20,6 +39,7 @@ from eve.agent.session.session_llm import (
     prepare_messages,
     construct_tools,
     construct_observability_metadata,
+    build_cost_metadata_from_usage,
 )
 from eve.agent.session.session import ChatMessage
 from eve.tool import Tool
@@ -56,7 +76,7 @@ class MockTool(Tool):
         session_id: Optional[str] = None,
         message_id: Optional[str] = None,
         tool_call_id: Optional[str] = None,
-        args: Dict,
+        args: Optional[Dict] = None,
         mock: bool = False,
         public: bool = False,
         is_client_platform: bool = False,
@@ -138,6 +158,33 @@ def test_construct_observability_metadata():
     assert result["session_id"] == "test_session"
     assert result["trace_name"] == "test_trace"
     assert result["generation_name"] == "test_generation"
+
+
+def test_build_cost_metadata_from_usage(monkeypatch):
+    # Ensure we use a predictable cost calculation
+    def _fake_cost_per_token(**kwargs):
+        return 0.05, 0.01
+
+    monkeypatch.setattr(
+        "eve.agent.session.session_llm.cost_per_token", _fake_cost_per_token
+    )
+
+    usage = SimpleNamespace(
+        prompt_tokens=120,
+        completion_tokens=30,
+        prompt_tokens_details=SimpleNamespace(cached_tokens=20),
+        total_tokens=150,
+    )
+
+    details = build_cost_metadata_from_usage("gpt-4o-mini", usage)
+
+    assert details is not None
+    assert details.model == "gpt-4o-mini"
+    assert details.amount == pytest.approx(0.06)
+    assert details.input_tokens.total == 120
+    assert details.input_tokens.cached == 20
+    assert details.input_tokens.uncached == 100
+    assert details.output_tokens.total == 30
 
 
 @pytest.mark.live

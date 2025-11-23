@@ -1,45 +1,46 @@
-import json
-import os
-import aiohttp
-import logging
-import hmac
 import hashlib
+import hmac
+import logging
+import os
 import secrets as python_secrets
 import uuid
-import modal
+from datetime import datetime
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional
 
-from typing import TYPE_CHECKING, Optional, Dict, Any, List, Literal
+import aiohttp
+import modal
+from bson import ObjectId
 from farcaster import Warpcast
 from fastapi import Request
 from fastapi.responses import JSONResponse
-from datetime import datetime, timezone
-from bson import ObjectId
 
-from eve.agent.session.models import (
-    ChatMessageRequestInput,
-    ChatMessage,
-    Session,
-    SessionUpdateConfig,
-    Deployment,
-    DeploymentSecrets,
-    DeploymentConfig,
-    Channel,
-    LLMConfig,
-    PromptSessionContext,
-    UpdateType,
-)
 from eve import db
-from eve.mongo import Collection, Document, MongoDocumentNotFound
-from eve.api.api_requests import SessionCreationArgs, PromptSessionRequest
-from eve.api.errors import APIError
+from eve.agent.agent import Agent
 from eve.agent.deployments import PlatformClient
 from eve.agent.deployments.neynar_client import NeynarClient
 from eve.agent.deployments.utils import get_api_url
-from eve.utils import prepare_result
-from eve.user import User
-from eve.agent.agent import Agent
+from eve.agent.session.models import (
+    Channel,
+    ChatMessage,
+    ChatMessageRequestInput,
+    Deployment,
+    DeploymentConfig,
+    DeploymentSecrets,
+    LLMConfig,
+    PromptSessionContext,
+    Session,
+    SessionUpdateConfig,
+    UpdateType,
+)
+from eve.agent.session.session import (
+    add_chat_message,
+    async_prompt_session,
+    build_llm_context,
+)
+from eve.api.errors import APIError
+from eve.mongo import Collection, Document, MongoDocumentNotFound
 from eve.tool import Tool
-from eve.agent.session.session import add_chat_message, build_llm_context, async_prompt_session
+from eve.user import User
 
 if TYPE_CHECKING:
     from eve.api.api_requests import DeploymentEmissionRequest
@@ -90,7 +91,9 @@ async def post_cast(
 
     Returns dict with cast info including hash, url, thread_hash
     """
-    logger.info(f"post_cast called - text: '{text[:100] if text else '(empty)'}...', embeds: {embeds}, parent: {parent}")
+    logger.info(
+        f"post_cast called - text: '{text[:100] if text else '(empty)'}...', embeds: {embeds}, parent: {parent}"
+    )
 
     if uses_managed_signer(secrets):
         # Use Neynar API for managed signer
@@ -112,7 +115,9 @@ async def post_cast(
 
         cast_info = {
             "hash": cast_hash,
-            "url": f"https://warpcast.com/{username}/{cast_hash}" if username and cast_hash else None,
+            "url": f"https://warpcast.com/{username}/{cast_hash}"
+            if username and cast_hash
+            else None,
             "thread_hash": thread_hash,
         }
         logger.info(f"Successfully posted cast via managed signer: {cast_info}")
@@ -156,20 +161,33 @@ def extract_embed_urls(embeds) -> List[str]:
 def split_media(urls: List[str]) -> Dict[str, List[str]]:
     """Split URLs into media and other"""
     media_exts = (
-        ".jpg", ".jpeg", ".png", ".gif", ".webp",
-        ".mp4", ".mov", ".webm", ".avi", ".mkv",
-        ".mp3", ".wav", ".ogg",
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".gif",
+        ".webp",
+        ".mp4",
+        ".mov",
+        ".webm",
+        ".avi",
+        ".mkv",
+        ".mp3",
+        ".wav",
+        ".ogg",
     )
     media, other = [], []
     for u in urls:
         cleaned = u.split("?", 1)[0].lower()
-        (media if cleaned.endswith(media_exts) or "imagedelivery.net" in u else other).append(u)
+        (
+            media if cleaned.endswith(media_exts) or "imagedelivery.net" in u else other
+        ).append(u)
     return {"media_urls": media, "other_urls": other}
 
 
 def upload_to_s3(media_urls: List[str]) -> List[str]:
     """Upload media URLs to S3"""
     from eve.s3 import upload_file_from_url
+
     uploaded_urls = []
     for media_url in media_urls:
         try:
@@ -180,7 +198,9 @@ def upload_to_s3(media_urls: List[str]) -> List[str]:
     return uploaded_urls
 
 
-async def fetch_cast_ancestry(cast_hash: str, neynar_api_key: str, include_self: bool = True):
+async def fetch_cast_ancestry(
+    cast_hash: str, neynar_api_key: str, include_self: bool = True
+):
     """Fetch cast ancestry from Neynar API"""
     import httpx
 
@@ -196,13 +216,13 @@ async def fetch_cast_ancestry(cast_hash: str, neynar_api_key: str, include_self:
         response = await client.get(
             "https://api.neynar.com/v2/farcaster/cast/conversation",
             headers=headers,
-            params=params
+            params=params,
         )
     response.raise_for_status()
     data = response.json()
 
     convo = data.get("conversation", {})
-    ancestors = (convo.get("chronological_parent_casts") or convo.get("ancestors") or [])
+    ancestors = convo.get("chronological_parent_casts") or convo.get("ancestors") or []
 
     if include_self:
         return ancestors + [convo["cast"]]
@@ -293,7 +313,7 @@ async def process_farcaster_cast(
             session = Session.load(session_key=session_key)
             if session.platform != "farcaster":
                 session.update(platform="farcaster")
-            
+
             # Reactivate if deleted or archived
             if session.deleted or session.status == "archived":
                 session.update(deleted=False, status="active")
@@ -304,7 +324,7 @@ async def process_farcaster_cast(
                 # owner=user.id,
                 owner=agent.owner,
                 agents=[agent.id],
-                title=f"Farcaster session",
+                title="Farcaster session",
                 session_key=session_key,
                 platform="farcaster",
                 status="active",
@@ -315,20 +335,33 @@ async def process_farcaster_cast(
             if thread_hash and thread_hash != cast_hash:
                 logger.info(f"Reconstructing thread for cast {cast_hash}")
                 try:
-                    prev_casts = await fetch_cast_ancestry(cast_hash, neynar_api_key, include_self=False)
+                    prev_casts = await fetch_cast_ancestry(
+                        cast_hash, neynar_api_key, include_self=False
+                    )
                     agent_fid = agent.farcasterId
 
                     for pc in prev_casts:
-                        cast_hash_, author_fid_, author_username_, text_, media_urls_, timestamp_ = await unpack_cast(pc)
+                        (
+                            cast_hash_,
+                            author_fid_,
+                            author_username_,
+                            text_,
+                            media_urls_,
+                            timestamp_,
+                        ) = await unpack_cast(pc)
                         media_urls_ = upload_to_s3(media_urls_)
-                        created_at = datetime.strptime(timestamp_, "%Y-%m-%dT%H:%M:%S.%fZ")
+                        created_at = datetime.strptime(
+                            timestamp_, "%Y-%m-%dT%H:%M:%S.%fZ"
+                        )
 
                         if author_fid_ == agent_fid:
                             role = "assistant"
                             cast_user = agent
                         else:
                             role = "user"
-                            cast_user = User.from_farcaster(author_fid_, author_username_)
+                            cast_user = User.from_farcaster(
+                                author_fid_, author_username_
+                            )
 
                         message = ChatMessage(
                             createdAt=created_at,
@@ -347,7 +380,7 @@ async def process_farcaster_cast(
         farcaster_tool = Tool.load("farcaster_cast")
 
         # Create prompt context
-        context = PromptSessionContext(
+        prompt_context = PromptSessionContext(
             session=session,
             initiating_user_id=str(user.id),
             message=ChatMessageRequestInput(
@@ -362,23 +395,27 @@ async def process_farcaster_cast(
                 farcaster_author_fid=author_fid,
             ),
             llm_config=LLMConfig(model="claude-sonnet-4-5"),
-            extra_tools={farcaster_tool.name: farcaster_tool}
+            extra_tools={farcaster_tool.name: farcaster_tool},
         )
 
         # Add user message to session
-        message = await add_chat_message(session, context)
+        message = await add_chat_message(session, prompt_context)
 
         # Build LLM context
-        context = await build_llm_context(
+        llm_context = await build_llm_context(
             session,
             agent,
-            context,
+            prompt_context,
             trace_id=str(uuid.uuid4()),
         )
 
         # Execute prompt session
         new_messages = []
-        async for update in async_prompt_session(session, context, agent):
+        async for update in async_prompt_session(
+            session, llm_context, agent, context=prompt_context
+        ):
+            logger.info("!!!! THE UPDATED MESSAGE IS !!!!!")
+            logger.info(update)
             if update.type == UpdateType.ASSISTANT_MESSAGE:
                 new_messages.append(update.message)
 
@@ -390,9 +427,9 @@ async def process_farcaster_cast(
         )
 
         return {
-            "status": "completed", 
+            "status": "completed",
             "session_id": str(session.id),
-            "message_id": str(message.id)
+            "message_id": str(message.id),
         }
 
     except Exception as e:
@@ -410,9 +447,7 @@ class FarcasterClient(PlatformClient):
     ]
 
     async def predeploy(
-        self, 
-        secrets: DeploymentSecrets, 
-        config: DeploymentConfig
+        self, secrets: DeploymentSecrets, config: DeploymentConfig
     ) -> tuple[DeploymentSecrets, DeploymentConfig]:
         """Verify Farcaster credentials"""
         try:
@@ -540,9 +575,7 @@ class FarcasterClient(PlatformClient):
         )
 
     async def _update_webhook_fids(
-        self, 
-        webhook_id: str, 
-        add_fid: int = None, remove_fid: int = None
+        self, webhook_id: str, add_fid: int = None, remove_fid: int = None
     ) -> None:
         """Update webhook FID lists by adding or removing a FID"""
         neynar_api_key = os.getenv("NEYNAR_API_KEY")
@@ -657,7 +690,9 @@ class FarcasterClient(PlatformClient):
         ).hexdigest()
 
         if not hmac.compare_digest(computed_signature, signature):
-            logger.error(f"Invalid webhook signature. Expected: {computed_signature[:20]}..., Got: {signature[:20]}...")
+            logger.error(
+                f"Invalid webhook signature. Expected: {computed_signature[:20]}..., Got: {signature[:20]}..."
+            )
             return JSONResponse(
                 status_code=401,
                 content={"error": "Invalid webhook signature"},
@@ -670,18 +705,23 @@ class FarcasterClient(PlatformClient):
         logger.info(f"Processing cast {cast_hash} from FID {cast_author_fid}")
 
         # Extract mentioned FIDs and parent author FID
-        mentioned_fid_list = [profile["fid"] for profile in cast_data.get("mentioned_profiles", [])]
+        mentioned_fid_list = [
+            profile["fid"] for profile in cast_data.get("mentioned_profiles", [])
+        ]
         parent_author = cast_data.get("parent_author") or {}
         parent_author_fid = parent_author.get("fid")
 
         # Get deployments with enable_cast enabled
         active_farcaster_deployments = [
-            d for d in Deployment.find({"platform": "farcaster"})
+            d
+            for d in Deployment.find({"platform": "farcaster"})
             if d.config and d.config.farcaster and d.config.farcaster.enable_cast
         ]
 
         # Build list of (deployment, fid) tuples
-        deployment_fids = [(d, await get_fid(d.secrets)) for d in active_farcaster_deployments]
+        deployment_fids = [
+            (d, await get_fid(d.secrets)) for d in active_farcaster_deployments
+        ]
 
         # Skip if cast is from any agent itself (prevent loops)
         if any(fid == cast_author_fid for _, fid in deployment_fids):
@@ -689,7 +729,9 @@ class FarcasterClient(PlatformClient):
             return JSONResponse(status_code=200, content={"ok": True})
 
         # Log what we're checking for
-        logger.info(f"Mentioned FIDs: {mentioned_fid_list}, Parent author FID: {parent_author_fid}")
+        logger.info(
+            f"Mentioned FIDs: {mentioned_fid_list}, Parent author FID: {parent_author_fid}"
+        )
 
         # Find first matching deployment (either mentioned or replying to agent)
         deployment = None
@@ -717,8 +759,9 @@ class FarcasterClient(PlatformClient):
         cast_hash = cast_data["hash"]
         if FarcasterEvent.find_one({"cast_hash": cast_hash}):
             logger.info(f"Cast {cast_hash} already processed, skipping")
-            return JSONResponse(status_code=200, content={"ok": True, "message": "Duplicate cast"})
-
+            return JSONResponse(
+                status_code=200, content={"ok": True, "message": "Duplicate cast"}
+            )
 
         # Save event immediately to prevent duplicate processing
         parent_hash = cast_data.get("parent_hash")
@@ -729,7 +772,7 @@ class FarcasterClient(PlatformClient):
             content=cast_data.get("text"),
             status="running",
             reply_fid=parent_author_fid if parent_hash else None,
-            reply_cast=parent_hash
+            reply_cast=parent_hash,
         )
         event_doc.save()
 
@@ -750,10 +793,12 @@ class FarcasterClient(PlatformClient):
         except Exception as e:
             logger.error(f"Failed to spawn Modal function: {e}")
             # Update event doc with failure
-            event_doc.update(status="failed", error=f"Failed to spawn Modal function: {str(e)}")
+            event_doc.update(
+                status="failed", error=f"Failed to spawn Modal function: {str(e)}"
+            )
             return JSONResponse(
                 status_code=500,
-                content={"error": f"Failed to spawn processing task: {str(e)}"}
+                content={"error": f"Failed to spawn processing task: {str(e)}"},
             )
 
         return JSONResponse(status_code=200, content={"ok": True})

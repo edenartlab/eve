@@ -175,6 +175,24 @@ class Channel(Document):
     key: Optional[str] = None
 
 
+class TokenUsageBreakdown(BaseModel):
+    total: Optional[int] = None
+    cached: Optional[int] = None
+    uncached: Optional[int] = None
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+class ChatMessageCostDetails(BaseModel):
+    model: Optional[str] = None
+    amount: Optional[float] = None
+    currency: str = "usd"
+    input_tokens: Optional[TokenUsageBreakdown] = None
+    output_tokens: Optional[TokenUsageBreakdown] = None
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
 class ChatMessageObservability(BaseModel):
     provider: Literal["langfuse"] = "langfuse"
     session_id: Optional[str] = None
@@ -182,6 +200,7 @@ class ChatMessageObservability(BaseModel):
     generation_id: Optional[str] = None  # Langfuse generation ID
     tokens_spent: Optional[int] = None
     sentry_trace_id: Optional[str] = None  # Sentry distributed trace ID for correlation
+    cost: Optional[ChatMessageCostDetails] = None
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
@@ -199,6 +218,9 @@ class ChatMessage(Document):
     channel: Optional[Channel] = None
     session: Optional[ObjectId] = None
     sender: Optional[ObjectId] = None
+    triggering_user: Optional[ObjectId] = None
+    billed_user: Optional[ObjectId] = None
+    agent_owner: Optional[ObjectId] = None
     eden_message_data: Optional[EdenMessageData] = None
     reply_to: Optional[ObjectId] = None
     pinned: Optional[bool] = False
@@ -877,6 +899,7 @@ class LLMResponse:
     stop: Optional[str] = None
     tokens_spent: Optional[int] = None
     thought: Optional[List[Dict[str, Any]]] = None
+    cost_metadata: Optional[ChatMessageCostDetails] = None
 
 
 class ClientType(Enum):
