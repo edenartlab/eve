@@ -268,10 +268,12 @@ async def build_system_message(
             twitter_instructions=twitter_instructions,
         )
 
+    current_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
     # Build system prompt with memory context
     content = system_template.render(
         name=actor.name,
-        # current_date_time=current_date_time,
+        current_date=current_date,
         description=actor.description,
         persona=actor.persona,
         tools=tools,
@@ -447,10 +449,16 @@ async def build_llm_context(
         tools = actor.get_tools(cache=False, auth_user=auth_user_id)
 
     if context.extra_tools:
-        # Only add extra_tools that don't already exist (avoid duplicates)
-        for tool_name, tool in context.extra_tools.items():
-            if tool_name not in tools:
-                tools[tool_name] = tool
+        # Deduplicate tools based on tool.name attribute, not just dict key
+        # This prevents duplicate tool names when tools are converted to a list for LLM
+        existing_tool_names = {
+            tool.name for tool in tools.values() if hasattr(tool, "name")
+        }
+        for tool_key, tool in context.extra_tools.items():
+            tool_name = tool.name if hasattr(tool, "name") else tool_key
+            if tool_name not in existing_tool_names:
+                tools[tool_key] = tool
+                existing_tool_names.add(tool_name)
 
     # setup tool_choice
     if tools:

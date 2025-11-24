@@ -587,16 +587,13 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
         else:
             paying_user = user
 
-        veo3_enabled = (
-            any(
-                [
-                    t
-                    for t in paying_user.featureFlags
-                    if t in ["tool_access_veo3", "preview"]
-                ]
-            )
-            or paying_user.subscriptionTier > 0
-        )
+        veo3_enabled = any(
+            [
+                t
+                for t in paying_user.featureFlags
+                if t in ["tool_access_veo3", "preview"]
+            ]
+        ) or (paying_user.subscriptionTier and paying_user.subscriptionTier > 0)
 
     """
     reference_video -> runway3

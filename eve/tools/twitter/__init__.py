@@ -17,6 +17,7 @@ class X:
         self.twitter_id = deployment.secrets.twitter.twitter_id
         self.user_id = deployment.secrets.twitter.twitter_id  # For compatibility
         self.username = deployment.secrets.twitter.username
+        self.deployment = deployment  # Store for OAuth 1.0a token lookup
 
         # Get app credentials from environment
         self.consumer_key = os.getenv("TWITTER_INTEGRATIONS_CLIENT_ID")
@@ -189,13 +190,27 @@ class X:
             return self._upload_image(content)
 
     def _upload_image(self, content):
-        """Upload image content to Twitter."""
-        upload_response = self._make_request(
-            "post",
-            "https://upload.twitter.com/1.1/media/upload.json",
-            files={"media": content},
-        )
-        return upload_response.json().get("media_id_string")
+        """Upload image content to Twitter.
+
+        Note: Twitter's v1.1 media upload endpoint requires OAuth 1.0a authentication,
+        but this client only has OAuth 2.0 tokens. This will fail with 403 Forbidden.
+        TODO: Implement OAuth 1.0a signing or use Tweepy for media uploads.
+        """
+        try:
+            upload_response = self._make_request(
+                "post",
+                "https://upload.twitter.com/1.1/media/upload.json",
+                files={"media": content},
+            )
+            return upload_response.json().get("media_id_string")
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 403:
+                logging.error(
+                    "Media upload failed: Twitter's v1.1 media upload endpoint requires "
+                    "OAuth 1.0a authentication, but only OAuth 2.0 tokens are available. "
+                    "Media uploads are not currently supported with OAuth 2.0 only."
+                )
+            raise
 
     def _upload_video(self, content):
         """Upload video content to Twitter using chunked upload."""

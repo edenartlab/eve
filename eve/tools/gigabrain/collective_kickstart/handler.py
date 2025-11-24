@@ -350,10 +350,12 @@ Generate a friendly, personalized introduction message that presents these conne
         reason="generating_personalized_message",
     )
 
+    current_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
     # Build system prompt with memory context using the same template
     system_content = system_template.render(
         name=agent.name,
-        # current_date_time=current_date_time,
+        current_date=current_date,
         description=agent.description,
         persona=agent.persona,
         tools=None,

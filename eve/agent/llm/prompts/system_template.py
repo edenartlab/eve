@@ -174,7 +174,7 @@ conductor_template = Template("""
   </Role>
 
   <Context>
-    The current date/time is {{ current_date_time }}.    
+    The current date is {{ current_date }}. Ignore any other declarations of the current date.
 
     {% if context %}
     {{ context }}
