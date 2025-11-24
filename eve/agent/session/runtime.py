@@ -49,6 +49,34 @@ from .tools import process_tool_calls
 from .util import validate_prompt_session
 
 
+def _resolve_triggering_user_id(
+    context: PromptSessionContext,
+) -> Optional[ObjectId]:
+    """Resolve the user who triggered this session prompt."""
+    if not context.acting_user_id and not context.initiating_user_id:
+        return None
+    return ObjectId(str(context.acting_user_id or context.initiating_user_id))
+
+
+def _resolve_billed_user_id(
+    context: PromptSessionContext,
+    actor: Agent,
+    is_client_platform: bool,
+) -> Optional[ObjectId]:
+    """
+    Determine which user should be billed for a response.
+    Defaults to the triggering user unless the agent owner sponsors usage.
+    """
+    owner_pays = getattr(actor, "owner_pays", "off") or "off"
+
+    if owner_pays == "full":
+        return actor.owner
+    if owner_pays == "deployments" and is_client_platform:
+        return actor.owner
+
+    return _resolve_triggering_user_id(context)
+
+
 class SessionCancelledException(Exception):
     """Exception raised when a session is cancelled via Ably signal."""
 
@@ -67,6 +95,7 @@ class PromptSessionRuntime:
         session_run_id: Optional[str],
         api_key_id: Optional[str],
         instrumentation: Optional[PromptSessionInstrumentation] = None,
+        context: Optional[PromptSessionContext] = None,
     ):
         self.session = session
         self.llm_context = llm_context
@@ -76,6 +105,7 @@ class PromptSessionRuntime:
         self.session_run_id = session_run_id or str(uuid.uuid4())
         self.api_key_id = api_key_id
         self.instrumentation = instrumentation
+        self.context = context
         self.debugger = (
             instrumentation.debugger if instrumentation else SessionDebugger()
         )
@@ -86,6 +116,18 @@ class PromptSessionRuntime:
         self.transaction = None
         self.active_request_registered = False
         self._last_stream_result: Optional[Dict[str, Any]] = None
+
+        # Resolve billing users
+        self.triggering_user_id = (
+            _resolve_triggering_user_id(context) if context else None
+        )
+        self.billed_user_id = (
+            _resolve_billed_user_id(context, actor, is_client_platform)
+            if context
+            else None
+        )
+        self.billed_user_doc = None
+        self.rate_limiter = None
 
     async def run(self):
         """Async generator that yields SessionUpdates."""
@@ -110,11 +152,26 @@ class PromptSessionRuntime:
             self._register_active_request()
             yield self._start_update()
 
+            # Initialize rate limiter if enabled
+            if os.environ.get("FF_RATE_LIMITS") == "yes" and self.billed_user_id:
+                from eve.api.rate_limiter import RateLimiter
+                from eve.user import User
+
+                self.billed_user_doc = User.from_mongo(self.billed_user_id)
+                if self.billed_user_doc:
+                    self.rate_limiter = RateLimiter()
+
             prompt_session_finished = False
             while not prompt_session_finished:
                 self._ensure_not_cancelled()
                 await self._refresh_llm_messages()
                 self._maybe_disable_tools()
+
+                # Check rate limits before LLM call
+                if self.rate_limiter and self.billed_user_doc:
+                    await self.rate_limiter.check_message_rate_limit(
+                        self.billed_user_doc
+                    )
 
                 provider = self._select_provider()
                 llm_result: Dict[str, Any]
@@ -365,6 +422,9 @@ class PromptSessionRuntime:
                 usage=usage_obj,
             ),
             apiKey=ObjectId(self.api_key_id) if self.api_key_id else None,
+            triggering_user=self.triggering_user_id,
+            billed_user=self.billed_user_id,
+            agent_owner=self.actor.owner,
         )
         assistant_message.save()
 
@@ -623,6 +683,7 @@ async def async_prompt_session(
     session_run_id: Optional[str] = None,
     api_key_id: Optional[str] = None,
     instrumentation: Optional[PromptSessionInstrumentation] = None,
+    context: Optional[PromptSessionContext] = None,
 ):
     runtime = PromptSessionRuntime(
         session,
@@ -633,6 +694,7 @@ async def async_prompt_session(
         session_run_id=session_run_id,
         api_key_id=api_key_id,
         instrumentation=instrumentation,
+        context=context,
     )
     async for update in runtime.run():
         yield update
@@ -769,6 +831,7 @@ async def _run_single_actor(
             session_run_id=session_run_id,
             api_key_id=context.api_key_id,
             instrumentation=instrumentation,
+            context=context,
         ):
             formatted_update = format_session_update(update, context)
             if instrumentation:
@@ -817,6 +880,7 @@ async def _run_multiple_actors(
                     session_run_id=actor_session_run_id,
                     api_key_id=context.api_key_id,
                     instrumentation=instrumentation,
+                    context=context,
                 ):
                     formatted_update = format_session_update(update, context)
                     if instrumentation:

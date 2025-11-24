@@ -412,8 +412,10 @@ async def process_farcaster_cast(
 
         # Execute prompt session
         new_messages = []
-        async for update in async_prompt_session(session, llm_context, agent):
-            logger.info("!!!! THE UPDATED MESSAGE IS !!!!!")
+        async for update in async_prompt_session(
+            session, llm_context, agent, context=prompt_context
+        ):
+            logger.info("farcaster cast update")
             logger.info(update)
             if update.type == UpdateType.ASSISTANT_MESSAGE:
                 new_messages.append(update.message)

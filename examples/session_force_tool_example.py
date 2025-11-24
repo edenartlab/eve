@@ -41,21 +41,23 @@ async def example_session():
 
     handle = create_prompt_session_handle(request, background_tasks)
     session = handle.session
-    context = handle.context
-    context.tools = {tool.key: tool}
-    context.tool_choice = tool.key
+    prompt_context = handle.context
+    prompt_context.tools = {tool.key: tool}
+    prompt_context.tool_choice = tool.key
 
-    await add_chat_message(session, context)
+    await add_chat_message(session, prompt_context)
 
     # Run session
-    context = await build_llm_context(
+    llm_context = await build_llm_context(
         session,
         agent,
-        context,
+        prompt_context,
     )
 
     # Execute the prompt session
-    async for _ in async_prompt_session(session, llm_context=context, agent=agent):
+    async for _ in async_prompt_session(
+        session, llm_context=llm_context, agent=agent, context=prompt_context
+    ):
         pass
 
 

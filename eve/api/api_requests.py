@@ -161,6 +161,7 @@ class SessionCreationArgs(BaseModel):
     budget: Optional[float] = None
     trigger: Optional[str] = None
     session_key: Optional[str] = None
+    session_type: Literal["normal", "natural", "automatic"] = "normal"
     parent_session: Optional[str] = None
     platform: Optional[str] = None
     extras: Optional[Dict[str, Any]] = None

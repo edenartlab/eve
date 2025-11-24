@@ -78,7 +78,9 @@ async def remote_prompt_session(
     )
 
     # Run the prompt
-    async for m in async_prompt_session(session, llm_context, agent):
+    async for m in async_prompt_session(
+        session, llm_context, agent, context=prompt_context
+    ):
         pass
 
     logger.info(f"Remote prompt completed for session {session_id}")

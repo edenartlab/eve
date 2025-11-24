@@ -6,10 +6,11 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 from bson import ObjectId
+from jinja2 import Template
 from loguru import logger
 
 from eve.agent.agent import Agent
-from eve.agent.llm.prompts.system_template import system_template
+from eve.agent.llm.prompts.system_template import social_media_template, system_template
 from eve.agent.llm.util import is_fake_llm_mode, is_test_mode_prompt
 from eve.agent.memory.memory_models import (
     get_sender_id_to_sender_name_map,
@@ -23,6 +24,7 @@ from eve.agent.session.config import (
 from eve.agent.session.models import (
     Channel,
     ChatMessage,
+    Deployment,
     LLMConfig,
     LLMContext,
     LLMContextMetadata,
@@ -37,6 +39,23 @@ from eve.concepts import Concept
 from eve.models import Model
 from eve.tool import Tool
 from eve.user import User
+
+# Rich notification templates for social media channels
+twitter_notification_template = Template("""
+│ 📨 TWITTER NOTIFICATION
+│ From: @{{ username }}
+│ Tweet ID: {{ tweet_id }}
+├─────────────────────────────────────
+{{ content }}
+""")
+
+farcaster_notification_template = Template("""
+│ 📨 FARCASTER NOTIFICATION
+│ From: {{ farcaster_username }} (FID {{ fid }})
+│ Farcaster Hash: {{ farcaster_hash }}
+├─────────────────────────────────────
+{{ content }}
+""")
 
 
 def parse_mentions(content: str) -> List[str]:
@@ -151,7 +170,7 @@ def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
 
 def label_message_channels(messages: List[ChatMessage]):
     """
-    Prepends channel metadata to message content for Farcaster messages
+    Prepends channel metadata to message content for Farcaster and Twitter messages
     """
     # Collect all unique sender IDs from messages
     sender_ids = list({msg.sender for msg in messages if msg.sender})
@@ -162,15 +181,31 @@ def label_message_channels(messages: List[ChatMessage]):
     # Efficiently load all users in one operation
     users = User.find({"_id": {"$in": sender_ids}})
     user_map = {user.id: user for user in users}
-    # Process messages and prepend channel info for Farcaster messages
+
+    # Process messages and prepend channel info for social media messages
     labeled_messages = []
     for message in messages:
         if message.channel and message.channel.type == "farcaster" and message.sender:
             sender = user_map.get(message.sender)
-            sender_farcaster_fid = sender.farcasterId if sender else "Unknown"
-            # Prepend the Farcaster metadata to the message content
-            prepend_text = f"<<Farcaster Hash: {message.channel.key}, FID: {sender_farcaster_fid}>>"
-            message.content = f"{prepend_text} {message.content}"
+
+            # Wrap message content in Farcaster metadata using rich template
+            message.content = farcaster_notification_template.render(
+                farcaster_hash=message.channel.key,
+                farcaster_username=sender.farcasterUsername if sender else "Unknown",
+                fid=sender.farcasterId if sender else "Unknown",
+                content=message.content,
+            )
+
+        elif message.channel and message.channel.type == "twitter" and message.sender:
+            sender = user_map.get(message.sender)
+
+            # Wrap message content in Twitter metadata using rich template
+            message.content = twitter_notification_template.render(
+                username=sender.twitterUsername if sender else "Unknown",
+                tweet_id=message.channel.key,
+                content=message.content,
+            )
+
         labeled_messages.append(message)
 
     return labeled_messages
@@ -208,6 +243,31 @@ async def build_system_message(
             instrumentation=instrumentation,
         )
 
+    # Build social media instructions if this is a social media platform session
+    social_instructions = None
+    if session.platform == "farcaster":
+        deployment = Deployment.find_one({"agent": actor.id, "platform": "farcaster"})
+        if deployment and deployment.config and deployment.config.farcaster:
+            farcaster_instructions = deployment.config.farcaster.instructions or ""
+        else:
+            farcaster_instructions = ""
+        social_instructions = social_media_template.render(
+            has_farcaster=True,
+            farcaster_instructions=farcaster_instructions,
+        )
+    elif session.platform == "twitter":
+        deployment = Deployment.find_one({"agent": actor.id, "platform": "twitter"})
+        # Twitter deployment may have instructions in the future
+        twitter_instructions = ""
+        if deployment and deployment.config and deployment.config.twitter:
+            twitter_instructions = (
+                getattr(deployment.config.twitter, "instructions", "") or ""
+            )
+        social_instructions = social_media_template.render(
+            has_twitter=True,
+            twitter_instructions=twitter_instructions,
+        )
+
     # Build system prompt with memory context
     content = system_template.render(
         name=actor.name,
@@ -219,6 +279,7 @@ async def build_system_message(
         loras=lora_docs,
         voice=actor.voice,
         memory=memory,
+        social_instructions=social_instructions,
     )
 
     return ChatMessage(session=session.id, role="system", content=content)
@@ -265,6 +326,13 @@ async def build_system_extras(
 async def add_chat_message(
     session: Session, context: PromptSessionContext, pin: bool = False
 ):
+    # Resolve the triggering user (who initiated this action)
+    triggering_user_id = (
+        ObjectId(str(context.acting_user_id or context.initiating_user_id))
+        if (context.acting_user_id or context.initiating_user_id)
+        else None
+    )
+
     new_message = ChatMessage(
         session=session.id,
         sender=ObjectId(str(context.initiating_user_id)),
@@ -273,14 +341,18 @@ async def add_chat_message(
         attachments=context.message.attachments or [],
         trigger=context.trigger,
         apiKey=ObjectId(context.api_key_id) if context.api_key_id else None,
+        triggering_user=triggering_user_id,
     )
 
-    # save farcaster origin info
-    # todo: other platforms
+    # Save channel origin info for social media platforms
     if context.update_config:
         if context.update_config.farcaster_hash:
             new_message.channel = Channel(
                 type="farcaster", key=context.update_config.farcaster_hash
+            )
+        elif context.update_config.twitter_tweet_to_reply_id:
+            new_message.channel = Channel(
+                type="twitter", key=context.update_config.twitter_tweet_to_reply_id
             )
     if pin:
         new_message.pinned = True
