@@ -97,7 +97,7 @@ class AnthropicProvider(LLMProvider):
                         "model": effective_model,
                         "system": system_prompt,
                         "messages": conversation,
-                        "max_tokens": context.config.max_tokens or 1024,
+                        "max_tokens": context.config.max_tokens or 20000,
                     }
                     if tools:
                         request_kwargs["tools"] = tools
@@ -201,7 +201,7 @@ class AnthropicProvider(LLMProvider):
             "system": system_prompt,
             "messages": conversation,
             "tools": tools or [],
-            "max_tokens": context.config.max_tokens or 1024,
+            "max_tokens": context.config.max_tokens or 20000,
             "reasoning_effort": context.config.reasoning_effort,
             "include_thoughts": include_thoughts,
             "fallback_models": list(context.config.fallback_models or []),
