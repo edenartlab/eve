@@ -134,6 +134,7 @@ async def commit_daily_work(agent: Agent, session: str):
             "role": "user",
             # "user_id": str(context.user),
             "agent_id": str(agent.id),
+            "session_id": str(session),
             "session": str(winner["session"].id),
             "content": daily_message,
             "attachments": [],

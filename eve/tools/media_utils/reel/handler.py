@@ -110,6 +110,8 @@ To make it, you **plan, orchestrate, and execute multi-clip video productions** 
 ### Instructions
 {{ producer_instructions }}
 
+**NOTE**: Do not ask for confirmation or clarification from the user. Just attempt to complete the task as best as you can, and output a final report later.
+
 </Task>
 """
 
@@ -133,6 +135,7 @@ async def handler(context: ToolContext):
         "role": "user",
         "user_id": str(context.user),
         "agent_id": str(context.agent),
+        "session_id": str(context.session),
         "agent": "eve",
         "title": context.args.get("title") or "Reel Composer",
         "content": user_message,

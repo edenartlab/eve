@@ -116,6 +116,7 @@ async def handler(context: ToolContext):
             "role": "user",
             "user_id": str(context.user),
             "agent_id": str(agent.id),
+            "session_id": str(context.session),
             "title": title,
             "content": user_message,
             "attachments": [],

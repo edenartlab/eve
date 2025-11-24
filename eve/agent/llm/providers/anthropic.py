@@ -5,6 +5,7 @@ from contextlib import nullcontext
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+import httpx
 from anthropic import AsyncAnthropic
 from pydantic import BaseModel
 
@@ -59,10 +60,23 @@ class AnthropicProvider(LLMProvider):
         )
         tools = construct_anthropic_tools(context)
 
-        # Build structured output payload if response_format is specified
-        output_format_payload = self._build_output_format_payload(
-            context.config.response_format
-        )
+        # Check if we have a Pydantic class for structured outputs (for streaming)
+        # or a dict schema (for non-streaming with timeout)
+        response_format = context.config.response_format
+        response_format_class = None
+        output_format_payload = None
+
+        if response_format is not None:
+            if isinstance(response_format, type) and issubclass(
+                response_format, BaseModel
+            ):
+                # Pydantic class - can use streaming
+                response_format_class = response_format
+            else:
+                # Dict or instance - need to build payload for non-streaming
+                output_format_payload = self._build_output_format_payload(
+                    response_format
+                )
 
         base_input_payload = self._build_input_payload(
             context=context,
@@ -76,7 +90,8 @@ class AnthropicProvider(LLMProvider):
         for attempt_index, model_name in enumerate(self.models):
             # Auto-switch to supported model if structured outputs requested
             effective_model = model_name
-            if output_format_payload and not self._supports_structured_output(
+            has_structured_output = response_format_class or output_format_payload
+            if has_structured_output and not self._supports_structured_output(
                 model_name
             ):
                 effective_model = self.STRUCTURED_OUTPUT_FALLBACK
@@ -104,14 +119,25 @@ class AnthropicProvider(LLMProvider):
 
                     start_time = datetime.now(timezone.utc)
 
-                    # Use structured outputs if response_format specified
-                    if output_format_payload:
-                        response = await self._create_with_structured_output(
-                            request_kwargs, output_format_payload
+                    if response_format_class:
+                        # Pydantic class - use streaming with class directly
+                        # SDK will transform the class to schema internally
+                        async with self.client.beta.messages.stream(
+                            **request_kwargs,
+                            betas=["structured-outputs-2025-11-13"],
+                            output_format=response_format_class,
+                        ) as stream:
+                            response = await stream.get_final_message()
+                    elif output_format_payload:
+                        # Dict schema - can't use streaming, use long timeout instead
+                        response = await self.client.beta.messages.create(
+                            **request_kwargs,
+                            betas=["structured-outputs-2025-11-13"],
+                            output_format=output_format_payload,
+                            timeout=httpx.Timeout(600.0, connect=10.0),
                         )
                     else:
-                        # Use streaming to avoid SDK timeout errors with high max_tokens
-                        # but collect into a single response (no frontend streaming needed)
+                        # No structured output - use streaming
                         async with self.client.messages.stream(
                             **request_kwargs
                         ) as stream:
@@ -158,16 +184,6 @@ class AnthropicProvider(LLMProvider):
                 if "sonnet-4-5" in normalized or "opus-4-1" in normalized:
                     return True
         return False
-
-    async def _create_with_structured_output(
-        self, request_kwargs: Dict[str, Any], output_format: Dict[str, Any]
-    ):
-        """Create a message with structured output using the beta API."""
-        return await self.client.beta.messages.create(
-            **request_kwargs,
-            betas=["structured-outputs-2025-11-13"],
-            output_format=output_format,
-        )
 
     async def prompt_stream(self, context: LLMContext):
         response = await self.prompt(context)
