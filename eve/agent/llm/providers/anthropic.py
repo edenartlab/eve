@@ -163,11 +163,13 @@ class AnthropicProvider(LLMProvider):
         self, request_kwargs: Dict[str, Any], output_format: Dict[str, Any]
     ):
         """Create a message with structured output using the beta API."""
-        return await self.client.beta.messages.create(
+        # Use streaming to avoid SDK timeout errors with high max_tokens
+        async with self.client.beta.messages.stream(
             **request_kwargs,
             betas=["structured-outputs-2025-11-13"],
             output_format=output_format,
-        )
+        ) as stream:
+            return await stream.get_final_message()
 
     async def prompt_stream(self, context: LLMContext):
         response = await self.prompt(context)
