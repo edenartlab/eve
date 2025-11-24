@@ -820,7 +820,9 @@ class SessionExtras(BaseModel):
 @Collection("sessions")
 class Session(Document):
     owner: ObjectId
-    users: Optional[List[ObjectId]] = None  # List of allowed users (defaults to null)
+    users: List[ObjectId] = Field(
+        default_factory=list
+    )  # Non-agent users in this session
     session_key: Optional[str] = None
     channel: Optional[Channel] = None
     parent_session: Optional[ObjectId] = None

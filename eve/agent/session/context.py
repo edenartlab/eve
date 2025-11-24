@@ -323,6 +323,19 @@ async def build_system_extras(
     return context, extras
 
 
+def add_user_to_session(session: Session, user_id: ObjectId):
+    """Add a user to Session.users if not already present."""
+    current_users = set(session.users or [])
+    if user_id in current_users:
+        return
+
+    session.get_collection().update_one(
+        {"_id": session.id},
+        {"$addToSet": {"users": user_id}},
+    )
+    session.users = list(current_users | {user_id})
+
+
 async def add_chat_message(
     session: Session, context: PromptSessionContext, pin: bool = False
 ):
@@ -357,6 +370,10 @@ async def add_chat_message(
     if pin:
         new_message.pinned = True
     new_message.save()
+
+    # Add user to Session.users for user role messages
+    if context.message.role == "user" and context.initiating_user_id:
+        add_user_to_session(session, ObjectId(str(context.initiating_user_id)))
 
     memory_context = session.memory_context
     memory_context.last_activity = datetime.now(timezone.utc)

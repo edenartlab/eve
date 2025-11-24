@@ -21,6 +21,7 @@ from eve.agent.deployments.neynar_client import NeynarClient
 from eve.agent.deployments.utils import get_api_url
 from eve.agent.session.context import (
     add_chat_message,
+    add_user_to_session,
     build_llm_context,
 )
 from eve.agent.session.models import (
@@ -374,6 +375,10 @@ async def process_farcaster_cast(
                             attachments=media_urls_,
                         )
                         message.save()
+
+                        # Add user to Session.users for user role messages
+                        if role == "user":
+                            add_user_to_session(session, cast_user.id)
                 except Exception as e:
                     logger.error(f"Error reconstructing thread: {e}")
 
