@@ -766,11 +766,11 @@ def get_tools_from_mongo(
             # Graceful failure with Sentry tracking
             with sentry_sdk.push_scope() as scope:
                 scope.set_tag("component", "tool_loading")
-                scope.set_tag("tool_name", tool.key)
+                scope.set_tag("tool_name", tool["key"])
                 scope.set_context(
                     "tool_loading_context",
                     {
-                        "tool_name": tool.key,
+                        "tool_name": tool["key"],
                         "error_message": str(e),
                         "traceback": traceback.format_exc(),
                     },

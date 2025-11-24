@@ -173,8 +173,8 @@ class ReplicateTool(Tool):
 
                     if is_pipe:
                         new_args[field] = "|".join([str(p) for p in args[field]])
-                if alias:
-                    new_args[alias] = new_args.pop(field)
+                if alias and alias in new_args:
+                    new_args[alias] = new_args.pop(field, None)
 
         return new_args
 

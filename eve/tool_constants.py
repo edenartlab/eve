@@ -28,6 +28,7 @@ BASE_MODELS = Literal[
     "sd15",
     "sdxl",
     "flux-dev",
+    "flux-schnell",
     "stable-audio-open",
     "inspyrenet-rembg",
     "runway",
