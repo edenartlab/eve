@@ -836,7 +836,7 @@ class Session(Document):
         default_factory=SessionMemoryContext
     )
     title: Optional[str] = None
-    session_type: Literal["normal", "natural", "automatic"] = "normal"
+    session_type: Literal["passive", "natural", "automatic"] = "passive"
     settings: SessionSettings = Field(default_factory=SessionSettings)
     last_actor_id: Optional[ObjectId] = None
     budget: SessionBudget = SessionBudget()

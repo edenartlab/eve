@@ -22,7 +22,7 @@ from eve.agent.session.service import create_prompt_session_handle
 from eve.api.api import remote_prompt_session
 from eve.api.api_requests import PromptSessionRequest, SessionCreationArgs
 from eve.tool import Tool, ToolContext
-from eve.user import User
+from eve.user import User, increment_message_count
 
 
 async def handler(context: ToolContext):
@@ -96,9 +96,8 @@ async def handler(context: ToolContext):
         )
         new_message.save()
 
-        # stats = agent.stats
-        # stats["messageCount"] += 1
-        # agent.update(stats=stats.model_dump())
+        # Increment message count for the agent (sender)
+        increment_message_count(agent.id)
 
     elif context.args.get("role") in ["system", "user"]:
         # If we're going to prompt, run session prompt routine (it handles message addition)
