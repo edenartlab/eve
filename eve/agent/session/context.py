@@ -70,7 +70,7 @@ async def determine_actors(
     Actor selection logic:
     1. If actor_agent_ids explicitly specified in context, use those
     2. If session_type is "automatic", use conductor to select next speaker
-    3. If session_type is "normal" or "natural":
+    3. If session_type is "passive" or "natural":
        - Single agent: return that agent
        - Multiple agents: parse @mentions from message content
     """
