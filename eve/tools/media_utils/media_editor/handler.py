@@ -24,6 +24,8 @@ Instructions from the user:
 {{ instructions }}
 
 In your response, outline how you will solve the user’s request using the available tools, ensuring you respect the preferences and constraints described above.
+
+**NOTE**: Do not ask for confirmation or clarification from the user. Just attempt to complete the task as best as you can, and output a final report later.
 </Task>
 """
 
@@ -45,6 +47,7 @@ async def handler(context: ToolContext):
         "role": "user",
         "user_id": str(context.user),
         "agent_id": str(context.agent),
+        "session_id": str(context.session),
         "agent": "eve",
         "title": context.args.get("title") or "Media Editor Session",
         "content": user_message,
