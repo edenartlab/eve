@@ -14,22 +14,20 @@ Prerequisites:
 - Ensure MongoDB is accessible
 """
 
-import eve
-import argparse
-import time
 import hashlib
-import requests
-from loguru import logger
-from datetime import datetime, timedelta, timezone
+import time
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
+
+import requests
 from bson import ObjectId
+from loguru import logger
 from pydantic import Field
 
 from eve.agent.session.models import Deployment
+from eve.mongo import Collection, Document
 from eve.tools.twitter import X
-from eve.mongo import Document, Collection
-
 
 # ============================================================================
 # CONFIGURATION
@@ -56,6 +54,7 @@ HARD_CAP_CALLS_PER_LOOP = 20
 # MONGODB MODELS (Section 4)
 # ============================================================================
 
+
 @Collection("X_tracked_handles")
 class TrackedHandle(Document):
     username: str
@@ -65,16 +64,18 @@ class TrackedHandle(Document):
     updated_at: datetime = None
 
     def __init__(self, **data):
-        if 'created_at' not in data:
-            data['created_at'] = datetime.now(timezone.utc)
-        if 'updated_at' not in data:
-            data['updated_at'] = datetime.now(timezone.utc)
+        if "created_at" not in data:
+            data["created_at"] = datetime.now(timezone.utc)
+        if "updated_at" not in data:
+            data["updated_at"] = datetime.now(timezone.utc)
         super().__init__(**data)
 
 
 @Collection("X_tweets")
 class Tweet(Document):
-    id: Optional[str] = Field(None, alias="_id")  # Override to use string instead of ObjectId
+    id: Optional[str] = Field(
+        None, alias="_id"
+    )  # Override to use string instead of ObjectId
     author_id: str
     text: str
     created_at: datetime
@@ -94,16 +95,18 @@ class Tweet(Document):
     processed: Optional[bool] = False  # Track if tweet has been processed by agent
 
     def __init__(self, **data):
-        if 'first_seen_at' not in data:
-            data['first_seen_at'] = datetime.now(timezone.utc)
-        if 'last_seen_at' not in data:
-            data['last_seen_at'] = datetime.now(timezone.utc)
+        if "first_seen_at" not in data:
+            data["first_seen_at"] = datetime.now(timezone.utc)
+        if "last_seen_at" not in data:
+            data["last_seen_at"] = datetime.now(timezone.utc)
         super().__init__(**data)
 
 
 @Collection("X_users")
 class User(Document):
-    id: Optional[str] = Field(None, alias="_id")  # Override to use string instead of ObjectId
+    id: Optional[str] = Field(
+        None, alias="_id"
+    )  # Override to use string instead of ObjectId
     username: str
     name: str
     verified: Optional[bool] = None
@@ -117,14 +120,16 @@ class User(Document):
     raw: Dict[str, Any] = None
 
     def __init__(self, **data):
-        if 'last_updated_at' not in data:
-            data['last_updated_at'] = datetime.now(timezone.utc)
+        if "last_updated_at" not in data:
+            data["last_updated_at"] = datetime.now(timezone.utc)
         super().__init__(**data)
 
 
 @Collection("X_media")
 class Media(Document):
-    id: Optional[str] = Field(None, alias="_id")  # Override to use string instead of ObjectId
+    id: Optional[str] = Field(
+        None, alias="_id"
+    )  # Override to use string instead of ObjectId
     type: str
     url: Optional[str] = None
     preview_image_url: Optional[str] = None
@@ -138,34 +143,37 @@ class Media(Document):
     raw: Dict[str, Any] = None
 
     def __init__(self, **data):
-        if 'download' not in data:
-            data['download'] = {
-                'status': 'pending',
-                'stored_path': None,
-                'byte_size': None,
-                'checksum': None,
-                'last_attempt_at': None,
-                'last_success_at': None,
-                'attempts': 0
+        if "download" not in data:
+            data["download"] = {
+                "status": "pending",
+                "stored_path": None,
+                "byte_size": None,
+                "checksum": None,
+                "last_attempt_at": None,
+                "last_success_at": None,
+                "attempts": 0,
             }
         super().__init__(**data)
 
 
 @Collection("X_state")
 class State(Document):
-    id: Optional[str] = Field(None, alias="_id")  # Override to use string instead of ObjectId
+    id: Optional[str] = Field(
+        None, alias="_id"
+    )  # Override to use string instead of ObjectId
     value: Any
     updated_at: datetime = None
 
     def __init__(self, **data):
-        if 'updated_at' not in data:
-            data['updated_at'] = datetime.now(timezone.utc)
+        if "updated_at" not in data:
+            data["updated_at"] = datetime.now(timezone.utc)
         super().__init__(**data)
 
 
 # ============================================================================
 # TWITTER API WRAPPERS (Section 11)
 # ============================================================================
+
 
 class TwitterAPIWrapper:
     """Wrapper for Twitter API using Eve's X client."""
@@ -186,7 +194,9 @@ class TwitterAPIWrapper:
         client_secret = os.getenv("TWITTER_INTEGRATIONS_CLIENT_SECRET")
 
         if not client_id or not client_secret:
-            raise Exception("TWITTER_INTEGRATIONS_CLIENT_ID and TWITTER_INTEGRATIONS_CLIENT_SECRET must be set")
+            raise Exception(
+                "TWITTER_INTEGRATIONS_CLIENT_ID and TWITTER_INTEGRATIONS_CLIENT_SECRET must be set"
+            )
 
         logger.info("🔄 Refreshing access token...")
 
@@ -195,7 +205,8 @@ class TwitterAPIWrapper:
         auth = (client_id, client_secret)
         data = {
             "grant_type": "refresh_token",
-            "refresh_token": self.twitter.refresh_token
+            "refresh_token": self.twitter.refresh_token,
+            "client_id": client_id,
         }
 
         response = requests.post(token_url, auth=auth, data=data)
@@ -223,7 +234,9 @@ class TwitterAPIWrapper:
         """Reset the call counter for a new polling loop."""
         self.calls_this_loop = 0
 
-    def _make_api_call(self, method: str, url: str, params: Dict[str, Any], retry_on_401: bool = True) -> Tuple[Dict[str, Any], Dict[str, str]]:
+    def _make_api_call(
+        self, method: str, url: str, params: Dict[str, Any], retry_on_401: bool = True
+    ) -> Tuple[Dict[str, Any], Dict[str, str]]:
         """
         Make an API call and return response data + rate limit headers.
         Automatically refreshes token on 401 Unauthorized errors.
@@ -232,7 +245,9 @@ class TwitterAPIWrapper:
             Tuple of (response_json, rate_limit_headers)
         """
         if self.calls_this_loop >= HARD_CAP_CALLS_PER_LOOP:
-            raise Exception(f"Hard cap of {HARD_CAP_CALLS_PER_LOOP} calls per loop reached")
+            raise Exception(
+                f"Hard cap of {HARD_CAP_CALLS_PER_LOOP} calls per loop reached"
+            )
 
         self.calls_this_loop += 1
 
@@ -250,9 +265,9 @@ class TwitterAPIWrapper:
 
         # Extract rate limit headers
         rate_limit_headers = {
-            'remaining': response.headers.get('x-rate-limit-remaining'),
-            'reset': response.headers.get('x-rate-limit-reset'),
-            'limit': response.headers.get('x-rate-limit-limit'),
+            "remaining": response.headers.get("x-rate-limit-remaining"),
+            "reset": response.headers.get("x-rate-limit-reset"),
+            "limit": response.headers.get("x-rate-limit-limit"),
         }
 
         return response.json(), rate_limit_headers
@@ -262,7 +277,7 @@ class TwitterAPIWrapper:
         query: str,
         since_id: Optional[str] = None,
         next_token: Optional[str] = None,
-        max_results: int = MAX_RESULTS_PER_PAGE
+        max_results: int = MAX_RESULTS_PER_PAGE,
     ) -> Dict[str, Any]:
         """
         Fetch recent tweets matching a search query.
@@ -291,9 +306,7 @@ class TwitterAPIWrapper:
             params["next_token"] = next_token
 
         response_data, rate_headers = self._make_api_call(
-            "get",
-            "https://api.twitter.com/2/tweets/search/recent",
-            params=params
+            "get", "https://api.twitter.com/2/tweets/search/recent", params=params
         )
 
         # Attach rate limit info
@@ -316,9 +329,7 @@ class TwitterAPIWrapper:
         }
 
         response_data, rate_headers = self._make_api_call(
-            "get",
-            "https://api.twitter.com/2/users/by",
-            params=params
+            "get", "https://api.twitter.com/2/users/by", params=params
         )
 
         response_data["_rate_limit"] = rate_headers
@@ -328,7 +339,7 @@ class TwitterAPIWrapper:
         self,
         tweet_id: str,
         next_token: Optional[str] = None,
-        max_results: int = MAX_RESULTS_PER_PAGE
+        max_results: int = MAX_RESULTS_PER_PAGE,
     ) -> Dict[str, Any]:
         """
         Fetch quote tweets for a specific tweet.
@@ -355,7 +366,7 @@ class TwitterAPIWrapper:
         response_data, rate_headers = self._make_api_call(
             "get",
             f"https://api.twitter.com/2/tweets/{tweet_id}/quote_tweets",
-            params=params
+            params=params,
         )
 
         response_data["_rate_limit"] = rate_headers
@@ -368,8 +379,8 @@ class TwitterAPIWrapper:
         Args:
             rate_limit_headers: Headers from API response
         """
-        remaining = rate_limit_headers.get('remaining')
-        reset = rate_limit_headers.get('reset')
+        remaining = rate_limit_headers.get("remaining")
+        reset = rate_limit_headers.get("reset")
 
         if remaining is not None and int(remaining) == 0 and reset is not None:
             reset_time = datetime.fromtimestamp(int(reset), tz=timezone.utc)
@@ -377,13 +388,16 @@ class TwitterAPIWrapper:
             sleep_seconds = (reset_time - now).total_seconds() + 5  # Add 5s jitter
 
             if sleep_seconds > 0:
-                logger.info(f"⏱️  Rate limit reached. Sleeping {sleep_seconds:.0f}s until reset...")
+                logger.info(
+                    f"⏱️  Rate limit reached. Sleeping {sleep_seconds:.0f}s until reset..."
+                )
                 time.sleep(sleep_seconds)
 
 
 # ============================================================================
 # QUERY CONSTRUCTION (Section 8)
 # ============================================================================
+
 
 def build_combined_query(usernames: List[str]) -> str:
     """
@@ -408,6 +422,7 @@ def build_combined_query(usernames: List[str]) -> str:
 # ============================================================================
 # DATA PERSISTENCE (Section 4)
 # ============================================================================
+
 
 class DataPersister:
     """Handles upserting data to MongoDB."""
@@ -439,7 +454,13 @@ class DataPersister:
                 existing[0].save()
             else:
                 # Create new tweet
-                tweet_created_at = datetime.fromisoformat(tweet_data.get("created_at", "").replace("Z", "+00:00")) if tweet_data.get("created_at") else now
+                tweet_created_at = (
+                    datetime.fromisoformat(
+                        tweet_data.get("created_at", "").replace("Z", "+00:00")
+                    )
+                    if tweet_data.get("created_at")
+                    else now
+                )
                 tweet = Tweet(
                     author_id=tweet_data.get("author_id"),
                     text=tweet_data.get("text", ""),
@@ -456,7 +477,7 @@ class DataPersister:
                     public_metrics=tweet_data.get("public_metrics"),
                     raw=tweet_data,
                     first_seen_at=now,
-                    last_seen_at=now
+                    last_seen_at=now,
                 )
                 tweet.id = tweet_id
                 tweet.save()
@@ -481,12 +502,14 @@ class DataPersister:
             bio_snapshot = {
                 "description": user_data.get("description"),
                 "url": user_data.get("url"),
-                "location": user_data.get("location")
+                "location": user_data.get("location"),
             }
 
             user_created_at = None
             if "created_at" in user_data:
-                user_created_at = datetime.fromisoformat(user_data["created_at"].replace("Z", "+00:00"))
+                user_created_at = datetime.fromisoformat(
+                    user_data["created_at"].replace("Z", "+00:00")
+                )
 
             if existing:
                 # Update existing user
@@ -514,7 +537,7 @@ class DataPersister:
                     bio_snapshot=bio_snapshot,
                     created_at=user_created_at,
                     last_updated_at=now,
-                    raw=user_data
+                    raw=user_data,
                 )
                 user.id = user_id
                 user.save()
@@ -567,7 +590,7 @@ class DataPersister:
                     duration_ms=media_data.get("duration_ms"),
                     alt_text=media_data.get("alt_text"),
                     public_metrics=media_data.get("public_metrics"),
-                    raw=media_data
+                    raw=media_data,
                 )
                 media.id = media_key
                 media.save()
@@ -602,6 +625,7 @@ class DataPersister:
 # ============================================================================
 # MEDIA DOWNLOADING (Section 5)
 # ============================================================================
+
 
 class MediaDownloader:
     """Handles downloading media files to local disk."""
@@ -640,7 +664,9 @@ class MediaDownloader:
         elif media.type in ("video", "animated_gif"):
             # Find highest bitrate variant
             if media.variants:
-                mp4_variants = [v for v in media.variants if v.get("content_type") == "video/mp4"]
+                mp4_variants = [
+                    v for v in media.variants if v.get("content_type") == "video/mp4"
+                ]
                 if mp4_variants:
                     highest = max(mp4_variants, key=lambda v: v.get("bit_rate", 0))
                     download_url = highest.get("url")
@@ -676,7 +702,9 @@ class MediaDownloader:
             media.download["last_success_at"] = datetime.now(timezone.utc)
             media.save()
 
-            logger.info(f"  📥 Downloaded {media_key}.{extension} ({len(content)} bytes)")
+            logger.info(
+                f"  📥 Downloaded {media_key}.{extension} ({len(content)} bytes)"
+            )
 
         except Exception as e:
             logger.info(f"  ❌ Failed to download {media_key}: {e}")
@@ -688,6 +716,7 @@ class MediaDownloader:
 # PAGINATION AND POLLING (Section 6)
 # ============================================================================
 
+
 class TwitterPoller:
     """Main polling logic for Twitter account tracking."""
 
@@ -696,7 +725,9 @@ class TwitterPoller:
         self.persister = DataPersister()
         self.downloader = MediaDownloader()
 
-    def paginate_search(self, query: str, since_id_key: str, max_pages: int = MAX_PAGES_PER_QUERY) -> int:
+    def paginate_search(
+        self, query: str, since_id_key: str, max_pages: int = MAX_PAGES_PER_QUERY
+    ) -> int:
         """
         Paginate through search results, upserting data and handling since_id.
 
@@ -718,9 +749,7 @@ class TwitterPoller:
         while page < max_pages:
             try:
                 response = self.api.fetch_search_recent(
-                    query=query,
-                    since_id=since_id,
-                    next_token=next_token
+                    query=query, since_id=since_id, next_token=next_token
                 )
 
                 # Check rate limits
@@ -770,7 +799,9 @@ class TwitterPoller:
         query = build_combined_query(usernames)
         logger.info(f"\n🔍 Searching mentions/replies/from users: {query[:100]}...")
 
-        count = self.paginate_search(query, "since_id:combined", max_pages=MAX_PAGES_PER_QUERY)
+        count = self.paginate_search(
+            query, "since_id:combined", max_pages=MAX_PAGES_PER_QUERY
+        )
         logger.info(f"  ✓ Found {count} new tweets")
         return count
 
@@ -789,7 +820,7 @@ class TwitterPoller:
         Returns:
             Number of new quote tweets processed
         """
-        logger.info(f"\n🔍 Searching quote tweets of popular posts...")
+        logger.info("\n🔍 Searching quote tweets of popular posts...")
 
         # Get recent tweets from tracked users to check for quotes
         recent_tweets = []
@@ -805,15 +836,12 @@ class TwitterPoller:
 
             # Get their recent tweets from our database (last 50 tweets)
             user_tweets = Tweet.find(
-                {"author_id": user_id},
-                sort="created_at",
-                desc=True,
-                limit=50
+                {"author_id": user_id}, sort="created_at", desc=True, limit=50
             )
             recent_tweets.extend(user_tweets)
 
         if not recent_tweets:
-            logger.info(f"  ✓ No recent source tweets to check")
+            logger.info("  ✓ No recent source tweets to check")
             return 0
 
         # Filter for tweets worth checking:
@@ -822,23 +850,25 @@ class TwitterPoller:
         candidates = []
         for tweet in recent_tweets:
             metrics = tweet.public_metrics or {}
-            quote_count = metrics.get('quote_count', 0)
-            like_count = metrics.get('like_count', 0)
+            quote_count = metrics.get("quote_count", 0)
+            like_count = metrics.get("like_count", 0)
 
             if quote_count > 0 or like_count > 10:
                 candidates.append(tweet)
 
         if not candidates:
-            logger.info(f"  ✓ No tweets meet quote check criteria (quote_count > 0 or like_count > 10)")
+            logger.info(
+                "  ✓ No tweets meet quote check criteria (quote_count > 0 or like_count > 10)"
+            )
             return 0
 
         # Sort by quote_count DESC (prioritize known quotes), then like_count DESC
         candidates.sort(
             key=lambda t: (
-                t.public_metrics.get('quote_count', 0) if t.public_metrics else 0,
-                t.public_metrics.get('like_count', 0) if t.public_metrics else 0
+                t.public_metrics.get("quote_count", 0) if t.public_metrics else 0,
+                t.public_metrics.get("like_count", 0) if t.public_metrics else 0,
             ),
-            reverse=True
+            reverse=True,
         )
 
         # Take top 5
@@ -858,17 +888,23 @@ class TwitterPoller:
             if last_checked:
                 try:
                     from datetime import datetime, timezone
+
                     last_checked_time = datetime.fromisoformat(last_checked)
                     now = datetime.now(timezone.utc)
-                    if (now - last_checked_time).total_seconds() < 14400:  # 4 hours = 14400 seconds
+                    if (
+                        now - last_checked_time
+                    ).total_seconds() < 14400:  # 4 hours = 14400 seconds
                         continue
-                except:
+                except Exception as e:
+                    logger.info(f"  ⚠️  Error checking quotes for tweet {tweet_id}: {e}")
                     pass
 
             # Check rate limit before making call
             # If we've already made many calls this loop, be conservative
             if self.api.calls_this_loop >= HARD_CAP_CALLS_PER_LOOP - 2:
-                logger.info(f"  ⚠️  Approaching call limit ({self.api.calls_this_loop}/{HARD_CAP_CALLS_PER_LOOP}), stopping quote checks")
+                logger.info(
+                    f"  ⚠️  Approaching call limit ({self.api.calls_this_loop}/{HARD_CAP_CALLS_PER_LOOP}), stopping quote checks"
+                )
                 break
 
             try:
@@ -878,11 +914,13 @@ class TwitterPoller:
                 # Check rate limits
                 if "_rate_limit" in response:
                     rate_limit = response["_rate_limit"]
-                    remaining = rate_limit.get('remaining')
+                    remaining = rate_limit.get("remaining")
 
                     # If rate limit is low, stop checking more quotes
                     if remaining and int(remaining) < 10:
-                        logger.info(f"  ⚠️  Quote tweets rate limit low ({remaining} remaining), stopping checks")
+                        logger.info(
+                            f"  ⚠️  Quote tweets rate limit low ({remaining} remaining), stopping checks"
+                        )
                         break
 
                     self.api.check_rate_limit_and_sleep(rate_limit)
@@ -899,23 +937,31 @@ class TwitterPoller:
                 if quote_tweet_ids:
                     total_quotes += len(quote_tweet_ids)
                     metrics = tweet.public_metrics or {}
-                    logger.info(f"  📝 Found {len(quote_tweet_ids)} quotes of tweet {tweet_id[:10]}... (❤️ {metrics.get('like_count', 0)}, 💬 {metrics.get('quote_count', 0)})")
+                    logger.info(
+                        f"  📝 Found {len(quote_tweet_ids)} quotes of tweet {tweet_id[:10]}... (❤️ {metrics.get('like_count', 0)}, 💬 {metrics.get('quote_count', 0)})"
+                    )
 
                 # Mark as checked
                 checked_count += 1
-                self.persister.set_since_id(state_key, datetime.now(timezone.utc).isoformat())
+                self.persister.set_since_id(
+                    state_key, datetime.now(timezone.utc).isoformat()
+                )
 
             except Exception as e:
                 logger.info(f"  ⚠️  Error checking quotes for tweet {tweet_id}: {e}")
                 continue
 
-        logger.info(f"  ✓ Found {total_quotes} new quote tweets (checked {checked_count}/{len(candidates)} eligible tweets)")
+        logger.info(
+            f"  ✓ Found {total_quotes} new quote tweets (checked {checked_count}/{len(candidates)} eligible tweets)"
+        )
         return total_quotes
 
     def run_poll_loop(self, usernames: List[str]):
         """Run a single polling loop."""
         logger.info(f"\n{'='*80}")
-        logger.info(f"⏰ Poll started at {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
+        logger.info(
+            f"⏰ Poll started at {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}"
+        )
         logger.info(f"{'='*80}")
 
         self.api.reset_call_counter()
@@ -935,6 +981,7 @@ class TwitterPoller:
 # ============================================================================
 # BOOTSTRAP (Section 7)
 # ============================================================================
+
 
 def bootstrap_tracked_handles(api: TwitterAPIWrapper, usernames: List[str]):
     """

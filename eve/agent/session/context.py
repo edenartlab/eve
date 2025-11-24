@@ -447,7 +447,10 @@ async def build_llm_context(
         tools = actor.get_tools(cache=False, auth_user=auth_user_id)
 
     if context.extra_tools:
-        tools.update(context.extra_tools)
+        # Only add extra_tools that don't already exist (avoid duplicates)
+        for tool_name, tool in context.extra_tools.items():
+            if tool_name not in tools:
+                tools[tool_name] = tool
 
     # setup tool_choice
     if tools:
