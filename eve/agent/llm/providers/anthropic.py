@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import uuid
 from contextlib import nullcontext
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -24,6 +25,13 @@ from eve.agent.session.models import (
     LLMUsage,
     ToolCall,
 )
+
+# Anthropic web search tool configuration
+WEB_SEARCH_TOOL = {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5,
+}
 
 
 class AnthropicProvider(LLMProvider):
@@ -114,8 +122,16 @@ class AnthropicProvider(LLMProvider):
                         "messages": conversation,
                         "max_tokens": context.config.max_tokens or 32000,
                     }
+
+                    # Build tools list with web search support
+                    all_tools = []
                     if tools:
-                        request_kwargs["tools"] = tools
+                        all_tools.extend(tools)
+                    # Add web search tool for supported models
+                    if self._supports_web_search(effective_model):
+                        all_tools.append(WEB_SEARCH_TOOL)
+                    if all_tools:
+                        request_kwargs["tools"] = all_tools
 
                     start_time = datetime.now(timezone.utc)
 
@@ -183,6 +199,28 @@ class AnthropicProvider(LLMProvider):
                 # e.g., "claude-sonnet-4-5" matches "claude-sonnet-4-5-20250929"
                 if "sonnet-4-5" in normalized or "opus-4-1" in normalized:
                     return True
+        return False
+
+    def _supports_web_search(self, model_name: str) -> bool:
+        """Check if a model supports web search.
+
+        Web search is available on Claude 3.7 Sonnet, 3.5 Sonnet, and 3.5 Haiku.
+        """
+        normalized = model_name.lower().strip()
+        # Web search supported models
+        web_search_patterns = [
+            "claude-3-7-sonnet",
+            "claude-3.7-sonnet",
+            "claude-3-5-sonnet",
+            "claude-3.5-sonnet",
+            "claude-3-5-haiku",
+            "claude-3.5-haiku",
+            "claude-sonnet-4",  # Newer naming
+            "claude-haiku-4",  # Newer naming
+        ]
+        for pattern in web_search_patterns:
+            if pattern in normalized:
+                return True
         return False
 
     async def prompt_stream(self, context: LLMContext):
@@ -320,6 +358,7 @@ class AnthropicProvider(LLMProvider):
         text_parts: List[str] = []
         tool_calls: List[ToolCall] = []
         thoughts: List[Dict[str, Any]] = []
+        web_search_sources: List[Dict[str, str]] = []
 
         for block in response.content:
             block_type = getattr(block, "type", None)
@@ -334,6 +373,18 @@ class AnthropicProvider(LLMProvider):
                         status="pending",
                     )
                 )
+            elif block_type == "web_search_tool_result":
+                # Extract citations from web search results
+                search_results = getattr(block, "content", [])
+                for result in search_results:
+                    result_type = getattr(result, "type", None)
+                    if result_type == "web_search_result":
+                        source = {
+                            "title": getattr(result, "title", None),
+                            "url": getattr(result, "url", None),
+                        }
+                        if source not in web_search_sources:
+                            web_search_sources.append(source)
             elif block_type in {"thinking", "redacted_thinking"}:
                 payload = {"type": block_type}
                 if hasattr(block, "thinking"):
@@ -343,6 +394,19 @@ class AnthropicProvider(LLMProvider):
                 if hasattr(block, "data"):
                     payload["data"] = block.data
                 thoughts.append(payload)
+
+        # Add web search as a completed tool call if we have sources
+        if web_search_sources:
+            tool_calls.insert(
+                0,
+                ToolCall(
+                    id=f"toolu_{uuid.uuid4()}",
+                    tool="web_search",
+                    args={},
+                    result=web_search_sources,
+                    status="completed",
+                ),
+            )
 
         usage = response.usage
         prompt_tokens = usage.input_tokens if usage else None

@@ -97,6 +97,7 @@ def setup_session(
         "agents": agent_object_ids,
         "title": request.creation_args.title,
         "session_key": request.creation_args.session_key,
+        "session_type": request.creation_args.session_type,
         "platform": request.creation_args.platform,
         "status": "active",
         "trigger": ObjectId(request.creation_args.trigger)

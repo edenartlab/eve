@@ -2,7 +2,7 @@ import os
 
 from sentry_sdk import capture_exception
 
-from eve.agent.session.models import NotificationConfig
+from eve.agent.session.models import NotificationConfig, Session
 
 
 async def check_if_session_active(user_id: str, session_id: str) -> dict:
@@ -80,7 +80,7 @@ async def create_session_message_notification(
 
 async def _send_session_notification(
     notification_config: NotificationConfig,
-    session_id: str,
+    session: Session,
     success: bool = True,
     error: str = None,
 ):
@@ -93,6 +93,9 @@ async def _send_session_notification(
         api_url = os.getenv("EDEN_API_URL")
         if not api_url:
             return
+
+        # Extract session_id from Session object
+        session_id = str(session.id)
 
         # Determine notification details based on success/failure
         if success:
