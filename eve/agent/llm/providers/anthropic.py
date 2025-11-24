@@ -110,7 +110,12 @@ class AnthropicProvider(LLMProvider):
                             request_kwargs, output_format_payload
                         )
                     else:
-                        response = await self.client.messages.create(**request_kwargs)
+                        # Use streaming to avoid SDK timeout errors with high max_tokens
+                        # but collect into a single response (no frontend streaming needed)
+                        async with self.client.messages.stream(
+                            **request_kwargs
+                        ) as stream:
+                            response = await stream.get_final_message()
 
                     end_time = datetime.now(timezone.utc)
                     llm_response = self._to_llm_response(response)
