@@ -406,6 +406,84 @@ async def regenerate_user_memory(
     return await handle_regenerate_user_memory(request)
 
 
+# Development endpoints for local testing
+@web_app.post("/dev/twitter/poll")
+async def dev_poll_twitter(request: Request):
+    """
+    Local development endpoint for Twitter polling.
+    Processes tweets synchronously instead of spawning Modal tasks.
+
+    Usage:
+        POST http://localhost:8000/dev/twitter/poll
+
+    Optional query params:
+        ?key=<secret> - Simple auth for dev endpoint
+    """
+    # Simple dev auth (optional)
+    secret_key = request.query_params.get("key")
+    expected_key = os.getenv("DEV_API_KEY", "dev")
+
+    if secret_key != expected_key:
+        return JSONResponse(
+            status_code=401, content={"error": "Invalid or missing dev API key"}
+        )
+
+    from eve.agent.deployments.twitter import poll_twitter_gateway
+
+    logger.info("=== Running Twitter poll in LOCAL MODE ===")
+    result = await poll_twitter_gateway(local_mode=True)
+
+    return JSONResponse(content=result)
+
+
+@web_app.post("/dev/twitter/process_tweet")
+async def dev_process_tweet(request: Request):
+    """
+    Local development endpoint to manually process a single tweet.
+
+    Usage:
+        POST http://localhost:8000/dev/twitter/process_tweet?key=dev
+
+    Body (JSON):
+    {
+        "tweet_id": "1234567890",
+        "deployment_id": "507f1f77bcf86cd799439011",
+        "tweet_data": {
+            "data": {...},
+            "includes": {...}
+        }
+    }
+    """
+    # Simple dev auth
+    secret_key = request.query_params.get("key")
+    expected_key = os.getenv("DEV_API_KEY", "dev")
+
+    if secret_key != expected_key:
+        return JSONResponse(
+            status_code=401, content={"error": "Invalid or missing dev API key"}
+        )
+
+    from eve.agent.deployments.twitter import process_twitter_tweet
+
+    body = await request.json()
+    tweet_id = body.get("tweet_id")
+    deployment_id = body.get("deployment_id")
+    tweet_data = body.get("tweet_data")
+
+    if not all([tweet_id, deployment_id, tweet_data]):
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": "Missing required fields: tweet_id, deployment_id, tweet_data"
+            },
+        )
+
+    logger.info(f"=== Processing single tweet {tweet_id} in LOCAL MODE ===")
+    result = await process_twitter_tweet(tweet_id, tweet_data, deployment_id)
+
+    return JSONResponse(content=result)
+
+
 # Simple embed endpoint that just returns the embedding vector
 @web_app.post("/embed")
 async def embed(request: Request, _: dict = Depends(auth.authenticate_admin)):
@@ -668,3 +746,33 @@ async def process_farcaster_cast_fn(
     from eve.agent.deployments.farcaster import process_farcaster_cast
 
     return await process_farcaster_cast(cast_hash, cast_data, deployment_id)
+
+
+########################################################
+## Twitter Polling Gateway
+########################################################
+
+
+@app.function(image=image, max_containers=10, timeout=3600)
+async def process_twitter_tweet_fn(
+    tweet_id: str,
+    tweet_data: dict,
+    deployment_id: str,
+):
+    """Modal wrapper for Twitter tweet processing"""
+    from eve.agent.deployments.twitter import process_twitter_tweet
+
+    return await process_twitter_tweet(tweet_id, tweet_data, deployment_id)
+
+
+@app.function(
+    image=image,
+    max_containers=1,
+    schedule=modal.Period(minutes=1),
+    timeout=600,
+)
+async def poll_twitter_gateway_fn():
+    """Modal scheduled function for Twitter polling gateway"""
+    from eve.agent.deployments.twitter import poll_twitter_gateway
+
+    return await poll_twitter_gateway()

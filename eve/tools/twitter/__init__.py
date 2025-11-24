@@ -1,6 +1,6 @@
 import logging
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import requests
 
@@ -33,6 +33,57 @@ class X:
             f"Using OAuth 2.0 access token: {self.access_token[:8]}..."
         )
 
+    def _refresh_token(self):
+        """Refresh the OAuth 2.0 access token"""
+        if not self.refresh_token:
+            raise ValueError("No refresh token available")
+
+        logging.info("Refreshing Twitter OAuth 2.0 token...")
+
+        token_url = "https://api.twitter.com/2/oauth2/token"
+        data = {
+            "grant_type": "refresh_token",
+            "refresh_token": self.refresh_token,
+            "client_id": self.consumer_key,
+        }
+
+        response = requests.post(
+            token_url, data=data, auth=(self.consumer_key, self.consumer_secret)
+        )
+
+        if not response.ok:
+            logging.error(
+                f"Token refresh failed: {response.status_code} {response.text}"
+            )
+            response.raise_for_status()
+
+        token_data = response.json()
+        self.access_token = token_data["access_token"]
+
+        # Update refresh token if provided
+        if "refresh_token" in token_data:
+            self.refresh_token = token_data["refresh_token"]
+
+        # Calculate expiry
+        expires_in = token_data.get("expires_in", 7200)  # Default 2 hours
+        expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+
+        # Update deployment in database
+        from eve.agent.session.models import Deployment
+
+        deployment = Deployment.find_one(
+            {"secrets.twitter.twitter_id": self.twitter_id}
+        )
+
+        if deployment:
+            deployment.secrets.twitter.access_token = self.access_token
+            deployment.secrets.twitter.refresh_token = self.refresh_token
+            deployment.secrets.twitter.expires_at = expires_at
+            deployment.save()
+            logging.info(f"Token refreshed successfully, expires at {expires_at}")
+        else:
+            logging.warning("Could not find deployment to update tokens")
+
     def _make_request(self, method, url, **kwargs):
         """Makes a request to the Twitter API using OAuth 2.0."""
         # Always use bearer token authentication for OAuth 2.0
@@ -45,10 +96,31 @@ class X:
         else:
             response = requests.post(url, **kwargs)
 
+        # If 401 Unauthorized, try refreshing token once
+        if response.status_code == 401 and self.refresh_token:
+            logging.warning("Got 401 Unauthorized, attempting token refresh...")
+            try:
+                self._refresh_token()
+                # Retry request with new token
+                kwargs["headers"]["Authorization"] = f"Bearer {self.access_token}"
+                if method.lower() == "get":
+                    response = requests.get(url, **kwargs)
+                else:
+                    response = requests.post(url, **kwargs)
+            except Exception as e:
+                logging.error(f"Token refresh failed: {e}")
+
         if not response.ok:
-            error_data = (
-                response.json() if response.text else "No error details available"
-            )
+            # Try to parse error response as JSON, but handle cases where it's not valid JSON
+            try:
+                error_data = (
+                    response.json() if response.text else "No error details available"
+                )
+            except Exception:
+                error_data = (
+                    response.text if response.text else "No error details available"
+                )
+
             logging.error(
                 f"Twitter API Error:\n"
                 f"Status Code: {response.status_code}\n"

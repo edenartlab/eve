@@ -42,7 +42,7 @@ from eve.agent.session.runtime import async_prompt_session
 from eve.api.errors import APIError
 from eve.mongo import Collection, Document, MongoDocumentNotFound
 from eve.tool import Tool
-from eve.user import User
+from eve.user import User, increment_message_count
 
 if TYPE_CHECKING:
     from eve.api.api_requests import DeploymentEmissionRequest
@@ -376,6 +376,9 @@ async def process_farcaster_cast(
                         )
                         message.save()
 
+                        # Increment message count for sender
+                        increment_message_count(cast_user.id)
+
                         # Add user to Session.users for user role messages
                         if role == "user":
                             add_user_to_session(session, cast_user.id)
@@ -390,6 +393,7 @@ async def process_farcaster_cast(
             session=session,
             initiating_user_id=str(user.id),
             message=ChatMessageRequestInput(
+                channel=Channel(type="farcaster", key=cast_hash),
                 content=content,
                 sender_name=author_username,
                 attachments=media_urls if media_urls else None,
@@ -418,7 +422,7 @@ async def process_farcaster_cast(
         # Execute prompt session
         new_messages = []
         async for update in async_prompt_session(
-            session, llm_context, agent, context=prompt_context
+            session, llm_context, agent, context=prompt_context, is_client_platform=True
         ):
             logger.info("farcaster cast update")
             logger.info(update)

@@ -653,6 +653,7 @@ class ChatMessage(Document):
 @dataclass
 class ChatMessageRequestInput:
     content: str
+    channel: Optional[Channel] = None
     role: Optional[Literal["user", "system"]] = "user"
     attachments: Optional[List[str]] = None
     sender_name: Optional[str] = None
@@ -682,6 +683,8 @@ class SessionUpdateConfig(BaseModel):
     farcaster_hash: Optional[str] = None
     farcaster_author_fid: Optional[int] = None
     farcaster_message_id: Optional[str] = None
+    twitter_tweet_id: Optional[str] = None
+    twitter_author_id: Optional[str] = None
     twitter_tweet_to_reply_id: Optional[str] = None
     user_is_bot: Optional[bool] = False
     email_sender: Optional[str] = None
@@ -1030,6 +1033,8 @@ class DeploymentSecretsFarcaster(BaseModel):
 # Twitter Models
 class DeploymentSettingsTwitter(BaseModel):
     username: Optional[str] = None
+    enable_tweet: Optional[bool] = False
+    instructions: Optional[str] = None
 
 
 class DeploymentSecretsTwitter(BaseModel):

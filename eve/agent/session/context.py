@@ -38,7 +38,7 @@ from eve.agent.session.tracing import add_breadcrumb
 from eve.concepts import Concept
 from eve.models import Model
 from eve.tool import Tool
-from eve.user import User
+from eve.user import User, increment_message_count
 
 # Rich notification templates for social media channels
 twitter_notification_template = Template("""
@@ -363,13 +363,17 @@ async def add_chat_message(
             new_message.channel = Channel(
                 type="farcaster", key=context.update_config.farcaster_hash
             )
-        elif context.update_config.twitter_tweet_to_reply_id:
+        elif context.update_config.twitter_tweet_id:
             new_message.channel = Channel(
-                type="twitter", key=context.update_config.twitter_tweet_to_reply_id
+                type="twitter", key=context.update_config.twitter_tweet_id
             )
     if pin:
         new_message.pinned = True
     new_message.save()
+
+    # Increment message count for sender
+    if context.initiating_user_id:
+        increment_message_count(ObjectId(str(context.initiating_user_id)))
 
     # Add user to Session.users for user role messages
     if context.message.role == "user" and context.initiating_user_id:

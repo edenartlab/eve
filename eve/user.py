@@ -314,6 +314,21 @@ class User(Document):
         return cls.get_canonical_id_map([normalized]).get(normalized, normalized)
 
 
+def increment_message_count(user_id: ObjectId) -> None:
+    """
+    Efficiently increment stats.messageCount for a user or agent.
+    Uses MongoDB $inc for atomic update without loading the document.
+    """
+    if not user_id:
+        return
+
+    users = get_collection(User.collection_name)
+    users.update_one(
+        {"_id": user_id},
+        {"$inc": {"stats.messageCount": 1}},
+    )
+
+
 @Collection("user_identities")
 class UserIdentity(Document):
     provider: str
