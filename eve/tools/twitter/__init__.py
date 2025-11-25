@@ -264,19 +264,22 @@ class X:
         logging.error(f"Processing timeout after {max_wait_seconds}s")
         return False
 
-    def _upload_one_shot(self, content: bytes, media_type: str) -> str:
+    def _upload_one_shot(
+        self, content: bytes, media_type: str, media_category: str
+    ) -> str:
         """
         Upload media using one-shot endpoint (for small images/subtitles).
 
         Args:
             content: Binary content of the media file
             media_type: MIME type (e.g., "image/jpeg")
+            media_category: X API category (e.g., "tweet_image")
 
         Returns:
             media_id string for use in tweets
         """
         logging.info(
-            f"Uploading media via one-shot (size: {len(content)} bytes, type: {media_type})"
+            f"Uploading media via one-shot (size: {len(content)} bytes, type: {media_type}, category: {media_category})"
         )
 
         try:
@@ -284,7 +287,10 @@ class X:
                 "post",
                 "https://api.x.com/2/media/upload",
                 files={"media": content},
-                data={"media_type": media_type},
+                data={
+                    "media_type": media_type,
+                    "media_category": media_category,
+                },
             )
 
             data = response.json().get("data", {})
@@ -470,14 +476,16 @@ class X:
                 f"Image file too large ({file_size_mb:.2f}MB). Maximum is 5MB."
             )
 
+        # Get media category for both upload paths
+        media_category = self._get_media_category(media_type, is_gif)
+
         # Route to appropriate upload method
         # Use one-shot for small images, chunked for large images/GIFs
         if file_size_mb < 5 and not is_gif:
             # Small image: use simple one-shot upload
-            return self._upload_one_shot(content, media_type)
+            return self._upload_one_shot(content, media_type, media_category)
         else:
             # Large image or GIF: use chunked upload
-            media_category = self._get_media_category(media_type, is_gif)
             return self._upload_chunked(content, media_type, media_category)
 
     def _upload_video(self, content: bytes) -> str:
