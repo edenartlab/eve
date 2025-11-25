@@ -13,7 +13,7 @@ from eve.agent.session.models import ChatMessage, LLMConfig, LLMContext
 async def test_openai_gpt():
     system_message = system_template.render(
         name="Test Assistant",
-        current_date_time=datetime.now(pytz.utc).strftime("%Y-%m-%d %H:%M:%S"),
+        current_date=datetime.now(pytz.utc).strftime("%Y-%m-%d"),
         persona="You are a helpful AI assistant.",
         tools=None,
     )
@@ -43,7 +43,7 @@ async def test_openai_gpt():
 async def test_anthropic_claude():
     system_message = system_template.render(
         name="Test Assistant",
-        current_date_time=datetime.now(pytz.utc).strftime("%Y-%m-%d %H:%M:%S"),
+        current_date=datetime.now(pytz.utc).strftime("%Y-%m-%d"),
         persona="You are a helpful AI assistant.",
         tools=None,
     )
@@ -73,7 +73,7 @@ async def test_anthropic_claude():
 async def test_google_gemini():
     system_message = system_template.render(
         name="Test Assistant",
-        current_date_time=datetime.now(pytz.utc).strftime("%Y-%m-%d %H:%M:%S"),
+        current_date=datetime.now(pytz.utc).strftime("%Y-%m-%d"),
         persona="You are a helpful AI assistant.",
         tools=None,
     )

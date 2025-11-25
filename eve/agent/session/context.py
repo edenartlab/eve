@@ -38,7 +38,7 @@ from eve.agent.session.tracing import add_breadcrumb
 from eve.concepts import Concept
 from eve.models import Model
 from eve.tool import Tool
-from eve.user import User
+from eve.user import User, increment_message_count
 
 # Rich notification templates for social media channels
 twitter_notification_template = Template("""
@@ -70,7 +70,7 @@ async def determine_actors(
     Actor selection logic:
     1. If actor_agent_ids explicitly specified in context, use those
     2. If session_type is "automatic", use conductor to select next speaker
-    3. If session_type is "normal" or "natural":
+    3. If session_type is "passive" or "natural":
        - Single agent: return that agent
        - Multiple agents: parse @mentions from message content
     """
@@ -268,10 +268,12 @@ async def build_system_message(
             twitter_instructions=twitter_instructions,
         )
 
+    current_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
     # Build system prompt with memory context
     content = system_template.render(
         name=actor.name,
-        # current_date_time=current_date_time,
+        current_date=current_date,
         description=actor.description,
         persona=actor.persona,
         tools=tools,
@@ -323,6 +325,19 @@ async def build_system_extras(
     return context, extras
 
 
+def add_user_to_session(session: Session, user_id: ObjectId):
+    """Add a user to Session.users if not already present."""
+    current_users = set(session.users or [])
+    if user_id in current_users:
+        return
+
+    session.get_collection().update_one(
+        {"_id": session.id},
+        {"$addToSet": {"users": user_id}},
+    )
+    session.users = list(current_users | {user_id})
+
+
 async def add_chat_message(
     session: Session, context: PromptSessionContext, pin: bool = False
 ):
@@ -350,13 +365,21 @@ async def add_chat_message(
             new_message.channel = Channel(
                 type="farcaster", key=context.update_config.farcaster_hash
             )
-        elif context.update_config.twitter_tweet_to_reply_id:
+        elif context.update_config.twitter_tweet_id:
             new_message.channel = Channel(
-                type="twitter", key=context.update_config.twitter_tweet_to_reply_id
+                type="twitter", key=context.update_config.twitter_tweet_id
             )
     if pin:
         new_message.pinned = True
     new_message.save()
+
+    # Increment message count for sender
+    if context.initiating_user_id:
+        increment_message_count(ObjectId(str(context.initiating_user_id)))
+
+    # Add user to Session.users for user role messages
+    if context.message.role == "user" and context.initiating_user_id:
+        add_user_to_session(session, ObjectId(str(context.initiating_user_id)))
 
     memory_context = session.memory_context
     memory_context.last_activity = datetime.now(timezone.utc)
@@ -426,7 +449,16 @@ async def build_llm_context(
         tools = actor.get_tools(cache=False, auth_user=auth_user_id)
 
     if context.extra_tools:
-        tools.update(context.extra_tools)
+        # Deduplicate tools based on tool.name attribute, not just dict key
+        # This prevents duplicate tool names when tools are converted to a list for LLM
+        existing_tool_names = {
+            tool.name for tool in tools.values() if hasattr(tool, "name")
+        }
+        for tool_key, tool in context.extra_tools.items():
+            tool_name = tool.name if hasattr(tool, "name") else tool_key
+            if tool_name not in existing_tool_names:
+                tools[tool_key] = tool
+                existing_tool_names.add(tool_name)
 
     # setup tool_choice
     if tools:

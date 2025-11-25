@@ -105,7 +105,7 @@ Create a **video** representing the entire creation. Use the `reel` tool to crea
 
 * The reel can roughly follow the structure of the blog post, but you are permitted to diverge from it to fit the medium of video better.
 * The reel should aim for a duration of 1 to 2 minutes.
-* The reel should be 16:9 aspect ratio.
+* The reel should match the dominant aspect ratio of the original images. 16:9 by default unless most of the images in the session are vertical, then 9:16.
 
 ---
 

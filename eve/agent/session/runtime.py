@@ -33,6 +33,7 @@ from eve.agent.session.models import (
 )
 from eve.agent.session.tracing import trace_async_operation
 from eve.api.errors import APIError
+from eve.user import increment_message_count
 from eve.utils import dumps_json
 
 from .budget import update_session_budget
@@ -443,6 +444,9 @@ class PromptSessionRuntime:
             agent_owner=self.actor.owner,
         )
         assistant_message.save()
+
+        # Increment message count for the agent (sender)
+        increment_message_count(assistant_message.sender)
 
         memory_context = self.session.memory_context
         memory_context.last_activity = datetime.now(timezone.utc)

@@ -242,9 +242,8 @@ class RateLimiter:
 
             if not user.subscriptionTier:
                 applicable_limits.extend(AGENT_RATE_LIMITS["basic_limits"])
-
             # Otherwise use tier-based limits
-            if user.subscriptionTier == 3:
+            elif user.subscriptionTier == 3:
                 applicable_limits.extend(AGENT_RATE_LIMITS["premium_limits"])
             elif user.subscriptionTier <= 2:
                 applicable_limits.extend(AGENT_RATE_LIMITS["basic_limits"])

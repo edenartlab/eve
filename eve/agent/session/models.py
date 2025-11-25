@@ -655,6 +655,7 @@ class ChatMessage(Document):
 @dataclass
 class ChatMessageRequestInput:
     content: str
+    channel: Optional[Channel] = None
     role: Optional[Literal["user", "system"]] = "user"
     attachments: Optional[List[str]] = None
     sender_name: Optional[str] = None
@@ -684,6 +685,8 @@ class SessionUpdateConfig(BaseModel):
     farcaster_hash: Optional[str] = None
     farcaster_author_fid: Optional[int] = None
     farcaster_message_id: Optional[str] = None
+    twitter_tweet_id: Optional[str] = None
+    twitter_author_id: Optional[str] = None
     twitter_tweet_to_reply_id: Optional[str] = None
     user_is_bot: Optional[bool] = False
     email_sender: Optional[str] = None
@@ -822,7 +825,9 @@ class SessionExtras(BaseModel):
 @Collection("sessions")
 class Session(Document):
     owner: ObjectId
-    users: Optional[List[ObjectId]] = None  # List of allowed users (defaults to null)
+    users: List[ObjectId] = Field(
+        default_factory=list
+    )  # Non-agent users in this session
     session_key: Optional[str] = None
     channel: Optional[Channel] = None
     parent_session: Optional[ObjectId] = None
@@ -833,7 +838,7 @@ class Session(Document):
         default_factory=SessionMemoryContext
     )
     title: Optional[str] = None
-    session_type: Literal["normal", "natural", "automatic"] = "normal"
+    session_type: Literal["passive", "natural", "automatic"] = "passive"
     settings: SessionSettings = Field(default_factory=SessionSettings)
     last_actor_id: Optional[ObjectId] = None
     budget: SessionBudget = SessionBudget()
@@ -1030,6 +1035,8 @@ class DeploymentSecretsFarcaster(BaseModel):
 # Twitter Models
 class DeploymentSettingsTwitter(BaseModel):
     username: Optional[str] = None
+    enable_tweet: Optional[bool] = False
+    instructions: Optional[str] = None
 
 
 class DeploymentSecretsTwitter(BaseModel):
