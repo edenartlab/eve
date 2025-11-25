@@ -21,13 +21,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
-from bson import ObjectId
 from loguru import logger
 from pydantic import Field
 
-from eve.agent.session.models import Deployment
 from eve.mongo import Collection, Document
-from eve.tools.twitter import X
 
 # ============================================================================
 # CONFIGURATION
@@ -176,70 +173,32 @@ class State(Document):
 
 
 class TwitterAPIWrapper:
-    """Wrapper for Twitter API using Eve's X client."""
+    """Wrapper for Twitter API using app-only bearer token for search operations."""
 
-    def __init__(self, deployment_id: str):
-        self.deployment_id = deployment_id
-        self.deployment = Deployment.load(_id=ObjectId(deployment_id))
-        if not self.deployment:
-            raise Exception(f"Deployment not found: {deployment_id}")
-        self.twitter = X(self.deployment)
-        self.calls_this_loop = 0
-
-    def refresh_access_token(self):
-        """Refresh the OAuth 2.0 access token using the refresh token."""
+    def __init__(self, deployment_id: str = None):
         import os
 
-        client_id = os.getenv("TWITTER_INTEGRATIONS_CLIENT_ID")
-        client_secret = os.getenv("TWITTER_INTEGRATIONS_CLIENT_SECRET")
+        # Use app-only bearer token for search operations (no user context needed)
+        self.bearer_token = os.getenv("TWITTER_BEARER_TOKEN")
+        if not self.bearer_token:
+            raise Exception("TWITTER_BEARER_TOKEN environment variable must be set")
 
-        if not client_id or not client_secret:
-            raise Exception(
-                "TWITTER_INTEGRATIONS_CLIENT_ID and TWITTER_INTEGRATIONS_CLIENT_SECRET must be set"
-            )
+        self.deployment_id = deployment_id
+        self.calls_this_loop = 0
 
-        logger.info("🔄 Refreshing access token...")
-
-        # Make token refresh request
-        token_url = "https://api.twitter.com/2/oauth2/token"
-        auth = (client_id, client_secret)
-        data = {
-            "grant_type": "refresh_token",
-            "refresh_token": self.twitter.refresh_token,
-            "client_id": client_id,
-        }
-
-        response = requests.post(token_url, auth=auth, data=data)
-        response.raise_for_status()
-
-        token_data = response.json()
-        new_access_token = token_data["access_token"]
-        new_refresh_token = token_data.get("refresh_token", self.twitter.refresh_token)
-
-        # Update deployment with new tokens
-        self.deployment.secrets.twitter.access_token = new_access_token
-        self.deployment.secrets.twitter.refresh_token = new_refresh_token
-        self.deployment.save()
-
-        # Update the twitter client
-        self.twitter.access_token = new_access_token
-        self.twitter.refresh_token = new_refresh_token
-        self.twitter.bearer_token = new_access_token
-
-        logger.info(f"✅ Token refreshed successfully: {new_access_token[:8]}...")
-
-        return new_access_token
+        logger.info(
+            f"Initialized TwitterAPIWrapper with app bearer token: {self.bearer_token[:10]}..."
+        )
 
     def reset_call_counter(self):
         """Reset the call counter for a new polling loop."""
         self.calls_this_loop = 0
 
     def _make_api_call(
-        self, method: str, url: str, params: Dict[str, Any], retry_on_401: bool = True
+        self, method: str, url: str, params: Dict[str, Any]
     ) -> Tuple[Dict[str, Any], Dict[str, str]]:
         """
-        Make an API call and return response data + rate limit headers.
-        Automatically refreshes token on 401 Unauthorized errors.
+        Make an API call using app-only bearer token.
 
         Returns:
             Tuple of (response_json, rate_limit_headers)
@@ -251,17 +210,24 @@ class TwitterAPIWrapper:
 
         self.calls_this_loop += 1
 
-        try:
-            response = self.twitter._make_request(method, url, params=params)
-        except requests.exceptions.HTTPError as e:
-            # If 401 Unauthorized and we haven't retried yet, refresh token and retry
-            if e.response.status_code == 401 and retry_on_401:
-                logger.info("⚠️  401 Unauthorized - attempting to refresh token...")
-                self.refresh_access_token()
-                # Retry once with refreshed token (set retry_on_401=False to prevent infinite loop)
-                return self._make_api_call(method, url, params, retry_on_401=False)
-            else:
-                raise
+        headers = {"Authorization": f"Bearer {self.bearer_token}"}
+
+        if method.lower() == "get":
+            response = requests.get(url, params=params, headers=headers)
+        else:
+            response = requests.post(url, json=params, headers=headers)
+
+        # Log error details before raising
+        if not response.ok:
+            logger.error(
+                f"Twitter API Error:\n"
+                f"Status Code: {response.status_code}\n"
+                f"URL: {url}\n"
+                f"Method: {method.upper()}\n"
+                f"Error Data: {response.json() if response.text else 'No response body'}"
+            )
+
+        response.raise_for_status()
 
         # Extract rate limit headers
         rate_limit_headers = {
