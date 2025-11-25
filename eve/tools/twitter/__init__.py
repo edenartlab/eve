@@ -1,4 +1,5 @@
 import logging
+import os
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -9,7 +10,8 @@ from eve.agent.deployments import Deployment
 
 class X:
     def __init__(self, deployment: Deployment):
-        import os
+        if os.getenv("DB") == "PROD":
+            raise ValueError("Twitter integration is not available in PROD yet")
 
         # OAuth 2.0 only mode
         self.access_token = deployment.secrets.twitter.access_token
@@ -36,6 +38,10 @@ class X:
 
     def _refresh_token(self):
         """Refresh the OAuth 2.0 access token"""
+
+        if os.getenv("DB") == "PROD":
+            raise ValueError("Twitter integration is not available in PROD yet")
+
         if not self.refresh_token:
             raise ValueError("No refresh token available")
 
@@ -87,6 +93,10 @@ class X:
 
     def _make_request(self, method, url, **kwargs):
         """Makes a request to the Twitter API using OAuth 2.0."""
+
+        if os.getenv("DB") == "PROD":
+            raise ValueError("Twitter integration is not available in PROD yet")
+
         # Always use bearer token authentication for OAuth 2.0
         if "headers" not in kwargs:
             kwargs["headers"] = {}
@@ -528,7 +538,7 @@ class X:
         )
         return response.json()
 
-    def get_following222(self, usernames):
+    def get_following(self, usernames):
         """Fetches the list of accounts each specified username is following."""
         following_data = {}
 
