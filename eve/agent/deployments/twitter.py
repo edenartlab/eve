@@ -510,19 +510,10 @@ async def poll_twitter_gateway(local_mode: bool = False):
         Tweet,
         build_combined_query,
     )
-    from eve.tools.twitter import X
 
     logger.info("=== Starting Twitter polling gateway ===")
 
     try:
-        # Get the auth deployment (special deployment used for API authentication)
-        eve = Agent.load("eve")
-        auth_deployment = Deployment.find_one({"platform": "twitter", "agent": eve.id})
-
-        if not auth_deployment:
-            logger.error("Auth deployment not found")
-            return {"status": "error", "error": "Auth deployment not found"}
-
         # Get all Twitter deployments with enable_tweet enabled
         active_twitter_deployments = [
             d
@@ -558,8 +549,17 @@ async def poll_twitter_gateway(local_mode: bool = False):
             if d.secrets and d.secrets.twitter and d.secrets.twitter.twitter_id:
                 agent_twitter_ids.add(d.secrets.twitter.twitter_id)
 
-        # Initialize Twitter API client with auth deployment
-        twitter_api = X(auth_deployment)
+        # Use app-only bearer token for search (no user auth needed, no token refresh issues)
+        import os
+
+        import requests
+
+        bearer_token = os.getenv("TWITTER_BEARER_TOKEN")
+        if not bearer_token:
+            logger.error("TWITTER_BEARER_TOKEN environment variable not set")
+            return {"status": "error", "error": "TWITTER_BEARER_TOKEN not set"}
+
+        logger.info(f"Using app bearer token: {bearer_token[:10]}...")
 
         # Build combined query for all tracked accounts
         query = build_combined_query(tracked_usernames)
@@ -592,19 +592,18 @@ async def poll_twitter_gateway(local_mode: bool = False):
                 if next_token:
                     params["next_token"] = next_token
 
-                # Make API request (with detailed error handling)
+                # Make API request using app bearer token (no user auth needed)
                 try:
-                    response = twitter_api._make_request(
-                        "get",
+                    headers = {"Authorization": f"Bearer {bearer_token}"}
+                    response = requests.get(
                         "https://api.twitter.com/2/tweets/search/recent",
                         params=params,
+                        headers=headers,
                     )
+                    response.raise_for_status()
                 except Exception as api_error:
                     logger.error(f"Twitter API request failed: {api_error}")
-                    logger.error("This is likely an auth error. Check token validity.")
-                    logger.error(
-                        f"Try running: DB={db.upper()} python test_twitter_api.py"
-                    )
+                    logger.error("Check TWITTER_BEARER_TOKEN validity.")
                     raise
 
                 # Debug: log response
