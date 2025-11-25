@@ -178,7 +178,7 @@ class TwitterAPIWrapper:
     def __init__(self, deployment_id: str = None):
         import os
 
-        # Use app-only bearer token for search operations (no user context needed)
+        # Use app-only bearer token (no user auth needed, no token refresh issues)
         self.bearer_token = os.getenv("TWITTER_BEARER_TOKEN")
         if not self.bearer_token:
             raise Exception("TWITTER_BEARER_TOKEN environment variable must be set")

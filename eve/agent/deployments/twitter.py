@@ -549,7 +549,7 @@ async def poll_twitter_gateway(local_mode: bool = False):
             if d.secrets and d.secrets.twitter and d.secrets.twitter.twitter_id:
                 agent_twitter_ids.add(d.secrets.twitter.twitter_id)
 
-        # Use app-only bearer token for search (no user auth needed, no refresh issues)
+        # Use app-only bearer token for search (no user auth needed, no token refresh issues)
         import os
 
         import requests

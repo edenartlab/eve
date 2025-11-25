@@ -37,12 +37,36 @@ class X:
         )
 
     def _refresh_token(self):
-        """Refresh the OAuth 2.0 access token"""
+        """Refresh the OAuth 2.0 access token with race condition protection."""
+        from eve.agent.session.models import Deployment
 
         if os.getenv("DB") == "PROD":
             raise ValueError("Twitter integration is not available in PROD yet")
 
-        if not self.refresh_token:
+        # Reload deployment from DB to get latest tokens (another process may have refreshed)
+        deployment = Deployment.find_one(
+            {"secrets.twitter.twitter_id": self.twitter_id}
+        )
+
+        if not deployment:
+            raise ValueError("Deployment not found for token refresh")
+
+        # Check if token was recently refreshed by another process
+        if deployment.secrets.twitter.expires_at:
+            time_until_expiry = (
+                deployment.secrets.twitter.expires_at - datetime.now(timezone.utc)
+            ).total_seconds()
+            if time_until_expiry > 60:  # Token still valid for >1 minute
+                logging.info(
+                    f"Token was recently refreshed (expires in {time_until_expiry:.0f}s), using existing"
+                )
+                self.access_token = deployment.secrets.twitter.access_token
+                self.refresh_token = deployment.secrets.twitter.refresh_token
+                return
+
+        # Use latest refresh_token from DB (not potentially stale in-memory copy)
+        refresh_token = deployment.secrets.twitter.refresh_token or self.refresh_token
+        if not refresh_token:
             raise ValueError("No refresh token available")
 
         logging.info("Refreshing Twitter OAuth 2.0 token...")
@@ -50,7 +74,7 @@ class X:
         token_url = "https://api.twitter.com/2/oauth2/token"
         data = {
             "grant_type": "refresh_token",
-            "refresh_token": self.refresh_token,
+            "refresh_token": refresh_token,
             "client_id": self.consumer_key,
         }
 
@@ -67,7 +91,7 @@ class X:
         token_data = response.json()
         self.access_token = token_data["access_token"]
 
-        # Update refresh token if provided
+        # Update refresh token if provided (Twitter uses rotating refresh tokens)
         if "refresh_token" in token_data:
             self.refresh_token = token_data["refresh_token"]
 
@@ -75,9 +99,7 @@ class X:
         expires_in = token_data.get("expires_in", 7200)  # Default 2 hours
         expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
 
-        # Update deployment in database
-        from eve.agent.session.models import Deployment
-
+        # Reload deployment again before saving (prevent overwriting concurrent updates)
         deployment = Deployment.find_one(
             {"secrets.twitter.twitter_id": self.twitter_id}
         )
