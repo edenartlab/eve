@@ -773,6 +773,10 @@ async def process_twitter_tweet_fn(
 )
 async def poll_twitter_gateway_fn():
     """Modal scheduled function for Twitter polling gateway"""
+    if os.getenv("DB") == "PROD":
+        logger.info("Skipping Twitter polling in PROD")
+        return
+
     from eve.agent.deployments.twitter import poll_twitter_gateway
 
     return await poll_twitter_gateway()
