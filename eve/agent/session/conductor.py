@@ -56,7 +56,7 @@ async def conductor_select_actor(session: Session) -> Agent:
 
     # Render conductor system message
     conductor_message = conductor_template.render(
-        current_date_time=datetime.now(pytz.utc).strftime("%Y-%m-%d %H:%M:%S"),
+        current_date=datetime.now(pytz.utc).strftime("%Y-%m-%d"),
         agents=agent_str,
     )
     logger.info(

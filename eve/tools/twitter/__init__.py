@@ -1,6 +1,6 @@
 import logging
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import requests
 
@@ -17,6 +17,7 @@ class X:
         self.twitter_id = deployment.secrets.twitter.twitter_id
         self.user_id = deployment.secrets.twitter.twitter_id  # For compatibility
         self.username = deployment.secrets.twitter.username
+        self.deployment = deployment  # Store for OAuth 1.0a token lookup
 
         # Get app credentials from environment
         self.consumer_key = os.getenv("TWITTER_INTEGRATIONS_CLIENT_ID")
@@ -33,6 +34,57 @@ class X:
             f"Using OAuth 2.0 access token: {self.access_token[:8]}..."
         )
 
+    def _refresh_token(self):
+        """Refresh the OAuth 2.0 access token"""
+        if not self.refresh_token:
+            raise ValueError("No refresh token available")
+
+        logging.info("Refreshing Twitter OAuth 2.0 token...")
+
+        token_url = "https://api.twitter.com/2/oauth2/token"
+        data = {
+            "grant_type": "refresh_token",
+            "refresh_token": self.refresh_token,
+            "client_id": self.consumer_key,
+        }
+
+        response = requests.post(
+            token_url, data=data, auth=(self.consumer_key, self.consumer_secret)
+        )
+
+        if not response.ok:
+            logging.error(
+                f"Token refresh failed: {response.status_code} {response.text}"
+            )
+            response.raise_for_status()
+
+        token_data = response.json()
+        self.access_token = token_data["access_token"]
+
+        # Update refresh token if provided
+        if "refresh_token" in token_data:
+            self.refresh_token = token_data["refresh_token"]
+
+        # Calculate expiry
+        expires_in = token_data.get("expires_in", 7200)  # Default 2 hours
+        expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+
+        # Update deployment in database
+        from eve.agent.session.models import Deployment
+
+        deployment = Deployment.find_one(
+            {"secrets.twitter.twitter_id": self.twitter_id}
+        )
+
+        if deployment:
+            deployment.secrets.twitter.access_token = self.access_token
+            deployment.secrets.twitter.refresh_token = self.refresh_token
+            deployment.secrets.twitter.expires_at = expires_at
+            deployment.save()
+            logging.info(f"Token refreshed successfully, expires at {expires_at}")
+        else:
+            logging.warning("Could not find deployment to update tokens")
+
     def _make_request(self, method, url, **kwargs):
         """Makes a request to the Twitter API using OAuth 2.0."""
         # Always use bearer token authentication for OAuth 2.0
@@ -45,10 +97,31 @@ class X:
         else:
             response = requests.post(url, **kwargs)
 
+        # If 401 Unauthorized, try refreshing token once
+        if response.status_code == 401 and self.refresh_token:
+            logging.warning("Got 401 Unauthorized, attempting token refresh...")
+            try:
+                self._refresh_token()
+                # Retry request with new token
+                kwargs["headers"]["Authorization"] = f"Bearer {self.access_token}"
+                if method.lower() == "get":
+                    response = requests.get(url, **kwargs)
+                else:
+                    response = requests.post(url, **kwargs)
+            except Exception as e:
+                logging.error(f"Token refresh failed: {e}")
+
         if not response.ok:
-            error_data = (
-                response.json() if response.text else "No error details available"
-            )
+            # Try to parse error response as JSON, but handle cases where it's not valid JSON
+            try:
+                error_data = (
+                    response.json() if response.text else "No error details available"
+                )
+            except Exception:
+                error_data = (
+                    response.text if response.text else "No error details available"
+                )
+
             logging.error(
                 f"Twitter API Error:\n"
                 f"Status Code: {response.status_code}\n"
@@ -100,6 +173,263 @@ class X:
         ]
         return max(tweets, key=lambda tweet: tweet["id"]) if tweets else None
 
+    # ========================================================================
+    # Media Upload Helper Methods
+    # ========================================================================
+
+    def _detect_media_type(self, content: bytes) -> str:
+        """Detect MIME type from file content."""
+        # Check magic bytes for common formats
+        if content.startswith(b"\xff\xd8\xff"):
+            return "image/jpeg"
+        elif content.startswith(b"\x89PNG\r\n\x1a\n"):
+            return "image/png"
+        elif content.startswith(b"GIF87a") or content.startswith(b"GIF89a"):
+            return "image/gif"
+        elif content.startswith(b"RIFF") and b"WEBP" in content[:20]:
+            return "image/webp"
+        elif content[4:12] == b"ftypmp42" or content[4:12] == b"ftypisom":
+            return "video/mp4"
+        else:
+            # Default to jpeg for images
+            return "image/jpeg"
+
+    def _get_media_category(self, media_type: str, is_gif: bool = False) -> str:
+        """Map MIME type to X API media category."""
+        if media_type.startswith("video/"):
+            return "tweet_video"
+        elif is_gif or media_type == "image/gif":
+            return "tweet_gif"
+        else:
+            return "tweet_image"
+
+    def _chunk_data(self, content: bytes, chunk_size: int = 1024 * 1024):
+        """Generator that yields chunks of data."""
+        for i in range(0, len(content), chunk_size):
+            yield content[i : i + chunk_size]
+
+    def _poll_processing_status(self, media_id: str, max_wait_seconds: int = 300):
+        """
+        Poll media processing status until complete or timeout.
+
+        Args:
+            media_id: The media ID to check status for
+            max_wait_seconds: Maximum time to wait for processing (default 5 minutes)
+
+        Returns:
+            True if processing succeeded, False if failed or timed out
+        """
+        start_time = time.time()
+        wait_time = 1  # Start with 1 second
+
+        logging.info(f"Polling processing status for media {media_id}")
+
+        while (time.time() - start_time) < max_wait_seconds:
+            try:
+                status_response = self._make_request(
+                    "get",
+                    f"https://api.x.com/2/media/upload/{media_id}/status",
+                )
+
+                status_data = status_response.json().get("data", {})
+                processing_info = status_data.get("processing_info", {})
+                state = processing_info.get("state")
+
+                logging.debug(f"Processing state: {state}")
+
+                if state == "succeeded":
+                    logging.info(f"Media processing succeeded for {media_id}")
+                    return True
+                elif state == "failed":
+                    error_msg = processing_info.get("error", {}).get(
+                        "message", "Unknown error"
+                    )
+                    logging.error(f"Media processing failed: {error_msg}")
+                    return False
+                elif state in ["pending", "in_progress"]:
+                    # Use check_after_secs if provided, otherwise exponential backoff
+                    check_after = processing_info.get("check_after_secs", wait_time)
+                    logging.debug(f"Still processing, waiting {check_after}s...")
+                    time.sleep(check_after)
+                    # Exponential backoff: 1s -> 2s -> 5s -> 10s -> 10s...
+                    wait_time = min(wait_time * 2, 10)
+                else:
+                    logging.warning(f"Unknown processing state: {state}")
+                    return False
+
+            except Exception as e:
+                logging.error(f"Error polling status: {e}")
+                return False
+
+        logging.error(f"Processing timeout after {max_wait_seconds}s")
+        return False
+
+    def _upload_one_shot(
+        self, content: bytes, media_type: str, media_category: str
+    ) -> str:
+        """
+        Upload media using one-shot endpoint (for small images/subtitles).
+
+        Args:
+            content: Binary content of the media file
+            media_type: MIME type (e.g., "image/jpeg")
+            media_category: X API category (e.g., "tweet_image")
+
+        Returns:
+            media_id string for use in tweets
+        """
+        logging.info(
+            f"Uploading media via one-shot (size: {len(content)} bytes, type: {media_type}, category: {media_category})"
+        )
+
+        try:
+            response = self._make_request(
+                "post",
+                "https://api.x.com/2/media/upload",
+                files={"media": content},
+                data={
+                    "media_type": media_type,
+                    "media_category": media_category,
+                },
+            )
+
+            data = response.json().get("data", {})
+            media_id = data.get("id")
+
+            if not media_id:
+                raise Exception("No media ID returned from upload")
+
+            logging.info(f"One-shot upload successful: {media_id}")
+            return media_id
+
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 403:
+                logging.error(
+                    "Media upload failed with 403 Forbidden. "
+                    "Ensure the OAuth token has 'media.write' scope."
+                )
+            raise
+
+    def _upload_chunked(
+        self, content: bytes, media_type: str, media_category: str
+    ) -> str:
+        """
+        Upload media using chunked endpoint (for videos, GIFs, large images).
+
+        Args:
+            content: Binary content of the media file
+            media_type: MIME type (e.g., "video/mp4")
+            media_category: X API category ("tweet_video", "tweet_image", "tweet_gif")
+
+        Returns:
+            media_id string for use in tweets
+        """
+        total_bytes = len(content)
+        logging.info(
+            f"Uploading media via chunked upload "
+            f"(size: {total_bytes} bytes, type: {media_type}, category: {media_category})"
+        )
+
+        # ===== INITIALIZE =====
+        try:
+            init_response = self._make_request(
+                "post",
+                "https://api.x.com/2/media/upload/initialize",
+                json={
+                    "media_type": media_type,
+                    "total_bytes": total_bytes,
+                    "media_category": media_category,
+                },
+            )
+
+            init_data = init_response.json().get("data", {})
+            media_id = init_data.get("id")
+            expires_after = init_data.get("expires_after_secs", 86400)
+
+            if not media_id:
+                raise Exception("No media ID returned from INITIALIZE")
+
+            logging.info(
+                f"INITIALIZE successful: media_id={media_id}, expires_in={expires_after}s"
+            )
+
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 403:
+                logging.error(
+                    "Media upload INITIALIZE failed with 403 Forbidden. "
+                    "Ensure the OAuth token has 'media.write' scope."
+                )
+            raise
+
+        # ===== APPEND =====
+        chunk_size = 1024 * 1024  # 1MB chunks (X API maximum)
+        chunks = list(self._chunk_data(content, chunk_size))
+        total_chunks = len(chunks)
+
+        logging.info(f"Uploading {total_chunks} chunks...")
+
+        for segment_index, chunk in enumerate(chunks):
+            max_retries = 3
+            retry_count = 0
+
+            while retry_count < max_retries:
+                try:
+                    self._make_request(
+                        "post",
+                        f"https://api.x.com/2/media/upload/{media_id}/append",
+                        data={"segment_index": segment_index},
+                        files={"media": chunk},
+                    )
+
+                    logging.debug(
+                        f"APPEND {segment_index + 1}/{total_chunks} successful"
+                    )
+                    break  # Success, move to next chunk
+
+                except requests.exceptions.HTTPError:
+                    retry_count += 1
+                    if retry_count >= max_retries:
+                        logging.error(f"APPEND failed after {max_retries} retries")
+                        raise
+
+                    # Exponential backoff for retries
+                    wait_time = 2**retry_count
+                    logging.warning(
+                        f"APPEND failed, retrying in {wait_time}s (attempt {retry_count}/{max_retries})"
+                    )
+                    time.sleep(wait_time)
+
+        logging.info(f"All {total_chunks} chunks uploaded successfully")
+
+        # ===== FINALIZE =====
+        try:
+            finalize_response = self._make_request(
+                "post", f"https://api.x.com/2/media/upload/{media_id}/finalize"
+            )
+
+            finalize_data = finalize_response.json().get("data", {})
+            processing_info = finalize_data.get("processing_info")
+
+            logging.info(f"FINALIZE successful for media_id={media_id}")
+
+            # If processing is required, poll for completion
+            if processing_info:
+                state = processing_info.get("state")
+                logging.info(f"Media requires async processing (state: {state})")
+
+                if not self._poll_processing_status(media_id):
+                    raise Exception("Media processing failed or timed out")
+
+            return media_id
+
+        except requests.exceptions.HTTPError as e:
+            logging.error(f"FINALIZE failed: {e}")
+            raise
+
+    # ========================================================================
+    # Media Upload Methods
+    # ========================================================================
+
     def tweet_media(self, media_url):
         """Uploads media to Twitter and returns the media ID."""
         # First, download the media (don't use Twitter auth for external URL)
@@ -116,89 +446,73 @@ class X:
         else:
             return self._upload_image(content)
 
-    def _upload_image(self, content):
-        """Upload image content to Twitter."""
-        upload_response = self._make_request(
-            "post",
-            "https://upload.twitter.com/1.1/media/upload.json",
-            files={"media": content},
-        )
-        return upload_response.json().get("media_id_string")
+    def _upload_image(self, content: bytes) -> str:
+        """
+        Upload image content to X using v2 API with OAuth 2.0.
 
-    def _upload_video(self, content):
-        """Upload video content to Twitter using chunked upload."""
+        Automatically routes to one-shot (simple) or chunked upload based on file size.
+        - Images < 5MB: One-shot upload
+        - Images >= 5MB or GIFs > 5MB: Chunked upload
 
-        # --- INIT ---
-        init_response = self._make_request(
-            "post",
-            "https://upload.twitter.com/1.1/media/upload.json",
-            data={
-                "command": "INIT",
-                "media_type": "video/mp4",
-                "media_category": "tweet_video",
-                "total_bytes": len(content),
-            },
-        )
-        media_id = init_response.json().get("media_id_string")
+        Args:
+            content: Binary content of the image file
 
-        # --- APPEND ---
-        chunk_size = 5 * 1024 * 1024  # 5MB chunks
-        for i, start in enumerate(range(0, len(content), chunk_size)):
-            chunk = content[start : start + chunk_size]
+        Returns:
+            media_id string for use in tweets
+        """
+        file_size_mb = len(content) / (1024 * 1024)
+        media_type = self._detect_media_type(content)
+        is_gif = media_type == "image/gif"
 
-            self._make_request(
-                "post",
-                "https://upload.twitter.com/1.1/media/upload.json",
-                data={"command": "APPEND", "media_id": media_id, "segment_index": i},
-                files={"media": chunk},
+        logging.info(f"Uploading image: size={file_size_mb:.2f}MB, type={media_type}")
+
+        # Validate file size limits
+        if is_gif and file_size_mb > 15:
+            raise ValueError(
+                f"GIF file too large ({file_size_mb:.2f}MB). Maximum is 15MB."
+            )
+        elif not is_gif and file_size_mb > 5:
+            raise ValueError(
+                f"Image file too large ({file_size_mb:.2f}MB). Maximum is 5MB."
             )
 
-        # --- FINALIZE ---
-        finalize_response = self._make_request(
-            "post",
-            "https://upload.twitter.com/1.1/media/upload.json",
-            data={"command": "FINALIZE", "media_id": media_id},
-        )
+        # Get media category for both upload paths
+        media_category = self._get_media_category(media_type, is_gif)
 
-        response_json = finalize_response.json()
-        processing_info = response_json.get("processing_info")
-
-        if not processing_info:
-            logging.debug("No processing_info, video may be ready immediately.")
-            return media_id
-
-        state = processing_info.get("state")
-        while state in ["pending", "in_progress"]:
-            check_after_secs = processing_info.get("check_after_secs", 5)
-            logging.debug(
-                f"Video still processing ({state}). Waiting {check_after_secs}s."
-            )
-            time.sleep(check_after_secs)
-
-            status_response = self._make_request(
-                "get",
-                "https://upload.twitter.com/1.1/media/upload.json",
-                params={"command": "STATUS", "media_id": media_id},
-            )
-            if not status_response:
-                logging.error("STATUS check failed.")
-                return None
-
-            status_json = status_response.json()
-            processing_info = status_json.get("processing_info")
-            if not processing_info:
-                # No further processing info => presumably done
-                logging.debug("No processing_info in STATUS, assuming success.")
-                return media_id
-
-            state = processing_info.get("state")
-
-        if state == "succeeded":
-            logging.debug("Video upload succeeded!")
-            return media_id
+        # Route to appropriate upload method
+        # Use one-shot for small images, chunked for large images/GIFs
+        if file_size_mb < 5 and not is_gif:
+            # Small image: use simple one-shot upload
+            return self._upload_one_shot(content, media_type, media_category)
         else:
-            logging.error(f"Video upload failed with state: {state}")
-            return None
+            # Large image or GIF: use chunked upload
+            return self._upload_chunked(content, media_type, media_category)
+
+    def _upload_video(self, content: bytes) -> str:
+        """
+        Upload video content to X using v2 API with OAuth 2.0.
+
+        Videos always use chunked upload with async processing.
+
+        Args:
+            content: Binary content of the video file
+
+        Returns:
+            media_id string for use in tweets
+        """
+        file_size_mb = len(content) / (1024 * 1024)
+        media_type = self._detect_media_type(content)
+
+        logging.info(f"Uploading video: size={file_size_mb:.2f}MB, type={media_type}")
+
+        # Validate file size limit
+        if file_size_mb > 512:
+            raise ValueError(
+                f"Video file too large ({file_size_mb:.2f}MB). Maximum is 512MB."
+            )
+
+        # Videos always use chunked upload with tweet_video category
+        return self._upload_chunked(content, media_type, "tweet_video")
 
     def post(self, text: str, media_ids: list[str] = None, reply: str = None):
         """Posts a tweet or reply."""

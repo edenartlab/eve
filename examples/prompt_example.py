@@ -14,7 +14,7 @@ async def example_prompt():
 
     system_message = system_template.render(
         name=agent.name,
-        current_date_time=datetime.now(pytz.utc).strftime("%Y-%m-%d %H:%M:%S"),
+        current_date=datetime.now(pytz.utc).strftime("%Y-%m-%d"),
         persona=agent.persona,
         tools=None,
     )

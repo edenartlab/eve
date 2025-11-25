@@ -14,7 +14,7 @@ from eve.agent.memory.service import memory_service
 from eve.agent.session.models import ChatMessage, LLMConfig, LLMContext, Session
 from eve.concepts import Concept
 from eve.tool import ToolContext
-from eve.user import User
+from eve.user import User, increment_message_count
 from eve.utils import serialize_json
 
 
@@ -350,10 +350,12 @@ Generate a friendly, personalized introduction message that presents these conne
         reason="generating_personalized_message",
     )
 
+    current_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
     # Build system prompt with memory context using the same template
     system_content = system_template.render(
         name=agent.name,
-        # current_date_time=current_date_time,
+        current_date=current_date,
         description=agent.description,
         persona=agent.persona,
         tools=None,
@@ -432,6 +434,9 @@ async def create_user_session_with_message(
             createdAt=datetime.now(timezone.utc),
         )
         agent_message.save()
+
+        # Increment message count for the agent (sender)
+        increment_message_count(agent_id)
 
         logger.info(
             f"Created session {session.id} with agent-generated message for user {user.username}"
