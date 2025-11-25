@@ -20,6 +20,8 @@ from eve.agent.session.debug_logger import SessionDebugger
 from eve.agent.session.models import (
     ChatMessage,
     ChatMessageObservability,
+    EdenMessageData,
+    EdenMessageType,
     LLMContext,
     LLMUsage,
     PromptSessionContext,
@@ -30,6 +32,7 @@ from eve.agent.session.models import (
     UpdateType,
 )
 from eve.agent.session.tracing import trace_async_operation
+from eve.api.errors import APIError
 from eve.utils import dumps_json
 
 from .budget import update_session_budget
@@ -169,9 +172,22 @@ class PromptSessionRuntime:
 
                 # Check rate limits before LLM call
                 if self.rate_limiter and self.billed_user_doc:
-                    await self.rate_limiter.check_message_rate_limit(
-                        self.billed_user_doc
-                    )
+                    try:
+                        await self.rate_limiter.check_message_rate_limit(
+                            self.billed_user_doc
+                        )
+                    except APIError as e:
+                        rate_limit_message = self._persist_rate_limit_message(e)
+                        yield SessionUpdate(
+                            type=UpdateType.ASSISTANT_MESSAGE,
+                            message=rate_limit_message,
+                            session_run_id=self.session_run_id,
+                        )
+                        yield SessionUpdate(
+                            type=UpdateType.END_PROMPT,
+                            session_run_id=self.session_run_id,
+                        )
+                        return
 
                 provider = self._select_provider()
                 llm_result: Dict[str, Any]
@@ -444,6 +460,24 @@ class PromptSessionRuntime:
 
         self._record_transaction_metadata(assistant_message, llm_result)
         return assistant_message
+
+    def _persist_rate_limit_message(self, error: APIError) -> ChatMessage:
+        """Persist a rate limit error message as an Eden message."""
+        error_text = getattr(error, "detail", None) or str(error)
+        eden_message = ChatMessage(
+            session=self.session.id,
+            sender=ObjectId("000000000000000000000000"),
+            role="eden",
+            content=error_text,
+            eden_message_data=EdenMessageData(
+                message_type=EdenMessageType.RATE_LIMIT, error=error_text
+            ),
+            triggering_user=self.triggering_user_id,
+            billed_user=self.billed_user_id,
+            agent_owner=self.actor.owner,
+        )
+        eden_message.save()
+        return eden_message
 
     def _record_transaction_metadata(
         self, assistant_message: ChatMessage, llm_result: Dict[str, Any]

@@ -163,6 +163,17 @@ class Task(Document):
         refund_amount = (
             (self.cost or 0) * (n_samples - len(self.result or [])) / n_samples
         )
+
+        # Avoid double-refunding if multiple code paths invoke this method
+        if refund_amount <= 0:
+            return
+        existing_refund = Transaction.get_collection().find_one(
+            {"task": self.id, "type": "refund"}
+        )
+        if existing_refund:
+            logger.warning(f"Refund already issued for task {self.id}")
+            return
+
         manna = Manna.load(self.paying_user or self.user)
         manna.refund(refund_amount)
         Transaction(
@@ -303,6 +314,10 @@ async def _task_handler(func, *args, **kwargs):
 
         return task_update.copy()
 
+    except asyncio.CancelledError:
+        task_update = {"status": "cancelled"}
+        return task_update.copy()
+
     except Exception as error:
         with sentry_sdk.configure_scope() as scope:
             scope.set_tag("task_failure", "true")
@@ -346,5 +361,6 @@ async def _task_handler(func, *args, **kwargs):
         if task.status != "cancelled":
             task.update(**task_update)
         else:
+            task.refund_manna()
             # Just update performance, keep cancelled status
             task.update(performance=task_update["performance"])
