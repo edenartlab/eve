@@ -154,6 +154,7 @@ class ToolCall(BaseModel):
 class EdenMessageType(Enum):
     AGENT_ADD = "agent_add"
     AGENT_REMOVE = "agent_remove"
+    RATE_LIMIT = "rate_limit"
 
 
 class EdenMessageAgentData(BaseModel):
@@ -166,6 +167,7 @@ class EdenMessageAgentData(BaseModel):
 class EdenMessageData(BaseModel):
     message_type: EdenMessageType
     agents: Optional[List[EdenMessageAgentData]] = None
+    error: Optional[str] = None
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @field_serializer("message_type")

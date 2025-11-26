@@ -654,7 +654,6 @@ class Tool(Document, ABC):
                 sentry_sdk.capture_exception(f"Error cancelling task: {e}")
                 traceback.print_exc()
             finally:
-                task.refund_manna()
                 if force:
                     # Forced cancellation from the server due to stuck task
                     task.update(status="failed", error="Timed out")
