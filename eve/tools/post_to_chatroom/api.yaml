@@ -1,0 +1,26 @@
+name: Post to chatroom
+description: |
+  Post a message to the parent chatroom conversation. Use this to contribute to the multi-agent discussion after completing your work.
+
+  IMPORTANT: Include URLs of any media you created (images, videos, audio) in the attachments field.
+  Look at the 'url' fields from your tool results and include them so other participants can see your creations.
+cost_estimate: 0
+output_type: string
+active: true
+handler: local
+visible: false
+parameters:
+  content:
+    type: string
+    label: Content
+    description: The message content to post to the chatroom. Describe what you did and share your thoughts.
+    required: true
+  attachments:
+    type: array
+    label: Attachments
+    description: |
+      URLs of media/files to attach. Include any URLs from your tool results - images, videos, or other assets you created.
+      If you generated images or videos, copy their URLs here so they appear in the chatroom.
+    required: false
+    items:
+      type: string

@@ -39,12 +39,25 @@ class X:
     def _refresh_token(self):
         """Refresh the OAuth 2.0 access token with race condition protection."""
         from eve.agent.session.models import Deployment
+        from eve.mongo import MongoDocumentNotFound
 
         if os.getenv("DB") == "PROD":
             raise ValueError("Twitter integration is not available in PROD yet")
 
-        # Reload deployment from DB using stored deployment ID (not twitter_id query which fails with encryption)
-        deployment = Deployment.load(id=self.deployment.id)
+        logging.info(
+            f"Refreshing token for deployment {self.deployment.id} (@{self.username})"
+        )
+
+        # Reload deployment from DB using stored deployment ID
+        try:
+            deployment = Deployment.from_mongo(self.deployment.id)
+        except MongoDocumentNotFound:
+            logging.error(
+                f"Deployment {self.deployment.id} not found in DB, cannot refresh token"
+            )
+            raise ValueError(
+                f"Deployment {self.deployment.id} not found - may need to reconnect Twitter account"
+            )
 
         if not deployment:
             raise ValueError(
@@ -100,7 +113,7 @@ class X:
         expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
 
         # Reload deployment again before saving (prevent overwriting concurrent updates)
-        deployment = Deployment.load(id=self.deployment.id)
+        deployment = Deployment.from_mongo(self.deployment.id)
 
         if deployment:
             deployment.secrets.twitter.access_token = self.access_token
