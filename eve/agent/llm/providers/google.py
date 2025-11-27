@@ -160,19 +160,20 @@ class GoogleProvider(LLMProvider):
                     )
 
                     # Update LLMCall with response data
-                    llm_call.update(
-                        status="completed",
-                        end_time=end_time,
-                        duration_ms=duration_ms,
-                        response_payload=self._serialize_llm_response(llm_response),
-                        prompt_tokens=llm_response.prompt_tokens,
-                        completion_tokens=llm_response.completion_tokens,
-                        total_tokens=llm_response.tokens_spent,
-                        cost_usd=llm_response.usage.cost_usd
-                        if llm_response.usage
-                        else None,
-                    )
-                    llm_response.llm_call_id = llm_call.id
+                    if os.getenv("DB") == "STAGE":
+                        llm_call.update(
+                            status="completed",
+                            end_time=end_time,
+                            duration_ms=duration_ms,
+                            response_payload=self._serialize_llm_response(llm_response),
+                            prompt_tokens=llm_response.prompt_tokens,
+                            completion_tokens=llm_response.completion_tokens,
+                            total_tokens=llm_response.tokens_spent,
+                            cost_usd=llm_response.usage.cost_usd
+                            if llm_response.usage
+                            else None,
+                        )
+                        llm_response.llm_call_id = llm_call.id
 
                     # Clean up async resources before returning
                     await self._ensure_cleanup()

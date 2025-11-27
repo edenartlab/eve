@@ -196,22 +196,25 @@ class AnthropicProvider(LLMProvider):
                     llm_response = self._to_llm_response(response)
 
                     # Update LLMCall with response data
-                    duration_ms = int((end_time - start_time).total_seconds() * 1000)
-                    llm_call.update(
-                        status="completed",
-                        end_time=end_time,
-                        duration_ms=duration_ms,
-                        response_payload=self._serialize_llm_response(llm_response),
-                        prompt_tokens=llm_response.prompt_tokens,
-                        completion_tokens=llm_response.completion_tokens,
-                        total_tokens=llm_response.tokens_spent,
-                        cost_usd=llm_response.usage.cost_usd
-                        if llm_response.usage
-                        else None,
-                    )
+                    if os.getenv("DB") == "STAGE":
+                        duration_ms = int(
+                            (end_time - start_time).total_seconds() * 1000
+                        )
+                        llm_call.update(
+                            status="completed",
+                            end_time=end_time,
+                            duration_ms=duration_ms,
+                            response_payload=self._serialize_llm_response(llm_response),
+                            prompt_tokens=llm_response.prompt_tokens,
+                            completion_tokens=llm_response.completion_tokens,
+                            total_tokens=llm_response.tokens_spent,
+                            cost_usd=llm_response.usage.cost_usd
+                            if llm_response.usage
+                            else None,
+                        )
 
-                    # Attach llm_call_id to response
-                    llm_response.llm_call_id = llm_call.id
+                        # Attach llm_call_id to response
+                        llm_response.llm_call_id = llm_call.id
 
                     self._record_usage(
                         effective_model,
