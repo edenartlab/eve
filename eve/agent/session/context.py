@@ -10,7 +10,11 @@ from jinja2 import Template
 from loguru import logger
 
 from eve.agent.agent import Agent
-from eve.agent.llm.prompts.system_template import social_media_template, system_template
+from eve.agent.llm.prompts.system_template import (
+    agent_session_template,
+    social_media_template,
+    system_template,
+)
 from eve.agent.llm.util import is_fake_llm_mode, is_test_mode_prompt
 from eve.agent.memory.memory_models import (
     get_sender_id_to_sender_name_map,
@@ -58,8 +62,22 @@ farcaster_notification_template = Template("""
 """)
 
 
-def parse_mentions(content: str) -> List[str]:
-    return re.findall(r"@(\S+)", content)
+def find_mentioned_agents(content: str, agents: List[Agent]) -> List[Agent]:
+    """Find agents mentioned in the message content.
+
+    Uses whole-word, case-insensitive matching for agent usernames.
+    For example, if agent username is "Go", it won't match "goodbye" or "ago".
+    """
+    if not content:
+        return []
+
+    mentioned = []
+    for agent in agents:
+        # Case-insensitive, whole-word match using word boundaries
+        pattern = r"\b" + re.escape(agent.username) + r"\b"
+        if re.search(pattern, content, re.IGNORECASE):
+            mentioned.append(agent)
+    return mentioned
 
 
 async def determine_actors(
@@ -67,18 +85,24 @@ async def determine_actors(
 ) -> List[Agent]:
     """Determine which agent(s) should respond in this session.
 
-    Actor selection logic:
-    1. If actor_agent_ids explicitly specified in context, use those
-    2. If session_type is "automatic", use conductor to select next speaker
-    3. If session_type is "passive" or "natural":
-       - Single agent: return that agent
-       - Multiple agents: parse @mentions from message content
+    Actor selection depends on session_type:
+
+    PASSIVE (default):
+      - 1 agent + 1 user: always prompt the agent (classic assistant pattern)
+      - Multiple agents OR multiple users: only prompt mentioned agents
+
+    NATURAL:
+      - If agents are mentioned: prompt the mentioned agents
+      - If no agents mentioned: use Conductor to decide (conservative mode)
+      - Conductor can return None, terminating the process
+
+    AUTOMATIC:
+      - Use Conductor to select next speaker (must select one)
+      - Used for multi-agent scenarios that run continuously
     """
-    logger.info(f"[ACTORS] determine_actors called for session {session.id}")
     logger.info(
-        f"[ACTORS] session_type={session.session_type}, agents={session.agents}"
+        f"[ACTORS] determine_actors: session={session.id}, type={session.session_type}"
     )
-    logger.info(f"[ACTORS] context.actor_agent_ids={context.actor_agent_ids}")
 
     add_breadcrumb(
         "Determining actors for session",
@@ -86,7 +110,7 @@ async def determine_actors(
         data={"session_id": str(session.id), "session_type": session.session_type},
     )
 
-    # 1. Explicit actor override from context
+    # 1. Explicit actor override always takes precedence
     if context.actor_agent_ids:
         logger.info(
             f"[ACTORS] Using explicit actor_agent_ids: {context.actor_agent_ids}"
@@ -94,51 +118,75 @@ async def determine_actors(
         actors = [Agent.from_mongo(ObjectId(aid)) for aid in context.actor_agent_ids]
         if actors:
             session.update(last_actor_id=actors[0].id)
-        logger.info(f"[ACTORS] Returning {len(actors)} explicit actors")
         return actors
 
-    # 2. Automatic session: use conductor to select next speaker
-    if session.session_type == "automatic":
-        logger.info("[ACTORS] Automatic session - calling conductor_select_actor")
+    # No agents in session
+    if not session.agents:
+        logger.info("[ACTORS] No agents in session")
+        return []
+
+    # Load all agents for the session
+    agents = [Agent.from_mongo(agent_id) for agent_id in session.agents]
+    num_agents = len(agents)
+    num_users = len(session.users) if session.users else 0
+    message_content = context.message.content if context.message else ""
+
+    logger.info(f"[ACTORS] num_agents={num_agents}, num_users={num_users}")
+
+    # ========== PASSIVE ==========
+    if session.session_type == "passive":
+        # Classic 1:1 pattern - always respond
+        if num_agents == 1 and num_users <= 1:
+            logger.info("[ACTORS] Passive 1:1 - prompting single agent")
+            session.update(last_actor_id=agents[0].id)
+            return agents
+
+        # Multi-party - only respond to mentions
+        mentioned = find_mentioned_agents(message_content, agents)
+        if mentioned:
+            logger.info(
+                f"[ACTORS] Passive multi-party - found {len(mentioned)} mentioned agents"
+            )
+            session.update(last_actor_id=mentioned[0].id)
+            return mentioned
+
+        logger.info("[ACTORS] Passive multi-party - no mentions, no response")
+        return []
+
+    # ========== NATURAL ==========
+    elif session.session_type == "natural":
+        # Check for mentions first
+        mentioned = find_mentioned_agents(message_content, agents)
+        if mentioned:
+            logger.info(f"[ACTORS] Natural - found {len(mentioned)} mentioned agents")
+            session.update(last_actor_id=mentioned[0].id)
+            return mentioned
+
+        # No mentions - use conductor (conservative mode)
+        logger.info("[ACTORS] Natural - no mentions, using conductor (conservative)")
+        from eve.agent.session.conductor import conductor_select_actor_natural
+
+        actor = await conductor_select_actor_natural(session)
+        if actor:
+            logger.info(f"[ACTORS] Conductor selected: {actor.username}")
+            session.update(last_actor_id=actor.id)
+            return [actor]
+
+        logger.info("[ACTORS] Conductor decided no response needed")
+        return []
+
+    # ========== AUTOMATIC ==========
+    elif session.session_type == "automatic":
+        logger.info("[ACTORS] Automatic - using conductor")
         from eve.agent.session.conductor import conductor_select_actor
 
         actor = await conductor_select_actor(session)
-        logger.info(f"[ACTORS] Conductor selected actor: {actor.username} ({actor.id})")
+        logger.info(f"[ACTORS] Conductor selected: {actor.username}")
         session.update(last_actor_id=actor.id)
         return [actor]
 
-    # 3. Normal/natural session
-    if not session.agents:
-        logger.info("[ACTORS] No agents in session, returning empty list")
-        return []
-
-    # Single agent: return it directly
-    if len(session.agents) == 1:
-        logger.info("[ACTORS] Single agent session, returning that agent")
-        actor = Agent.from_mongo(session.agents[0])
-        session.update(last_actor_id=actor.id)
-        return [actor]
-
-    # Multiple agents: parse @mentions from message
-    logger.info("[ACTORS] Multiple agents, parsing @mentions from message")
-    mentions = parse_mentions(context.message.content) if context.message else []
-    logger.info(f"[ACTORS] Found mentions: {mentions}")
-    if mentions:
-        actors = []
-        for mention in mentions:
-            for agent_id in session.agents:
-                agent = Agent.from_mongo(agent_id)
-                if agent.username == mention:
-                    actors.append(agent)
-                    break
-        if actors:
-            session.update(last_actor_id=actors[0].id)
-            logger.info(f"[ACTORS] Returning {len(actors)} mentioned actors")
-            return actors
-        raise ValueError(f"No mentioned agents found in session. Mentions: {mentions}")
-
-    # No actors determined
-    logger.info("[ACTORS] No actors determined, returning empty list")
+    # Unknown session type
+    logger.warning(f"[ACTORS] Unknown session_type: {session.session_type}")
     return []
 
 
@@ -529,3 +577,286 @@ async def build_llm_context(
     )
     llm_context.instrumentation = instrumentation
     return llm_context
+
+
+# =============================================================================
+# Agent Session Context Building Functions
+# =============================================================================
+
+
+def get_new_parent_messages(
+    parent_session: Session,
+    last_parent_message_id: Optional[ObjectId],
+) -> List[ChatMessage]:
+    """Get all parent session messages since the last sync point.
+
+    Args:
+        parent_session: The parent chatroom session
+        last_parent_message_id: The last message ID that was synced to the agent_session
+
+    Returns:
+        List of ChatMessages that are new since last sync, sorted by creation time
+    """
+    query = {"session": parent_session.id, "role": {"$ne": "eden"}}
+
+    if last_parent_message_id:
+        # Get the timestamp of the last synced message
+        last_msg = ChatMessage.from_mongo(last_parent_message_id)
+        if last_msg and last_msg.createdAt:
+            query["createdAt"] = {"$gt": last_msg.createdAt}
+
+    messages = list(ChatMessage.find(query))
+    return sorted(messages, key=lambda m: m.createdAt if m.createdAt else datetime.min)
+
+
+def format_parent_messages_for_agent_session(
+    parent_messages: List[ChatMessage],
+    agent_id: ObjectId,
+) -> str:
+    """Format parent chatroom messages as a bulk update for the agent_session.
+
+    Creates an XML-formatted string with all messages since last sync,
+    properly attributed with sender names and marked if from self.
+
+    Args:
+        parent_messages: List of new messages from parent session
+        agent_id: The agent's ObjectId (to mark self messages)
+
+    Returns:
+        XML-formatted string describing the chatroom updates
+    """
+    if not parent_messages:
+        return "<ChatroomUpdate>No new messages in the chatroom.</ChatroomUpdate>"
+
+    # Get sender name mapping
+    sender_name_map = get_sender_id_to_sender_name_map(parent_messages)
+
+    lines = [
+        "<ChatroomUpdate>",
+        "The following messages have been posted to the chatroom:",
+    ]
+
+    for msg in parent_messages:
+        sender_name = sender_name_map.get(msg.sender, "Unknown")
+        is_self = msg.sender == agent_id
+
+        if is_self:
+            lines.append(f"\n[You ({sender_name})]: {msg.content}")
+        else:
+            lines.append(f"\n[{sender_name}]: {msg.content}")
+
+        # Include attachments info
+        if msg.attachments:
+            lines.append(f"  Attachments: {', '.join(msg.attachments)}")
+
+        # Include tool call results (media created, etc.)
+        if msg.tool_calls:
+            for tc in msg.tool_calls:
+                if tc.status == "completed" and tc.result:
+                    result_urls = []
+                    for r in tc.result:
+                        for o in r.get("output", []):
+                            if isinstance(o, dict) and o.get("url"):
+                                result_urls.append(o["url"])
+                    if result_urls:
+                        lines.append(f"  Created media: {', '.join(result_urls)}")
+
+    lines.append("\n</ChatroomUpdate>")
+    lines.append(
+        "\nRespond to the conversation by using tools as needed, "
+        "then post your message with `post_to_chatroom`."
+    )
+
+    return "\n".join(lines)
+
+
+async def build_agent_session_system_message(
+    agent_session: Session,
+    parent_session: Session,
+    actor: Agent,
+    tools: Dict[str, Tool],
+    instrumentation=None,
+) -> ChatMessage:
+    """Build system message for an agent_session with chatroom framing.
+
+    Uses the agent_session_template which emphasizes the private workspace
+    concept and the need to use post_to_chatroom to contribute.
+
+    Args:
+        agent_session: The agent's private workspace session
+        parent_session: The parent chatroom session
+        actor: The agent
+        tools: Dict of available tools
+        instrumentation: Optional instrumentation for tracing
+
+    Returns:
+        ChatMessage with system role containing the rendered template
+    """
+    from eve.concepts import Concept
+    from eve.models import Model
+
+    # Get concepts
+    concepts = Concept.find({"agent": actor.id, "deleted": {"$ne": True}})
+
+    # Get loras
+    lora_dict = {m["lora"]: m for m in actor.models or []}
+    lora_docs = Model.find(
+        {"_id": {"$in": list(lora_dict.keys())}, "deleted": {"$ne": True}}
+    )
+    loras = [doc.model_dump() for doc in lora_docs]
+    for doc in loras:
+        doc["use_when"] = lora_dict[doc["id"]].get(
+            "use_when", "This is your default Lora model"
+        )
+
+    # Get memory - agent_session inherits users from parent
+    memory = None
+    user = None
+    if parent_session.users:
+        user = User.from_mongo(parent_session.users[0])
+
+    if user and not (agent_session.extras and agent_session.extras.exclude_memory):
+        memory = await memory_service.assemble_memory_context(
+            agent_session,
+            actor,
+            user,
+            reason="build_agent_session_system_message",
+            instrumentation=instrumentation,
+        )
+
+    # Render the agent session template
+    content = agent_session_template.render(
+        name=actor.name,
+        description=actor.description,
+        persona=actor.persona,
+        chatroom_scenario=parent_session.context,  # Use parent's context as scenario
+        tools=tools,
+        concepts=concepts,
+        loras=loras,
+        voice=actor.voice,
+        memory=memory,
+    )
+
+    return ChatMessage(session=agent_session.id, role="system", content=content)
+
+
+async def build_agent_session_llm_context(
+    agent_session: Session,
+    parent_session: Session,
+    actor: Agent,
+    context: PromptSessionContext,
+    trace_id: Optional[str] = None,
+    instrumentation=None,
+) -> LLMContext:
+    """Build LLM context for an agent_session turn.
+
+    This context includes:
+    1. Agent_session system prompt (chatroom framing with private workspace emphasis)
+    2. Agent_session's own message history (private work from previous turns)
+    3. New parent messages as a user message (bulk update from chatroom)
+
+    Args:
+        agent_session: The agent's private workspace session
+        parent_session: The parent chatroom session
+        actor: The agent
+        context: PromptSessionContext for the turn
+        trace_id: Optional trace ID for observability
+        instrumentation: Optional instrumentation for tracing
+
+    Returns:
+        LLMContext ready for prompting the agent
+    """
+    if not trace_id:
+        trace_id = str(uuid.uuid4())
+
+    # Get user info for tier determination
+    if context.initiating_user_id:
+        user = User.from_mongo(context.initiating_user_id)
+        tier = (
+            "premium"
+            if user and user.subscriptionTier and user.subscriptionTier > 0
+            else "free"
+        )
+    else:
+        user = None
+        tier = "free"
+
+    # Get tools for the agent
+    auth_user_id = context.acting_user_id or context.initiating_user_id
+    tools = actor.get_tools(cache=False, auth_user=auth_user_id)
+
+    # Add post_to_chatroom tool (required for agent_sessions)
+    post_tool = Tool.load("post_to_chatroom")
+    if post_tool:
+        tools["post_to_chatroom"] = post_tool
+
+    # Build system message with chatroom framing
+    system_message = await build_agent_session_system_message(
+        agent_session,
+        parent_session,
+        actor,
+        tools,
+        instrumentation=instrumentation,
+    )
+
+    messages = [system_message]
+
+    # Add agent_session's own history (private work from previous turns)
+    existing_messages = select_messages(agent_session)
+    messages.extend(existing_messages)
+
+    # Get new messages from parent since last sync
+    new_parent_messages = get_new_parent_messages(
+        parent_session,
+        agent_session.last_parent_message_id,
+    )
+
+    # Format and add as user message (the bulk update)
+    if new_parent_messages:
+        bulk_update_content = format_parent_messages_for_agent_session(
+            new_parent_messages, actor.id
+        )
+        # Create a temporary ChatMessage for the bulk update
+        # Note: This is not persisted here - the runtime will save it
+        bulk_update_message = ChatMessage(
+            session=agent_session.id,
+            role="user",
+            sender=ObjectId("000000000000000000000000"),  # System sender
+            content=bulk_update_content,
+        )
+        messages.append(bulk_update_message)
+
+    # Convert message roles (agent's messages -> assistant, others -> user)
+    messages = convert_message_roles(messages, actor.id)
+
+    # Build LLM config
+    config = None
+    if actor.llm_settings:
+        config = await build_llm_config_from_agent_settings(
+            actor,
+            tier,
+            context_messages=messages,
+        )
+    else:
+        config = get_default_session_llm_config(tier)
+
+    return LLMContext(
+        messages=messages,
+        tools=tools,
+        tool_choice="auto",
+        config=config,
+        metadata=LLMContextMetadata(
+            session_id=f"{os.getenv('DB')}-{str(agent_session.id)}",
+            trace_name="agent_session_prompt",
+            trace_id=trace_id,
+            generation_name="agent_session_prompt",
+            trace_metadata=LLMTraceMetadata(
+                user_id=str(context.initiating_user_id)
+                if context.initiating_user_id
+                else None,
+                agent_id=str(actor.id),
+                session_id=str(agent_session.id),
+            ),
+        ),
+        instrumentation=instrumentation,
+    )

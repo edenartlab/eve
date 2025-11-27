@@ -365,6 +365,7 @@ class PromptSessionRuntime:
             "tokens_spent": response.tokens_spent,
             "thought": response.thought,
             "usage": usage_dump,
+            "llm_call_id": response.llm_call_id,
         }
 
     def _materialize_tool_calls(
@@ -442,6 +443,7 @@ class PromptSessionRuntime:
             triggering_user=self.triggering_user_id,
             billed_user=self.billed_user_id,
             agent_owner=self.actor.owner,
+            llm_call=llm_result.get("llm_call_id"),
         )
         assistant_message.save()
 
@@ -968,18 +970,16 @@ async def _run_prompt_session_internal(
     instrumentation: Optional[PromptSessionInstrumentation] = None,
 ):
     """Internal function that handles both streaming and non-streaming"""
-    from loguru import logger as loguru_logger
+    from loguru import logger
 
     session = context.session
     debugger = instrumentation.debugger if instrumentation else SessionDebugger()
 
-    loguru_logger.info(
-        f"[ORCH] _run_prompt_session_internal called for session {session.id}"
-    )
-    loguru_logger.info(
+    logger.info(f"[ORCH] _run_prompt_session_internal called for session {session.id}")
+    logger.info(
         f"[ORCH] Session: type={session.session_type}, status={session.status}, agents={session.agents}"
     )
-    loguru_logger.info(
+    logger.info(
         f"[ORCH] Context: initiating_user_id={context.initiating_user_id}, message={context.message}"
     )
 
@@ -992,35 +992,26 @@ async def _run_prompt_session_internal(
     with stage_cm:
         try:
             debugger.log("Validating prompt session", emoji="info")
-            loguru_logger.info("[ORCH] Validating prompt session")
+            logger.info("[ORCH] Validating prompt session")
             validate_prompt_session(session, context)
-            loguru_logger.info("[ORCH] Validation passed")
+            logger.info("[ORCH] Validation passed")
 
-            # Status check for automatic sessions
+            # Status check for automatic sessions - only skip if paused/archived
+            # Note: "running" check is handled by automatic.py before it calls orchestration
             if session.session_type == "automatic":
-                loguru_logger.info(
-                    f"[ORCH] Automatic session, checking status={session.status}"
-                )
+                logger.info(f"[ORCH] Automatic session, status={session.status}")
                 if session.status in ("paused", "archived"):
                     debugger.log(
                         f"Session status is '{session.status}', skipping orchestration",
                         level="info",
                         emoji="info",
                     )
-                    loguru_logger.info(f"[ORCH] Skipping - session is {session.status}")
-                    return
-                if session.status == "running":
-                    debugger.log(
-                        "Session is already running elsewhere, skipping",
-                        level="info",
-                        emoji="info",
-                    )
-                    loguru_logger.info("[ORCH] Skipping - session is already running")
+                    logger.info(f"[ORCH] Skipping - session is {session.status}")
                     return
 
-            loguru_logger.info("[ORCH] Calling determine_actors")
+            logger.info("[ORCH] Calling determine_actors")
             actors = await determine_actors(session, context)
-            loguru_logger.info(
+            logger.info(
                 f"[ORCH] determine_actors returned {len(actors) if actors else 0} actors: {[a.username for a in actors] if actors else []}"
             )
             debugger.log(

@@ -41,19 +41,13 @@ class PromptSessionHandle:
             await add_chat_message(self.session, self.context)
 
     async def run_orchestration(self, stream: bool = False) -> AsyncIterator[dict]:
-        """Run prompt orchestration. Assumes message is already added."""
+        """Run prompt orchestration. Assumes user message is already added."""
         async for update in _run_prompt_session_internal(
             self.context,
             self.background_tasks,
             stream=stream,
             instrumentation=self.instrumentation,
         ):
-            yield update
-
-    async def iter_updates(self, stream: bool = False) -> AsyncIterator[dict]:
-        """Convenience: add message, then run orchestration."""
-        await self.add_message()
-        async for update in self.run_orchestration(stream):
             yield update
 
     async def run(self) -> None:

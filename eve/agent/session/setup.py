@@ -2,6 +2,7 @@ from typing import List, Optional
 
 from bson import ObjectId
 from fastapi import BackgroundTasks
+from loguru import logger
 
 from eve.agent import Agent
 from eve.agent.llm.util import is_test_mode_prompt
@@ -16,6 +17,8 @@ from eve.agent.session.models import (
 from eve.api.api_requests import PromptSessionRequest
 from eve.api.errors import APIError
 from eve.trigger import Trigger
+
+logger.info("[SETUP MODULE] setup.py loaded - agent_sessions support ENABLED")
 
 
 def _is_test_prompt_request(request: PromptSessionRequest) -> bool:
@@ -69,16 +72,68 @@ def generate_session_title(
         background_tasks.add_task(async_title_session, session, request.message.content)
 
 
+def create_agent_sessions(
+    parent_session: Session, agents: List[ObjectId]
+) -> dict[str, ObjectId]:
+    """Create private agent_sessions for all agents in a multi-agent session.
+
+    Each agent_session:
+    - Has the single agent as THE agent
+    - Inherits users from parent
+    - Has parent_session pointing to the parent
+    - Uses session_type="passive" (orchestration controls the flow)
+
+    Args:
+        parent_session: The parent multi-agent session
+        agents: List of agent ObjectIds to create sessions for
+
+    Returns:
+        Dict mapping agent_id (str) to agent_session ObjectId
+    """
+    agent_sessions = {}
+
+    for agent_id in agents:
+        agent = Agent.from_mongo(agent_id)
+        if not agent:
+            continue
+
+        agent_session = Session(
+            owner=parent_session.owner,
+            users=parent_session.users.copy() if parent_session.users else [],
+            agents=[agent_id],  # Single agent
+            parent_session=parent_session.id,
+            session_type="passive",  # Not automatic - orchestration controls it
+            status="active",
+            title=f"Workspace: {parent_session.title}"
+            if parent_session.title
+            else f"Workspace: {agent.username}",
+            # Don't inherit trigger or context - that's for the parent chatroom
+        )
+        agent_session.save()
+
+        agent_sessions[str(agent_id)] = agent_session.id
+
+    return agent_sessions
+
+
 def setup_session(
     background_tasks: BackgroundTasks,
     session_id: Optional[str] = None,
     user_id: Optional[str] = None,
     request: PromptSessionRequest = None,
 ):
+    logger.info(
+        f"[SETUP] setup_session called: session_id={session_id}, has_creation_args={bool(request and request.creation_args)}"
+    )
+
     if session_id:
         session = Session.from_mongo(ObjectId(session_id))
         if not session:
             raise APIError(f"Session not found: {session_id}", status_code=404)
+
+        logger.info(
+            f"[SETUP] Returning existing session {session_id}, agent_sessions={session.agent_sessions}"
+        )
 
         # TODO: titling
         if background_tasks:
@@ -92,6 +147,12 @@ def setup_session(
 
     # Create new session
     agent_object_ids = [ObjectId(agent_id) for agent_id in request.creation_args.agents]
+
+    # Automatic sessions start paused - user must explicitly activate them
+    initial_status = (
+        "paused" if request.creation_args.session_type == "automatic" else "active"
+    )
+
     session_kwargs = {
         "owner": ObjectId(request.creation_args.owner_id or user_id),
         "agents": agent_object_ids,
@@ -99,7 +160,7 @@ def setup_session(
         "session_key": request.creation_args.session_key,
         "session_type": request.creation_args.session_type,
         "platform": request.creation_args.platform,
-        "status": "active",
+        "status": initial_status,
         "trigger": ObjectId(request.creation_args.trigger)
         if request.creation_args.trigger
         else None,
@@ -117,12 +178,34 @@ def setup_session(
     if request.creation_args.extras:
         session_kwargs["extras"] = request.creation_args.extras
 
+    if request.creation_args.context:
+        session_kwargs["context"] = request.creation_args.context
+
+    if request.creation_args.settings:
+        from eve.agent.session.models import SessionSettings
+
+        session_kwargs["settings"] = SessionSettings(**request.creation_args.settings)
+
     session = Session(**session_kwargs)
 
     if _is_test_prompt_request(request):
         session.title = "test thread"
 
     session.save()
+
+    # Create agent_sessions for multi-agent sessions
+    # Each agent gets their own private workspace for orchestration
+    logger.info(
+        f"[SETUP] Session {session.id} created with {len(agent_object_ids)} agents"
+    )
+    if len(agent_object_ids) > 1:
+        logger.info(
+            f"[SETUP] Creating agent_sessions for multi-agent session {session.id}"
+        )
+        agent_sessions = create_agent_sessions(session, agent_object_ids)
+        session.update(agent_sessions=agent_sessions)
+        session.agent_sessions = agent_sessions
+        logger.info(f"[SETUP] Created agent_sessions: {agent_sessions}")
 
     # Update trigger with session ID
     if request.creation_args.trigger:

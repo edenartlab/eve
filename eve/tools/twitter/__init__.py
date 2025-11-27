@@ -43,13 +43,13 @@ class X:
         if os.getenv("DB") == "PROD":
             raise ValueError("Twitter integration is not available in PROD yet")
 
-        # Reload deployment from DB to get latest tokens (another process may have refreshed)
-        deployment = Deployment.find_one(
-            {"secrets.twitter.twitter_id": self.twitter_id}
-        )
+        # Reload deployment from DB using stored deployment ID (not twitter_id query which fails with encryption)
+        deployment = Deployment.load(id=self.deployment.id)
 
         if not deployment:
-            raise ValueError("Deployment not found for token refresh")
+            raise ValueError(
+                f"Deployment {self.deployment.id} not found for token refresh"
+            )
 
         # Check if token was recently refreshed by another process
         if deployment.secrets.twitter.expires_at:
@@ -100,9 +100,7 @@ class X:
         expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
 
         # Reload deployment again before saving (prevent overwriting concurrent updates)
-        deployment = Deployment.find_one(
-            {"secrets.twitter.twitter_id": self.twitter_id}
-        )
+        deployment = Deployment.load(id=self.deployment.id)
 
         if deployment:
             deployment.secrets.twitter.access_token = self.access_token

@@ -20,6 +20,7 @@ from eve.agent.llm.util import (
 )
 from eve.agent.session.models import (
     ChatMessage,
+    LLMCall,
     LLMContext,
     LLMResponse,
     LLMUsage,
@@ -94,6 +95,16 @@ class AnthropicProvider(LLMProvider):
             include_thoughts=include_thoughts,
         )
 
+        # Extract context metadata for LLMCall
+        llm_call_metadata = {}
+        if context.metadata and context.metadata.trace_metadata:
+            tm = context.metadata.trace_metadata
+            llm_call_metadata = {
+                "session": tm.session_id,
+                "agent": tm.agent_id,
+                "user": tm.user_id,
+            }
+
         last_error: Optional[Exception] = None
         for attempt_index, model_name in enumerate(self.models):
             # Auto-switch to supported model if structured outputs requested
@@ -135,6 +146,28 @@ class AnthropicProvider(LLMProvider):
 
                     start_time = datetime.now(timezone.utc)
 
+                    # Create LLMCall to store raw request payload
+                    from bson import ObjectId as BsonObjectId
+
+                    if os.getenv("DB") == "STAGE":
+                        llm_call = LLMCall(
+                            provider=self.provider_name,
+                            model=effective_model,
+                            request_payload=dict(request_kwargs),
+                            start_time=start_time,
+                            status="pending",
+                            session=BsonObjectId(llm_call_metadata.get("session"))
+                            if llm_call_metadata.get("session")
+                            else None,
+                            agent=BsonObjectId(llm_call_metadata.get("agent"))
+                            if llm_call_metadata.get("agent")
+                            else None,
+                            user=BsonObjectId(llm_call_metadata.get("user"))
+                            if llm_call_metadata.get("user")
+                            else None,
+                        )
+                        llm_call.save()
+
                     if response_format_class:
                         # Pydantic class - use streaming with class directly
                         # SDK will transform the class to schema internally
@@ -161,6 +194,25 @@ class AnthropicProvider(LLMProvider):
 
                     end_time = datetime.now(timezone.utc)
                     llm_response = self._to_llm_response(response)
+
+                    # Update LLMCall with response data
+                    duration_ms = int((end_time - start_time).total_seconds() * 1000)
+                    llm_call.update(
+                        status="completed",
+                        end_time=end_time,
+                        duration_ms=duration_ms,
+                        response_payload=self._serialize_llm_response(llm_response),
+                        prompt_tokens=llm_response.prompt_tokens,
+                        completion_tokens=llm_response.completion_tokens,
+                        total_tokens=llm_response.tokens_spent,
+                        cost_usd=llm_response.usage.cost_usd
+                        if llm_response.usage
+                        else None,
+                    )
+
+                    # Attach llm_call_id to response
+                    llm_response.llm_call_id = llm_call.id
+
                     self._record_usage(
                         effective_model,
                         response,
@@ -177,6 +229,13 @@ class AnthropicProvider(LLMProvider):
                     return llm_response
             except Exception as exc:
                 last_error = exc
+                # Update LLMCall with error if it was created
+                if "llm_call" in locals():
+                    llm_call.update(
+                        status="failed",
+                        error=str(exc),
+                        end_time=datetime.now(timezone.utc),
+                    )
                 if self.instrumentation:
                     self.instrumentation.log_event(
                         f"Anthropic model {effective_model} failed",

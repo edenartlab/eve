@@ -19,8 +19,15 @@ from fastapi.security import APIKeyHeader, HTTPBearer
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from eve import auth, db
-from eve.agent.session.models import Session
-from eve.agent.session.run import remote_prompt_session, run_automatic_session
+from eve.agent import Agent
+from eve.agent.session.context import add_chat_message, build_llm_context
+from eve.agent.session.models import (
+    ChatMessageRequestInput,
+    LLMConfig,
+    PromptSessionContext,
+    Session,
+)
+from eve.agent.session.runtime import async_prompt_session
 from eve.api.api_functions import (
     cancel_stuck_tasks_fn,
     cleanup_stale_busy_states,
@@ -85,6 +92,7 @@ from eve.concepts import (
     handle_concept_create,
     handle_concept_update,
 )
+from eve.tool import Tool
 from eve.trigger import (
     Trigger,
     execute_trigger,
@@ -94,11 +102,91 @@ from eve.trigger import (
     handle_trigger_run,
     handle_trigger_stop,
 )
+from eve.user import User
 
 app_name = f"api-{db.lower()}"
 logging.getLogger("ably").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
+
+
+async def remote_prompt_session(
+    session_id: str,
+    agent_id: str,
+    user_id: str,
+    content: Optional[str] = None,
+    attachments: Optional[List[str]] = None,
+    extra_tools: Optional[List[str]] = None,
+):
+    """
+    Remotely prompt an existing session with a user message.
+
+    This function:
+    1. Loads the session, agent, and user from MongoDB
+    2. Creates and saves the user message to the session
+    3. Builds LLM context and runs the prompt session
+
+    Args:
+        session_id: The session to prompt
+        agent_id: The agent that should respond
+        user_id: The user sending the message
+        content: Optional message content
+        attachments: Optional list of attachment URLs
+        extra_tools: Optional list of additional tool keys to load
+    """
+    import uuid
+
+    attachments = attachments or []
+    extra_tools = extra_tools or []
+
+    logger.info(
+        f"Remote prompt: session={session_id}, agent={agent_id}, user={user_id}"
+    )
+
+    # Load models
+    session = Session.from_mongo(session_id)
+    agent = Agent.from_mongo(agent_id)
+    user = User.from_mongo(user_id)
+
+    # Create user message input
+    new_message = ChatMessageRequestInput(
+        role="user",
+        content=content or "",
+        attachments=attachments,
+    )
+
+    # Build context
+    prompt_context = PromptSessionContext(
+        session=session,
+        initiating_user_id=str(user.id),
+        message=new_message,
+        llm_config=LLMConfig(model="claude-sonnet-4-5-20250929"),
+        actor_agent_ids=[str(agent.id)],
+    )
+
+    if extra_tools:
+        prompt_context.extra_tools = {k: Tool.load(k) for k in extra_tools}
+
+    # Add message to session if there's content or attachments
+    if content or attachments:
+        await add_chat_message(session, prompt_context)
+
+    # Build LLM context and prompt
+    llm_context = await build_llm_context(
+        session,
+        agent,
+        prompt_context,
+        trace_id=str(uuid.uuid4()),
+    )
+
+    # Run the prompt
+    async for _ in async_prompt_session(
+        session, llm_context, agent, context=prompt_context
+    ):
+        pass
+
+    logger.info(f"Remote prompt completed for session {session_id}")
+
 
 # FastAPI setup
 
@@ -706,29 +794,30 @@ async def run_scheduled_triggers_fn():
 ########################################################
 
 
-@app.function(image=image, max_containers=10, timeout=3600)
-async def remote_prompt_session_fn(
-    session_id: str,
-    agent_id: str,
-    user_id: str,
-    content: str,
-    attachments: Optional[List[str]] = [],
-    extra_tools: Optional[List[str]] = [],
-):
-    return await remote_prompt_session(
-        session_id=session_id,
-        agent_id=agent_id,
-        user_id=user_id,
-        content=content,
-        attachments=attachments,
-        extra_tools=extra_tools,
-    )
+# @app.function(image=image, max_containers=10, timeout=3600)
+# async def remote_prompt_session_fn(
+#     session_id: str,
+#     agent_id: str,
+#     user_id: str,
+#     content: str,
+#     attachments: Optional[List[str]] = [],
+#     extra_tools: Optional[List[str]] = [],
+# ):
+#     return await remote_prompt_session(
+#         session_id=session_id,
+#         agent_id=agent_id,
+#         user_id=user_id,
+#         content=content,
+#         attachments=attachments,
+#         extra_tools=extra_tools,
+#     )
 
 
 @app.function(image=image, max_containers=4, timeout=3600)
 async def handle_session_status_change_fn(session_id: str, status: str):
-    if status == "active":
-        await run_automatic_session(session_id)
+    # if status == "active":
+    #     await run_automatic_session(session_id)
+    pass
 
 
 ########################################################
