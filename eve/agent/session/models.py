@@ -847,6 +847,7 @@ class Session(Document):
     active_requests: Optional[List[str]] = []
     extras: Optional[SessionExtras] = None  # Additional session configuration flags
     deleted: Optional[bool] = False
+    context: Optional[str] = None  # Scenario/premise for automatic multi-agent sessions
 
     def get_messages(self):
         messages = ChatMessage.find({"session": self.id})
