@@ -165,6 +165,8 @@ class SessionCreationArgs(BaseModel):
     parent_session: Optional[str] = None
     platform: Optional[str] = None
     extras: Optional[Dict[str, Any]] = None
+    context: Optional[str] = None  # Scenario/premise for automatic multi-agent sessions
+    settings: Optional[Dict[str, Any]] = None  # SessionSettings (e.g., delay_interval)
 
 
 class PromptSessionRequest(BaseModel):

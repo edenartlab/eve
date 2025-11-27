@@ -395,10 +395,18 @@ async def handle_session_status_update(request):
     For automatic sessions, setting status to 'active' will start the automatic
     session loop (runs orchestration, then schedules next run after delay).
     """
+    logger.info(
+        f"[STATUS] Session status update: session={request.session_id}, new_status={request.status}"
+    )
+
     try:
         session = Session.from_mongo(ObjectId(request.session_id))
         old_status = session.status
         new_status = request.status
+
+        logger.info(
+            f"[STATUS] Session {session.id}: type={session.session_type}, {old_status} -> {new_status}"
+        )
 
         # Update the status
         session.update(status=new_status)

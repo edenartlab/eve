@@ -365,6 +365,7 @@ class PromptSessionRuntime:
             "tokens_spent": response.tokens_spent,
             "thought": response.thought,
             "usage": usage_dump,
+            "llm_call_id": response.llm_call_id,
         }
 
     def _materialize_tool_calls(
@@ -442,6 +443,7 @@ class PromptSessionRuntime:
             triggering_user=self.triggering_user_id,
             billed_user=self.billed_user_id,
             agent_owner=self.actor.owner,
+            llm_call=llm_result.get("llm_call_id"),
         )
         assistant_message.save()
 
@@ -994,11 +996,10 @@ async def _run_prompt_session_internal(
             validate_prompt_session(session, context)
             logger.info("[ORCH] Validation passed")
 
-            # Status check for automatic sessions
+            # Status check for automatic sessions - only skip if paused/archived
+            # Note: "running" check is handled by automatic.py before it calls orchestration
             if session.session_type == "automatic":
-                logger.info(
-                    f"[ORCH] Automatic session, checking status={session.status}"
-                )
+                logger.info(f"[ORCH] Automatic session, status={session.status}")
                 if session.status in ("paused", "archived"):
                     debugger.log(
                         f"Session status is '{session.status}', skipping orchestration",
@@ -1006,14 +1007,6 @@ async def _run_prompt_session_internal(
                         emoji="info",
                     )
                     logger.info(f"[ORCH] Skipping - session is {session.status}")
-                    return
-                if session.status == "running":
-                    debugger.log(
-                        "Session is already running elsewhere, skipping",
-                        level="info",
-                        emoji="info",
-                    )
-                    logger.info("[ORCH] Skipping - session is already running")
                     return
 
             logger.info("[ORCH] Calling determine_actors")

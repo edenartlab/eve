@@ -5,6 +5,8 @@ from contextlib import nullcontext
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from bson import ObjectId as BsonObjectId
+from loguru import logger
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletion
 from openai.types.chat.chat_completion_message import ChatCompletionMessage
@@ -20,7 +22,13 @@ from eve.agent.llm.util import (
     calculate_cost_usd,
     serialize_context_messages,
 )
-from eve.agent.session.models import LLMContext, LLMResponse, LLMUsage, ToolCall
+from eve.agent.session.models import (
+    LLMCall,
+    LLMContext,
+    LLMResponse,
+    LLMUsage,
+    ToolCall,
+)
 
 
 class OpenAIProvider(LLMProvider):
@@ -51,6 +59,23 @@ class OpenAIProvider(LLMProvider):
             context.config.model,
             include_thoughts=bool(context.config.reasoning_effort),
         )
+
+        # Debug: Check for tool_call IDs that are too long for OpenAI (max 40 chars)
+        for i, msg in enumerate(messages):
+            if msg.get("tool_calls"):
+                for tc in msg["tool_calls"]:
+                    tc_id = tc.get("id", "")
+                    if len(tc_id) > 40:
+                        logger.warning(
+                            f"[DEBUG] messages[{i}].tool_calls has ID too long ({len(tc_id)} chars): id={tc_id}, tool={tc.get('function', {}).get('name', 'unknown')}"
+                        )
+            if msg.get("tool_call_id"):
+                tc_id = msg["tool_call_id"]
+                if len(tc_id) > 40:
+                    logger.warning(
+                        f"[DEBUG] messages[{i}] tool result has ID too long ({len(tc_id)} chars): id={tc_id}, tool={msg.get('name', 'unknown')}"
+                    )
+
         tools = construct_tools(context)
         tool_choice = context.tool_choice if tools else None
         observability = (
@@ -68,6 +93,16 @@ class OpenAIProvider(LLMProvider):
             metadata=observability,
             response_format=response_format_payload,
         )
+
+        # Extract metadata for LLMCall
+        llm_call_metadata = {}
+        if context.metadata and context.metadata.trace_metadata:
+            tm = context.metadata.trace_metadata
+            llm_call_metadata = {
+                "session": tm.session_id,
+                "agent": tm.agent_id,
+                "user": tm.user_id,
+            }
 
         last_error: Optional[Exception] = None
         for attempt_index, model_name in enumerate(self.models):
@@ -95,10 +130,32 @@ class OpenAIProvider(LLMProvider):
                     )
                     if context.config.max_tokens is not None:
                         request_kwargs["max_tokens"] = context.config.max_tokens
+
+                    # Create LLMCall record before API call
+                    if os.getenv("DB") == "STAGE":
+                        llm_call = LLMCall(
+                            provider=self.provider_name,
+                            model=canonical_name,
+                            request_payload=dict(request_kwargs),
+                            start_time=start_time,
+                            status="pending",
+                            session=BsonObjectId(llm_call_metadata.get("session"))
+                            if llm_call_metadata.get("session")
+                            else None,
+                            agent=BsonObjectId(llm_call_metadata.get("agent"))
+                            if llm_call_metadata.get("agent")
+                            else None,
+                            user=BsonObjectId(llm_call_metadata.get("user"))
+                            if llm_call_metadata.get("user")
+                            else None,
+                        )
+                        llm_call.save()
+
                     response = await self.client.chat.completions.create(
                         **request_kwargs
                     )
                     end_time = datetime.now(timezone.utc)
+                    duration_ms = int((end_time - start_time).total_seconds() * 1000)
                     llm_response = self._to_llm_response(response)
                     self._record_usage(
                         canonical_name,
@@ -113,6 +170,22 @@ class OpenAIProvider(LLMProvider):
                         start_time=start_time,
                         end_time=end_time,
                     )
+
+                    # Update LLMCall with response data
+                    llm_call.update(
+                        status="completed",
+                        end_time=end_time,
+                        duration_ms=duration_ms,
+                        response_payload=self._serialize_llm_response(llm_response),
+                        prompt_tokens=llm_response.prompt_tokens,
+                        completion_tokens=llm_response.completion_tokens,
+                        total_tokens=llm_response.tokens_spent,
+                        cost_usd=llm_response.usage.cost_usd
+                        if llm_response.usage
+                        else None,
+                    )
+                    llm_response.llm_call_id = llm_call.id
+
                     return llm_response
             except Exception as exc:
                 last_error = exc

@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 
 import google.genai as genai
 import httpx
+from bson import ObjectId as BsonObjectId
 from google.genai import types as genai_types
 
 from eve.agent.llm.providers import LLMProvider
@@ -17,7 +18,13 @@ from eve.agent.llm.util import (
     calculate_cost_usd,
     serialize_context_messages,
 )
-from eve.agent.session.models import ChatMessage, LLMContext, LLMResponse, LLMUsage
+from eve.agent.session.models import (
+    ChatMessage,
+    LLMCall,
+    LLMContext,
+    LLMResponse,
+    LLMUsage,
+)
 
 
 class GoogleProvider(LLMProvider):
@@ -75,6 +82,16 @@ class GoogleProvider(LLMProvider):
             config=config,
         )
 
+        # Extract metadata for LLMCall
+        llm_call_metadata = {}
+        if context.metadata and context.metadata.trace_metadata:
+            tm = context.metadata.trace_metadata
+            llm_call_metadata = {
+                "session": tm.session_id,
+                "agent": tm.agent_id,
+                "user": tm.user_id,
+            }
+
         last_error: Optional[Exception] = None
         for attempt_index, model_name in enumerate(self.models):
             canonical_name = self._normalize_model_name(model_name)
@@ -91,12 +108,42 @@ class GoogleProvider(LLMProvider):
                     langfuse_input["model"] = canonical_name
                     langfuse_input["attempt"] = attempt_index + 1
                     start_time = datetime.now(timezone.utc)
+
+                    # Build request payload for LLMCall
+                    request_payload = {
+                        "model": canonical_name,
+                        "system_instruction": system_instruction,
+                        "contents": self._serialize_contents(contents),
+                        "max_output_tokens": context.config.max_tokens,
+                    }
+
+                    # Create LLMCall record before API call
+                    if os.getenv("DB") == "STAGE":
+                        llm_call = LLMCall(
+                            provider=self.provider_name,
+                            model=canonical_name,
+                            request_payload=request_payload,
+                            start_time=start_time,
+                            status="pending",
+                            session=BsonObjectId(llm_call_metadata.get("session"))
+                            if llm_call_metadata.get("session")
+                            else None,
+                            agent=BsonObjectId(llm_call_metadata.get("agent"))
+                            if llm_call_metadata.get("agent")
+                            else None,
+                            user=BsonObjectId(llm_call_metadata.get("user"))
+                            if llm_call_metadata.get("user")
+                            else None,
+                        )
+                        llm_call.save()
+
                     response = await self.async_models.generate_content(
                         model=canonical_name,
                         contents=contents,
                         config=config,
                     )
                     end_time = datetime.now(timezone.utc)
+                    duration_ms = int((end_time - start_time).total_seconds() * 1000)
                     llm_response = self._to_llm_response(response)
                     self._record_usage(
                         canonical_name,
@@ -111,6 +158,22 @@ class GoogleProvider(LLMProvider):
                         start_time=start_time,
                         end_time=end_time,
                     )
+
+                    # Update LLMCall with response data
+                    llm_call.update(
+                        status="completed",
+                        end_time=end_time,
+                        duration_ms=duration_ms,
+                        response_payload=self._serialize_llm_response(llm_response),
+                        prompt_tokens=llm_response.prompt_tokens,
+                        completion_tokens=llm_response.completion_tokens,
+                        total_tokens=llm_response.tokens_spent,
+                        cost_usd=llm_response.usage.cost_usd
+                        if llm_response.usage
+                        else None,
+                    )
+                    llm_response.llm_call_id = llm_call.id
+
                     # Clean up async resources before returning
                     await self._ensure_cleanup()
                     return llm_response

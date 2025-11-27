@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional
 
 from bson import ObjectId
 from loguru import logger
-from pydantic import BaseModel, ConfigDict, Field, field_serializer
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
 from eve.agent.llm.file_config import (
     FILE_CACHE_DIR,
@@ -225,6 +225,48 @@ class ChatMessageObservability(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
+@Collection("llm_calls")
+class LLMCall(Document):
+    """Stores raw LLM API call payloads for inspection and debugging.
+
+    Each LLMCall represents a single call to an LLM provider's API,
+    storing the exact payload sent and response received.
+    """
+
+    # Provider info
+    provider: str  # e.g., "anthropic", "openai", "google"
+    model: str  # e.g., "claude-sonnet-4-5"
+
+    # Raw request payload - exactly what was sent to the API
+    request_payload: Dict[str, Any]  # Contains system, messages, tools, etc.
+
+    # Raw response data
+    response_payload: Optional[Dict[str, Any]] = None
+
+    # Usage/cost info
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
+    total_tokens: Optional[int] = None
+    cost_usd: Optional[float] = None
+
+    # Timing
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
+    duration_ms: Optional[int] = None
+
+    # Context references
+    session: Optional[ObjectId] = None
+    agent: Optional[ObjectId] = None
+    user: Optional[ObjectId] = None
+    session_run_id: Optional[str] = None
+
+    # Status
+    status: Literal["pending", "completed", "failed"] = "pending"
+    error: Optional[str] = None
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
 @Collection("messages")
 class ChatMessage(Document):
     role: Literal[
@@ -259,6 +301,7 @@ class ChatMessage(Document):
     thought: Optional[List[Dict[str, Any]]] = None
     llm_config: Optional[Dict[str, Any]] = None
     apiKey: Optional[ObjectId] = None
+    llm_call: Optional[ObjectId] = None  # Reference to LLMCall document
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -851,6 +894,23 @@ class Session(Document):
     deleted: Optional[bool] = False
     context: Optional[str] = None  # Scenario/premise for automatic multi-agent sessions
 
+    # Agent sessions: Maps agent_id (str) to their private agent_session ObjectId
+    # Used for multi-agent orchestration where each agent has their own workspace
+    agent_sessions: Optional[Dict[str, ObjectId]] = Field(default_factory=dict)
+
+    # For agent_sessions: track last synced parent message for bulk updates
+    last_parent_message_id: Optional[ObjectId] = None
+
+    @field_validator("agent_sessions", mode="before")
+    @classmethod
+    def coerce_agent_sessions_to_dict(cls, v):
+        """Coerce agent_sessions to dict if it's a list or None."""
+        if v is None:
+            return {}
+        if isinstance(v, list):
+            return {}
+        return v
+
     def get_messages(self):
         messages = ChatMessage.find({"session": self.id})
         messages = sorted(messages, key=lambda x: x.createdAt)
@@ -929,6 +989,7 @@ class LLMResponse:
     usage: Optional[LLMUsage] = None
     thought: Optional[List[Dict[str, Any]]] = None
     cost_metadata: Optional[ChatMessageCostDetails] = None
+    llm_call_id: Optional[ObjectId] = None  # Reference to LLMCall document
 
 
 class ClientType(Enum):
