@@ -794,23 +794,24 @@ async def run_scheduled_triggers_fn():
 ########################################################
 
 
-# @app.function(image=image, max_containers=10, timeout=3600)
-# async def remote_prompt_session_fn(
-#     session_id: str,
-#     agent_id: str,
-#     user_id: str,
-#     content: str,
-#     attachments: Optional[List[str]] = [],
-#     extra_tools: Optional[List[str]] = [],
-# ):
-#     return await remote_prompt_session(
-#         session_id=session_id,
-#         agent_id=agent_id,
-#         user_id=user_id,
-#         content=content,
-#         attachments=attachments,
-#         extra_tools=extra_tools,
-#     )
+@app.function(image=image, max_containers=10, timeout=3600)
+async def remote_prompt_session_fn(
+    session_id: str,
+    agent_id: str,
+    user_id: str,
+    content: Optional[str] = None,
+    attachments: Optional[List[str]] = None,
+    extra_tools: Optional[List[str]] = None,
+):
+    """Modal wrapper for remote_prompt_session that can be spawned asynchronously."""
+    return await remote_prompt_session(
+        session_id=session_id,
+        agent_id=agent_id,
+        user_id=user_id,
+        content=content,
+        attachments=attachments or [],
+        extra_tools=extra_tools or [],
+    )
 
 
 @app.function(image=image, max_containers=4, timeout=3600)
