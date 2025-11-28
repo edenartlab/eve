@@ -90,6 +90,9 @@ class Tweet(Document):
     first_seen_at: datetime = None
     last_seen_at: datetime = None
     processed: Optional[bool] = False  # Track if tweet has been processed by agent
+    # Linkage to Eden ChatMessage
+    session_id: Optional[str] = None  # Eden session ID
+    message_id: Optional[str] = None  # Eden message ID
 
     def __init__(self, **data):
         if "first_seen_at" not in data:
