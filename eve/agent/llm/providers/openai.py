@@ -6,7 +6,6 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from bson import ObjectId as BsonObjectId
-from loguru import logger
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletion
 from openai.types.chat.chat_completion_message import ChatCompletionMessage
@@ -59,23 +58,6 @@ class OpenAIProvider(LLMProvider):
             context.config.model,
             include_thoughts=bool(context.config.reasoning_effort),
         )
-
-        # Debug: Check for tool_call IDs that are too long for OpenAI (max 40 chars)
-        for i, msg in enumerate(messages):
-            if msg.get("tool_calls"):
-                for tc in msg["tool_calls"]:
-                    tc_id = tc.get("id", "")
-                    if len(tc_id) > 40:
-                        logger.warning(
-                            f"[DEBUG] messages[{i}].tool_calls has ID too long ({len(tc_id)} chars): id={tc_id}, tool={tc.get('function', {}).get('name', 'unknown')}"
-                        )
-            if msg.get("tool_call_id"):
-                tc_id = msg["tool_call_id"]
-                if len(tc_id) > 40:
-                    logger.warning(
-                        f"[DEBUG] messages[{i}] tool result has ID too long ({len(tc_id)} chars): id={tc_id}, tool={msg.get('name', 'unknown')}"
-                    )
-
         tools = construct_tools(context)
         tool_choice = context.tool_choice if tools else None
         observability = (
