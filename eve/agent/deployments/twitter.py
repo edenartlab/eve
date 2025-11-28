@@ -285,6 +285,7 @@ async def process_twitter_tweet(
                 session.update(deleted=False)
 
         except MongoDocumentNotFound:
+            logger.info(f"Session not found for conversation ID: {conversation_id}")
             pass
 
         # Strategy 2: Check if any Tweet in this conversation has a linked Eden session
@@ -298,7 +299,7 @@ async def process_twitter_tweet(
                     logger.info(
                         f"Found linked session {linked_tweet.session_id} via Tweet record"
                     )
-                    session = Session.load(id=linked_tweet.session_id)
+                    session = Session.from_mongo(linked_tweet.session_id)
                     if session.deleted or session.status == "archived":
                         session.update(deleted=False, status="active")
                     # Update session_key for future lookups

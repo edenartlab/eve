@@ -20,7 +20,7 @@ conductor_template = Template("""
   </Role>
 
   <Context>
-    The current date is {{ current_date }}.    
+    The current date is {{ current_date }}.
 
     {% if context %}
     {{ context }}

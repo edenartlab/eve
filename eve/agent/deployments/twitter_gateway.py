@@ -856,8 +856,6 @@ class TwitterPoller:
             # Skip if checked in the last 4 hours (to avoid redundant checks)
             if last_checked:
                 try:
-                    from datetime import datetime, timezone
-
                     last_checked_time = datetime.fromisoformat(last_checked)
                     now = datetime.now(timezone.utc)
                     if (

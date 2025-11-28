@@ -8,8 +8,10 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 from anthropic import AsyncAnthropic
+from bson import ObjectId
 from pydantic import BaseModel
 
+from eve import db
 from eve.agent.llm.formatting import (
     construct_anthropic_tools,
 )
@@ -147,22 +149,20 @@ class AnthropicProvider(LLMProvider):
                     start_time = datetime.now(timezone.utc)
 
                     # Create LLMCall to store raw request payload
-                    from bson import ObjectId as BsonObjectId
-
-                    if os.getenv("DB") == "STAGE":
+                    if db == "STAGE":
                         llm_call = LLMCall(
                             provider=self.provider_name,
                             model=effective_model,
                             request_payload=dict(request_kwargs),
                             start_time=start_time,
                             status="pending",
-                            session=BsonObjectId(llm_call_metadata.get("session"))
+                            session=ObjectId(llm_call_metadata.get("session"))
                             if llm_call_metadata.get("session")
                             else None,
-                            agent=BsonObjectId(llm_call_metadata.get("agent"))
+                            agent=ObjectId(llm_call_metadata.get("agent"))
                             if llm_call_metadata.get("agent")
                             else None,
-                            user=BsonObjectId(llm_call_metadata.get("user"))
+                            user=ObjectId(llm_call_metadata.get("user"))
                             if llm_call_metadata.get("user")
                             else None,
                         )
@@ -196,7 +196,7 @@ class AnthropicProvider(LLMProvider):
                     llm_response = self._to_llm_response(response)
 
                     # Update LLMCall with response data
-                    if os.getenv("DB") == "STAGE":
+                    if db == "STAGE":
                         duration_ms = int(
                             (end_time - start_time).total_seconds() * 1000
                         )

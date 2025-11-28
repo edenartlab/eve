@@ -107,6 +107,30 @@ async def handler(context: ToolContext):
 async def handle_image_creation(args: dict, user: str = None, agent: str = None):
     """Handle image creation - copied from original create tool handler"""
 
+    # nano_banana_pro is enabled by default
+    # if a specific user is provided (e.g. from the website or api), check if paying user has access to veo3 and disable it if not
+    nano_banana_enabled = True
+    if user:
+        user = User.from_mongo(user)
+
+        # if agent's owner pays, check their feature flags, otherwise user's
+        if agent:
+            agent = Agent.from_mongo(agent)
+            if agent.owner_pays in ["full", "deployments"]:
+                paying_user = User.from_mongo(agent.owner)
+            else:
+                paying_user = user
+        else:
+            paying_user = user
+
+        nano_banana_enabled = any(
+            [
+                t
+                for t in paying_user.featureFlags
+                if t in ["eden_admin", "free_tools", "preview"]
+            ]
+        ) or (paying_user.subscriptionTier and paying_user.subscriptionTier > 0)
+
     # load tools
     # flux_dev_lora = Tool.load("flux_dev_lora")
     # flux_dev = Tool.load("flux_dev")
@@ -136,6 +160,11 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
     intermediate_outputs = {}
 
+    # default image tool
+    default_image_tool = "seedream4"
+    if nano_banana_enabled:
+        default_image_tool = "nano_banana"
+
     # Determine tool
     if init_image:
         # just use one of the image editing tools for now, even when there's a lora
@@ -146,7 +175,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
             "openai": "openai_image_edit",
             "nano_banana": "nano_banana",
             "sdxl": "txt2img",
-        }.get(model_preference, "seedream4")
+        }.get(model_preference, default_image_tool)
 
     else:
         if loras:
@@ -161,12 +190,16 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
                 "openai": "openai_image_generate",
                 "nano_banana": "nano_banana",
                 "sdxl": "txt2img",
-            }.get(model_preference, "seedream4")
+            }.get(model_preference, default_image_tool)
 
     # Switch from Flux Dev Lora to Flux Dev if and only if 2 LoRAs or Controlnet
     if image_tool == "flux_dev_lora":
         if len(loras) > 1 or controlnet:
             image_tool = "flux_dev"
+
+    # Downgrade from Nano Banana if not enabled
+    if image_tool == "nano_banana" and not nano_banana_enabled:
+        image_tool = "seedream4"
 
     tool_calls = []
 
@@ -332,23 +365,44 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
         result = await flux_kontext.async_run(args, save_thumbnails=True)
 
-    # Nano Banana
+    # Nano Banana (original)
+    # elif image_tool == "nano_banana":
+    #     nano_banana = Tool.load("nano_banana")
+
+    #     args = {
+    #         "prompt": prompt,
+    #         "n_samples": n_samples,
+    #         "output_format": "png",
+    #     }
+
+    #     if reference_images:
+    #         args["image_input"] = reference_images
+
+    #     if seed:
+    #         args["seed"] = seed
+
+    #     result = await nano_banana.async_run(args, save_thumbnails=True)
+
+    # Nano Banana (Pro)
     elif image_tool == "nano_banana":
-        nano_banana = Tool.load("nano_banana")
+        nano_banana_pro = Tool.load("nano_banana_pro")
 
         args = {
             "prompt": prompt,
-            "n_samples": n_samples,
+            # "n_samples": n_samples,
             "output_format": "png",
         }
+
+        # aspect ratio
+        if aspect_ratio != "auto":
+            if aspect_ratio == "9:21":
+                aspect_ratio = "9:16"  # Nano Banana Pro doesn't support 9:21
+            args["aspect_ratio"] = aspect_ratio
 
         if reference_images:
             args["image_input"] = reference_images
 
-        if seed:
-            args["seed"] = seed
-
-        result = await nano_banana.async_run(args, save_thumbnails=True)
+        result = await nano_banana_pro.async_run(args, save_thumbnails=True)
 
     #########################################################
     # OpenAI Image Generate
@@ -591,7 +645,7 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
             [
                 t
                 for t in paying_user.featureFlags
-                if t in ["tool_access_veo3", "preview"]
+                if t in ["tool_access_veo3", "preview", "eden_admin", "free_tools"]
             ]
         ) or (paying_user.subscriptionTier and paying_user.subscriptionTier > 0)
 

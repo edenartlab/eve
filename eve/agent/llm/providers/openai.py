@@ -5,12 +5,13 @@ from contextlib import nullcontext
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from bson import ObjectId as BsonObjectId
+from bson import ObjectId
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletion
 from openai.types.chat.chat_completion_message import ChatCompletionMessage
 from pydantic import BaseModel
 
+from eve import db
 from eve.agent.llm.formatting import (
     construct_observability_metadata,
     construct_tools,
@@ -114,20 +115,20 @@ class OpenAIProvider(LLMProvider):
                         request_kwargs["max_tokens"] = context.config.max_tokens
 
                     # Create LLMCall record before API call
-                    if os.getenv("DB") == "STAGE":
+                    if db == "STAGE":
                         llm_call = LLMCall(
                             provider=self.provider_name,
                             model=canonical_name,
                             request_payload=dict(request_kwargs),
                             start_time=start_time,
                             status="pending",
-                            session=BsonObjectId(llm_call_metadata.get("session"))
+                            session=ObjectId(llm_call_metadata.get("session"))
                             if llm_call_metadata.get("session")
                             else None,
-                            agent=BsonObjectId(llm_call_metadata.get("agent"))
+                            agent=ObjectId(llm_call_metadata.get("agent"))
                             if llm_call_metadata.get("agent")
                             else None,
-                            user=BsonObjectId(llm_call_metadata.get("user"))
+                            user=ObjectId(llm_call_metadata.get("user"))
                             if llm_call_metadata.get("user")
                             else None,
                         )
@@ -154,7 +155,7 @@ class OpenAIProvider(LLMProvider):
                     )
 
                     # Update LLMCall with response data
-                    if os.getenv("DB") == "STAGE":
+                    if db == "STAGE":
                         llm_call.update(
                             status="completed",
                             end_time=end_time,

@@ -10,11 +10,9 @@ from jinja2 import Template
 from loguru import logger
 
 from eve.agent.agent import Agent
-from eve.agent.llm.prompts.system_template import (
-    agent_session_template,
-    social_media_template,
-    system_template,
-)
+from eve.agent.llm.prompts.agent_session_template import agent_session_template
+from eve.agent.llm.prompts.social_media_template import social_media_template
+from eve.agent.llm.prompts.system_template import system_template
 from eve.agent.llm.util import is_fake_llm_mode, is_test_mode_prompt
 from eve.agent.memory.memory_models import (
     get_sender_id_to_sender_name_map,
