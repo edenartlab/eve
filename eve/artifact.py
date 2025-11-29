@@ -13,13 +13,186 @@ Examples of artifacts:
 """
 
 import copy
+import json
+import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Type, Union
 
 from bson import ObjectId
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from eve.mongo import Collection, Document
+
+logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# Type Schemas for Artifact Validation
+# =============================================================================
+
+
+class SceneSchema(BaseModel):
+    """Schema for a scene in a screenplay storyboard."""
+
+    image_prompt: str
+    description: str
+    order: int
+    duration: Optional[float] = None
+    audio_prompt: Optional[str] = None
+    narration: Optional[str] = None
+
+    model_config = ConfigDict(extra="allow")
+
+
+class ScreenplayStoryboardSchema(BaseModel):
+    """Schema for screenplay_storyboard artifact type."""
+
+    title: str
+    audio_prompt: Optional[str] = None
+    narration: Optional[str] = None
+    scenes: List[SceneSchema] = Field(default_factory=list)
+
+    model_config = ConfigDict(extra="allow")
+
+
+class RelationshipSchema(BaseModel):
+    """Schema for character relationships."""
+
+    character: str
+    relationship: str
+
+    model_config = ConfigDict(extra="allow")
+
+
+class CharacterBibleSchema(BaseModel):
+    """Schema for character_bible artifact type."""
+
+    name: str
+    traits: List[str] = Field(default_factory=list)
+    backstory: Optional[str] = None
+    appearance: Optional[str] = None
+    relationships: List[RelationshipSchema] = Field(default_factory=list)
+
+    model_config = ConfigDict(extra="allow")
+
+
+class MilestoneSchema(BaseModel):
+    """Schema for project milestones."""
+
+    name: str
+    status: str = "pending"
+    due_date: Optional[str] = None
+    tasks: List[str] = Field(default_factory=list)
+
+    model_config = ConfigDict(extra="allow")
+
+
+class ProjectPlanSchema(BaseModel):
+    """Schema for project_plan artifact type."""
+
+    title: str
+    description: Optional[str] = None
+    goals: List[str] = Field(default_factory=list)
+    milestones: List[MilestoneSchema] = Field(default_factory=list)
+
+    model_config = ConfigDict(extra="allow")
+
+
+class LocationSchema(BaseModel):
+    """Schema for world locations."""
+
+    name: str
+    description: str
+
+    model_config = ConfigDict(extra="allow")
+
+
+class WorldBibleSchema(BaseModel):
+    """Schema for world_bible artifact type."""
+
+    name: str
+    description: Optional[str] = None
+    locations: List[LocationSchema] = Field(default_factory=list)
+    rules: List[str] = Field(default_factory=list)
+    history: Optional[str] = None
+
+    model_config = ConfigDict(extra="allow")
+
+
+class EnemySchema(BaseModel):
+    """Schema for game enemies."""
+
+    type: str
+    count: int = 1
+    position: Optional[Dict[str, Any]] = None
+
+    model_config = ConfigDict(extra="allow")
+
+
+class GameLevelSchema(BaseModel):
+    """Schema for game_level artifact type."""
+
+    name: str
+    description: Optional[str] = None
+    difficulty: str = "normal"
+    objectives: List[str] = Field(default_factory=list)
+    enemies: List[EnemySchema] = Field(default_factory=list)
+    rewards: List[Dict[str, Any]] = Field(default_factory=list)
+
+    model_config = ConfigDict(extra="allow")
+
+
+# Registry of artifact type schemas
+ARTIFACT_SCHEMAS: Dict[str, Type[BaseModel]] = {
+    "screenplay_storyboard": ScreenplayStoryboardSchema,
+    "character_bible": CharacterBibleSchema,
+    "project_plan": ProjectPlanSchema,
+    "world_bible": WorldBibleSchema,
+    "game_level": GameLevelSchema,
+}
+
+
+class ArtifactValidationError(Exception):
+    """Raised when artifact data fails validation."""
+
+    def __init__(self, artifact_type: str, errors: List[Dict[str, Any]]):
+        self.artifact_type = artifact_type
+        self.errors = errors
+        super().__init__(f"Validation failed for artifact type '{artifact_type}': {errors}")
+
+
+def validate_artifact_data(
+    artifact_type: str, data: Dict[str, Any], raise_on_error: bool = False
+) -> tuple[bool, Optional[List[Dict[str, Any]]]]:
+    """
+    Validate artifact data against its type schema.
+
+    Args:
+        artifact_type: The type of artifact
+        data: The data to validate
+        raise_on_error: If True, raise ArtifactValidationError on failure
+
+    Returns:
+        Tuple of (is_valid, errors). Errors is None if valid.
+    """
+    schema = ARTIFACT_SCHEMAS.get(artifact_type)
+    if not schema:
+        # Unknown type - allow anything
+        return True, None
+
+    try:
+        schema.model_validate(data)
+        return True, None
+    except ValidationError as e:
+        errors = e.errors()
+        if raise_on_error:
+            raise ArtifactValidationError(artifact_type, errors)
+        return False, errors
+
+
+# =============================================================================
+# Artifact Operation and Version Models
+# =============================================================================
 
 
 class ArtifactOperation(BaseModel):
@@ -46,6 +219,16 @@ class ArtifactVersion(BaseModel):
     message: Optional[str] = None  # Optional commit message
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+# =============================================================================
+# Main Artifact Document
+# =============================================================================
+
+
+# Size thresholds for context injection (in characters of JSON)
+SMALL_ARTIFACT_THRESHOLD = 2000  # Include full data in context
+MEDIUM_ARTIFACT_THRESHOLD = 8000  # Include partial data in context
 
 
 @Collection("artifacts")
@@ -99,6 +282,34 @@ class Artifact(Document):
                 ObjectId(a) if isinstance(a, str) else a for a in data["agents"]
             ]
         super().__init__(**data)
+
+    def validate_data(self, raise_on_error: bool = False) -> tuple[bool, Optional[List[Dict[str, Any]]]]:
+        """
+        Validate this artifact's data against its type schema.
+
+        Args:
+            raise_on_error: If True, raise ArtifactValidationError on failure
+
+        Returns:
+            Tuple of (is_valid, errors)
+        """
+        return validate_artifact_data(self.type, self.data, raise_on_error)
+
+    def get_data_size(self) -> int:
+        """Get the approximate size of the data in characters (JSON serialized)."""
+        try:
+            return len(json.dumps(self.data, default=str))
+        except Exception:
+            return 0
+
+    def is_small(self) -> bool:
+        """Check if this artifact is small enough to include full data in context."""
+        return self.get_data_size() <= SMALL_ARTIFACT_THRESHOLD
+
+    def is_medium(self) -> bool:
+        """Check if this artifact is medium-sized (partial data in context)."""
+        size = self.get_data_size()
+        return SMALL_ARTIFACT_THRESHOLD < size <= MEDIUM_ARTIFACT_THRESHOLD
 
     def _get_nested_value(self, path: str) -> Any:
         """Get a value from nested data using dot notation."""
@@ -240,6 +451,7 @@ class Artifact(Document):
         actor_id: Optional[ObjectId] = None,
         message: Optional[str] = None,
         save: bool = True,
+        validate: bool = True,
     ) -> "Artifact":
         """
         Apply multiple operations to the artifact and optionally save.
@@ -252,6 +464,7 @@ class Artifact(Document):
             actor_id: ObjectId of the actor (user or agent)
             message: Optional commit message
             save: Whether to save to database after applying
+            validate: Whether to validate data after applying operations
 
         Returns:
             self for chaining
@@ -271,6 +484,14 @@ class Artifact(Document):
                 applied_ops.append(op.model_dump())
 
         if applied_ops:
+            # Validate data after operations if requested
+            if validate:
+                is_valid, errors = self.validate_data()
+                if not is_valid:
+                    logger.warning(
+                        f"Artifact {self.id} data validation failed after operations: {errors}"
+                    )
+
             # Create version entry
             new_version = ArtifactVersion(
                 version=self.version + 1,
@@ -363,6 +584,30 @@ class Artifact(Document):
 
         return result
 
+    def get_context_data(self) -> Optional[Dict[str, Any]]:
+        """
+        Get data appropriate for context injection based on size.
+
+        Returns:
+            Full data for small artifacts, truncated data for medium, None for large.
+        """
+        if self.is_small():
+            return self.data
+        elif self.is_medium():
+            # Return truncated version - top-level fields only, truncate arrays
+            truncated = {}
+            for key, val in self.data.items():
+                if isinstance(val, list):
+                    truncated[key] = val[:3] if len(val) > 3 else val
+                    if len(val) > 3:
+                        truncated[f"_{key}_total"] = len(val)
+                elif isinstance(val, str) and len(val) > 200:
+                    truncated[key] = val[:200] + "..."
+                else:
+                    truncated[key] = val
+            return truncated
+        return None
+
     def link_to_session(self, session_id: ObjectId) -> None:
         """Link this artifact to a session."""
         if isinstance(session_id, str):
@@ -442,51 +687,3 @@ class Artifact(Document):
                 )
                 return True
         return False
-
-
-# Type hints for common artifact schemas (optional, for documentation)
-ARTIFACT_TYPE_HINTS = {
-    "screenplay_storyboard": {
-        "title": "string",
-        "audio_prompt": "string",
-        "narration": "string",
-        "scenes": [
-            {
-                "image_prompt": "string",
-                "description": "string",
-                "order": "number",
-                "duration": "number (optional)",
-            }
-        ],
-    },
-    "character_bible": {
-        "name": "string",
-        "traits": ["string"],
-        "backstory": "string",
-        "appearance": "string",
-        "relationships": [{"character": "string", "relationship": "string"}],
-    },
-    "project_plan": {
-        "title": "string",
-        "description": "string",
-        "goals": ["string"],
-        "milestones": [
-            {"name": "string", "status": "string", "due_date": "string", "tasks": ["string"]}
-        ],
-    },
-    "world_bible": {
-        "name": "string",
-        "description": "string",
-        "locations": [{"name": "string", "description": "string"}],
-        "rules": ["string"],
-        "history": "string",
-    },
-    "game_level": {
-        "name": "string",
-        "description": "string",
-        "difficulty": "string",
-        "objectives": ["string"],
-        "enemies": [{"type": "string", "count": "number", "position": "object"}],
-        "rewards": ["object"],
-    },
-}

@@ -296,8 +296,9 @@ async def build_system_message(
     try:
         session_artifacts = session.get_artifacts()
         if session_artifacts:
-            artifacts = [
-                {
+            artifacts = []
+            for a in session_artifacts[:10]:  # Limit to 10 artifacts in context
+                artifact_info = {
                     "artifact_id": str(a.id),
                     "type": a.type,
                     "name": a.name,
@@ -305,8 +306,14 @@ async def build_system_message(
                     "version": a.version,
                     "summary": a.get_summary(max_length=150),
                 }
-                for a in session_artifacts[:10]  # Limit to 10 artifacts in context
-            ]
+                # Include data for small/medium artifacts
+                context_data = a.get_context_data()
+                if context_data is not None:
+                    artifact_info["data"] = context_data
+                    artifact_info["data_included"] = True
+                else:
+                    artifact_info["data_included"] = False
+                artifacts.append(artifact_info)
     except Exception as e:
         logger.warning(f"Failed to load artifacts for session {session.id}: {e}")
 
