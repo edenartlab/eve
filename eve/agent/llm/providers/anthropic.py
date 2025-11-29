@@ -28,6 +28,7 @@ from eve.agent.session.models import (
     LLMUsage,
     ToolCall,
 )
+from eve.user import User
 
 # Anthropic web search tool configuration
 WEB_SEARCH_TOOL = {
@@ -149,7 +150,10 @@ class AnthropicProvider(LLMProvider):
                     start_time = datetime.now(timezone.utc)
 
                     # Create LLMCall to store raw request payload
-                    if db == "STAGE":
+                    if (
+                        db == "STAGE"
+                        or User.from_mongo(llm_call_metadata.get("user")).is_admin()
+                    ):
                         llm_call = LLMCall(
                             provider=self.provider_name,
                             model=effective_model,
@@ -196,7 +200,10 @@ class AnthropicProvider(LLMProvider):
                     llm_response = self._to_llm_response(response)
 
                     # Update LLMCall with response data
-                    if db == "STAGE":
+                    if (
+                        db == "STAGE"
+                        or User.from_mongo(llm_call_metadata.get("user")).is_admin()
+                    ):
                         duration_ms = int(
                             (end_time - start_time).total_seconds() * 1000
                         )

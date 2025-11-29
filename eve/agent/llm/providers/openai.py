@@ -29,6 +29,7 @@ from eve.agent.session.models import (
     LLMUsage,
     ToolCall,
 )
+from eve.user import User
 
 
 class OpenAIProvider(LLMProvider):
@@ -115,7 +116,10 @@ class OpenAIProvider(LLMProvider):
                         request_kwargs["max_tokens"] = context.config.max_tokens
 
                     # Create LLMCall record before API call
-                    if db == "STAGE":
+                    if (
+                        db == "STAGE"
+                        or User.from_mongo(llm_call_metadata.get("user")).is_admin()
+                    ):
                         llm_call = LLMCall(
                             provider=self.provider_name,
                             model=canonical_name,
@@ -155,7 +159,10 @@ class OpenAIProvider(LLMProvider):
                     )
 
                     # Update LLMCall with response data
-                    if db == "STAGE":
+                    if (
+                        db == "STAGE"
+                        or User.from_mongo(llm_call_metadata.get("user")).is_admin()
+                    ):
                         llm_call.update(
                             status="completed",
                             end_time=end_time,

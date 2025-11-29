@@ -26,6 +26,7 @@ from eve.agent.session.models import (
     LLMResponse,
     LLMUsage,
 )
+from eve.user import User
 
 
 class GoogleProvider(LLMProvider):
@@ -119,7 +120,10 @@ class GoogleProvider(LLMProvider):
                     }
 
                     # Create LLMCall record before API call
-                    if db == "STAGE":
+                    if (
+                        db == "STAGE"
+                        or User.from_mongo(llm_call_metadata.get("user")).is_admin()
+                    ):
                         llm_call = LLMCall(
                             provider=self.provider_name,
                             model=canonical_name,
@@ -161,7 +165,10 @@ class GoogleProvider(LLMProvider):
                     )
 
                     # Update LLMCall with response data
-                    if db == "STAGE":
+                    if (
+                        db == "STAGE"
+                        or User.from_mongo(llm_call_metadata.get("user")).is_admin()
+                    ):
                         llm_call.update(
                             status="completed",
                             end_time=end_time,
