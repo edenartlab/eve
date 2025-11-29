@@ -619,3 +619,154 @@ def test_empty_operations_list(basic_artifact):
 
     # Version should not change
     assert basic_artifact.version == initial_version
+
+
+# =============================================================================
+# Test Ownership Enforcement
+# =============================================================================
+
+
+@pytest.fixture
+def other_owner_id():
+    """Create a different owner ID for ownership tests."""
+    return ObjectId()
+
+
+def test_artifact_has_owner(basic_artifact, owner_id):
+    """Test that artifacts have an owner."""
+    assert basic_artifact.owner == owner_id
+
+
+def test_artifact_owner_matches(basic_artifact, owner_id, other_owner_id):
+    """Test ownership comparison."""
+    # Owner matches
+    assert basic_artifact.owner == owner_id
+    # Different user doesn't match
+    assert basic_artifact.owner != other_owner_id
+
+
+@pytest.mark.asyncio
+async def test_tool_update_requires_ownership():
+    """Test that artifact_update tool enforces ownership."""
+    from types import SimpleNamespace
+    from eve.tools.artifacts.artifact_update.handler import handler
+
+    owner_id = ObjectId()
+    other_user_id = ObjectId()
+
+    # Create artifact owned by owner_id
+    artifact = Artifact(
+        type="test",
+        name="Owned Artifact",
+        owner=owner_id,
+        data={"value": "original"},
+    )
+    artifact.save()
+
+    # Try to update as different user - should fail
+    context = SimpleNamespace(
+        args={
+            "artifact_id": str(artifact.id),
+            "operations": [{"op": "set", "path": "value", "value": "hacked"}],
+        },
+        user=str(other_user_id),
+        agent=None,
+        session=None,
+    )
+
+    result = await handler(context)
+    assert "error" in result["output"]
+    assert "Unauthorized" in result["output"]["error"]
+
+    # Verify data wasn't changed
+    artifact.reload()
+    assert artifact.data["value"] == "original"
+
+
+@pytest.mark.asyncio
+async def test_tool_update_succeeds_for_owner():
+    """Test that artifact_update tool succeeds for the owner."""
+    from types import SimpleNamespace
+    from eve.tools.artifacts.artifact_update.handler import handler
+
+    owner_id = ObjectId()
+
+    # Create artifact
+    artifact = Artifact(
+        type="test",
+        name="Owned Artifact",
+        owner=owner_id,
+        data={"value": "original"},
+    )
+    artifact.save()
+
+    # Update as owner - should succeed
+    context = SimpleNamespace(
+        args={
+            "artifact_id": str(artifact.id),
+            "operations": [{"op": "set", "path": "value", "value": "updated"}],
+        },
+        user=str(owner_id),
+        agent=None,
+        session=None,
+    )
+
+    result = await handler(context)
+    assert "error" not in result["output"]
+    assert result["output"]["new_version"] == 2
+
+    # Verify data was changed
+    artifact.reload()
+    assert artifact.data["value"] == "updated"
+
+
+@pytest.mark.asyncio
+async def test_tool_create_sets_owner_from_context():
+    """Test that artifact_create tool sets owner from context."""
+    from types import SimpleNamespace
+    from eve.tools.artifacts.artifact_create.handler import handler
+
+    user_id = ObjectId()
+    session_id = ObjectId()
+
+    context = SimpleNamespace(
+        args={
+            "type": "test",
+            "name": "New Artifact",
+            "data": {"key": "value"},
+            "link_to_session": False,
+        },
+        user=str(user_id),
+        agent=None,
+        session=str(session_id),
+    )
+
+    result = await handler(context)
+    assert "error" not in result["output"]
+
+    # Load the created artifact and verify owner
+    artifact_id = result["output"]["artifact_id"]
+    artifact = Artifact.from_mongo(ObjectId(artifact_id))
+    assert artifact.owner == user_id
+
+
+@pytest.mark.asyncio
+async def test_tool_create_requires_user_context():
+    """Test that artifact_create tool requires user context."""
+    from types import SimpleNamespace
+    from eve.tools.artifacts.artifact_create.handler import handler
+
+    context = SimpleNamespace(
+        args={
+            "type": "test",
+            "name": "New Artifact",
+            "data": {"key": "value"},
+        },
+        user=None,  # No user in context
+        agent=None,
+        session=None,
+    )
+
+    result = await handler(context)
+    assert "error" in result["output"]
+    assert "User context required" in result["output"]["error"]

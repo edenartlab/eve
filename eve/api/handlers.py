@@ -1222,6 +1222,11 @@ async def handle_artifact_update(request):
 
     artifact = Artifact.from_mongo(ObjectId(request.artifact_id))
 
+    # Verify ownership
+    user_id = ObjectId(request.user_id)
+    if artifact.owner != user_id:
+        raise APIError("Unauthorized: You do not own this artifact", status_code=403)
+
     actor_id = ObjectId(request.actor_id) if request.actor_id else None
     previous_version = artifact.version
 
@@ -1296,6 +1301,12 @@ async def handle_artifact_delete(request):
     from eve.artifact import Artifact
 
     artifact = Artifact.from_mongo(ObjectId(request.artifact_id))
+
+    # Verify ownership
+    user_id = ObjectId(request.user_id)
+    if artifact.owner != user_id:
+        raise APIError("Unauthorized: You do not own this artifact", status_code=403)
+
     artifact.archive()
 
     return {
@@ -1313,6 +1324,11 @@ async def handle_artifact_link_session(request):
     artifact = Artifact.from_mongo(ObjectId(request.artifact_id))
     session = Session.from_mongo(ObjectId(request.session_id))
 
+    # Verify ownership
+    user_id = ObjectId(request.user_id)
+    if artifact.owner != user_id:
+        raise APIError("Unauthorized: You do not own this artifact", status_code=403)
+
     artifact.link_to_session(session.id)
     session.link_artifact(artifact.id)
 
@@ -1329,6 +1345,12 @@ async def handle_artifact_rollback(request):
     from eve.artifact import Artifact
 
     artifact = Artifact.from_mongo(ObjectId(request.artifact_id))
+
+    # Verify ownership
+    user_id = ObjectId(request.user_id)
+    if artifact.owner != user_id:
+        raise APIError("Unauthorized: You do not own this artifact", status_code=403)
+
     previous_version = artifact.version
 
     success = artifact.rollback_to_version(request.target_version)

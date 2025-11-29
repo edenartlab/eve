@@ -25,6 +25,12 @@ async def handler(context: ToolContext):
     except Exception as e:
         return {"output": {"error": f"Artifact not found: {str(e)}"}}
 
+    # Verify ownership - user must own the artifact to update it
+    if context.user:
+        user_id = ObjectId(context.user)
+        if artifact.owner != user_id:
+            return {"output": {"error": "Unauthorized: You do not own this artifact"}}
+
     # Store previous version for comparison
     previous_version = artifact.version
 

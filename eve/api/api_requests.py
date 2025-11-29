@@ -296,6 +296,7 @@ class GetArtifactRequest(BaseModel):
 
 class UpdateArtifactRequest(BaseModel):
     artifact_id: str
+    user_id: str  # Required for ownership verification
     operations: List[Dict[str, Any]]
     message: Optional[str] = None
     actor_type: Literal["user", "agent", "system"] = "user"
@@ -312,13 +313,16 @@ class ListArtifactsRequest(BaseModel):
 
 class DeleteArtifactRequest(BaseModel):
     artifact_id: str
+    user_id: str  # Required for ownership verification
 
 
 class LinkArtifactToSessionRequest(BaseModel):
     artifact_id: str
     session_id: str
+    user_id: str  # Required for ownership verification
 
 
 class RollbackArtifactRequest(BaseModel):
     artifact_id: str
     target_version: int
+    user_id: str  # Required for ownership verification
