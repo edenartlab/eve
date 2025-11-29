@@ -526,7 +526,7 @@ async def build_llm_context(
     # Auto-inject artifact tools if:
     # 1. Agent has artifact_tools enabled in their tool sets, OR
     # 2. Session already has artifacts (so agent can interact with them)
-    agent_has_artifact_tools = "artifact_tools" in (actor.tool_sets or [])
+    agent_has_artifact_tools = (actor.tools or {}).get("artifact_tools", False)
     session_has_artifacts = bool(session.artifacts) or bool(session.get_artifacts())
 
     if agent_has_artifact_tools or session_has_artifacts:
