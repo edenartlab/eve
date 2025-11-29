@@ -120,10 +120,14 @@ class GoogleProvider(LLMProvider):
                     }
 
                     # Create LLMCall record before API call
-                    if (
-                        db == "STAGE"
-                        or User.from_mongo(llm_call_metadata.get("user")).is_admin()
-                    ):
+                    should_log_llm_call = db == "STAGE"
+                    if not should_log_llm_call and llm_call_metadata.get("user"):
+                        try:
+                            user = User.from_mongo(llm_call_metadata.get("user"))
+                            should_log_llm_call = user.is_admin()
+                        except ValueError:
+                            pass  # User not found in current DB environment
+                    if should_log_llm_call:
                         llm_call = LLMCall(
                             provider=self.provider_name,
                             model=canonical_name,
@@ -165,10 +169,7 @@ class GoogleProvider(LLMProvider):
                     )
 
                     # Update LLMCall with response data
-                    if (
-                        db == "STAGE"
-                        or User.from_mongo(llm_call_metadata.get("user")).is_admin()
-                    ):
+                    if should_log_llm_call:
                         llm_call.update(
                             status="completed",
                             end_time=end_time,

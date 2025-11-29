@@ -58,7 +58,7 @@ async def handler(context: ToolContext):
     agent_owner_id = str(agent_obj.owner) if agent_obj.owner else None
 
     # Extract parameters
-    channel_id = context.args["channel_id"]
+    channel_id = context.args.get("channel_id")
     instruction = context.args["instruction"]
     active_days = context.args.get("active_days", 3)
     message_limit = context.args.get("message_limit", 100)

@@ -150,10 +150,14 @@ class AnthropicProvider(LLMProvider):
                     start_time = datetime.now(timezone.utc)
 
                     # Create LLMCall to store raw request payload
-                    if (
-                        db == "STAGE"
-                        or User.from_mongo(llm_call_metadata.get("user")).is_admin()
-                    ):
+                    should_log_llm_call = db == "STAGE"
+                    if not should_log_llm_call and llm_call_metadata.get("user"):
+                        try:
+                            user = User.from_mongo(llm_call_metadata.get("user"))
+                            should_log_llm_call = user.is_admin()
+                        except ValueError:
+                            pass  # User not found in current DB environment
+                    if should_log_llm_call:
                         llm_call = LLMCall(
                             provider=self.provider_name,
                             model=effective_model,
@@ -200,10 +204,7 @@ class AnthropicProvider(LLMProvider):
                     llm_response = self._to_llm_response(response)
 
                     # Update LLMCall with response data
-                    if (
-                        db == "STAGE"
-                        or User.from_mongo(llm_call_metadata.get("user")).is_admin()
-                    ):
+                    if should_log_llm_call:
                         duration_ms = int(
                             (end_time - start_time).total_seconds() * 1000
                         )
