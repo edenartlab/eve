@@ -901,6 +901,9 @@ class Session(Document):
     # For agent_sessions: track last synced parent message for bulk updates
     last_parent_message_id: Optional[ObjectId] = None
 
+    # Artifacts: persistent structured data linked to this session
+    artifacts: List[ObjectId] = Field(default_factory=list)
+
     @field_validator("agent_sessions", mode="before")
     @classmethod
     def coerce_agent_sessions_to_dict(cls, v):
@@ -915,6 +918,26 @@ class Session(Document):
         messages = ChatMessage.find({"session": self.id})
         messages = sorted(messages, key=lambda x: x.createdAt)
         return messages
+
+    def get_artifacts(self):
+        """Get all artifacts linked to this session."""
+        from eve.artifact import Artifact
+
+        return Artifact.find_for_session(self.id, include_archived=False)
+
+    def link_artifact(self, artifact_id: ObjectId):
+        """Link an artifact to this session."""
+        if isinstance(artifact_id, str):
+            artifact_id = ObjectId(artifact_id)
+        if artifact_id not in self.artifacts:
+            self.push(pushes={"artifacts": artifact_id})
+
+    def unlink_artifact(self, artifact_id: ObjectId):
+        """Unlink an artifact from this session."""
+        if isinstance(artifact_id, str):
+            artifact_id = ObjectId(artifact_id)
+        if artifact_id in self.artifacts:
+            self.push(pulls={"artifacts": artifact_id})
 
     @classmethod
     def ensure_indexes(cls):

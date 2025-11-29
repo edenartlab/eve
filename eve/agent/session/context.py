@@ -291,6 +291,25 @@ async def build_system_message(
             instrumentation=instrumentation,
         )
 
+    # Load artifacts linked to this session
+    artifacts = None
+    try:
+        session_artifacts = session.get_artifacts()
+        if session_artifacts:
+            artifacts = [
+                {
+                    "artifact_id": str(a.id),
+                    "type": a.type,
+                    "name": a.name,
+                    "description": a.description,
+                    "version": a.version,
+                    "summary": a.get_summary(max_length=150),
+                }
+                for a in session_artifacts[:10]  # Limit to 10 artifacts in context
+            ]
+    except Exception as e:
+        logger.warning(f"Failed to load artifacts for session {session.id}: {e}")
+
     # Build social media instructions if this is a social media platform session
     social_instructions = None
     if session.platform == "farcaster":
@@ -330,6 +349,7 @@ async def build_system_message(
         voice=actor.voice,
         memory=memory,
         social_instructions=social_instructions,
+        artifacts=artifacts,
     )
 
     return ChatMessage(session=session.id, role="system", content=content)
@@ -495,6 +515,20 @@ async def build_llm_context(
         tools = context.tools
     else:
         tools = actor.get_tools(cache=False, auth_user=auth_user_id)
+
+    # Auto-inject artifact tools if session has artifacts or if tools include artifact_tools
+    session_has_artifacts = bool(session.artifacts) or bool(session.get_artifacts())
+    if session_has_artifacts:
+        from eve.tool_constants import ARTIFACT_TOOLS
+
+        for tool_key in ARTIFACT_TOOLS:
+            if tool_key not in tools:
+                try:
+                    artifact_tool = Tool.load(tool_key)
+                    if artifact_tool:
+                        tools[tool_key] = artifact_tool
+                except Exception as e:
+                    logger.warning(f"Failed to load artifact tool {tool_key}: {e}")
 
     if context.extra_tools:
         # Deduplicate tools based on tool.name attribute, not just dict key

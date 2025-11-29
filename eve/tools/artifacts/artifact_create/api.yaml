@@ -1,0 +1,51 @@
+name: Create Artifact
+description: Create a new artifact to store structured, persistent data that persists across sessions. Artifacts are ideal for storing complex objects like screenplays, character bibles, project plans, or any structured data that needs to evolve over time.
+tip: |
+  Use this when you need to create persistent structured data that will be referenced and modified over time.
+  Choose an appropriate type that describes the artifact's purpose (e.g., "screenplay_storyboard", "character_bible", "project_plan").
+  The data field should contain the initial structured content as a JSON object.
+  Common artifact types:
+  - screenplay_storyboard: {title, audio_prompt, narration, scenes: [{image_prompt, description, order}]}
+  - character_bible: {name, traits: [], backstory, relationships: []}
+  - project_plan: {title, goals: [], milestones: [{name, status, tasks: []}]}
+  - world_bible: {name, description, locations: [], rules: [], history}
+output_type: string
+cost_estimate: 0
+handler: local
+active: true
+visible: true
+parameters:
+  type:
+    type: string
+    label: Artifact Type
+    description: The type/category of artifact (e.g., "screenplay_storyboard", "character_bible", "project_plan")
+    required: true
+  name:
+    type: string
+    label: Name
+    description: A human-readable name for this artifact
+    required: true
+  description:
+    type: string
+    label: Description
+    description: Optional description of what this artifact contains or is for
+    required: false
+  data:
+    type: object
+    label: Initial Data
+    description: The initial structured data for this artifact as a JSON object
+    required: true
+  link_to_session:
+    type: boolean
+    label: Link to Session
+    description: Whether to automatically link this artifact to the current session
+    default: true
+    required: false
+examples:
+  - type: screenplay_storyboard
+    name: "My Story"
+    description: "A short film about discovery"
+    data:
+      title: "The Discovery"
+      scenes: []
+    link_to_session: true

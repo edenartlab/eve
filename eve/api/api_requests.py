@@ -275,3 +275,50 @@ class RegenerateAgentMemoryRequest(BaseModel):
 class RegenerateUserMemoryRequest(BaseModel):
     agent_id: str
     user_id: str
+
+
+# Artifact API requests
+class CreateArtifactRequest(BaseModel):
+    user_id: str
+    session_id: Optional[str] = None
+    type: str
+    name: str
+    description: Optional[str] = None
+    data: Dict[str, Any]
+    link_to_session: bool = True
+
+
+class GetArtifactRequest(BaseModel):
+    artifact_id: str
+    view: Literal["full", "summary"] = "full"
+    include_history: bool = False
+
+
+class UpdateArtifactRequest(BaseModel):
+    artifact_id: str
+    operations: List[Dict[str, Any]]
+    message: Optional[str] = None
+    actor_type: Literal["user", "agent", "system"] = "user"
+    actor_id: Optional[str] = None
+
+
+class ListArtifactsRequest(BaseModel):
+    user_id: Optional[str] = None
+    session_id: Optional[str] = None
+    type: Optional[str] = None
+    include_archived: bool = False
+    limit: int = 50
+
+
+class DeleteArtifactRequest(BaseModel):
+    artifact_id: str
+
+
+class LinkArtifactToSessionRequest(BaseModel):
+    artifact_id: str
+    session_id: str
+
+
+class RollbackArtifactRequest(BaseModel):
+    artifact_id: str
+    target_version: int

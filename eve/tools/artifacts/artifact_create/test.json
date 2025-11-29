@@ -1,0 +1,16 @@
+{
+  "type": "screenplay_storyboard",
+  "name": "Test Screenplay",
+  "description": "A test screenplay for unit testing",
+  "data": {
+    "title": "Test Story",
+    "scenes": [
+      {
+        "image_prompt": "A sunny meadow",
+        "description": "Opening scene",
+        "order": 1
+      }
+    ]
+  },
+  "link_to_session": true
+}

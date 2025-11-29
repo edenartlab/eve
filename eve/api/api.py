@@ -44,20 +44,27 @@ from eve.api.api_requests import (
     AgentToolsUpdateRequest,
     CancelRequest,
     CancelSessionRequest,
+    CreateArtifactRequest,
     CreateConceptRequest,
     CreateDeploymentRequestV2,
     CreateNotificationRequest,
     CreateTriggerRequest,
+    DeleteArtifactRequest,
     DeleteDeploymentRequestV2,
     DeleteTriggerRequest,
     DeploymentEmissionRequest,
     DeploymentInteractRequest,
     EmbedSearchRequest,
+    GetArtifactRequest,
+    LinkArtifactToSessionRequest,
+    ListArtifactsRequest,
     PromptSessionRequest,
     RegenerateAgentMemoryRequest,
     RegenerateUserMemoryRequest,
+    RollbackArtifactRequest,
     RunTriggerRequest,
     TaskRequest,
+    UpdateArtifactRequest,
     UpdateConceptRequest,
     UpdateDeploymentRequestV2,
     UpdateSessionStatusRequest,
@@ -65,6 +72,13 @@ from eve.api.api_requests import (
 from eve.api.handlers import (
     handle_agent_tools_delete,
     handle_agent_tools_update,
+    handle_artifact_create,
+    handle_artifact_delete,
+    handle_artifact_get,
+    handle_artifact_link_session,
+    handle_artifact_list,
+    handle_artifact_rollback,
+    handle_artifact_update,
     handle_cancel,
     handle_create,
     handle_create_notification,
@@ -492,6 +506,90 @@ async def regenerate_user_memory(
     request: RegenerateUserMemoryRequest, _: dict = Depends(auth.authenticate_admin)
 ):
     return await handle_regenerate_user_memory(request)
+
+
+# =============================================================================
+# Artifact endpoints
+# =============================================================================
+
+
+@web_app.post("/artifacts/create")
+async def artifact_create(
+    request: CreateArtifactRequest,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    """Create a new artifact."""
+    return await handle_artifact_create(request)
+
+
+@web_app.post("/artifacts/get")
+async def artifact_get(
+    request: GetArtifactRequest,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    """Get an artifact by ID."""
+    return await handle_artifact_get(request)
+
+
+@web_app.get("/artifacts/{artifact_id}")
+async def artifact_get_by_id(
+    artifact_id: str,
+    view: str = "full",
+    include_history: bool = False,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    """Get an artifact by ID (GET endpoint)."""
+    request = GetArtifactRequest(
+        artifact_id=artifact_id,
+        view=view,
+        include_history=include_history,
+    )
+    return await handle_artifact_get(request)
+
+
+@web_app.post("/artifacts/update")
+async def artifact_update(
+    request: UpdateArtifactRequest,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    """Update an artifact with structured operations."""
+    return await handle_artifact_update(request)
+
+
+@web_app.post("/artifacts/list")
+async def artifact_list(
+    request: ListArtifactsRequest,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    """List artifacts for a user or session."""
+    return await handle_artifact_list(request)
+
+
+@web_app.post("/artifacts/delete")
+async def artifact_delete(
+    request: DeleteArtifactRequest,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    """Archive (soft delete) an artifact."""
+    return await handle_artifact_delete(request)
+
+
+@web_app.post("/artifacts/link-session")
+async def artifact_link_session(
+    request: LinkArtifactToSessionRequest,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    """Link an artifact to a session."""
+    return await handle_artifact_link_session(request)
+
+
+@web_app.post("/artifacts/rollback")
+async def artifact_rollback(
+    request: RollbackArtifactRequest,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    """Rollback an artifact to a previous version."""
+    return await handle_artifact_rollback(request)
 
 
 # Development endpoints for local testing

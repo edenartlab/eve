@@ -1125,3 +1125,224 @@ async def handle_regenerate_user_memory(request):
             f"Error regenerating user memory for agent {request.agent_id}, user {request.user_id}: {e}"
         )
         return {"success": False, "error": str(e)}
+
+
+# =============================================================================
+# Artifact Handlers
+# =============================================================================
+
+
+@handle_errors
+async def handle_artifact_create(request):
+    """Create a new artifact."""
+    from eve.artifact import Artifact
+
+    user_id = ObjectId(request.user_id)
+    session_id = ObjectId(request.session_id) if request.session_id else None
+
+    artifact = Artifact(
+        type=request.type,
+        name=request.name,
+        description=request.description,
+        data=request.data,
+        owner=user_id,
+        session=session_id if request.link_to_session else None,
+        sessions=[session_id] if session_id and request.link_to_session else [],
+    )
+    artifact.save()
+
+    # Link artifact to session if specified
+    if session_id and request.link_to_session:
+        session = Session.from_mongo(session_id)
+        session.link_artifact(artifact.id)
+
+    return {
+        "success": True,
+        "artifact_id": str(artifact.id),
+        "type": artifact.type,
+        "name": artifact.name,
+        "version": artifact.version,
+    }
+
+
+@handle_errors
+async def handle_artifact_get(request):
+    """Get an artifact by ID."""
+    from eve.artifact import Artifact
+
+    artifact = Artifact.from_mongo(ObjectId(request.artifact_id))
+
+    if request.view == "summary":
+        result = {
+            "artifact_id": str(artifact.id),
+            "type": artifact.type,
+            "name": artifact.name,
+            "description": artifact.description,
+            "version": artifact.version,
+            "summary": artifact.get_summary(),
+            "updated_at": artifact.updatedAt.isoformat() if artifact.updatedAt else None,
+            "created_at": artifact.createdAt.isoformat() if artifact.createdAt else None,
+            "archived": artifact.archived,
+        }
+    else:
+        result = {
+            "artifact_id": str(artifact.id),
+            "type": artifact.type,
+            "name": artifact.name,
+            "description": artifact.description,
+            "version": artifact.version,
+            "data": artifact.data,
+            "updated_at": artifact.updatedAt.isoformat() if artifact.updatedAt else None,
+            "created_at": artifact.createdAt.isoformat() if artifact.createdAt else None,
+            "archived": artifact.archived,
+            "owner": str(artifact.owner),
+            "session": str(artifact.session) if artifact.session else None,
+            "sessions": [str(s) for s in artifact.sessions],
+        }
+
+    if request.include_history and artifact.versions:
+        result["history"] = [
+            {
+                "version": v.version,
+                "timestamp": v.timestamp.isoformat(),
+                "actor_type": v.actor_type,
+                "message": v.message,
+                "operations_count": len(v.operations),
+            }
+            for v in artifact.versions[-20:]
+        ]
+
+    return result
+
+
+@handle_errors
+async def handle_artifact_update(request):
+    """Update an artifact with structured operations."""
+    from eve.artifact import Artifact
+
+    artifact = Artifact.from_mongo(ObjectId(request.artifact_id))
+
+    actor_id = ObjectId(request.actor_id) if request.actor_id else None
+    previous_version = artifact.version
+
+    artifact.apply_operations(
+        operations=request.operations,
+        actor_type=request.actor_type,
+        actor_id=actor_id,
+        message=request.message,
+        save=True,
+    )
+
+    return {
+        "success": True,
+        "artifact_id": str(artifact.id),
+        "name": artifact.name,
+        "previous_version": previous_version,
+        "new_version": artifact.version,
+        "operations_applied": len(request.operations),
+        "data": artifact.data,
+    }
+
+
+@handle_errors
+async def handle_artifact_list(request):
+    """List artifacts for a user or session."""
+    from eve.artifact import Artifact
+
+    if request.session_id:
+        session_id = ObjectId(request.session_id)
+        artifacts = Artifact.find_for_session(
+            session_id, include_archived=request.include_archived
+        )
+    elif request.user_id:
+        user_id = ObjectId(request.user_id)
+        artifacts = Artifact.find_for_user(
+            user_id,
+            artifact_type=request.type,
+            include_archived=request.include_archived,
+            limit=request.limit,
+        )
+    else:
+        raise APIError("Either user_id or session_id is required", status_code=400)
+
+    # Filter by type if session query and type specified
+    if request.session_id and request.type:
+        artifacts = [a for a in artifacts if a.type == request.type]
+
+    # Apply limit
+    artifacts = artifacts[: request.limit]
+
+    return {
+        "count": len(artifacts),
+        "artifacts": [
+            {
+                "artifact_id": str(a.id),
+                "type": a.type,
+                "name": a.name,
+                "description": a.description,
+                "version": a.version,
+                "summary": a.get_summary(max_length=100),
+                "updated_at": a.updatedAt.isoformat() if a.updatedAt else None,
+                "archived": a.archived,
+            }
+            for a in artifacts
+        ],
+    }
+
+
+@handle_errors
+async def handle_artifact_delete(request):
+    """Archive (soft delete) an artifact."""
+    from eve.artifact import Artifact
+
+    artifact = Artifact.from_mongo(ObjectId(request.artifact_id))
+    artifact.archive()
+
+    return {
+        "success": True,
+        "artifact_id": str(artifact.id),
+        "archived": True,
+    }
+
+
+@handle_errors
+async def handle_artifact_link_session(request):
+    """Link an artifact to a session."""
+    from eve.artifact import Artifact
+
+    artifact = Artifact.from_mongo(ObjectId(request.artifact_id))
+    session = Session.from_mongo(ObjectId(request.session_id))
+
+    artifact.link_to_session(session.id)
+    session.link_artifact(artifact.id)
+
+    return {
+        "success": True,
+        "artifact_id": str(artifact.id),
+        "session_id": str(session.id),
+    }
+
+
+@handle_errors
+async def handle_artifact_rollback(request):
+    """Rollback an artifact to a previous version."""
+    from eve.artifact import Artifact
+
+    artifact = Artifact.from_mongo(ObjectId(request.artifact_id))
+    previous_version = artifact.version
+
+    success = artifact.rollback_to_version(request.target_version)
+
+    if not success:
+        raise APIError(
+            f"Version {request.target_version} not found in artifact history",
+            status_code=404,
+        )
+
+    return {
+        "success": True,
+        "artifact_id": str(artifact.id),
+        "previous_version": previous_version,
+        "new_version": artifact.version,
+        "rolled_back_to": request.target_version,
+    }
