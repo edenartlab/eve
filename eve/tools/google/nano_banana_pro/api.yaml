@@ -72,3 +72,12 @@ parameters:
     minimum: 1
     maximum: 32768
     hide_from_user: true
+  output_format:
+    type: string
+    label: Output format
+    description: Format of the output image
+    default: png
+    choices: ["jpg", "png"]
+    required: false
+    hide_from_user: true
+    hide_from_agent: true
