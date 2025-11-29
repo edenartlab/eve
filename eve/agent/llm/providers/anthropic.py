@@ -157,6 +157,7 @@ class AnthropicProvider(LLMProvider):
                             should_log_llm_call = user.is_admin()
                         except ValueError:
                             pass  # User not found in current DB environment
+
                     if should_log_llm_call:
                         llm_call = LLMCall(
                             provider=self.provider_name,
