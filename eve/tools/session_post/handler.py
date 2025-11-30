@@ -1,4 +1,5 @@
 import json
+from enum import Enum
 from typing import List, Optional
 
 import modal
@@ -23,6 +24,62 @@ from eve.api.api import remote_prompt_session
 from eve.api.api_requests import PromptSessionRequest, SessionCreationArgs
 from eve.tool import Tool, ToolContext
 from eve.user import User, increment_message_count
+
+
+class ResponseType(str, Enum):
+    """Types of structured output responses for session_post"""
+
+    MEDIA = "media"  # Default: looks for media outputs (URLs)
+    SEED = "seed"  # Looks for seed IDs from verdelis_seed or similar tools
+
+
+# Response models for different output types
+
+
+class MediaSessionResponse(BaseModel):
+    """Response for media-producing sessions (default)"""
+
+    outputs: List[str] = Field(
+        description="A list of all requested successful media outputs, given the original request. Do not include intermediate results here -- only the desired output given the task."
+    )
+    intermediate_outputs: Optional[List[str]] = Field(
+        description="An optional list of all important **intermediate media urls** that were generated during the session, leading up to the final result. This does not include the original attachments provided by the user, or the final output."
+    )
+    error: Optional[str] = Field(
+        description="A human-readable error message that explains why the session failed to produce the requested outputs. Mutually exclusive with outputs -- **ONLY** set this if there was an error or the requested output was not successfully generated."
+    )
+
+
+class SeedSessionResponse(BaseModel):
+    """Response for artifact-creating sessions (verdelis_seed, verdelis_storyboard, etc.)"""
+
+    artifact_ids: List[str] = Field(
+        description="A list of all artifact IDs that were successfully created during this session. Look for tool calls to verdelis_seed, verdelis_storyboard, or similar artifact-creating tools and extract the artifact_id from their results."
+    )
+    error: Optional[str] = Field(
+        description="A human-readable error message that explains why the session failed to create any artifacts. Mutually exclusive with artifact_ids -- **ONLY** set this if there was an error or no artifacts were successfully created."
+    )
+
+
+# System prompts for each response type
+
+MEDIA_SYSTEM_PROMPT = """
+You are a helpful assistant that summarizes the results of a remote session prompt.
+
+Given the original request and the subsequent response to it, identify if the session was successful or not.
+If it was successful, list all the successful outputs. If there were any important intermediate results, list them in the intermediate_outputs field.
+If it was not successful, provide a human-readable error message that explains why the session failed to produce the requested outputs.
+"""
+
+SEED_SYSTEM_PROMPT = """
+You are a helpful assistant that extracts artifact IDs from a session.
+
+Look through the session messages for any tool calls to artifact-creating tools (like verdelis_seed or verdelis_storyboard).
+For each successful artifact creation, extract the artifact_id from the tool result.
+
+If artifacts were successfully created, list all their IDs in the artifact_ids field.
+If no artifacts were created or there was an error, provide a human-readable error message explaining what went wrong.
+"""
 
 
 async def handler(context: ToolContext):
@@ -102,6 +159,10 @@ async def handler(context: ToolContext):
     elif context.args.get("role") in ["system", "user"]:
         # If we're going to prompt, run session prompt routine (it handles message addition)
         if context.args.get("prompt"):
+            # Get response type (default to media)
+            response_type_str = context.args.get("response_type", "media")
+            response_type = ResponseType(response_type_str)
+
             result = await run_session_prompt(
                 session_id=session_id,
                 agent_id=str(agent.id),
@@ -110,6 +171,7 @@ async def handler(context: ToolContext):
                 attachments=context.args.get("attachments") or [],
                 extra_tools=context.args.get("extra_tools") or [],
                 async_mode=context.args.get("async"),
+                response_type=response_type,
             )
             return result
 
@@ -148,6 +210,7 @@ async def run_session_prompt(
     attachments: Optional[List[str]] = [],
     extra_tools: Optional[List[str]] = [],
     async_mode: bool = False,
+    response_type: ResponseType = ResponseType.MEDIA,
 ):
     # If async_mode, spawn session prompt and return immediately
     if async_mode:
@@ -175,60 +238,80 @@ async def run_session_prompt(
         extra_tools=extra_tools,
     )
 
-    # Get structured output from the remote session prompt
-    class RemoteSessionResponse(BaseModel):
-        """All relevant results (or error report) from the remote session prompt"""
+    # Get structured output based on response type
+    if response_type == ResponseType.SEED:
+        return await _extract_seed_response(session_id)
+    else:
+        return await _extract_media_response(session_id)
 
-        outputs: List[str] = Field(
-            description="A list of all requested successful media outputs, given the original request. Do not include intermediate results here -- only the desired output given the task."
-        )
-        intermediate_outputs: Optional[List[str]] = Field(
-            description="An optional list of all important **intermediate media urls** that were generated during the session, leading up to the final result. This does not include the original attachments provided by the user, or the final output."
-        )
-        error: Optional[str] = Field(
-            description="A human-readable error message that explains why the session failed to produce the requested outputs. Mutually exclusive with outputs -- **ONLY** set this if there was an error or the requested output was not successfully generated."
-        )
 
-    system_message = """
-    You are a helpful assistant that summarizes the results of a remote session prompt.
-
-    Given the original request and the subsequent response to it, identify if the session was successful or not.
-    If it was successful, list all the successful outputs. If there were any important intermediate results, list them in the intermediate_outputs field.
-    If it was not successful, provide a human-readable error message that explains why the session failed to produce the requested outputs.
-    """
-
+async def _extract_media_response(session_id: str) -> dict:
+    """Extract media outputs from session (default behavior)"""
     messages = ChatMessage.find({"session": ObjectId(session_id)})
 
-    # Build LLM context with custom tools
     context = LLMContext(
         messages=[
-            ChatMessage(role="system", content=system_message),
+            ChatMessage(role="system", content=MEDIA_SYSTEM_PROMPT),
             *messages,
             ChatMessage(role="user", content="Summarize the results of the session."),
         ],
         config=LLMConfig(
             model="claude-sonnet-4-5",
-            # model="gpt-4o-mini",
-            response_format=RemoteSessionResponse,
+            response_format=MediaSessionResponse,
         ),
     )
 
     response = await async_prompt(context)
-
-    output = RemoteSessionResponse(**json.loads(response.content))
+    output = MediaSessionResponse(**json.loads(response.content))
 
     if output.error:
-        result = {
+        return {
             "output": [],
             "intermediate_outputs": output.intermediate_outputs,
             "error": output.error,
             "session_id": session_id,
         }
     else:
-        result = {
+        return {
             "output": output.outputs,
             "intermediate_outputs": output.intermediate_outputs,
             "session_id": session_id,
         }
 
-    return result
+
+async def _extract_seed_response(session_id: str) -> dict:
+    """Extract artifact IDs from session"""
+    messages = ChatMessage.find({"session": ObjectId(session_id)})
+
+    context = LLMContext(
+        messages=[
+            ChatMessage(role="system", content=SEED_SYSTEM_PROMPT),
+            *messages,
+            ChatMessage(
+                role="user",
+                content="Extract all artifact IDs that were created in this session.",
+            ),
+        ],
+        config=LLMConfig(
+            model="claude-sonnet-4-5",
+            response_format=SeedSessionResponse,
+        ),
+    )
+
+    response = await async_prompt(context)
+
+    output = SeedSessionResponse(**json.loads(response.content))
+
+    if output.error:
+        return {
+            "output": [],
+            "artifact_ids": [],
+            "error": output.error,
+            "session_id": session_id,
+        }
+    else:
+        return {
+            "output": output.artifact_ids,
+            "artifact_ids": output.artifact_ids,
+            "session_id": session_id,
+        }

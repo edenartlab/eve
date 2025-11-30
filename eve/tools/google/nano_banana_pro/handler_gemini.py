@@ -1,5 +1,6 @@
 import mimetypes
 import tempfile
+from typing import Any, Dict, List
 from urllib.parse import urlparse
 
 import requests
@@ -21,39 +22,51 @@ def download_image(url: str) -> tuple[bytes, str]:
     return response.content, mime_type
 
 
-async def handler(context: ToolContext):
-    """
-    Handler for Gemini 3 Pro Image generation.
-
-    Takes a prompt and optional input images, generates an image.
-    """
-    args = context.args
-
-    # Validate input
-    if not args.get("prompt"):
-        raise ValueError("'prompt' is required")
-
-    # Create GCP client. Gemini 3 Pro Image requires global
-    client = create_gcp_client(gcp_location="global")
-
-    # Build content parts
+def build_content_parts(message: Dict[str, Any]) -> List[Any]:
+    """Build content parts from a message dict."""
     parts = []
 
-    # Add any input images first
-    if args.get("image_input"):
-        for image_url in args["image_input"]:
-            image_bytes, mime_type = download_image(image_url)
+    # Add text content if present
+    if message.get("content"):
+        parts.append(genai.types.Part(text=message["content"]))
+
+    # Add image attachments if present
+    if message.get("attachments"):
+        for attachment_url in message["attachments"]:
+            image_bytes, mime_type = download_image(attachment_url)
             parts.append(
                 genai.types.Part(
                     inline_data=genai.types.Blob(mime_type=mime_type, data=image_bytes)
                 )
             )
 
-    # Add the text prompt
-    parts.append(genai.types.Part(text=args["prompt"]))
+    return parts
 
-    # Create single user content
-    contents = [genai.types.Content(role="user", parts=parts)]
+
+async def handler(context: ToolContext):
+    """
+    Handler for Gemini 3 Pro Image generation.
+
+    Supports multi-turn conversations with image inputs and generates images.
+    """
+    args = context.args
+
+    # Validate input
+    if not args.get("messages"):
+        raise ValueError("'messages' is required")
+
+    # Create GCP client. Gemini 3 Pro Image requires global
+    client = create_gcp_client(gcp_location="global")
+
+    # Build contents for the API call
+    contents = []
+
+    for message in args["messages"]:
+        role = message.get("role", "user")
+        parts = build_content_parts(message)
+
+        if parts:
+            contents.append(genai.types.Content(role=role, parts=parts))
 
     # Build generation config
     config_dict = {
@@ -72,15 +85,6 @@ async def handler(context: ToolContext):
 
     if args.get("max_output_tokens") is not None:
         config_dict["max_output_tokens"] = args["max_output_tokens"]
-
-    # Image config for aspect ratio and size
-    image_config_dict = {}
-    if args.get("aspect_ratio"):
-        image_config_dict["aspect_ratio"] = args["aspect_ratio"]
-    if args.get("image_size"):
-        image_config_dict["image_size"] = args["image_size"]
-    if image_config_dict:
-        config_dict["image_config"] = genai.types.ImageConfig(**image_config_dict)
 
     generation_config = genai.types.GenerateContentConfig(**config_dict)
 

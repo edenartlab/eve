@@ -40,7 +40,7 @@ def rest():
         contract_function = contract.functions.takeRestDay()
 
         # Send transaction
-        tx_hash, receipt = safe_send(
+        tx_hex, _, receipt = safe_send(
             w3,
             contract_function,
             ABRAHAM_PRIVATE_KEY,
@@ -48,21 +48,19 @@ def rest():
             nonce=None,
             value=0,
             abi=abi,
-            # network=Network.ETH_SEPOLIA,
             network=Network.ETH_MAINNET,
         )
 
         # Build explorer URL for ETH Sepolia
-        tx_hash_hex = tx_hash.hex()
-        if not tx_hash_hex.startswith("0x"):
-            tx_hash_hex = f"0x{tx_hash_hex}"
-        # explorer_url = f"https://sepolia.etherscan.io/tx/{tx_hash_hex}"
-        explorer_url = f"https://etherscan.io/tx/{tx_hash_hex}"
+        if not tx_hex.startswith("0x"):
+            tx_hex = f"0x{tx_hex}"
 
-        logger.info(f"✅ Rest committed successfully: {tx_hash_hex}")
+        explorer_url = f"https://etherscan.io/tx/{tx_hex}"
+
+        logger.info(f"✅ Rest committed successfully: {tx_hex}")
         logger.info(f"Explorer: {explorer_url}")
 
-        return {"tx_hash": tx_hash_hex, "explorer_url": explorer_url}
+        return {"tx_hash": tx_hex, "explorer_url": explorer_url}
 
     except BlockchainError as e:
         logger.error(f"❌ ABRAHAM_REST failed: {e}")

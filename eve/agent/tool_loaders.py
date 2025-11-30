@@ -80,7 +80,13 @@ def get_agent_specific_tools(username: str) -> List[str]:
             "abraham_seed",
         ]
     elif username == "verdelis":
-        return ["verdelis_story"]
+        return [
+            "verdelis_seed",
+            "verdelis_plant_seed",
+            "verdelis_storyboard",
+            "verdelis_draft_storyboard",
+            "verdelis_film",
+        ]
 
     if "gigabrain" in username.lower():
         from ..tool_constants import GIGABRAIN_TOOLS

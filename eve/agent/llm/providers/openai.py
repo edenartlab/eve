@@ -5,13 +5,13 @@ from contextlib import nullcontext
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from bson import ObjectId as BsonObjectId
-from loguru import logger
+from bson import ObjectId
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletion
 from openai.types.chat.chat_completion_message import ChatCompletionMessage
 from pydantic import BaseModel
 
+from eve import db
 from eve.agent.llm.formatting import (
     construct_observability_metadata,
     construct_tools,
@@ -29,6 +29,7 @@ from eve.agent.session.models import (
     LLMUsage,
     ToolCall,
 )
+from eve.user import User
 
 
 class OpenAIProvider(LLMProvider):
@@ -59,23 +60,6 @@ class OpenAIProvider(LLMProvider):
             context.config.model,
             include_thoughts=bool(context.config.reasoning_effort),
         )
-
-        # Debug: Check for tool_call IDs that are too long for OpenAI (max 40 chars)
-        for i, msg in enumerate(messages):
-            if msg.get("tool_calls"):
-                for tc in msg["tool_calls"]:
-                    tc_id = tc.get("id", "")
-                    if len(tc_id) > 40:
-                        logger.warning(
-                            f"[DEBUG] messages[{i}].tool_calls has ID too long ({len(tc_id)} chars): id={tc_id}, tool={tc.get('function', {}).get('name', 'unknown')}"
-                        )
-            if msg.get("tool_call_id"):
-                tc_id = msg["tool_call_id"]
-                if len(tc_id) > 40:
-                    logger.warning(
-                        f"[DEBUG] messages[{i}] tool result has ID too long ({len(tc_id)} chars): id={tc_id}, tool={msg.get('name', 'unknown')}"
-                    )
-
         tools = construct_tools(context)
         tool_choice = context.tool_choice if tools else None
         observability = (
@@ -132,20 +116,27 @@ class OpenAIProvider(LLMProvider):
                         request_kwargs["max_tokens"] = context.config.max_tokens
 
                     # Create LLMCall record before API call
-                    if os.getenv("DB") == "STAGE":
+                    should_log_llm_call = db == "STAGE"
+                    if not should_log_llm_call and llm_call_metadata.get("user"):
+                        try:
+                            user = User.from_mongo(llm_call_metadata.get("user"))
+                            should_log_llm_call = user.is_admin()
+                        except ValueError:
+                            pass  # User not found in current DB environment
+                    if should_log_llm_call:
                         llm_call = LLMCall(
                             provider=self.provider_name,
                             model=canonical_name,
                             request_payload=dict(request_kwargs),
                             start_time=start_time,
                             status="pending",
-                            session=BsonObjectId(llm_call_metadata.get("session"))
+                            session=ObjectId(llm_call_metadata.get("session"))
                             if llm_call_metadata.get("session")
                             else None,
-                            agent=BsonObjectId(llm_call_metadata.get("agent"))
+                            agent=ObjectId(llm_call_metadata.get("agent"))
                             if llm_call_metadata.get("agent")
                             else None,
-                            user=BsonObjectId(llm_call_metadata.get("user"))
+                            user=ObjectId(llm_call_metadata.get("user"))
                             if llm_call_metadata.get("user")
                             else None,
                         )
@@ -172,7 +163,7 @@ class OpenAIProvider(LLMProvider):
                     )
 
                     # Update LLMCall with response data
-                    if os.getenv("DB") == "STAGE":
+                    if should_log_llm_call:
                         llm_call.update(
                             status="completed",
                             end_time=end_time,

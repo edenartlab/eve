@@ -10,9 +10,10 @@ from urllib.parse import urlparse
 
 import google.genai as genai
 import httpx
-from bson import ObjectId as BsonObjectId
+from bson import ObjectId as ObjectId
 from google.genai import types as genai_types
 
+from eve import db
 from eve.agent.llm.providers import LLMProvider
 from eve.agent.llm.util import (
     calculate_cost_usd,
@@ -25,6 +26,7 @@ from eve.agent.session.models import (
     LLMResponse,
     LLMUsage,
 )
+from eve.user import User
 
 
 class GoogleProvider(LLMProvider):
@@ -118,20 +120,27 @@ class GoogleProvider(LLMProvider):
                     }
 
                     # Create LLMCall record before API call
-                    if os.getenv("DB") == "STAGE":
+                    should_log_llm_call = db == "STAGE"
+                    if not should_log_llm_call and llm_call_metadata.get("user"):
+                        try:
+                            user = User.from_mongo(llm_call_metadata.get("user"))
+                            should_log_llm_call = user.is_admin()
+                        except ValueError:
+                            pass  # User not found in current DB environment
+                    if should_log_llm_call:
                         llm_call = LLMCall(
                             provider=self.provider_name,
                             model=canonical_name,
                             request_payload=request_payload,
                             start_time=start_time,
                             status="pending",
-                            session=BsonObjectId(llm_call_metadata.get("session"))
+                            session=ObjectId(llm_call_metadata.get("session"))
                             if llm_call_metadata.get("session")
                             else None,
-                            agent=BsonObjectId(llm_call_metadata.get("agent"))
+                            agent=ObjectId(llm_call_metadata.get("agent"))
                             if llm_call_metadata.get("agent")
                             else None,
-                            user=BsonObjectId(llm_call_metadata.get("user"))
+                            user=ObjectId(llm_call_metadata.get("user"))
                             if llm_call_metadata.get("user")
                             else None,
                         )
@@ -160,7 +169,7 @@ class GoogleProvider(LLMProvider):
                     )
 
                     # Update LLMCall with response data
-                    if os.getenv("DB") == "STAGE":
+                    if should_log_llm_call:
                         llm_call.update(
                             status="completed",
                             end_time=end_time,

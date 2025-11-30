@@ -1,0 +1,13 @@
+{
+  "title": "Test Artifact",
+  "description": "A test artifact for the Verdelis system",
+  "type": "seed",
+  "public": true,
+  "session_id": "691da378c7629186ddccd5f4",
+  "creations": [
+    {
+      "creation": "691da378c7629186ddccd5f5",
+      "caption": "A sample creation"
+    }
+  ]
+}

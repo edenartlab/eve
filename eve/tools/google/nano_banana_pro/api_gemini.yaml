@@ -1,6 +1,6 @@
 name: Nano Banana Pro
 description: Generate and edit images using Google's Gemini 3 Pro Image model (Nano Banana Pro) with advanced reasoning capabilities
-tip: Use this for complex image generation and editing tasks. Supports multiple reference images.
+tip: Use this for complex image generation and editing tasks. Supports multi-turn conversations and multiple reference images.
 cost_estimate: 8
 output_type: image
 visible: true
@@ -8,21 +8,27 @@ active: true
 thumbnail: app/nano_banana_pro.jpg
 handler: modal
 parameters:
-  prompt:
-    type: string
-    label: Prompt
-    description: Text description of the image you want to generate or how to transform input images
-    tip: |-
-      A text description of the image you want to generate or how to transform the input images.
-    required: true
-  image_input:
+  messages:
     type: array
     items:
-      type: image
-    label: Input images
-    description: Input images to transform or use as reference
+      type: object
+      properties:
+        role:
+          type: string
+          enum: ["user", "model"]
+        content:
+          type: string
+        attachments:
+          type: array
+          items:
+            type: image
+    label: Messages
+    description: Conversation messages with optional image attachments
     tip: |-
-      Optional input images that will be used as context or reference for the generation. You can provide multiple images.
+      Provide an array of message objects for single or multi-turn conversations.
+      Each message should have a 'role' (user or model), 'content' (text), and optionally 'attachments' (array of image URLs).
+      Example: [{"role": "user", "content": "put a party hat on the dog", "attachments": ["https://example.com/dog.jpg"]}]
+    required: true
   aspect_ratio:
     type: string
     label: Aspect Ratio
@@ -72,12 +78,3 @@ parameters:
     minimum: 1
     maximum: 32768
     hide_from_user: true
-  output_format:
-    type: string
-    label: Output format
-    description: Format of the output image
-    default: png
-    choices: ["jpg", "png"]
-    required: false
-    hide_from_user: true
-    hide_from_agent: true

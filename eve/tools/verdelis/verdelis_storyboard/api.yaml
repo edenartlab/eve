@@ -1,0 +1,64 @@
+name: verdelis_storyboard
+description: Create a Verdelis storyboard
+tip: |-
+  This tool creates a Verdelis storyboard - a visual story expanded from a seed.
+
+  Storyboards are the expanded form of seeds, containing the full visual story
+  with image frames, detailed plot, and optional audio tracks.
+
+  A storyboard contains:
+  - seed_id: Reference to the VerdelisSeed this storyboard expands (required)
+  - Title: The name of the storyboard/movie
+  - Logline: A short one-sentence summary of the story
+  - Plot: A detailed plot summary
+  - Agents: The cast of characters (agent IDs) appearing in the storyboard
+  - Image frames: An ordered list of image URLs representing the visual story
+  - Music: Optional background music audio track URL
+  - Vocals: Optional vocals/narration audio track URL
+
+  The tool validates:
+  - The seed ID references a valid existing VerdelisSeed
+  - All image URLs point to actual images (downloaded and verified)
+  - Audio URLs (music/vocals) are valid audio files
+cost_estimate: 0
+output_type: string
+active: true
+handler: local
+visible: false
+parameters:
+  seed_id:
+    type: string
+    description: ID of the VerdelisSeed this storyboard expands
+    required: true
+  title:
+    type: string
+    description: Title of the storyboard
+    required: true
+  logline:
+    type: string
+    description: Short one-sentence logline summarizing the story
+    required: true
+  plot:
+    type: string
+    description: Detailed plot summary
+    required: true
+  agents:
+    type: array
+    items:
+      type: string
+    description: Array of agent IDs representing the cast of characters
+    required: false
+  image_frames:
+    type: array
+    items:
+      type: string
+    description: Ordered array of image URLs representing the storyboard frames
+    required: true
+  music:
+    type: string
+    description: URL to background music audio track
+    required: false
+  vocals:
+    type: string
+    description: URL to vocals/narration audio track
+    required: false

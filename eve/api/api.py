@@ -54,6 +54,7 @@ from eve.api.api_requests import (
     DeploymentInteractRequest,
     EmbedSearchRequest,
     PromptSessionRequest,
+    ReactionRequest,
     RegenerateAgentMemoryRequest,
     RegenerateUserMemoryRequest,
     RunTriggerRequest,
@@ -71,6 +72,7 @@ from eve.api.handlers import (
     handle_embedsearch,
     handle_extract_agent_prompts,
     handle_prompt_session,
+    handle_reaction,
     handle_regenerate_agent_memory,
     handle_regenerate_user_memory,
     handle_replicate_webhook,
@@ -407,6 +409,15 @@ async def update_session_status(
     _: dict = Depends(auth.authenticate_admin),
 ):
     return await handle_session_status_update(request)
+
+
+@web_app.post("/reaction")
+async def react_to_message(
+    request: ReactionRequest,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    """Add a reaction to a message or tool call. If the tool has a hook.py, it will be triggered."""
+    return await handle_reaction(request)
 
 
 @web_app.post("/v2/deployments/create")

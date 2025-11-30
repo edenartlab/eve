@@ -56,7 +56,7 @@ class ToolCall(BaseModel):
 
     def openai_call_schema(self):
         return {
-            "id": self.id,
+            "id": self.id[:40],  # OpenAI max tool_call_id length is 40
             "type": "function",
             "function": {"name": self.tool, "arguments": json.dumps(self.args)},
         }
@@ -147,7 +147,7 @@ class ToolCall(BaseModel):
             "role": "tool",
             "name": self.tool,
             "content": dumps_json(content),
-            "tool_call_id": self.id,
+            "tool_call_id": self.id[:40],  # OpenAI max tool_call_id length is 40
         }
 
 

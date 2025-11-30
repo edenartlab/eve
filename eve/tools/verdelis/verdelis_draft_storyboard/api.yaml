@@ -1,0 +1,41 @@
+name: verdelis_draft_storyboard
+description: Run a session to draft a storyboard from a seed
+tip: |-
+  This tool launches a session where Verdelis expands a seed into a full storyboard.
+
+  The session follows this process:
+  1. Load the seed to get its title, logline, and images
+  2. Develop the story into a full plot
+  3. Generate additional image frames using the create tool
+  4. Optionally generate music and vocals
+  5. Publish the Storyboard using the verdelis_storyboard tool
+cost_estimate: 100
+output_type: string
+active: true
+handler: modal
+visible: false
+parameters:
+  seed_id:
+    type: string
+    label: Seed ID
+    description: The ID of the seed to expand into a storyboard.
+    tip: This is the seed that will be developed into a full visual story.
+    required: true
+  instructions:
+    type: string
+    label: Instructions
+    description: Additional instructions for how to develop the storyboard.
+    tip: Provide guidance on style, tone, pacing, or specific elements to include.
+    required: false
+  title:
+    type: string
+    label: Session Title
+    description: A title for the storyboard drafting session
+    tip: This should include the title of the Storyboard being drafted
+    required: false
+  resume_session:
+    type: string
+    label: Resume Session
+    description: Optional ID of previous session to continue
+    tip: Use this to continue an existing session instead of starting fresh.
+    required: false

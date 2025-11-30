@@ -1,18 +1,7 @@
 {
-    "messages": [
-        {
-            "role": "user",
-            "content": "put a party hat on the dog",
-            "attachments": ["https://edenartlab-prod-data.s3.us-east-1.amazonaws.com/661de4cb0baabb985905761d29c7460ccde31b7908d60188afc7c7a966d1791f.jpg"]
-        },
-        {
-            "role": "model",
-            "content": "Here's a dog with a party hat",
-            "attachments": ["https://dtut5r9j4w7j4.cloudfront.net/50d8cea36fc20ef3da02937a7ad04e784eaaa8e04d2d528b24ea1427d0757db9.png"]
-        },
-        {
-            "role": "user",
-            "content": "put sunglasses on the dog and make the hat blue and white polka dots"
-        }
+    "prompt": "make two pictures of verdelis and kweku together (the two reference images). the first one (9:16) is in a library. the second one (16:9) is on a beach",
+    "image_input": [
+        "https://dtut5r9j4w7j4.cloudfront.net/7cbcc6fca87b51d2c9d50319e94ebb205cb52d540ded41031faea34e408659cb.png",
+        "https://dtut5r9j4w7j4.cloudfront.net/9ff4042f3cf6b6b36e540a726aa2f43413db64828d3247f49d9105d0f1bac7f7.png"
     ]
 }

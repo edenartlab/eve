@@ -125,7 +125,6 @@ def commit_daily_work(
             nonce=None,
             value=0,
             abi=abi,
-            # network=Network.ETH_SEPOLIA,
             network=Network.ETH_MAINNET,
         )
 

@@ -49,6 +49,7 @@ from eve.api.api_requests import (
     DeploymentEmissionRequest,
     DeploymentInteractRequest,
     PromptSessionRequest,
+    ReactionRequest,
     SessionCreationArgs,
     TaskRequest,
     UpdateDeploymentRequestV2,
@@ -1125,3 +1126,119 @@ async def handle_regenerate_user_memory(request):
             f"Error regenerating user memory for agent {request.agent_id}, user {request.user_id}: {e}"
         )
         return {"success": False, "error": str(e)}
+
+
+@handle_errors
+async def handle_reaction(request: ReactionRequest):
+    """
+    Handle reactions to messages or tool calls.
+
+    If the reacted tool has a hook.py file with a `hook` function,
+    it will be called with the reaction context.
+    """
+    import importlib.util
+
+    from eve.tool import get_api_files
+
+    logger.info(
+        f"[handle_reaction] Received reaction request:\n"
+        f"  message_id: {request.message_id}\n"
+        f"  tool_call_id: {request.tool_call_id}\n"
+        f"  reaction: {request.reaction}\n"
+        f"  user_id: {request.user_id}"
+    )
+
+    # Load the message
+    message = ChatMessage.from_mongo(ObjectId(request.message_id))
+    if not message:
+        raise APIError(f"Message not found: {request.message_id}", status_code=404)
+
+    tool_name = None
+
+    # If reacting to a specific tool call, find it
+    if request.tool_call_id:
+        tool_call = None
+        for tc in message.tool_calls or []:
+            if tc.id == request.tool_call_id:
+                tool_call = tc
+                break
+
+        if not tool_call:
+            raise APIError(
+                f"Tool call not found: {request.tool_call_id}", status_code=404
+            )
+
+        tool_name = tool_call.tool
+
+        # Add reaction to the tool call
+        # Structure: {user_id: [list of reaction strings]}
+        if not tool_call.reactions:
+            tool_call.reactions = {}
+        user_key = request.user_id or "anonymous"
+        if user_key not in tool_call.reactions:
+            tool_call.reactions[user_key] = []
+        if request.reaction not in tool_call.reactions[user_key]:
+            tool_call.reactions[user_key].append(request.reaction)
+
+        message.save()
+
+        # Try to call the tool's hook if it exists
+        if tool_name:
+            api_files = get_api_files()
+            if tool_name in api_files:
+                tool_dir = os.path.dirname(api_files[tool_name])
+                hook_path = os.path.join(tool_dir, "hook.py")
+
+                if os.path.exists(hook_path):
+                    try:
+                        # Dynamically load the hook module
+                        spec = importlib.util.spec_from_file_location(
+                            f"{tool_name}_hook", hook_path
+                        )
+                        hook_module = importlib.util.module_from_spec(spec)
+                        spec.loader.exec_module(hook_module)
+
+                        # Call the hook function if it exists
+                        if hasattr(hook_module, "hook"):
+                            hook_result = hook_module.hook(
+                                message_id=request.message_id,
+                                tool_call_id=request.tool_call_id,
+                                reaction=request.reaction,
+                                user_id=request.user_id,
+                            )
+                            # Support async hooks
+                            if asyncio.iscoroutine(hook_result):
+                                await hook_result
+
+                            logger.info(
+                                f"Hook executed for tool '{tool_name}' on reaction '{request.reaction}'"
+                            )
+                    except Exception as e:
+                        logger.error(
+                            f"Error executing hook for tool '{tool_name}': {e}"
+                        )
+
+        return {
+            "status": "success",
+            "message_id": request.message_id,
+            "tool_call_id": request.tool_call_id,
+            "reactions": tool_call.reactions,
+        }
+    else:
+        # Add reaction to the message itself
+        # Structure: {user_id: [list of reaction strings]}
+        if not message.reactions:
+            message.reactions = {}
+        user_key = request.user_id or "anonymous"
+        if user_key not in message.reactions:
+            message.reactions[user_key] = []
+        if request.reaction not in message.reactions[user_key]:
+            message.reactions[user_key].append(request.reaction)
+
+        message.save()
+
+        return {
+            "status": "success",
+            "message_id": request.message_id,
+            "reactions": message.reactions,
+        }

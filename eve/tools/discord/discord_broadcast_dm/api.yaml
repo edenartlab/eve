@@ -1,10 +1,10 @@
 name: discord_broadcast_dm
 description: Send DMs to all recently active users from a Discord channel. Creates or reuses DM sessions for each user and sends personalized messages through the agent.
 tip: |-
-  This tool sends DMs to users who have been active in a Discord channel within a specified timeframe.
+  This tool sends DMs to users who have been active in a Discord channel within a specified timeframe, or to a specific list of Discord users.
 
   The tool:
-  1. Discovers active users from the specified Discord channel
+  1. Either uses the provided discord_user_ids list OR discovers active users from the specified Discord channel
   2. Maps Discord users to Eden users (creates shadow users if needed)
   3. Creates or reuses individual DM sessions for each user
   4. Sends the instruction to each DM session for personalized responses
@@ -14,23 +14,26 @@ tip: |-
   - "Send a good morning check-in to all users active in #general in the last 3 days"
   - "DM everyone who posted in #support this week with a follow-up message"
   - "Reach out to all active community members from #announcements with project updates"
+  - "DM these specific users: ['123456789', '987654321'] with a project update"
 
   The instruction parameter should describe what the agent should say/do in each DM, like:
   "Say good morning, check how they're doing, and update them on any outstanding tasks"
+
+  Use discord_user_ids when you want to DM a specific set of users instead of discovering active users from the channel.
 cost_estimate: 1
 output_type: array
 active: true
 handler: local
 visible: false
 parameters:
-  channel_id:
-    type: string
-    description: The Discord channel ID to find active users from
-    required: true
   instruction:
     type: string
     description: Instructions for what the agent should say/do in each DM session
     required: true
+  channel_id:
+    type: string
+    description: The Discord channel ID to find active users from. Required when discovering active users, not needed when using discord_user_ids.
+    required: false
   active_days:
     type: integer
     description: Number of days to look back for user activity (default 3)
@@ -41,3 +44,9 @@ parameters:
     description: Maximum number of messages to fetch from a channel to determine user activity
     required: false
     default: 100
+  discord_user_ids:
+    type: array
+    items:
+      type: string
+    description: Optional list of specific Discord user IDs to DM. When provided, skips active user discovery and DMs these users directly.
+    required: false

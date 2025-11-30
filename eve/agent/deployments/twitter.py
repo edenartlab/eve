@@ -7,6 +7,7 @@ from loguru import logger
 
 from eve.agent.agent import Agent
 from eve.agent.deployments import PlatformClient
+from eve.agent.deployments.twitter_gateway import Tweet
 from eve.agent.deployments.utils import get_api_url
 from eve.agent.session.context import (
     add_chat_message,
@@ -271,18 +272,45 @@ async def process_twitter_tweet(
 
         # Create session key based on conversation_id
         session_key = f"TWITTER-{conversation_id}"
+        session = None
 
+        # Strategy 1: Look up by standard Twitter session_key
         try:
             session = Session.load(session_key=session_key)
             if session.platform != "twitter":
                 session.update(platform="twitter")
 
             # Reactivate if deleted or archived
-            if session.deleted or session.status == "archived":
-                session.update(deleted=False, status="active")
+            if session.deleted:
+                session.update(deleted=False)
 
         except MongoDocumentNotFound:
-            # Create new session
+            logger.info(f"Session not found for conversation ID: {conversation_id}")
+            pass
+
+        # Strategy 2: Check if any Tweet in this conversation has a linked Eden session
+        # (handles case where agent tweeted from Eden, user replies on Twitter)
+        if not session:
+            try:
+                linked_tweet = Tweet.find_one(
+                    {"conversation_id": conversation_id, "session_id": {"$ne": None}}
+                )
+                if linked_tweet and linked_tweet.session_id:
+                    logger.info(
+                        f"Found linked session {linked_tweet.session_id} via Tweet record"
+                    )
+                    session = Session.from_mongo(linked_tweet.session_id)
+                    if session.deleted or session.status == "archived":
+                        session.update(deleted=False, status="active")
+                    # Update session_key for future lookups
+                    # if not session.session_key or not session.session_key.startswith("TWITTER-"):
+                    #    session.update(session_key=session_key, platform="twitter")
+                    # Reactivate if needed
+            except Exception as e:
+                logger.debug(f"Could not find linked session via Tweet: {e}")
+
+        # Strategy 3: Create new session if none found
+        if not session:
             session = Session(
                 owner=agent.owner,
                 agents=[agent.id],
@@ -384,6 +412,20 @@ async def process_twitter_tweet(
 
         # Add user message to session
         message = await add_chat_message(session, prompt_context)
+
+        # Update Tweet record with Eden session/message linkage
+        try:
+            existing_tweet = Tweet.find_one({"_id": tweet_id})
+            if existing_tweet:
+                existing_tweet.update(
+                    session_id=str(session.id),
+                    message_id=str(message.id),
+                )
+                logger.info(
+                    f"Linked tweet {tweet_id} to session {session.id}, message {message.id}"
+                )
+        except Exception as e:
+            logger.warning(f"Could not update Tweet with session/message linkage: {e}")
 
         # Build LLM context
         llm_context = await build_llm_context(
