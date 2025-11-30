@@ -33,6 +33,34 @@ class Reaction(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
+def _convert_reactions_from_dict(reactions) -> Optional[List[dict]]:
+    """Convert old dict-format reactions to new list format during model validation."""
+    if reactions is None:
+        return None
+    if isinstance(reactions, list):
+        return reactions  # Already in correct format
+    if isinstance(reactions, dict):
+        if not reactions:  # Empty dict
+            return []
+        result = []
+        for key, values in reactions.items():
+            if not isinstance(values, list):
+                continue
+            # Heuristic: if key looks like an ObjectId or "anonymous", it's {user_id: [reactions]}
+            is_user_id_key = key == "anonymous" or (
+                len(key) == 24 and all(c in "0123456789abcdef" for c in key.lower())
+            )
+            if is_user_id_key:
+                for reaction in values:
+                    result.append({"user_id": key, "reaction": str(reaction)})
+            else:
+                for user_id in values:
+                    uid = str(user_id) if isinstance(user_id, ObjectId) else user_id
+                    result.append({"user_id": uid, "reaction": key})
+        return result
+    return None
+
+
 class ToolCall(BaseModel):
     id: str
     tool: str
@@ -48,6 +76,11 @@ class ToolCall(BaseModel):
     child_session: Optional[ObjectId] = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    @field_validator("reactions", mode="before")
+    @classmethod
+    def convert_reactions(cls, v):
+        return _convert_reactions_from_dict(v)
 
     @staticmethod
     def from_openai(tool_call):
@@ -311,6 +344,11 @@ class ChatMessage(Document):
     llm_call: Optional[ObjectId] = None  # Reference to LLMCall document
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    @field_validator("reactions", mode="before")
+    @classmethod
+    def convert_reactions(cls, v):
+        return _convert_reactions_from_dict(v)
 
     def react(self, user: ObjectId, reaction: str):
         if self.reactions is None:
