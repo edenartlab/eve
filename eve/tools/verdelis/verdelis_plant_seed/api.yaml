@@ -1,24 +1,19 @@
 name: verdelis_plant_seed
 description: Run a session to create a new Verdelis seed
 tip: |-
-  This tool launches a session where Verdelis comes up with a new story idea and publishes it as a Seed.
-
-  The session follows this process:
-  1. Come up with a new story idea with a title and logline
-  2. Generate 2-4 representative images using the create tool
-  3. Publish the Seed using the verdelis_seed tool
+  This tool launches a session where Verdelis comes up with a new story idea and publishes it as a Seed. A Seed is expressed as a title, logline, and 2-4 representative images.
 cost_estimate: 50
 output_type: string
 active: true
 handler: modal
 visible: false
 parameters:
-  instructions:
+  idea:
     type: string
-    label: Instructions
-    description: Instructions or theme for the seed to be created.
-    tip: Provide guidance on what kind of story idea to generate. Can include themes, characters, settings, or specific concepts to explore.
-    required: false
+    label: Idea hint
+    description: An idea for a story.
+    tip: Provide guidance or hints on what kind of story idea to generate. Can include themes, characters, settings, or specific concepts to explore.
+    required: true
   title:
     type: string
     label: Session Title
