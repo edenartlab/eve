@@ -95,7 +95,7 @@ async def handler(context: ToolContext):
         "prompt": True,
         "async": True,
         # "response_type": "media",  # Use media response type for storyboard outputs
-        "extra_tools": ["verdelis_storyb    oard"],
+        "extra_tools": ["verdelis_storyboard"],
         "message_id": context.message,
         "tool_call_id": context.tool_call_id,
     }
