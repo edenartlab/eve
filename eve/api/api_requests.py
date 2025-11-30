@@ -275,3 +275,10 @@ class RegenerateAgentMemoryRequest(BaseModel):
 class RegenerateUserMemoryRequest(BaseModel):
     agent_id: str
     user_id: str
+
+
+class ReactionRequest(BaseModel):
+    message_id: str
+    tool_call_id: Optional[str] = None  # If reacting to a specific tool call
+    reaction: str  # The reaction emoji or key
+    user_id: Optional[str] = None  # The user who reacted (optional)

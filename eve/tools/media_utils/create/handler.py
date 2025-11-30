@@ -89,6 +89,9 @@ def validate_media_types(reference_images, reference_video):
 
 
 async def handler(context: ToolContext):
+    if os.getenv("MOCK") == "1":
+        return await handle_mock_creation(context)
+
     # Validate media types
     reference_images = context.args.get("reference_images", [])
     reference_video = context.args.get("reference_video", None)
@@ -100,6 +103,30 @@ async def handler(context: ToolContext):
         return await handle_image_creation(context.args, context.user, context.agent)
     elif output_type == "video":
         return await handle_video_creation(context.args, context.user, context.agent)
+    else:
+        raise Exception(f"Invalid output type: {output_type}")
+
+
+async def handle_mock_creation(context: ToolContext):
+    output_type = context.args.get("output", "image")
+    if output_type == "image":
+        mock_url = "https://edenartlab-stage-data.s3.amazonaws.com/61ccedc87dd9689b2714daebbd851a37b6f74cd5dc3a16dc0b8267a8b535db04.jpg"
+        return {
+            "output": [mock_url],
+            "subtool_calls": [
+                {"tool": "mock", "args": context.args, "output": [mock_url]}
+            ],
+            "intermediate_outputs": {},
+        }
+    elif output_type == "video":
+        mock_url = "https://dtut5r9j4w7j4.cloudfront.net/591517521621312417d5f305871b0d27a2d400bab0eb49fa18639af2b7027370.mp4"
+        return {
+            "output": mock_url,
+            "subtool_calls": [
+                {"tool": "mock", "args": context.args, "output": mock_url}
+            ],
+            "intermediate_outputs": {},
+        }
     else:
         raise Exception(f"Invalid output type: {output_type}")
 

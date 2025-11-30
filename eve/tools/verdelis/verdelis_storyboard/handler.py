@@ -33,7 +33,7 @@ class VerdelisStoryboard(Document):
     with image frames, plot summary, and optional audio tracks.
 
     Attributes:
-        seed: Reference to the VerdelisSeed this storyboard expands
+        artifact_id: Reference to the VerdelisSeed this storyboard expands
         title: Title of the storyboard
         logline: Short logline summarizing the story
         plot: Plot summary
@@ -44,7 +44,7 @@ class VerdelisStoryboard(Document):
         vocals: Optional URL to vocals/narration audio track
     """
 
-    seed: ObjectId
+    artifact_id: ObjectId
     title: str
     logline: str
     plot: str
@@ -55,8 +55,8 @@ class VerdelisStoryboard(Document):
     vocals: Optional[str] = None
 
     def __init__(self, **data):
-        if isinstance(data.get("seed"), str):
-            data["seed"] = ObjectId(data["seed"])
+        if isinstance(data.get("artifact_id"), str):
+            data["artifact_id"] = ObjectId(data["artifact_id"])
         if isinstance(data.get("session_id"), str):
             data["session_id"] = ObjectId(data["session_id"])
         data["agents"] = [
@@ -111,7 +111,7 @@ async def handler(context: ToolContext):
 
     Args:
         args: Dictionary containing:
-            - seed: ID of the VerdelisSeed this storyboard expands (required)
+            - artifact_id: ID of the VerdelisSeed this storyboard expands (required)
             - title: Title of the storyboard
             - logline: Short logline summarizing the story
             - plot: Plot summary
@@ -124,7 +124,7 @@ async def handler(context: ToolContext):
     if not context.session:
         raise ValueError("Session ID is required")
 
-    seed_id = context.args.get("seed")
+    artifact_id = context.args.get("artifact_id")
     title = context.args.get("title")
     logline = context.args.get("logline")
     plot = context.args.get("plot")
@@ -134,8 +134,8 @@ async def handler(context: ToolContext):
     vocals = context.args.get("vocals")
 
     # Validate required fields
-    if not seed_id:
-        raise ValueError("Parameter 'seed' is required")
+    if not artifact_id:
+        raise ValueError("Parameter 'artifact_id' is required")
     if not title:
         raise ValueError("Parameter 'title' is required")
     if not logline:
@@ -147,13 +147,13 @@ async def handler(context: ToolContext):
 
     # Validate seed exists
     try:
-        seed_oid = ObjectId(seed_id)
+        artifact_oid = ObjectId(artifact_id)
     except Exception:
-        raise ValueError(f"Invalid seed ID format: {seed_id}")
+        raise ValueError(f"Invalid artifact ID format: {artifact_id}")
 
-    existing_seed = VerdelisSeed.find_one({"_id": seed_oid})
+    existing_seed = VerdelisSeed.find_one({"_id": artifact_oid})
     if not existing_seed:
-        raise ValueError(f"Seed not found: {seed_id}")
+        raise ValueError(f"Seed not found: {artifact_id}")
 
     logger.info(f"Found seed: {existing_seed.title}")
 
@@ -176,7 +176,7 @@ async def handler(context: ToolContext):
     session_id = str(context.session)
 
     logger.info("Creating Verdelis storyboard...")
-    logger.info(f"Seed: {seed_id}")
+    logger.info(f"Seed: {artifact_id}")
     logger.info(f"Title: {title}")
     logger.info(f"Logline: {logline}")
     logger.info(f"Plot length: {len(plot)} chars")
@@ -227,7 +227,7 @@ async def handler(context: ToolContext):
 
     # Create the storyboard
     storyboard = VerdelisStoryboard(
-        seed=seed_oid,
+        artifact_id=artifact_oid,
         title=title,
         logline=logline,
         plot=plot,
@@ -243,7 +243,7 @@ async def handler(context: ToolContext):
 
     return {
         "output": {
-            "storyboard_id": str(storyboard.id),
+            "artifact_id": str(storyboard.id),
             "title": title,
             "frame_count": len(image_frames),
         }

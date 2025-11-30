@@ -7,7 +7,7 @@ tip: |-
   with image frames, detailed plot, and optional audio tracks.
 
   A storyboard contains:
-  - Seed: Reference to the VerdelisSeed this storyboard expands (required)
+  - seed_id: Reference to the VerdelisSeed this storyboard expands (required)
   - Title: The name of the storyboard/movie
   - Logline: A short one-sentence summary of the story
   - Plot: A detailed plot summary
@@ -26,7 +26,7 @@ active: true
 handler: local
 visible: false
 parameters:
-  seed:
+  seed_id:
     type: string
     description: ID of the VerdelisSeed this storyboard expands
     required: true

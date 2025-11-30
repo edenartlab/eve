@@ -150,7 +150,7 @@ async def handler(context: ToolContext):
 
     return {
         "output": {
-            "seed_id": str(seed.id),
+            "artifact_id": str(seed.id),
             "title": title,
             "image_count": len(images),
         }

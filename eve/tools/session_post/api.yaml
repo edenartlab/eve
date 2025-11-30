@@ -41,6 +41,14 @@ parameters:
     description: Whether to spawn the session asynchronously and return immediately, or to wait for the result of the session prompt.
     default: false
     required: false
+  response_type:
+    type: string
+    label: Response Type
+    description: The type of structured output to extract from the session when not async.
+    choices: [media, seed]
+    default: media
+    tip: Use 'media' for media outputs (URLs), 'seed' for seed IDs from verdelis_seed or similar tools.
+    required: false
   extra_tools:
     type: array
     label: Extra tools
