@@ -3,7 +3,7 @@ import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Union
 
 from bson import ObjectId
 from loguru import logger
@@ -26,6 +26,13 @@ if TYPE_CHECKING:  # pragma: no cover
     from eve.agent.session.instrumentation import PromptSessionInstrumentation
 
 
+class Reaction(BaseModel):
+    user_id: Union[str, ObjectId]
+    reaction: str
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
 class ToolCall(BaseModel):
     id: str
     tool: str
@@ -36,7 +43,7 @@ class ToolCall(BaseModel):
         Literal["pending", "running", "completed", "failed", "cancelled"]
     ] = None
     result: Optional[List[Dict[str, Any]]] = None
-    reactions: Optional[Dict[str, List[str]]] = None
+    reactions: Optional[List[Reaction]] = None
     error: Optional[str] = None
     child_session: Optional[ObjectId] = None
 
@@ -289,7 +296,7 @@ class ChatMessage(Document):
     pinned: Optional[bool] = False
 
     content: str = ""
-    reactions: Optional[Dict[str, List[str]]] = {}
+    reactions: Optional[List[Reaction]] = []
 
     attachments: Optional[List[str]] = []
     tool_calls: Optional[List[ToolCall]] = []
@@ -306,9 +313,9 @@ class ChatMessage(Document):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def react(self, user: ObjectId, reaction: str):
-        if reaction not in self.reactions:
-            self.reactions[reaction] = []
-        self.reactions[reaction].append(user)
+        if self.reactions is None:
+            self.reactions = []
+        self.reactions.append(Reaction(user_id=user, reaction=reaction))
 
     def as_user_message(self):
         if self.role == "user":
