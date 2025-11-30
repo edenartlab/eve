@@ -10,7 +10,6 @@ import logging
 from typing import List
 
 import requests
-from bson import ObjectId
 from pydantic import Field
 
 from eve.agent import Agent
@@ -39,16 +38,16 @@ class VerdelisSeed(Document):
 
     title: str
     logline: str
-    agents: List[ObjectId] = Field(default_factory=list)
+    agents: List[str] = Field(default_factory=list)
     images: List[str] = Field(default_factory=list)
 
     def __init__(self, **data):
         # Convert agents list
-        if "agents" in data:
-            data["agents"] = [
-                ObjectId(agent) if isinstance(agent, str) else agent
-                for agent in data.get("agents", [])
-            ]
+        # if "agents" in data:
+        #     data["agents"] = [
+        #         ObjectId(agent) if isinstance(agent, str) else agent
+        #         for agent in data.get("agents", [])
+        #     ]
         super().__init__(**data)
 
 
@@ -83,7 +82,7 @@ async def handler(context: ToolContext):
         args: Dictionary containing:
             - title: Title of the seed
             - logline: Short logline summarizing the concept
-            - agents: Array of agent IDs that contributed
+            - agents: Array of agent usernames that contributed
             - images: Array of image URLs representing the idea
     """
     title = context.args.get("title")
@@ -131,17 +130,17 @@ async def handler(context: ToolContext):
 
     # Convert agents to ObjectIds
     try:
-        agents = [Agent.from_mongo(a) for a in agents]
+        agents = [Agent.load(agent) for agent in agents]
     except Exception as e:
         raise ValueError(f"Invalid agents: {e}")
 
-    agent_ids = [agent.id for agent in agents]
+    agent_usernames = [agent.username for agent in agents]
 
     # Create the seed
     seed = VerdelisSeed(
         title=title,
         logline=logline,
-        agents=agent_ids,
+        agents=agent_usernames,
         images=images,
     )
     seed.save()

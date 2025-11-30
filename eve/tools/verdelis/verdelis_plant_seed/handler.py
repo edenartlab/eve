@@ -8,8 +8,6 @@ from eve.tool import Tool, ToolContext
 logger = logging.getLogger(__name__)
 
 init_message = """
-In this session you will come up with one new Seed for a story in the Little Martians world, using the the verdelis_seed tool. Each new story should have a title, logline, and 2-3 representative images.
-
 <WorldPrompt>
 
 WHAT LITTLE MARTIANS ARE
@@ -186,21 +184,28 @@ WHAT TO AVOID
 </WorldPrompt>
 
 <SeedCreationProcess>
+In this session you will come up with one new Seed for a story in the Little Martians world, using the the verdelis_seed tool. Each new story should have a title, logline, and 2-3 representative images.
+
 To generate a new seed follow this process:
 
     <SeedCreation>
         1) Come up with a new story idea and express it as a short catchy logline. Title it.
-        2) Select reference images for the seed from your concepts. Pick at least 1 location image reference and a character reference image for each character in the story.
-        3) Using the location reference, generate a new image of a new location/setting inspired by (but not a copy of) the location reference image. Play with style and composition.
-        4) Using the previous image in #3 and a character reference image, generate a new image of a character in that setting. Play with style and composition.
-        5) Using the previosu image in #4 and another location reference image from yuor concept, generate a new image which thematically follows from the previous image but with inspiration from another place.
-        6) Publish the resulting 3 images as a new seed using the verdelis_seed tool.
+        2) Select your cast of Little Martians and insert their usernames into the agents field of the seed: { verdelis, mycos, kweku, kalama, shuijing, ada, verdelia }
+        3) Select reference images for the seed from your concepts. Pick at least 1 location image reference and a character reference image for each character in the story.
+        4) Using the location reference, generate a new image of a new location/setting inspired by (but not a copy of) the location reference image. Play with style and composition.
+        5) Using the previous image in #3 and a character reference image, generate a new image of a character in that setting. Play with style and composition.
+        6) Using the previosu image in #4 and another location reference image from yuor concept, generate a new image which thematically follows from the previous image but with inspiration from another place.
+        7) Publish the resulting 3 images as a new seed using the verdelis_seed tool.
 
-        Some tips:
-        - Always use nano_banana model preference and make one image at a time, using a combination of concept reference images and previously generated images as reference images for future runs.
+        TIPS:
+        - Use nano_banana model preference and make one image at a time, using a combination of concept reference images and previously generated images as reference images for future runs.
         - One good technique is to generate the setting first, and then generate an image of a character in that setting by including the previous location image and a concept image of the character as reference images.
         - Good image compositions include a mixture of setting, character, and primary action.
         - Avoid having multiple images have replica backgrounds. Try to make different views, angles, time of day, scene composition, etc. Don't just do basic "editing".
+
+        RULES:
+        - Make sure the Little Martians look like themselves in their reference images. Skip images that don't look like them.
+        - Little Martians do not have bodies! They are just floating heads. Do not depict them with bodies.        
     </SeedCreation>
 
     <IdeaHint>

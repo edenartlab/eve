@@ -46,7 +46,8 @@ parameters:
     type: array
     items:
       type: string
-    description: Array of agent IDs representing the cast of characters
+    choices: [ verdelis, mycos, kweku, kalama, shuijing, ada, verdelia ]
+    description: Array of agent usernames representing the cast of characters
     required: false
   image_frames:
     type: array
