@@ -26,7 +26,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from eve.agent.session.instrumentation import PromptSessionInstrumentation
 
 
-class ToolCallReaction(BaseModel):
+class Reaction(BaseModel):
     user_id: Union[str, ObjectId]
     reaction: str
 
@@ -43,7 +43,7 @@ class ToolCall(BaseModel):
         Literal["pending", "running", "completed", "failed", "cancelled"]
     ] = None
     result: Optional[List[Dict[str, Any]]] = None
-    reactions: Optional[List[ToolCallReaction]] = None
+    reactions: Optional[List[Reaction]] = None
     error: Optional[str] = None
     child_session: Optional[ObjectId] = None
 
@@ -296,7 +296,7 @@ class ChatMessage(Document):
     pinned: Optional[bool] = False
 
     content: str = ""
-    reactions: Optional[Dict[str, List[str]]] = {}
+    reactions: Optional[List[Reaction]] = []
 
     attachments: Optional[List[str]] = []
     tool_calls: Optional[List[ToolCall]] = []
@@ -313,9 +313,9 @@ class ChatMessage(Document):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def react(self, user: ObjectId, reaction: str):
-        if reaction not in self.reactions:
-            self.reactions[reaction] = []
-        self.reactions[reaction].append(user)
+        if self.reactions is None:
+            self.reactions = []
+        self.reactions.append(Reaction(user_id=user, reaction=reaction))
 
     def as_user_message(self):
         if self.role == "user":

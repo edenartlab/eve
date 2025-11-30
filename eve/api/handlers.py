@@ -32,6 +32,7 @@ from eve.agent.session.models import (
     LLMTraceMetadata,
     Notification,
     NotificationChannel,
+    Reaction,
     Session,
     SessionUpdateConfig,
 )
@@ -1171,14 +1172,18 @@ async def handle_reaction(request: ReactionRequest):
         tool_name = tool_call.tool
 
         # Add reaction to the tool call
-        # Structure: {user_id: [list of reaction strings]}
         if not tool_call.reactions:
-            tool_call.reactions = {}
+            tool_call.reactions = []
         user_key = request.user_id or "anonymous"
-        if user_key not in tool_call.reactions:
-            tool_call.reactions[user_key] = []
-        if request.reaction not in tool_call.reactions[user_key]:
-            tool_call.reactions[user_key].append(request.reaction)
+        # Check if this user already has this reaction
+        existing = any(
+            r.user_id == user_key and r.reaction == request.reaction
+            for r in tool_call.reactions
+        )
+        if not existing:
+            tool_call.reactions.append(
+                Reaction(user_id=user_key, reaction=request.reaction)
+            )
 
         message.save()
 
@@ -1226,14 +1231,18 @@ async def handle_reaction(request: ReactionRequest):
         }
     else:
         # Add reaction to the message itself
-        # Structure: {user_id: [list of reaction strings]}
         if not message.reactions:
-            message.reactions = {}
+            message.reactions = []
         user_key = request.user_id or "anonymous"
-        if user_key not in message.reactions:
-            message.reactions[user_key] = []
-        if request.reaction not in message.reactions[user_key]:
-            message.reactions[user_key].append(request.reaction)
+        # Check if this user already has this reaction
+        existing = any(
+            r.user_id == user_key and r.reaction == request.reaction
+            for r in message.reactions
+        )
+        if not existing:
+            message.reactions.append(
+                Reaction(user_id=user_key, reaction=request.reaction)
+            )
 
         message.save()
 
