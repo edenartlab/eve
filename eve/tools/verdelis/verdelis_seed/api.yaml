@@ -32,7 +32,8 @@ parameters:
     type: array
     items:
       type: string
-    description: Array of agent IDs that contributed to this seed
+    description: Array of agent usernames that star in this seed
+    choices: [ verdelis, mycos, kweku, kalama, shuijing, ada, verdelia ]
     required: false
   images:
     type: array

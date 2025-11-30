@@ -21,13 +21,14 @@ In this session you are drafting a Storyboard from an existing Seed. Use the ver
 <Seed>
 Title: {{ seed.title }}
 Logline: {{ seed.logline }}
+Agents: {{ seed.agents }}
 Images: {{ seed.images }}
 </Seed>
 
 <StoryboardDrafting>
 1) Review the seed's title, logline, and images to understand the core concept.
 2) Develop the story into a full plot - expand on the logline to create a complete narrative arc.
-3) Generate additional image frames using the create tool to illustrate key moments in the story. Use your reference images and the seed images as style references. Aim for 6-12 frames that tell the visual story.
+3) Generate additional image frames using the create tool to illustrate key moments in the story. Use the seed images as style references. Aim for 6-12 frames that tell the visual story. You may reuse the seed images in the storyboard.
 4) Optionally generate background music and/or narration vocals.
 5) Publish the storyboard using the verdelis_storyboard tool with:
    - The seed ID

@@ -37,7 +37,7 @@ class VerdelisStoryboard(Document):
         title: Title of the storyboard
         logline: Short logline summarizing the story
         plot: Plot summary
-        agents: Cast of all agent IDs that appear in the storyboard
+        agents: Cast of all agent usernames that appear in the storyboard
         session_id: The Eden session ID where this storyboard is drafted
         image_frames: Ordered list of image URLs representing the storyboard frames
         music: Optional URL to background music audio track
@@ -48,7 +48,7 @@ class VerdelisStoryboard(Document):
     title: str
     logline: str
     plot: str
-    agents: List[ObjectId] = Field(default_factory=list)
+    agents: List[str] = Field(default_factory=list)
     session_id: ObjectId
     image_frames: List[str] = Field(default_factory=list)
     music: Optional[str] = None
@@ -59,10 +59,10 @@ class VerdelisStoryboard(Document):
             data["artifact_id"] = ObjectId(data["artifact_id"])
         if isinstance(data.get("session_id"), str):
             data["session_id"] = ObjectId(data["session_id"])
-        data["agents"] = [
-            ObjectId(agent) if isinstance(agent, str) else agent
-            for agent in data.get("agents", [])
-        ]
+        # data["agents"] = [
+        #     ObjectId(agent) if isinstance(agent, str) else agent
+        #     for agent in data.get("agents", [])
+        # ]
         super().__init__(**data)
 
 
@@ -115,7 +115,7 @@ async def handler(context: ToolContext):
             - title: Title of the storyboard
             - logline: Short logline summarizing the story
             - plot: Plot summary
-            - agents: Array of agent IDs in the cast
+            - agents: Array of agent usernames in the cast
             - image_frames: Array of image URLs for storyboard frames
             - music: Optional URL to background music audio track
             - vocals: Optional URL to vocals/narration audio track
@@ -171,7 +171,7 @@ async def handler(context: ToolContext):
     except Exception as e:
         raise ValueError(f"Invalid agents: {e}")
 
-    agent_ids = [agent.id for agent in agents]
+    agent_usernames = [agent.username for agent in agents]
 
     session_id = str(context.session)
 
@@ -180,7 +180,7 @@ async def handler(context: ToolContext):
     logger.info(f"Title: {title}")
     logger.info(f"Logline: {logline}")
     logger.info(f"Plot length: {len(plot)} chars")
-    logger.info(f"Agents: {agents}")
+    logger.info(f"Agents: {agent_usernames}")
     logger.info(f"Image frames: {len(image_frames)}")
     logger.info(f"Music: {music}")
     logger.info(f"Vocals: {vocals}")
@@ -231,7 +231,7 @@ async def handler(context: ToolContext):
         title=title,
         logline=logline,
         plot=plot,
-        agents=agent_ids,
+        agents=agent_usernames,
         session_id=ObjectId(session_id),
         image_frames=image_frames,
         music=music,

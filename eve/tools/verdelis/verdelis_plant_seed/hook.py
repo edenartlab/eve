@@ -77,11 +77,19 @@ async def _run_hook(message_id: str, tool_call_id: str, reaction: str, user_id: 
             owner_id = str(session.owner) if session.owner else user_id
 
             # Post to the original session asking to run verdelis_draft_storyboard
-            content = f"""The user reacted to the seed '{seed.title}' with: {reaction}
+            content = f"""
+The user selected the following Seed:
 
-Please run the verdelis_draft_storyboard tool to draft a storyboard from this seed.
+<SelectedSeed>
+ID: {artifact_id}
+Title: {seed.title}
+Logline: {seed.logline}
+Agents: {seed.agents}
+</SelectedSeed>
 
-Use artifact_id: {artifact_id}
+Their comments (feedback, suggestions, etc.): {reaction}
+
+Run verdelis_draft_storyboard to draft a storyboard based on this seed, taking into account the user's comments.
 """
 
             # Post to the ORIGINAL session with verdelis_draft_storyboard in extra_tools
