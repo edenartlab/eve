@@ -1,7 +1,7 @@
-name: verdelis_story
-description: Verdelis initiate a new Story
+name: verdelis_film
+description: Verdelis initiate a new Film
 tip: |-
-  This tool allows Verdelis to create and publish a new Story. Do not use this tool unless explicitly requested to use the verdelis_story tool.
+  This tool allows Verdelis to create and publish a new Film. Do not use this tool unless explicitly requested to use the verdelis_film tool.
 cost_estimate: 0
 output_type: string
 active: true
