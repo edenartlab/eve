@@ -3,7 +3,7 @@ import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Union
 
 from bson import ObjectId
 from loguru import logger
@@ -26,6 +26,13 @@ if TYPE_CHECKING:  # pragma: no cover
     from eve.agent.session.instrumentation import PromptSessionInstrumentation
 
 
+class ToolCallReaction(BaseModel):
+    user_id: Union[str, ObjectId]
+    reaction: str
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
 class ToolCall(BaseModel):
     id: str
     tool: str
@@ -36,7 +43,7 @@ class ToolCall(BaseModel):
         Literal["pending", "running", "completed", "failed", "cancelled"]
     ] = None
     result: Optional[List[Dict[str, Any]]] = None
-    reactions: Optional[Dict[str, List[str]]] = None
+    reactions: Optional[List[ToolCallReaction]] = None
     error: Optional[str] = None
     child_session: Optional[ObjectId] = None
 
