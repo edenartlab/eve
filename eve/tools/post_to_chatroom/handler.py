@@ -5,65 +5,12 @@ parent chatroom session. It's the primary way for agents in multi-agent
 orchestration to contribute to the conversation after doing private work.
 """
 
-from typing import List
-
-from bson import ObjectId
 from loguru import logger
 
 from eve.agent import Agent
-from eve.agent.session.models import ChatMessage, Session, prepare_result
+from eve.agent.session.models import ChatMessage, Session
 from eve.tool import ToolContext
 from eve.user import increment_message_count
-
-
-def collect_urls_from_session_tool_results(
-    session_id: ObjectId, limit: int = 20
-) -> List[str]:
-    """Collect URLs from recent tool results in a session.
-
-    Looks at recent assistant messages with tool_calls and extracts URLs
-    from their results. This helps auto-attach media the agent created.
-
-    Args:
-        session_id: The session to search for tool results
-        limit: Max number of recent messages to check
-
-    Returns:
-        List of URLs found in tool results
-    """
-    urls = []
-
-    # Get recent messages with tool calls
-    messages = list(
-        ChatMessage.get_collection().find(
-            {
-                "session": session_id,
-                "role": "assistant",
-                "tool_calls": {"$exists": True, "$ne": []},
-            },
-            sort=[("createdAt", -1)],
-            limit=limit,
-        )
-    )
-
-    for msg_doc in messages:
-        tool_calls = msg_doc.get("tool_calls") or []
-        for tc in tool_calls:
-            result = prepare_result(tc.get("result"))
-            if not result:
-                continue
-            # Extract URLs from tool result output
-            for r in result:
-                output = r.get("output", [])
-                if isinstance(output, list):
-                    for item in output:
-                        if isinstance(item, dict) and item.get("url"):
-                            urls.append(item["url"])
-                elif isinstance(output, str) and output.startswith("http"):
-                    # Some tools return URL directly as string
-                    urls.append(output)
-
-    return urls
 
 
 async def handler(context: ToolContext):
@@ -110,15 +57,6 @@ async def handler(context: ToolContext):
 
     content = context.args.get("content", "")
     attachments = context.args.get("attachments") or []
-
-    # Auto-collect URLs from recent tool results if no attachments provided
-    if not attachments:
-        auto_urls = collect_urls_from_session_tool_results(agent_session.id)
-        if auto_urls:
-            attachments = auto_urls
-            logger.info(
-                f"[POST_TO_CHATROOM] Auto-collected {len(auto_urls)} URLs from tool results"
-            )
 
     # Create message in the parent session
     new_message = ChatMessage(
