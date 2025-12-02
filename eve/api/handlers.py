@@ -1021,7 +1021,7 @@ async def handle_extract_agent_prompts(request):
     context = LLMContext(
         messages=[ChatMessage(role="user", content=prompt)],
         config=LLMConfig(
-            model="gpt-5",
+            model="gpt-5.1",
             response_format=AgentPromptsResponse,
         ),
         metadata=LLMContextMetadata(
