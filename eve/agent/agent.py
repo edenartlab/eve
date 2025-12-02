@@ -197,7 +197,7 @@ class Agent(User):
         tools_to_load.extend(extra_tools)
 
         # Load agent-specific tools
-        tools_to_load.extend(get_agent_specific_tools(self.username))
+        tools_to_load.extend(get_agent_specific_tools(self.username, self.tools))
 
         if tools_to_load:
             self.tools_ = get_tools_from_mongo(tools_to_load)

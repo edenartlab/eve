@@ -60,40 +60,46 @@ def _get_platform_tool_sets():
     return PLATFORM_TOOL_SETS
 
 
-def get_agent_specific_tools(username: str) -> List[str]:
+def get_agent_specific_tools(
+    username: str, tools_config: Optional[Dict[str, bool]] = None
+) -> List[str]:
     """
-    Get agent-specific tools based on username
+    Get agent-specific tools based on username and tools config
 
     Args:
         username: Agent username
+        tools_config: Optional dict of tool toggles from agent settings
 
     Returns:
         List of tool names specific to this agent
     """
+    result = []
+
     # TODO: systemize this for other agents
     if username == "abraham":
-        return [
+        result.extend([
             "abraham_publish",
             "abraham_daily",
             "abraham_covenant",
             "abraham_rest",
             "abraham_seed",
-        ]
+        ])
     elif username == "verdelis":
-        return [
+        result.extend([
             "verdelis_seed",
             "verdelis_plant_seed",
             "verdelis_storyboard",
             "verdelis_draft_storyboard",
             "verdelis_film",
-        ]
+        ])
 
-    if "gigabrain" in username.lower():
+    # Check for gigabrain tools via tools config toggle
+    if tools_config and tools_config.get("gigabrain_tools"):
         from ..tool_constants import GIGABRAIN_TOOLS
 
-        return GIGABRAIN_TOOLS
+        result.extend(GIGABRAIN_TOOLS)
 
-    return []
+    return result
 
 
 def load_lora_docs(models: Optional[List[Dict]], models_collection) -> List[Dict]:
