@@ -69,18 +69,24 @@ def uses_managed_signer(secrets: DeploymentSecrets) -> bool:
     return bool(secrets.farcaster.signer_uuid)
 
 
-async def get_fid(secrets: DeploymentSecrets) -> int:
-    """Get FID based on auth method (managed signer or mnemonic)"""
+async def get_farcaster_user_info(secrets: DeploymentSecrets) -> Dict[str, Any]:
+    """Get FID and username based on auth method (managed signer or mnemonic)"""
     if uses_managed_signer(secrets):
         neynar_client = NeynarClient()
         user_info = await neynar_client.get_user_info_by_signer(
             secrets.farcaster.signer_uuid
         )
-        return user_info.get("fid")
+        return {"fid": user_info.get("fid"), "username": user_info.get("username")}
     else:
         client = Warpcast(mnemonic=secrets.farcaster.mnemonic)
         user_info = client.get_me()
-        return user_info.fid
+        return {"fid": user_info.fid, "username": user_info.username}
+
+
+async def get_fid(secrets: DeploymentSecrets) -> int:
+    """Get FID based on auth method (managed signer or mnemonic)"""
+    user_info = await get_farcaster_user_info(secrets)
+    return user_info["fid"]
 
 
 async def post_cast(
@@ -460,6 +466,7 @@ class FarcasterClient(PlatformClient):
         self, secrets: DeploymentSecrets, config: DeploymentConfig
     ) -> tuple[DeploymentSecrets, DeploymentConfig]:
         """Verify Farcaster credentials"""
+        farcaster_fid = None
         farcaster_username = None
         try:
             if uses_managed_signer(secrets):
@@ -473,15 +480,17 @@ class FarcasterClient(PlatformClient):
                         f"Managed signer is not approved. Status: {signer_status.get('status')}",
                         status_code=400,
                     )
-                # Get username from managed signer
+                # Get user info from managed signer
                 user_info = await neynar_client.get_user_info_by_signer(
                     secrets.farcaster.signer_uuid
                 )
+                farcaster_fid = user_info.get("fid")
                 farcaster_username = user_info.get("username")
             else:
                 # Verify mnemonic credentials
                 client = Warpcast(mnemonic=secrets.farcaster.mnemonic)
                 user_info = client.get_me()
+                farcaster_fid = user_info.fid
                 farcaster_username = user_info.username
         except APIError:
             raise
@@ -497,16 +506,15 @@ class FarcasterClient(PlatformClient):
             # Add Farcaster tools to agent
             self.add_tools()
 
-            # Add farcaster username to agent's social_accounts
+            # Update agent with farcaster info
+            self.agent.update(
+                farcasterId=str(farcaster_fid) if farcaster_fid else None,
+                farcasterUsername=farcaster_username,
+                **{"social_accounts.farcaster": farcaster_username},
+            )
+
+            # Also save username to config
             if farcaster_username:
-                self.agent.get_collection().update_one(
-                    {"_id": self.agent.id},
-                    {
-                        "$set": {"social_accounts.farcaster": farcaster_username},
-                        "$currentDate": {"updatedAt": True},
-                    },
-                )
-                # Also save username to config
                 if not config.farcaster:
                     config.farcaster = DeploymentSettingsFarcaster()
                 config.farcaster.username = farcaster_username
