@@ -115,7 +115,7 @@ def enhance_prompt(
 ):
     client = OpenAI()
     enhanced_prompt = client.chat.completions.create(
-        model="gpt-5",
+        model="gpt-5.1",
         messages=[
             {
                 "role": "system",

@@ -33,7 +33,7 @@ from eve.agent.session.models import (
 )
 from eve.agent.session.tracing import trace_async_operation
 from eve.api.errors import APIError
-from eve.user import increment_message_count
+from eve.user import Manna, Transaction, increment_message_count
 from eve.utils import dumps_json
 
 from .budget import update_session_budget
@@ -130,7 +130,11 @@ class PromptSessionRuntime:
             if context
             else None
         )
+        # Default billing to billed_user (e.g., owner_pays). If none, fall back to
+        # the triggering user who entered the prompt loop.
+        self.billing_user_id = self.billed_user_id or self.triggering_user_id
         self.billed_user_doc = None
+        self.billing_user_doc = None
         self.rate_limiter = None
 
     async def run(self):
@@ -156,13 +160,18 @@ class PromptSessionRuntime:
             self._register_active_request()
             yield self._start_update()
 
-            # Initialize rate limiter if enabled
-            if os.environ.get("FF_RATE_LIMITS") == "yes" and self.billed_user_id:
-                from eve.api.rate_limiter import RateLimiter
+            # Initialize billing docs and rate limiter if enabled
+            if self.billing_user_id:
                 from eve.user import User
 
-                self.billed_user_doc = User.from_mongo(self.billed_user_id)
-                if self.billed_user_doc:
+                if not self.billing_user_doc:
+                    self.billing_user_doc = User.from_mongo(self.billing_user_id)
+                    if self.billing_user_doc and not self.billed_user_doc:
+                        self.billed_user_doc = self.billing_user_doc
+
+                if os.environ.get("FF_RATE_LIMITS") == "yes" and self.billing_user_doc:
+                    from eve.api.rate_limiter import RateLimiter
+
                     self.rate_limiter = RateLimiter()
 
             prompt_session_finished = False
@@ -172,16 +181,33 @@ class PromptSessionRuntime:
                 self._maybe_disable_tools()
 
                 # Check rate limits before LLM call
-                if self.rate_limiter and self.billed_user_doc:
+                if self.rate_limiter and self.billing_user_doc:
                     try:
                         await self.rate_limiter.check_message_rate_limit(
-                            self.billed_user_doc
+                            self.billing_user_doc
                         )
                     except APIError as e:
                         rate_limit_message = self._persist_rate_limit_message(e)
                         yield SessionUpdate(
                             type=UpdateType.ASSISTANT_MESSAGE,
                             message=rate_limit_message,
+                            session_run_id=self.session_run_id,
+                        )
+                        yield SessionUpdate(
+                            type=UpdateType.END_PROMPT,
+                            session_run_id=self.session_run_id,
+                        )
+                        return
+
+                # Always attempt billing once rate limits are cleared (or disabled)
+                if os.environ.get("FF_MANNA_BILLING"):
+                    try:
+                        self._charge_manna_for_message()
+                    except APIError as e:
+                        billing_error_message = self._persist_billing_error_message(e)
+                        yield SessionUpdate(
+                            type=UpdateType.ASSISTANT_MESSAGE,
+                            message=billing_error_message,
                             session_run_id=self.session_run_id,
                         )
                         yield SessionUpdate(
@@ -441,7 +467,7 @@ class PromptSessionRuntime:
             ),
             apiKey=ObjectId(self.api_key_id) if self.api_key_id else None,
             triggering_user=self.triggering_user_id,
-            billed_user=self.billed_user_id,
+            billed_user=self.billing_user_id,
             agent_owner=self.actor.owner,
             llm_call=llm_result.get("llm_call_id"),
         )
@@ -479,11 +505,56 @@ class PromptSessionRuntime:
                 message_type=EdenMessageType.RATE_LIMIT, error=error_text
             ),
             triggering_user=self.triggering_user_id,
-            billed_user=self.billed_user_id,
+            billed_user=self.billing_user_id,
             agent_owner=self.actor.owner,
         )
         eden_message.save()
         return eden_message
+
+    def _persist_billing_error_message(self, error: APIError) -> ChatMessage:
+        """Persist a billing/manna error as an Eden message."""
+        error_text = getattr(error, "detail", None) or str(error)
+        eden_message = ChatMessage(
+            session=self.session.id,
+            sender=ObjectId("000000000000000000000000"),
+            role="eden",
+            content=error_text,
+            triggering_user=self.triggering_user_id,
+            billed_user=self.billing_user_id,
+            agent_owner=self.actor.owner,
+        )
+        eden_message.save()
+        return eden_message
+
+    def _charge_manna_for_message(self, amount: float = 2):
+        """Deduct manna from the billed user for a chat message."""
+        user_doc = self.billing_user_doc or self.billed_user_doc
+        if not user_doc and self.billing_user_id:
+            from eve.user import User
+
+            user_doc = User.from_mongo(self.billing_user_id)
+            self.billing_user_doc = user_doc
+            if user_doc and not self.billed_user_doc:
+                self.billed_user_doc = user_doc
+
+        if not user_doc:
+            return
+
+        if "free_tools" in (user_doc.featureFlags or []):
+            return
+
+        try:
+            manna = Manna.load(user_doc.id)
+            manna.spend(amount)
+            Transaction(
+                manna=manna.id,
+                task=self.session.id,
+                amount=-amount,
+                type="spend",
+            ).save()
+            update_session_budget(self.session, manna_spent=amount)
+        except Exception as e:
+            raise APIError(f"Insufficient manna: {str(e)}", status_code=402)
 
     def _record_transaction_metadata(
         self, assistant_message: ChatMessage, llm_result: Dict[str, Any]

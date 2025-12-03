@@ -403,6 +403,7 @@ async def add_chat_message(
         trigger=context.trigger,
         apiKey=ObjectId(context.api_key_id) if context.api_key_id else None,
         triggering_user=triggering_user_id,
+        billed_user=triggering_user_id,
     )
 
     # Save channel origin info for social media platforms

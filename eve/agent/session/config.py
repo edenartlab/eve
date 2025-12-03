@@ -7,7 +7,7 @@ from loguru import logger
 from eve.agent.llm.constants import ModelTier, get_default_model_defaults
 from eve.agent.session.models import LLMConfig, LLMThinkingSettings
 
-DEFAULT_SESSION_SELECTION_LIMIT = 100
+DEFAULT_SESSION_SELECTION_LIMIT = 30
 
 MODEL_TIERS: Dict[str, List[str]] = {
     "high": [
