@@ -6,7 +6,7 @@ on:
       - main
       - staging
     paths:
-      - "eve/agent/deployments/gateway_v2.py"
+      - "eve/**/*.py"
 
 jobs:
   deploy-gateway:
