@@ -54,6 +54,10 @@ def configure_logging():
     eve_logger = logging.getLogger("eve")
     eve_logger.setLevel(log_level)
 
+    # Suppress noisy third-party loggers
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 
 def setup_eve():
     def setup_sentry():
