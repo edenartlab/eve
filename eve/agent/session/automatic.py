@@ -19,6 +19,7 @@ The loop:
 
 import asyncio
 import os
+import traceback
 
 from loguru import logger
 
@@ -53,34 +54,54 @@ def get_reply_delay(session: Session) -> int:
 async def schedule_next_automatic_run(session_id: str, delay_seconds: int) -> None:
     """Schedule the next automatic session run after a delay.
 
-    On Modal: Uses asyncio.create_task (could be upgraded to Modal triggers)
+    On Modal: Sleep in-process then continue (Modal function stays alive)
     Locally: Uses asyncio.create_task with sleep
     """
     logger.info(f"[AUTO] Scheduling next run for {session_id} in {delay_seconds}s")
-    asyncio.create_task(_delayed_automatic_run(session_id, delay_seconds))
+
+    if is_running_on_modal():
+        # On Modal: sleep inline and then run the next step
+        # This keeps the Modal function alive for the entire session
+        logger.info(f"[AUTO] Modal mode: sleeping {delay_seconds}s inline")
+        await _delayed_automatic_run(session_id, delay_seconds)
+    else:
+        # Locally: use create_task for non-blocking behavior
+        asyncio.create_task(_delayed_automatic_run(session_id, delay_seconds))
 
 
 async def _delayed_automatic_run(session_id: str, delay_seconds: int) -> None:
     """Wait for delay, then run the next step if session is still active."""
+    logger.info(
+        f"[AUTO] _delayed_automatic_run starting for {session_id}, delay={delay_seconds}s"
+    )
     await asyncio.sleep(delay_seconds)
+    logger.info(f"[AUTO] _delayed_automatic_run woke up for {session_id}")
 
     try:
         session = Session.from_mongo(session_id)
+        logger.info(
+            f"[AUTO] Loaded session {session_id}, status={session.status}, type={session.session_type}"
+        )
     except Exception as e:
-        logger.error(f"[AUTO] Failed to load session {session_id}: {e}")
+        logger.error(
+            f"[AUTO] Failed to load session {session_id}: {e}\n{traceback.format_exc()}"
+        )
         return
 
     # Only run if session is active (user hasn't paused/archived)
     if session.status != "active":
         logger.info(
-            f"[AUTO] Session {session_id} status is '{session.status}', stopping"
+            f"[AUTO] Session {session_id} status is '{session.status}', expected 'active' - stopping loop"
         )
         return
 
     if session.session_type != "automatic":
-        logger.info(f"[AUTO] Session {session_id} is not automatic, stopping")
+        logger.info(
+            f"[AUTO] Session {session_id} is not automatic (type={session.session_type}), stopping"
+        )
         return
 
+    logger.info(f"[AUTO] Proceeding to run_automatic_session_step for {session_id}")
     await run_automatic_session_step(session)
 
 
@@ -105,11 +126,16 @@ async def run_automatic_session_step(session: Session) -> None:
     from eve.agent.session.conductor import conductor_select_actor
     from eve.agent.session.service import PromptSessionHandle
 
-    logger.info(f"[AUTO] Running step for session {session.id}")
+    logger.info(
+        f"[AUTO] ===== run_automatic_session_step START ===== "
+        f"session={session.id}, status={session.status}, type={session.session_type}"
+    )
 
     # Prevent duplicate handling
     if session.status == "running":
-        logger.info(f"[AUTO] Session {session.id} already running, skipping")
+        logger.warning(
+            f"[AUTO] Session {session.id} already running, skipping (possible race condition)"
+        )
         return
 
     if session.status in ("paused", "archived"):
@@ -117,12 +143,14 @@ async def run_automatic_session_step(session: Session) -> None:
         return
 
     # Mark as running to prevent duplicates
+    logger.info(f"[AUTO] Setting session {session.id} status to 'running'")
     session.update(status="running")
 
     try:
         # Select next actor via conductor
+        logger.info(f"[AUTO] Calling conductor_select_actor for session {session.id}")
         actor = await conductor_select_actor(session)
-        logger.info(f"[AUTO] Conductor selected: {actor.username}")
+        logger.info(f"[AUTO] Conductor selected: {actor.username} (id={actor.id})")
 
         # Ensure agent_sessions exist for multi-agent sessions
         if len(session.agents) > 1 and not session.agent_sessions:
@@ -152,6 +180,7 @@ async def run_automatic_session_step(session: Session) -> None:
                 agent_session_id=agent_session_id,
                 actor=actor,
             )
+            logger.info(f"[AUTO] run_agent_session_turn completed for {actor.username}")
 
         else:
             # Fall back to existing direct flow (single agent or no agent_sessions)
@@ -182,19 +211,45 @@ async def run_automatic_session_step(session: Session) -> None:
             async for update in handle.run_orchestration(stream=False):
                 logger.debug(f"[AUTO] Update: {update}")
 
+            logger.info(f"[AUTO] Direct flow completed for {actor.username}")
+
         # Success - set back to active
         session.reload()
+        logger.info(f"[AUTO] After step, session status={session.status}")
         if session.status == "running":
+            logger.info(f"[AUTO] Setting session {session.id} status back to 'active'")
             session.update(status="active")
+        else:
+            logger.warning(
+                f"[AUTO] Session {session.id} status is '{session.status}' (not 'running'), "
+                f"not changing to 'active'"
+            )
 
         # Schedule next step
         session.reload()
+        logger.info(
+            f"[AUTO] Checking if should schedule next step: "
+            f"status={session.status}, type={session.session_type}"
+        )
         if session.status == "active" and session.session_type == "automatic":
             delay = get_reply_delay(session)
+            logger.info(f"[AUTO] Scheduling next step in {delay}s")
             await schedule_next_automatic_run(str(session.id), delay)
+        else:
+            logger.info(
+                f"[AUTO] NOT scheduling next step - "
+                f"status={session.status} (need 'active'), type={session.session_type}"
+            )
+
+        logger.info(
+            f"[AUTO] ===== run_automatic_session_step END ===== session={session.id}"
+        )
 
     except Exception as e:
-        logger.error(f"[AUTO] Error in session {session.id}: {e}")
+        logger.error(
+            f"[AUTO] Error in session {session.id}: {e}\n"
+            f"Full traceback:\n{traceback.format_exc()}"
+        )
         # Pause on error to prevent infinite error loops
         session.update(status="paused")
         raise
@@ -205,15 +260,39 @@ async def start_automatic_session(session_id: str) -> None:
 
     Called by API handler when session status changes to 'active'.
     """
-    session = Session.from_mongo(session_id)
+    logger.info(
+        f"[AUTO] ========== start_automatic_session CALLED ========== session_id={session_id}"
+    )
+
+    try:
+        session = Session.from_mongo(session_id)
+        logger.info(
+            f"[AUTO] Loaded session: id={session.id}, status={session.status}, "
+            f"type={session.session_type}, agents={len(session.agents)}"
+        )
+    except Exception as e:
+        logger.error(
+            f"[AUTO] Failed to load session {session_id}: {e}\n{traceback.format_exc()}"
+        )
+        raise
 
     if session.session_type != "automatic":
+        logger.error(
+            f"[AUTO] Session {session_id} is not automatic (type={session.session_type})"
+        )
         raise ValueError(f"Session {session_id} is not an automatic session")
 
     if session.status != "active":
+        logger.error(
+            f"[AUTO] Session {session_id} status is '{session.status}', expected 'active'"
+        )
         raise ValueError(
             f"Session {session_id} status is '{session.status}', expected 'active'"
         )
 
     # Run the first step immediately
+    logger.info(f"[AUTO] Starting first step for session {session_id}")
     await run_automatic_session_step(session)
+    logger.info(
+        f"[AUTO] ========== start_automatic_session COMPLETE ========== session_id={session_id}"
+    )
