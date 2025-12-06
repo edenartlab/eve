@@ -151,4 +151,33 @@ system_template = Template("""
   {% if social_instructions %}
   {{ social_instructions }}
   {% endif %}
+  {% if artifacts %}
+  <Artifacts>
+    <Summary>
+      You have access to persistent structured artifacts linked to this session.
+      Artifacts store canonical state (like screenplays, character bibles, project plans) that you can read and modify.
+      Use artifact_get to read full details, artifact_update to make changes, artifact_create for new artifacts.
+    </Summary>
+    <LinkedArtifacts>
+      {% for artifact in artifacts %}
+      <Artifact id="{{ artifact.artifact_id }}" type="{{ artifact.type }}" name="{{ artifact.name }}" version="{{ artifact.version }}">
+        {% if artifact.description %}<Description>{{ artifact.description }}</Description>{% endif %}
+        {% if artifact.data_included and artifact.data %}
+        <Data>{{ artifact.data }}</Data>
+        {% else %}
+        <Summary>{{ artifact.summary }}</Summary>
+        <Note>Use artifact_get to retrieve full data for this artifact.</Note>
+        {% endif %}
+      </Artifact>
+      {% endfor %}
+    </LinkedArtifacts>
+    <Guidelines>
+      - For artifacts with Data shown above, you can directly reference the current state.
+      - Use artifact_get with the artifact_id to retrieve full data if not shown or if you need the latest version.
+      - Use artifact_update with structured operations to make precise changes (set, append, insert, remove, update).
+      - Prefer fine-grained operations over full replacement when possible.
+      - Artifacts persist across sessions; changes are saved automatically.
+    </Guidelines>
+  </Artifacts>
+  {% endif %}
 </AGENT_SPEC>""")

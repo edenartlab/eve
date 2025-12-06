@@ -1,0 +1,38 @@
+name: Get Artifact
+description: Retrieve an artifact's current state. Use this to read the full data of an artifact before making updates, or to check what's in an artifact. Returns the artifact's complete structured data along with metadata.
+tip: |
+  Use this tool when you need to see the current state of an artifact.
+  Set include_history=true if you need to see recent version history.
+  The view parameter controls how much data is returned:
+  - "full": Returns complete artifact data (default)
+  - "summary": Returns just metadata and a summary
+output_type: string
+cost_estimate: 0
+handler: local
+active: true
+visible: true
+parameters:
+  artifact_id:
+    type: string
+    label: Artifact ID
+    description: The ID of the artifact to retrieve
+    required: true
+  view:
+    type: string
+    label: View Mode
+    description: How much data to return ("full" or "summary")
+    default: full
+    enum:
+      - full
+      - summary
+    required: false
+  include_history:
+    type: boolean
+    label: Include History
+    description: Whether to include version history in the response
+    default: false
+    required: false
+examples:
+  - artifact_id: "507f1f77bcf86cd799439011"
+    view: full
+    include_history: false

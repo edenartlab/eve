@@ -1,0 +1,20 @@
+{
+  "artifact_id": "507f1f77bcf86cd799439011",
+  "operations": [
+    {
+      "op": "set",
+      "path": "title",
+      "value": "Updated Title"
+    },
+    {
+      "op": "append",
+      "path": "scenes",
+      "value": {
+        "image_prompt": "A new scene",
+        "description": "Description of new scene",
+        "order": 2
+      }
+    }
+  ],
+  "message": "Test update"
+}

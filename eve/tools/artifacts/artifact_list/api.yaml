@@ -1,0 +1,42 @@
+name: List Artifacts
+description: List artifacts accessible in the current context. By default lists artifacts linked to the current session. Can also list all artifacts owned by the user, optionally filtered by type.
+tip: |
+  Use this to discover what artifacts exist before working with them.
+  If you know an artifact exists but don't have its ID, use this tool to find it.
+  Set session_only=false to see all artifacts owned by the user.
+  Use the type filter to narrow down results (e.g., type="screenplay_storyboard").
+output_type: string
+cost_estimate: 0
+handler: local
+active: true
+visible: true
+parameters:
+  session_only:
+    type: boolean
+    label: Session Only
+    description: If true, only list artifacts linked to current session. If false, list all user's artifacts.
+    default: true
+    required: false
+  type:
+    type: string
+    label: Artifact Type
+    description: Optional filter by artifact type
+    required: false
+  include_archived:
+    type: boolean
+    label: Include Archived
+    description: Whether to include archived artifacts
+    default: false
+    required: false
+  limit:
+    type: integer
+    label: Limit
+    description: Maximum number of artifacts to return
+    default: 20
+    minimum: 1
+    maximum: 100
+    required: false
+examples:
+  - session_only: true
+    include_archived: false
+    limit: 20

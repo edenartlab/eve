@@ -130,6 +130,9 @@ EDEN_DB_TOOLS = [
 CONTEXT7_MCP_TOOLS = ["context7_resolve_library_id"]
 CALCULATOR_MCP_TOOLS = ["calculator_calculate"]
 
+# Artifact tools for persistent structured data
+ARTIFACT_TOOLS = ["artifact_create", "artifact_get", "artifact_update", "artifact_list"]
+
 TOOL_SETS = {
     "create_image": ["create", "media_editor", "reel"],  #  "magic_8_ball"
     "create_video": [],  # deprecated
@@ -140,6 +143,7 @@ TOOL_SETS = {
     "social_media_tools": SOCIAL_MEDIA_TOOLS,
     "context7_mcp_tools": CONTEXT7_MCP_TOOLS,
     "calculator_mcp_tools": CALCULATOR_MCP_TOOLS,
+    "artifact_tools": ARTIFACT_TOOLS,
     "legacy_tools": [
         "legacy_create",
         "legacy_interpolate",

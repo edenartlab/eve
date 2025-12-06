@@ -289,6 +289,32 @@ async def build_system_message(
             instrumentation=instrumentation,
         )
 
+    # Load artifacts linked to this session
+    artifacts = None
+    try:
+        session_artifacts = session.get_artifacts()
+        if session_artifacts:
+            artifacts = []
+            for a in session_artifacts[:10]:  # Limit to 10 artifacts in context
+                artifact_info = {
+                    "artifact_id": str(a.id),
+                    "type": a.type,
+                    "name": a.name,
+                    "description": a.description,
+                    "version": a.version,
+                    "summary": a.get_summary(max_length=150),
+                }
+                # Include data for small/medium artifacts
+                context_data = a.get_context_data()
+                if context_data is not None:
+                    artifact_info["data"] = context_data
+                    artifact_info["data_included"] = True
+                else:
+                    artifact_info["data_included"] = False
+                artifacts.append(artifact_info)
+    except Exception as e:
+        logger.warning(f"Failed to load artifacts for session {session.id}: {e}")
+
     # Build social media instructions if this is a social media platform session
     social_instructions = None
     if session.platform == "farcaster":
@@ -328,6 +354,7 @@ async def build_system_message(
         voice=actor.voice,
         memory=memory,
         social_instructions=social_instructions,
+        artifacts=artifacts,
     )
 
     return ChatMessage(session=session.id, role="system", content=content)
@@ -494,6 +521,24 @@ async def build_llm_context(
         tools = context.tools
     else:
         tools = actor.get_tools(cache=False, auth_user=auth_user_id)
+
+    # Auto-inject artifact tools if:
+    # 1. Agent has artifact_tools enabled in their tool sets, OR
+    # 2. Session already has artifacts (so agent can interact with them)
+    agent_has_artifact_tools = (actor.tools or {}).get("artifact_tools", False)
+    session_has_artifacts = bool(session.artifacts) or bool(session.get_artifacts())
+
+    if agent_has_artifact_tools or session_has_artifacts:
+        from eve.tool_constants import ARTIFACT_TOOLS
+
+        for tool_key in ARTIFACT_TOOLS:
+            if tool_key not in tools:
+                try:
+                    artifact_tool = Tool.load(tool_key)
+                    if artifact_tool:
+                        tools[tool_key] = artifact_tool
+                except Exception as e:
+                    logger.warning(f"Failed to load artifact tool {tool_key}: {e}")
 
     if context.extra_tools:
         # Deduplicate tools based on tool.name attribute, not just dict key

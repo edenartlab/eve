@@ -1,0 +1,52 @@
+name: Update Artifact
+description: Apply structured updates to an artifact. Instead of replacing the entire artifact, you can make precise changes using operations like set, append, insert, remove, and update. This preserves version history and allows fine-grained edits.
+tip: |
+  This tool applies one or more operations to modify an artifact's data.
+
+  Supported operations:
+  - set: Set a value at a path. Example: {"op": "set", "path": "title", "value": "New Title"}
+  - append: Add to end of array. Example: {"op": "append", "path": "scenes", "value": {"prompt": "..."}}
+  - insert: Insert at index. Example: {"op": "insert", "path": "scenes", "index": 2, "value": {...}}
+  - remove: Remove by index. Example: {"op": "remove", "path": "scenes", "index": 3}
+  - update: Update array item. Example: {"op": "update", "path": "scenes", "index": 0, "value": {"prompt": "new"}}
+  - replace: Replace entire data. Example: {"op": "replace", "data": {...}}
+
+  Path uses dot notation for nested access: "scenes.0.prompt" targets the prompt of the first scene.
+
+  Always use get first to understand current state, then apply targeted operations.
+output_type: string
+cost_estimate: 0
+handler: local
+active: true
+visible: true
+parameters:
+  artifact_id:
+    type: string
+    label: Artifact ID
+    description: The ID of the artifact to update
+    required: true
+  operations:
+    type: array
+    label: Operations
+    description: List of operations to apply to the artifact
+    required: true
+    items:
+      type: object
+  message:
+    type: string
+    label: Commit Message
+    description: Optional message describing what this update does (stored in version history)
+    required: false
+examples:
+  - artifact_id: "507f1f77bcf86cd799439011"
+    operations:
+      - op: set
+        path: title
+        value: "The New Journey"
+      - op: append
+        path: scenes
+        value:
+          image_prompt: "A mountain vista at dawn"
+          description: "The hero reaches the summit"
+          order: 3
+    message: "Updated title and added mountain summit scene"
