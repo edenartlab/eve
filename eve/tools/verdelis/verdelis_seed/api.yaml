@@ -1,0 +1,43 @@
+name: verdelis_seed
+description: Create a Verdelis seed
+tip: |-
+  This tool creates a Verdelis seed - a snapshot of an idea.
+
+  A seed is a simple container representing an initial creative concept that will
+  later be expanded into a full Storyboard. Seeds capture the essence of an idea
+  with a title, logline, and representative images.
+
+  A seed contains:
+  - Title: The name of the idea
+  - Logline: A short one-sentence summary of the concept
+  - Agents: The characters/agents involved in the idea
+  - Images: Exemplary images that represent and summarize the idea
+
+  The tool validates that all image URLs point to actual images (downloaded and verified).
+cost_estimate: 0
+output_type: string
+active: true
+handler: local
+visible: false
+parameters:
+  title:
+    type: string
+    description: Title of the seed/idea
+    required: true
+  logline:
+    type: string
+    description: Short one-sentence logline summarizing the concept
+    required: true
+  agents:
+    type: array
+    items:
+      type: string
+    description: Array of agent usernames that star in this seed
+    choices: [ verdelis, mycos, kweku, kalama, shuijing, ada, verdelia ]
+    required: false
+  images:
+    type: array
+    items:
+      type: string
+    description: Exemplary image URLs that represent the idea
+    required: true

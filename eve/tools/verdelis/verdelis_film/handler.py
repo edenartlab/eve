@@ -194,6 +194,6 @@ async def handler(context: ToolContext):
         }
     )
 
-    session_id = result["output"][0]["session"]
+    session_id = result["output"][0]["session_id"]
 
     return {"output": [{"session": session_id}]}

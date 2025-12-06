@@ -58,25 +58,30 @@ async def handler(context: ToolContext):
     agent_owner_id = str(agent_obj.owner) if agent_obj.owner else None
 
     # Extract parameters
-    channel_id = context.args["channel_id"]
+    channel_id = context.args.get("channel_id")
     instruction = context.args["instruction"]
     active_days = context.args.get("active_days", 3)
     message_limit = context.args.get("message_limit", 100)
     rate_limit_delay = context.args.get("rate_limit_delay", 1.0)
+    discord_user_ids = context.args.get("discord_user_ids")
 
-    # Validate parameters
-    if not channel_id or not instruction:
-        raise Exception("channel_id and instruction are required")
+    # Validate parameters - need either channel_id or discord_user_ids
+    if not instruction:
+        raise Exception("instruction is required")
 
-    # Validate Discord snowflake format (should be numeric and reasonable length)
-    try:
-        channel_id_int = int(channel_id)
-        if channel_id_int <= 0 or len(channel_id) < 15 or len(channel_id) > 20:
-            raise ValueError("Invalid snowflake")
-    except ValueError:
-        raise Exception(
-            f"channel_id must be a valid Discord snowflake, got: {channel_id}"
-        )
+    if not discord_user_ids and not channel_id:
+        raise Exception("Either channel_id or discord_user_ids must be provided")
+
+    # Validate Discord snowflake format for channel_id if provided
+    if channel_id:
+        try:
+            channel_id_int = int(channel_id)
+            if channel_id_int <= 0 or len(channel_id) < 15 or len(channel_id) > 20:
+                raise ValueError("Invalid snowflake")
+        except ValueError:
+            raise Exception(
+                f"channel_id must be a valid Discord snowflake, got: {channel_id}"
+            )
 
     if active_days <= 0 or active_days > 30:
         raise Exception("active_days must be between 1 and 30")
@@ -88,17 +93,23 @@ async def handler(context: ToolContext):
         raise Exception("rate_limit_delay must be between 0.1 and 10.0 seconds")
 
     try:
-        # Step 1: Validate channel access
-        await validate_channel_access(deployment, channel_id)
+        # Step 1: Validate channel access (only if using channel-based discovery)
+        if channel_id:
+            await validate_channel_access(deployment, channel_id)
 
-        # Step 2: Discover active users from the Discord channel
-        active_users = await discover_active_users(
-            deployment, channel_id, active_days, message_limit
-        )
+        # Step 2: Get users to DM - either from explicit list or by discovering active users
+        if discord_user_ids:
+            # Fetch Discord usernames for the provided IDs
+            active_users = await fetch_users_by_ids(deployment, discord_user_ids)
+        else:
+            # Discover active users from the Discord channel
+            active_users = await discover_active_users(
+                deployment, channel_id, active_days, message_limit
+            )
 
         if not active_users:
             return {
-                "output": "No active users found in the specified channel and timeframe"
+                "output": "No users to DM - either no discord_user_ids provided or no active users found in the specified channel and timeframe"
             }
 
         # Step 3: Map Discord users to Eden users
@@ -358,6 +369,52 @@ async def discover_thread_users(
         logger.warning(f"Failed to get threads: {e}")
 
     return thread_users
+
+
+async def fetch_users_by_ids(
+    deployment: Deployment,
+    discord_user_ids: List[str],
+) -> List[DiscordUser]:
+    """
+    Fetch Discord user information for a list of user IDs.
+    Returns DiscordUser objects with usernames populated from the Discord API.
+    """
+    users = []
+    client = discord.Client(intents=discord.Intents.default())
+
+    try:
+        await client.login(deployment.secrets.discord.token)
+
+        for user_id in discord_user_ids:
+            try:
+                # Validate Discord snowflake format
+                user_id_int = int(user_id)
+                if user_id_int <= 0 or len(user_id) < 15 or len(user_id) > 20:
+                    logger.warning(f"Invalid Discord user ID format: {user_id}")
+                    continue
+
+                # Fetch user from Discord API
+                discord_user = await client.fetch_user(user_id_int)
+
+                users.append(
+                    DiscordUser(
+                        discord_id=user_id,
+                        discord_username=discord_user.name,
+                        message_count=0,
+                        last_seen="",
+                    )
+                )
+            except discord.NotFound:
+                logger.warning(f"Discord user {user_id} not found")
+                continue
+            except Exception as e:
+                logger.warning(f"Failed to fetch Discord user {user_id}: {e}")
+                continue
+
+    finally:
+        await client.close()
+
+    return users
 
 
 async def map_discord_to_eden_users(

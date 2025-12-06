@@ -36,7 +36,7 @@ if LOCAL_DEV:
 
 else:
     MEMORY_LLM_MODEL_FAST = "gpt-5-mini"
-    MEMORY_LLM_MODEL_SLOW = "gpt-5"
+    MEMORY_LLM_MODEL_SLOW = "gpt-5.1"
     MEMORY_FORMATION_MSG_INTERVAL = (
         DEFAULT_SESSION_SELECTION_LIMIT - 5
     )  # Number of messages to wait before forming memories

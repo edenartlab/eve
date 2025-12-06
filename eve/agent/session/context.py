@@ -10,11 +10,9 @@ from jinja2 import Template
 from loguru import logger
 
 from eve.agent.agent import Agent
-from eve.agent.llm.prompts.system_template import (
-    agent_session_template,
-    social_media_template,
-    system_template,
-)
+from eve.agent.llm.prompts.agent_session_template import agent_session_template
+from eve.agent.llm.prompts.social_media_template import social_media_template
+from eve.agent.llm.prompts.system_template import system_template
 from eve.agent.llm.util import is_fake_llm_mode, is_test_mode_prompt
 from eve.agent.memory.memory_models import (
     get_sender_id_to_sender_name_map,
@@ -432,6 +430,7 @@ async def add_chat_message(
         trigger=context.trigger,
         apiKey=ObjectId(context.api_key_id) if context.api_key_id else None,
         triggering_user=triggering_user_id,
+        billed_user=triggering_user_id,
     )
 
     # Save channel origin info for social media platforms
@@ -861,13 +860,28 @@ async def build_agent_session_llm_context(
         bulk_update_content = format_parent_messages_for_agent_session(
             new_parent_messages, actor.id
         )
+
+        # Collect all attachments from parent messages
+        all_attachments = []
+        for msg in new_parent_messages:
+            if msg.attachments:
+                all_attachments.extend(msg.attachments)
+
+        # Get the outer owning user (first user from parent session)
+        owner_id = (
+            parent_session.users[0]
+            if parent_session.users
+            else context.initiating_user_id
+        )
+
         # Create a temporary ChatMessage for the bulk update
         # Note: This is not persisted here - the runtime will save it
         bulk_update_message = ChatMessage(
             session=agent_session.id,
             role="user",
-            sender=ObjectId("000000000000000000000000"),  # System sender
+            sender=ObjectId(str(owner_id)) if owner_id else None,
             content=bulk_update_content,
+            attachments=all_attachments,
         )
         messages.append(bulk_update_message)
 

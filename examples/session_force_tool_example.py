@@ -27,7 +27,7 @@ async def example_session():
     message = ChatMessageRequestInput(
         content="Post 'yes, it was that day, I say, oy vey' to discord channel '1181679778651181067'."
     )
-    llm_config = LLMConfig(model="gpt-5")
+    llm_config = LLMConfig(model="gpt-5.1")
 
     # Create session request
     request = PromptSessionRequest(

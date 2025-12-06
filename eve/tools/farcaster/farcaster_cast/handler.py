@@ -2,7 +2,11 @@ from bson import ObjectId
 
 from eve.agent import Agent
 from eve.agent.deployments import Deployment
-from eve.agent.deployments.farcaster import FarcasterEvent, get_fid, post_cast
+from eve.agent.deployments.farcaster import (
+    FarcasterEvent,
+    get_farcaster_user_info,
+    post_cast,
+)
 from eve.agent.session.models import Session
 from eve.tool import ToolContext
 
@@ -33,6 +37,16 @@ async def handler(context: ToolContext):
         raise Exception("Either text content or embeds must be provided")
 
     try:
+        # Get FID - use cached value or fetch and cache on agent
+        if agent.farcasterId:
+            cast_fid = int(agent.farcasterId)
+        else:
+            user_info = await get_farcaster_user_info(deployment.secrets)
+            cast_fid = int(user_info["fid"])
+            agent.update(
+                farcasterId=str(cast_fid), farcasterUsername=user_info.get("username")
+            )
+
         # Prepare parent parameter if replying
         parent = None
         if parent_hash and parent_fid:
@@ -58,9 +72,7 @@ async def handler(context: ToolContext):
         outputs.append({"url": cast_url, "cast_hash": cast_hash, "success": True})
 
         if embeds2:
-            # Get FID for the parent parameter
-            fid = await get_fid(deployment.secrets)
-            parent1 = {"hash": cast_hash, "fid": int(fid)}
+            parent1 = {"hash": cast_hash, "fid": cast_fid}
             result2 = await post_cast(
                 secrets=deployment.secrets,
                 text="",
@@ -79,8 +91,6 @@ async def handler(context: ToolContext):
             session.update(session_key=f"FC-{thread_hash}")
             # NEXT TRY: shouldn't this be using thread_hash
 
-        # TARGET_FID = agent.farcasterId
-
         # save casts as farcaster events
         for output in outputs:
             event = FarcasterEvent(
@@ -88,7 +98,7 @@ async def handler(context: ToolContext):
                 message_id=ObjectId(context.message),
                 content=text,
                 cast_hash=output.get("cast_hash"),
-                cast_fid=int(agent.farcasterId),
+                cast_fid=cast_fid,
                 reply_cast=parent_hash,
                 reply_fid=parent_fid,
                 status="completed",

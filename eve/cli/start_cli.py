@@ -109,7 +109,13 @@ def start(agent: str, db: str, platforms: tuple, local: bool):
     default=False,
     help="Enable debug logging",
 )
-def api(host: str, port: int, reload: bool, db: str, remote_debug: bool):
+@click.option(
+    "--mock",
+    is_flag=True,
+    default=False,
+    help="Enable mock mode for create tool (returns dummy URLs)",
+)
+def api(host: str, port: int, reload: bool, db: str, remote_debug: bool, mock: bool):
     """Start the Eve API server"""
     import os
 
@@ -120,6 +126,15 @@ def api(host: str, port: int, reload: bool, db: str, remote_debug: bool):
         os.environ["LOCAL_DEBUG"] = "True"
     else:
         os.environ["LOCAL_DEBUG"] = "False"
+
+    # Set MOCK environment variable if flag is set
+    if mock:
+        os.environ["MOCK"] = "1"
+        click.echo(
+            click.style(
+                "Mock mode enabled - create tool will return dummy URLs", fg="yellow"
+            )
+        )
 
     click.echo(
         click.style(f"Starting API server on {host}:{port} with DB={db}...", fg="blue")

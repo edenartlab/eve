@@ -326,3 +326,10 @@ class RollbackArtifactRequest(BaseModel):
     artifact_id: str
     target_version: int
     user_id: str  # Required for ownership verification
+
+
+class ReactionRequest(BaseModel):
+    message_id: str
+    tool_call_id: Optional[str] = None  # If reacting to a specific tool call
+    reaction: str  # The reaction emoji or key
+    user_id: Optional[str] = None  # The user who reacted (optional)

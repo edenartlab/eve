@@ -3,7 +3,7 @@ import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Union
 
 from bson import ObjectId
 from loguru import logger
@@ -26,6 +26,41 @@ if TYPE_CHECKING:  # pragma: no cover
     from eve.agent.session.instrumentation import PromptSessionInstrumentation
 
 
+class Reaction(BaseModel):
+    user_id: Union[str, ObjectId]
+    reaction: str
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+def _convert_reactions_from_dict(reactions) -> Optional[List[dict]]:
+    """Convert old dict-format reactions to new list format during model validation."""
+    if reactions is None:
+        return None
+    if isinstance(reactions, list):
+        return reactions  # Already in correct format
+    if isinstance(reactions, dict):
+        if not reactions:  # Empty dict
+            return []
+        result = []
+        for key, values in reactions.items():
+            if not isinstance(values, list):
+                continue
+            # Heuristic: if key looks like an ObjectId or "anonymous", it's {user_id: [reactions]}
+            is_user_id_key = key == "anonymous" or (
+                len(key) == 24 and all(c in "0123456789abcdef" for c in key.lower())
+            )
+            if is_user_id_key:
+                for reaction in values:
+                    result.append({"user_id": key, "reaction": str(reaction)})
+            else:
+                for user_id in values:
+                    uid = str(user_id) if isinstance(user_id, ObjectId) else user_id
+                    result.append({"user_id": uid, "reaction": key})
+        return result
+    return None
+
+
 class ToolCall(BaseModel):
     id: str
     tool: str
@@ -36,11 +71,16 @@ class ToolCall(BaseModel):
         Literal["pending", "running", "completed", "failed", "cancelled"]
     ] = None
     result: Optional[List[Dict[str, Any]]] = None
-    reactions: Optional[Dict[str, List[str]]] = None
+    reactions: Optional[List[Reaction]] = None
     error: Optional[str] = None
     child_session: Optional[ObjectId] = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    @field_validator("reactions", mode="before")
+    @classmethod
+    def convert_reactions(cls, v):
+        return _convert_reactions_from_dict(v)
 
     @staticmethod
     def from_openai(tool_call):
@@ -56,7 +96,7 @@ class ToolCall(BaseModel):
 
     def openai_call_schema(self):
         return {
-            "id": self.id,
+            "id": self.id[:40],  # OpenAI max tool_call_id length is 40
             "type": "function",
             "function": {"name": self.tool, "arguments": json.dumps(self.args)},
         }
@@ -147,7 +187,7 @@ class ToolCall(BaseModel):
             "role": "tool",
             "name": self.tool,
             "content": dumps_json(content),
-            "tool_call_id": self.id,
+            "tool_call_id": self.id[:40],  # OpenAI max tool_call_id length is 40
         }
 
 
@@ -289,7 +329,7 @@ class ChatMessage(Document):
     pinned: Optional[bool] = False
 
     content: str = ""
-    reactions: Optional[Dict[str, List[str]]] = {}
+    reactions: Optional[List[Reaction]] = []
 
     attachments: Optional[List[str]] = []
     tool_calls: Optional[List[ToolCall]] = []
@@ -305,10 +345,15 @@ class ChatMessage(Document):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
+    @field_validator("reactions", mode="before")
+    @classmethod
+    def convert_reactions(cls, v):
+        return _convert_reactions_from_dict(v)
+
     def react(self, user: ObjectId, reaction: str):
-        if reaction not in self.reactions:
-            self.reactions[reaction] = []
-        self.reactions[reaction].append(user)
+        if self.reactions is None:
+            self.reactions = []
+        self.reactions.append(Reaction(user_id=user, reaction=reaction))
 
     def as_user_message(self):
         if self.role == "user":

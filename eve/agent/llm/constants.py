@@ -18,7 +18,7 @@ class ModelTier(Enum):
 DEFAULT_MODEL_PREMIUM = "claude-sonnet-4-5"
 DEFAULT_MODEL_FREE = "claude-haiku-4-5"
 
-FALLBACK_MODEL_PREMIUM = "gpt-5"
+FALLBACK_MODEL_PREMIUM = "gpt-5.1"
 FALLBACK_MODEL_FREE = "gpt-5-nano"
 
 TEST_MODE_TEXT_STRING = "===test"
@@ -30,7 +30,7 @@ MODEL_PROVIDER_OVERRIDES = {
     "claude-4-5-haiku": ModelProvider.ANTHROPIC,
     # OpenAI
     "gpt-4o-mini": ModelProvider.OPENAI,
-    "gpt-5": ModelProvider.OPENAI,
+    "gpt-5.1": ModelProvider.OPENAI,
     "gpt-5-nano": ModelProvider.OPENAI,
     "gpt-5-mini": ModelProvider.OPENAI,
     # Gemini

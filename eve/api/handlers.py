@@ -32,6 +32,7 @@ from eve.agent.session.models import (
     LLMTraceMetadata,
     Notification,
     NotificationChannel,
+    Reaction,
     Session,
     SessionUpdateConfig,
 )
@@ -49,6 +50,7 @@ from eve.api.api_requests import (
     DeploymentEmissionRequest,
     DeploymentInteractRequest,
     PromptSessionRequest,
+    ReactionRequest,
     SessionCreationArgs,
     TaskRequest,
     UpdateDeploymentRequestV2,
@@ -1019,7 +1021,7 @@ async def handle_extract_agent_prompts(request):
     context = LLMContext(
         messages=[ChatMessage(role="user", content=prompt)],
         config=LLMConfig(
-            model="gpt-5",
+            model="gpt-5.1",
             response_format=AgentPromptsResponse,
         ),
         metadata=LLMContextMetadata(
@@ -1180,8 +1182,12 @@ async def handle_artifact_get(request):
             "description": artifact.description,
             "version": artifact.version,
             "summary": artifact.get_summary(),
-            "updated_at": artifact.updatedAt.isoformat() if artifact.updatedAt else None,
-            "created_at": artifact.createdAt.isoformat() if artifact.createdAt else None,
+            "updated_at": artifact.updatedAt.isoformat()
+            if artifact.updatedAt
+            else None,
+            "created_at": artifact.createdAt.isoformat()
+            if artifact.createdAt
+            else None,
             "archived": artifact.archived,
         }
     else:
@@ -1192,8 +1198,12 @@ async def handle_artifact_get(request):
             "description": artifact.description,
             "version": artifact.version,
             "data": artifact.data,
-            "updated_at": artifact.updatedAt.isoformat() if artifact.updatedAt else None,
-            "created_at": artifact.createdAt.isoformat() if artifact.createdAt else None,
+            "updated_at": artifact.updatedAt.isoformat()
+            if artifact.updatedAt
+            else None,
+            "created_at": artifact.createdAt.isoformat()
+            if artifact.createdAt
+            else None,
             "archived": artifact.archived,
             "owner": str(artifact.owner),
             "session": str(artifact.session) if artifact.session else None,
@@ -1368,3 +1378,127 @@ async def handle_artifact_rollback(request):
         "new_version": artifact.version,
         "rolled_back_to": request.target_version,
     }
+
+
+@handle_errors
+async def handle_reaction(request: ReactionRequest):
+    """
+    Handle reactions to messages or tool calls.
+
+    If the reacted tool has a hook.py file with a `hook` function,
+    it will be called with the reaction context.
+    """
+    import importlib.util
+
+    from eve.tool import get_api_files
+
+    logger.info(
+        f"[handle_reaction] Received reaction request:\n"
+        f"  message_id: {request.message_id}\n"
+        f"  tool_call_id: {request.tool_call_id}\n"
+        f"  reaction: {request.reaction}\n"
+        f"  user_id: {request.user_id}"
+    )
+
+    # Load the message
+    message = ChatMessage.from_mongo(ObjectId(request.message_id))
+    if not message:
+        raise APIError(f"Message not found: {request.message_id}", status_code=404)
+
+    tool_name = None
+
+    # If reacting to a specific tool call, find it
+    if request.tool_call_id:
+        tool_call = None
+        for tc in message.tool_calls or []:
+            if tc.id == request.tool_call_id:
+                tool_call = tc
+                break
+
+        if not tool_call:
+            raise APIError(
+                f"Tool call not found: {request.tool_call_id}", status_code=404
+            )
+
+        tool_name = tool_call.tool
+
+        # Add reaction to the tool call
+        if not tool_call.reactions:
+            tool_call.reactions = []
+        user_key = request.user_id or "anonymous"
+        # Check if this user already has this reaction
+        existing = any(
+            r.user_id == user_key and r.reaction == request.reaction
+            for r in tool_call.reactions
+        )
+        if not existing:
+            tool_call.reactions.append(
+                Reaction(user_id=user_key, reaction=request.reaction)
+            )
+
+        message.save()
+
+        # Try to call the tool's hook if it exists
+        if tool_name:
+            api_files = get_api_files()
+            if tool_name in api_files:
+                tool_dir = os.path.dirname(api_files[tool_name])
+                hook_path = os.path.join(tool_dir, "hook.py")
+
+                if os.path.exists(hook_path):
+                    try:
+                        # Dynamically load the hook module
+                        spec = importlib.util.spec_from_file_location(
+                            f"{tool_name}_hook", hook_path
+                        )
+                        hook_module = importlib.util.module_from_spec(spec)
+                        spec.loader.exec_module(hook_module)
+
+                        # Call the hook function if it exists
+                        if hasattr(hook_module, "hook"):
+                            hook_result = hook_module.hook(
+                                message_id=request.message_id,
+                                tool_call_id=request.tool_call_id,
+                                reaction=request.reaction,
+                                user_id=request.user_id,
+                            )
+                            # Support async hooks
+                            if asyncio.iscoroutine(hook_result):
+                                await hook_result
+
+                            logger.info(
+                                f"Hook executed for tool '{tool_name}' on reaction '{request.reaction}'"
+                            )
+                    except Exception as e:
+                        logger.error(
+                            f"Error executing hook for tool '{tool_name}': {e}"
+                        )
+
+        return {
+            "status": "success",
+            "message_id": request.message_id,
+            "tool_call_id": request.tool_call_id,
+            "reactions": tool_call.reactions,
+        }
+    else:
+        # Add reaction to the message itself
+        if not message.reactions:
+            message.reactions = []
+        user_key = request.user_id or "anonymous"
+        # Check if this user already has this reaction
+        existing = any(
+            r.user_id == user_key and r.reaction == request.reaction
+            for r in message.reactions
+        )
+        if not existing:
+            message.reactions.append(
+                Reaction(user_id=user_key, reaction=request.reaction)
+            )
+
+        message.save()
+
+        return {
+            "status": "success",
+            "message_id": request.message_id,
+            "reactions": message.reactions,
+        }

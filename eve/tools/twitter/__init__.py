@@ -571,6 +571,17 @@ class X:
         )
         return response.json()
 
+    def get_tweet(self, tweet_id: str) -> dict:
+        """Fetch a single tweet's details including conversation_id."""
+        response = self._make_request(
+            "get",
+            f"https://api.twitter.com/2/tweets/{tweet_id}",
+            params={
+                "tweet.fields": "conversation_id,author_id,created_at,in_reply_to_user_id,referenced_tweets",
+            },
+        )
+        return response.json()
+
     def get_following(self, usernames):
         """Fetches the list of accounts each specified username is following."""
         following_data = {}

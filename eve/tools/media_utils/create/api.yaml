@@ -2,8 +2,8 @@ name: Create
 description: Generate or edit images and videos from an objective, single-scene prompt plus optional reference media.
 tip: |-
   Images:
-    - For multi-image consistency sets, prefer model_preference=seedream and set n_samples accordingly.
-    - For text-heavy designs (infographics, logos, signage), prefer model_preference=seedream (or openai / nano_banana).
+    - For multi-image consistency sets, prefer model_preference=nano_banana with n_samples=1, and generate images consecutively using previous outputs as reference images.
+    - For text-heavy designs (infographics, logos, signage), prefer model_preference=nano_banana or openai.
   
   Videos:
     - If reference_images or reference_video are provided, describe only motion/camera/dynamics in the prompt and refer to the specific references; do not re-prompt static content already provided by references.
@@ -75,6 +75,7 @@ parameters:
     type: array
     items:
       type: image
+    max_length: 14
     label: Reference images
     description: Reference images for generation or editing.
     tip: |-
@@ -87,7 +88,7 @@ parameters:
     type: integer
     label: Number of samples
     description: Images only. How many variations, individual images, or samples to generate
-    tip: Generates multiple images. With model_preference=seedream, n_samples can be used for consistent sets (same identity/style across images).
+    tip: Generates multiple images. With model_preference=seedream, n_samples can be used for consistent sets (same identity/style across images). **NOTE** -- This parameter is not supported for nano_banana! Keep it at 1 unless using Seedream.
     default: 1
     minimum: 1
     maximum: 15

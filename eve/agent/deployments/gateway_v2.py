@@ -1553,8 +1553,6 @@ class GatewayManager:
 
     async def load_deployments(self):
         """Load all Discord HTTP deployments from database"""
-        from bson import ObjectId as BsonObjectId
-
         # Filter deployments based on LOCAL_API_URL environment variable
         local_api_url = os.getenv("LOCAL_API_URL")
         local_user_id = os.getenv("LOCAL_USER_ID")
@@ -1574,7 +1572,7 @@ class GatewayManager:
         # Add user filter if LOCAL_USER_ID is set
         if local_user_id:
             try:
-                user_oid = BsonObjectId(local_user_id)
+                user_oid = ObjectId(local_user_id)
                 deployment_filter["user"] = user_oid
                 logger.info(f"Filtering deployments for user: {local_user_id}")
             except Exception as e:
@@ -1618,7 +1616,7 @@ class GatewayManager:
         # Add user filter to Telegram deployments if LOCAL_USER_ID is set
         if local_user_id:
             try:
-                user_oid = BsonObjectId(local_user_id)
+                user_oid = ObjectId(local_user_id)
                 telegram_filter["user"] = user_oid
             except Exception as e:
                 logger.error(
