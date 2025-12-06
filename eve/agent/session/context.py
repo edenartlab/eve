@@ -815,13 +815,28 @@ async def build_agent_session_llm_context(
         bulk_update_content = format_parent_messages_for_agent_session(
             new_parent_messages, actor.id
         )
+
+        # Collect all attachments from parent messages
+        all_attachments = []
+        for msg in new_parent_messages:
+            if msg.attachments:
+                all_attachments.extend(msg.attachments)
+
+        # Get the outer owning user (first user from parent session)
+        owner_id = (
+            parent_session.users[0]
+            if parent_session.users
+            else context.initiating_user_id
+        )
+
         # Create a temporary ChatMessage for the bulk update
         # Note: This is not persisted here - the runtime will save it
         bulk_update_message = ChatMessage(
             session=agent_session.id,
             role="user",
-            sender=ObjectId("000000000000000000000000"),  # System sender
+            sender=ObjectId(str(owner_id)) if owner_id else None,
             content=bulk_update_content,
+            attachments=all_attachments,
         )
         messages.append(bulk_update_message)
 
