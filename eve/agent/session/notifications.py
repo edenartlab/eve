@@ -28,8 +28,7 @@ async def check_if_session_active(user_id: str, session_id: str) -> dict:
             )
 
             if response.status_code == 200:
-                result = response.json()
-                return result
+                return response.json()
             else:
                 return {"is_active": False, "redis_available": False}
 
@@ -57,6 +56,7 @@ async def create_session_message_notification(
             "session_id": session_id,
             "agent_id": agent_id,
             "action_url": f"/sessions/{session_id}",
+            "channels": ["in_app", "push"],
         }
 
         async with httpx.AsyncClient() as client:
@@ -64,15 +64,14 @@ async def create_session_message_notification(
                 "x-api-key": os.getenv("EDEN_FASTIFY_ADMIN_KEY"),
                 "Content-Type": "application/json",
             }
-            response = await client.post(
+            await client.post(
                 f"{api_url}/v2/notifications",
                 headers=headers,
                 json=notification_data,
                 timeout=5.0,
             )
 
-            if response.status_code != 200:
-                pass
+            # Ignore non-200 silently; Fastify handles auth/validation
 
     except Exception as e:
         capture_exception(e)
