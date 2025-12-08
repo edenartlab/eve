@@ -133,22 +133,28 @@ async def determine_actors(
 
     # ========== PASSIVE ==========
     if session.session_type == "passive":
-        # Classic 1:1 pattern - always respond
-        if num_agents == 1 and num_users <= 1:
+        # Check if this is a Discord/Telegram channel (not DM) - requires mention even for 1:1
+        session_key = session.session_key or ""
+        is_social_channel = (
+            "discord" in session_key or "telegram" in session_key
+        ) and "_dm_" not in session_key
+
+        # Classic 1:1 pattern - always respond (unless it's a social channel)
+        if num_agents == 1 and num_users <= 1 and not is_social_channel:
             logger.info("[ACTORS] Passive 1:1 - prompting single agent")
             session.update(last_actor_id=agents[0].id)
             return agents
 
-        # Multi-party - only respond to mentions
+        # Multi-party or social channel - only respond to mentions
         mentioned = find_mentioned_agents(message_content, agents)
         if mentioned:
             logger.info(
-                f"[ACTORS] Passive multi-party - found {len(mentioned)} mentioned agents"
+                f"[ACTORS] Passive multi-party/social - found {len(mentioned)} mentioned agents"
             )
             session.update(last_actor_id=mentioned[0].id)
             return mentioned
 
-        logger.info("[ACTORS] Passive multi-party - no mentions, no response")
+        logger.info("[ACTORS] Passive multi-party/social - no mentions, no response")
         return []
 
     # ========== NATURAL ==========
