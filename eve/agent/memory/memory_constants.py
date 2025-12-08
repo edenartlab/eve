@@ -115,6 +115,14 @@ CONVERSATION_TEXT_TOKEN = "-&&-conversation_text-&&-"
 SHARD_EXTRACTION_PROMPT_TOKEN = "-&&-shard_extraction_prompt-&&-"
 FULLY_FORMED_AGENT_MEMORY_TOKEN = "-&&-fully_formed_agent_memory-&&-"
 
+# Dynamic limit tokens (replaced at runtime with actual values from calculate_dynamic_limits)
+DIRECTIVE_MIN_TOKEN = "-&&-directive_min-&&-"
+DIRECTIVE_MAX_TOKEN = "-&&-directive_max-&&-"
+FACT_MIN_TOKEN = "-&&-fact_min-&&-"
+FACT_MAX_TOKEN = "-&&-fact_max-&&-"
+SUGGESTION_MIN_TOKEN = "-&&-suggestion_min-&&-"
+SUGGESTION_MAX_TOKEN = "-&&-suggestion_max-&&-"
+
 # Default memory extraction prompt for episodes and directives:
 REGULAR_MEMORY_EXTRACTION_PROMPT = f"""Task: Extract persistent memories from the provided conversation following these rules:
 
@@ -129,8 +137,8 @@ REGULAR_MEMORY_EXTRACTION_PROMPT = f"""Task: Extract persistent memories from th
   - Avoid commentary or analysis, create memories that stand on their own without context
 
 2. DIRECTIVE: {MEMORY_TYPES["directive"].custom_prompt}
-  Create {MEMORY_TYPES["directive"].min_items}-{MEMORY_TYPES["directive"].max_items} user memories (maximum {SESSION_DIRECTIVE_MEMORY_MAX_WORDS} words each) if there are personal updates (like progress on projects), long-lasting rules, preferences, or personal context that should be remembered consistently in all future interactions with this user. If none exist (likely), just return an empty array.
-   
+  Create {DIRECTIVE_MIN_TOKEN}-{DIRECTIVE_MAX_TOKEN} user memories (maximum {SESSION_DIRECTIVE_MEMORY_MAX_WORDS} words each) if there are personal updates (like progress on projects), long-lasting rules, preferences, or personal context that should be remembered consistently in all future interactions with this user. If none exist (likely), just return an empty array.
+
   INCLUDE as directives:
   - Explicit behavioral rules ("always ask before X", "never do Y")
   - Personal preferences ("when creating/discussing Z, Xander prefers...")
@@ -142,7 +150,7 @@ REGULAR_MEMORY_EXTRACTION_PROMPT = f"""Task: Extract persistent memories from th
   - Ad hoc instructions relevant for the current conversation context only that don't apply broadly (eg "can you make that image again in black and white pls")
   - Random facts about the user that are not actionable (eg "I had an amazing breakfast this morning")
 
-  Good examples: 
+  Good examples:
   - "Always ask Jack for permission before generating videos"
   - "Before generating images always check what aspect ratio the user prefers"
   - "Jack is fascinated by calligraphy and loves to paint"
@@ -150,8 +158,8 @@ REGULAR_MEMORY_EXTRACTION_PROMPT = f"""Task: Extract persistent memories from th
   Bad examples (DO NOT make these directives):
   - "Gene requested a story about a clockmaker" (one-time request)
   - "The deadline is next Friday" (ephemeral temporal fact, not behavioral rule)
-   
-CRITICAL REQUIREMENTS: 
+
+CRITICAL REQUIREMENTS:
 - BE STRICT about directives - conversations will often have NO directives (empty array), only an episode
 - ALWAYS use specific usernames from the conversation (NEVER use "User", "the user", or "they")
 - Episodes should capture both WHAT happened and WHY it matters (avoid interpretations or commentary but preserve emotional context when relevant)
@@ -161,12 +169,12 @@ CRITICAL REQUIREMENTS:
 Now carefully read the conversation text and extract the episodes and directives:
 <conversation_text>
 {CONVERSATION_TEXT_TOKEN}
-</conversation_text> 
+</conversation_text>
 
 Return **exactly** this JSON:
 {{{{
   "episode": ["list of exactly one factual digest (≤{SESSION_EPISODE_MEMORY_MAX_WORDS} words each)"],
-  "directive": ["list of {MEMORY_TYPES["directive"].min_items}-{MEMORY_TYPES["directive"].max_items} persistent rules (≤{SESSION_DIRECTIVE_MEMORY_MAX_WORDS} words each)"]
+  "directive": ["list of {DIRECTIVE_MIN_TOKEN}-{DIRECTIVE_MAX_TOKEN} persistent rules (≤{SESSION_DIRECTIVE_MEMORY_MAX_WORDS} words each)"]
 }}}}
 """
 
@@ -185,7 +193,7 @@ IMPORTANT: Below is the context / project / event / topic (shard) you are workin
 Your goal is to extract facts and suggestions relevant to the shard's context according to the following guidelines:
 
 1. FACTS: {MEMORY_TYPES["fact"].custom_prompt}
-  - Extract 0 to {MEMORY_TYPES["fact"].max_items} facts (maximum {SESSION_FACT_MEMORY_MAX_WORDS} words each). Typically, you will extract much less than {MEMORY_TYPES["fact"].max_items} #facts (often none at all).
+  - Extract {FACT_MIN_TOKEN} to {FACT_MAX_TOKEN} facts (maximum {SESSION_FACT_MEMORY_MAX_WORDS} words each). Typically, you will extract much less than {FACT_MAX_TOKEN} #facts (often none at all).
   - Each fact must be unique and verified statements - a specific piece of information coming from the user(s) that will never change.
   - Include source when provided ("Alice: deadline is May 1st" or "Bob: the max budget is $1000")
   - Facts must be self-contained and understandable without any additional context
@@ -196,9 +204,9 @@ Your goal is to extract facts and suggestions relevant to the shard's context ac
     a) Create or complement existing knowledge
     b) Provide critical constraints or dependencies
     c) Establish relationships between entities
-    
+
 2. SUGGESTIONS: {MEMORY_TYPES["suggestion"].custom_prompt}
-  - Extract maximum {MEMORY_TYPES["suggestion"].max_items} suggestions of maximum {SESSION_SUGGESTION_MEMORY_MAX_WORDS} words each
+  - Extract maximum {SUGGESTION_MAX_TOKEN} suggestions of maximum {SESSION_SUGGESTION_MEMORY_MAX_WORDS} words each
   - Suggestions are not immediately integrated into the shard memory, they are only suggestions to consider for future consolidation (happens in cycles)
   - Include rationale when provided ("X because Y") and note down when further consensus is needed, also remember when people disagree with existing ideas / suggestions and try to find a compromise.
   - Distinguish for example between:
@@ -222,8 +230,8 @@ Now carefully read the conversation text and extract the facts and suggestions:
 
 Return **exactly** this JSON:
 {{{{
-  "fact": ["list of {MEMORY_TYPES["fact"].min_items}-{MEMORY_TYPES["fact"].max_items} atomic facts (≤{SESSION_FACT_MEMORY_MAX_WORDS} words each)"],
-  "suggestion": ["list of {MEMORY_TYPES["suggestion"].min_items}-{MEMORY_TYPES["suggestion"].max_items} suggestions (≤{SESSION_SUGGESTION_MEMORY_MAX_WORDS} words each)"]
+  "fact": ["list of {FACT_MIN_TOKEN}-{FACT_MAX_TOKEN} atomic facts (≤{SESSION_FACT_MEMORY_MAX_WORDS} words each)"],
+  "suggestion": ["list of {SUGGESTION_MIN_TOKEN}-{SUGGESTION_MAX_TOKEN} suggestions (≤{SESSION_SUGGESTION_MEMORY_MAX_WORDS} words each)"]
 }}}}
 """
 
