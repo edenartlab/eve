@@ -530,8 +530,16 @@ def select_messages(
     selected_messages.extend(pinned_messages)
 
     selected_messages.reverse()
-    selected_messages = [ChatMessage(**msg) for msg in selected_messages]
-    # Filter out cancelled tool calls from the messages
-    selected_messages = [msg.filter_cancelled_tool_calls() for msg in selected_messages]
 
-    return selected_messages
+    # Convert to ChatMessage objects, skipping any with validation errors
+    valid_messages = []
+    for msg in selected_messages:
+        try:
+            valid_messages.append(ChatMessage(**msg))
+        except Exception as e:
+            logger.warning(f"Skipping message {msg.get('_id')} in memory: {e}")
+
+    # Filter out cancelled tool calls from the messages
+    valid_messages = [msg.filter_cancelled_tool_calls() for msg in valid_messages]
+
+    return valid_messages

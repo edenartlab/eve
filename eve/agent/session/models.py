@@ -34,11 +34,30 @@ class Reaction(BaseModel):
 
 
 def _convert_reactions_from_dict(reactions) -> Optional[List[dict]]:
-    """Convert old dict-format reactions to new list format during model validation."""
+    """Convert old dict-format reactions to new list format during model validation.
+
+    Handles various legacy formats:
+    - None -> None
+    - [] (empty list) -> []
+    - {} (empty dict) -> []
+    - {"emoji": ["user1", "user2"]} -> [{"user_id": "user1", "reaction": "emoji"}, ...]
+    - {"user_id": ["emoji1", "emoji2"]} -> [{"user_id": "user_id", "reaction": "emoji1"}, ...]
+    - [{"user_id": "x", "reaction": "y"}] -> unchanged (already correct format)
+    """
     if reactions is None:
         return None
     if isinstance(reactions, list):
-        return reactions  # Already in correct format
+        # Already in list format - validate each item is a proper dict
+        # Filter out any malformed entries
+        valid_reactions = []
+        for item in reactions:
+            if isinstance(item, dict) and "user_id" in item and "reaction" in item:
+                valid_reactions.append(item)
+            elif isinstance(item, dict):
+                # Try to salvage partial data
+                if "user_id" in item:
+                    valid_reactions.append({"user_id": item["user_id"], "reaction": ""})
+        return valid_reactions if valid_reactions else []
     if isinstance(reactions, dict):
         if not reactions:  # Empty dict
             return []
@@ -58,7 +77,8 @@ def _convert_reactions_from_dict(reactions) -> Optional[List[dict]]:
                     uid = str(user_id) if isinstance(user_id, ObjectId) else user_id
                     result.append({"user_id": uid, "reaction": key})
         return result
-    return None
+    # For any other type, return empty list to prevent validation errors
+    return []
 
 
 class ToolCall(BaseModel):
@@ -329,7 +349,7 @@ class ChatMessage(Document):
     pinned: Optional[bool] = False
 
     content: str = ""
-    reactions: Optional[List[Reaction]] = []
+    reactions: Optional[List[Reaction]] = None
 
     attachments: Optional[List[str]] = []
     tool_calls: Optional[List[ToolCall]] = []
