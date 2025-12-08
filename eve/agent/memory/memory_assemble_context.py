@@ -395,44 +395,44 @@ async def assemble_memory_context(
             user_memory_content = ""
 
         # 2. Get agent memories (1 query)
-    agent_collective_memories = await _assemble_agent_memories(
-        agent, instrumentation=instrumentation
-    )
+        agent_collective_memories = await _assemble_agent_memories(
+            agent, instrumentation=instrumentation
+        )
 
-    # 3. Get episode memories (0-1 queries with caching)
-    episode_memories = await _get_episode_memories(
-        session, force_refresh=force_refresh, instrumentation=instrumentation
-    )
+        # 3. Get episode memories (0-1 queries with caching)
+        episode_memories = await _get_episode_memories(
+            session, force_refresh=force_refresh, instrumentation=instrumentation
+        )
 
-    # 4. Build XML context
-    memory_context = _build_memory_xml(
-        user_memory_content, agent_collective_memories, episode_memories
-    )
+        # 4. Build XML context
+        memory_context = _build_memory_xml(
+            user_memory_content, agent_collective_memories, episode_memories
+        )
 
-    # 5. Update session with cached context
-    current_time = datetime.now(timezone.utc)
-    safe_update_memory_context(
-        session,
-        {
-            "cached_memory_context": memory_context,
-            "memory_context_timestamp": current_time,
-            "agent_memory_timestamp": current_time,
-            "user_memory_timestamp": current_time,
-        },
-        skip_save=skip_save,
-    )
+        # 5. Update session with cached context
+        current_time = datetime.now(timezone.utc)
+        safe_update_memory_context(
+            session,
+            {
+                "cached_memory_context": memory_context,
+                "memory_context_timestamp": current_time,
+                "agent_memory_timestamp": current_time,
+                "user_memory_timestamp": current_time,
+            },
+            skip_save=skip_save,
+        )
 
-    if not skip_save:
-        session.save()
+        if not skip_save:
+            session.save()
 
-    total_time = time.time() - start_time
-    _log_debug(
-        "   ✓ Memory context rebuilt and cached",
-        instrumentation,
-        {"duration_s": round(total_time, 3)},
-    )
+        total_time = time.time() - start_time
+        _log_debug(
+            "   ✓ Memory context rebuilt and cached",
+            instrumentation,
+            {"duration_s": round(total_time, 3)},
+        )
 
-    if instrumentation and hasattr(stage, "annotate"):
-        stage.annotate(cache_hit=False, duration_s=total_time)
+        if instrumentation and hasattr(stage, "annotate"):
+            stage.annotate(cache_hit=False, duration_s=total_time)
 
-    return memory_context
+        return memory_context

@@ -33,6 +33,7 @@ from eve.api.api_functions import (
     cleanup_stale_busy_states,
     embed_recent_creations,
     generate_lora_thumbnails_fn,
+    process_cold_sessions_fn,
     rotate_agent_metadata_fn,
     run,
     run_task,
@@ -740,6 +741,11 @@ cleanup_stale_busy_states_modal = app.function(
 embed_recent_creations_modal = app.function(
     image=image, max_containers=1, schedule=modal.Period(minutes=5), timeout=600
 )(embed_recent_creations)
+
+
+process_cold_sessions_modal = app.function(
+    image=image, max_containers=1, schedule=modal.Period(minutes=10), timeout=3600
+)(process_cold_sessions_fn)
 
 
 ########################################################
