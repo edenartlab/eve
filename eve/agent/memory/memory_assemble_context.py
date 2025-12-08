@@ -47,7 +47,7 @@ async def _assemble_user_memory(agent: Agent, user: User, instrumentation=None) 
     user_memory = None
 
     try:
-        if not agent.user_memory_enabled:
+        if agent is None or not agent.user_memory_enabled:
             return ""
         query_start = time.time()
         user_memory = UserMemory.find_one_or_create(
@@ -157,6 +157,9 @@ async def _assemble_agent_memories(
     Returns list of memory shards with name and content.
     """
     agent_collective_memories = []
+
+    if agent is None:
+        return agent_collective_memories
 
     try:
         query_start = time.time()
