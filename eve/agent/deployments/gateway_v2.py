@@ -120,8 +120,8 @@ image = (
     )
     .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
     .env({"DB": db})
-    .env({"LOCAL_API_URL": os.getenv("LOCAL_API_URL") or ""})
-    .env({"LOCAL_USER_ID": os.getenv("LOCAL_USER_ID") or ""})
+    # .env({"LOCAL_API_URL": os.getenv("LOCAL_API_URL") or ""})
+    # .env({"LOCAL_USER_ID": os.getenv("LOCAL_USER_ID") or ""})
     .add_local_python_source("eve", ignore=[])
 )
 
@@ -1943,17 +1943,15 @@ class GatewayManager:
 
     async def load_deployments(self):
         """Load all Discord HTTP deployments from database"""
-        local_api_url = os.getenv("LOCAL_API_URL")
-        local_user_id = os.getenv("LOCAL_USER_ID")
+        local_api_url = os.getenv("EDEN_API_URL")
+        # local_user_id = os.getenv("LOCAL_USER_ID")
 
         # Base filter for Discord deployments
         deployment_filter = {"platform": ClientType.DISCORD.value}
 
         if local_api_url and local_api_url != "":
             # Local mode: just load deployments (filtered by user if specified)
-            logger.info(
-                f"LOCAL_API_URL is set ({local_api_url}), running in local mode"
-            )
+            logger.info(f"EDEN_API_URL is set ({local_api_url}), running in local mode")
         else:
             # Production mode: exclude deployments marked as local-only
             deployment_filter["$or"] = [
@@ -1961,17 +1959,6 @@ class GatewayManager:
                 {"local": {"$ne": True}},
             ]
             logger.info("Loading non-local deployments")
-
-        # Add user filter if LOCAL_USER_ID is set
-        if local_user_id:
-            try:
-                user_oid = ObjectId(local_user_id)
-                deployment_filter["user"] = user_oid
-                logger.info(f"Filtering deployments for user: {local_user_id}")
-            except Exception as e:
-                logger.error(
-                    f"Invalid LOCAL_USER_ID format: {local_user_id}, error: {e}"
-                )
 
         try:
             deployments = list(Deployment.find(deployment_filter))
@@ -2008,16 +1995,6 @@ class GatewayManager:
                 "platform": ClientType.TELEGRAM.value,
                 "$or": [{"local": {"$exists": False}}, {"local": {"$ne": True}}],
             }
-
-        # Add user filter to Telegram deployments if LOCAL_USER_ID is set
-        if local_user_id:
-            try:
-                user_oid = ObjectId(local_user_id)
-                telegram_filter["user"] = user_oid
-            except Exception as e:
-                logger.error(
-                    f"Invalid LOCAL_USER_ID format for Telegram filter: {local_user_id}, error: {e}"
-                )
 
         try:
             telegram_deployments = list(Deployment.find(telegram_filter))
