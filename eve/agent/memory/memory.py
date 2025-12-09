@@ -544,18 +544,30 @@ async def extract_memories_with_llm(
         else MEMORY_TYPES
     )
 
-    # Dynamically create model with only requested fields and max_length constraints
+    # Replace dynamic limit tokens in the prompt with actual values
+    if "directive" in active_memory_types:
+        extraction_prompt = extraction_prompt.replace(
+            DIRECTIVE_MIN_TOKEN, str(active_memory_types["directive"].min_items)
+        ).replace(DIRECTIVE_MAX_TOKEN, str(active_memory_types["directive"].max_items))
+    if "fact" in active_memory_types:
+        extraction_prompt = extraction_prompt.replace(
+            FACT_MIN_TOKEN, str(active_memory_types["fact"].min_items)
+        ).replace(FACT_MAX_TOKEN, str(active_memory_types["fact"].max_items))
+    if "suggestion" in active_memory_types:
+        extraction_prompt = extraction_prompt.replace(
+            SUGGESTION_MIN_TOKEN, str(active_memory_types["suggestion"].min_items)
+        ).replace(SUGGESTION_MAX_TOKEN, str(active_memory_types["suggestion"].max_items))
+
+    # Dynamically create model with only requested fields (no max_length validation
+    # since the LLM prompt already specifies the limits and we don't want validation
+    # failures when the LLM slightly exceeds the dynamic limits)
     fields = {}
     for element in extraction_elements:
         if element in active_memory_types:
-            memory_type = active_memory_types[element]
-            fields[element] = (
-                List[str],
-                Field(default_factory=list, max_length=memory_type.max_items),
-            )
+            fields[element] = (List[str], Field(default_factory=list))
         else:
             # Fallback for unknown memory types
-            fields[element] = (List[str], Field(default_factory=list, max_length=1))
+            fields[element] = (List[str], Field(default_factory=list))
 
     MemoryModel = create_model("MemoryExtraction", **fields)
 

@@ -10,9 +10,6 @@ from eve.agent.deployments import Deployment
 
 class X:
     def __init__(self, deployment: Deployment):
-        if os.getenv("DB") == "PROD":
-            raise ValueError("Twitter integration is not available in PROD yet")
-
         # OAuth 2.0 only mode
         self.access_token = deployment.secrets.twitter.access_token
         self.refresh_token = deployment.secrets.twitter.refresh_token
@@ -40,9 +37,6 @@ class X:
         """Refresh the OAuth 2.0 access token with race condition protection."""
         from eve.agent.session.models import Deployment
         from eve.mongo import MongoDocumentNotFound
-
-        if os.getenv("DB") == "PROD":
-            raise ValueError("Twitter integration is not available in PROD yet")
 
         logging.info(
             f"Refreshing token for deployment {self.deployment.id} (@{self.username})"
@@ -126,9 +120,6 @@ class X:
 
     def _make_request(self, method, url, **kwargs):
         """Makes a request to the Twitter API using OAuth 2.0."""
-
-        if os.getenv("DB") == "PROD":
-            raise ValueError("Twitter integration is not available in PROD yet")
 
         # Always use bearer token authentication for OAuth 2.0
         if "headers" not in kwargs:
