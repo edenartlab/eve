@@ -643,6 +643,26 @@ async def poll_twitter_gateway(local_mode: bool = False):
                         headers=headers,
                     )
                     response.raise_for_status()
+                except requests.exceptions.HTTPError as api_error:
+                    # Handle 400 Bad Request - often caused by stale since_id
+                    if response.status_code == 400 and since_id:
+                        logger.warning(
+                            f"Got 400 error with since_id={since_id}, clearing stale since_id and retrying"
+                        )
+                        persister.set_since_id("since_id:combined", None)
+                        since_id = None
+                        params.pop("since_id", None)
+                        # Retry the request without since_id
+                        response = requests.get(
+                            "https://api.twitter.com/2/tweets/search/recent",
+                            params=params,
+                            headers=headers,
+                        )
+                        response.raise_for_status()
+                    else:
+                        logger.error(f"Twitter API request failed: {api_error}")
+                        logger.error("Check TWITTER_BEARER_TOKEN validity.")
+                        raise
                 except Exception as api_error:
                     logger.error(f"Twitter API request failed: {api_error}")
                     logger.error("Check TWITTER_BEARER_TOKEN validity.")

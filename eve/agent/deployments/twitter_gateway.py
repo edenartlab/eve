@@ -576,10 +576,16 @@ class DataPersister:
         return None
 
     @staticmethod
-    def set_since_id(key: str, value: str):
-        """Set the since_id for a given query key."""
+    def set_since_id(key: str, value: Optional[str]):
+        """Set the since_id for a given query key. Pass None to delete."""
         state = State.find({"_id": key})
         now = datetime.now(timezone.utc)
+
+        if value is None:
+            # Delete the state record if value is None
+            if state:
+                state[0].delete()
+            return
 
         if state:
             state[0].value = value
