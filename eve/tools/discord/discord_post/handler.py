@@ -23,6 +23,7 @@ async def handler(context: ToolContext):
     discord_user_id = context.args.get("discord_user_id")
     content = context.args["content"]
     media_urls = context.args.get("media_urls", [])
+    reply_to = context.args.get("reply_to")
 
     # Validate parameters
     if not discord_user_id and not channel_id:
@@ -54,7 +55,7 @@ async def handler(context: ToolContext):
         else:
             # Send message to channel (existing functionality)
             return await send_channel_message(
-                client, deployment, channel_id, content, files
+                client, deployment, channel_id, content, files, reply_to
             )
 
     finally:
@@ -103,8 +104,16 @@ async def send_dm(
 ):
     """Send a direct message to a Discord user."""
     try:
+        # Validate that discord_user_id is a numeric ID
+        try:
+            user_id_int = int(discord_user_id)
+        except ValueError:
+            raise Exception(
+                f"discord_user_id must be a numeric Discord ID (e.g., '987654321'), not a username. Got: '{discord_user_id}'"
+            )
+
         # Get the user object
-        user = await client.fetch_user(int(discord_user_id))
+        user = await client.fetch_user(user_id_int)
 
         # Truncate content to 2000 characters (Discord limit)
         # Todo: make this multiple messages instead of truncating
@@ -142,6 +151,7 @@ async def send_channel_message(
     channel_id: str,
     content: str,
     files: list = None,
+    reply_to: str = None,
 ):
     """Send a message to a Discord channel (existing functionality)."""
     # Get allowed channels from deployment config
@@ -164,15 +174,32 @@ async def send_channel_message(
 
     # Get the channel and post the message with files if provided
     channel = await client.fetch_channel(int(channel_id))
+
+    # Build message reference if replying
+    reference = None
+    if reply_to:
+        reference = discord.MessageReference(
+            message_id=int(reply_to), channel_id=int(channel_id)
+        )
+
     if files:
-        message = await channel.send(content=content, files=files)
+        message = await channel.send(content=content, files=files, reference=reference)
     else:
-        message = await channel.send(content=content)
+        message = await channel.send(content=content, reference=reference)
+
+    # Build URL - handle both guild channels and DM channels
+    if hasattr(channel, "guild") and channel.guild:
+        url = (
+            f"https://discord.com/channels/{channel.guild.id}/{channel.id}/{message.id}"
+        )
+    else:
+        # DM channel
+        url = f"https://discord.com/channels/@me/{channel.id}/{message.id}"
 
     return {
         "output": [
             {
-                "url": f"https://discord.com/channels/{channel.guild.id}/{channel.id}/{message.id}",
+                "url": url,
             }
         ]
     }

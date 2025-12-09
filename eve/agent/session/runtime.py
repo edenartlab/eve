@@ -297,7 +297,7 @@ class PromptSessionRuntime:
         if system_extras:
             refreshed_messages.extend(system_extras)
         refreshed_messages.extend(fresh_messages)
-        refreshed_messages = label_message_channels(refreshed_messages)
+        refreshed_messages = label_message_channels(refreshed_messages, self.session)
         refreshed_messages = convert_message_roles(refreshed_messages, self.actor.id)
         self.llm_context.messages = refreshed_messages
         self.llm_context.metadata.generation_id = str(uuid.uuid4())

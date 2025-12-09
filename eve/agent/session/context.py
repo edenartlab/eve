@@ -59,6 +59,14 @@ farcaster_notification_template = Template("""
 {{ content }}
 """)
 
+discord_notification_template = Template("""
+│ 📨 DISCORD NOTIFICATION
+│ From: {{ username }}
+│ Message ID: {{ message_id }}
+├─────────────────────────────────────
+{{ content }}
+""")
+
 
 def find_mentioned_agents(content: str, agents: List[Agent]) -> List[Agent]:
     """Find agents mentioned in the message content.
@@ -199,6 +207,9 @@ def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
     Re-assembles messages from perspective of actor (assistant) and everyone else (user)
     """
 
+    # Social media channel types that use notification decorators instead of [name]: prefix
+    social_media_channels = {"discord", "twitter", "farcaster"}
+
     # Get sender name mapping for all messages
     sender_name_map = get_sender_id_to_sender_name_map(messages)
 
@@ -211,7 +222,15 @@ def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
         else:
             user_message = message.as_user_message()
             # Include sender name in the message content if available
-            if message.sender and message.sender in sender_name_map:
+            # Skip for social media messages - they use notification decorators instead
+            has_social_channel = (
+                message.channel and message.channel.type in social_media_channels
+            )
+            if (
+                message.sender
+                and message.sender in sender_name_map
+                and not has_social_channel
+            ):
                 sender_name = sender_name_map[message.sender]
                 # Prepend the sender name to the content
                 user_message.content = f"[{sender_name}]: {user_message.content}"
@@ -220,9 +239,13 @@ def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
     return converted_messages
 
 
-def label_message_channels(messages: List[ChatMessage]):
+def label_message_channels(messages: List[ChatMessage], session: "Session" = None):
     """
-    Prepends channel metadata to message content for Farcaster and Twitter messages
+    Prepends channel metadata to message content for Farcaster, Twitter, and Discord messages.
+
+    Args:
+        messages: List of chat messages to label
+        session: Optional session to use as fallback for determining platform
     """
     # Collect all unique sender IDs from messages
     sender_ids = list({msg.sender for msg in messages if msg.sender})
@@ -237,7 +260,19 @@ def label_message_channels(messages: List[ChatMessage]):
     # Process messages and prepend channel info for social media messages
     labeled_messages = []
     for message in messages:
-        if message.channel and message.channel.type == "farcaster" and message.sender:
+        # Only apply social media decorators to user messages
+        if message.role != "user":
+            labeled_messages.append(message)
+            continue
+
+        # Determine channel type - prefer message.channel, fallback to session.platform
+        channel_type = None
+        if message.channel and message.channel.type:
+            channel_type = message.channel.type
+        elif session and session.platform:
+            channel_type = session.platform
+
+        if channel_type == "farcaster" and message.sender:
             sender = user_map.get(message.sender)
 
             # Wrap message content in Farcaster metadata using rich template
@@ -248,13 +283,32 @@ def label_message_channels(messages: List[ChatMessage]):
                 content=message.content,
             )
 
-        elif message.channel and message.channel.type == "twitter" and message.sender:
+        elif channel_type == "twitter" and message.sender:
             sender = user_map.get(message.sender)
 
             # Wrap message content in Twitter metadata using rich template
             message.content = twitter_notification_template.render(
                 username=sender.twitterUsername if sender else "Unknown",
-                tweet_id=message.channel.key,
+                tweet_id=message.channel.key if message.channel else "Unknown",
+                content=message.content,
+            )
+
+        elif channel_type == "discord" and message.sender:
+            sender = user_map.get(message.sender)
+
+            # Wrap message content in Discord metadata using rich template
+            # channel.key contains the Discord message ID
+            # Fallback chain: discordUsername -> username -> "Unknown"
+            discord_username = "Unknown"
+            if sender:
+                discord_username = (
+                    sender.discordUsername or sender.username or "Unknown"
+                )
+            message.content = discord_notification_template.render(
+                username=discord_username,
+                message_id=message.channel.key
+                if message.channel and message.channel.key
+                else "Unknown",
                 content=message.content,
             )
 
@@ -297,6 +351,9 @@ async def build_system_message(
 
     # Build social media instructions if this is a social media platform session
     social_instructions = None
+    logger.info(
+        f"[build_system_message] session.platform={session.platform}, actor.id={actor.id}"
+    )
     if session.platform == "farcaster":
         deployment = Deployment.find_one({"agent": actor.id, "platform": "farcaster"})
         if deployment and deployment.config and deployment.config.farcaster:
@@ -318,6 +375,29 @@ async def build_system_message(
         social_instructions = social_media_template.render(
             has_twitter=True,
             twitter_instructions=twitter_instructions,
+        )
+    elif session.platform == "discord":
+        logger.info(
+            "[build_system_message] Discord platform detected, looking for deployment"
+        )
+        deployment = Deployment.find_one({"agent": actor.id, "platform": "discord"})
+        logger.info(
+            f"[build_system_message] Found deployment: {deployment.id if deployment else None}"
+        )
+        discord_instructions = ""
+        if deployment and deployment.config and deployment.config.discord:
+            discord_instructions = (
+                getattr(deployment.config.discord, "instructions", "") or ""
+            )
+        # Use discord_channel_id directly from session
+        discord_channel_id = session.discord_channel_id or ""
+        social_instructions = social_media_template.render(
+            has_discord=True,
+            discord_instructions=discord_instructions,
+            discord_channel_id=discord_channel_id,
+        )
+        logger.info(
+            f"[build_system_message] Discord social_instructions generated: {len(social_instructions) if social_instructions else 0} chars"
         )
 
     current_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -413,8 +493,16 @@ async def add_chat_message(
     )
 
     # Save channel origin info for social media platforms
-    if context.update_config:
-        if context.update_config.farcaster_hash:
+    # First check if channel is already set on the message input
+    if context.message.channel:
+        new_message.channel = context.message.channel
+    # Fallback to update_config for backwards compatibility
+    elif context.update_config:
+        if context.update_config.discord_message_id:
+            new_message.channel = Channel(
+                type="discord", key=context.update_config.discord_message_id
+            )
+        elif context.update_config.farcaster_hash:
             new_message.channel = Channel(
                 type="farcaster", key=context.update_config.farcaster_hash
             )
@@ -544,7 +632,7 @@ async def build_llm_context(
 
     existing_messages = select_messages(session)
     messages.extend(existing_messages)
-    messages = label_message_channels(messages)
+    messages = label_message_channels(messages, session)
     messages = convert_message_roles(messages, actor.id)
 
     config = copy.deepcopy(context.llm_config) if context.llm_config else None
