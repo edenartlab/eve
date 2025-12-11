@@ -6,7 +6,7 @@ tip: |-
     - For text-heavy designs (infographics, logos, signage), prefer model_preference=nano_banana or openai.
   
   Videos:
-    - If reference_images or reference_video are provided, describe only motion/camera/dynamics in the prompt and refer to the specific references; do not re-prompt static content already provided by references.
+    - If reference_images or reference_video are provided, describe only motion/camera/dynamics in the prompt and refer to the specific references; do not re-prompt existing content already provided by references.
     - Use sound_effects if you need synthesized dialogue/foley/music. Do not mix a separate audio file unless using extras.talking_head.
 
   Aspect ratio:

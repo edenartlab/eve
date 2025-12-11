@@ -21,6 +21,7 @@ from eve.agent.llm.providers import LLMProvider
 from eve.agent.llm.util import (
     calculate_cost_usd,
     serialize_context_messages,
+    truncate_base64_in_payload,
 )
 from eve.agent.session.models import (
     LLMCall,
@@ -124,10 +125,11 @@ class OpenAIProvider(LLMProvider):
                         except ValueError:
                             pass  # User not found in current DB environment
                     if should_log_llm_call:
+                        truncated_payload = truncate_base64_in_payload(request_kwargs)
                         llm_call = LLMCall(
                             provider=self.provider_name,
                             model=canonical_name,
-                            request_payload=dict(request_kwargs),
+                            request_payload=truncated_payload,
                             start_time=start_time,
                             status="pending",
                             session=ObjectId(llm_call_metadata.get("session"))
