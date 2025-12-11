@@ -948,7 +948,7 @@ class Session(Document):
     )
     title: Optional[str] = None
     session_type: Literal["passive", "natural", "automatic"] = "passive"
-    settings: SessionSettings = Field(default_factory=SessionSettings)
+    settings: Optional[SessionSettings] = Field(default_factory=SessionSettings)
     last_actor_id: Optional[ObjectId] = None
     budget: SessionBudget = SessionBudget()
     platform: Optional[
@@ -976,6 +976,14 @@ class Session(Document):
             return {}
         if isinstance(v, list):
             return {}
+        return v
+
+    @field_validator("settings", mode="before")
+    @classmethod
+    def coerce_settings_to_default(cls, v):
+        """Coerce settings to default SessionSettings if None (handles old sessions without this field)."""
+        if v is None:
+            return SessionSettings()
         return v
 
     def get_messages(self):

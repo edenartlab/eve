@@ -1,0 +1,16 @@
+{
+    "audio_tracks": [
+        {
+            "audio_url": "https://d14i3advvh2bvd.cloudfront.net/7cbef1ff064e0e5f75af22a88baaa3392ce881459f00ffd3f084f622d2aabd73.mp3",
+            "volume": 0.3
+        },
+        {
+            "audio_url": "https://d14i3advvh2bvd.cloudfront.net/da493782a91a8eeee3145e8168c817f87525abf29ed1dbb57c0c9d14584d5a2e.mp3",
+            "volume": 0.5
+        },
+        {
+            "audio_url": "https://d14i3advvh2bvd.cloudfront.net/e301d16a53f190babb4a2472b8e0af1e34e8cf8bc5318da8c3e84cf969fa43da.mp3",
+            "volume": 1.0
+        }
+    ]
+}
