@@ -79,14 +79,6 @@ async def handler(context: ToolContext):
     messages_text = messages_data.get("messages", "")
     all_attachments = messages_data.get("attachments", [])
 
-    print("MESSAGES TEXT:")
-    print(messages_text)
-    print("---")
-
-    print("ALL ATTACHMENTS:")
-    print(all_attachments)
-    print("---")
-
     if not messages_text or messages_text == "No valid session IDs provided.":
         return {
             "output": {
@@ -117,14 +109,6 @@ async def handler(context: ToolContext):
         tools=None,
     )
 
-    print("USER PROMPT:")
-    print(user_prompt)
-    print("---")
-
-    print("SYSTEM MESSAGE:")
-    print(system_message)
-    print("---")
-
     # Build LLM context with structured output
     llm_context = LLMContext(
         messages=[
@@ -137,19 +121,11 @@ async def handler(context: ToolContext):
     # Get structured response from LLM
     response = await async_prompt(llm_context)
 
-    print("RESPONSE:")
-    print(response.content)
-    print("---")
-
     # Parse the structured output
     digest = MessagesDigest(**json.loads(response.content))
 
     # Validate that returned attachments are from the available set
     valid_attachments = [url for url in digest.attachments if url in all_attachments]
-
-    print("VALID ATTACHMENTS:")
-    print(valid_attachments)
-    print("---")
 
     return {
         "output": {
