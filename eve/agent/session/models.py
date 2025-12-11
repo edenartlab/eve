@@ -976,6 +976,14 @@ class Session(Document):
             return {}
         return v
 
+    @field_validator("settings", mode="before")
+    @classmethod
+    def coerce_settings_to_default(cls, v):
+        """Coerce settings to default SessionSettings if None (handles old sessions without this field)."""
+        if v is None:
+            return SessionSettings()
+        return v
+
     def get_messages(self):
         messages = ChatMessage.find({"session": self.id})
         messages = sorted(messages, key=lambda x: x.createdAt)
