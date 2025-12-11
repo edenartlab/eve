@@ -1,4 +1,6 @@
+import copy
 import os
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from litellm import litellm
@@ -6,6 +8,114 @@ from loguru import logger
 
 from eve.agent.llm.constants import TEST_MODE_TEXT_STRING, TEST_MODE_TOOL_STRING
 from eve.agent.session.models import ChatMessage, LLMContext, ToolCall
+
+
+def _extract_image_urls_from_content(content: List[Dict[str, Any]]) -> List[str]:
+    """Extract cloudfront image URLs from text blocks in message content.
+
+    Looks for URLs in the <attachments> section like:
+    * https://dtut5r9j4w7j4.cloudfront.net/xxx.jpg
+    """
+    urls = []
+    for block in content:
+        if block.get("type") == "text":
+            text = block.get("text", "")
+            # Match cloudfront URLs in attachments section
+            matches = re.findall(
+                r"https://[a-z0-9]+\.cloudfront\.net/[^\s\n\)]+",
+                text,
+            )
+            urls.extend(matches)
+    return urls
+
+
+def truncate_base64_in_payload(
+    payload: Dict[str, Any], max_length: int = 30
+) -> Dict[str, Any]:
+    """Recursively truncate base64 image data in request payloads for storage.
+
+    Handles both Anthropic and OpenAI image formats:
+    - Anthropic: {"type": "image", "source": {"type": "base64", "data": "..."}}
+    - OpenAI: {"type": "image_url", "image_url": {"url": "data:image/...;base64,..."}}
+    - Google: {"inline_data": {"mime_type": "...", "data": "..."}}
+
+    Also adds a "url" field to truncated image sources with the original cloudfront URL
+    extracted from the attachments text block.
+    """
+    result = copy.deepcopy(payload)
+
+    # Process messages to extract URLs and add them to image blocks
+    messages = result.get("messages", [])
+    for message in messages:
+        content = message.get("content")
+        if not isinstance(content, list):
+            continue
+
+        # Extract URLs from text blocks in this message
+        image_urls = _extract_image_urls_from_content(content)
+        url_index = 0
+
+        # Process each block in the content
+        for block in content:
+            # Handle Anthropic format
+            if block.get("type") == "image" and "source" in block:
+                source = block["source"]
+                if source.get("type") == "base64" and "data" in source:
+                    data = source["data"]
+                    if isinstance(data, str) and len(data) > max_length:
+                        source["data"] = data[:max_length] + "..."
+                        # Add URL if available
+                        if url_index < len(image_urls):
+                            source["url"] = image_urls[url_index]
+                            url_index += 1
+
+            # Handle OpenAI format
+            elif block.get("type") == "image_url" and "image_url" in block:
+                image_url = block["image_url"]
+                if "url" in image_url:
+                    url = image_url["url"]
+                    if isinstance(url, str) and ";base64," in url:
+                        prefix, b64_data = url.split(";base64,", 1)
+                        if len(b64_data) > max_length:
+                            image_url["url"] = (
+                                f"{prefix};base64,{b64_data[:max_length]}..."
+                            )
+                            # Add original URL if available
+                            if url_index < len(image_urls):
+                                image_url["original_url"] = image_urls[url_index]
+                                url_index += 1
+
+            # Handle tool_result content (Anthropic)
+            elif block.get("type") == "tool_result" and isinstance(
+                block.get("content"), list
+            ):
+                tool_content = block["content"]
+                tool_image_urls = _extract_image_urls_from_content(tool_content)
+                tool_url_index = 0
+                for tool_block in tool_content:
+                    if tool_block.get("type") == "image" and "source" in tool_block:
+                        source = tool_block["source"]
+                        if source.get("type") == "base64" and "data" in source:
+                            data = source["data"]
+                            if isinstance(data, str) and len(data) > max_length:
+                                source["data"] = data[:max_length] + "..."
+                                if tool_url_index < len(tool_image_urls):
+                                    source["url"] = tool_image_urls[tool_url_index]
+                                    tool_url_index += 1
+
+    # Handle Google format in contents
+    contents = result.get("contents", [])
+    for content_item in contents:
+        parts = content_item.get("parts", [])
+        for part in parts:
+            if "inline_data" in part:
+                inline_data = part["inline_data"]
+                if "data" in inline_data:
+                    data = inline_data["data"]
+                    if isinstance(data, str) and len(data) > max_length:
+                        inline_data["data"] = data[:max_length] + "..."
+
+    return result
 
 
 def validate_input(context: LLMContext) -> None:
