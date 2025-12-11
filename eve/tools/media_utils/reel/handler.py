@@ -88,8 +88,7 @@ Follow these steps precisely:
      * Avoid redundant or conflicting references.
 
    * Generate Image Keyframes
-     * Use create with n_samples > 1 to generate multiple keyframes at the same time with consistency between them. If create tool gives you 1 image despite n_samples > 1, retry.
-     * Create keyframes in parallel whenever possible (≤ 4 simultaneous).
+     * Use create with n_samples=1 to generate keyframes individually and sequentially. Use the provided reference images and/or previous outputs as create.reference_images.
      * Retry failures.
 
    Rules:
