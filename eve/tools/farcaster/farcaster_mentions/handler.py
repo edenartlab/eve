@@ -185,7 +185,7 @@ def format_hub_mention_result(message, target_username=None):
             "text": text,
             "author_fid": fid,
             "timestamp": formatted_timestamp,
-            "url": f"https://warpcast.com/~/conversations/{cast_hash}",
+            "url": f"https://farcaster.xyz/~/conversations/{cast_hash}",
             "embeds": embeds,
             "mentioned_user": target_username,
             "raw_farcaster_timestamp": timestamp,

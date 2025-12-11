@@ -83,6 +83,54 @@ def _is_gmail_platform(platform: Any) -> bool:
     return str(platform) == ClientType.GMAIL.value
 
 
+async def fetch_discord_channel_name(channel_id: str, bot_token: str) -> Optional[str]:
+    """
+    Fetch the channel name from Discord API.
+
+    Args:
+        channel_id: Discord channel ID
+        bot_token: Bot token for authentication
+
+    Returns:
+        Channel name or None if not found
+    """
+    try:
+        async with aiohttp.ClientSession() as session:
+            headers = {"Authorization": f"Bot {bot_token}"}
+            url = f"https://discord.com/api/v10/channels/{channel_id}"
+            async with session.get(url, headers=headers) as response:
+                if response.status == 200:
+                    channel_data = await response.json()
+                    return channel_data.get("name")
+    except Exception:
+        pass
+    return None
+
+
+async def fetch_discord_guild_name(guild_id: str, bot_token: str) -> Optional[str]:
+    """
+    Fetch the guild (server) name from Discord API.
+
+    Args:
+        guild_id: Discord guild ID
+        bot_token: Bot token for authentication
+
+    Returns:
+        Guild name or None if not found
+    """
+    try:
+        async with aiohttp.ClientSession() as session:
+            headers = {"Authorization": f"Bot {bot_token}"}
+            url = f"https://discord.com/api/v10/guilds/{guild_id}"
+            async with session.get(url, headers=headers) as response:
+                if response.status == 200:
+                    guild_data = await response.json()
+                    return guild_data.get("name")
+    except Exception:
+        pass
+    return None
+
+
 logger = logging.getLogger(__name__)
 root_dir = Path(__file__).parent.parent.parent.parent
 
@@ -262,11 +310,12 @@ def deployment_can_write_to_channel(deployment: Deployment, channel_id: str) -> 
 async def backfill_discord_channel(
     session: Session,
     channel_id: str,
+    guild_id: Optional[str],
     token: str,
     agent: Agent,
     deployment: Deployment,
-    max_messages: int = 100,
-    max_days: int = 7,
+    max_messages: int = 200,
+    max_days: int = 90,
 ) -> int:
     """
     Backfill a session with recent channel history.
@@ -274,6 +323,7 @@ async def backfill_discord_channel(
     Args:
         session: Eve session to backfill
         channel_id: Discord channel ID
+        guild_id: Discord guild ID (None for DMs)
         token: Bot token for API calls
         agent: The agent this session belongs to
         deployment: The agent's deployment
@@ -346,6 +396,16 @@ async def backfill_discord_channel(
                 logger.info(f"[backfill] Skipping duplicate discord_id={message_id}")
                 continue
 
+            # Build Discord message URL
+            if guild_id:
+                discord_url = (
+                    f"https://discord.com/channels/{guild_id}/{channel_id}/{message_id}"
+                )
+            else:
+                discord_url = (
+                    f"https://discord.com/channels/@me/{channel_id}/{message_id}"
+                )
+
             # Create ChatMessage
             logger.info(
                 f"[backfill] Adding message discord_id={message_id}, role={role}, content_preview={content[:50] if content else '(empty)'}..."
@@ -353,7 +413,7 @@ async def backfill_discord_channel(
             chat_message = ChatMessage(
                 createdAt=timestamp,
                 session=session.id,
-                channel=Channel(type="discord", key=message_id),
+                channel=Channel(type="discord", key=message_id, url=discord_url),
                 role=role,
                 content=content or "...",
                 sender=sender.id,
@@ -459,13 +519,74 @@ async def process_discord_message_for_agent(
                 session.update(discord_channel_id=channel_id)
             if session.deleted:
                 session.update(deleted=False, status="active")
+
+            # Check if session title needs updating (migrate old titles like "Discord #123")
+            logger.info(
+                f"[{trace_id}] Checking session title update for channel_id={channel_id}, guild_id={guild_id}"
+            )
+
+            if guild_id:
+                # Guild channel - use "Guild: Channel" format
+                channel_name = await fetch_discord_channel_name(
+                    channel_id, deployment.secrets.discord.token
+                )
+                logger.info(f"[{trace_id}] Fetched channel_name={channel_name}")
+                guild_name = await fetch_discord_guild_name(
+                    guild_id, deployment.secrets.discord.token
+                )
+                logger.info(f"[{trace_id}] Fetched guild_name={guild_name}")
+
+                if guild_name and channel_name:
+                    expected_title = f"{guild_name}: {channel_name}"
+                elif channel_name:
+                    expected_title = channel_name
+                else:
+                    expected_title = None
+            else:
+                # DM - use the author's username
+                expected_title = author_username
+
+            logger.info(
+                f"[{trace_id}] Current title='{session.title}', expected_title='{expected_title}'"
+            )
+            if expected_title and session.title != expected_title:
+                old_title = session.title
+                session.update(title=expected_title)
+                logger.info(
+                    f"[{trace_id}] Updated session title from '{old_title}' to '{expected_title}'"
+                )
+            else:
+                logger.info(
+                    f"[{trace_id}] Session title unchanged (already matches or no expected title)"
+                )
+
             logger.info(f"[{trace_id}] Found existing session: {session.id}")
         except MongoDocumentNotFound:
+            # Build session title based on channel type
+            if guild_id:
+                # Guild channel - use "Guild: Channel" format
+                channel_name = await fetch_discord_channel_name(
+                    channel_id, deployment.secrets.discord.token
+                )
+                guild_name = await fetch_discord_guild_name(
+                    guild_id, deployment.secrets.discord.token
+                )
+
+                if guild_name and channel_name:
+                    session_title = f"{guild_name}: {channel_name}"
+                elif channel_name:
+                    session_title = channel_name
+                else:
+                    session_title = f"#{channel_id}"
+            else:
+                # DM - use the author's username
+                session_title = author_username
+
             # Create new session
             session = Session(
                 owner=agent.owner,
                 agents=[agent.id],
-                title=f"Discord #{channel_id}",
+                title=session_title,
                 session_key=session_key,
                 platform="discord",
                 discord_channel_id=channel_id,
@@ -476,12 +597,20 @@ async def process_discord_message_for_agent(
             is_new_session = True
             logger.info(f"[{trace_id}] Created new session: {session.id}")
 
+        # Build Discord message URL
+        if guild_id:
+            discord_url = (
+                f"https://discord.com/channels/{guild_id}/{channel_id}/{message_id}"
+            )
+        else:
+            discord_url = f"https://discord.com/channels/@me/{channel_id}/{message_id}"
+
         # Create prompt context
         prompt_context = PromptSessionContext(
             session=session,
             initiating_user_id=str(user.id),
             message=ChatMessageRequestInput(
-                channel=Channel(type="discord", key=message_id),
+                channel=Channel(type="discord", key=message_id, url=discord_url),
                 content=content or "...",
                 sender_name=author_username,
                 attachments=media_urls if media_urls else None,
@@ -528,6 +657,7 @@ async def process_discord_message_for_agent(
                 await backfill_discord_channel(
                     session=session,
                     channel_id=channel_id,
+                    guild_id=guild_id,
                     token=deployment.secrets.discord.token,
                     agent=agent,
                     deployment=deployment,

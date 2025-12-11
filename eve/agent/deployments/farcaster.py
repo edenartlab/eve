@@ -123,7 +123,7 @@ async def post_cast(
 
         cast_info = {
             "hash": cast_hash,
-            "url": f"https://warpcast.com/{username}/{cast_hash}"
+            "url": f"https://farcaster.xyz/{username}/{cast_hash}"
             if username and cast_hash
             else None,
             "thread_hash": thread_hash,
@@ -140,7 +140,7 @@ async def post_cast(
         cast_hash = result.cast.hash
         cast_info = {
             "hash": cast_hash,
-            "url": f"https://warpcast.com/{user_info.username}/{cast_hash}",
+            "url": f"https://farcaster.xyz/{user_info.username}/{cast_hash}",
             "thread_hash": result.cast.thread_hash,
         }
         logger.info(f"Successfully posted cast via mnemonic: {cast_info}")
@@ -332,7 +332,7 @@ async def process_farcaster_cast(
                 # owner=user.id,
                 owner=agent.owner,
                 agents=[agent.id],
-                title="Farcaster session",
+                title=f"@{author_username}",
                 session_key=session_key,
                 platform="farcaster",
                 status="active",
@@ -371,10 +371,17 @@ async def process_farcaster_cast(
                                 author_fid_, author_username_
                             )
 
+                        # Build Farcaster URL
+                        farcaster_url = (
+                            f"https://farcaster.xyz/{author_username_}/{cast_hash_}"
+                        )
+
                         message = ChatMessage(
                             createdAt=created_at,
                             session=session.id,
-                            channel=Channel(type="farcaster", key=cast_hash_),
+                            channel=Channel(
+                                type="farcaster", key=cast_hash_, url=farcaster_url
+                            ),
                             role=role,
                             content=text_,
                             sender=cast_user.id,
@@ -394,12 +401,15 @@ async def process_farcaster_cast(
         # Load farcaster tool
         farcaster_tool = Tool.load("farcaster_cast")
 
+        # Build Farcaster URL
+        farcaster_url = f"https://farcaster.xyz/{author_username}/{cast_hash}"
+
         # Create prompt context
         prompt_context = PromptSessionContext(
             session=session,
             initiating_user_id=str(user.id),
             message=ChatMessageRequestInput(
-                channel=Channel(type="farcaster", key=cast_hash),
+                channel=Channel(type="farcaster", key=cast_hash, url=farcaster_url),
                 content=content,
                 sender_name=author_username,
                 attachments=media_urls if media_urls else None,

@@ -19,7 +19,16 @@ def _discover_tools(subfolder: str):
 
 
 OUTPUT_TYPES = Literal[
-    "boolean", "string", "integer", "float", "array", "image", "video", "audio", "lora"
+    "boolean",
+    "string",
+    "integer",
+    "float",
+    "array",
+    "image",
+    "video",
+    "audio",
+    "lora",
+    "object",
 ]
 
 HANDLERS = Literal["local", "modal", "comfyui", "replicate", "gcp", "fal", "mcp"]

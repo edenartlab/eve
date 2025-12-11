@@ -1,0 +1,25 @@
+name: Get Messages
+description: Retrieve chat messages from one or more sessions within a specified time window
+tip: Use this tool to get conversation history from Eden sessions. Returns formatted message text for each session.
+cost_estimate: 0
+output_type: object
+active: true
+handler: modal
+visible: false
+parameters:
+  session_ids:
+    type: array
+    label: Session IDs
+    description: Array of session ObjectIds to retrieve messages from
+    tip: Provide one or more session IDs (as strings) to fetch messages from
+    required: true
+    items:
+      type: string
+  hours:
+    type: number
+    label: Hours
+    description: Number of hours to look back from now
+    tip: Messages older than this many hours will not be included
+    default: 24
+    minimum: 1
+    maximum: 720

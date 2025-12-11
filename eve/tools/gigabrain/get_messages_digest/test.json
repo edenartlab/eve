@@ -1,0 +1,11 @@
+{
+    "agent_id": "69366bd16ab3a4e06604f629",
+    "session_ids": [
+        "693a2a3642e97d19d43e87c8",
+        "693a224a133190136e69b0d7",
+        "693a0b7154cc50c98e1065f7",
+        "6937f11d88fb49bd285e116c"
+    ],
+    "hours": 24,
+    "instructions": "find the post that says 'talkin about the quacks of life!' by Marzipan. provide the discord post URL and any image attachments that were posted with it or around that time"
+}

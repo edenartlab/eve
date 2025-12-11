@@ -110,8 +110,8 @@ async def fetch_discord_channel_history(
 async def fetch_discord_channel_history_full(
     channel_id: str,
     token: str,
-    max_messages: int = 100,
-    max_days: int = 7,
+    max_messages: int = 200,
+    max_days: int = 90,
 ) -> List[Dict[str, Any]]:
     """
     Fetch full channel history with pagination, respecting limits.

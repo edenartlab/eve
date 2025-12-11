@@ -239,6 +239,7 @@ class EdenMessageData(BaseModel):
 class Channel(Document):
     type: Literal["eden", "discord", "telegram", "twitter", "farcaster", "app"]
     key: Optional[str] = None
+    url: Optional[str] = None  # Permanent link to the message on the platform
 
 
 class TokenUsageBreakdown(BaseModel):
