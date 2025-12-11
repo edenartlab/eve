@@ -55,25 +55,31 @@ To make it, you **plan, orchestrate, and execute multi-clip video productions** 
 
 ### **Heuristic Workflow**
 
+Follow these steps precisely:
 
 1. **Generate Audio first**
 
-   Choose one:
+   Choose **one**:
 
    * **Vocals only** (dialogue/VO/monologue) via elevenlabs. Target **50–300 words** (~30–180s).
    * **Music only** via eleveblabs_music. If no vocals were previously made, you may specify lyrics for the music, if you want them. Or do instrumental if it's more appropriate.
-   * **Vocals and Music**. Make the vocals first, using elevenlabs; then make the music using eleveblabs_music, at **5–10s longer** than the vocals, and keep it **instrumental** (no duplicate singing).
+   * **Vocals and Music**. Make the vocals first, using elevenlabs; then make the music using eleveblabs_music, at **5–10s longer** than the vocals, and keep it **instrumental** (no duplicate singing). Combine the two using audio_mix or the media_editor tool (request to use audio_mix tool in the instructions).
    * **Foley/Ambience only/Silent**, in which case, no separate audio track is produced (foley is handled later by the video tool).
+
+   Rules:
+   - If you are making both vocals and music, make the vocals first, and then make the music to match the duration of the vocals + 5-10s. **Make sure** they match.
+   - Remember: if you have either vocals or music or both, make sure to later generate videos **without audio** so as to not interfere with the audio track you're making here in the first step.
+   - If you make multiple audio tracks that need to be combined, remember to mix them together before proceeding.
 
 3. **Compute Duration**
 
-   * If **vocals** exist: `duration = vocals_length + 10s` (the 10s is for silence padding).
-   * Else if **music** exists: `duration = music_length`.
+   * If you produced an audio track in step 1, use its duration as the total duration of the following steps.
    * Else (no vocals/music): pick **60–180s** guided by scope/grandiosity.
 
 4. **Storyboard (Image Keyframes)**
 
-   * Divide total duration into 5 s clips → N = ceil(duration / 5).
+   * You obtained total duration from step 2, as the duration of the audio produced in the previous step, if there was any, or else you just pick a good duration. Stick to it.
+   * Divide this duration into 5 s clips → N = ceil(duration / 5).
    * For each clip:
 
      * Select **1–2** reference images typically; **0** loses consistency, **>2** risks repetition/incoherence.
@@ -86,18 +92,23 @@ To make it, you **plan, orchestrate, and execute multi-clip video productions** 
      * Create keyframes in parallel whenever possible (≤ 4 simultaneous).
      * Retry failures.
 
+   Rules:
+   - **Very important**: you **must** match the number of keyframes to how many 5-second clips fit into the duration calculated in step 2 (round up).
+
 5. **Image-to-Video Conversion**
 
    * Use `create` again for each keyframe (5 s each, consistent aspect ratio).
    * The prompt focuses on **camera + subject motion**, timing, transitions (e.g., “slow dolly-in, 2-second hold, quick cut”).
    * Use only one reference image for each video, reference_images[0] = the corresponding keyframe from step 4.
+   * If you produced audio in step 1, leave the sound_effects field blank/empty/null! If there is no audio, create sound_effects for each video.
    * Parallelize **up to 4** concurrent Create calls. All the videos are independent should be made simultaneously whenever possible.
 
 6. **Edit & Assemble**
 
-   * Concatenate all clips in order using media_editor tool.
-   * Mix generated audio. Use media_editor. If you have multiple audio tracks (e.g. music and vocals), remember to include **all** of them.
-   * Do not worry about fade or volume adjustments. Just mix the audio track(s) in the form they come out.
+   * Concatenate all video clips in order using media_editor tool.
+   * If the video you produced in step 6 is verys significantly (e.g. 20+% longer or shorter than the audio), you did something wrong. Try to fix it before going to assembly.
+   * Mix generated audio from step 1. Use media_editor, requesting audio_video_combine in the instructions.
+   * Do not worry about fade or volume adjustments. Just mix the audio track(s) in the form they come out. Do not create clip transitions. Just concatenate the clips and mix the audio.
    * Be careful not to mix the same audio track in twice--sequential runs of this tool keep previous audio tracks.
    * Output a single cohesive multi-clip video.
 

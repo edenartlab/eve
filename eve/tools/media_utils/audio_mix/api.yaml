@@ -1,0 +1,23 @@
+name: Mix audio tracks
+description: Mix multiple audio tracks into a single audio file with volume control and normalization
+cost_estimate: 0.1
+output_type: audio
+active: true
+handler: modal
+visible: false
+parameters:
+  audio_tracks:
+    type: array
+    items:
+      type: object
+      properties:
+        audio_url:
+          type: string
+          description: URL of the audio file
+        volume:
+          type: number
+          description: Relative volume level (0-1)
+    label: Audio tracks
+    description: Array of audio tracks with their relative volume levels
+    tip: Each track has an audio_url and volume (0-1). Tracks are normalized before mixing according to volume ratios.
+    required: true
