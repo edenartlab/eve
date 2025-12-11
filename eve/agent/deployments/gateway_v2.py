@@ -18,6 +18,7 @@ import eve.mongo
 from eve.agent.agent import Agent
 from eve.agent.deployments.discord_gateway import (
     DiscordMessage,
+    convert_discord_mentions_to_usernames,
     fetch_discord_channel_history_full,
     get_or_create_discord_message,
     unpack_discord_message,
@@ -238,6 +239,26 @@ async def find_all_following_deployments(channel_id: str) -> List[Deployment]:
     return following
 
 
+def deployment_can_write_to_channel(deployment: Deployment, channel_id: str) -> bool:
+    """
+    Check if a deployment has write access to a channel.
+
+    Args:
+        deployment: The deployment to check
+        channel_id: Discord channel ID
+
+    Returns:
+        True if the channel is in the deployment's channel_allowlist (write access)
+    """
+    if not deployment.config or not deployment.config.discord:
+        return False
+
+    channel_allowlist = deployment.config.discord.channel_allowlist or []
+    allowed_ids = [str(item.id) for item in channel_allowlist if item]
+
+    return channel_id in allowed_ids
+
+
 async def backfill_discord_channel(
     session: Session,
     channel_id: str,
@@ -290,6 +311,14 @@ async def backfill_discord_channel(
                 reply_to_id,
             ) = unpack_discord_message(msg)
 
+            # Convert Discord mentions to readable @username format
+            content = convert_discord_mentions_to_usernames(
+                content=content,
+                mentions_data=msg.get("mentions"),
+                bot_discord_id=deployment.secrets.discord.application_id,
+                bot_name=agent.name,
+            )
+
             # Skip empty messages
             if not content and not media_urls:
                 continue
@@ -306,7 +335,21 @@ async def backfill_discord_channel(
                 role = "user"
                 sender = User.from_discord(author_id, author_username)
 
+            # Check if this message already exists in the session (avoid duplicates)
+            existing = ChatMessage.find_one(
+                {
+                    "session": session.id,
+                    "channel.key": message_id,
+                }
+            )
+            if existing:
+                logger.info(f"[backfill] Skipping duplicate discord_id={message_id}")
+                continue
+
             # Create ChatMessage
+            logger.info(
+                f"[backfill] Adding message discord_id={message_id}, role={role}, content_preview={content[:50] if content else '(empty)'}..."
+            )
             chat_message = ChatMessage(
                 createdAt=timestamp,
                 session=session.id,
@@ -386,6 +429,14 @@ async def process_discord_message_for_agent(
             reply_to_id,
         ) = unpack_discord_message(message_data)
 
+        # Convert Discord mentions to readable @username format
+        content = convert_discord_mentions_to_usernames(
+            content=content,
+            mentions_data=message_data.get("mentions"),
+            bot_discord_id=deployment.secrets.discord.application_id,
+            bot_name=agent.name,
+        )
+
         # Get or create user
         user = User.from_discord(author_id, author_username)
 
@@ -425,19 +476,6 @@ async def process_discord_message_for_agent(
             is_new_session = True
             logger.info(f"[{trace_id}] Created new session: {session.id}")
 
-        # Backfill if new session
-        if is_new_session and guild_id:  # Only backfill for guild channels, not DMs
-            try:
-                await backfill_discord_channel(
-                    session=session,
-                    channel_id=channel_id,
-                    token=deployment.secrets.discord.token,
-                    agent=agent,
-                    deployment=deployment,
-                )
-            except Exception as e:
-                logger.error(f"[{trace_id}] Error backfilling channel: {e}")
-
         # Create prompt context
         prompt_context = PromptSessionContext(
             session=session,
@@ -462,8 +500,16 @@ async def process_discord_message_for_agent(
             discord_post_tool = Tool.load("discord_post")
             prompt_context.extra_tools = {"discord_post": discord_post_tool}
 
+        logger.info(
+            f"[{trace_id}] About to add_chat_message for discord_message_id={message_id}"
+        )
+
         # Add user message to session
         message = await add_chat_message(session, prompt_context)
+
+        logger.info(
+            f"[{trace_id}] Added chat message: eve_message_id={message.id}, discord_message_id={message_id}"
+        )
 
         # Track in DiscordMessage collection
         get_or_create_discord_message(
@@ -476,9 +522,28 @@ async def process_discord_message_for_agent(
         # Increment message count
         increment_message_count(user.id)
 
+        # Backfill if new session (do this AFTER adding current message so backfill can skip it)
+        if is_new_session and guild_id:  # Only backfill for guild channels, not DMs
+            try:
+                await backfill_discord_channel(
+                    session=session,
+                    channel_id=channel_id,
+                    token=deployment.secrets.discord.token,
+                    agent=agent,
+                    deployment=deployment,
+                )
+            except Exception as e:
+                logger.error(f"[{trace_id}] Error backfilling channel: {e}")
+
+        logger.info(
+            f"[{trace_id}] should_prompt={should_prompt} - about to decide whether to prompt LLM"
+        )
+
         # If should_prompt, run the LLM
         if should_prompt:
-            logger.info(f"[{trace_id}] Prompting agent {agent.username} to respond")
+            logger.info(
+                f"[{trace_id}] >>> PROMPTING agent {agent.username} to respond <<<"
+            )
 
             # Build LLM context
             llm_context = await build_llm_context(
@@ -503,6 +568,8 @@ async def process_discord_message_for_agent(
             logger.info(
                 f"[{trace_id}] Agent {agent.username} generated {len(new_messages)} messages"
             )
+        else:
+            logger.info(f"[{trace_id}] >>> NOT prompting (should_prompt=False) <<<")
 
         return {
             "status": "completed",
@@ -1262,55 +1329,72 @@ class DiscordGatewayClient:
             )
             return
 
-        # Find ALL deployments following this channel
-        following_deployments = await find_all_following_deployments(channel_id)
+        # Check if THIS deployment follows this channel (read or write)
+        deployment = self.deployment
+        if not deployment or not deployment.config or not deployment.config.discord:
+            logger.debug(f"[{trace_id}] No valid deployment config")
+            return
 
-        if not following_deployments:
-            logger.debug(f"[{trace_id}] No deployments follow channel {channel_id}")
+        # Check if channel is in allowlist (write) or read_access (read-only)
+        can_write = deployment_can_write_to_channel(deployment, channel_id)
+        channel_allowlist = deployment.config.discord.channel_allowlist or []
+        read_access = deployment.config.discord.read_access_channels or []
+        allowed_ids = [str(item.id) for item in channel_allowlist if item]
+        read_ids = [str(item.id) for item in read_access if item]
+        all_following_ids = set(allowed_ids + read_ids)
+
+        logger.info(
+            f"[{trace_id}] Channel check: channel_id={channel_id}, allowed_ids={allowed_ids}, read_ids={read_ids}, can_write={can_write}"
+        )
+
+        if channel_id not in all_following_ids:
+            logger.info(
+                f"[{trace_id}] Deployment {deployment.id} does NOT follow channel {channel_id}, skipping"
+            )
             return
 
         logger.info(
-            f"[{trace_id}] Found {len(following_deployments)} deployments following channel {channel_id}"
+            f"[{trace_id}] Deployment {deployment.id} follows channel {channel_id} (can_write={can_write})"
         )
 
         # Parse mentioned agents
         mentioned_agent_ids = self._parse_mentioned_agents(data)
-        logger.info(f"[{trace_id}] Mentioned agent IDs: {mentioned_agent_ids}")
+        agent_id = str(deployment.agent)
+        is_mentioned = agent_id in mentioned_agent_ids
 
-        # Process for each following deployment in parallel
-        tasks = []
-        for deployment in following_deployments:
-            agent_id = str(deployment.agent)
-            should_prompt = agent_id in mentioned_agent_ids
+        logger.info(
+            f"[{trace_id}] Mentioned agent IDs: {mentioned_agent_ids}, this agent: {agent_id}, is_mentioned={is_mentioned}"
+        )
 
+        # Only prompt if agent was mentioned AND has write access to the channel
+        should_prompt = is_mentioned and can_write
+
+        logger.info(
+            f"[{trace_id}] DECISION: is_mentioned={is_mentioned}, can_write={can_write}, should_prompt={should_prompt}"
+        )
+
+        if not can_write and is_mentioned:
             logger.info(
-                f"[{trace_id}] Processing for agent {agent_id}, should_prompt={should_prompt}"
+                f"[{trace_id}] Agent mentioned but channel is READ-ONLY, will NOT prompt"
             )
 
-            tasks.append(
-                process_discord_message_for_agent(
-                    message_data=data,
-                    deployment=deployment,
-                    channel_id=channel_id,
-                    guild_id=guild_id,
-                    should_prompt=should_prompt,
-                    trace_id=f"{trace_id}-{agent_id[:8]}",
-                )
+        result = await process_discord_message_for_agent(
+            message_data=data,
+            deployment=deployment,
+            channel_id=channel_id,
+            guild_id=guild_id,
+            should_prompt=should_prompt,
+            trace_id=trace_id,
+        )
+
+        if isinstance(result, Exception):
+            logger.error(
+                f"[{trace_id}] Error processing for deployment {deployment.id}: {result}"
             )
-
-        # Run all tasks in parallel
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        # Log results
-        for deployment, result in zip(following_deployments, results):
-            if isinstance(result, Exception):
-                logger.error(
-                    f"[{trace_id}] Error processing for deployment {deployment.id}: {result}"
-                )
-            else:
-                logger.info(
-                    f"[{trace_id}] Processed for deployment {deployment.id}: {result}"
-                )
+        else:
+            logger.info(
+                f"[{trace_id}] Processed for deployment {deployment.id}: {result}"
+            )
 
         # Mark message as processed (primary deduplication)
         try:

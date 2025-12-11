@@ -5,6 +5,7 @@ Provides MongoDB models for tracking Discord messages and helper functions
 for message backfilling and media handling.
 """
 
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -329,3 +330,131 @@ def get_or_create_discord_message(
     )
     discord_msg.save()
     return discord_msg
+
+
+# ============================================================================
+# MENTION CONVERSION FUNCTIONS
+# ============================================================================
+
+# Regex pattern for Discord user mentions: <@123456789> or <@!123456789>
+DISCORD_MENTION_PATTERN = re.compile(r"<@!?(\d+)>")
+
+
+def convert_discord_mentions_to_usernames(
+    content: str,
+    mentions_data: Optional[List[Dict[str, Any]]] = None,
+    bot_discord_id: Optional[str] = None,
+    bot_name: Optional[str] = None,
+) -> str:
+    """
+    Convert Discord mention format (<@discord_id>) to readable @username format.
+
+    This makes messages readable to the LLM by replacing Discord's mention syntax
+    with human-readable usernames.
+
+    Args:
+        content: Message content with Discord mentions
+        mentions_data: List of mentioned user objects from Discord API
+        bot_discord_id: The bot's Discord application ID (to convert self-mentions)
+        bot_name: The bot/agent name to use for self-mentions
+
+    Returns:
+        Content with mentions converted to @username format
+
+    Example:
+        "hey <@1258028681138540626> say my name" -> "hey chiba say my name"
+    """
+    if not content:
+        return content
+
+    # Build a mapping of discord_id -> username from mentions data
+    mention_map = {}
+    if mentions_data:
+        for mention in mentions_data:
+            discord_id = mention.get("id")
+            username = mention.get("username")
+            if discord_id and username:
+                mention_map[discord_id] = username
+
+    # Add bot mapping if provided
+    if bot_discord_id and bot_name:
+        mention_map[bot_discord_id] = bot_name
+
+    def replace_mention(match):
+        discord_id = match.group(1)
+
+        # First check our mention map (from Discord API data)
+        if discord_id in mention_map:
+            return mention_map[discord_id]
+
+        # Try to look up user from database
+        from eve.user import User
+
+        try:
+            user = User.find_one({"discordId": discord_id})
+            if user and user.discordUsername:
+                return user.discordUsername
+            elif user and user.username:
+                return user.username
+        except Exception:
+            pass
+
+        # Fallback: keep original mention but log it
+        logger.debug(f"Could not resolve Discord mention for ID: {discord_id}")
+        return match.group(0)
+
+    return DISCORD_MENTION_PATTERN.sub(replace_mention, content)
+
+
+def convert_usernames_to_discord_mentions(content: str) -> str:
+    """
+    Convert @username format back to Discord mention format (<@discord_id>).
+
+    This converts human-readable usernames in agent responses back to proper
+    Discord mentions before posting.
+
+    Args:
+        content: Message content with @username mentions
+
+    Returns:
+        Content with usernames converted to Discord mention format
+
+    Example:
+        "hey @chiba how are you" -> "hey <@1258028681138540626> how are you"
+    """
+    if not content:
+        return content
+
+    from eve.user import User
+
+    # Pattern to match @username (word characters, allowing underscores and numbers)
+    # Be careful not to match email addresses or URLs
+    username_pattern = re.compile(r"(?<![/\w])@(\w+)(?!\.\w)")
+
+    def replace_username(match):
+        username = match.group(1)
+
+        # Try to find user by discordUsername first
+        try:
+            user = User.find_one({"discordUsername": username})
+            if user and user.discordId:
+                return f"<@{user.discordId}>"
+
+            # Try case-insensitive match
+            user = User.find_one(
+                {
+                    "discordUsername": {
+                        "$regex": f"^{re.escape(username)}$",
+                        "$options": "i",
+                    }
+                }
+            )
+            if user and user.discordId:
+                return f"<@{user.discordId}>"
+        except Exception as e:
+            logger.debug(f"Error looking up user {username}: {e}")
+
+        # Fallback: keep as @username (won't ping but readable)
+        return match.group(0)
+
+    return username_pattern.sub(replace_username, content)

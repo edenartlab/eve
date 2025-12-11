@@ -6,6 +6,7 @@ import discord
 from loguru import logger
 
 from eve.agent.agent import Agent
+from eve.agent.deployments.discord_gateway import convert_usernames_to_discord_mentions
 from eve.agent.session.models import Deployment
 from eve.tool import ToolContext
 
@@ -32,6 +33,10 @@ async def handler(context: ToolContext):
     # Content can be empty only if media URLs are provided
     if (not content or not content.strip()) and not media_urls:
         raise Exception("Either content or media_urls must be provided")
+
+    # Convert @username mentions to Discord <@id> format before sending
+    if content:
+        content = convert_usernames_to_discord_mentions(content)
 
     # Create Discord client
     client = discord.Client(intents=discord.Intents.default())
