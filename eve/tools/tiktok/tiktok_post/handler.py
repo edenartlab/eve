@@ -2,8 +2,8 @@ import asyncio
 import json
 import re
 import tempfile
-from datetime import datetime, timedelta
-from typing import Any, Dict
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, Optional
 
 import requests
 from loguru import logger
@@ -39,8 +39,16 @@ async def handler(context: ToolContext):
     tiktok_secrets = deployment.secrets.tiktok
     access_token = tiktok_secrets.access_token
 
-    # Check if token needs refresh
-    if tiktok_secrets.expires_at and tiktok_secrets.expires_at < datetime.now():
+    # Check if token needs refresh (normalize to aware datetimes)
+    def _as_aware(dt: Optional[datetime]):
+        if dt is None:
+            return None
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+    now = datetime.now(timezone.utc)
+    expires_at = _as_aware(tiktok_secrets.expires_at)
+
+    if expires_at and expires_at < now:
         # Refresh token
         if tiktok_secrets.refresh_token:
             new_tokens = await _refresh_token(tiktok_secrets.refresh_token)
@@ -50,7 +58,7 @@ async def handler(context: ToolContext):
             # Update deployment with new tokens
             tiktok_secrets.access_token = new_tokens["access_token"]
             tiktok_secrets.refresh_token = new_tokens["refresh_token"]
-            tiktok_secrets.expires_at = datetime.now() + timedelta(
+            tiktok_secrets.expires_at = datetime.now(timezone.utc) + timedelta(
                 seconds=new_tokens["expires_in"]
             )
             deployment.save()
@@ -155,24 +163,26 @@ async def handler(context: ToolContext):
             "publicaly_available_post_id", []
         )
 
+        username = tiktok_secrets.username
+        # Prefer fresh username; persist if missing
+        fresh_username = await _get_tiktok_username(access_token)
+        if fresh_username:
+            username = fresh_username
+            if not tiktok_secrets.username:
+                tiktok_secrets.username = fresh_username
+                deployment.save()
+
         if publicaly_available_post_id and len(publicaly_available_post_id) > 0:
             # We have the actual video ID - construct the proper TikTok URL
             video_id = publicaly_available_post_id[0]
-            if tiktok_secrets.username:
-                tiktok_url = f"https://www.tiktok.com/@{tiktok_secrets.username}/video/{video_id}"
+            if username:
+                tiktok_url = f"https://www.tiktok.com/@{username}/video/{video_id}"
             else:
                 # Fallback URL format without username
                 tiktok_url = f"https://www.tiktok.com/video/{video_id}"
         else:
             # Video is still processing or we don't have the ID yet
-            # Get username from TikTok API first
-            username = await _get_tiktok_username(access_token)
-
-            if not username:
-                # Try to get from stored secrets as fallback
-                username = getattr(tiktok_secrets, "username", None)
-
-            # Try Display API as fallback
+            # Try Display API (requires video.list scope) to get share_url
             display_api_url = await _try_get_video_url_from_display_api(
                 access_token, username
             )
@@ -180,7 +190,7 @@ async def handler(context: ToolContext):
             if display_api_url:
                 tiktok_url = display_api_url
             else:
-                # Final fallback - in prod with public posts, this should rarely be needed
+                # Final fallback - provide profile URL if we have a handle
                 tiktok_url = (
                     f"https://www.tiktok.com/@{username}"
                     if username
