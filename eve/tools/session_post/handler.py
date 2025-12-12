@@ -138,12 +138,18 @@ async def handler(context: ToolContext):
     session = Session.from_mongo(session_id)
 
     if context.args.get("role") == "assistant":
+        attachments = context.args.get("attachments") or []
+        if attachments:
+            from eve.s3 import upload_attachments_to_eden
+
+            attachments = await upload_attachments_to_eden(attachments)
+
         new_message = ChatMessage(
             role="assistant",
             sender=agent.id,
             session=session.id,
             content=context.args.get("content"),
-            attachments=context.args.get("attachments") or [],
+            attachments=attachments,
         )
         prompt_context = PromptSessionContext(
             session=session,
@@ -176,11 +182,8 @@ async def handler(context: ToolContext):
             return result
 
         else:
-            # Otherwise, just add the message manually, but don't prompt
-            new_message = ChatMessage(
+            new_message = ChatMessageRequestInput(
                 role=context.args.get("role"),
-                sender=user.id,
-                session=session.id,
                 content=context.args.get("content"),
                 attachments=context.args.get("attachments") or [],
             )

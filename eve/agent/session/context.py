@@ -481,12 +481,19 @@ async def add_chat_message(
         else None
     )
 
+    # Ensure all attachments are on Eden
+    attachments = context.message.attachments or []
+    if attachments:
+        from eve.s3 import upload_attachments_to_eden
+
+        attachments = await upload_attachments_to_eden(attachments)
+
     new_message = ChatMessage(
         session=session.id,
         sender=ObjectId(str(context.initiating_user_id)),
         role=context.message.role,
         content=context.message.content,
-        attachments=context.message.attachments or [],
+        attachments=attachments,
         trigger=context.trigger,
         apiKey=ObjectId(context.api_key_id) if context.api_key_id else None,
         triggering_user=triggering_user_id,
