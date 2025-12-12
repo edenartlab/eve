@@ -1079,6 +1079,7 @@ class ClientType(Enum):
     GMAIL = "gmail"
     EMAIL = "email"
     APP = "app"
+    GOOGLE_CALENDAR = "google_calendar"
 
 
 class NotificationType(Enum):
@@ -1266,6 +1267,32 @@ class DeploymentSecretsGmail(BaseModel):
     reply_alias: Optional[str] = None
 
 
+# Google Calendar Models
+class DeploymentSettingsGoogleCalendar(BaseModel):
+    """User-configurable settings for Google Calendar deployment"""
+
+    calendar_id: str  # The specific calendar to use (e.g., "primary" or calendar ID)
+    calendar_name: Optional[str] = None  # Human-readable calendar name for UI
+    allow_write: bool = False  # Whether agent can create/modify events
+    allow_delete: bool = False  # Whether agent can delete events
+    default_reminder_minutes: Optional[int] = None  # Default reminder for created events
+    time_zone: Optional[str] = None  # Override timezone (defaults to calendar's timezone)
+
+
+class DeploymentSecretsGoogleCalendar(BaseModel):
+    """OAuth credentials for Google Calendar - automatically encrypted by KMS"""
+
+    access_token: str
+    refresh_token: str  # Required for long-term access
+    token_uri: str = "https://oauth2.googleapis.com/token"
+    client_id: str
+    client_secret: str
+    scopes: List[str] = ["https://www.googleapis.com/auth/calendar"]
+    expires_at: Optional[datetime] = None  # Token expiration time
+    google_user_id: Optional[str] = None  # Google account ID (sub claim)
+    google_email: str  # Email of the connected Google account
+
+
 # Combined Models
 class DeploymentSecrets(BaseModel):
     discord: DeploymentSecretsDiscord | None = None
@@ -1278,6 +1305,7 @@ class DeploymentSecrets(BaseModel):
     tiktok: DeploymentSecretsTiktok | None = None
     email: DeploymentSecretsEmail | None = None
     gmail: DeploymentSecretsGmail | None = None
+    google_calendar: DeploymentSecretsGoogleCalendar | None = None
 
 
 class DeploymentConfig(BaseModel):
@@ -1291,6 +1319,7 @@ class DeploymentConfig(BaseModel):
     tiktok: DeploymentSettingsTiktok | None = None
     email: DeploymentSettingsEmail | None = None
     gmail: DeploymentSettingsGmail | None = None
+    google_calendar: DeploymentSettingsGoogleCalendar | None = None
 
 
 @Collection("deployments2")

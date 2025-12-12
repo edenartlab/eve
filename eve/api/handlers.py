@@ -566,7 +566,15 @@ async def handle_v2_deployment_update(request: UpdateDeploymentRequestV2):
 
     # Update deployment with both config and secrets if provided
     if update_dict:
-        deployment.update(**update_dict)
+        # Apply updates to deployment object and use save() to ensure
+        # secrets are encrypted via convert_to_mongo() hook
+        # (deployment.update() bypasses encryption)
+        if "config" in update_dict:
+            deployment.config = DeploymentConfig(**update_dict["config"])
+        if "secrets" in update_dict:
+            deployment.secrets = DeploymentSecrets(**update_dict["secrets"])
+
+        deployment.save()
 
         # Call platform-specific update hook if it exists
         try:
@@ -575,27 +583,12 @@ async def handle_v2_deployment_update(request: UpdateDeploymentRequestV2):
                 agent=agent, platform=deployment.platform, deployment=deployment
             )
 
-            # Reload deployment to get updated values from MongoDB
-            deployment.reload()
-
-            # Convert reloaded config/secrets to proper objects (MongoDB returns dicts)
-            new_config = (
-                DeploymentConfig(**deployment.config)
-                if isinstance(deployment.config, dict)
-                else deployment.config
-            )
-            new_secrets = (
-                DeploymentSecrets(**deployment.secrets)
-                if isinstance(deployment.secrets, dict)
-                else deployment.secrets
-            )
-
             # Call platform-specific update hook
             await client.update(
                 old_config=old_config,
-                new_config=new_config,
+                new_config=deployment.config,
                 old_secrets=old_secrets,
-                new_secrets=new_secrets,
+                new_secrets=deployment.secrets,
             )
         except Exception as e:
             logger.error(f"Error calling platform update hook: {e}")
