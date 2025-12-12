@@ -415,7 +415,7 @@ async def backfill_discord_channel(
                 session=session.id,
                 channel=Channel(type="discord", key=message_id, url=discord_url),
                 role=role,
-                content=content or "...",
+                content=content,
                 sender=sender.id,
                 attachments=media_urls if media_urls else None,
             )
@@ -611,7 +611,7 @@ async def process_discord_message_for_agent(
             initiating_user_id=str(user.id),
             message=ChatMessageRequestInput(
                 channel=Channel(type="discord", key=message_id, url=discord_url),
-                content=content or "...",
+                content=content,
                 sender_name=author_username,
                 attachments=media_urls if media_urls else None,
             ),
@@ -1137,7 +1137,6 @@ class DiscordGatewayClient:
                     force_reply = True
                     logger.info(f"Detected mention in raw content for app_id {app_id}")
 
-        content = content or "..."
         return content, attachments, force_reply, mentioned_agent_ids
 
     def _create_session_key(self, message_data: dict, user_id: str) -> str:

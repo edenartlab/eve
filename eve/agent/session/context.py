@@ -414,6 +414,7 @@ async def build_system_message(
         voice=actor.voice,
         memory=memory,
         social_instructions=social_instructions,
+        session_context=session.context,
     )
 
     return ChatMessage(session=session.id, role="system", content=content)

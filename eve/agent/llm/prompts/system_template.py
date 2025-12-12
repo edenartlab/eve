@@ -151,4 +151,9 @@ system_template = Template("""
   {% if social_instructions %}
   {{ social_instructions }}
   {% endif %}
+  {% if session_context %}
+  <SessionContext>
+    {{ session_context }}
+  </SessionContext>
+  {% endif %}
 </AGENT_SPEC>""")
