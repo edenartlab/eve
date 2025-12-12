@@ -212,19 +212,30 @@ gitpython==3.1.44
     # via eve
     # via runway
 google-api-core==2.25.1
+    # via google-api-python-client
     # via google-cloud-aiplatform
     # via google-cloud-bigquery
     # via google-cloud-core
     # via google-cloud-resource-manager
     # via google-cloud-storage
+google-api-python-client==2.187.0
+    # via eve
 google-auth==2.40.3
+    # via eve
     # via google-api-core
+    # via google-api-python-client
+    # via google-auth-httplib2
+    # via google-auth-oauthlib
     # via google-cloud-aiplatform
     # via google-cloud-bigquery
     # via google-cloud-core
     # via google-cloud-resource-manager
     # via google-cloud-storage
     # via google-genai
+google-auth-httplib2==0.2.1
+    # via google-api-python-client
+google-auth-oauthlib==1.2.3
+    # via eve
 google-cloud-aiplatform==1.115.0
     # via eve
 google-cloud-bigquery==3.35.0
@@ -278,6 +289,9 @@ hpack==4.1.0
     # via h2
 httpcore==1.0.9
     # via httpx
+httplib2==0.31.0
+    # via google-api-python-client
+    # via google-auth-httplib2
 httpx==0.28.1
     # via ably
     # via anthropic
@@ -577,6 +591,7 @@ pyopenssl==25.1.0
     # via runway
 pyparsing==3.2.3
     # via eve
+    # via httplib2
 pypdfium2==4.30.0
     # via pdfplumber
 pyright==1.1.407
@@ -664,6 +679,7 @@ requests==2.32.4
     # via web3
 requests-oauthlib==2.0.0
     # via eve
+    # via google-auth-oauthlib
     # via tweepy
 requests-toolbelt==1.0.0
     # via langsmith
@@ -798,6 +814,8 @@ typing-inspection==0.4.1
     # via pydantic-settings
 tzlocal==5.3.1
     # via apscheduler
+uritemplate==4.2.0
+    # via google-api-python-client
 urllib3==2.5.0
     # via botocore
     # via docker

@@ -72,6 +72,9 @@ from eve.api.handlers import (
     handle_create_notification,
     handle_embedsearch,
     handle_extract_agent_prompts,
+    handle_google_calendar_auth_url,
+    handle_google_calendar_callback,
+    handle_google_calendar_calendars,
     handle_prompt_session,
     handle_reaction,
     handle_regenerate_agent_memory,
@@ -465,6 +468,57 @@ async def deployment_email_inbound(request: Request):
 @web_app.post("/v2/deployments/emission")
 async def deployment_emission(request: DeploymentEmissionRequest):
     return await handle_v2_deployment_emission(request)
+
+
+# Google Calendar OAuth routes
+@web_app.get("/v2/auth/google-calendar/init")
+async def google_calendar_auth_init(
+    agent_id: str,
+    user_id: str,
+    redirect_uri: str,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    """
+    Generate Google OAuth authorization URL.
+
+    Args:
+        agent_id: The agent to connect the calendar to
+        user_id: The user making the request
+        redirect_uri: Frontend callback URL to return to after OAuth
+    """
+    return await handle_google_calendar_auth_url(agent_id, user_id, redirect_uri)
+
+
+@web_app.post("/v2/auth/google-calendar/callback")
+async def google_calendar_auth_callback(
+    code: str,
+    state: str,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    """
+    Exchange OAuth code for tokens and fetch calendar list.
+
+    Called by the frontend (Next.js) callback after Google redirects there.
+    Requires admin authentication.
+
+    Args:
+        code: Authorization code from Google
+        state: State parameter containing agent_id, user_id, redirect_uri
+    """
+    return await handle_google_calendar_callback(code, state)
+
+
+@web_app.get("/v2/auth/google-calendar/calendars")
+async def google_calendar_list_calendars(
+    agent_id: str,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    """
+    List available calendars for a connected Google account.
+
+    Requires existing deployment with valid credentials.
+    """
+    return await handle_google_calendar_calendars(agent_id)
 
 
 # Notification routes
