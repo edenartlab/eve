@@ -37,6 +37,7 @@ async def handler(context: ToolContext):
         raise Exception("TikTok credentials not found in deployment")
 
     tiktok_secrets = deployment.secrets.tiktok
+    print("xxxxx", tiktok_secrets)
     access_token = tiktok_secrets.access_token
 
     # Check if token needs refresh (normalize to aware datetimes)
@@ -325,15 +326,33 @@ async def _get_tiktok_username(access_token: str) -> str:
             headers={
                 "Authorization": f"Bearer {access_token}",
             },
-            params={"fields": "display_name,username"},
+            params={"fields": "display_name,username,profile_deep_link,union_id"},
         )
 
         if user_response.ok:
             user_data = user_response.json()
             if "data" in user_data and "user" in user_data["data"]:
-                username = user_data["data"]["user"].get("username")
+                u = user_data["data"]["user"]
+                # Prefer explicit username, then unique_id, then parse profile link, then display_name
+                username = u.get("username")
                 if username:
                     return username
+                unique_id = u.get("unique_id")
+                if unique_id:
+                    return unique_id
+                profile_link = u.get("profile_deep_link")
+                if isinstance(profile_link, str):
+                    # Extract handle from deep link like https://www.tiktok.com/@handle or similar
+                    if "@" in profile_link:
+                        handle = profile_link.split("@", 1)[1].split("?")[0].strip("/")
+                        if handle:
+                            return handle
+                    last_segment = profile_link.rstrip("/").split("/")[-1]
+                    if last_segment:
+                        return last_segment
+                display_name = u.get("display_name")
+                if display_name:
+                    return display_name
 
         return None
 
