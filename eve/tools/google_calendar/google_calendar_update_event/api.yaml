@@ -1,0 +1,37 @@
+name: Update Calendar Event
+description: Update an existing event on Google Calendar. Uses PATCH semantics - only specified fields are updated, other fields remain unchanged. Requires write permission to be enabled on the calendar deployment.
+cost_estimate: 1
+output_type: string
+active: true
+handler: local
+visible: false
+parameters:
+  event_id:
+    type: string
+    label: Event ID
+    description: The ID of the event to update. You can get this from the list_events tool.
+    required: true
+  title:
+    type: string
+    label: Event Title
+    description: New title for the event. Leave empty to keep existing title.
+  start_time:
+    type: string
+    label: Start Time
+    description: New start time. For timed events use RFC3339 format, e.g., "2024-01-15T09:00:00-05:00". For all-day events use date format "2024-01-15". Leave empty to keep existing time.
+  end_time:
+    type: string
+    label: End Time
+    description: New end time. For timed events use RFC3339 format, e.g., "2024-01-15T10:00:00-05:00". For all-day events use date format "2024-01-16". Leave empty to keep existing time.
+  description:
+    type: string
+    label: Description
+    description: New description for the event. Leave empty to keep existing description.
+  location:
+    type: string
+    label: Location
+    description: New location for the event. Leave empty to keep existing location.
+  time_zone:
+    type: string
+    label: Time Zone
+    description: IANA timezone name (e.g., "America/New_York"). Only used if start_time or end_time is also being updated.

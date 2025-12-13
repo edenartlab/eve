@@ -115,6 +115,11 @@ CAPTIONS_TOOLS = ["captions"]
 TIKTOK_TOOLS = ["tiktok_post"]
 EMAIL_TOOLS = ["email_send"]
 GMAIL_TOOLS = ["gmail_send"]
+GOOGLE_CALENDAR_TOOLS = [
+    "google_calendar_list_events",
+    "google_calendar_create_event",
+    "google_calendar_update_event",
+]
 
 SOCIAL_MEDIA_TOOLS = [
     *TWITTER_TOOLS,
@@ -127,6 +132,7 @@ SOCIAL_MEDIA_TOOLS = [
     *TIKTOK_TOOLS,
     *EMAIL_TOOLS,
     *GMAIL_TOOLS,
+    *GOOGLE_CALENDAR_TOOLS,
 ]
 
 EDEN_DB_TOOLS = [
