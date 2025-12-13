@@ -931,11 +931,11 @@ class TwitterPoller:
 
     def run_poll_loop(self, usernames: List[str]):
         """Run a single polling loop."""
-        logger.info(f"\n{'='*80}")
+        logger.info(f"\n{'=' * 80}")
         logger.info(
             f"⏰ Poll started at {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}"
         )
-        logger.info(f"{'='*80}")
+        logger.info(f"{'=' * 80}")
 
         self.api.reset_call_counter()
 

@@ -1275,8 +1275,12 @@ class DeploymentSettingsGoogleCalendar(BaseModel):
     calendar_name: Optional[str] = None  # Human-readable calendar name for UI
     allow_write: bool = False  # Whether agent can create/modify events
     allow_delete: bool = False  # Whether agent can delete events
-    default_reminder_minutes: Optional[int] = None  # Default reminder for created events
-    time_zone: Optional[str] = None  # Override timezone (defaults to calendar's timezone)
+    default_reminder_minutes: Optional[int] = (
+        None  # Default reminder for created events
+    )
+    time_zone: Optional[str] = (
+        None  # Override timezone (defaults to calendar's timezone)
+    )
 
 
 class DeploymentSecretsGoogleCalendar(BaseModel):

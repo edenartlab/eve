@@ -267,13 +267,24 @@ async def orchestrate(
         logger.info("[ORCHESTRATE] Stage: build_context - END")
 
         # 7. Add message if provided
+        user_message_id = None
         if request.message and request.initiating_user_id:
             logger.info("[ORCHESTRATE] Stage: add_message - START")
             message_stage = instrumentation.track_stage("add_message", level="info")
             with message_stage:
-                await add_chat_message(session, context)
-                logger.info(f"[ORCHESTRATE] Added user message to session {session.id}")
+                user_message = await add_chat_message(session, context)
+                user_message_id = str(user_message.id) if user_message else None
+                logger.info(
+                    f"[ORCHESTRATE] Added user message to session {session.id}, message_id={user_message_id}"
+                )
             logger.info("[ORCHESTRATE] Stage: add_message - END")
+
+            # For trigger mode, yield the user message ID so it can be recorded
+            if request.mode == OrchestrationMode.TRIGGER and user_message_id:
+                yield {
+                    "type": "trigger_message_created",
+                    "message_id": user_message_id,
+                }
         else:
             logger.info("[ORCHESTRATE] Skipping add_message (no message or no user)")
 

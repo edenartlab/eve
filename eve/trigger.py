@@ -32,7 +32,9 @@ class Trigger(Document):
     # Core fields
     name: str = "Untitled Task"
     prompt: Optional[str] = None  # New field - preferred over trigger_prompt
-    schedule: Dict[str, Any]
+    schedule: Optional[Dict[str, Any]] = (
+        None  # Optional - tasks without schedules run manually only
+    )
     user: ObjectId
     session: Optional[ObjectId] = (
         None  # Required for new triggers, optional for backward compat
@@ -47,6 +49,9 @@ class Trigger(Document):
     # Error handling (NEW)
     error_count: int = 0
     last_error: Optional[str] = None
+
+    # Run history - each run records message_id and timestamp
+    runs: List[Dict[str, Any]] = []
 
     # DEPRECATED - kept for backward compatibility with existing triggers
     trigger_prompt: Optional[str] = None  # Use 'prompt' instead
@@ -197,10 +202,11 @@ async def execute_trigger(trigger_id: str) -> Session:
 
     logger.info("[TRIGGER] ===== Calling orchestrate_trigger =====")
     update_count = 0
+    trigger_message_id = None
 
     try:
         # Use unified orchestrator (includes full observability)
-        async for _ in orchestrate_trigger(
+        async for update in orchestrate_trigger(
             trigger_id=str(trigger.id),
             trigger_prompt=prompt,
             session=session,
@@ -209,8 +215,25 @@ async def execute_trigger(trigger_id: str) -> Session:
         ):
             update_count += 1
 
+            # Capture the trigger message ID for run tracking
+            if update.get("type") == "trigger_message_created":
+                trigger_message_id = update.get("message_id")
+                logger.info(
+                    f"[TRIGGER] Captured trigger message_id: {trigger_message_id}"
+                )
+
         logger.info("[TRIGGER] ===== orchestrate_trigger completed =====")
         logger.info(f"[TRIGGER] Total updates received: {update_count}")
+
+        # Record the run with message_id and timestamp
+        if trigger_message_id:
+            run_record = {
+                "message_id": ObjectId(trigger_message_id),
+                "ran_at": datetime.now(timezone.utc),
+            }
+            # Append to runs array using push method
+            trigger.push(pushes={"runs": run_record})
+            logger.info(f"[TRIGGER] Recorded run: message_id={trigger_message_id}")
 
         # Success - reset error count
         logger.info("[TRIGGER] Execution successful, resetting error_count to 0")
@@ -254,14 +277,19 @@ async def execute_trigger(trigger_id: str) -> Session:
         # Calculate next scheduled run (only if still in running state)
         logger.info(f"[TRIGGER] Finally block: current status={trigger.status}")
         if trigger.status == "running":
-            logger.info("[TRIGGER] Calculating next scheduled run...")
-            next_run = calculate_next_scheduled_run(trigger.schedule)
-            if next_run:
-                logger.info(f"[TRIGGER] Next run calculated: {next_run}")
-                trigger.update(status="active", next_scheduled_run=next_run)
+            # If no schedule, task stays active (manual-only)
+            if not trigger.schedule:
+                logger.info("[TRIGGER] No schedule - task stays active (manual-only)")
+                trigger.update(status="active")
             else:
-                logger.info("[TRIGGER] No more scheduled runs (trigger finished)")
-                trigger.update(status="finished", next_scheduled_run=None)
+                logger.info("[TRIGGER] Calculating next scheduled run...")
+                next_run = calculate_next_scheduled_run(trigger.schedule)
+                if next_run:
+                    logger.info(f"[TRIGGER] Next run calculated: {next_run}")
+                    trigger.update(status="active", next_scheduled_run=next_run)
+                else:
+                    logger.info("[TRIGGER] No more scheduled runs (trigger finished)")
+                    trigger.update(status="finished", next_scheduled_run=None)
         else:
             logger.info(
                 "[TRIGGER] Status is not 'running', skipping next run calculation"

@@ -46,8 +46,10 @@ from eve.api.api_requests import (
     DeploymentEmissionRequest,
     DeploymentInteractRequest,
     EmbedSearchRequest,
+    GetDiscordChannelsRequest,
     PromptSessionRequest,
     ReactionRequest,
+    RefreshDiscordChannelsRequest,
     RegenerateAgentMemoryRequest,
     RegenerateUserMemoryRequest,
     RunTriggerRequest,
@@ -64,8 +66,10 @@ from eve.api.handlers import (
     handle_create_notification,
     handle_embedsearch,
     handle_extract_agent_prompts,
+    handle_get_discord_channels,
     handle_prompt_session,
     handle_reaction,
+    handle_refresh_discord_channels,
     handle_regenerate_agent_memory,
     handle_regenerate_user_memory,
     handle_replicate_webhook,
@@ -384,6 +388,27 @@ async def deployment_email_inbound(request: Request):
 @web_app.post("/v2/deployments/emission")
 async def deployment_emission(request: DeploymentEmissionRequest):
     return await handle_v2_deployment_emission(request)
+
+
+# Discord channel management routes
+@web_app.get("/v2/deployments/{deployment_id}/discord-channels")
+async def get_discord_channels(
+    deployment_id: str,
+    user_id: str,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    request = GetDiscordChannelsRequest(deployment_id=deployment_id, user_id=user_id)
+    return await handle_get_discord_channels(request)
+
+
+@web_app.post("/v2/deployments/{deployment_id}/discord-refresh")
+async def refresh_discord_channels(
+    deployment_id: str,
+    request: RefreshDiscordChannelsRequest,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    request.deployment_id = deployment_id
+    return await handle_refresh_discord_channels(request)
 
 
 # Notification routes

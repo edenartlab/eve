@@ -64,7 +64,6 @@ HANDLER_PATHS = {
     "google_calendar_list_events": "google_calendar.google_calendar_list_events.handler",
     "google_calendar_create_event": "google_calendar.google_calendar_create_event.handler",
     "google_calendar_update_event": "google_calendar.google_calendar_update_event.handler",
-
     # Agent tools are added dynamically below
     **{tool: f"abraham.{tool}.handler" for tool in ABRAHAM_TOOLS},
     **{tool: f"verdelis.{tool}.handler" for tool in VERDELIS_TOOLS},

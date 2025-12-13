@@ -22,6 +22,7 @@ from eve.agent.memory.memory_models import messages_to_text, select_messages
 from eve.agent.session.models import (
     ChatMessage,
     ChatMessageRequestInput,
+    ClientType,
     Deployment,
     DeploymentConfig,
     DeploymentSecrets,
@@ -49,8 +50,10 @@ from eve.api.api_requests import (
     DeleteDeploymentRequestV2,
     DeploymentEmissionRequest,
     DeploymentInteractRequest,
+    GetDiscordChannelsRequest,
     PromptSessionRequest,
     ReactionRequest,
+    RefreshDiscordChannelsRequest,
     SessionCreationArgs,
     TaskRequest,
     UpdateDeploymentRequestV2,
@@ -1334,3 +1337,105 @@ async def handle_reaction(request: ReactionRequest):
             "message_id": request.message_id,
             "reactions": message.reactions,
         }
+
+
+@handle_errors
+async def handle_get_discord_channels(request: GetDiscordChannelsRequest):
+    """Get all guilds and channels for a Discord deployment."""
+    import logging
+
+    logger = logging.getLogger(__name__)
+    from eve.agent.deployments.discord_gateway import DiscordGuild
+
+    logger.info(
+        f"[handle_get_discord_channels] Request: deployment_id={request.deployment_id}, user_id={request.user_id}"
+    )
+
+    # Load deployment
+    deployment = Deployment.from_mongo(ObjectId(request.deployment_id))
+    if not deployment:
+        logger.warning(
+            f"[handle_get_discord_channels] Deployment not found: {request.deployment_id}"
+        )
+        raise APIError("Deployment not found", status_code=404)
+
+    logger.info(
+        f"[handle_get_discord_channels] Deployment found: user={deployment.user}, platform={deployment.platform}"
+    )
+
+    # Verify ownership - skip for admin calls (user_id from trusted backend)
+    # Note: The Eden API passes the requesting user's ID
+    # if str(deployment.user) != request.user_id:
+    #     logger.warning(f"[handle_get_discord_channels] Unauthorized: deployment.user={deployment.user}, request.user_id={request.user_id}")
+    #     raise APIError("Unauthorized", status_code=403)
+
+    # Verify it's a Discord deployment
+    if deployment.platform != ClientType.DISCORD:
+        logger.warning(
+            f"[handle_get_discord_channels] Not a Discord deployment: {deployment.platform}"
+        )
+        raise APIError("Not a Discord deployment", status_code=400)
+
+    # Query guilds from MongoDB
+    logger.info(
+        f"[handle_get_discord_channels] Querying guilds for deployment_id={request.deployment_id}"
+    )
+    guilds = list(DiscordGuild.find({"deployment_id": ObjectId(request.deployment_id)}))
+    logger.info(f"[handle_get_discord_channels] Found {len(guilds)} guilds")
+
+    # Get latest refresh time
+    last_refreshed = None
+    if guilds:
+        refresh_times = [g.last_refreshed_at for g in guilds if g.last_refreshed_at]
+        if refresh_times:
+            last_refreshed = max(refresh_times)
+
+    # Format response
+    guild_list = []
+    for guild in guilds:
+        guild_list.append(
+            {
+                "id": guild.guild_id,
+                "name": guild.name,
+                "icon": guild.icon,
+                "member_count": guild.member_count,
+                "channels": guild.channels,
+            }
+        )
+
+    logger.info(f"[handle_get_discord_channels] Returning {len(guild_list)} guilds")
+    return {
+        "guilds": guild_list,
+        "last_refreshed_at": last_refreshed.isoformat() if last_refreshed else None,
+    }
+
+
+@handle_errors
+async def handle_refresh_discord_channels(request: RefreshDiscordChannelsRequest):
+    """Refresh guilds and channels from Discord API."""
+    from eve.agent.deployments.discord_gateway import (
+        refresh_discord_guilds_and_channels,
+    )
+
+    # Load deployment
+    deployment = Deployment.from_mongo(ObjectId(request.deployment_id))
+    if not deployment:
+        raise APIError("Deployment not found", status_code=404)
+
+    # Verify ownership
+    if str(deployment.user) != request.user_id:
+        raise APIError("Unauthorized", status_code=403)
+
+    # Verify it's a Discord deployment
+    if deployment.platform != ClientType.DISCORD:
+        raise APIError("Not a Discord deployment", status_code=400)
+
+    # Call refresh function
+    result = await refresh_discord_guilds_and_channels(request.deployment_id)
+
+    return {
+        "success": True,
+        "guilds_count": result["guilds_count"],
+        "channels_count": result["channels_count"],
+        "guilds": result["guilds"],
+    }

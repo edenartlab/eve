@@ -103,13 +103,18 @@ def format_event(
             upcoming = [
                 inst
                 for inst in instances
-                if (inst.get("start", {}).get("dateTime") or inst.get("start", {}).get("date", ""))
+                if (
+                    inst.get("start", {}).get("dateTime")
+                    or inst.get("start", {}).get("date", "")
+                )
                 >= now
             ]
             if upcoming:
                 next_inst = upcoming[0]
                 next_start = next_inst.get("start", {})
-                result["next_occurrence"] = next_start.get("dateTime") or next_start.get("date")
+                result["next_occurrence"] = next_start.get(
+                    "dateTime"
+                ) or next_start.get("date")
     else:
         result["is_recurring"] = False
 

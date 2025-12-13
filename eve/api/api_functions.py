@@ -57,7 +57,9 @@ async def rotate_agent_metadata_fn():
 async def process_cold_sessions_fn():
     """Scheduled function to process cold sessions for memory formation"""
     try:
-        from eve.agent.memory.memory_cold_sessions_processor import process_cold_sessions
+        from eve.agent.memory.memory_cold_sessions_processor import (
+            process_cold_sessions,
+        )
 
         await process_cold_sessions()
     except Exception as e:

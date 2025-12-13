@@ -5,7 +5,6 @@ Handles OAuth flow, token refresh, and calendar API interactions.
 """
 
 import os
-from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from google.auth.transport.requests import Request as GoogleRequest
@@ -15,14 +14,11 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from loguru import logger
 
-from eve.agent.agent import Agent
 from eve.agent.deployments import PlatformClient
 from eve.agent.session.models import (
-    Deployment,
     DeploymentConfig,
     DeploymentSecrets,
     DeploymentSecretsGoogleCalendar,
-    DeploymentSettingsGoogleCalendar,
 )
 from eve.api.errors import APIError
 
@@ -64,7 +60,9 @@ def get_google_client_config() -> Dict[str, Any]:
 def create_oauth_flow(redirect_uri: str) -> Flow:
     """Create OAuth flow for Google Calendar"""
     client_config = get_google_client_config()
-    return Flow.from_client_config(client_config, scopes=SCOPES, redirect_uri=redirect_uri)
+    return Flow.from_client_config(
+        client_config, scopes=SCOPES, redirect_uri=redirect_uri
+    )
 
 
 def credentials_from_secrets(secrets: DeploymentSecretsGoogleCalendar) -> Credentials:
@@ -210,7 +208,9 @@ class GoogleCalendarClient(PlatformClient):
             service = await get_calendar_service(gc_secrets)
 
             # Verify access to the selected calendar
-            calendar = service.calendars().get(calendarId=gc_config.calendar_id).execute()
+            calendar = (
+                service.calendars().get(calendarId=gc_config.calendar_id).execute()
+            )
 
             # Update config with calendar name if not set
             if not gc_config.calendar_name:

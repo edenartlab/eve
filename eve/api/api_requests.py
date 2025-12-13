@@ -256,3 +256,44 @@ class ReactionRequest(BaseModel):
     tool_call_id: Optional[str] = None  # If reacting to a specific tool call
     reaction: str  # The reaction emoji or key
     user_id: Optional[str] = None  # The user who reacted (optional)
+
+
+# Discord channel management requests
+class GetDiscordChannelsRequest(BaseModel):
+    deployment_id: str
+    user_id: str  # For ownership verification
+
+
+class DiscordChannelInfo(BaseModel):
+    id: str
+    name: str
+    type: int
+    type_name: str
+    category_id: Optional[str] = None
+    category_name: Optional[str] = None
+    position: int = 0
+
+
+class DiscordGuildInfo(BaseModel):
+    id: str
+    name: str
+    icon: Optional[str] = None
+    member_count: Optional[int] = None
+    channels: List[DiscordChannelInfo]
+
+
+class GetDiscordChannelsResponse(BaseModel):
+    guilds: List[DiscordGuildInfo]
+    last_refreshed_at: Optional[str] = None
+
+
+class RefreshDiscordChannelsRequest(BaseModel):
+    deployment_id: str
+    user_id: str
+
+
+class RefreshDiscordChannelsResponse(BaseModel):
+    success: bool
+    guilds_count: int
+    channels_count: int
+    guilds: List[Dict[str, Any]]
