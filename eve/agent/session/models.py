@@ -239,6 +239,7 @@ class EdenMessageData(BaseModel):
 class Channel(Document):
     type: Literal["eden", "discord", "telegram", "twitter", "farcaster", "app"]
     key: Optional[str] = None
+    url: Optional[str] = None  # Permanent link to the message on the platform
 
 
 class TokenUsageBreakdown(BaseModel):
@@ -953,6 +954,7 @@ class Session(Document):
     platform: Optional[
         Literal["discord", "telegram", "twitter", "farcaster", "gmail", "app"]
     ] = None
+    discord_channel_id: Optional[str] = None  # Discord channel ID for discord_post tool
     trigger: Optional[ObjectId] = None
     active_requests: Optional[List[str]] = []
     extras: Optional[SessionExtras] = None  # Additional session configuration flags

@@ -314,7 +314,7 @@ async def process_twitter_tweet(
             session = Session(
                 owner=agent.owner,
                 agents=[agent.id],
-                title="Twitter conversation",
+                title=f"@{author_username}",
                 session_key=session_key,
                 platform="twitter",
                 status="active",
@@ -367,10 +367,17 @@ async def process_twitter_tweet(
                             role = "user"
                             tweet_user = User.from_twitter(author_id_, author_username_)
 
+                        # Build Twitter URL
+                        twitter_url = (
+                            f"https://x.com/{author_username_}/status/{tweet_id_}"
+                        )
+
                         message = ChatMessage(
                             createdAt=created_at,
                             session=session.id,
-                            channel=Channel(type="twitter", key=tweet_id_),
+                            channel=Channel(
+                                type="twitter", key=tweet_id_, url=twitter_url
+                            ),
                             role=role,
                             content=text_,
                             sender=tweet_user.id,
@@ -390,12 +397,15 @@ async def process_twitter_tweet(
         # Load twitter tool
         twitter_tool = Tool.load("tweet")
 
+        # Build Twitter URL
+        twitter_url = f"https://x.com/{author_username}/status/{tweet_id}"
+
         # Create prompt context
         prompt_context = PromptSessionContext(
             session=session,
             initiating_user_id=str(user.id),
             message=ChatMessageRequestInput(
-                channel=Channel(type="twitter", key=tweet_id),
+                channel=Channel(type="twitter", key=tweet_id, url=twitter_url),
                 content=text,
                 sender_name=author_username,
                 attachments=media_urls if media_urls else None,

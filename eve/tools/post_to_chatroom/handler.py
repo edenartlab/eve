@@ -57,6 +57,10 @@ async def handler(context: ToolContext):
 
     content = context.args.get("content", "")
     attachments = context.args.get("attachments") or []
+    if attachments:
+        from eve.s3 import upload_attachments_to_eden
+
+        attachments = await upload_attachments_to_eden(attachments)
 
     # Create message in the parent session
     new_message = ChatMessage(

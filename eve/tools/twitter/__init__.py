@@ -121,51 +121,58 @@ class X:
     def _make_request(self, method, url, **kwargs):
         """Makes a request to the Twitter API using OAuth 2.0."""
 
-        # Always use bearer token authentication for OAuth 2.0
-        if "headers" not in kwargs:
-            kwargs["headers"] = {}
-        kwargs["headers"]["Authorization"] = f"Bearer {self.access_token}"
+        try:
+            # Always use bearer token authentication for OAuth 2.0
+            if "headers" not in kwargs:
+                kwargs["headers"] = {}
+            kwargs["headers"]["Authorization"] = f"Bearer {self.access_token}"
 
-        if method.lower() == "get":
-            response = requests.get(url, **kwargs)
-        else:
-            response = requests.post(url, **kwargs)
+            if method.lower() == "get":
+                response = requests.get(url, **kwargs)
+            else:
+                response = requests.post(url, **kwargs)
 
-        # If 401 Unauthorized, try refreshing token once
-        if response.status_code == 401 and self.refresh_token:
-            logging.warning("Got 401 Unauthorized, attempting token refresh...")
-            try:
-                self._refresh_token()
-                # Retry request with new token
-                kwargs["headers"]["Authorization"] = f"Bearer {self.access_token}"
-                if method.lower() == "get":
-                    response = requests.get(url, **kwargs)
-                else:
-                    response = requests.post(url, **kwargs)
-            except Exception as e:
-                logging.error(f"Token refresh failed: {e}")
+            # If 401 Unauthorized, try refreshing token once
+            if response.status_code == 401 and self.refresh_token:
+                logging.warning("Got 401 Unauthorized, attempting token refresh...")
+                try:
+                    self._refresh_token()
+                    # Retry request with new token
+                    kwargs["headers"]["Authorization"] = f"Bearer {self.access_token}"
+                    if method.lower() == "get":
+                        response = requests.get(url, **kwargs)
+                    else:
+                        response = requests.post(url, **kwargs)
+                except Exception as e:
+                    logging.error(f"Token refresh failed: {e}")
 
-        if not response.ok:
-            # Try to parse error response as JSON, but handle cases where it's not valid JSON
-            try:
-                error_data = (
-                    response.json() if response.text else "No error details available"
+            if not response.ok:
+                # Try to parse error response as JSON, but handle cases where it's not valid JSON
+                try:
+                    error_data = (
+                        response.json()
+                        if response.text
+                        else "No error details available"
+                    )
+                except Exception:
+                    error_data = (
+                        response.text if response.text else "No error details available"
+                    )
+
+                logging.error(
+                    f"Twitter API Error:\n"
+                    f"Status Code: {response.status_code}\n"
+                    f"URL: {url}\n"
+                    f"Method: {method.upper()}\n"
+                    f"Error Data: {error_data}\n"
                 )
-            except Exception:
-                error_data = (
-                    response.text if response.text else "No error details available"
-                )
+                response.raise_for_status()
 
-            logging.error(
-                f"Twitter API Error:\n"
-                f"Status Code: {response.status_code}\n"
-                f"URL: {url}\n"
-                f"Method: {method.upper()}\n"
-                f"Error Data: {error_data}\n"
-            )
-            response.raise_for_status()
+            return response
 
-        return response
+        except Exception as e:
+            logging.error(f"Error making Twitter API request: {e}")
+            raise e
 
     def fetch_mentions(self, start_time=None):
         """Fetches mentions for the user."""
@@ -466,19 +473,24 @@ class X:
 
     def tweet_media(self, media_url):
         """Uploads media to Twitter and returns the media ID."""
-        # First, download the media (don't use Twitter auth for external URL)
-        image_response = requests.get(media_url)
-        if not image_response.ok:
-            logging.error(f"Failed to download media from: {media_url}")
-            return None
+        try:
+            # First, download the media (don't use Twitter auth for external URL)
+            image_response = requests.get(media_url)
+            if not image_response.ok:
+                logging.error(f"Failed to download media from: {media_url}")
+                return None
 
-        content = image_response.content
-        is_video = media_url.lower().endswith(".mp4")
+            content = image_response.content
+            is_video = media_url.lower().endswith(".mp4")
 
-        if is_video:
-            return self._upload_video(content)
-        else:
-            return self._upload_image(content)
+            if is_video:
+                return self._upload_video(content)
+            else:
+                return self._upload_image(content)
+
+        except Exception as e:
+            logging.error(f"Error uploading media {media_url} to Twitter: {e}")
+            raise e
 
     def _upload_image(self, content: bytes) -> str:
         """
@@ -534,19 +546,27 @@ class X:
         Returns:
             media_id string for use in tweets
         """
-        file_size_mb = len(content) / (1024 * 1024)
-        media_type = self._detect_media_type(content)
 
-        logging.info(f"Uploading video: size={file_size_mb:.2f}MB, type={media_type}")
+        try:
+            file_size_mb = len(content) / (1024 * 1024)
+            media_type = self._detect_media_type(content)
 
-        # Validate file size limit
-        if file_size_mb > 512:
-            raise ValueError(
-                f"Video file too large ({file_size_mb:.2f}MB). Maximum is 512MB."
+            logging.info(
+                f"Uploading video: size={file_size_mb:.2f}MB, type={media_type}"
             )
 
-        # Videos always use chunked upload with tweet_video category
-        return self._upload_chunked(content, media_type, "tweet_video")
+            # Validate file size limit
+            if file_size_mb > 512:
+                raise ValueError(
+                    f"Video file too large ({file_size_mb:.2f}MB). Maximum is 512MB."
+                )
+
+            # Videos always use chunked upload with tweet_video category
+            return self._upload_chunked(content, media_type, "tweet_video")
+
+        except Exception as e:
+            logging.error(f"Error uploading video: {e}")
+            raise e
 
     def post(self, text: str, media_ids: list[str] = None, reply: str = None):
         """Posts a tweet or reply."""

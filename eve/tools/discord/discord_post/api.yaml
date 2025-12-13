@@ -32,7 +32,7 @@ parameters:
     required: false
   discord_user_id:
     type: string
-    description: The Discord user ID to send a DM to (takes priority over channel_id)
+    description: The numeric Discord user ID to send a DM to (takes priority over channel_id). Must be a numeric ID like "987654321", NOT a username.
     required: false
   content:
     type: string
@@ -46,3 +46,7 @@ parameters:
     minimum: 0
     items:
       type: string
+  reply_to:
+    type: string
+    description: Message ID to reply to (creates a threaded reply in Discord)
+    required: false

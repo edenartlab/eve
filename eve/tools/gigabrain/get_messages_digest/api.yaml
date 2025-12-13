@@ -1,0 +1,31 @@
+name: Get Messages Digest
+description: Retrieve and summarize chat messages from sessions based on specific instructions
+tip: Use this tool to get a curated summary of messages and attachments based on what you're looking for. Provide clear instructions about what information you want to extract.
+cost_estimate: 1
+output_type: object
+active: true
+handler: modal
+visible: false
+parameters:
+  session_ids:
+    type: array
+    label: Session IDs
+    description: Array of session ObjectIds to retrieve messages from
+    tip: Provide one or more session IDs (as strings) to fetch messages from
+    required: true
+    items:
+      type: string
+  hours:
+    type: number
+    label: Hours
+    description: Number of hours to look back from now
+    tip: Messages older than this many hours will not be included
+    default: 24
+    minimum: 1
+    maximum: 720
+  instructions:
+    type: string
+    label: Instructions
+    description: What to search for and summarize in the messages
+    tip: Describe what specific information you want to extract from the messages
+    required: true

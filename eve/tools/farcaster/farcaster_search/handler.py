@@ -121,7 +121,7 @@ def format_cast_result(cast):
         "replies_count": cast.get("replies", {}).get("count", 0),
         "likes_count": cast.get("reactions", {}).get("likes_count", 0),
         "recasts_count": cast.get("reactions", {}).get("recasts_count", 0),
-        "url": f"https://warpcast.com/{author.get('username')}/{cast.get('hash')[:10]}",
+        "url": f"https://farcaster.xyz/{author.get('username')}/{cast.get('hash')[:10]}",
         "embeds": [
             embed.get("url") for embed in cast.get("embeds", []) if embed.get("url")
         ],
