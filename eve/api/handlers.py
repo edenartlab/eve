@@ -173,23 +173,65 @@ async def handle_agent_tools_delete(request: AgentToolsDeleteRequest):
 async def handle_prompt_session(
     request: PromptSessionRequest, background_tasks: BackgroundTasks
 ):
-    handle = create_prompt_session_handle(request, background_tasks)
-    session_id = handle.session_id
+    """
+    Prompt a session using the unified orchestrator.
 
-    # Add user message first (decoupled from orchestration)
-    await handle.add_message()
+    This handler uses the new orchestrate() function which provides
+    full observability (Sentry, Langfuse, structured logging).
+    """
+    from eve.agent.session.orchestrator import (
+        OrchestrationMode,
+        OrchestrationRequest,
+        orchestrate,
+    )
+    from eve.agent.session.setup import setup_session
+
+    # Setup session first to get session_id
+    session = setup_session(
+        background_tasks=background_tasks,
+        session_id=request.session_id,
+        user_id=request.user_id,
+        request=request,
+    )
+    session_id = str(session.id)
+
+    # Build orchestration request
+    orch_request = OrchestrationRequest(
+        initiating_user_id=request.user_id,
+        session=session,
+        actor_agent_ids=request.actor_agent_ids,
+        message=request.message,
+        llm_config=request.llm_config,
+        update_config=request.update_config,
+        notification_config=request.notification_config,
+        thinking_override=request.thinking,
+        acting_user_id=request.acting_user_id,
+        api_key_id=request.api_key_id,
+        trigger_id=request.trigger,
+        mode=OrchestrationMode.API_REQUEST,
+        stream=request.stream,
+        background_tasks=background_tasks,
+    )
 
     if request.stream:
 
         async def event_generator():
             try:
+                from eve.api.sse_manager import sse_manager
                 from eve.utils import dumps_json
 
-                async for data in handle.stream_updates():
+                async for data in orchestrate(orch_request):
+                    # Broadcast to SSE manager for connected clients
+                    try:
+                        await sse_manager.broadcast(session_id, data)
+                    except Exception as sse_error:
+                        logger.error(f"Failed to broadcast to SSE: {sse_error}")
                     yield f"data: {dumps_json({'event': 'update', 'data': data})}\n\n"
                 yield f"data: {dumps_json({'event': 'done', 'data': ''})}\n\n"
             except Exception as e:
                 logger.error("Error in event_generator", exc_info=True)
+                from eve.utils import dumps_json
+
                 yield f"data: {dumps_json({'event': 'error', 'data': {'error': str(e)}})}\n\n"
 
         return StreamingResponse(
@@ -201,9 +243,14 @@ async def handle_prompt_session(
             },
         )
 
-    background_tasks.add_task(
-        handle.run,
-    )
+    # Non-streaming: run in background
+    async def run_orchestration():
+        from eve.api.helpers import emit_update
+
+        async for data in orchestrate(orch_request):
+            await emit_update(request.update_config, data, session_id=session_id)
+
+    background_tasks.add_task(run_orchestration)
 
     return {"session_id": session_id}
 
@@ -234,25 +281,63 @@ async def handle_session_run(
 
     Same interface as /sessions/prompt, but only runs orchestration.
     Requires session_id to be provided.
+
+    Uses the unified orchestrator for full observability.
     """
+    from eve.agent.session.orchestrator import (
+        OrchestrationMode,
+        OrchestrationRequest,
+        orchestrate,
+    )
+    from eve.agent.session.setup import setup_session
+
     if not request.session_id:
         raise APIError("session_id is required for /sessions/run", status_code=400)
 
-    handle = create_prompt_session_handle(request, background_tasks)
-    session_id = handle.session_id
+    # Load existing session
+    session = setup_session(
+        background_tasks=background_tasks,
+        session_id=request.session_id,
+        user_id=request.user_id,
+        request=request,
+    )
+    session_id = str(session.id)
 
-    # Run orchestration only (no message addition)
+    # Build orchestration request WITHOUT a message
+    orch_request = OrchestrationRequest(
+        initiating_user_id=request.user_id,
+        session=session,
+        actor_agent_ids=request.actor_agent_ids,
+        message=None,  # No message - just run orchestration
+        llm_config=request.llm_config,
+        update_config=request.update_config,
+        notification_config=request.notification_config,
+        thinking_override=request.thinking,
+        acting_user_id=request.acting_user_id,
+        api_key_id=request.api_key_id,
+        mode=OrchestrationMode.API_REQUEST,
+        stream=request.stream,
+        background_tasks=background_tasks,
+    )
+
     if request.stream:
 
         async def event_generator():
             try:
+                from eve.api.sse_manager import sse_manager
                 from eve.utils import dumps_json
 
-                async for data in handle.stream_updates():
+                async for data in orchestrate(orch_request):
+                    try:
+                        await sse_manager.broadcast(session_id, data)
+                    except Exception as sse_error:
+                        logger.error(f"Failed to broadcast to SSE: {sse_error}")
                     yield f"data: {dumps_json({'event': 'update', 'data': data})}\n\n"
                 yield f"data: {dumps_json({'event': 'done', 'data': ''})}\n\n"
             except Exception as e:
                 logger.error("Error in event_generator", exc_info=True)
+                from eve.utils import dumps_json
+
                 yield f"data: {dumps_json({'event': 'error', 'data': {'error': str(e)}})}\n\n"
 
         return StreamingResponse(
@@ -264,9 +349,14 @@ async def handle_session_run(
             },
         )
 
-    background_tasks.add_task(
-        handle.run,
-    )
+    # Non-streaming: run in background
+    async def run_orchestration():
+        from eve.api.helpers import emit_update
+
+        async for data in orchestrate(orch_request):
+            await emit_update(request.update_config, data, session_id=session_id)
+
+    background_tasks.add_task(run_orchestration)
 
     return {"session_id": session_id}
 

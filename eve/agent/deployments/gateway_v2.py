@@ -38,7 +38,6 @@ from eve.agent.llm.file_config import SUPPORTED_NON_MEDIA_EXTENSIONS
 from eve.agent.session.context import (
     add_chat_message,
     add_user_to_session,
-    build_llm_context,
 )
 from eve.agent.session.models import (
     Channel,
@@ -52,7 +51,6 @@ from eve.agent.session.models import (
     SessionUpdateConfig,
     UpdateType,
 )
-from eve.agent.session.runtime import async_prompt_session
 from eve.api.api_requests import PromptSessionRequest
 from eve.api.errors import APIError
 from eve.mongo import MongoDocumentNotFound
@@ -675,25 +673,19 @@ async def process_discord_message_for_agent(
                 f"[{trace_id}] >>> PROMPTING agent {agent.username} to respond <<<"
             )
 
-            # Build LLM context
-            llm_context = await build_llm_context(
-                session,
-                agent,
-                prompt_context,
-                trace_id=trace_id,
-            )
+            # Use unified orchestrator for full observability
+            from eve.agent.session.orchestrator import orchestrate_deployment
 
-            # Execute prompt session
             new_messages = []
-            async for update in async_prompt_session(
-                session,
-                llm_context,
-                agent,
-                context=prompt_context,
-                is_client_platform=True,
+            async for update in orchestrate_deployment(
+                session=session,
+                agent=agent,
+                user_id=str(user.id),
+                message=prompt_context.message,
+                update_config=prompt_context.update_config,
             ):
-                if update.type == UpdateType.ASSISTANT_MESSAGE:
-                    new_messages.append(update.message)
+                if update.get("type") == UpdateType.ASSISTANT_MESSAGE.value:
+                    new_messages.append(update.get("message"))
 
             logger.info(
                 f"[{trace_id}] Agent {agent.username} generated {len(new_messages)} messages"

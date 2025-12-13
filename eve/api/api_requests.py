@@ -96,35 +96,9 @@ class CronSchedule(BaseModel):
         return {k: v for k, v in self.model_dump().items() if v is not None}
 
 
-class DeleteTriggerRequest(BaseModel):
-    id: str
-
-
 class AllowedChannel(BaseModel):
     id: str
     note: str
-
-
-class PostingInstructions(BaseModel):
-    session_id: Optional[str] = None
-    post_to: Optional[
-        Literal["same", "another", "discord", "telegram", "x", "farcaster", "shopify"]
-    ] = None
-    channel_id: Optional[str] = None
-    custom_instructions: Optional[str] = None
-
-
-class CreateTriggerRequest(BaseModel):
-    agent: str
-    user: str
-    name: str
-    context: str
-    trigger_prompt: str
-    posting_instructions: Optional[List[PostingInstructions]] = []
-    schedule: CronSchedule
-    update_config: Optional[UpdateConfig] = None
-    session_type: Literal["new", "another"] = "new"
-    session: Optional[str] = None
 
 
 class CreateConceptRequest(BaseModel):
