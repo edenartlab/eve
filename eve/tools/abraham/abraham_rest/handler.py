@@ -40,7 +40,7 @@ def rest():
         contract_function = contract.functions.takeRestDay()
 
         # Send transaction
-        tx_hex, _, receipt = safe_send(
+        tx_hex, _ = safe_send(
             w3,
             contract_function,
             ABRAHAM_PRIVATE_KEY,
