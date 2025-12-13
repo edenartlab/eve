@@ -71,7 +71,6 @@ def construct_tools(context: LLMContext) -> Optional[List[dict]]:
 
 def construct_anthropic_tools(context: LLMContext) -> Optional[List[dict]]:
     """Build Anthropic tool definitions."""
-    from loguru import logger
 
     tools = context.tools or {}
     if not tools:
@@ -82,10 +81,6 @@ def construct_anthropic_tools(context: LLMContext) -> Optional[List[dict]]:
         iter_tools = tools
 
     tool_schemas = [tool.anthropic_schema(exclude_hidden=True) for tool in iter_tools]
-
-    # Log tool names being sent to Anthropic
-    tool_names = [schema.get("name") for schema in tool_schemas if "name" in schema]
-    logger.info(f"Sending {len(tool_names)} tools to Anthropic: {tool_names}")
 
     return tool_schemas
 
