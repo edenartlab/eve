@@ -1,0 +1,45 @@
+name: google_calendar_delete_event
+description: Delete (cancel) an event from Google Calendar. Requires delete permission. Can optionally notify attendees of cancellation.
+tip: |-
+  This tool deletes/cancels an event from the connected Google Calendar.
+  REQUIRES delete permission to be enabled for the calendar integration.
+
+  PARAMETERS:
+  - event_id (required): The ID of the event to delete. Get this from google_calendar_query.
+  - send_notifications: Whether to notify attendees of cancellation (default true)
+  - confirm_title: Optional safety check - if provided, must match event title
+
+  SAFETY FEATURES:
+  - Retrieves event details first to confirm what's being deleted
+  - Returns deleted event info so agent can confirm to user
+  - Optional confirm_title parameter to prevent accidental deletion
+
+  IMPORTANT:
+  - This action cannot be undone
+  - For recurring events, deletes only the single instance, not the entire series
+
+  WORKFLOW:
+  1. Use google_calendar_query action=list to find the event
+  2. Use this tool with the event_id
+  3. Confirm deletion to user
+
+  Returns confirmation with deleted event details.
+cost_estimate: 2
+output_type: string
+active: true
+handler: local
+visible: false
+parameters:
+  event_id:
+    type: string
+    description: The ID of the event to delete. Get this from list_events results.
+    required: true
+  send_notifications:
+    type: boolean
+    description: Whether to send cancellation notifications to attendees (default true).
+    required: false
+    default: true
+  confirm_title:
+    type: string
+    description: Safety check - if provided, the event title must contain this text to proceed with deletion. Prevents accidental deletion of wrong event.
+    required: false

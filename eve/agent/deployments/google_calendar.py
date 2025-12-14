@@ -138,31 +138,23 @@ class GoogleCalendarClient(PlatformClient):
     """
 
     # Tools that will be available when this deployment is active
-    # These are placeholders - actual tool implementation is deferred
+    # Tool implementations are in eve/tools/google_calendar/
+    # Tools are separated by permission level for selective context inclusion
     TOOLS = {
-        "google_calendar_list_events": {
-            "description": "List upcoming events from Google Calendar",
+        "google_calendar_query": {
+            "description": "Query calendar: list events, get details, find free slots",
             "requires_write": False,
+            "requires_delete": False,
         },
-        "google_calendar_get_event": {
-            "description": "Get details of a specific calendar event",
-            "requires_write": False,
-        },
-        "google_calendar_create_event": {
-            "description": "Create a new calendar event",
+        "google_calendar_edit": {
+            "description": "Create or update calendar events",
             "requires_write": True,
-        },
-        "google_calendar_update_event": {
-            "description": "Update an existing calendar event",
-            "requires_write": True,
+            "requires_delete": False,
         },
         "google_calendar_delete_event": {
-            "description": "Delete a calendar event",
-            "requires_write": True,  # Controlled by allow_delete in config
-        },
-        "google_calendar_find_free_time": {
-            "description": "Find available time slots in the calendar",
+            "description": "Delete/cancel a calendar event",
             "requires_write": False,
+            "requires_delete": True,
         },
     }
 

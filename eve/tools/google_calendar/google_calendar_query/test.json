@@ -1,0 +1,6 @@
+{
+  "action": "list",
+  "time_min": "today",
+  "days_ahead": 7,
+  "max_results": 5
+}
