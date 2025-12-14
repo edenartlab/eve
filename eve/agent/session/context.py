@@ -590,15 +590,16 @@ def get_last_eden_message_for_llm(session_id: ObjectId) -> Optional[ChatMessage]
     Returns None if no eden messages exist.
     """
     messages = ChatMessage.get_collection()
-    last_eden = messages.find_one(
-        {"session": session_id, "role": "eden"},
-        sort=[("createdAt", -1)],
+    eden_messages = list(
+        messages.find({"session": session_id, "role": "eden"})
+        .sort("createdAt", -1)
+        .limit(1)
     )
 
-    if not last_eden:
+    if not eden_messages:
         return None
 
-    eden_msg = ChatMessage(**last_eden)
+    eden_msg = ChatMessage(**eden_messages[0])
 
     # Convert: change role to user, wrap content in SystemMessage tags
     return eden_msg.model_copy(
