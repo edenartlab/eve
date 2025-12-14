@@ -1,0 +1,78 @@
+name: google_calendar_edit
+description: Create or update Google Calendar events. All times must be UTC
+cost_estimate: 1
+output_type: string
+active: true
+handler: local
+visible: false
+parameters:
+  action:
+    type: string
+    description: "create: new event, update: modify existing"
+    required: true
+    enum:
+      - create
+      - update
+  event_id:
+    type: string
+    description: Event ID (required for update)
+    required: false
+  title:
+    type: string
+    description: Event title (required for create)
+    required: false
+  start_time:
+    type: string
+    description: Start time (ISO format or YYYY-MM-DD)
+    required: false
+  end_time:
+    type: string
+    description: End time (ISO format or YYYY-MM-DD)
+    required: false
+  all_day:
+    type: boolean
+    description: All-day event (create only)
+    required: false
+    default: false
+  description:
+    type: string
+    description: Event description
+    required: false
+  location:
+    type: string
+    description: Event location
+    required: false
+  attendees:
+    type: array
+    description: Attendee emails (replaces list on update)
+    required: false
+    items:
+      type: string
+  add_attendees:
+    type: array
+    description: Emails to add (update only)
+    required: false
+    items:
+      type: string
+  remove_attendees:
+    type: array
+    description: Emails to remove (update only)
+    required: false
+    items:
+      type: string
+  send_notifications:
+    type: boolean
+    description: Email attendees
+    required: false
+    default: false
+  reminder_minutes:
+    type: integer
+    description: Minutes before event for reminder (0 for none)
+    required: false
+    default: 30
+    minimum: 0
+  check_conflicts:
+    type: boolean
+    description: Check for conflicts before saving
+    required: false
+    default: true

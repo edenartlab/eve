@@ -1,37 +1,42 @@
 """
 Google Calendar Agent Tools
 
-These tools allow agents to interact with Google Calendar on behalf of users who have connected their Google account via OAuth.
+Tools for interacting with Google Calendar through the agent system.
+Consolidated into 3 tools separated by permission level:
 
 Available tools:
-- list_events: Retrieve events from a calendar within a time range
-- create_event: Create a new calendar event
-- update_event: Update an existing calendar event
+- google_calendar_query: List events, get event details, find free slots (no special permissions)
+- google_calendar_edit: Create or update events (requires write permission)
+- google_calendar_delete_event: Delete/cancel events (requires delete permission)
 
-Authentication:
-The frontend handles the OAuth flow and stores the credentials encrypted. When these tools are invoked, they load the deployment's stored credentials and use them to authenticate with the Google Calendar API.
+Each tool is defined in its own subdirectory with:
+- api.yaml: Tool schema definition
+- handler.py: Implementation
+- test.json: Test parameters
 
-Permissions:
-- Read operations (list_events) are always available when the deployment is active
-- Write operations (create_event, update_event) require allow_write=True in deployment config
+Shared utilities are in utils.py.
 """
 
-from eve.agent.deployments.google_calendar import (
-    SCOPES,
-    create_oauth_flow,
-    credentials_from_secrets,
-    get_calendar_service,
-    get_google_client_config,
-    list_user_calendars,
-    secrets_from_credentials,
+from eve.tools.google_calendar.utils import (
+    check_permissions,
+    format_datetime_for_display,
+    format_duration,
+    format_event_compact,
+    format_events_list,
+    get_calendar_deployment,
+    get_service_and_config,
+    parse_datetime,
+    parse_recurrence_rule,
 )
 
 __all__ = [
-    "SCOPES",
-    "get_google_client_config",
-    "create_oauth_flow",
-    "credentials_from_secrets",
-    "secrets_from_credentials",
-    "get_calendar_service",
-    "list_user_calendars",
+    "get_calendar_deployment",
+    "get_service_and_config",
+    "parse_datetime",
+    "format_datetime_for_display",
+    "format_duration",
+    "format_event_compact",
+    "format_events_list",
+    "check_permissions",
+    "parse_recurrence_rule",
 ]
