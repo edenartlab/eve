@@ -89,7 +89,7 @@ async def run(
         tool_call_id=str(tool_call_id) if tool_call_id else None,
     )
     result = await handler(context)
-    return utils.upload_result(result)
+    return utils.upload_result(result, tool_key=tool_key)
 
 
 @task_handler_func

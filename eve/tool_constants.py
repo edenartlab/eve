@@ -116,9 +116,9 @@ TIKTOK_TOOLS = ["tiktok_post"]
 EMAIL_TOOLS = ["email_send"]
 GMAIL_TOOLS = ["gmail_send"]
 GOOGLE_CALENDAR_TOOLS = [
-    "google_calendar_list_events",
-    "google_calendar_create_event",
-    "google_calendar_update_event",
+    "google_calendar_query",
+    "google_calendar_edit",
+    "google_calendar_delete",
 ]
 
 SOCIAL_MEDIA_TOOLS = [
@@ -175,3 +175,6 @@ FLUX_LORA_TXT2IMG_TOOLS = ["flux_dev_lora", "flux_dev"]
 SDXL_LORA_TXT2IMG_TOOLS = ["txt2img"]
 
 AGENTIC_TOOLS = [*SOCIAL_MEDIA_TOOLS, "reel"]
+
+# Tools that should skip automatic upload processing of URLs in their results
+SKIP_UPLOAD_PROCESSING_TOOLS = [*SOCIAL_MEDIA_TOOLS]

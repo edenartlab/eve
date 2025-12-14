@@ -61,9 +61,10 @@ HANDLER_PATHS = {
     "post_to_chatroom": "post_to_chatroom.handler",
     "email_send": "email.email_send.handler",
     "gmail_send": "gmail.gmail_send.handler",
-    "google_calendar_list_events": "google_calendar.google_calendar_list_events.handler",
-    "google_calendar_create_event": "google_calendar.google_calendar_create_event.handler",
-    "google_calendar_update_event": "google_calendar.google_calendar_update_event.handler",
+    # Google Calendar tools
+    "google_calendar_query": "google_calendar.google_calendar_query.handler",
+    "google_calendar_edit": "google_calendar.google_calendar_edit.handler",
+    "google_calendar_delete": "google_calendar.google_calendar_delete.handler",
     # Agent tools are added dynamically below
     **{tool: f"abraham.{tool}.handler" for tool in ABRAHAM_TOOLS},
     **{tool: f"verdelis.{tool}.handler" for tool in VERDELIS_TOOLS},

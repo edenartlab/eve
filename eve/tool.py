@@ -511,7 +511,9 @@ class Tool(Document, ABC):
                     if isinstance(result["output"], list)
                     else [result["output"]]
                 )
-                result = utils.upload_result(result, save_thumbnails=save_thumbnails)
+                result = utils.upload_result(
+                    result, save_thumbnails=save_thumbnails, tool_key=self.key
+                )
                 result["status"] = "completed"
                 sentry_sdk.add_breadcrumb(category="handle_run", data=result)
 
