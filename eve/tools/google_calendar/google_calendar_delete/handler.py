@@ -42,13 +42,12 @@ async def handler(context: ToolContext) -> Dict[str, Any]:
 
     # First, fetch the event to confirm what we're deleting
     try:
-        event = service.events().get(
-            calendarId=calendar_id,
-            eventId=event_id
-        ).execute()
+        event = service.events().get(calendarId=calendar_id, eventId=event_id).execute()
     except HttpError as e:
         if e.resp.status == 404:
-            raise Exception(f"Event not found: {event_id}. It may have already been deleted.")
+            raise Exception(
+                f"Event not found: {event_id}. It may have already been deleted."
+            )
         raise Exception(f"Failed to fetch event: {str(e)}")
 
     event_title = event.get("summary", "Untitled")

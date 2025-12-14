@@ -89,7 +89,7 @@ async def handler(context: ToolContext):
 
     # Format attachments as a numbered list for the LLM
     attachments_text = (
-        "\n".join(f"{i+1}. {url}" for i, url in enumerate(all_attachments))
+        "\n".join(f"{i + 1}. {url}" for i, url in enumerate(all_attachments))
         if all_attachments
         else "(No attachments available)"
     )

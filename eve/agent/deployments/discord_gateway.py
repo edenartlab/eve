@@ -51,6 +51,49 @@ class DiscordMessage(Document):
         super().__init__(**data)
 
 
+@Collection("discord_guilds")
+class DiscordGuild(Document):
+    """Tracks Discord guilds (servers) that a bot has access to."""
+
+    deployment_id: ObjectId  # Links to deployments2 collection
+    guild_id: str  # Discord guild snowflake ID
+    name: str  # Guild name
+    icon: Optional[str] = None  # Icon URL
+    owner: bool = False  # Whether bot owner is guild owner
+    permissions: Optional[str] = None  # Bot permissions in guild
+    member_count: Optional[int] = None  # Approximate member count
+    channels: List[Dict[str, Any]] = []  # Embedded channel list
+    last_refreshed_at: datetime = None
+
+    def __init__(self, **data):
+        if "last_refreshed_at" not in data:
+            data["last_refreshed_at"] = datetime.now(timezone.utc)
+        if "channels" not in data:
+            data["channels"] = []
+        super().__init__(**data)
+
+
+@Collection("discord_channels")
+class DiscordChannel(Document):
+    """Tracks Discord channels within guilds."""
+
+    deployment_id: ObjectId  # Links to deployments2 collection
+    guild_id: str  # Parent guild ID
+    channel_id: str  # Discord channel snowflake ID
+    name: str  # Channel name
+    type: int  # Channel type (0=text, 2=voice, 4=category, etc.)
+    type_name: str  # Human-readable type name
+    category_id: Optional[str] = None  # Parent category ID
+    category_name: Optional[str] = None  # Parent category name
+    position: int = 0  # Channel position in list
+    last_refreshed_at: datetime = None
+
+    def __init__(self, **data):
+        if "last_refreshed_at" not in data:
+            data["last_refreshed_at"] = datetime.now(timezone.utc)
+        super().__init__(**data)
+
+
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
@@ -259,7 +302,7 @@ async def upload_discord_media_to_s3(media_urls: List[str]) -> List[str]:
 
     for url in media_urls:
         try:
-            s3_url = await upload_file_from_url(url)
+            s3_url, _ = upload_file_from_url(url)
             if s3_url:
                 s3_urls.append(s3_url)
             else:
@@ -458,3 +501,132 @@ def convert_usernames_to_discord_mentions(content: str) -> str:
         return match.group(0)
 
     return username_pattern.sub(replace_username, content)
+
+
+# ============================================================================
+# GUILD/CHANNEL REFRESH FUNCTIONS
+# ============================================================================
+
+
+async def refresh_discord_guilds_and_channels(deployment_id: str) -> dict:
+    """
+    Refresh all guilds and channels for a Discord deployment.
+
+    Fetches all guilds the bot has access to, then fetches all channels
+    within each guild. Saves the results to MongoDB collections.
+
+    Args:
+        deployment_id: The deployment ID from deployments2 collection
+
+    Returns:
+        Dict with guilds_count, channels_count, and guilds list
+    """
+    import discord
+
+    from eve.agent.session.models import ClientType, Deployment
+
+    # Load deployment
+    deployment = Deployment.from_mongo(ObjectId(deployment_id))
+    if not deployment:
+        raise ValueError(f"Deployment not found: {deployment_id}")
+    if deployment.platform != ClientType.DISCORD:
+        raise ValueError(f"Not a Discord deployment: {deployment_id}")
+    if not deployment.secrets or not deployment.secrets.discord:
+        raise ValueError(f"No Discord secrets found for deployment: {deployment_id}")
+
+    token = deployment.secrets.discord.token
+
+    # Create client and login
+    client = discord.Client(intents=discord.Intents.default())
+    await client.login(token)
+
+    try:
+        result = {"guilds_count": 0, "channels_count": 0, "guilds": []}
+
+        deployment_oid = ObjectId(deployment_id)
+
+        # Clear existing records for this deployment
+        DiscordGuild.get_collection().delete_many({"deployment_id": deployment_oid})
+        DiscordChannel.get_collection().delete_many({"deployment_id": deployment_oid})
+
+        # Fetch all guilds
+        async for guild in client.fetch_guilds():
+            guild_data = {
+                "deployment_id": deployment_oid,
+                "guild_id": str(guild.id),
+                "name": guild.name,
+                "icon": str(guild.icon.url) if guild.icon else None,
+                "member_count": None,  # Not available from fetch_guilds
+                "channels": [],
+            }
+
+            # Fetch full guild to get channels
+            try:
+                full_guild = await client.fetch_guild(guild.id)
+                # Update member count if available from full guild
+                guild_data["member_count"] = getattr(
+                    full_guild, "approximate_member_count", None
+                )
+                channels = await full_guild.fetch_channels()
+
+                # Build category lookup
+                categories = {c.id: c.name for c in channels if c.type.value == 4}
+
+                for channel in channels:
+                    channel_type_name = str(channel.type).replace("ChannelType.", "")
+                    channel_data = {
+                        "deployment_id": deployment_oid,
+                        "guild_id": str(guild.id),
+                        "channel_id": str(channel.id),
+                        "name": channel.name,
+                        "type": channel.type.value,
+                        "type_name": channel_type_name,
+                        "category_id": (
+                            str(channel.category_id) if channel.category_id else None
+                        ),
+                        "category_name": categories.get(channel.category_id),
+                        "position": channel.position,
+                    }
+
+                    # Save to collection
+                    discord_channel = DiscordChannel(**channel_data)
+                    discord_channel.save()
+
+                    # Also embed in guild record
+                    guild_data["channels"].append(
+                        {
+                            "id": str(channel.id),
+                            "name": channel.name,
+                            "type": channel.type.value,
+                            "type_name": channel_type_name,
+                            "category": channel_data["category_name"],
+                        }
+                    )
+
+                    result["channels_count"] += 1
+
+            except Exception as e:
+                logger.warning(f"Failed to fetch channels for guild {guild.id}: {e}")
+
+            # Save guild
+            discord_guild = DiscordGuild(**guild_data)
+            discord_guild.save()
+
+            result["guilds"].append(
+                {
+                    "id": str(guild.id),
+                    "name": guild.name,
+                    "channel_count": len(guild_data["channels"]),
+                }
+            )
+            result["guilds_count"] += 1
+
+        logger.info(
+            f"Refreshed Discord guilds/channels for deployment {deployment_id}: "
+            f"{result['guilds_count']} guilds, {result['channels_count']} channels"
+        )
+
+        return result
+
+    finally:
+        await client.close()

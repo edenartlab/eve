@@ -180,14 +180,14 @@ class AnthropicProvider(LLMProvider):
                         llm_call.save()
 
                     if response_format_class:
-                        # Pydantic class - use streaming with class directly
-                        # SDK will transform the class to schema internally
-                        async with self.client.beta.messages.stream(
+                        # Pydantic class - use non-streaming create
+                        # SDK streaming doesn't support output_format parameter
+                        response = await self.client.beta.messages.create(
                             **request_kwargs,
                             betas=["structured-outputs-2025-11-13"],
                             output_format=response_format_class,
-                        ) as stream:
-                            response = await stream.get_final_message()
+                            timeout=httpx.Timeout(600.0, connect=10.0),
+                        )
                     elif output_format_payload:
                         # Dict schema - can't use streaming, use long timeout instead
                         response = await self.client.beta.messages.create(

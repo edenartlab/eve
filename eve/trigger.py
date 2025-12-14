@@ -7,33 +7,10 @@ import pytz
 import sentry_sdk
 from apscheduler.triggers.cron import CronTrigger
 from bson import ObjectId
-from fastapi import BackgroundTasks
-from jinja2 import Template
 
 from eve.agent import Agent
-from eve.agent.session.context import (
-    add_chat_message,
-    build_llm_context,
-)
-from eve.agent.session.models import (
-    ChatMessageRequestInput,
-    NotificationConfig,
-    PromptSessionContext,
-    Session,
-    SessionUpdateConfig,
-)
-from eve.agent.session.runtime import async_prompt_session
-from eve.agent.session.tracing import (
-    add_breadcrumb,
-    trace_async_operation,
-)
-from eve.api.api_requests import (
-    CreateTriggerRequest,
-    DeleteTriggerRequest,
-    PromptSessionRequest,
-    RunTriggerRequest,
-    SessionCreationArgs,
-)
+from eve.agent.session.models import Session
+from eve.api.api_requests import RunTriggerRequest
 from eve.api.errors import APIError, handle_errors
 from eve.mongo import Collection, Document
 from eve.user import User
@@ -45,21 +22,49 @@ db = os.getenv("DB", "STAGE").upper()
 
 @Collection("triggers2")
 class Trigger(Document):
-    name: Optional[str] = "Untitled Task"
-    schedule: Dict[str, Any]
+    """
+    Trigger model for scheduled prompts.
+
+    Triggers are tied to sessions (not agents). The agent is derived
+    from session.agents[0] at execution time.
+    """
+
+    # Core fields
+    name: str = "Untitled Task"
+    prompt: Optional[str] = None  # New field - preferred over trigger_prompt
+    schedule: Optional[Dict[str, Any]] = (
+        None  # Optional - tasks without schedules run manually only
+    )
     user: ObjectId
-    agent: Optional[ObjectId] = None
-    context: Optional[str] = None
-    trigger_prompt: str
-    posting_instructions: Optional[List[Dict[str, Any]]] = None
-    # think: Optional[bool] = None
-    session_type: Optional[Literal["new", "another"]] = "new"
-    session: Optional[ObjectId] = None
-    update_config: Optional[Dict[str, Any]] = None
-    status: Optional[Literal["active", "paused", "running", "finished"]] = "active"
-    deleted: Optional[bool] = False
+    session: Optional[ObjectId] = (
+        None  # Required for new triggers, optional for backward compat
+    )
+
+    # Status and execution tracking
+    status: Literal["active", "paused", "running", "finished"] = "active"
+    deleted: bool = False
     last_run_time: Optional[datetime] = None
     next_scheduled_run: Optional[datetime] = None
+
+    # Error handling (NEW)
+    error_count: int = 0
+    last_error: Optional[str] = None
+
+    # Run history - each run records message_id and timestamp
+    runs: List[Dict[str, Any]] = []
+
+    # DEPRECATED - kept for backward compatibility with existing triggers
+    trigger_prompt: Optional[str] = None  # Use 'prompt' instead
+    agent: Optional[ObjectId] = None  # Derived from session.agents[0]
+    context: Optional[str] = None  # No longer used
+    posting_instructions: Optional[List[Dict[str, Any]]] = None  # Feature removed
+    session_type: Optional[Literal["new", "another"]] = "new"  # Always reuse session
+    update_config: Optional[Dict[str, Any]] = None  # Feature removed
+
+    @property
+    def effective_prompt(self) -> str:
+        """Get the prompt content, handling backward compatibility."""
+        return self.prompt or self.trigger_prompt or ""
 
 
 def calculate_next_scheduled_run(schedule: dict) -> datetime:
@@ -95,325 +100,203 @@ def calculate_next_scheduled_run(schedule: dict) -> datetime:
 
 
 @handle_errors
-async def handle_trigger_create(
-    request: CreateTriggerRequest, background_tasks: BackgroundTasks
-):
-    # Log the incoming request to check for name field
-    logger.info(f"Creating trigger with request: {request}")
-    logger.info(f"Request model fields: {request.model_fields_set}")
-    logger.info(f"Request dict: {request.model_dump()}")
+async def execute_trigger(trigger_id: str) -> Session:
+    """
+    Execute a trigger using the unified orchestrator.
 
-    agent = Agent.from_mongo(ObjectId(request.agent))
+    This simplified implementation:
+    1. Loads trigger, session, and derives agent from session.agents[0]
+    2. Uses orchestrate_trigger() for full observability
+    3. Implements error handling with retry logic (3 failures -> pause)
+    """
+    from datetime import timedelta
+
+    from eve.agent.session.orchestrator import orchestrate_trigger
+
+    logger.info("[TRIGGER] ========== execute_trigger START ==========")
+    logger.info(f"[TRIGGER] Trigger ID: {trigger_id}")
+
+    # Load trigger
+    logger.info("[TRIGGER] Loading trigger from MongoDB...")
+    trigger = Trigger.from_mongo(trigger_id)
+    if not trigger:
+        logger.error(f"[TRIGGER] Trigger not found: {trigger_id}")
+        raise APIError(f"Trigger not found: {trigger_id}", status_code=404)
+
+    logger.info(
+        f"[TRIGGER] Loaded trigger: name='{trigger.name}', status={trigger.status}"
+    )
+    logger.info(f"[TRIGGER] Schedule: {trigger.schedule}")
+    logger.info(
+        f"[TRIGGER] Error count: {trigger.error_count}, Last error: {trigger.last_error}"
+    )
+    logger.info(
+        f"[TRIGGER] Last run: {trigger.last_run_time}, Next scheduled: {trigger.next_scheduled_run}"
+    )
+
+    # Skip if not active
+    if trigger.status in ["finished", "paused"]:
+        logger.info(f"[TRIGGER] Status is '{trigger.status}', skipping execution")
+        logger.info("[TRIGGER] ========== execute_trigger END (skipped) ==========")
+        return None
+
+    # Skip if already running (prevent duplicate execution)
+    if trigger.status == "running":
+        logger.warning(
+            "[TRIGGER] Status is 'running' (duplicate execution attempt), skipping"
+        )
+        logger.info("[TRIGGER] ========== execute_trigger END (skipped) ==========")
+        return None
+
+    # Validate session exists
+    logger.info(f"[TRIGGER] Session ID from trigger: {trigger.session}")
+    if not trigger.session:
+        logger.error("[TRIGGER] Trigger has no session configured, skipping")
+        logger.info("[TRIGGER] ========== execute_trigger END (error) ==========")
+        return None
+
+    # Load session
+    logger.info("[TRIGGER] Loading session from MongoDB...")
+    session = Session.from_mongo(trigger.session)
+    if not session:
+        logger.error(f"[TRIGGER] Session {trigger.session} not found")
+        logger.info("[TRIGGER] ========== execute_trigger END (error) ==========")
+        return None
+
+    logger.info(f"[TRIGGER] Loaded session: id={session.id}, title='{session.title}'")
+    logger.info(f"[TRIGGER] Session agents: {session.agents}")
+
+    # Derive agent from session (not from trigger.agent)
+    if not session.agents:
+        logger.error("[TRIGGER] Session has no agents configured")
+        logger.info("[TRIGGER] ========== execute_trigger END (error) ==========")
+        return None
+
+    logger.info(f"[TRIGGER] Loading agent {session.agents[0]} from MongoDB...")
+    agent = Agent.from_mongo(session.agents[0])
     if not agent:
-        raise APIError(f"Agent not found: {request.agent}", status_code=404)
+        logger.error(f"[TRIGGER] Agent {session.agents[0]} not found")
+        logger.info("[TRIGGER] ========== execute_trigger END (error) ==========")
+        return None
 
-    user = User.from_mongo(ObjectId(request.user))
+    logger.info(f"[TRIGGER] Loaded agent: id={agent.id}, username='{agent.username}'")
+
+    # Load user
+    logger.info(f"[TRIGGER] Loading user {trigger.user} from MongoDB...")
+    user = User.from_mongo(trigger.user)
     if not user:
-        raise APIError(f"User not found: {request.user}", status_code=404)
+        logger.error(f"[TRIGGER] User {trigger.user} not found")
+        logger.info("[TRIGGER] ========== execute_trigger END (error) ==========")
+        return None
 
-    # Calculate next scheduled run
-    schedule_dict = request.schedule.to_cron_dict()
-    next_run = calculate_next_scheduled_run(schedule_dict)
+    logger.info(f"[TRIGGER] Loaded user: id={user.id}")
 
-    if not next_run:
-        raise APIError("Failed to calculate next scheduled run time", status_code=400)
-    logger.info(f"New Trigger next scheduled run: {next_run}")
+    # Mark as running
+    current_time = datetime.now(timezone.utc)
+    logger.info(f"[TRIGGER] Marking trigger as 'running', last_run_time={current_time}")
+    trigger.update(status="running", last_run_time=current_time)
 
-    trigger_name = request.name or "Untitled Task"
-    think = False  # TODO
+    # Get prompt content
+    prompt = trigger.effective_prompt
+    logger.info(f"[TRIGGER] Effective prompt (first 200 chars): {prompt[:200]}...")
 
-    # Create trigger in database
-    logger.info(f"Creating trigger with name: '{trigger_name}'")
-    trigger = Trigger(
-        name=trigger_name,  # Add the name field
-        user=ObjectId(user.id),
-        agent=ObjectId(agent.id),
-        schedule=schedule_dict,
-        context=request.context,
-        trigger_prompt=request.trigger_prompt,
-        posting_instructions=[p.model_dump() for p in request.posting_instructions],
-        think=think,
-        update_config=request.update_config.model_dump()
-        if request.update_config
-        else None,
-        session=ObjectId(request.session) if request.session else None,
-        session_type="another",  # request.session_type,
-        next_scheduled_run=next_run,
-    )
-    trigger.save()
-
-    return {
-        "id": str(trigger.id),
-        "next_scheduled_run": next_run.isoformat(),
-    }
-
-
-@handle_errors
-async def handle_trigger_stop(request: DeleteTriggerRequest):
-    trigger = Trigger.from_mongo(request.id)
-    if not trigger or trigger.deleted:
-        raise APIError(f"Trigger not found: {request.id}", status_code=404)
-    trigger.status = "finished"
-    trigger.save()
-    return {"id": str(request.id)}
-
-
-@handle_errors
-async def handle_trigger_delete(request: DeleteTriggerRequest):
-    trigger = Trigger.from_mongo(request.id)
-    if not trigger:
-        raise APIError(f"Trigger not found: {request.id}", status_code=404)
-    # Soft delete by setting deleted flag
-    trigger.deleted = True
-    trigger.save()
-    return {"id": str(trigger.id)}
-
-
-@handle_errors
-async def handle_trigger_get(trigger_id: str):
-    trigger = Trigger.from_mongo(trigger_id)
-    if not trigger or trigger.deleted:
-        raise APIError(f"Trigger not found: {trigger_id}", status_code=404)
-
-    return {
-        "id": str(trigger.id) if trigger.id else None,
-        "user": str(trigger.user) if trigger.user else None,
-        "agent": str(trigger.agent) if trigger.agent else None,
-        "session": str(trigger.session) if trigger.session else None,
-        "instruction": trigger.instruction,
-        "update_config": trigger.update_config,
-        "schedule": trigger.schedule,
-    }
-
-
-trigger_prompt_template = Template("""
-{{trigger_prompt}}
-{% if posting_instructions %}
-<Posting Instructions>
-Post the result of your last task to the following channels:
-{{posting_instructions}}
-</Posting Instructions>
-{% endif %}
-""")
-
-
-async def prepare_trigger_prompt(
-    trigger: Trigger,
-    agent: Agent,
-    session: Session,
-    user_id: str,
-) -> PromptSessionContext:
-    extra_tools = []
-    posting_instructions = ""
-
-    for i, p in enumerate(trigger.posting_instructions or []):
-        post_to = p.get("post_to")
-        channel_id = p.get("channel_id")
-        session_id = p.get("session_id")
-        custom_instructions = p.get("custom_instructions")
-
-        platform = {
-            "discord": "discord_post",
-            "telegram": "telegram_post",
-            "x": "tweet",
-            "farcaster": "farcaster_post",
-        }
-
-        if post_to in ["same", "another"]:
-            if post_to == "same":
-                posting_instructions += f"\n{i + 1}): {custom_instructions}"
-            else:
-                posting_instructions += f"\n{i + 1}) Post to {post_to}, channel '{session_id}': {custom_instructions}"
-
-        elif post_to in platform:
-            tool = platform.get(post_to)
-            extra_tools.append(tool)
-            posting_instructions += f"\n{i + 1}) Post to {post_to}, channel '{channel_id}': {custom_instructions}"
-
-        else:
-            raise APIError(f"Invalid post_to: {post_to}", status_code=400)
-
-    trigger_prompt = trigger_prompt_template.render(
-        trigger_prompt=trigger.trigger_prompt, posting_instructions=posting_instructions
-    )
-
-    # load posting tools even if they are not active by default in the agent
-    tools = agent.get_tools(auth_user=user_id, extra_tools=extra_tools)
-    posting_tools = {
-        k: v
-        for k, v in tools.items()
-        if k in ["discord_post", "telegram_post", "farcaster_post", "tweet"]
-    }
-
-    return trigger_prompt, posting_tools
-
-
-@handle_errors
-async def execute_trigger(
-    trigger_id: str,
-    # background_tasks: BackgroundTasks,
-) -> Session:
-    from eve.agent.session.setup import setup_session
-
-    # Start distributed tracing transaction
-    transaction = sentry_sdk.start_transaction(
-        name="trigger_execution",
-        op="trigger.execute",
-    )
-
-    if transaction:
-        transaction.set_tag("trigger_id", trigger_id)
-        # Set as active span (correct API)
-        sentry_sdk.Hub.current.scope.span = transaction
-
-    trigger = Trigger.from_mongo(trigger_id)
-    if not trigger:
-        raise APIError(f"Trigger not found: {trigger_id}", status_code=404)
+    logger.info("[TRIGGER] ===== Calling orchestrate_trigger =====")
+    update_count = 0
+    trigger_message_id = None
 
     try:
-        if trigger.status in ["finished", "running", "paused"]:
-            logger.info(f"Trigger {trigger.id} is {trigger.status}, skipping...")
-            return
+        # Use unified orchestrator (includes full observability)
+        async for update in orchestrate_trigger(
+            trigger_id=str(trigger.id),
+            trigger_prompt=prompt,
+            session=session,
+            agent=agent,
+            user_id=str(user.id),
+        ):
+            update_count += 1
 
-        session = None
-        user = User.from_mongo(trigger.user)
-        agent = Agent.from_mongo(trigger.agent)
-
-        # Add context to transaction
-        if transaction:
-            transaction.set_data("trigger_name", trigger.name)
-            transaction.set_tag("user_id", str(user.id))
-            transaction.set_tag("agent_id", str(agent.id))
-        add_breadcrumb(f"Executing trigger: {trigger.name}", category="trigger")
-
-        current_time = datetime.now(timezone.utc)
-
-        if trigger.session:
-            session = Session.from_mongo(trigger.session)
-            request = PromptSessionRequest(
-                user_id=str(user.id),
-                session_id=str(trigger.session),
-            )
-            trigger.update(
-                status="running",
-                last_run_time=current_time,
-            )
-
-        else:
-            # Create session request
-            session_id = ObjectId()
-            request = PromptSessionRequest(
-                user_id=str(user.id),
-                creation_args=SessionCreationArgs(
-                    session_id=str(session_id),
-                    owner_id=str(user.id),
-                    agents=[str(agent.id)],
-                    trigger=str(trigger.id),
-                    title=trigger.name,
-                ),
-            )
-            trigger.update(
-                session=session_id, status="running", last_run_time=current_time
-            )
-
-        if trigger.update_config:
-            try:
-                request.update_config = SessionUpdateConfig(**trigger.update_config)
-            except Exception as exc:
-                logger.warning(
-                    f"[TRIGGER] Failed to hydrate update_config for trigger {trigger.id}: {exc}"
+            # Capture the trigger message ID for run tracking
+            if update.get("type") == "trigger_message_created":
+                trigger_message_id = update.get("message_id")
+                logger.info(
+                    f"[TRIGGER] Captured trigger message_id: {trigger_message_id}"
                 )
 
-        request.notification_config = NotificationConfig(
-            user_id=str(user.id),
-            notification_type="trigger_complete",
-            title="Task Completed",
-            message=f'Your task "{trigger.name}" has completed successfully',
-            trigger_id=str(trigger.id),
-            agent_id=str(trigger.agent),
-            priority="normal",
-            # metadata={"trigger_id": trigger.trigger_id},
-            success_notification=True,
-            failure_notification=True,
-            failure_title="Task Failed",
-            failure_message=f'Your task "{trigger.name}" has failed',
-        )
+        logger.info("[TRIGGER] ===== orchestrate_trigger completed =====")
+        logger.info(f"[TRIGGER] Total updates received: {update_count}")
 
-        # Setup session
-        async with trace_async_operation(
-            "trigger.setup_session",
-            session_id=str(request.session_id) if request.session_id else None,
-        ):
-            session = setup_session(
-                # background_tasks,
-                None,
-                request.session_id,
-                request.user_id,
-                request,
-            )
-            if transaction:
-                transaction.set_data("session_id", str(session.id))
+        # Record the run with message_id and timestamp
+        if trigger_message_id:
+            run_record = {
+                "message_id": ObjectId(trigger_message_id),
+                "ran_at": datetime.now(timezone.utc),
+            }
+            # Append to runs array using push method
+            trigger.push(pushes={"runs": run_record})
+            logger.info(f"[TRIGGER] Recorded run: message_id={trigger_message_id}")
 
-        # Prepare trigger prompt
-        async with trace_async_operation("trigger.prepare_prompt"):
-            trigger_prompt, extra_tools = await prepare_trigger_prompt(
-                trigger, agent, session, request.user_id
-            )
-
-        # Create artwork generation message
-        message = ChatMessageRequestInput(role="user", content=trigger_prompt)
-
-        # Create context with selected model
-        prompt_context = PromptSessionContext(
-            session=session,
-            initiating_user_id=request.user_id,
-            message=message,
-            update_config=request.update_config,
-            # thinking_override=trigger.think,
-            thinking_override=False,
-            extra_tools=extra_tools,
-            trigger=trigger.id,
-        )
-
-        # Add user message to session
-        async with trace_async_operation("trigger.add_message"):
-            await add_chat_message(session, prompt_context)
-
-        # Build LLM context
-        async with trace_async_operation("trigger.build_context"):
-            llm_context = await build_llm_context(
-                session,
-                agent,
-                prompt_context,
-            )
-
-        # Execute the prompt session (this will have its own transaction)
-        add_breadcrumb("Starting prompt session", category="trigger")
-        async for _ in async_prompt_session(
-            session, llm_context, agent, context=prompt_context
-        ):
-            pass
-
-        return session
+        # Success - reset error count
+        logger.info("[TRIGGER] Execution successful, resetting error_count to 0")
+        trigger.update(error_count=0, last_error=None)
 
     except Exception as e:
-        logger.error(f"Error executing trigger {trigger.id}: {str(e)}")
+        error_msg = str(e)[:500]  # Truncate error message
+        error_count = (trigger.error_count or 0) + 1
+
+        logger.error("[TRIGGER] !!!!! EXECUTION FAILED !!!!!")
+        logger.error(f"[TRIGGER] Error type: {type(e).__name__}")
+        logger.error(f"[TRIGGER] Error message: {error_msg}")
+        logger.error(f"[TRIGGER] Error count after this failure: {error_count}")
+        logger.error(f"[TRIGGER] Updates received before failure: {update_count}")
         sentry_sdk.capture_exception(e)
+
+        if error_count >= 3:
+            # Too many failures - pause the trigger
+            logger.warning("[TRIGGER] Error count >= 3, PAUSING trigger")
+            trigger.update(
+                status="paused",
+                error_count=error_count,
+                last_error=error_msg,
+            )
+            # TODO: Send notification to user
+        else:
+            # Retry in 5 minutes
+            retry_time = datetime.now(timezone.utc) + timedelta(minutes=5)
+            logger.info(f"[TRIGGER] Error count < 3, scheduling retry at {retry_time}")
+            trigger.update(
+                status="active",
+                error_count=error_count,
+                last_error=error_msg,
+                next_scheduled_run=retry_time,
+            )
+
+        logger.info("[TRIGGER] ========== execute_trigger END (error) ==========")
         return session
 
     finally:
-        logger.info(f"Trigger execution cleanup completed for {trigger.id}")
-
-        next_run = calculate_next_scheduled_run(trigger.schedule)
-
-        if next_run:
-            trigger.update(status="active", next_scheduled_run=next_run)
+        # Calculate next scheduled run (only if still in running state)
+        logger.info(f"[TRIGGER] Finally block: current status={trigger.status}")
+        if trigger.status == "running":
+            # If no schedule, task stays active (manual-only)
+            if not trigger.schedule:
+                logger.info("[TRIGGER] No schedule - task stays active (manual-only)")
+                trigger.update(status="active")
+            else:
+                logger.info("[TRIGGER] Calculating next scheduled run...")
+                next_run = calculate_next_scheduled_run(trigger.schedule)
+                if next_run:
+                    logger.info(f"[TRIGGER] Next run calculated: {next_run}")
+                    trigger.update(status="active", next_scheduled_run=next_run)
+                else:
+                    logger.info("[TRIGGER] No more scheduled runs (trigger finished)")
+                    trigger.update(status="finished", next_scheduled_run=None)
         else:
-            trigger.update(status="finished", next_scheduled_run=None)
+            logger.info(
+                "[TRIGGER] Status is not 'running', skipping next run calculation"
+            )
 
-        # Finish transaction
-        if transaction:
-            transaction.finish()
+    logger.info("[TRIGGER] ========== execute_trigger END (success) ==========")
+    return session
 
 
 @handle_errors
@@ -421,30 +304,48 @@ async def handle_trigger_run(
     request: RunTriggerRequest,
     # background_tasks: BackgroundTasks,
 ):
+    """Handle manual "Run Now" trigger execution from API."""
     trigger_id = request.trigger_id
+
+    logger.info("[TRIGGER_RUN] ========== handle_trigger_run START ==========")
+    logger.info(f"[TRIGGER_RUN] Trigger ID: {trigger_id}")
+
     trigger = Trigger.from_mongo(trigger_id)
 
     if not trigger or trigger.deleted:
+        logger.error("[TRIGGER_RUN] Trigger not found or deleted")
         raise APIError(f"Trigger {trigger_id} not found", status_code=404)
 
+    logger.info(
+        f"[TRIGGER_RUN] Loaded trigger: name='{trigger.name}', status={trigger.status}"
+    )
+
     if trigger.status == "running":
+        logger.warning("[TRIGGER_RUN] Trigger already running, rejecting request")
         raise APIError(
             f"Trigger {trigger_id} already running, try later", status_code=400
         )
 
     if trigger.status != "active":
+        logger.warning(
+            f"[TRIGGER_RUN] Trigger status is '{trigger.status}', not 'active'"
+        )
         raise APIError(
             f"Trigger {trigger_id} is not active (status: {trigger.status})",
             status_code=400,
         )
 
     try:
-        # session_id = background_tasks.add_task(execute_trigger, trigger, background_tasks)
-        # todo: use the modal func or the function directly?
+        logger.info("[TRIGGER_RUN] Calling execute_trigger...")
         from eve.trigger import execute_trigger
 
         session = await execute_trigger(trigger_id)
-        session_id = str(session.id)
+        session_id = str(session.id) if session else None
+
+        logger.info(f"[TRIGGER_RUN] Execution complete, session_id={session_id}")
+        logger.info(
+            "[TRIGGER_RUN] ========== handle_trigger_run END (success) =========="
+        )
 
         return {
             "trigger_id": trigger_id,
@@ -453,71 +354,8 @@ async def handle_trigger_run(
         }
 
     except Exception as e:
-        raise APIError(f"Failed to execute trigger: {str(e)}", status_code=500)
-
-
-# TODO
-async def handle_trigger_posting_deprecated(trigger, session_id):
-    """Handle posting instructions for a trigger"""
-    import aiohttp
-
-    posting_instructions = trigger.posting_instructions
-    if not posting_instructions:
-        return
-
-    try:
-        request_data = {
-            "session_id": session_id,
-            "user_id": str(trigger.user),
-            "actor_agent_ids": [str(trigger.agent)],
-            "message": {
-                "role": "system",
-                "content": f"""## Posting instructions
-{posting_instructions.get("post_to", "")} channel {posting_instructions.get("channel_id", "")}
-
-{posting_instructions.get("custom_instructions", "")}
-""",
-            },
-            "update_config": trigger.update_config,
-        }
-
-        # Add custom tools based on platform
-        platform = posting_instructions.get("post_to")
-        if platform == "discord" and posting_instructions.get("channel_id"):
-            request_data["tools"] = {
-                "discord_post": {
-                    "parameters": {
-                        "channel_id": {"default": posting_instructions["channel_id"]}
-                    }
-                }
-            }
-        elif platform == "telegram" and posting_instructions.get("channel_id"):
-            request_data["tools"] = {
-                "telegram_post": {
-                    "parameters": {
-                        "channel_id": {"default": posting_instructions["channel_id"]}
-                    }
-                }
-            }
-
-        # Make async HTTP POST to prompt session endpoint
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                f"{os.getenv('EDEN_API_URL')}/sessions/prompt",
-                json=request_data,
-                headers={
-                    "Authorization": f"Bearer {os.getenv('EDEN_ADMIN_KEY')}",
-                    "Content-Type": "application/json",
-                },
-            ) as response:
-                if response.status != 200:
-                    error_text = await response.text()
-                    logger.error(
-                        f"Failed to run posting instructions for trigger {trigger.trigger_id}: {error_text}"
-                    )
-
-    except Exception as e:
-        logger.error(
-            f"Error handling posting instructions for trigger {trigger.trigger_id}: {str(e)}"
+        logger.error(f"[TRIGGER_RUN] !!!!! FAILED !!!!! {type(e).__name__}: {str(e)}")
+        logger.info(
+            "[TRIGGER_RUN] ========== handle_trigger_run END (error) =========="
         )
-        sentry_sdk.capture_exception(e)
+        raise APIError(f"Failed to execute trigger: {str(e)}", status_code=500)

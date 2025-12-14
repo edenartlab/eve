@@ -27,6 +27,8 @@ from eve.agent.session.models import (
     Channel,
     ChatMessage,
     Deployment,
+    EdenMessageData,
+    EdenMessageType,
     LLMConfig,
     LLMContext,
     LLMContextMetadata,
@@ -488,6 +490,11 @@ async def add_chat_message(
 
         attachments = await upload_attachments_to_eden(attachments)
 
+    # Set eden_message_data for trigger messages with eden role
+    eden_message_data = None
+    if context.trigger and context.message.role == "eden":
+        eden_message_data = EdenMessageData(message_type=EdenMessageType.TRIGGER)
+
     new_message = ChatMessage(
         session=session.id,
         sender=ObjectId(str(context.initiating_user_id)),
@@ -498,6 +505,7 @@ async def add_chat_message(
         apiKey=ObjectId(context.api_key_id) if context.api_key_id else None,
         triggering_user=triggering_user_id,
         billed_user=triggering_user_id,
+        eden_message_data=eden_message_data,
     )
 
     # Save channel origin info for social media platforms
@@ -574,6 +582,33 @@ async def add_chat_message(
     return new_message
 
 
+def get_last_eden_message_for_llm(session_id: ObjectId) -> Optional[ChatMessage]:
+    """
+    Get the last eden message for a session, converted for LLM consumption.
+    Eden messages are excluded from select_messages(), so we query separately.
+    The last eden message is converted to user role with content wrapped in SystemMessage tags.
+    Returns None if no eden messages exist.
+    """
+    messages = ChatMessage.get_collection()
+    last_eden = messages.find_one(
+        {"session": session_id, "role": "eden"},
+        sort=[("createdAt", -1)],
+    )
+
+    if not last_eden:
+        return None
+
+    eden_msg = ChatMessage(**last_eden)
+
+    # Convert: change role to user, wrap content in SystemMessage tags
+    return eden_msg.model_copy(
+        update={
+            "role": "user",
+            "content": f"<SystemMessage>{eden_msg.content}</SystemMessage>",
+        }
+    )
+
+
 async def build_llm_context(
     session: Session,
     actor: Agent,
@@ -639,6 +674,15 @@ async def build_llm_context(
         messages.extend(system_extras)
 
     existing_messages = select_messages(session)
+
+    # Add the last eden message (converted to user role) if it exists
+    # Eden messages are filtered out by select_messages, so we query separately
+    last_eden = get_last_eden_message_for_llm(session.id)
+    if last_eden:
+        # Insert at appropriate position (by createdAt)
+        existing_messages.append(last_eden)
+        existing_messages.sort(key=lambda m: m.createdAt)
+
     messages.extend(existing_messages)
     messages = label_message_channels(messages, session)
     messages = convert_message_roles(messages, actor.id)

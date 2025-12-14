@@ -1,6 +1,7 @@
 {
+  "agent_id": "69366bd16ab3a4e06604f629",
   "action": "list",
-  "time_min": "today",
-  "days_ahead": 7,
-  "max_results": 5
+  "start_time": "2026-02-01",
+  "end_time": "2026-02-10",
+  "max_results": 10
 }

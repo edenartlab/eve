@@ -121,41 +121,50 @@ async def run_automatic_session_step(session: Session) -> None:
     - The selected agent receives bulk message updates from parent
     - Agent does private work then posts to parent via post_to_chatroom tool
     """
-    from fastapi import BackgroundTasks
-
     from eve.agent.session.conductor import conductor_select_actor
-    from eve.agent.session.service import PromptSessionHandle
 
-    logger.info(
-        f"[AUTO] ===== run_automatic_session_step START ===== "
-        f"session={session.id}, status={session.status}, type={session.session_type}"
-    )
+    logger.info("[AUTO] ========== run_automatic_session_step START ==========")
+    logger.info(f"[AUTO] Session ID: {session.id}")
+    logger.info(f"[AUTO] Session title: {session.title}")
+    logger.info(f"[AUTO] Session status: {session.status}")
+    logger.info(f"[AUTO] Session type: {session.session_type}")
+    logger.info(f"[AUTO] Session agents: {session.agents}")
+    logger.info(f"[AUTO] Session agent_sessions: {session.agent_sessions}")
 
     # Prevent duplicate handling
     if session.status == "running":
         logger.warning(
-            f"[AUTO] Session {session.id} already running, skipping (possible race condition)"
+            "[AUTO] Session already 'running' - possible race condition, skipping"
+        )
+        logger.info(
+            "[AUTO] ========== run_automatic_session_step END (skipped) =========="
         )
         return
 
     if session.status in ("paused", "archived"):
-        logger.info(f"[AUTO] Session {session.id} is {session.status}, not running")
+        logger.info(f"[AUTO] Session status is '{session.status}', not running step")
+        logger.info(
+            "[AUTO] ========== run_automatic_session_step END (skipped) =========="
+        )
         return
 
     # Mark as running to prevent duplicates
-    logger.info(f"[AUTO] Setting session {session.id} status to 'running'")
+    logger.info("[AUTO] Marking session status as 'running'")
     session.update(status="running")
 
     try:
         # Select next actor via conductor
-        logger.info(f"[AUTO] Calling conductor_select_actor for session {session.id}")
+        logger.info("[AUTO] ===== Conductor Selection =====")
+        logger.info("[AUTO] Calling conductor_select_actor...")
         actor = await conductor_select_actor(session)
-        logger.info(f"[AUTO] Conductor selected: {actor.username} (id={actor.id})")
+        logger.info(
+            f"[AUTO] Conductor selected actor: {actor.username} (id={actor.id})"
+        )
 
         # Ensure agent_sessions exist for multi-agent sessions
         if len(session.agents) > 1 and not session.agent_sessions:
             logger.info(
-                f"[AUTO] Creating agent_sessions for multi-agent session {session.id}"
+                "[AUTO] Multi-agent session without agent_sessions, creating them..."
             )
             from eve.agent.session.setup import create_agent_sessions
 
@@ -165,15 +174,20 @@ async def run_automatic_session_step(session: Session) -> None:
             logger.info(f"[AUTO] Created agent_sessions: {list(agent_sessions.keys())}")
 
         # Check if this is a multi-agent session with agent_sessions
+        logger.info("[AUTO] ===== Execution Path Decision =====")
+        logger.info(f"[AUTO] Has agent_sessions: {bool(session.agent_sessions)}")
+        logger.info(
+            f"[AUTO] Actor ID in agent_sessions: {str(actor.id) in (session.agent_sessions or {})}"
+        )
+
         if session.agent_sessions and str(actor.id) in session.agent_sessions:
             # Use agent_session flow - hand off to agent's private workspace
             from eve.agent.session.agent_session_runtime import run_agent_session_turn
 
             agent_session_id = session.agent_sessions[str(actor.id)]
-            logger.info(
-                f"[AUTO] Handing off to agent_session {agent_session_id} "
-                f"for {actor.username}"
-            )
+            logger.info("[AUTO] PATH: Multi-agent with agent_session")
+            logger.info(f"[AUTO] Agent session ID: {agent_session_id}")
+            logger.info("[AUTO] Calling run_agent_session_turn...")
 
             await run_agent_session_turn(
                 parent_session=session,
@@ -184,74 +198,66 @@ async def run_automatic_session_step(session: Session) -> None:
 
         else:
             # Fall back to existing direct flow (single agent or no agent_sessions)
+            logger.info("[AUTO] PATH: Direct flow (single agent or no agent_sessions)")
+            logger.info(f"[AUTO] Agent count: {len(session.agents)}")
+            from eve.agent.session.orchestrator import orchestrate_automatic
+
+            logger.info("[AUTO] Calling orchestrate_automatic...")
+            update_count = 0
+            async for update in orchestrate_automatic(session, actor):
+                update_count += 1
+                update_type = update.get("type", "unknown")
+                logger.debug(f"[AUTO] Update #{update_count}: type={update_type}")
+
             logger.info(
-                f"[AUTO] Using direct flow for {actor.username} "
-                f"(agents={len(session.agents)}, agent_sessions={bool(session.agent_sessions)})"
+                f"[AUTO] orchestrate_automatic completed, {update_count} updates"
             )
-            from eve.agent.session.models import (
-                ChatMessageRequestInput,
-                PromptSessionContext,
-            )
-
-            # Build context without a user message (conductor picks speaker)
-            context = PromptSessionContext(
-                session=session,
-                initiating_user_id=str(session.owner),
-                message=ChatMessageRequestInput(role="system", content=""),
-                actor_agent_ids=[str(actor.id)],  # Use the conductor-selected actor
-            )
-
-            handle = PromptSessionHandle(
-                session=session,
-                context=context,
-                background_tasks=BackgroundTasks(),
-            )
-
-            # Run orchestration (don't add message - automatic sessions don't have user input)
-            async for update in handle.run_orchestration(stream=False):
-                logger.debug(f"[AUTO] Update: {update}")
-
-            logger.info(f"[AUTO] Direct flow completed for {actor.username}")
 
         # Success - set back to active
+        logger.info("[AUTO] ===== Post-Execution Status Update =====")
         session.reload()
-        logger.info(f"[AUTO] After step, session status={session.status}")
+        logger.info(f"[AUTO] Session status after reload: {session.status}")
+
         if session.status == "running":
-            logger.info(f"[AUTO] Setting session {session.id} status back to 'active'")
+            logger.info("[AUTO] Setting status back to 'active'")
             session.update(status="active")
         else:
             logger.warning(
-                f"[AUTO] Session {session.id} status is '{session.status}' (not 'running'), "
-                f"not changing to 'active'"
+                f"[AUTO] Status changed during execution to '{session.status}', not resetting to 'active'"
             )
 
         # Schedule next step
+        logger.info("[AUTO] ===== Next Step Scheduling =====")
         session.reload()
         logger.info(
-            f"[AUTO] Checking if should schedule next step: "
-            f"status={session.status}, type={session.session_type}"
+            f"[AUTO] Current status: {session.status}, type: {session.session_type}"
         )
+
         if session.status == "active" and session.session_type == "automatic":
             delay = get_reply_delay(session)
             logger.info(f"[AUTO] Scheduling next step in {delay}s")
             await schedule_next_automatic_run(str(session.id), delay)
         else:
             logger.info(
-                f"[AUTO] NOT scheduling next step - "
-                f"status={session.status} (need 'active'), type={session.session_type}"
+                f"[AUTO] NOT scheduling next step (status={session.status}, type={session.session_type})"
             )
 
         logger.info(
-            f"[AUTO] ===== run_automatic_session_step END ===== session={session.id}"
+            "[AUTO] ========== run_automatic_session_step END (success) =========="
         )
 
     except Exception as e:
-        logger.error(
-            f"[AUTO] Error in session {session.id}: {e}\n"
-            f"Full traceback:\n{traceback.format_exc()}"
-        )
+        logger.error("[AUTO] !!!!! ERROR in automatic session step !!!!!")
+        logger.error(f"[AUTO] Session: {session.id}")
+        logger.error(f"[AUTO] Error type: {type(e).__name__}")
+        logger.error(f"[AUTO] Error message: {str(e)}")
+        logger.error(f"[AUTO] Full traceback:\n{traceback.format_exc()}")
         # Pause on error to prevent infinite error loops
+        logger.info("[AUTO] Pausing session to prevent infinite error loop")
         session.update(status="paused")
+        logger.info(
+            "[AUTO] ========== run_automatic_session_step END (error) =========="
+        )
         raise
 
 

@@ -26,6 +26,7 @@ from eve.tools.google_calendar.utils import (
     get_calendar_deployment,
     get_service_and_config,
     parse_datetime,
+    parse_recurrence_rule,
 )
 
 __all__ = [
@@ -37,4 +38,5 @@ __all__ = [
     "format_event_compact",
     "format_events_list",
     "check_permissions",
+    "parse_recurrence_rule",
 ]

@@ -36,45 +36,46 @@ async def get_service_and_config(agent_id: str):
     return service, config, deployment
 
 
-def parse_datetime(dt_str: Optional[str], default_tz: str = "UTC") -> Optional[datetime]:
+def parse_datetime(
+    dt_str: Optional[str], default_tz: str = "UTC"
+) -> Optional[datetime]:
     """
-    Parse a datetime string to a datetime object.
-    Handles ISO format and common natural language relative times.
+    Parse a datetime string to a timezone-aware datetime object.
+    Supports: ISO format, date-only, space separator, Z suffix.
+    Always returns UTC timezone-aware datetime.
     """
     if not dt_str:
         return None
 
-    # Handle relative time expressions
-    now = datetime.now(timezone.utc)
-    dt_lower = dt_str.lower().strip()
+    dt_str = dt_str.strip()
 
-    if dt_lower == "now":
-        return now
-    elif dt_lower == "today":
-        return now.replace(hour=0, minute=0, second=0, microsecond=0)
-    elif dt_lower == "tomorrow":
-        return (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-    elif dt_lower == "yesterday":
-        return (now - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    # Handle 'Z' suffix for UTC
+    if dt_str.endswith("Z"):
+        dt_str = dt_str[:-1] + "+00:00"
 
-    # Try ISO format parsing
+    # Handle space separator (e.g., "2026-02-01 14:00:00")
+    if " " in dt_str and "T" not in dt_str:
+        dt_str = dt_str.replace(" ", "T", 1)
+
+    # Handle date-only (e.g., "2026-02-01")
+    if len(dt_str) == 10 and "-" in dt_str:
+        dt_str = dt_str + "T00:00:00"
+
     try:
-        # Handle 'Z' suffix for UTC
-        if dt_str.endswith('Z'):
-            dt_str = dt_str[:-1] + '+00:00'
-        return datetime.fromisoformat(dt_str)
+        dt = datetime.fromisoformat(dt_str)
+        # Ensure timezone-aware (assume UTC if naive)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
     except ValueError:
-        pass
-
-    # Try parsing without timezone (assume UTC)
-    try:
-        dt = datetime.fromisoformat(dt_str.replace('Z', ''))
-        return dt.replace(tzinfo=timezone.utc)
-    except ValueError:
-        raise ValueError(f"Unable to parse datetime: {dt_str}. Use ISO format (YYYY-MM-DDTHH:MM:SS) or relative terms like 'now', 'today', 'tomorrow'")
+        raise ValueError(
+            f"Unable to parse datetime: {dt_str}. Use ISO format (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)"
+        )
 
 
-def format_datetime_for_display(dt_str: Optional[str], include_date: bool = True) -> str:
+def format_datetime_for_display(
+    dt_str: Optional[str], include_date: bool = True
+) -> str:
     """
     Format datetime string for concise LLM display.
     Examples: "Dec 15, 2:30 PM" or "2:30 PM"
@@ -84,8 +85,8 @@ def format_datetime_for_display(dt_str: Optional[str], include_date: bool = True
 
     try:
         # Handle Google's datetime format
-        if 'T' in dt_str:
-            dt = datetime.fromisoformat(dt_str.replace('Z', '+00:00'))
+        if "T" in dt_str:
+            dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
         else:
             # Date-only event
             dt = datetime.fromisoformat(dt_str)
@@ -110,7 +111,16 @@ def format_event_compact(
 
     Default fields: id, title, start, end, location (if present)
     """
-    default_fields = ["id", "title", "start", "end", "location", "description", "attendees", "status"]
+    default_fields = [
+        "id",
+        "title",
+        "start",
+        "end",
+        "location",
+        "description",
+        "attendees",
+        "status",
+    ]
 
     if include_fields:
         fields_to_include = include_fields
@@ -186,6 +196,56 @@ def format_events_list(
     return formatted
 
 
+def parse_recurrence_rule(recurrence: List[str]) -> Optional[str]:
+    """Parse RRULE into human-readable schedule description."""
+    if not recurrence:
+        return None
+
+    for rule in recurrence:
+        if rule.startswith("RRULE:"):
+            rrule = rule[6:]  # Remove "RRULE:" prefix
+            parts = dict(p.split("=") for p in rrule.split(";") if "=" in p)
+
+            freq = parts.get("FREQ", "").lower()
+            interval = int(parts.get("INTERVAL", 1))
+            byday = parts.get("BYDAY", "")
+
+            # Build human-readable description
+            if freq == "daily":
+                if interval == 1:
+                    return "Daily"
+                return f"Every {interval} days"
+            elif freq == "weekly":
+                days_map = {
+                    "MO": "Mon",
+                    "TU": "Tue",
+                    "WE": "Wed",
+                    "TH": "Thu",
+                    "FR": "Fri",
+                    "SA": "Sat",
+                    "SU": "Sun",
+                }
+                if byday:
+                    days = [days_map.get(d, d) for d in byday.split(",")]
+                    days_str = ", ".join(days)
+                    if interval == 1:
+                        return f"Weekly on {days_str}"
+                    return f"Every {interval} weeks on {days_str}"
+                if interval == 1:
+                    return "Weekly"
+                return f"Every {interval} weeks"
+            elif freq == "monthly":
+                if interval == 1:
+                    return "Monthly"
+                return f"Every {interval} months"
+            elif freq == "yearly":
+                if interval == 1:
+                    return "Yearly"
+                return f"Every {interval} years"
+
+    return None
+
+
 def format_duration(delta: timedelta) -> str:
     """Format a timedelta as a human-readable duration."""
     total_minutes = int(delta.total_seconds() / 60)
@@ -201,7 +261,9 @@ def format_duration(delta: timedelta) -> str:
     return f"{hours}h {minutes}min"
 
 
-def check_permissions(config, require_write: bool = False, require_delete: bool = False):
+def check_permissions(
+    config, require_write: bool = False, require_delete: bool = False
+):
     """Check if the deployment has required permissions."""
     if require_write and not config.allow_write:
         raise Exception(

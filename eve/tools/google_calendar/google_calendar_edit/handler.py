@@ -4,7 +4,6 @@ Handler for google_calendar_edit tool.
 Consolidated write operations: create and update events.
 """
 
-from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from googleapiclient.errors import HttpError
@@ -83,7 +82,9 @@ async def _create_event(
         end_dt = parse_datetime(end_time_str)
 
         if not start_dt or not end_dt:
-            raise Exception("Invalid datetime format. Use ISO format: 2024-12-15T14:00:00")
+            raise Exception(
+                "Invalid datetime format. Use ISO format: 2024-12-15T14:00:00"
+            )
         if end_dt <= start_dt:
             raise Exception("end_time must be after start_time")
 
@@ -109,10 +110,11 @@ async def _create_event(
     # Check conflicts
     if check_conflicts and not all_day:
         conflicts = await _check_time_conflicts(
-            service, calendar_id,
+            service,
+            calendar_id,
             event_body["start"]["dateTime"],
             event_body["end"]["dateTime"],
-            exclude_event_id=None
+            exclude_event_id=None,
         )
         if conflicts:
             return {
@@ -126,17 +128,25 @@ async def _create_event(
 
     # Create event
     try:
-        created = service.events().insert(
-            calendarId=calendar_id,
-            body=event_body,
-            sendNotifications=send_notifications,
-        ).execute()
-        logger.info(f"Created event: {created.get('summary')} (ID: {created.get('id')})")
+        created = (
+            service.events()
+            .insert(
+                calendarId=calendar_id,
+                body=event_body,
+                sendNotifications=send_notifications,
+            )
+            .execute()
+        )
+        logger.info(
+            f"Created event: {created.get('summary')} (ID: {created.get('id')})"
+        )
     except HttpError as e:
         if e.resp.status == 401:
             raise Exception("Google Calendar authentication expired. Please reconnect.")
         elif e.resp.status == 403:
-            raise Exception("Permission denied. Calendar integration may not have write access.")
+            raise Exception(
+                "Permission denied. Calendar integration may not have write access."
+            )
         else:
             raise Exception(f"Failed to create event: {str(e)}")
 
@@ -178,7 +188,6 @@ async def _update_event(
     title = context.args.get("title")
     start_time_str = context.args.get("start_time")
     end_time_str = context.args.get("end_time")
-    shift_minutes = context.args.get("shift_minutes")
     description = context.args.get("description")
     location = context.args.get("location")
     attendees = context.args.get("attendees")
@@ -189,7 +198,9 @@ async def _update_event(
 
     # Fetch existing event
     try:
-        existing = service.events().get(calendarId=calendar_id, eventId=event_id).execute()
+        existing = (
+            service.events().get(calendarId=calendar_id, eventId=event_id).execute()
+        )
     except HttpError as e:
         if e.resp.status == 404:
             raise Exception(f"Event not found: {event_id}")
@@ -205,51 +216,40 @@ async def _update_event(
         existing["summary"] = title
         changes.append(f"title → '{title}'")
 
-    # Handle time shift
+    # Handle time changes
     time_changed = False
-    if shift_minutes is not None:
-        if is_all_day:
-            raise Exception("Cannot shift all-day events by minutes. Set new dates instead.")
-
-        original_start_dt = datetime.fromisoformat(original_start["dateTime"].replace("Z", "+00:00"))
-        original_end_dt = datetime.fromisoformat(original_end["dateTime"].replace("Z", "+00:00"))
-
-        new_start_dt = original_start_dt + timedelta(minutes=shift_minutes)
-        new_end_dt = original_end_dt + timedelta(minutes=shift_minutes)
-
+    if start_time_str:
+        new_start_dt = parse_datetime(start_time_str)
+        if not new_start_dt:
+            raise Exception(
+                "Invalid start_time format. Use ISO format (YYYY-MM-DDTHH:MM:SS)"
+            )
         tz = original_start.get("timeZone") or config.time_zone or "UTC"
         existing["start"] = {"dateTime": new_start_dt.isoformat(), "timeZone": tz}
-        existing["end"] = {"dateTime": new_end_dt.isoformat(), "timeZone": tz}
-
-        direction = "later" if shift_minutes > 0 else "earlier"
-        changes.append(f"shifted {abs(shift_minutes)} min {direction}")
+        changes.append(
+            f"start → {format_datetime_for_display(new_start_dt.isoformat())}"
+        )
         time_changed = True
-    else:
-        if start_time_str:
-            new_start_dt = parse_datetime(start_time_str)
-            if not new_start_dt:
-                raise Exception("Invalid start_time format. Use ISO format (YYYY-MM-DDTHH:MM:SS)")
-            tz = original_start.get("timeZone") or config.time_zone or "UTC"
-            existing["start"] = {"dateTime": new_start_dt.isoformat(), "timeZone": tz}
-            changes.append(f"start → {format_datetime_for_display(new_start_dt.isoformat())}")
-            time_changed = True
 
-        if end_time_str:
-            new_end_dt = parse_datetime(end_time_str)
-            if not new_end_dt:
-                raise Exception("Invalid end_time format. Use ISO format (YYYY-MM-DDTHH:MM:SS)")
-            tz = original_end.get("timeZone") or config.time_zone or "UTC"
-            existing["end"] = {"dateTime": new_end_dt.isoformat(), "timeZone": tz}
-            changes.append(f"end → {format_datetime_for_display(new_end_dt.isoformat())}")
-            time_changed = True
+    if end_time_str:
+        new_end_dt = parse_datetime(end_time_str)
+        if not new_end_dt:
+            raise Exception(
+                "Invalid end_time format. Use ISO format (YYYY-MM-DDTHH:MM:SS)"
+            )
+        tz = original_end.get("timeZone") or config.time_zone or "UTC"
+        existing["end"] = {"dateTime": new_end_dt.isoformat(), "timeZone": tz}
+        changes.append(f"end → {format_datetime_for_display(new_end_dt.isoformat())}")
+        time_changed = True
 
     # Check conflicts if time changed
     if time_changed and check_conflicts and not is_all_day:
         conflicts = await _check_time_conflicts(
-            service, calendar_id,
+            service,
+            calendar_id,
             existing["start"]["dateTime"],
             existing["end"]["dateTime"],
-            exclude_event_id=event_id
+            exclude_event_id=event_id,
         )
         if conflicts:
             return {
@@ -296,7 +296,11 @@ async def _update_event(
 
         if remove_attendees:
             remove_set = {e.lower() for e in remove_attendees}
-            existing["attendees"] = [a for a in current_attendees if a.get("email", "").lower() not in remove_set]
+            existing["attendees"] = [
+                a
+                for a in current_attendees
+                if a.get("email", "").lower() not in remove_set
+            ]
             changes.append(f"removed {len(remove_attendees)} attendee(s)")
 
     if not changes:
@@ -310,12 +314,16 @@ async def _update_event(
 
     # Update
     try:
-        updated = service.events().update(
-            calendarId=calendar_id,
-            eventId=event_id,
-            body=existing,
-            sendNotifications=send_notifications,
-        ).execute()
+        updated = (
+            service.events()
+            .update(
+                calendarId=calendar_id,
+                eventId=event_id,
+                body=existing,
+                sendNotifications=send_notifications,
+            )
+            .execute()
+        )
         logger.info(f"Updated event: {updated.get('summary')} (ID: {event_id})")
     except HttpError as e:
         if e.resp.status == 401:
@@ -353,13 +361,17 @@ async def _check_time_conflicts(
 ) -> List[Dict[str, Any]]:
     """Check for conflicting events in a time range."""
     try:
-        result = service.events().list(
-            calendarId=calendar_id,
-            timeMin=start_time,
-            timeMax=end_time,
-            singleEvents=True,
-            orderBy="startTime",
-        ).execute()
+        result = (
+            service.events()
+            .list(
+                calendarId=calendar_id,
+                timeMin=start_time,
+                timeMax=end_time,
+                singleEvents=True,
+                orderBy="startTime",
+            )
+            .execute()
+        )
 
         events = result.get("items", [])
         if exclude_event_id:

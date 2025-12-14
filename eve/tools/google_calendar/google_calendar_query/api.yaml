@@ -1,48 +1,5 @@
 name: google_calendar_query
-description: Query Google Calendar - list events, get event details, or find available time slots. Read-only operations that don't modify the calendar.
-tip: |-
-  This tool queries the connected Google Calendar. Choose an action based on what you need:
-
-  ACTIONS:
-
-  1. action="list" - List events in a time range
-     Required: (none - defaults to next 7 days)
-     Optional: time_min, time_max, days_ahead, query, max_results, include_fields
-     Example: List tomorrow's events → action="list", time_min="tomorrow", days_ahead=1
-
-  2. action="get" - Get full details of a specific event
-     Required: event_id (from a previous list result)
-     Optional: include_fields
-     Example: Get meeting details → action="get", event_id="abc123"
-
-  3. action="find_free_slots" - Find available time slots for scheduling
-     Required: duration_minutes
-     Optional: time_min, time_max, days_ahead, earliest_hour, latest_hour, working_days_only, max_slots
-     Example: Find 1-hour slots next week → action="find_free_slots", duration_minutes=60, days_ahead=7
-
-  COMMON PARAMETERS:
-  - time_min/time_max: ISO format (2024-12-15T09:00:00) or relative (now, today, tomorrow)
-  - days_ahead: Alternative to time_max, search N days from time_min
-  - include_fields: Control output fields [id, title, start, end, location, description, attendees, status, url]
-  - max_results/max_slots: Limit results to save context (default 10 for list, 5 for find_free_slots)
-
-  TIME FILTERING FOR find_free_slots:
-  - earliest_hour: Start of daily window (0-23, default 9 = 9 AM)
-  - latest_hour: End of daily window (0-23, default 17 = 5 PM)
-  - working_days_only: Skip weekends (default true)
-
-  WORKFLOW EXAMPLES:
-
-  "What's on my calendar today?"
-  → action="list", time_min="today", days_ahead=1
-
-  "Find a 2-hour slot for a workshop next week, evenings only"
-  → action="find_free_slots", duration_minutes=120, days_ahead=7, earliest_hour=18, latest_hour=21
-
-  "Get details about the team sync meeting" (after listing)
-  → action="get", event_id="<id from list results>"
-
-  Returns events/slots formatted for efficient context consumption.
+description: Query Google Calendar - list events, get event details, or find available time slots. All times must be UTC.
 cost_estimate: 1
 output_type: string
 active: true
@@ -51,7 +8,7 @@ visible: false
 parameters:
   action:
     type: string
-    description: The query action to perform.
+    description: "list: get events in range, get: get single event details, find_free_slots: find available slots"
     required: true
     enum:
       - list
@@ -59,61 +16,50 @@ parameters:
       - find_free_slots
   event_id:
     type: string
-    description: Event ID to retrieve details for. Required when action="get".
+    description: Event ID (required for action=get)
     required: false
-  time_min:
+  start_time:
     type: string
-    description: Start of time range. ISO format or relative (now, today, tomorrow). Defaults to now.
+    description: Start of time range (ISO format or YYYY-MM-DD). Defaults to now.
     required: false
-  time_max:
+  end_time:
     type: string
-    description: End of time range. ISO format or relative.
-    required: false
-  days_ahead:
-    type: integer
-    description: Search N days from time_min. Alternative to time_max. Default 7.
-    required: false
-    minimum: 1
-    maximum: 90
-  query:
-    type: string
-    description: Free text search to filter events (action=list only).
+    description: End of time range (ISO format or YYYY-MM-DD). Defaults to 7 days from start.
     required: false
   max_results:
     type: integer
-    description: Max events to return for list (default 10) or max slots for find_free_slots (default 5).
+    description: Max results to return
     required: false
     default: 10
     minimum: 1
     maximum: 50
-  include_fields:
-    type: array
-    description: Fields to include in response. Options - id, title, start, end, location, description, attendees, status, recurring, url, conference_link.
+  include_description:
+    type: boolean
+    description: Include descriptions and long content in list results
     required: false
-    items:
-      type: string
+    default: true
   duration_minutes:
     type: integer
-    description: Required slot duration in minutes. Required when action="find_free_slots".
+    description: Slot duration in minutes (required for action=find_free_slots)
     required: false
     minimum: 5
     maximum: 480
   earliest_hour:
     type: integer
-    description: Earliest hour of day (0-23) for find_free_slots. Default 9.
+    description: Earliest hour (0-23) for find_free_slots
     required: false
     default: 9
     minimum: 0
     maximum: 23
   latest_hour:
     type: integer
-    description: Latest hour for slots to start (0-23) for find_free_slots. Default 17.
+    description: Latest hour (0-23) for find_free_slots
     required: false
     default: 17
     minimum: 0
     maximum: 23
   working_days_only:
     type: boolean
-    description: Only weekdays for find_free_slots. Default true.
+    description: Skip weekends for find_free_slots
     required: false
     default: true
