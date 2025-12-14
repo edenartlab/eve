@@ -189,6 +189,8 @@ class GatewayOpCode:
 class GatewayEvent:
     READY = "READY"
     MESSAGE_CREATE = "MESSAGE_CREATE"
+    MESSAGE_REACTION_ADD = "MESSAGE_REACTION_ADD"
+    MESSAGE_REACTION_REMOVE = "MESSAGE_REACTION_REMOVE"
 
 
 def _is_non_media_file_url(url: str) -> bool:
@@ -762,9 +764,11 @@ class DiscordGatewayClient:
                     "op": GatewayOpCode.IDENTIFY,
                     "d": {
                         "token": self.token,
-                        "intents": 1 << 9
-                        | 1 << 12
-                        | 1 << 15,  # GUILD_MESSAGES | DIRECT_MESSAGES | MESSAGE_CONTENT
+                        "intents": 1 << 9  # GUILD_MESSAGES
+                        | 1 << 10  # GUILD_MESSAGE_REACTIONS
+                        | 1 << 12  # DIRECT_MESSAGES
+                        | 1 << 13  # DIRECT_MESSAGE_REACTIONS
+                        | 1 << 15,  # MESSAGE_CONTENT
                         "properties": {
                             "$os": "linux",
                             "$browser": "eve",
@@ -1526,6 +1530,161 @@ class DiscordGatewayClient:
         except Exception as e:
             logger.warning(f"[{trace_id}] Could not mark message as processed: {e}")
 
+    async def handle_reaction_add(self, data: dict):
+        """
+        Handle Discord reaction add events.
+
+        Finds the corresponding ChatMessage and adds the reaction.
+
+        Discord reaction event data structure:
+        {
+            "user_id": "...",
+            "message_id": "...",
+            "emoji": {"name": "👍", "id": null/string, "animated": bool},
+            "channel_id": "...",
+            "guild_id": "...",
+            "member": {...}
+        }
+        """
+        try:
+            discord_message_id = data.get("message_id")
+            channel_id = data.get("channel_id")
+            user_id = data.get("user_id")
+            emoji_data = data.get("emoji", {})
+            member_data = data.get("member", {})
+
+            # Get emoji string - use name for unicode, or name:id for custom
+            emoji_name = emoji_data.get("name", "")
+            emoji_id = emoji_data.get("id")
+            if emoji_id:
+                # Custom emoji format: <:name:id> or <a:name:id> for animated
+                animated = emoji_data.get("animated", False)
+                emoji_str = f"<{'a' if animated else ''}:{emoji_name}:{emoji_id}>"
+            else:
+                emoji_str = emoji_name
+
+            logger.info(
+                f"Reaction add: message={discord_message_id}, user={user_id}, emoji={emoji_str}"
+            )
+
+            # Skip reactions from bots (check if it's our own bot)
+            if self.deployment.secrets.discord.application_id == user_id:
+                logger.info("Skipping reaction from self")
+                return
+
+            # Find the linked DiscordMessage
+            discord_msg = DiscordMessage.find_one(
+                {"discord_message_id": discord_message_id, "channel_id": channel_id}
+            )
+
+            if not discord_msg:
+                logger.info(f"No DiscordMessage found for {discord_message_id}")
+                return
+
+            if not discord_msg.eve_message_id:
+                logger.info(
+                    f"DiscordMessage {discord_message_id} has no linked ChatMessage"
+                )
+                return
+
+            # Find the ChatMessage
+            chat_msg = ChatMessage.from_mongo(discord_msg.eve_message_id)
+            if not chat_msg:
+                logger.warning(f"ChatMessage {discord_msg.eve_message_id} not found")
+                return
+
+            # Get or create the user
+            username = (
+                member_data.get("user", {}).get("username")
+                or member_data.get("nick")
+                or "User"
+            )
+            user = User.from_discord(user_id, username)
+
+            # Add the reaction
+            chat_msg.react(user.id, emoji_str)
+            chat_msg.save()
+
+            logger.info(
+                f"Added reaction {emoji_str} from user {username} to ChatMessage {chat_msg.id}"
+            )
+
+        except Exception as e:
+            logger.error(f"Error handling reaction add: {e}", exc_info=True)
+
+    async def handle_reaction_remove(self, data: dict):
+        """
+        Handle Discord reaction remove events.
+
+        Finds the corresponding ChatMessage and removes the reaction.
+        """
+        try:
+            discord_message_id = data.get("message_id")
+            channel_id = data.get("channel_id")
+            user_id = data.get("user_id")
+            emoji_data = data.get("emoji", {})
+
+            # Get emoji string - same format as add
+            emoji_name = emoji_data.get("name", "")
+            emoji_id = emoji_data.get("id")
+            if emoji_id:
+                animated = emoji_data.get("animated", False)
+                emoji_str = f"<{'a' if animated else ''}:{emoji_name}:{emoji_id}>"
+            else:
+                emoji_str = emoji_name
+
+            logger.info(
+                f"Reaction remove: message={discord_message_id}, user={user_id}, emoji={emoji_str}"
+            )
+
+            # Find the linked DiscordMessage
+            discord_msg = DiscordMessage.find_one(
+                {"discord_message_id": discord_message_id, "channel_id": channel_id}
+            )
+
+            if not discord_msg:
+                logger.info(f"No DiscordMessage found for {discord_message_id}")
+                return
+
+            if not discord_msg.eve_message_id:
+                logger.info(
+                    f"DiscordMessage {discord_message_id} has no linked ChatMessage"
+                )
+                return
+
+            # Find the ChatMessage
+            chat_msg = ChatMessage.from_mongo(discord_msg.eve_message_id)
+            if not chat_msg:
+                logger.warning(f"ChatMessage {discord_msg.eve_message_id} not found")
+                return
+
+            # Get the user to match their ID
+            user = User.from_discord(user_id, "User")
+
+            # Remove the matching reaction
+            if chat_msg.reactions:
+                original_count = len(chat_msg.reactions)
+                chat_msg.reactions = [
+                    r
+                    for r in chat_msg.reactions
+                    if not (str(r.user_id) == str(user.id) and r.reaction == emoji_str)
+                ]
+
+                if len(chat_msg.reactions) < original_count:
+                    chat_msg.save()
+                    logger.info(
+                        f"Removed reaction {emoji_str} from user {user_id} on ChatMessage {chat_msg.id}"
+                    )
+                else:
+                    logger.info(
+                        f"No matching reaction found to remove for user {user_id}, emoji {emoji_str}"
+                    )
+            else:
+                logger.info(f"ChatMessage {chat_msg.id} has no reactions to remove")
+
+        except Exception as e:
+            logger.error(f"Error handling reaction remove: {e}", exc_info=True)
+
     async def setup_ably(self):
         """Set up Ably for listening to busy state updates"""
         try:
@@ -1704,6 +1863,16 @@ class DiscordGatewayClient:
                                 logger.info(
                                     f"Gateway connected for deployment {self.deployment.id}"
                                 )
+                            elif data["t"] == GatewayEvent.MESSAGE_REACTION_ADD:
+                                logger.info(
+                                    f"Reaction add event for deployment {self.deployment.id}"
+                                )
+                                await self.handle_reaction_add(data["d"])
+                            elif data["t"] == GatewayEvent.MESSAGE_REACTION_REMOVE:
+                                logger.info(
+                                    f"Reaction remove event for deployment {self.deployment.id}"
+                                )
+                                await self.handle_reaction_remove(data["d"])
 
             except (
                 websockets.exceptions.ConnectionClosed,
