@@ -503,7 +503,7 @@ def select_messages(
             messages_since_last = messages.count_documents(
                 {
                     "session": session.id,
-                    # "role": {"$ne": "eden"},
+                    "role": {"$ne": "eden"},
                     "createdAt": {"$gt": last_memory_msg["createdAt"]},
                 }
             )

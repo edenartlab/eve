@@ -680,7 +680,6 @@ async def build_llm_context(
     # Eden messages are filtered out by select_messages, so we query separately
     last_eden = get_last_eden_message_for_llm(session.id)
     if last_eden:
-        # Insert at appropriate position (by createdAt)
         existing_messages.append(last_eden)
         existing_messages.sort(key=lambda m: m.createdAt)
 
