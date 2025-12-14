@@ -360,7 +360,7 @@ async def orchestrate_trigger(
         session=session,
         agent=agent,
         actor_agent_ids=[str(agent.id)],
-        message=ChatMessageRequestInput(role="user", content=trigger_prompt),
+        message=ChatMessageRequestInput(role="eden", content=trigger_prompt),
         mode=OrchestrationMode.TRIGGER,
         trigger_id=trigger_id,
         trigger_context=trigger_context,

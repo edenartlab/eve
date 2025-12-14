@@ -215,6 +215,7 @@ class EdenMessageType(Enum):
     AGENT_ADD = "agent_add"
     AGENT_REMOVE = "agent_remove"
     RATE_LIMIT = "rate_limit"
+    TRIGGER = "trigger"
 
 
 class EdenMessageAgentData(BaseModel):
