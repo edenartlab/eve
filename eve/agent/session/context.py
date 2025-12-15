@@ -441,22 +441,6 @@ async def build_system_extras(
             )
         )
 
-    # add trigger context (prefer session.trigger but fall back to context.trigger)
-    trigger_id = session.trigger or context.trigger
-    if trigger_id:
-        from eve.trigger import Trigger
-
-        trigger = Trigger.from_mongo(trigger_id)
-        if trigger and trigger.context:
-            extras.append(
-                ChatMessage(
-                    session=session.id,
-                    role="user",
-                    sender=ObjectId(str(context.initiating_user_id)),
-                    content=trigger.context,
-                )
-            )
-
     return context, extras
 
 

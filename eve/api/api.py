@@ -25,6 +25,7 @@ from eve.agent.session.models import (
 from eve.api.api_functions import (
     cancel_stuck_tasks_fn,
     cleanup_stale_busy_states,
+    cleanup_stuck_triggers,
     embed_recent_creations,
     generate_lora_thumbnails_fn,
     process_cold_sessions_fn,
@@ -692,6 +693,11 @@ cleanup_stale_busy_states_modal = app.function(
 )(cleanup_stale_busy_states)
 
 
+cleanup_stuck_triggers_modal = app.function(
+    image=image, max_containers=1, schedule=modal.Period(minutes=5), timeout=300
+)(cleanup_stuck_triggers)
+
+
 embed_recent_creations_modal = app.function(
     image=image, max_containers=1, schedule=modal.Period(minutes=5), timeout=600
 )(embed_recent_creations)
@@ -722,11 +728,13 @@ create_concept_thumbnail = app.function(
 
 
 @app.function(image=image, max_containers=4, timeout=3600)
-async def execute_trigger_fn(trigger_id: str) -> Session:
+async def execute_trigger_fn(
+    trigger_id: str, skip_message_add: bool = False
+) -> Session:
     """Modal function to execute triggers asynchronously."""
     from eve.trigger import execute_trigger_async
 
-    return await execute_trigger_async(trigger_id)
+    return await execute_trigger_async(trigger_id, skip_message_add=skip_message_add)
 
 
 @app.function(

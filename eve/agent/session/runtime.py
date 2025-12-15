@@ -291,17 +291,6 @@ class PromptSessionRuntime:
             else:
                 break
 
-        if self.session.trigger:
-            from eve.trigger import Trigger
-
-            trigger = Trigger.from_mongo(self.session.trigger)
-            trigger_message = ChatMessage(
-                session=self.session.id,
-                role="system",
-                content=f"<Full Task Context>\n{trigger.context}\n</Full Task Context>",
-            )
-            system_extras.append(trigger_message)
-
         refreshed_messages = [system_message]
         if system_extras:
             refreshed_messages.extend(system_extras)
