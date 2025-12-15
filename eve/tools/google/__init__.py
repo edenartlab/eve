@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 import requests
 
 from google import genai
+from google.genai import errors as genai_errors
 from google.oauth2 import service_account
 
 
@@ -84,13 +85,48 @@ async def veo_handler(args: dict, model: str):
     if args.get("prompt"):
         args_dict["prompt"] = args.get("prompt")
 
-    # ---- start generation ----
-    operation = client.models.generate_videos(**args_dict)
+    # ---- start generation with error handling ----
+    try:
+        operation = client.models.generate_videos(**args_dict)
+    except genai_errors.ClientError as e:
+        if e.status_code == 429:
+            raise ValueError(
+                "Google API rate limit reached. Please try again in a few moments."
+            )
+        elif e.status_code == 403:
+            raise ValueError(
+                "Google API access denied. Please check your API credentials and quotas."
+            )
+        elif e.status_code == 400:
+            raise ValueError(f"Invalid request to Google API: {e.message}")
+        else:
+            raise ValueError(f"Google API error ({e.status_code}): {e.message}")
+    except genai_errors.ServerError as e:
+        raise ValueError(
+            f"Google API server error. Please try again later. ({e.status_code})"
+        )
+    except Exception as e:
+        raise ValueError(f"Unexpected error calling Google API: {str(e)}")
 
     # ---- poll until done ----
+    max_poll_attempts = 300  # 10 minutes max (300 * 2 seconds)
+    poll_attempt = 0
     while not operation.done:
+        if poll_attempt >= max_poll_attempts:
+            raise ValueError(
+                "Video generation timed out after 10 minutes. Please try again."
+            )
         await asyncio.sleep(2)
-        operation = client.operations.get(operation)
+        try:
+            operation = client.operations.get(operation)
+        except genai_errors.ClientError as e:
+            if e.status_code == 429:
+                # For polling, wait a bit longer before retrying
+                await asyncio.sleep(5)
+                continue
+            else:
+                raise ValueError(f"Error polling video status: {e.message}")
+        poll_attempt += 1
 
     if not operation.response or not operation.response.generated_videos:
         raise ValueError("No videos generated")
