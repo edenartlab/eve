@@ -242,6 +242,25 @@ async def execute_trigger_async(trigger_id: str) -> Session:
         f"[TRIGGER_ASYNC] Loaded trigger: name='{trigger.name}', status={trigger.status}"
     )
 
+    # Skip if not active or running
+    if trigger.status not in ["active", "running"]:
+        logger.info(
+            f"[TRIGGER_ASYNC] Status is '{trigger.status}', cannot execute, skipping"
+        )
+        return None
+
+    # Mark as running if not already (for scheduler path)
+    if trigger.status == "active":
+        current_time = datetime.now(timezone.utc)
+        logger.info(
+            f"[TRIGGER_ASYNC] Marking trigger as 'running', last_run_time={current_time}"
+        )
+        trigger.update(status="running", last_run_time=current_time)
+    else:
+        logger.info(
+            "[TRIGGER_ASYNC] Status already 'running' (prepared by handle_trigger_run)"
+        )
+
     # Validate session exists
     if not trigger.session:
         logger.error("[TRIGGER_ASYNC] Trigger has no session configured")
@@ -429,15 +448,27 @@ async def handle_trigger_run(
 
         # Spawn execution based on environment
         if os.getenv("MODAL_SERVE") == "1":
-            # Running on Modal - use Modal's spawn
-            logger.info(
-                "[TRIGGER_RUN] Running on Modal, using execute_trigger_fn.spawn()"
-            )
-            from eve.api.api import execute_trigger_fn
+            # Production: spawn Modal function
+            try:
+                import modal
 
-            execute_trigger_fn.spawn(trigger_id)
+                logger.info(
+                    "[TRIGGER_RUN] Running on Modal, using execute_trigger_fn.spawn()"
+                )
+                db = os.getenv("DB", "STAGE").upper()
+                func = modal.Function.from_name(
+                    f"api-{db.lower()}",
+                    "execute_trigger_fn",
+                    environment_name="main",
+                )
+                func.spawn(trigger_id)
+            except Exception as e:
+                logger.warning(
+                    f"[TRIGGER_RUN] Modal spawn failed ({e}), falling back to asyncio.create_task()"
+                )
+                asyncio.create_task(execute_trigger_async(trigger_id))
         else:
-            # Running locally - use asyncio.create_task
+            # Local development - use asyncio.create_task
             logger.info("[TRIGGER_RUN] Running locally, using asyncio.create_task()")
             asyncio.create_task(execute_trigger_async(trigger_id))
 
