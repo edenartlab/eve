@@ -180,9 +180,9 @@ class AnthropicProvider(LLMProvider):
                         llm_call.save()
 
                     if response_format_class:
-                        # Pydantic class - use non-streaming create
+                        # Pydantic class - use parse() for structured outputs
                         # SDK streaming doesn't support output_format parameter
-                        response = await self.client.beta.messages.create(
+                        response = await self.client.beta.messages.parse(
                             **request_kwargs,
                             betas=["structured-outputs-2025-11-13"],
                             output_format=response_format_class,

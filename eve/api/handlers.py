@@ -484,6 +484,42 @@ async def handle_session_cancel(request: CancelSessionRequest):
 
 
 @handle_errors
+async def handle_session_fields_update(request):
+    """Update session fields like context, title, etc.
+
+    This endpoint properly handles empty strings - an empty string will clear the field,
+    while None (omitted field) will leave it unchanged.
+    """
+    from bson import ObjectId
+
+    logger.info(f"[SESSION_UPDATE] Updating session {request.session_id}")
+
+    try:
+        session = Session.from_mongo(ObjectId(request.session_id))
+
+        # Build update dict - only include fields that were explicitly provided
+        # Use model_dump to get all fields, then filter based on what was set
+        request_data = request.model_dump(exclude={"session_id"}, exclude_unset=True)
+
+        # IMPORTANT: For fields that can be empty strings, we need special handling
+        # model_dump(exclude_unset=True) will include fields set to "" or None if explicitly provided
+        if request_data:
+            logger.info(
+                f"[SESSION_UPDATE] Updating fields: {list(request_data.keys())}"
+            )
+            logger.info(f"[SESSION_UPDATE] Values: {request_data}")
+            session.update(**request_data)
+            logger.info(f"[SESSION_UPDATE] Successfully updated session {session.id}")
+        else:
+            logger.info("[SESSION_UPDATE] No fields to update")
+
+        return {"success": True, "session_id": str(session.id)}
+    except Exception as e:
+        logger.error(f"[SESSION_UPDATE] Error updating session: {e}")
+        raise
+
+
+@handle_errors
 async def handle_session_status_update(request):
     """Update the status of a session.
 

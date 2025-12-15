@@ -56,6 +56,7 @@ from eve.api.api_requests import (
     TaskRequest,
     UpdateConceptRequest,
     UpdateDeploymentRequestV2,
+    UpdateSessionFieldsRequest,
     UpdateSessionStatusRequest,
 )
 from eve.api.handlers import (
@@ -74,6 +75,7 @@ from eve.api.handlers import (
     handle_regenerate_user_memory,
     handle_replicate_webhook,
     handle_session_cancel,
+    handle_session_fields_update,
     handle_session_message,
     handle_session_run,
     handle_session_status_update,
@@ -93,7 +95,6 @@ from eve.concepts import (
 )
 from eve.trigger import (
     Trigger,
-    execute_trigger,
     handle_trigger_run,
 )
 
@@ -333,6 +334,15 @@ async def update_session_status(
     _: dict = Depends(auth.authenticate_admin),
 ):
     return await handle_session_status_update(request)
+
+
+@web_app.post("/sessions/update")
+async def update_session_fields(
+    request: UpdateSessionFieldsRequest,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    """Update session fields like context, title, etc."""
+    return await handle_session_fields_update(request)
 
 
 @web_app.post("/reaction")
@@ -711,9 +721,12 @@ create_concept_thumbnail = app.function(
 ########################################################
 
 
-@app.function(image=image, max_containers=4)
+@app.function(image=image, max_containers=4, timeout=3600)
 async def execute_trigger_fn(trigger_id: str) -> Session:
-    return await execute_trigger(trigger_id)
+    """Modal function to execute triggers asynchronously."""
+    from eve.trigger import execute_trigger_async
+
+    return await execute_trigger_async(trigger_id)
 
 
 @app.function(

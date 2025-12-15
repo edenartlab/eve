@@ -42,6 +42,17 @@ class UpdateSessionStatusRequest(BaseModel):
     status: Literal["active", "paused", "stopped", "archived"]
 
 
+class UpdateSessionFieldsRequest(BaseModel):
+    session_id: str
+    context: Optional[str] = Field(
+        default=None, description="Session context - use empty string to clear"
+    )
+    title: Optional[str] = None
+    # Add other updateable fields as needed
+
+    model_config = ConfigDict(extra="forbid")  # Prevent arbitrary fields
+
+
 class UpdateConfig(BaseModel):
     sub_channel_name: Optional[str] = None
     update_endpoint: Optional[str] = None
