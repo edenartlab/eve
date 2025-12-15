@@ -35,6 +35,7 @@ HANDLER_PATHS = {
     "farcaster_cast": "farcaster.farcaster_cast.handler",
     "farcaster_mentions": "farcaster.farcaster_mentions.handler",
     "farcaster_search": "farcaster.farcaster_search.handler",
+    "instagram_post": "instagram.instagram_post.handler",
     "shopify": "shopify.handler",
     "news": "news.handler",
     "reel": "media_utils.reel.handler",

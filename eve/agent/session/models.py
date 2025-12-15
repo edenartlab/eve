@@ -1073,6 +1073,7 @@ class ClientType(Enum):
     TELEGRAM = "telegram"
     FARCASTER = "farcaster"
     TWITTER = "twitter"
+    INSTAGRAM = "instagram"
     SHOPIFY = "shopify"
     PRINTIFY = "printify"
     CAPTIONS = "captions"
@@ -1230,6 +1231,19 @@ class DeploymentSecretsTiktok(BaseModel):
     username: Optional[str] = None
 
 
+# Instagram Models (placeholder until full implementation)
+class DeploymentSettingsInstagram(BaseModel):
+    username: Optional[str] = None
+    ig_user_id: Optional[str] = None
+
+
+class DeploymentSecretsInstagram(BaseModel):
+    access_token: Optional[str] = None
+    refresh_token: Optional[str] = None
+    expires_at: Optional[datetime] = None
+    username: Optional[str] = None
+
+
 class DeploymentSettingsEmail(BaseModel):
     domain_id: Optional[str] = None
     sender_email: Optional[str] = None
@@ -1304,6 +1318,7 @@ class DeploymentSecrets(BaseModel):
     telegram: DeploymentSecretsTelegram | None = None
     farcaster: DeploymentSecretsFarcaster | None = None
     twitter: DeploymentSecretsTwitter | None = None
+    instagram: DeploymentSecretsInstagram | None = None
     shopify: DeploymentSecretsShopify | None = None
     printify: DeploymentSecretsPrintify | None = None
     captions: DeploymentSecretsCaptions | None = None
@@ -1318,6 +1333,7 @@ class DeploymentConfig(BaseModel):
     telegram: DeploymentSettingsTelegram | None = None
     farcaster: DeploymentSettingsFarcaster | None = None
     twitter: DeploymentSettingsTwitter | None = None
+    instagram: DeploymentSettingsInstagram | None = None
     shopify: DeploymentSettingsShopify | None = None
     printify: DeploymentSettingsPrintify | None = None
     captions: DeploymentSettingsCaptions | None = None

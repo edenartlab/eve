@@ -109,6 +109,7 @@ DISCORD_TOOLS = ["discord_post", "discord_search", "discord_broadcast_dm"]
 TELEGRAM_TOOLS = ["telegram_post"]
 TWITTER_TOOLS = ["tweet", "twitter_mentions", "twitter_search"]
 FARCASTER_TOOLS = ["farcaster_cast", "farcaster_mentions", "farcaster_search"]
+INSTAGRAM_TOOLS = ["instagram_post"]
 SHOPIFY_TOOLS = ["shopify"]
 PRINTIFY_TOOLS = ["printify"]
 CAPTIONS_TOOLS = ["captions"]
@@ -126,6 +127,7 @@ SOCIAL_MEDIA_TOOLS = [
     *DISCORD_TOOLS,
     *FARCASTER_TOOLS,
     *TELEGRAM_TOOLS,
+    *INSTAGRAM_TOOLS,
     *SHOPIFY_TOOLS,
     *PRINTIFY_TOOLS,
     *CAPTIONS_TOOLS,
@@ -133,6 +135,7 @@ SOCIAL_MEDIA_TOOLS = [
     *EMAIL_TOOLS,
     *GMAIL_TOOLS,
     *GOOGLE_CALENDAR_TOOLS,
+    *INSTAGRAM_TOOLS,
 ]
 
 EDEN_DB_TOOLS = [
