@@ -64,7 +64,14 @@ def _format_messages_for_conductor(
                     break
 
         # Create a copy with sender attribution in content
-        if sender_name and msg.content:
+        # Skip name prefix for messages wrapped in SystemMessage tags
+        is_system_message = (
+            msg.content
+            and msg.content.startswith("<SystemMessage>")
+            and msg.content.endswith("</SystemMessage>")
+        )
+
+        if sender_name and msg.content and not is_system_message:
             attributed_content = f"[{sender_name}]: {msg.content}"
         else:
             attributed_content = msg.content or ""
@@ -74,7 +81,7 @@ def _format_messages_for_conductor(
             ChatMessage(
                 role="user",
                 content=attributed_content,
-                name=sender_name,
+                name=sender_name if not is_system_message else None,
             )
         )
     return formatted

@@ -337,7 +337,7 @@ async def orchestrate(
 
 async def orchestrate_trigger(
     trigger_id: str,
-    trigger_prompt: str,
+    trigger_prompt: Optional[str],
     session: Session,
     agent: Agent,
     user_id: str,
@@ -348,19 +348,23 @@ async def orchestrate_trigger(
     update_config: Optional[SessionUpdateConfig] = None,
     background_tasks: Optional[BackgroundTasks] = None,
 ) -> AsyncIterator[Dict[str, Any]]:
-    """Convenience wrapper for trigger execution."""
+    """Convenience wrapper for trigger execution.
+
+    If trigger_prompt is None, skips message creation (message already added by caller).
+    """
     logger.info(f"[ORCHESTRATE_TRIGGER] Called for trigger_id={trigger_id}")
     logger.info(
         f"[ORCHESTRATE_TRIGGER] Session: {session.id}, Agent: {agent.id} ({agent.username})"
     )
-    logger.info(f"[ORCHESTRATE_TRIGGER] Prompt preview: {trigger_prompt[:100]}...")
 
     request = OrchestrationRequest(
         initiating_user_id=user_id,
         session=session,
         agent=agent,
         actor_agent_ids=[str(agent.id)],
-        message=ChatMessageRequestInput(role="eden", content=trigger_prompt),
+        message=ChatMessageRequestInput(role="eden", content=trigger_prompt)
+        if trigger_prompt
+        else None,
         mode=OrchestrationMode.TRIGGER,
         trigger_id=trigger_id,
         trigger_context=trigger_context,

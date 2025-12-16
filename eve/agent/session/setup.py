@@ -33,7 +33,7 @@ def create_eden_message(
 ) -> ChatMessage:
     """Create an eden message for agent operations"""
     eden_message = ChatMessage(
-        session=session_id,
+        session=[session_id],
         sender=ObjectId("000000000000000000000000"),  # System sender
         role="eden",
         content="",

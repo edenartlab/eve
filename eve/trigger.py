@@ -9,7 +9,7 @@ from apscheduler.triggers.cron import CronTrigger
 from bson import ObjectId
 
 from eve.agent import Agent
-from eve.agent.session.models import Session
+from eve.agent.session.models import EdenMessageData, EdenMessageType, Session
 from eve.api.api_requests import RunTriggerRequest
 from eve.api.errors import APIError, handle_errors
 from eve.mongo import Collection, Document
@@ -368,6 +368,7 @@ async def handle_trigger_run(
             triggering_user=user.id,
             content=trigger.prompt,
             trigger=trigger.id,
+            eden_message_data=EdenMessageData(message_type=EdenMessageType.TRIGGER),
         )
         trigger_message.save()
         message_id = str(trigger_message.id)
