@@ -1455,8 +1455,10 @@ class DiscordGatewayClient:
             return
 
         # Check if THIS deployment follows this channel (read or write)
+        # Refresh deployment from database to get latest config (channel allowlist changes, etc.)
+        self.deployment.reload()
         deployment = self.deployment
-        if not deployment or not deployment.config or not deployment.config.discord:
+        if not deployment.config or not deployment.config.discord:
             logger.debug(f"[{trace_id}] No valid deployment config")
             return
 
