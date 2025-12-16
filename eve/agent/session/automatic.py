@@ -162,9 +162,12 @@ async def run_automatic_session_step(session: Session) -> None:
         )
 
         # Ensure agent_sessions exist for multi-agent sessions
+        # Normally these should be created at session setup time, but we create them
+        # lazily here as a fallback for existing sessions created before this feature
         if len(session.agents) > 1 and not session.agent_sessions:
-            logger.info(
-                "[AUTO] Multi-agent session without agent_sessions, creating them..."
+            logger.warning(
+                f"[AUTO] Multi-agent session {session.id} missing agent_sessions, creating lazily. "
+                "Note: agent_sessions should ideally be created at session setup time."
             )
             from eve.agent.session.setup import create_agent_sessions
 

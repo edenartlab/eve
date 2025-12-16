@@ -514,6 +514,18 @@ async def add_chat_message(
         new_message.pinned = True
     new_message.save()
 
+    # Distribute to agent_sessions for multi-agent automatic sessions
+    if (
+        session.session_type == "automatic"
+        and session.agent_sessions
+        and len(session.agent_sessions) > 0
+    ):
+        await distribute_message_to_agent_sessions(
+            parent_session=session,
+            message=new_message,
+            exclude_agent_id=None,  # User messages go to all agents
+        )
+
     # Increment message count for sender
     if context.initiating_user_id:
         increment_message_count(ObjectId(str(context.initiating_user_id)))
@@ -564,6 +576,56 @@ async def add_chat_message(
         logger.error(f"Failed to broadcast user message to SSE: {e}")
 
     return new_message
+
+
+async def distribute_message_to_agent_sessions(
+    parent_session: Session,
+    message: ChatMessage,
+    exclude_agent_id: Optional[ObjectId] = None,
+) -> None:
+    """Distribute a message to all agent_sessions in a multi-agent session.
+
+    When a message is added to a parent session (by user or agent), this function
+    ensures it's also added to all OTHER agent_sessions. This enables real-time
+    message distribution instead of bulk sync.
+
+    Args:
+        parent_session: The parent chatroom session
+        message: The ChatMessage that was just created
+        exclude_agent_id: If sender is an agent, exclude their agent_session
+    """
+    if not parent_session.agent_sessions:
+        return
+
+    target_sessions = []
+    for agent_id_str, agent_session_id in parent_session.agent_sessions.items():
+        # Skip the sender's own agent_session if they're an agent
+        if exclude_agent_id and agent_id_str == str(exclude_agent_id):
+            continue
+        target_sessions.append(agent_session_id)
+
+    if not target_sessions:
+        return
+
+    logger.info(
+        f"[DISTRIBUTE] Distributing message {message.id} to {len(target_sessions)} agent_sessions"
+    )
+
+    # Add channel reference if not set (use update() to only modify channel field)
+    if not message.channel:
+        message.update(channel=Channel(type="eden", key=str(message.id)))
+
+    # Add agent_session IDs to the message's session list atomically
+    ChatMessage.get_collection().update_one(
+        {"_id": message.id},
+        {"$addToSet": {"session": {"$each": target_sessions}}},
+    )
+    # Update in-memory object
+    message.session = list(set(message.session + target_sessions))
+
+    logger.info(
+        f"[DISTRIBUTE] Message {message.id} now in sessions: {[str(s) for s in message.session]}"
+    )
 
 
 def get_last_eden_message_for_llm(session_id: ObjectId) -> Optional[ChatMessage]:
@@ -713,92 +775,6 @@ async def build_llm_context(
 # =============================================================================
 
 
-def get_new_parent_messages(
-    parent_session: Session,
-    last_parent_message_id: Optional[ObjectId],
-) -> List[ChatMessage]:
-    """Get all parent session messages since the last sync point.
-
-    Args:
-        parent_session: The parent chatroom session
-        last_parent_message_id: The last message ID that was synced to the agent_session
-
-    Returns:
-        List of ChatMessages that are new since last sync, sorted by creation time
-    """
-    query = {"session": parent_session.id, "role": {"$ne": "eden"}}
-
-    if last_parent_message_id:
-        # Get the timestamp of the last synced message
-        last_msg = ChatMessage.from_mongo(last_parent_message_id)
-        if last_msg and last_msg.createdAt:
-            query["createdAt"] = {"$gt": last_msg.createdAt}
-
-    messages = list(ChatMessage.find(query))
-    return sorted(messages, key=lambda m: m.createdAt if m.createdAt else datetime.min)
-
-
-def format_parent_messages_for_agent_session(
-    parent_messages: List[ChatMessage],
-    agent_id: ObjectId,
-) -> str:
-    """Format parent chatroom messages as a bulk update for the agent_session.
-
-    Creates an XML-formatted string with all messages since last sync,
-    properly attributed with sender names and marked if from self.
-
-    Args:
-        parent_messages: List of new messages from parent session
-        agent_id: The agent's ObjectId (to mark self messages)
-
-    Returns:
-        XML-formatted string describing the chatroom updates
-    """
-    if not parent_messages:
-        return "<ChatroomUpdate>No new messages in the chatroom.</ChatroomUpdate>"
-
-    # Get sender name mapping
-    sender_name_map = get_sender_id_to_sender_name_map(parent_messages)
-
-    lines = [
-        "<ChatroomUpdate>",
-        "The following messages have been posted to the chatroom:",
-    ]
-
-    for msg in parent_messages:
-        sender_name = sender_name_map.get(msg.sender, "Unknown")
-        is_self = msg.sender == agent_id
-
-        if is_self:
-            lines.append(f"\n[You ({sender_name})]: {msg.content}")
-        else:
-            lines.append(f"\n[{sender_name}]: {msg.content}")
-
-        # Include attachments info
-        if msg.attachments:
-            lines.append(f"  Attachments: {', '.join(msg.attachments)}")
-
-        # Include tool call results (media created, etc.)
-        if msg.tool_calls:
-            for tc in msg.tool_calls:
-                if tc.status == "completed" and tc.result:
-                    result_urls = []
-                    for r in tc.result:
-                        for o in r.get("output", []):
-                            if isinstance(o, dict) and o.get("url"):
-                                result_urls.append(o["url"])
-                    if result_urls:
-                        lines.append(f"  Created media: {', '.join(result_urls)}")
-
-    lines.append("\n</ChatroomUpdate>")
-    lines.append(
-        "\nRespond to the conversation by using tools as needed, "
-        "then post your message with `post_to_chatroom`."
-    )
-
-    return "\n".join(lines)
-
-
 async def build_agent_session_system_message(
     agent_session: Session,
     parent_session: Session,
@@ -881,8 +857,12 @@ async def build_agent_session_llm_context(
 
     This context includes:
     1. Agent_session system prompt (chatroom framing with private workspace emphasis)
-    2. Agent_session's own message history (private work from previous turns)
-    3. New parent messages as a user message (bulk update from chatroom)
+    2. Agent_session's own message history (includes messages from other agents
+       that were distributed in real-time)
+
+    Messages from the parent session (from other agents) are automatically
+    distributed to agent_sessions when created, so they're already in the
+    agent_session's message history - no bulk sync needed.
 
     Args:
         agent_session: The agent's private workspace session
@@ -930,45 +910,10 @@ async def build_agent_session_llm_context(
 
     messages = [system_message]
 
-    # Add agent_session's own history (private work from previous turns)
+    # Add agent_session's own history (includes messages from other agents
+    # that were distributed in real-time via distribute_message_to_agent_sessions)
     existing_messages = select_messages(agent_session)
     messages.extend(existing_messages)
-
-    # Get new messages from parent since last sync
-    new_parent_messages = get_new_parent_messages(
-        parent_session,
-        agent_session.last_parent_message_id,
-    )
-
-    # Format and add as user message (the bulk update)
-    if new_parent_messages:
-        bulk_update_content = format_parent_messages_for_agent_session(
-            new_parent_messages, actor.id
-        )
-
-        # Collect all attachments from parent messages
-        all_attachments = []
-        for msg in new_parent_messages:
-            if msg.attachments:
-                all_attachments.extend(msg.attachments)
-
-        # Get the outer owning user (first user from parent session)
-        owner_id = (
-            parent_session.users[0]
-            if parent_session.users
-            else context.initiating_user_id
-        )
-
-        # Create a temporary ChatMessage for the bulk update
-        # Note: This is not persisted here - the runtime will save it
-        bulk_update_message = ChatMessage(
-            session=[agent_session.id],
-            role="user",
-            sender=ObjectId(str(owner_id)) if owner_id else None,
-            content=bulk_update_content,
-            attachments=all_attachments,
-        )
-        messages.append(bulk_update_message)
 
     # Convert message roles (agent's messages -> assistant, others -> user)
     messages = convert_message_roles(messages, actor.id)

@@ -1,12 +1,12 @@
 """Agent session runtime for multi-agent orchestration.
 
 Handles the private workspace flow:
-1. Sync new parent messages to agent_session
+1. Build LLM context (messages are already distributed via real-time distribution)
 2. Run LLM + tool processing until post_to_chatroom
-3. Update sync point
 
 This module bridges the gap between the parent chatroom session and each
-agent's private workspace (agent_session).
+agent's private workspace (agent_session). Messages from other agents are
+distributed in real-time to agent_sessions, so no bulk sync is needed.
 """
 
 import uuid
@@ -15,13 +15,8 @@ from bson import ObjectId
 from loguru import logger
 
 from eve.agent import Agent
-from eve.agent.session.context import (
-    build_agent_session_llm_context,
-    format_parent_messages_for_agent_session,
-    get_new_parent_messages,
-)
+from eve.agent.session.context import build_agent_session_llm_context
 from eve.agent.session.models import (
-    ChatMessage,
     ChatMessageRequestInput,
     PromptSessionContext,
     Session,
@@ -39,14 +34,12 @@ async def run_agent_session_turn(
 
     This function:
     1. Loads the agent_session
-    2. Gets new messages from the parent since last sync
-    3. Saves the bulk update as a user message in agent_session (for history)
-    4. Builds LLM context with chatroom framing
-    5. Runs the prompt loop until the agent posts to chatroom
-    6. Updates the sync point (last_parent_message_id)
+    2. Builds LLM context (messages from other agents are already in agent_session
+       via real-time distribution)
+    3. Runs the prompt loop until the agent posts to chatroom
 
     The agent works privately until they call post_to_chatroom,
-    which posts to the parent session.
+    which posts to the parent session and distributes to other agent_sessions.
 
     Note: This uses PromptSessionRuntime directly (not orchestrator) because
     it requires specialized context building via build_agent_session_llm_context.
@@ -67,9 +60,6 @@ async def run_agent_session_turn(
         raise ValueError(f"Agent session {agent_session_id} not found")
 
     logger.info(f"[AGENT_SESSION] Loaded agent_session: title='{agent_session.title}'")
-    logger.info(
-        f"[AGENT_SESSION] Last parent message ID: {agent_session.last_parent_message_id}"
-    )
 
     # Generate session run ID for this turn
     session_run_id = str(uuid.uuid4())
@@ -83,36 +73,8 @@ async def run_agent_session_turn(
         session_run_id=session_run_id,
     )
 
-    # Get new messages from parent since last sync
-    logger.info("[AGENT_SESSION] ===== Parent Message Sync =====")
-    new_parent_messages = get_new_parent_messages(
-        parent_session,
-        agent_session.last_parent_message_id,
-    )
-    logger.info(
-        f"[AGENT_SESSION] Found {len(new_parent_messages)} new parent messages to sync"
-    )
-
-    # Save the bulk update as a user message in agent_session for history
-    # This ensures the agent can see context in future turns
-    if new_parent_messages:
-        bulk_content = format_parent_messages_for_agent_session(
-            new_parent_messages, actor.id
-        )
-        sync_message = ChatMessage(
-            session=[agent_session.id],
-            role="user",
-            sender=ObjectId("000000000000000000000000"),  # System sender
-            content=bulk_content,
-        )
-        sync_message.save()
-        logger.info(
-            f"[AGENT_SESSION] Saved bulk update message (first 200 chars): {bulk_content[:200]}..."
-        )
-    else:
-        logger.info("[AGENT_SESSION] No new parent messages to sync")
-
-    # Build LLM context with parent message sync
+    # Build LLM context - messages from other agents are already in agent_session
+    # via real-time distribution (no bulk sync needed)
     logger.info("[AGENT_SESSION] ===== Building LLM Context =====")
     logger.info("[AGENT_SESSION] Calling build_agent_session_llm_context...")
     llm_context = await build_agent_session_llm_context(
@@ -155,15 +117,6 @@ async def run_agent_session_turn(
             logger.info(f"[AGENT_SESSION] >>> {actor.username} posted to chatroom <<<")
 
     logger.info(f"[AGENT_SESSION] Runtime loop completed, {update_count} updates")
-
-    # Update last_parent_message_id to track sync point
-    logger.info("[AGENT_SESSION] ===== Updating Sync Point =====")
-    if new_parent_messages:
-        last_msg_id = new_parent_messages[-1].id
-        agent_session.update(last_parent_message_id=last_msg_id)
-        logger.info(f"[AGENT_SESSION] Updated sync point to message {last_msg_id}")
-    else:
-        logger.info("[AGENT_SESSION] No sync point update needed")
 
     if posted_to_parent:
         logger.info(
@@ -226,30 +179,8 @@ async def run_agent_session_turn_streaming(
         session_run_id=session_run_id,
     )
 
-    # Get and save new parent messages
-    logger.info("[AGENT_SESSION_STREAM] ===== Parent Message Sync =====")
-    new_parent_messages = get_new_parent_messages(
-        parent_session,
-        agent_session.last_parent_message_id,
-    )
-    logger.info(
-        f"[AGENT_SESSION_STREAM] Found {len(new_parent_messages)} new parent messages"
-    )
-
-    if new_parent_messages:
-        bulk_content = format_parent_messages_for_agent_session(
-            new_parent_messages, actor.id
-        )
-        sync_message = ChatMessage(
-            session=[agent_session.id],
-            role="user",
-            sender=ObjectId("000000000000000000000000"),
-            content=bulk_content,
-        )
-        sync_message.save()
-        logger.info("[AGENT_SESSION_STREAM] Saved bulk update message")
-
-    # Build LLM context
+    # Build LLM context - messages from other agents are already in agent_session
+    # via real-time distribution (no bulk sync needed)
     logger.info("[AGENT_SESSION_STREAM] ===== Building LLM Context =====")
     llm_context = await build_agent_session_llm_context(
         agent_session=agent_session,
@@ -295,14 +226,6 @@ async def run_agent_session_turn_streaming(
     logger.info(
         f"[AGENT_SESSION_STREAM] Runtime loop completed, {update_count} updates yielded"
     )
-
-    # Update sync point
-    if new_parent_messages:
-        last_msg_id = new_parent_messages[-1].id
-        agent_session.update(last_parent_message_id=last_msg_id)
-        logger.info(
-            f"[AGENT_SESSION_STREAM] Updated sync point to message {last_msg_id}"
-        )
 
     if posted_to_parent:
         logger.info(
