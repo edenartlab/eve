@@ -612,8 +612,10 @@ async def distribute_message_to_agent_sessions(
     )
 
     # Add channel reference if not set (use update() to only modify channel field)
+    # Convert to dict for MongoDB encoding
     if not message.channel:
-        message.update(channel=Channel(type="eden", key=str(message.id)))
+        channel = Channel(type="eden", key=str(message.id))
+        message.update(channel=channel.model_dump())
 
     # Add agent_session IDs to the message's session list atomically
     ChatMessage.get_collection().update_one(

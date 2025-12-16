@@ -73,7 +73,9 @@ async def handler(context: ToolContext):
     new_message.save()
 
     # Add channel reference for tracking (use update() to only modify channel field)
-    new_message.update(channel=Channel(type="eden", key=str(new_message.id)))
+    # Convert to dict for MongoDB encoding
+    channel = Channel(type="eden", key=str(new_message.id))
+    new_message.update(channel=channel.model_dump())
 
     # Distribute to OTHER agent_sessions (exclude the posting agent's own session)
     if parent_session.agent_sessions and len(parent_session.agent_sessions) > 0:
