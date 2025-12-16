@@ -56,17 +56,19 @@ async def test_session_memories_use_canonical_user_ids(monkeypatch):
         role="user",
         sender=alias.id,
         content="hello there",
-        session=ObjectId(),
+        session=[ObjectId()],
     )
     user_message.id = ObjectId()
     assistant_message = ChatMessage(
         role="assistant",
         sender=agent_id,
         content="hi!",
-        session=user_message.session,
+        session=user_message.session,  # session is now a list, validator handles it
     )
     assistant_message.id = ObjectId()
-    session = DummySession(user_message.session)
+    session = DummySession(
+        user_message.session[0]
+    )  # DummySession expects single ObjectId
 
     captured_user_ids: list[ObjectId] = []
 

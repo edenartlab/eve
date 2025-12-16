@@ -24,7 +24,7 @@ async def _run_hook(message_id: str, tool_call_id: str, reaction: str, user_id: 
         logger.warning(f"[verdelis_plant_seed hook] Message not found: {message_id}")
         return
 
-    session_id = str(message.session) if message.session else None
+    session_id = str(message.session[0]) if message.session else None
 
     # Find the tool call and extract artifact info from result
     artifact_id = None

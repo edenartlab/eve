@@ -100,7 +100,7 @@ async def run_agent_session_turn(
             new_parent_messages, actor.id
         )
         sync_message = ChatMessage(
-            session=agent_session.id,
+            session=[agent_session.id],
             role="user",
             sender=ObjectId("000000000000000000000000"),  # System sender
             content=bulk_content,
@@ -241,7 +241,7 @@ async def run_agent_session_turn_streaming(
             new_parent_messages, actor.id
         )
         sync_message = ChatMessage(
-            session=agent_session.id,
+            session=[agent_session.id],
             role="user",
             sender=ObjectId("000000000000000000000000"),
             content=bulk_content,

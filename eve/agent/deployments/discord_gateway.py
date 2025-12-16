@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 import aiohttp
 from bson import ObjectId
 from loguru import logger
+from pydantic import Field
 
 from eve.mongo import Collection, Document
 from eve.s3 import upload_file_from_url
@@ -37,8 +38,10 @@ class DiscordMessage(Document):
     mentions: Optional[List[Dict[str, Any]]] = None
     referenced_message_id: Optional[str] = None  # For replies
     # Linkage to Eve
-    session_id: Optional[ObjectId] = None  # Eve session ID
-    eve_message_id: Optional[ObjectId] = None  # Eve ChatMessage ID
+    session_id: Optional[List[ObjectId]] = Field(
+        default_factory=list
+    )  # Eve session IDs (multiple sessions can share same message)
+    eve_message_id: Optional[ObjectId] = None  # Single shared ChatMessage
     processed: bool = False
     first_seen_at: datetime = None
     last_seen_at: datetime = None
@@ -319,31 +322,42 @@ def get_or_create_discord_message(
     message_data: Dict[str, Any],
     session_id: Optional[ObjectId] = None,
     eve_message_id: Optional[ObjectId] = None,
-) -> DiscordMessage:
+):
     """
     Get existing DiscordMessage or create a new one.
 
     Args:
         message_data: Raw Discord message data
-        session_id: Eve session ID to link
-        eve_message_id: Eve ChatMessage ID to link
+        session_id: Eve session ID to add to the session_id array
+        eve_message_id: Eve ChatMessage ID (single, shared across sessions)
 
     Returns:
-        DiscordMessage document
+        Tuple of (DiscordMessage, existing_ChatMessage or None)
+        - If DiscordMessage already had an eve_message_id, returns the existing ChatMessage
+        - Callers should add their session to the existing ChatMessage instead of creating new
     """
+    from eve.agent.session.models import ChatMessage
+
     discord_msg_id = message_data.get("id")
 
     # Try to find existing by Discord message ID
     existing = DiscordMessage.find_one({"discord_message_id": discord_msg_id})
     if existing:
-        # Update linkage if provided
-        updates = {"last_seen_at": datetime.now(timezone.utc)}
+        # Update: add session to array, set eve_message_id if not already set
+        update_ops = {"$set": {"last_seen_at": datetime.now(timezone.utc)}}
         if session_id:
-            updates["session_id"] = session_id
-        if eve_message_id:
-            updates["eve_message_id"] = eve_message_id
-        existing.update(**updates)
-        return existing
+            update_ops.setdefault("$addToSet", {})["session_id"] = session_id
+        if eve_message_id and not existing.eve_message_id:
+            update_ops["$set"]["eve_message_id"] = eve_message_id
+
+        DiscordMessage.get_collection().update_one({"_id": existing.id}, update_ops)
+
+        # Return existing ChatMessage if any
+        existing_chat_msg = None
+        if existing.eve_message_id:
+            existing_chat_msg = ChatMessage.from_mongo(existing.eve_message_id)
+
+        return existing, existing_chat_msg
 
     # Create new
     (
@@ -368,11 +382,11 @@ def get_or_create_discord_message(
         embeds=message_data.get("embeds"),
         mentions=message_data.get("mentions"),
         referenced_message_id=reply_to_id,
-        session_id=session_id,
+        session_id=[session_id] if session_id else [],
         eve_message_id=eve_message_id,
     )
     discord_msg.save()
-    return discord_msg
+    return discord_msg, None
 
 
 # ============================================================================

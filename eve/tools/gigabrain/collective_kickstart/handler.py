@@ -366,14 +366,14 @@ Generate a friendly, personalized introduction message that presents these conne
     )
 
     system_message = ChatMessage(
-        session=session.id, role="system", content=system_content
+        session=[session.id], role="system", content=system_content
     )
 
     # Build LLM context with full system message
     context = LLMContext(
         messages=[
             system_message,
-            ChatMessage(role="user", content=instruction_prompt, session=session.id),
+            ChatMessage(role="user", content=instruction_prompt, session=[session.id]),
         ],
         config=LLMConfig(model="claude-sonnet-4-5"),
     )
@@ -427,7 +427,7 @@ async def create_user_session_with_message(
 
         # Create and save the agent message with generated content
         agent_message = ChatMessage(
-            session=session.id,
+            session=[session.id],
             role="assistant",
             content=generated_agent_message,
             sender=agent_id,

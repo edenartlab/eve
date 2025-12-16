@@ -341,7 +341,7 @@ class ChatMessage(Document):
     name: Optional[str] = None
 
     channel: Optional[Channel] = None
-    session: Optional[ObjectId] = None
+    session: Optional[List[ObjectId]] = Field(default_factory=list)
     sender: Optional[ObjectId] = None
     triggering_user: Optional[ObjectId] = None
     billed_user: Optional[ObjectId] = None
@@ -760,6 +760,20 @@ class ChatMessage(Document):
                     )
 
             return schema
+
+    @classmethod
+    def ensure_indexes(cls):
+        """Ensure indexes exist for optimal query performance"""
+        collection = cls.get_collection()
+
+        # Index for looking up messages by channel (Discord message ID, etc.)
+        # Used for deduplication when multiple agents share a ChatMessage
+        collection.create_index(
+            [("channel.type", 1), ("channel.key", 1)],
+            name="channel_lookup_idx",
+            background=True,
+            sparse=True,
+        )
 
 
 @dataclass

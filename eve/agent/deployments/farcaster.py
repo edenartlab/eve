@@ -375,7 +375,7 @@ async def process_farcaster_cast(
 
                         message = ChatMessage(
                             createdAt=created_at,
-                            session=session.id,
+                            session=[session.id],
                             channel=Channel(
                                 type="farcaster", key=cast_hash_, url=farcaster_url
                             ),

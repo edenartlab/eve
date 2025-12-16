@@ -17,7 +17,6 @@ from fastapi import FastAPI, Header, HTTPException, Request
 import eve.mongo
 from eve.agent.agent import Agent
 from eve.agent.deployments.discord_gateway import (
-    DiscordMessage,
     convert_discord_mentions_to_usernames,
     fetch_discord_channel_history_full,
     get_or_create_discord_message,
@@ -385,43 +384,54 @@ async def backfill_discord_channel(
                 role = "user"
                 sender = User.from_discord(author_id, author_username)
 
-            # Check if this message already exists in the session (avoid duplicates)
-            existing = ChatMessage.find_one(
+            # Check if ChatMessage already exists for this Discord message (across ALL sessions)
+            existing_chat = ChatMessage.find_one(
                 {
-                    "session": session.id,
                     "channel.key": message_id,
+                    "channel.type": "discord",
                 }
             )
-            if existing:
-                logger.info(f"[backfill] Skipping duplicate discord_id={message_id}")
-                continue
 
-            # Build Discord message URL
-            if guild_id:
-                discord_url = (
-                    f"https://discord.com/channels/{guild_id}/{channel_id}/{message_id}"
-                )
+            if existing_chat:
+                # Message exists - add this session to it if not already present
+                if session.id not in existing_chat.session:
+                    ChatMessage.get_collection().update_one(
+                        {"_id": existing_chat.id},
+                        {"$addToSet": {"session": session.id}},
+                    )
+                    logger.info(
+                        f"[backfill] Added session {session.id} to existing ChatMessage {existing_chat.id}"
+                    )
+                else:
+                    logger.info(
+                        f"[backfill] Session already in ChatMessage, skipping discord_id={message_id}"
+                    )
+                chat_message = existing_chat
             else:
-                discord_url = (
-                    f"https://discord.com/channels/@me/{channel_id}/{message_id}"
+                # Build Discord message URL
+                if guild_id:
+                    discord_url = f"https://discord.com/channels/{guild_id}/{channel_id}/{message_id}"
+                else:
+                    discord_url = (
+                        f"https://discord.com/channels/@me/{channel_id}/{message_id}"
+                    )
+
+                # Create new ChatMessage
+                logger.info(
+                    f"[backfill] Creating new message discord_id={message_id}, role={role}, content_preview={content[:50] if content else '(empty)'}..."
                 )
+                chat_message = ChatMessage(
+                    createdAt=timestamp,
+                    session=[session.id],
+                    channel=Channel(type="discord", key=message_id, url=discord_url),
+                    role=role,
+                    content=content,
+                    sender=sender.id,
+                    attachments=media_urls if media_urls else None,
+                )
+                chat_message.save()
 
-            # Create ChatMessage
-            logger.info(
-                f"[backfill] Adding message discord_id={message_id}, role={role}, content_preview={content[:50] if content else '(empty)'}..."
-            )
-            chat_message = ChatMessage(
-                createdAt=timestamp,
-                session=session.id,
-                channel=Channel(type="discord", key=message_id, url=discord_url),
-                role=role,
-                content=content,
-                sender=sender.id,
-                attachments=media_urls if media_urls else None,
-            )
-            chat_message.save()
-
-            # Track in DiscordMessage collection
+            # Track in DiscordMessage collection (adds to arrays atomically)
             get_or_create_discord_message(
                 msg, session_id=session.id, eve_message_id=chat_message.id
             )
@@ -633,14 +643,32 @@ async def process_discord_message_for_agent(
             f"[{trace_id}] About to add_chat_message for discord_message_id={message_id}"
         )
 
-        # Add user message to session
-        message = await add_chat_message(session, prompt_context)
-
-        logger.info(
-            f"[{trace_id}] Added chat message: eve_message_id={message.id}, discord_message_id={message_id}"
+        # Check if ChatMessage already exists for this Discord message (shared across sessions)
+        existing_chat = ChatMessage.find_one(
+            {
+                "channel.key": message_id,
+                "channel.type": "discord",
+            }
         )
 
-        # Track in DiscordMessage collection
+        if existing_chat:
+            # Message exists - add this session to it
+            if session.id not in existing_chat.session:
+                ChatMessage.get_collection().update_one(
+                    {"_id": existing_chat.id}, {"$addToSet": {"session": session.id}}
+                )
+                logger.info(
+                    f"[{trace_id}] Added session {session.id} to existing ChatMessage {existing_chat.id}"
+                )
+            message = existing_chat
+        else:
+            # Create new ChatMessage via add_chat_message
+            message = await add_chat_message(session, prompt_context)
+            logger.info(
+                f"[{trace_id}] Created new chat message: eve_message_id={message.id}, discord_message_id={message_id}"
+            )
+
+        # Track in DiscordMessage collection (adds to arrays atomically)
         get_or_create_discord_message(
             message_data, session_id=session.id, eve_message_id=message.id
         )
@@ -1533,7 +1561,6 @@ class DiscordGatewayClient:
         """
         try:
             discord_message_id = data.get("message_id")
-            channel_id = data.get("channel_id")
             user_id = data.get("user_id")
             emoji_data = data.get("emoji", {})
             member_data = data.get("member", {})
@@ -1557,25 +1584,18 @@ class DiscordGatewayClient:
                 logger.info("Skipping reaction from self")
                 return
 
-            # Find the linked DiscordMessage
-            discord_msg = DiscordMessage.find_one(
-                {"discord_message_id": discord_message_id, "channel_id": channel_id}
+            # Find the ChatMessage directly by Discord message ID (shared across sessions)
+            chat_msg = ChatMessage.find_one(
+                {
+                    "channel.key": discord_message_id,
+                    "channel.type": "discord",
+                }
             )
 
-            if not discord_msg:
-                logger.info(f"No DiscordMessage found for {discord_message_id}")
-                return
-
-            if not discord_msg.eve_message_id:
-                logger.info(
-                    f"DiscordMessage {discord_message_id} has no linked ChatMessage"
-                )
-                return
-
-            # Find the ChatMessage
-            chat_msg = ChatMessage.from_mongo(discord_msg.eve_message_id)
             if not chat_msg:
-                logger.warning(f"ChatMessage {discord_msg.eve_message_id} not found")
+                logger.info(
+                    f"No ChatMessage found for Discord message {discord_message_id}"
+                )
                 return
 
             # Get or create the user
@@ -1605,7 +1625,6 @@ class DiscordGatewayClient:
         """
         try:
             discord_message_id = data.get("message_id")
-            channel_id = data.get("channel_id")
             user_id = data.get("user_id")
             emoji_data = data.get("emoji", {})
 
@@ -1622,25 +1641,17 @@ class DiscordGatewayClient:
                 f"Reaction remove: message={discord_message_id}, user={user_id}, emoji={emoji_str}"
             )
 
-            # Find the linked DiscordMessage
-            discord_msg = DiscordMessage.find_one(
-                {"discord_message_id": discord_message_id, "channel_id": channel_id}
+            # Find the ChatMessage directly by Discord message ID (shared across sessions)
+            chat_msg = ChatMessage.find_one(
+                {
+                    "channel.key": discord_message_id,
+                    "channel.type": "discord",
+                }
             )
-
-            if not discord_msg:
-                logger.info(f"No DiscordMessage found for {discord_message_id}")
-                return
-
-            if not discord_msg.eve_message_id:
-                logger.info(
-                    f"DiscordMessage {discord_message_id} has no linked ChatMessage"
-                )
-                return
-
-            # Find the ChatMessage
-            chat_msg = ChatMessage.from_mongo(discord_msg.eve_message_id)
             if not chat_msg:
-                logger.warning(f"ChatMessage {discord_msg.eve_message_id} not found")
+                logger.info(
+                    f"No ChatMessage found for Discord message {discord_message_id}"
+                )
                 return
 
             # Get the user to match their ID

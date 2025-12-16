@@ -363,7 +363,7 @@ async def handle_trigger_run(
         # Add trigger message to session INLINE (blocks API response)
         trigger_message = ChatMessage(
             role="eden",
-            session=session.id,
+            session=[session.id],
             sender=user.id,
             triggering_user=user.id,
             content=trigger.prompt,

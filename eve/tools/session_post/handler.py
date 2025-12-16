@@ -147,7 +147,7 @@ async def handler(context: ToolContext):
         new_message = ChatMessage(
             role="assistant",
             sender=agent.id,
-            session=session.id,
+            session=[session.id],
             content=context.args.get("content"),
             attachments=attachments,
         )

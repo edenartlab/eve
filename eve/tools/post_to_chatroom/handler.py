@@ -66,7 +66,7 @@ async def handler(context: ToolContext):
     new_message = ChatMessage(
         role="assistant",
         sender=agent.id,
-        session=parent_session.id,
+        session=[parent_session.id],
         content=content,
         attachments=attachments,
     )

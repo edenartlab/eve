@@ -428,7 +428,7 @@ class PromptSessionRuntime:
                 usage_obj = usage_payload
 
         assistant_message = ChatMessage(
-            session=self.session.id,
+            session=[self.session.id],
             sender=ObjectId(self.llm_context.metadata.trace_metadata.agent_id),
             role="assistant",
             content=llm_result["content"],
@@ -495,7 +495,7 @@ class PromptSessionRuntime:
         """Persist a rate limit error message as an Eden message."""
         error_text = getattr(error, "detail", None) or str(error)
         eden_message = ChatMessage(
-            session=self.session.id,
+            session=[self.session.id],
             sender=ObjectId("000000000000000000000000"),
             role="eden",
             content=error_text,
@@ -513,7 +513,7 @@ class PromptSessionRuntime:
         """Persist a billing/manna error as an Eden message."""
         error_text = getattr(error, "detail", None) or str(error)
         eden_message = ChatMessage(
-            session=self.session.id,
+            session=[self.session.id],
             sender=ObjectId("000000000000000000000000"),
             role="eden",
             content=error_text,
@@ -734,7 +734,7 @@ class PromptSessionRuntime:
                         last_message.save()
 
             cancel_message = ChatMessage(
-                session=self.session.id,
+                session=[self.session.id],
                 sender=ObjectId("000000000000000000000000"),
                 role="system",
                 content="Response cancelled by user",

@@ -371,7 +371,7 @@ async def process_twitter_tweet(
 
                         message = ChatMessage(
                             createdAt=created_at,
-                            session=session.id,
+                            session=[session.id],
                             channel=Channel(
                                 type="twitter", key=tweet_id_, url=twitter_url
                             ),

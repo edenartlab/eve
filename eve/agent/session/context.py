@@ -419,7 +419,7 @@ async def build_system_message(
         session_context=session.context,
     )
 
-    return ChatMessage(session=session.id, role="system", content=content)
+    return ChatMessage(session=[session.id], role="system", content=content)
 
 
 async def build_system_extras(
@@ -432,7 +432,7 @@ async def build_system_extras(
         context_prompt = f"<Full Task Context>\n{session.context}\n\n**IMPORTANT: Ignore me, the user! You are just speaking to the other agents now. Make sure you stay relevant to the full task context throughout the conversation.</Full Task Context>"
         extras.append(
             ChatMessage(
-                session=session.id,
+                session=[session.id],
                 # debug this
                 # role="system",
                 role="user",
@@ -480,7 +480,7 @@ async def add_chat_message(
         eden_message_data = EdenMessageData(message_type=EdenMessageType.TRIGGER)
 
     new_message = ChatMessage(
-        session=session.id,
+        session=[session.id],
         sender=ObjectId(str(context.initiating_user_id)),
         role=context.message.role,
         content=context.message.content,
@@ -866,7 +866,7 @@ async def build_agent_session_system_message(
         memory=memory,
     )
 
-    return ChatMessage(session=agent_session.id, role="system", content=content)
+    return ChatMessage(session=[agent_session.id], role="system", content=content)
 
 
 async def build_agent_session_llm_context(
@@ -962,7 +962,7 @@ async def build_agent_session_llm_context(
         # Create a temporary ChatMessage for the bulk update
         # Note: This is not persisted here - the runtime will save it
         bulk_update_message = ChatMessage(
-            session=agent_session.id,
+            session=[agent_session.id],
             role="user",
             sender=ObjectId(str(owner_id)) if owner_id else None,
             content=bulk_update_content,
