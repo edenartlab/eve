@@ -71,6 +71,10 @@ def _format_messages_for_conductor(
             and msg.content.endswith("</SystemMessage>")
         )
 
+        logger.info(
+            f"[CONDUCTOR] is_system_message: {is_system_message}: {msg.content}"
+        )
+
         if sender_name and msg.content and not is_system_message:
             attributed_content = f"[{sender_name}]: {msg.content}"
         else:

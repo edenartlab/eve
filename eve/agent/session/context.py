@@ -241,9 +241,16 @@ def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
                 and message.sender in sender_name_map
                 and not has_social_channel
             ):
-                sender_name = sender_name_map[message.sender]
+                is_system_message = (
+                    user_message.content
+                    and user_message.content.startswith("<SystemMessage>")
+                    and user_message.content.endswith("</SystemMessage>")
+                )
                 # Prepend the sender name to the content
-                user_message.content = f"[{sender_name}]: {user_message.content}"
+                if not is_system_message:
+                    sender_name = sender_name_map[message.sender]
+                    user_message.content = f"[{sender_name}]: {user_message.content}"
+
             converted_messages.append(user_message)
 
     return converted_messages
