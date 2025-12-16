@@ -149,7 +149,7 @@ class GoogleCalendarClient(PlatformClient):
             "requires_write": True,
             "requires_delete": False,
         },
-        "google_calendar_delete_event": {
+        "google_calendar_delete": {
             "description": "Delete/cancel a calendar event",
             "requires_write": False,
             "requires_delete": True,

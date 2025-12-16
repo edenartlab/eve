@@ -1,5 +1,5 @@
 """
-Handler for google_calendar_delete_event tool.
+Handler for google_calendar_delete tool.
 
 Deletes/cancels an event from Google Calendar.
 """
