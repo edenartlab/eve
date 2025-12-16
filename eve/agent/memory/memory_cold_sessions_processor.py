@@ -97,6 +97,8 @@ async def process_cold_sessions():
                     "createdAt": {"$gte": hard_filter_date, "$lt": cutoff_time},
                 }
             },
+            # Unwind session array (since ChatMessage.session is now an array)
+            {"$unwind": "$session"},
             {
                 "$group": {
                     "_id": "$session",

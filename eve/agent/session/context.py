@@ -69,6 +69,14 @@ discord_notification_template = Template("""
 {{ content }}
 """)
 
+eden_notification_template = Template("""
+│ 📨 CHAT MESSAGE NOTIFICATION
+│ From: {{ username }}
+│ Message ID: {{ message_id }}
+├─────────────────────────────────────
+{{ content }}
+""")
+
 
 def find_mentioned_agents(content: str, agents: List[Agent]) -> List[Agent]:
     """Find agents mentioned in the message content.
@@ -262,17 +270,18 @@ def label_message_channels(messages: List[ChatMessage], session: "Session" = Non
     # Process messages and prepend channel info for social media messages
     labeled_messages = []
     for message in messages:
-        # Only apply social media decorators to user messages
-        if message.role != "user":
-            labeled_messages.append(message)
-            continue
-
         # Determine channel type - prefer message.channel, fallback to session.platform
         channel_type = None
         if message.channel and message.channel.type:
             channel_type = message.channel.type
         elif session and session.platform:
             channel_type = session.platform
+
+        # Only apply social media decorators to user messages (except eden which handles both)
+        # Eden messages can come from other agents (assistant role) in multi-agent sessions
+        if message.role != "user" and channel_type != "eden":
+            labeled_messages.append(message)
+            continue
 
         if channel_type == "farcaster" and message.sender:
             sender = user_map.get(message.sender)
@@ -308,6 +317,26 @@ def label_message_channels(messages: List[ChatMessage], session: "Session" = Non
                 )
             message.content = discord_notification_template.render(
                 username=discord_username,
+                message_id=message.channel.key
+                if message.channel and message.channel.key
+                else "Unknown",
+                content=message.content,
+            )
+
+        elif channel_type == "eden" and message.sender:
+            sender = user_map.get(message.sender)
+            # For eden, sender could be a user or agent - look up agent if not found
+            sender_username = "Unknown"
+            if sender:
+                sender_username = sender.username or "Unknown"
+            else:
+                # Try to find agent (they share the users collection)
+                agent_sender = Agent.from_mongo(message.sender)
+                if agent_sender:
+                    sender_username = agent_sender.username or "Unknown"
+
+            message.content = eden_notification_template.render(
+                username=sender_username,
                 message_id=message.channel.key
                 if message.channel and message.channel.key
                 else "Unknown",
