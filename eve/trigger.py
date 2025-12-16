@@ -108,7 +108,8 @@ def atomic_set_running(trigger_id: str) -> Optional[Trigger]:
     )
 
     if result:
-        return Trigger.from_dict(result)
+        schema = Trigger.convert_from_mongo(result)
+        return Trigger.from_schema(schema, from_yaml=False)
     return None
 
 
@@ -204,17 +205,20 @@ async def execute_trigger_async(
 
     logger.info(f"[TRIGGER_ASYNC] Starting async execution: trigger_id={trigger_id}")
 
-    # Load trigger and atomically set to running
+    # Load trigger
     trigger = Trigger.from_mongo(trigger_id)
     if not trigger:
         raise APIError(f"Trigger not found: {trigger_id}", status_code=404)
 
-    trigger = atomic_set_running(trigger_id)
-    if not trigger:
-        logger.warning(
-            "[TRIGGER_ASYNC] Duplicate execution prevented (already running)"
-        )
-        return None
+    # For scheduled triggers, atomically set to running
+    # For manual triggers (skip_message_add=True), status was already set by handle_trigger_run
+    if not skip_message_add:
+        trigger = atomic_set_running(trigger_id)
+        if not trigger:
+            logger.warning(
+                "[TRIGGER_ASYNC] Duplicate execution prevented (already running)"
+            )
+            return None
 
     # Load dependencies
     if not trigger.session:

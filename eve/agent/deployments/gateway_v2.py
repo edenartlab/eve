@@ -1421,19 +1421,12 @@ class DiscordGatewayClient:
         # Extract basic info
         channel_id = str(data["channel_id"])
         guild_id = data.get("guild_id")
-        message_id = data.get("id")
         is_dm = not guild_id
         logger.info(f"[{trace_id}] is_dm: {is_dm}")
 
-        # Check for duplicate processing
-        existing_msg = DiscordMessage.find_one(
-            {"discord_message_id": message_id, "processed": True}
-        )
-        if existing_msg:
-            logger.info(
-                f"[{trace_id}] Message {message_id} already processed, skipping"
-            )
-            return
+        # Note: Global deduplication removed - each deployment processes messages independently
+        # to maintain their own private sessions (Private Workspace Pattern).
+        # Session-level deduplication in process_discord_message_for_agent handles duplicates.
 
         # Handle DMs separately (existing behavior for now)
         if is_dm:
@@ -1521,15 +1514,6 @@ class DiscordGatewayClient:
             logger.info(
                 f"[{trace_id}] Processed for deployment {deployment.id}: {result}"
             )
-
-        # Mark message as processed (primary deduplication)
-        try:
-            get_or_create_discord_message(data)
-            DiscordMessage.find_one({"discord_message_id": message_id}).update(
-                processed=True
-            )
-        except Exception as e:
-            logger.warning(f"[{trace_id}] Could not mark message as processed: {e}")
 
     async def handle_reaction_add(self, data: dict):
         """
