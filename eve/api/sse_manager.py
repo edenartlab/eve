@@ -39,7 +39,8 @@ class SSEConnectionManager:
             self._connection_count = 0
             self._lock = asyncio.Lock()
             self._initialized = True
-            logger.info("SSEConnectionManager initialized")
+            # Avoid noisy INFO logs on first import in paths that don't use SSE.
+            logger.debug("SSEConnectionManager initialized")
 
     async def connect(self, session_id: str, client_id: str) -> SSEConnection:
         """
@@ -143,7 +144,7 @@ class SSEConnectionManager:
                         pass
             self._connections.clear()
             self._connection_count = 0
-            logger.info("All SSE connections closed")
+            logger.debug("All SSE connections closed")
 
 
 # Global singleton instance
