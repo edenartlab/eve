@@ -245,13 +245,16 @@ async def cleanup_stale_busy_states():
 
 
 async def cleanup_stuck_triggers():
-    """Detect and auto-pause triggers stuck in 'running' state for >90 minutes.
+    """Detect and auto-pause triggers stuck in 'running' state for >65 minutes.
 
     This function runs periodically to handle cases where triggers get stuck due to:
     - Modal container crashes (OOM, SIGKILL)
     - Network partitions
     - Infrastructure issues
     - Timeouts that bypass finally blocks
+
+    Also fixes triggers with broken next_scheduled_run values:
+    - Triggers with schedule but next_scheduled_run=None
     """
     try:
         from datetime import datetime, timedelta, timezone
@@ -292,12 +295,59 @@ async def cleanup_stuck_triggers():
 
             notify_trigger_paused(
                 trigger,
-                f"Trigger was stuck in running state for over 90 minutes since {trigger.last_run_time}",
+                f"Trigger was stuck in running state for over {STUCK_TRIGGER_THRESHOLD_MINUTES} minutes since {trigger.last_run_time}",
             )
 
         logger.info(
             f"[CLEANUP_TRIGGERS] Auto-paused {len(stuck_triggers)} stuck triggers"
         )
+
+        # Also check for triggers with broken next_scheduled_run values
+        # Conservative: only fix obviously wrong cases
+        logger.info(
+            "[CLEANUP_TRIGGERS] Checking for broken next_scheduled_run values..."
+        )
+
+        broken_triggers = list(
+            Trigger.find(
+                {
+                    "status": "active",  # Only fix active triggers
+                    "schedule": {"$ne": None, "$exists": True},  # Must have a schedule
+                    "next_scheduled_run": None,  # But next_scheduled_run is missing
+                }
+            )
+        )
+
+        if broken_triggers:
+            logger.warning(
+                f"[CLEANUP_TRIGGERS] Found {len(broken_triggers)} triggers with schedule but no next_scheduled_run"
+            )
+
+            from eve.trigger import calculate_next_scheduled_run
+
+            for trigger in broken_triggers:
+                try:
+                    next_run = calculate_next_scheduled_run(trigger.schedule)
+                    if next_run:
+                        trigger.update(next_scheduled_run=next_run)
+                        logger.info(
+                            f"[CLEANUP_TRIGGERS] Fixed trigger {trigger.id} ({trigger.name}): "
+                            f"set next_scheduled_run={next_run}"
+                        )
+                    else:
+                        # Schedule is exhausted, mark as finished
+                        trigger.update(status="finished")
+                        logger.info(
+                            f"[CLEANUP_TRIGGERS] Trigger {trigger.id} ({trigger.name}) schedule exhausted, "
+                            f"marked as finished"
+                        )
+                except Exception as e:
+                    logger.error(
+                        f"[CLEANUP_TRIGGERS] Failed to fix trigger {trigger.id}: {e}"
+                    )
+        else:
+            logger.info("[CLEANUP_TRIGGERS] No broken next_scheduled_run values found")
+
         return len(stuck_triggers)
 
     except Exception as e:

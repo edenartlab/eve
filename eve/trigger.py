@@ -22,7 +22,9 @@ db = os.getenv("DB", "STAGE").upper()
 # Trigger retry configuration constants
 MAX_ERROR_COUNT = 2
 RETRY_DELAY_MINUTES = 5
-STUCK_TRIGGER_THRESHOLD_MINUTES = 90
+STUCK_TRIGGER_THRESHOLD_MINUTES = (
+    65  # Reduced from 90 to detect timeouts faster (Modal timeout is 60min)
+)
 
 
 @Collection("triggers2")
@@ -41,7 +43,8 @@ class Trigger(Document):
         None  # Optional - tasks without schedules run manually only
     )
     user: ObjectId
-    session: ObjectId
+    session: Optional[ObjectId] = None
+    agent: Optional[ObjectId] = None  # Used when creating new session if session=None
 
     # Status and execution tracking
     status: Literal["active", "paused", "running", "finished"] = "active"
@@ -90,10 +93,10 @@ def calculate_next_scheduled_run(schedule: dict) -> datetime:
 
 
 def atomic_set_running(trigger_id: str) -> Optional[Trigger]:
-    """Atomically set trigger status to 'running' if not already running.
+    """Atomically set trigger status to 'running' if not already running or deleted.
 
     Returns:
-        Trigger object if successful, None if already running
+        Trigger object if successful, None if already running or deleted
     """
     from eve.mongo import get_collection
 
@@ -102,6 +105,7 @@ def atomic_set_running(trigger_id: str) -> Optional[Trigger]:
         {
             "_id": ObjectId(trigger_id),
             "status": {"$ne": "running"},  # Only update if NOT running
+            "deleted": {"$ne": True},  # Only update if NOT deleted
         },
         {"$set": {"status": "running", "last_run_time": datetime.now(timezone.utc)}},
         return_document=True,
@@ -145,7 +149,73 @@ def notify_trigger_paused(trigger: Trigger, reason: str):
         sentry_sdk.capture_exception(e)
 
 
-def _load_trigger_dependencies(trigger_id: str) -> tuple[Trigger, Session, Agent, User]:
+async def _ensure_trigger_has_session(trigger: Trigger) -> Trigger:
+    """Ensure trigger has a session. If not, create one.
+
+    Args:
+        trigger: The trigger to check
+
+    Returns:
+        Updated trigger with session set
+
+    Raises:
+        APIError: If trigger has no agent set or user lacks permissions
+    """
+    if trigger.session:
+        return trigger
+
+    # Trigger has no session - need to create one
+    if not trigger.agent:
+        raise APIError(
+            "Trigger has no session and no agent specified. Cannot create session.",
+            status_code=400,
+        )
+
+    # Load agent and check permissions
+    agent = Agent.from_mongo(trigger.agent)
+    if not agent:
+        raise APIError(f"Agent {trigger.agent} not found", status_code=404)
+
+    # Check if user has permissions for this agent
+    # User must be either: 1) agent owner, or 2) have owner/editor permission
+    from eve.agent.agent import AgentPermission
+
+    is_agent_owner = agent.owner == trigger.user
+    try:
+        permission = AgentPermission.load(agent=trigger.agent, user=trigger.user)
+        has_permission = permission and permission.level in ["owner", "editor"]
+    except Exception:
+        has_permission = False
+
+    if not is_agent_owner and not has_permission:
+        raise APIError(
+            f"User does not have permission to use agent {agent.username}",
+            status_code=403,
+        )
+
+    # Create new session
+    new_session = Session(
+        owner=trigger.user,
+        agents=[trigger.agent],
+        title=trigger.name,
+        trigger=trigger.id,
+        platform="app",
+    )
+    new_session.save()
+
+    # Update trigger with new session
+    trigger.update(session=new_session.id)
+    logger.info(
+        f"[TRIGGER] Created new session {new_session.id} for trigger {trigger.id}"
+    )
+
+    # Reload trigger to get updated session field
+    return Trigger.from_mongo(trigger.id)
+
+
+async def _load_trigger_dependencies(
+    trigger_id: str,
+) -> tuple[Trigger, Session, Agent, User]:
     """Load and validate all trigger dependencies from MongoDB.
 
     Returns:
@@ -158,6 +228,9 @@ def _load_trigger_dependencies(trigger_id: str) -> tuple[Trigger, Session, Agent
     trigger = Trigger.from_mongo(trigger_id)
     if not trigger:
         raise APIError(f"Trigger not found: {trigger_id}", status_code=404)
+
+    # Ensure trigger has a session (creates one if needed)
+    trigger = await _ensure_trigger_has_session(trigger)
 
     # Validate and load session
     if not trigger.session:
@@ -219,6 +292,9 @@ async def execute_trigger_async(
                 "[TRIGGER_ASYNC] Duplicate execution prevented (already running)"
             )
             return None
+
+    # Ensure trigger has a session (creates one if needed)
+    trigger = await _ensure_trigger_has_session(trigger)
 
     # Load dependencies
     if not trigger.session:
@@ -312,20 +388,29 @@ async def execute_trigger_async(
 
     finally:
         # Calculate next scheduled run (only if still in running state)
-        if trigger.status == "running":
-            # If no schedule, task stays active (manual-only)
+        # Reload trigger to get latest status (fix race condition)
+        trigger = Trigger.from_mongo(trigger_id)
+        if trigger and trigger.status == "running":
+            # If no schedule, task stays active (manual-only) - clear next_scheduled_run
             if not trigger.schedule:
-                trigger.update(status="active")
+                trigger.update(status="active", next_scheduled_run=None)
             else:
-                next_run = calculate_next_scheduled_run(trigger.schedule)
-                if next_run:
-                    trigger.update(status="active", next_scheduled_run=next_run)
-                    logger.info(f"[TRIGGER_ASYNC] Next run scheduled: {next_run}")
-                else:
-                    trigger.update(status="finished", next_scheduled_run=None)
-                    logger.info(
-                        "[TRIGGER_ASYNC] Trigger finished (no more scheduled runs)"
-                    )
+                # Wrap in try/catch to prevent unhandled exceptions from leaving trigger stuck
+                try:
+                    next_run = calculate_next_scheduled_run(trigger.schedule)
+                    if next_run:
+                        trigger.update(status="active", next_scheduled_run=next_run)
+                        logger.info(f"[TRIGGER_ASYNC] Next run scheduled: {next_run}")
+                    else:
+                        trigger.update(status="finished", next_scheduled_run=None)
+                        logger.info(
+                            "[TRIGGER_ASYNC] Trigger finished (no more scheduled runs)"
+                        )
+                except Exception as e:
+                    logger.error(f"[TRIGGER_ASYNC] Failed to calculate next run: {e}")
+                    # Clear next_scheduled_run to prevent phantom runs, keep status active
+                    trigger.update(status="active", next_scheduled_run=None)
+                    sentry_sdk.capture_exception(e)
 
     return session
 
@@ -352,7 +437,7 @@ async def handle_trigger_run(
 
     try:
         # Load and validate all dependencies
-        trigger, session, agent, user = _load_trigger_dependencies(trigger_id)
+        trigger, session, agent, user = await _load_trigger_dependencies(trigger_id)
         session_id = str(session.id)
 
         # Atomically set status to running
