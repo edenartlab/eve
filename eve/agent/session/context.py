@@ -666,32 +666,53 @@ async def distribute_message_to_agent_sessions(
     )
 
 
-def get_last_eden_message_for_llm(session_id: ObjectId) -> Optional[ChatMessage]:
+def get_all_eden_messages_for_llm(session_id: ObjectId) -> List[ChatMessage]:
     """
-    Get the last eden message for a session, converted for LLM consumption.
+    Get ALL eden messages for a session, converted for LLM consumption.
+
     Eden messages are excluded from select_messages(), so we query separately.
-    The last eden message is converted to user role with content wrapped in SystemMessage tags.
-    Returns None if no eden messages exist.
+    Each eden message is converted to user role with content wrapped in SystemMessage tags.
+
+    This includes all conductor messages (CONDUCTOR_INIT, CONDUCTOR_TURN, CONDUCTOR_HINT,
+    CONDUCTOR_FINISH) as well as other eden messages (AGENT_ADD, RATE_LIMIT, TRIGGER).
+
+    Returns empty list if no eden messages exist.
     """
-    messages = ChatMessage.get_collection()
+    messages_collection = ChatMessage.get_collection()
     eden_messages = list(
-        messages.find({"session": session_id, "role": "eden"})
-        .sort("createdAt", -1)
-        .limit(1)
+        messages_collection.find({"session": session_id, "role": "eden"}).sort(
+            "createdAt", 1
+        )  # Chronological order
     )
 
     if not eden_messages:
-        return None
+        return []
 
-    eden_msg = ChatMessage(**eden_messages[0])
+    converted = []
+    for doc in eden_messages:
+        eden_msg = ChatMessage(**doc)
+        # Convert: change role to user, wrap content in SystemMessage tags
+        converted.append(
+            eden_msg.model_copy(
+                update={
+                    "role": "user",
+                    "content": f"<SystemMessage>{eden_msg.content}</SystemMessage>",
+                }
+            )
+        )
 
-    # Convert: change role to user, wrap content in SystemMessage tags
-    return eden_msg.model_copy(
-        update={
-            "role": "user",
-            "content": f"<SystemMessage>{eden_msg.content}</SystemMessage>",
-        }
-    )
+    return converted
+
+
+# Keep old function for backward compatibility but mark as deprecated
+def get_last_eden_message_for_llm(session_id: ObjectId) -> Optional[ChatMessage]:
+    """
+    DEPRECATED: Use get_all_eden_messages_for_llm() instead.
+
+    Get the last eden message for a session, converted for LLM consumption.
+    """
+    all_eden = get_all_eden_messages_for_llm(session_id)
+    return all_eden[-1] if all_eden else None
 
 
 async def build_llm_context(
@@ -760,11 +781,12 @@ async def build_llm_context(
 
     existing_messages = select_messages(session)
 
-    # Add the last eden message (converted to user role) if it exists
+    # Add ALL eden messages (converted to user role) to the context
     # Eden messages are filtered out by select_messages, so we query separately
-    last_eden = get_last_eden_message_for_llm(session.id)
-    if last_eden:
-        existing_messages.append(last_eden)
+    # This includes conductor messages (CONDUCTOR_INIT, CONDUCTOR_TURN, CONDUCTOR_HINT, etc.)
+    eden_messages = get_all_eden_messages_for_llm(session.id)
+    if eden_messages:
+        existing_messages.extend(eden_messages)
         existing_messages.sort(key=lambda m: m.createdAt)
 
     messages.extend(existing_messages)
@@ -951,6 +973,14 @@ async def build_agent_session_llm_context(
     # Add agent_session's own history (includes messages from other agents
     # that were distributed in real-time via distribute_message_to_agent_sessions)
     existing_messages = select_messages(agent_session)
+
+    # Add ALL eden messages (converted to user role) to the context
+    # This includes CONDUCTOR_HINT messages which are specific to this agent_session
+    eden_messages = get_all_eden_messages_for_llm(agent_session.id)
+    if eden_messages:
+        existing_messages.extend(eden_messages)
+        existing_messages.sort(key=lambda m: m.createdAt)
+
     messages.extend(existing_messages)
 
     # Convert message roles (agent's messages -> assistant, others -> user)

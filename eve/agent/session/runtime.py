@@ -41,7 +41,7 @@ from .context import (
     build_llm_context,
     convert_message_roles,
     determine_actors,
-    get_last_eden_message_for_llm,
+    get_all_eden_messages_for_llm,
     label_message_channels,
 )
 from .instrumentation import PromptSessionInstrumentation
@@ -275,11 +275,12 @@ class PromptSessionRuntime:
     async def _refresh_llm_messages(self):
         fresh_messages = select_messages(self.session)
 
-        # Add the last eden message (converted to user role) if it exists
+        # Add ALL eden messages (converted to user role) to the context
         # Eden messages are filtered out by select_messages, so we query separately
-        last_eden = get_last_eden_message_for_llm(self.session.id)
-        if last_eden:
-            fresh_messages.append(last_eden)
+        # This includes conductor messages (CONDUCTOR_INIT, CONDUCTOR_TURN, CONDUCTOR_HINT, etc.)
+        eden_messages = get_all_eden_messages_for_llm(self.session.id)
+        if eden_messages:
+            fresh_messages.extend(eden_messages)
             fresh_messages.sort(key=lambda m: m.createdAt)
 
         system_message = self.llm_context.messages[0]

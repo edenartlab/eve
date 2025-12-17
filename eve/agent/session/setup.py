@@ -53,6 +53,32 @@ def create_eden_message(
     return eden_message
 
 
+def create_eden_message_json(
+    session_id: ObjectId,
+    message_type: EdenMessageType,
+    content: str,
+) -> ChatMessage:
+    """Create an eden message with JSON content (for conductor outputs).
+
+    Args:
+        session_id: The session to attach the message to
+        message_type: The type of conductor message (CONDUCTOR_INIT, CONDUCTOR_TURN, etc.)
+        content: JSON string content (typically from model_dump_json())
+
+    Returns:
+        The created ChatMessage
+    """
+    eden_message = ChatMessage(
+        session=[session_id],
+        sender=ObjectId("000000000000000000000000"),  # System sender
+        role="eden",
+        content=content,
+        eden_message_data=EdenMessageData(message_type=message_type),
+    )
+    eden_message.save()
+    return eden_message
+
+
 def generate_session_title(
     session: Session, request: PromptSessionRequest, background_tasks: BackgroundTasks
 ):
@@ -123,6 +149,69 @@ def create_agent_sessions(
         agent_session.save()
 
         agent_sessions[str(agent_id)] = agent_session.id
+
+    return agent_sessions
+
+
+def create_agent_sessions_with_contexts(
+    parent_session: Session,
+    agents: List[ObjectId],
+    init_response,  # ConductorInitResponse - imported dynamically to avoid circular import
+) -> dict[str, ObjectId]:
+    """Create agent_sessions with conductor-generated personalized contexts.
+
+    This is used when the conductor has generated unique contexts for each agent
+    at session initialization time. Each agent gets their personalized context
+    combined with standard workspace instructions.
+
+    Args:
+        parent_session: The parent multi-agent session
+        agents: List of agent ObjectIds to create sessions for
+        init_response: ConductorInitResponse with per-agent contexts
+
+    Returns:
+        Dict mapping agent_id (str) to agent_session ObjectId
+    """
+    # Build context map from init_response
+    context_map = {ac.agent_username: ac.context for ac in init_response.agent_contexts}
+
+    agent_sessions = {}
+    for agent_id in agents:
+        agent = Agent.from_mongo(agent_id)
+        if not agent:
+            continue
+
+        # Get personalized context or fallback to shared understanding
+        personalized_context = context_map.get(
+            agent.username, init_response.shared_understanding
+        )
+
+        # Combine with workspace instructions
+        full_context = f"""{personalized_context}
+
+---
+WORKSPACE INSTRUCTIONS:
+This is your private workspace for the chatroom '{parent_session.title or 'Untitled'}'.
+Other participants cannot see your work here - only messages you post via post_to_chatroom.
+You receive messages from other participants as CHAT MESSAGE NOTIFICATIONS.
+Use the post_to_chatroom tool to contribute to the conversation when ready."""
+
+        agent_session = Session(
+            owner=parent_session.owner,
+            users=parent_session.users.copy() if parent_session.users else [],
+            agents=[agent_id],
+            parent_session=parent_session.id,
+            session_type="passive",
+            status="active",
+            title=f"Workspace: {parent_session.title or agent.username}",
+            context=full_context,
+        )
+        agent_session.save()
+        agent_sessions[str(agent_id)] = agent_session.id
+
+        logger.info(
+            f"[SETUP] Created agent_session for {agent.username} with personalized context"
+        )
 
     return agent_sessions
 
@@ -210,13 +299,23 @@ def setup_session(
         f"[SETUP] Session {session.id} created with {len(agent_object_ids)} agents"
     )
     if len(agent_object_ids) > 1:
-        logger.info(
-            f"[SETUP] Creating agent_sessions for multi-agent session {session.id}"
-        )
-        agent_sessions = create_agent_sessions(session, agent_object_ids)
-        session.update(agent_sessions=agent_sessions)
-        session.agent_sessions = agent_sessions
-        logger.info(f"[SETUP] Created agent_sessions: {agent_sessions}")
+        # For automatic sessions, agent_sessions are created later via conductor init
+        # (when the session is first activated). This allows conductor to generate
+        # personalized contexts for each agent based on the user's scenario.
+        if request.creation_args.session_type == "automatic":
+            logger.info(
+                f"[SETUP] Deferring agent_session creation for automatic session {session.id} "
+                "(will be created via conductor init when activated)"
+            )
+        else:
+            # For non-automatic multi-agent sessions, use static workspace context
+            logger.info(
+                f"[SETUP] Creating agent_sessions for non-automatic multi-agent session {session.id}"
+            )
+            agent_sessions = create_agent_sessions(session, agent_object_ids)
+            session.update(agent_sessions=agent_sessions)
+            session.agent_sessions = agent_sessions
+            logger.info(f"[SETUP] Created agent_sessions: {agent_sessions}")
 
     # Update trigger with session ID
     if request.creation_args.trigger:
