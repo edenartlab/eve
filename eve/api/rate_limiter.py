@@ -81,37 +81,37 @@ AGENT_RATE_LIMITS = {
 
 SUBSCRIPTION_TIER_MESSAGE_LIMITS = {
     0: [
-        RateLimit(count=15, period=60),
-        RateLimit(count=60, period=60 * 60),
+        RateLimit(count=5, period=60),
+        RateLimit(count=60, period=3 * 60 * 60),
         RateLimit(count=300, period=24 * 60 * 60),
     ],
     1: [
-        RateLimit(count=30, period=60),
-        RateLimit(count=180, period=60 * 60),
+        RateLimit(count=10, period=60),
+        RateLimit(count=180, period=3 * 60 * 60),
         RateLimit(count=900, period=24 * 60 * 60),
     ],
     2: [
-        RateLimit(count=60, period=60),
-        RateLimit(count=360, period=60 * 60),
+        RateLimit(count=20, period=60),
+        RateLimit(count=360, period=3 * 60 * 60),
         RateLimit(count=2000, period=24 * 60 * 60),
     ],
     3: [
-        RateLimit(count=120, period=60),
-        RateLimit(count=720, period=60 * 60),
+        RateLimit(count=20, period=60),
+        RateLimit(count=720, period=3 * 60 * 60),
         RateLimit(count=4000, period=24 * 60 * 60),
     ],
 }
 
 FEATURE_FLAG_MESSAGE_LIMITS = {
     "free_tools": [
-        RateLimit(count=10**5, period=60),
-        RateLimit(count=10**5, period=3 * 60 * 60),
-        RateLimit(count=10**6, period=24 * 60 * 60),
+        RateLimit(count=10**1, period=60),
+        RateLimit(count=10**3, period=3 * 60 * 60),
+        RateLimit(count=10**4, period=24 * 60 * 60),
     ],
     "limits_Admin": [
-        RateLimit(count=10**5, period=60),
-        RateLimit(count=10**5, period=3 * 60 * 60),
-        RateLimit(count=10**6, period=24 * 60 * 60),
+        RateLimit(count=10**1, period=60),
+        RateLimit(count=10**3, period=3 * 60 * 60),
+        RateLimit(count=10**4, period=24 * 60 * 60),
     ],
     "test_message_rate_limit": [
         RateLimit(count=2, period=60),
