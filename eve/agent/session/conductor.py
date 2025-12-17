@@ -7,7 +7,8 @@ Two modes are available:
 """
 
 import json
-from datetime import datetime
+import os
+from datetime import datetime, timezone
 from typing import List, Optional
 
 import pytz
@@ -17,10 +18,135 @@ from pydantic import BaseModel, Field
 from eve.agent import Agent
 from eve.agent.llm.llm import async_prompt
 from eve.agent.llm.prompts.conductor_template import conductor_template
-from eve.agent.session.models import ChatMessage, LLMConfig, LLMContext, Session
+from eve.agent.session.models import (
+    ChatMessage,
+    LLMCall,
+    LLMConfig,
+    LLMContext,
+    Session,
+)
+from eve.user import User
 
 # Number of recent messages to consider for conductor decisions
 CONDUCTOR_MESSAGE_LOOKBACK = 10
+
+
+def _should_log_conductor_llm_call(session: Session) -> bool:
+    """Check if we should log this conductor LLM call.
+
+    Logs are created if:
+    - DB is STAGE (all calls logged on staging)
+    - OR the session owner has eden_admin feature flag
+    """
+    db = os.getenv("DB", "STAGE").upper()
+    logger.info(
+        f"[CONDUCTOR_LLMCALL] Checking if should log: DB={db}, session.owner={session.owner}"
+    )
+
+    if db == "STAGE":
+        logger.info("[CONDUCTOR_LLMCALL] DB is STAGE - will log LLMCall")
+        return True
+
+    # Check if session owner has eden_admin feature flag
+    if session.owner:
+        try:
+            user = User.from_mongo(session.owner)
+            if user:
+                is_admin = user.is_admin()
+                logger.info(
+                    f"[CONDUCTOR_LLMCALL] User {user.username}: is_admin={is_admin}, "
+                    f"featureFlags={user.featureFlags}"
+                )
+                if is_admin:
+                    logger.info(
+                        "[CONDUCTOR_LLMCALL] User is eden_admin - will log LLMCall"
+                    )
+                    return True
+            else:
+                logger.info(
+                    f"[CONDUCTOR_LLMCALL] User not found for owner {session.owner}"
+                )
+        except (ValueError, Exception) as e:
+            logger.warning(
+                f"[CONDUCTOR_LLMCALL] Error loading user {session.owner}: {e}"
+            )
+
+    logger.info(
+        "[CONDUCTOR_LLMCALL] Not logging LLMCall (not STAGE and not eden_admin)"
+    )
+    return False
+
+
+def _create_conductor_llm_call(
+    session: Session,
+    model: str,
+    request_payload: dict,
+    role: str,  # "conductor_turn", "conductor_init", "conductor_finish"
+) -> Optional[LLMCall]:
+    """Create an LLMCall record for a conductor operation if logging is enabled."""
+    should_log = _should_log_conductor_llm_call(session)
+    logger.info(
+        f"[CONDUCTOR_LLMCALL] _create_conductor_llm_call called, should_log={should_log}, role={role}"
+    )
+
+    if not should_log:
+        logger.info("[CONDUCTOR_LLMCALL] Skipping LLMCall creation")
+        return None
+
+    try:
+        logger.info(
+            f"[CONDUCTOR_LLMCALL] Creating LLMCall object for session {session.id}"
+        )
+        llm_call = LLMCall(
+            provider="anthropic",
+            model=model,
+            request_payload=request_payload,
+            start_time=datetime.now(timezone.utc),
+            status="pending",
+            session=session.id,
+            session_run_id=role,  # Use this to identify conductor calls
+        )
+        logger.info("[CONDUCTOR_LLMCALL] LLMCall object created, calling save()...")
+        llm_call.save()
+        logger.info(f"[CONDUCTOR_LLMCALL] save() completed, id={llm_call.id}")
+        logger.info(f"[CONDUCTOR_LLMCALL] Created LLMCall id={llm_call.id} for {role}")
+        return llm_call
+    except Exception as e:
+        import traceback
+
+        logger.error(f"[CONDUCTOR_LLMCALL] Failed to create LLMCall: {e}")
+        logger.error(f"[CONDUCTOR_LLMCALL] Traceback: {traceback.format_exc()}")
+        return None
+
+
+def _update_conductor_llm_call(
+    llm_call: Optional[LLMCall],
+    response_content: str,
+    prompt_tokens: Optional[int] = None,
+    completion_tokens: Optional[int] = None,
+) -> None:
+    """Update an LLMCall with response data after completion."""
+    if not llm_call:
+        return
+
+    end_time = datetime.now(timezone.utc)
+    duration_ms = (
+        int((end_time - llm_call.start_time).total_seconds() * 1000)
+        if llm_call.start_time
+        else None
+    )
+
+    llm_call.update(
+        status="completed",
+        end_time=end_time,
+        duration_ms=duration_ms,
+        response_payload={"content": response_content},
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        total_tokens=(prompt_tokens or 0) + (completion_tokens or 0)
+        if prompt_tokens or completion_tokens
+        else None,
+    )
 
 
 # =============================================================================
@@ -33,7 +159,11 @@ class AgentContext(BaseModel):
 
     agent_username: str = Field(description="Username of the agent")
     context: str = Field(
-        description="Personalized context including role, rules, secrets, goals"
+        description="SCENARIO-SPECIFIC context: This agent's role in THIS scenario, "
+        "their private info/secrets, their objectives and win conditions. "
+        "NOT generic persona info - the agent already has that. "
+        "Example: 'You are the question-master. You have secretly chosen: elephant. "
+        "Your goal is to stump the other players...'"
     )
 
 
@@ -41,10 +171,12 @@ class ConductorInitResponse(BaseModel):
     """Conductor's initialization output - generates contexts for all agents"""
 
     shared_understanding: str = Field(
-        description="Common knowledge all agents share (rules, setting, public info)"
+        description="ACTIONABLE FUNCTIONAL INFO: Game rules, mechanics, constraints, public objectives. "
+        "NOT agent personas or descriptions - those go in agent_contexts. "
+        "Example: '20 Questions rules: One player thinks of an object, others ask yes/no questions...'"
     )
     agent_contexts: List[AgentContext] = Field(
-        description="Per-agent personalized contexts"
+        description="Per-agent personalized contexts with scenario-specific roles, secrets, and objectives"
     )
     finish_criteria: str = Field(
         description="Conditions under which the session should end"
@@ -90,13 +222,35 @@ def _build_agent_descriptions(agents: dict) -> str:
 def _get_recent_messages(
     session: Session, limit: int = CONDUCTOR_MESSAGE_LOOKBACK
 ) -> List[ChatMessage]:
-    """Get the most recent messages from the session."""
+    """Get the most recent messages from the session.
+
+    Filters out internal conductor messages (CONDUCTOR_TURN, CONDUCTOR_HINT)
+    so the conductor only sees actual chatroom activity, not its own reasoning.
+    """
+    from eve.agent.session.models import EdenMessageType
+
     messages = list(ChatMessage.find({"session": session.id}))
+
+    # Filter out conductor's own turn/hint messages - these are internal
+    # and should not influence the conductor's view of what actually happened
+    filtered = []
+    for msg in messages:
+        # Skip CONDUCTOR_TURN and CONDUCTOR_HINT eden messages
+        if msg.eden_message_data:
+            msg_type = msg.eden_message_data.message_type
+            if msg_type in (
+                EdenMessageType.CONDUCTOR_TURN,
+                EdenMessageType.CONDUCTOR_HINT,
+                EdenMessageType.CONDUCTOR_FINISH,
+            ):
+                continue
+        filtered.append(msg)
+
     # Sort by creation time and take the last N
-    messages = sorted(
-        messages, key=lambda m: m.createdAt if m.createdAt else datetime.min
+    filtered = sorted(
+        filtered, key=lambda m: m.createdAt if m.createdAt else datetime.min
     )
-    return messages[-limit:] if len(messages) > limit else messages
+    return filtered[-limit:] if len(filtered) > limit else filtered
 
 
 def _format_messages_for_conductor(
@@ -270,8 +424,29 @@ First explain your reasoning, then select the speaker.
         ),
     )
 
+    # Create LLMCall record before API call
+    model_name = "claude-sonnet-4-5"
+    request_payload = {
+        "system": conductor_message,
+        "messages": [{"role": m.role, "content": m.content} for m in messages]
+        + [{"role": "user", "content": task_prompt}],
+        "response_format": "ConductorTurnResponse",
+    }
+    llm_call = _create_conductor_llm_call(
+        session, model_name, request_payload, "conductor_turn"
+    )
+
     response = await async_prompt(llm_context)
     output = ConductorTurnResponse(**json.loads(response.content))
+
+    # Update LLMCall with response
+    _update_conductor_llm_call(
+        llm_call,
+        response.content,
+        prompt_tokens=response.usage.prompt_tokens if response.usage else None,
+        completion_tokens=response.usage.completion_tokens if response.usage else None,
+    )
+
     logger.info(f"[CONDUCTOR] Reasoning: {output.reasoning}")
     logger.info(
         f"[CONDUCTOR] Selected: {output.speaker}, hint: {output.hint}, finish: {output.finish}"
@@ -437,6 +612,10 @@ async def conductor_initialize_session(
     - Per-agent roles, secrets, and objectives
     - Session finish criteria
 
+    The scenario can come from:
+    - session.context (if set via creation_args.context)
+    - Initial user messages sent before session activation
+
     Args:
         session: The parent session being initialized
         agents: Dict mapping username to Agent object
@@ -447,8 +626,51 @@ async def conductor_initialize_session(
     logger.info(f"[CONDUCTOR_INIT] Initializing session {session.id}")
     logger.info(f"[CONDUCTOR_INIT] Agents: {list(agents.keys())}")
     logger.info(
-        f"[CONDUCTOR_INIT] User context: {session.context[:200] + '...' if session.context and len(session.context) > 200 else session.context or 'NONE'}"
+        f"[CONDUCTOR_INIT] Session context: {session.context[:200] + '...' if session.context and len(session.context) > 200 else session.context or 'NONE'}"
     )
+
+    # Fetch any existing messages in the session (user may have sent scenario before activation)
+    existing_messages = list(
+        ChatMessage.get_collection()
+        .find(
+            {
+                "session": session.id,
+                "role": {"$in": ["user", "assistant"]},  # Skip eden messages
+            }
+        )
+        .sort("createdAt", 1)
+        .limit(20)  # Cap to avoid huge prompts
+    )
+    logger.info(
+        f"[CONDUCTOR_INIT] Found {len(existing_messages)} existing messages in session"
+    )
+
+    # Build scenario from session.context AND/OR existing messages
+    scenario_parts = []
+
+    if session.context:
+        scenario_parts.append(f"Session Context:\n{session.context}")
+
+    if existing_messages:
+        message_lines = []
+        for msg in existing_messages:
+            role = msg.get("role", "unknown")
+            content = msg.get("content", "")
+            if content:
+                # Truncate very long messages
+                if len(content) > 1000:
+                    content = content[:1000] + "..."
+                message_lines.append(f"[{role}]: {content}")
+        if message_lines:
+            scenario_parts.append("Initial Messages:\n" + "\n".join(message_lines))
+
+    # Combine scenario sources
+    if scenario_parts:
+        full_scenario = "\n\n".join(scenario_parts)
+    else:
+        full_scenario = "No specific scenario provided. Generate a general collaborative discussion context."
+
+    logger.info(f"[CONDUCTOR_INIT] Full scenario length: {len(full_scenario)} chars")
 
     # Build agent descriptions
     agent_str = _build_agent_descriptions(agents)
@@ -463,12 +685,14 @@ async def conductor_initialize_session(
     task_prompt = f"""<Task>
 You are initializing a multi-agent session. Analyze the scenario and generate:
 
-1. SHARED UNDERSTANDING: Common knowledge all agents share (rules, setting, public info)
+1. SHARED UNDERSTANDING: Common knowledge all agents share (rules, setting, public info).
+   This should be ACTIONABLE FUNCTIONAL INFORMATION - game rules, constraints, objectives.
+   Do NOT just describe agent personas here (that goes in agent_contexts).
 
 2. PER-AGENT CONTEXTS: For each agent ({', '.join(agents.keys())}), generate a personalized context including:
-   - Their role in the scenario
+   - Their specific role in THIS scenario (not generic persona info)
    - Any private information or secrets they alone know
-   - Their objectives or win conditions
+   - Their objectives or win conditions for THIS scenario
    - Relevant constraints or guidelines
 
 3. FINISH CRITERIA: When should this session end? (e.g., "after 10 turns", "when a winner is declared", "when the task is complete")
@@ -476,11 +700,12 @@ You are initializing a multi-agent session. Analyze the scenario and generate:
 CRITICAL RULES:
 - Never leak Agent A's secrets into Agent B's context
 - Keep contexts concise but complete
-- Preserve the user's intent faithfully
+- Preserve the user's intent faithfully - the scenario below is what they want
 - If no secrets are implied, all agents get similar contexts with role variations
+- SHARED_UNDERSTANDING should contain game rules, mechanics, and constraints - NOT agent descriptions
 
 User's Scenario:
-{session.context or "No specific scenario provided. Generate a general collaborative discussion context."}
+{full_scenario}
 </Task>"""
 
     llm_context = LLMContext(
@@ -493,8 +718,27 @@ User's Scenario:
         ),
     )
 
+    # Create LLMCall record before API call
+    model_name = "claude-sonnet-4-5"
+    request_payload = {
+        "system": system_message,
+        "messages": [{"role": "user", "content": task_prompt}],
+        "response_format": "ConductorInitResponse",
+    }
+    llm_call = _create_conductor_llm_call(
+        session, model_name, request_payload, "conductor_init"
+    )
+
     response = await async_prompt(llm_context)
     output = ConductorInitResponse(**json.loads(response.content))
+
+    # Update LLMCall with response
+    _update_conductor_llm_call(
+        llm_call,
+        response.content,
+        prompt_tokens=response.usage.prompt_tokens if response.usage else None,
+        completion_tokens=response.usage.completion_tokens if response.usage else None,
+    )
 
     logger.info(
         f"[CONDUCTOR_INIT] Generated {len(output.agent_contexts)} agent contexts"
@@ -578,8 +822,28 @@ Be concise but comprehensive. This summary will be visible to all participants.
         ),
     )
 
+    # Create LLMCall record before API call
+    model_name = "claude-sonnet-4-5"
+    request_payload = {
+        "system": system_message,
+        "messages": [{"role": m.role, "content": m.content} for m in messages]
+        + [{"role": "user", "content": task_prompt}],
+        "response_format": "ConductorFinishResponse",
+    }
+    llm_call = _create_conductor_llm_call(
+        session, model_name, request_payload, "conductor_finish"
+    )
+
     response = await async_prompt(llm_context)
     output = ConductorFinishResponse(**json.loads(response.content))
+
+    # Update LLMCall with response
+    _update_conductor_llm_call(
+        llm_call,
+        response.content,
+        prompt_tokens=response.usage.prompt_tokens if response.usage else None,
+        completion_tokens=response.usage.completion_tokens if response.usage else None,
+    )
 
     logger.info(f"[CONDUCTOR_FINISH] Summary: {output.summary[:200]}...")
     logger.info(f"[CONDUCTOR_FINISH] Outcome: {output.outcome}")

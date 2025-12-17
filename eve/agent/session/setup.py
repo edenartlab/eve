@@ -124,15 +124,18 @@ def create_agent_sessions(
             continue
 
         # Build context explaining the private workspace purpose
-        workspace_context = (
-            f"This is your private workspace for the multi-agent chatroom '{parent_session.title or 'Untitled'}'. "
-            f"You receive messages from other participants as CHAT MESSAGE NOTIFICATIONS. "
-            f"Each notification includes the sender's name and a Message ID that references "
-            f"the original message in the shared chatroom. "
-            f"When you're ready to contribute to the conversation, use the post_to_chatroom tool "
-            f"to send your message to all participants in the chatroom. "
-            f"Remember, this space is private. The other participants cannot see anything you write or make here -- all they see is the messages you post via the post_to_chatroom tool."
-        )
+        workspace_context = f"""CRITICAL WORKSPACE INSTRUCTIONS:
+This is your private workspace for the chatroom '{parent_session.title or 'Untitled'}'.
+
+⚠️ IMPORTANT: You MUST use the post_to_chatroom tool to participate in the conversation.
+- NOTHING you write here is visible to other participants
+- Other participants can ONLY see messages you post via post_to_chatroom
+- When it's your turn, you MUST call post_to_chatroom with your response
+- If you don't post, the conversation cannot progress
+
+You receive messages from other participants as CHAT MESSAGE NOTIFICATIONS.
+Each notification includes the sender's name and a Message ID.
+When you see a notification that it's your turn, respond by using post_to_chatroom immediately."""
 
         agent_session = Session(
             owner=parent_session.owner,
@@ -190,11 +193,23 @@ def create_agent_sessions_with_contexts(
         full_context = f"""{personalized_context}
 
 ---
-WORKSPACE INSTRUCTIONS:
+CRITICAL WORKSPACE INSTRUCTIONS:
 This is your private workspace for the chatroom '{parent_session.title or 'Untitled'}'.
-Other participants cannot see your work here - only messages you post via post_to_chatroom.
+
+⚠️ IMPORTANT: You MUST use the post_to_chatroom tool to participate in the conversation.
+- NOTHING you write here is visible to other participants
+- Other participants can ONLY see messages you post via post_to_chatroom
+- When it's your turn, you MUST call post_to_chatroom with your response
+- If you don't post, the conversation cannot progress
+
 You receive messages from other participants as CHAT MESSAGE NOTIFICATIONS.
-Use the post_to_chatroom tool to contribute to the conversation when ready."""
+When you see a notification that it's your turn, respond by using post_to_chatroom immediately."""
+
+        logger.info(
+            f"[SETUP] Creating agent_session for {agent.username}, "
+            f"context length: {len(full_context)}"
+        )
+        logger.info(f"[SETUP] Context preview: {full_context[:200]}...")
 
         agent_session = Session(
             owner=parent_session.owner,
@@ -207,10 +222,17 @@ Use the post_to_chatroom tool to contribute to the conversation when ready."""
             context=full_context,
         )
         agent_session.save()
+
+        # Verify context was saved correctly
+        logger.info(
+            f"[SETUP] agent_session.context after save: present={bool(agent_session.context)}, "
+            f"length={len(agent_session.context) if agent_session.context else 0}"
+        )
+
         agent_sessions[str(agent_id)] = agent_session.id
 
         logger.info(
-            f"[SETUP] Created agent_session for {agent.username} with personalized context"
+            f"[SETUP] Created agent_session {agent_session.id} for {agent.username} with personalized context"
         )
 
     return agent_sessions

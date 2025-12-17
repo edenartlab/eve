@@ -463,14 +463,12 @@ async def build_system_extras(
 ):
     extras = []
 
-    # add trigger context
+    # add trigger context (pinned as first user message with SystemMessage tag)
     if hasattr(session, "context") and session.context:
-        context_prompt = f"<Full Task Context>\n{session.context}\n\n**IMPORTANT: Ignore me, the user! You are just speaking to the other agents now. Make sure you stay relevant to the full task context throughout the conversation.</Full Task Context>"
+        context_prompt = f"<SystemMessage>{session.context}\n\n**IMPORTANT: Ignore me, the user! You are just speaking to the other agents now. Make sure you stay relevant to the full task context throughout the conversation.</SystemMessage>"
         extras.append(
             ChatMessage(
                 session=[session.id],
-                # debug this
-                # role="system",
                 role="user",
                 sender=ObjectId(str(context.initiating_user_id)),
                 content=context_prompt,
@@ -660,6 +658,18 @@ async def distribute_message_to_agent_sessions(
     )
     # Update in-memory object
     message.session = list(set(message.session + target_sessions))
+
+    # Add the message sender to each target agent_session's users array
+    # This ensures agent_sessions track all users who've sent messages to them
+    # Using batch update with $addToSet (idempotent - won't add duplicates)
+    if message.sender and target_sessions:
+        Session.get_collection().update_many(
+            {"_id": {"$in": target_sessions}},
+            {"$addToSet": {"users": message.sender}},
+        )
+        logger.info(
+            f"[DISTRIBUTE] Added sender {message.sender} to users of {len(target_sessions)} agent_sessions"
+        )
 
     logger.info(
         f"[DISTRIBUTE] Message {message.id} now in sessions: {[str(s) for s in message.session]}"
@@ -970,6 +980,35 @@ async def build_agent_session_llm_context(
 
     messages = [system_message]
 
+    # Pin agent_session.context as first message after system (never ages out)
+    # This contains the conductor-generated personalized context for this agent
+    logger.info(
+        f"[AGENT_SESSION_CONTEXT] agent_session.id={agent_session.id}, "
+        f"has_context={bool(agent_session.context)}, "
+        f"context_len={len(agent_session.context) if agent_session.context else 0}"
+    )
+    if agent_session.context:
+        logger.info(
+            f"[AGENT_SESSION_CONTEXT] Pinning context (first 200 chars): "
+            f"{agent_session.context[:200]}..."
+        )
+        context_message = ChatMessage(
+            session=[agent_session.id],
+            role="user",
+            sender=ObjectId(str(context.initiating_user_id))
+            if context.initiating_user_id
+            else ObjectId("000000000000000000000000"),
+            content=f"<SystemMessage>{agent_session.context}</SystemMessage>",
+        )
+        messages.append(context_message)
+        logger.info(
+            "[AGENT_SESSION_CONTEXT] Context pinned as first user message with <SystemMessage> tag"
+        )
+    else:
+        logger.warning(
+            f"[AGENT_SESSION_CONTEXT] No context to pin for agent_session {agent_session.id}"
+        )
+
     # Add agent_session's own history (includes messages from other agents
     # that were distributed in real-time via distribute_message_to_agent_sessions)
     existing_messages = select_messages(agent_session)
@@ -983,8 +1022,44 @@ async def build_agent_session_llm_context(
 
     messages.extend(existing_messages)
 
+    # Log messages before role conversion to debug context presence
+    logger.info(
+        f"[AGENT_SESSION_CONTEXT] === Messages before convert_message_roles ({len(messages)} total) ==="
+    )
+    for i, msg in enumerate(messages):
+        content_preview = (
+            (msg.content[:100] + "...")
+            if msg.content and len(msg.content) > 100
+            else msg.content
+        )
+        has_system_tag = (
+            msg.content and "<SystemMessage>" in msg.content if msg.content else False
+        )
+        logger.info(
+            f"[AGENT_SESSION_CONTEXT] msg[{i}]: role={msg.role}, sender={msg.sender}, "
+            f"has_system_tag={has_system_tag}, content_preview={content_preview}"
+        )
+
     # Convert message roles (agent's messages -> assistant, others -> user)
     messages = convert_message_roles(messages, actor.id)
+
+    # Log messages after role conversion
+    logger.info(
+        f"[AGENT_SESSION_CONTEXT] === Messages after convert_message_roles ({len(messages)} total) ==="
+    )
+    for i, msg in enumerate(messages):
+        content_preview = (
+            (msg.content[:100] + "...")
+            if msg.content and len(msg.content) > 100
+            else msg.content
+        )
+        has_system_tag = (
+            msg.content and "<SystemMessage>" in msg.content if msg.content else False
+        )
+        logger.info(
+            f"[AGENT_SESSION_CONTEXT] msg[{i}]: role={msg.role}, has_system_tag={has_system_tag}, "
+            f"content_preview={content_preview}"
+        )
 
     # Build LLM config
     config = None

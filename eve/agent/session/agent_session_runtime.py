@@ -60,6 +60,14 @@ async def run_agent_session_turn(
         raise ValueError(f"Agent session {agent_session_id} not found")
 
     logger.info(f"[AGENT_SESSION] Loaded agent_session: title='{agent_session.title}'")
+    logger.info(
+        f"[AGENT_SESSION] agent_session.context present: {bool(agent_session.context)}, "
+        f"length: {len(agent_session.context) if agent_session.context else 0}"
+    )
+    if agent_session.context:
+        logger.info(
+            f"[AGENT_SESSION] Context preview: {agent_session.context[:150]}..."
+        )
 
     # Generate session run ID for this turn
     session_run_id = str(uuid.uuid4())

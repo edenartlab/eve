@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 from anthropic import AsyncAnthropic
 from bson import ObjectId
+from loguru import logger
 from pydantic import BaseModel
 
 from eve import db
@@ -111,6 +112,9 @@ class AnthropicProvider(LLMProvider):
 
         last_error: Optional[Exception] = None
         for attempt_index, model_name in enumerate(self.models):
+            llm_call = (
+                None  # Initialize to None for later reference in exception handler
+            )
             # Auto-switch to supported model if structured outputs requested
             effective_model = model_name
             has_structured_output = response_format_class or output_format_payload
@@ -138,6 +142,38 @@ class AnthropicProvider(LLMProvider):
                         "max_tokens": context.config.max_tokens or 32000,
                     }
 
+                    # Log the actual messages being sent to the API
+                    logger.info(
+                        f"[ANTHROPIC_MESSAGES] === Messages being sent to API ({len(conversation)} total) ==="
+                    )
+                    for i, msg in enumerate(conversation[:5]):  # Log first 5 messages
+                        role = msg.get("role", "unknown")
+                        content = msg.get("content", "")
+                        # Handle content that might be a list (for multimodal)
+                        if isinstance(content, list):
+                            content_preview = (
+                                str(content)[:200] + "..."
+                                if len(str(content)) > 200
+                                else str(content)
+                            )
+                        else:
+                            content_preview = (
+                                (content[:200] + "...")
+                                if content and len(content) > 200
+                                else content
+                            )
+                        has_system_tag = (
+                            "<SystemMessage>" in str(content) if content else False
+                        )
+                        logger.info(
+                            f"[ANTHROPIC_MESSAGES] msg[{i}]: role={role}, has_system_tag={has_system_tag}, "
+                            f"content_preview={content_preview}"
+                        )
+                    if len(conversation) > 5:
+                        logger.info(
+                            f"[ANTHROPIC_MESSAGES] ... and {len(conversation) - 5} more messages"
+                        )
+
                     # Build tools list with web search support
                     all_tools = []
                     if tools:
@@ -152,32 +188,73 @@ class AnthropicProvider(LLMProvider):
 
                     # Create LLMCall to store raw request payload
                     should_log_llm_call = db == "STAGE"
+                    logger.info(
+                        f"[ANTHROPIC_LLMCALL] Checking if should log: db={db}, "
+                        f"initial_should_log={should_log_llm_call}, "
+                        f"user_id={llm_call_metadata.get('user')}, "
+                        f"session={llm_call_metadata.get('session')}"
+                    )
                     if not should_log_llm_call and llm_call_metadata.get("user"):
                         try:
                             user = User.from_mongo(llm_call_metadata.get("user"))
                             should_log_llm_call = user.is_admin()
-                        except ValueError:
+                            logger.info(
+                                f"[ANTHROPIC_LLMCALL] User lookup: is_admin={should_log_llm_call}"
+                            )
+                        except ValueError as e:
+                            logger.warning(
+                                f"[ANTHROPIC_LLMCALL] User lookup failed: {e}"
+                            )
                             pass  # User not found in current DB environment
 
+                    logger.info(
+                        f"[ANTHROPIC_LLMCALL] Final should_log_llm_call={should_log_llm_call}"
+                    )
                     if should_log_llm_call:
-                        truncated_payload = truncate_base64_in_payload(request_kwargs)
-                        llm_call = LLMCall(
-                            provider=self.provider_name,
-                            model=effective_model,
-                            request_payload=truncated_payload,
-                            start_time=start_time,
-                            status="pending",
-                            session=ObjectId(llm_call_metadata.get("session"))
-                            if llm_call_metadata.get("session")
-                            else None,
-                            agent=ObjectId(llm_call_metadata.get("agent"))
-                            if llm_call_metadata.get("agent")
-                            else None,
-                            user=ObjectId(llm_call_metadata.get("user"))
-                            if llm_call_metadata.get("user")
-                            else None,
-                        )
-                        llm_call.save()
+                        try:
+                            truncated_payload = truncate_base64_in_payload(
+                                request_kwargs
+                            )
+
+                            # Parse session_id - it may be prefixed with DB name like "STAGE-{id}"
+                            session_id_raw = llm_call_metadata.get("session")
+                            session_oid = None
+                            if session_id_raw:
+                                # Extract ObjectId from "DB-{id}" format if present
+                                if "-" in session_id_raw:
+                                    session_oid = ObjectId(
+                                        session_id_raw.split("-", 1)[1]
+                                    )
+                                else:
+                                    session_oid = ObjectId(session_id_raw)
+
+                            llm_call = LLMCall(
+                                provider=self.provider_name,
+                                model=effective_model,
+                                request_payload=truncated_payload,
+                                start_time=start_time,
+                                status="pending",
+                                session=session_oid,
+                                agent=ObjectId(llm_call_metadata.get("agent"))
+                                if llm_call_metadata.get("agent")
+                                else None,
+                                user=ObjectId(llm_call_metadata.get("user"))
+                                if llm_call_metadata.get("user")
+                                else None,
+                            )
+                            llm_call.save()
+                            logger.info(
+                                f"[ANTHROPIC_LLMCALL] Created LLMCall id={llm_call.id}"
+                            )
+                        except Exception as e:
+                            logger.error(
+                                f"[ANTHROPIC_LLMCALL] Failed to create LLMCall: {e}"
+                            )
+                            import traceback
+
+                            logger.error(
+                                f"[ANTHROPIC_LLMCALL] Traceback: {traceback.format_exc()}"
+                            )
 
                     if response_format_class:
                         # Pydantic class - use parse() for structured outputs
@@ -207,7 +284,7 @@ class AnthropicProvider(LLMProvider):
                     llm_response = self._to_llm_response(response)
 
                     # Update LLMCall with response data
-                    if should_log_llm_call:
+                    if should_log_llm_call and llm_call:
                         duration_ms = int(
                             (end_time - start_time).total_seconds() * 1000
                         )
@@ -244,7 +321,7 @@ class AnthropicProvider(LLMProvider):
             except Exception as exc:
                 last_error = exc
                 # Update LLMCall with error if it was created
-                if "llm_call" in locals():
+                if llm_call is not None:
                     llm_call.update(
                         status="failed",
                         error=str(exc),
@@ -306,14 +383,59 @@ class AnthropicProvider(LLMProvider):
         system_prompt_parts: List[str] = []
         conversation: List[Dict[str, Any]] = []
 
-        for chat_message in messages:
+        logger.info(
+            f"[ANTHROPIC_PREPARE] === _prepare_messages input ({len(messages)} messages) ==="
+        )
+        for idx, chat_message in enumerate(messages):
+            content_preview = (
+                (chat_message.content[:150] + "...")
+                if chat_message.content and len(chat_message.content) > 150
+                else chat_message.content
+            )
+            has_system_tag = (
+                chat_message.content and "<SystemMessage>" in chat_message.content
+                if chat_message.content
+                else False
+            )
+            logger.info(
+                f"[ANTHROPIC_PREPARE] input[{idx}]: role={chat_message.role}, "
+                f"has_system_tag={has_system_tag}, content_preview={content_preview}"
+            )
+
             schemas = chat_message.anthropic_schema(include_thoughts=include_thoughts)
+            if not schemas:
+                logger.warning(
+                    f"[ANTHROPIC_PREPARE] input[{idx}] returned EMPTY schema - filtered out!"
+                )
             for schema in schemas:
                 role = schema.get("role")
                 if role == "system":
                     system_prompt_parts.append(schema.get("content") or "")
                 else:
                     conversation.append(schema)
+
+        logger.info(
+            f"[ANTHROPIC_PREPARE] === _prepare_messages output ({len(conversation)} conversation msgs) ==="
+        )
+        for idx, msg in enumerate(conversation[:5]):
+            content = msg.get("content", "")
+            if isinstance(content, list):
+                content_preview = (
+                    str(content)[:150] + "..."
+                    if len(str(content)) > 150
+                    else str(content)
+                )
+            else:
+                content_preview = (
+                    (content[:150] + "...")
+                    if content and len(content) > 150
+                    else content
+                )
+            has_system_tag = "<SystemMessage>" in str(content) if content else False
+            logger.info(
+                f"[ANTHROPIC_PREPARE] output[{idx}]: role={msg.get('role')}, "
+                f"has_system_tag={has_system_tag}, content_preview={content_preview}"
+            )
 
         system_prompt = (
             "\n\n".join(part for part in system_prompt_parts if part) or None

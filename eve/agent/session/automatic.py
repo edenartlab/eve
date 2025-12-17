@@ -191,22 +191,34 @@ async def run_automatic_session_step(session: Session) -> None:
             )
             return
 
-        # If hint provided, create CONDUCTOR_HINT message for selected agent's workspace
-        if conductor_response.hint and session.agent_sessions:
+        # Create turn notification for selected agent's workspace
+        # Always send this so agent knows it's their turn and must post
+        if session.agent_sessions:
             agent_session_id = session.agent_sessions.get(str(actor.id))
             if agent_session_id:
-                logger.info(f"[AUTO] Creating CONDUCTOR_HINT for {actor.username}")
+                logger.info(f"[AUTO] Creating turn notification for {actor.username}")
+                # Include reminder to use post_to_chatroom
+                if conductor_response.hint:
+                    hint_content = f"""🎯 IT'S YOUR TURN!
+
+{conductor_response.hint}
+
+⚠️ IMPORTANT: You MUST use the post_to_chatroom tool to respond. Your response will not be seen by others unless you post it."""
+                else:
+                    hint_content = """🎯 IT'S YOUR TURN!
+
+⚠️ IMPORTANT: You MUST use the post_to_chatroom tool to respond. Your response will not be seen by others unless you post it."""
                 hint_message = ChatMessage(
                     session=[agent_session_id],  # Only to this agent's workspace
                     sender=ObjectId("000000000000000000000000"),
                     role="eden",
-                    content=conductor_response.hint,
+                    content=hint_content,
                     eden_message_data=EdenMessageData(
                         message_type=EdenMessageType.CONDUCTOR_HINT
                     ),
                 )
                 hint_message.save()
-                logger.info("[AUTO] CONDUCTOR_HINT message saved")
+                logger.info("[AUTO] Turn notification message saved")
 
         # Ensure agent_sessions exist for multi-agent sessions
         # For automatic sessions, this should already be done via conductor init
@@ -263,7 +275,12 @@ async def run_automatic_session_step(session: Session) -> None:
         logger.info("[AUTO] ===== Turn Counter Update =====")
         if session.budget:
             new_turns = (session.budget.turns_spent or 0) + 1
-            session.update(budget__turns_spent=new_turns)
+            # Update the budget object and save via MongoDB set operation
+            session.budget.turns_spent = new_turns
+            Session.get_collection().update_one(
+                {"_id": session.id},
+                {"$set": {"budget.turns_spent": new_turns}},
+            )
             logger.info(f"[AUTO] Turns spent: {new_turns}")
 
             # Check hard turn limit - finish if budget exhausted
