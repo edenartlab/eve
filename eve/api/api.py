@@ -19,18 +19,13 @@ from fastapi.security import APIKeyHeader, HTTPBearer
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from eve import auth, db
-from eve.agent import Agent
-from eve.agent.session.context import add_chat_message, build_llm_context
 from eve.agent.session.models import (
-    ChatMessageRequestInput,
-    LLMConfig,
-    PromptSessionContext,
     Session,
 )
-from eve.agent.session.runtime import async_prompt_session
 from eve.api.api_functions import (
     cancel_stuck_tasks_fn,
     cleanup_stale_busy_states,
+    cleanup_stuck_triggers,
     embed_recent_creations,
     generate_lora_thumbnails_fn,
     process_cold_sessions_fn,
@@ -48,20 +43,21 @@ from eve.api.api_requests import (
     CreateConceptRequest,
     CreateDeploymentRequestV2,
     CreateNotificationRequest,
-    CreateTriggerRequest,
     DeleteDeploymentRequestV2,
-    DeleteTriggerRequest,
     DeploymentEmissionRequest,
     DeploymentInteractRequest,
     EmbedSearchRequest,
+    GetDiscordChannelsRequest,
     PromptSessionRequest,
     ReactionRequest,
+    RefreshDiscordChannelsRequest,
     RegenerateAgentMemoryRequest,
     RegenerateUserMemoryRequest,
     RunTriggerRequest,
     TaskRequest,
     UpdateConceptRequest,
     UpdateDeploymentRequestV2,
+    UpdateSessionFieldsRequest,
     UpdateSessionStatusRequest,
 )
 from eve.api.handlers import (
@@ -72,12 +68,15 @@ from eve.api.handlers import (
     handle_create_notification,
     handle_embedsearch,
     handle_extract_agent_prompts,
+    handle_get_discord_channels,
     handle_prompt_session,
     handle_reaction,
+    handle_refresh_discord_channels,
     handle_regenerate_agent_memory,
     handle_regenerate_user_memory,
     handle_replicate_webhook,
     handle_session_cancel,
+    handle_session_fields_update,
     handle_session_message,
     handle_session_run,
     handle_session_status_update,
@@ -95,17 +94,10 @@ from eve.concepts import (
     handle_concept_create,
     handle_concept_update,
 )
-from eve.tool import Tool
 from eve.trigger import (
     Trigger,
-    execute_trigger,
-    handle_trigger_create,
-    handle_trigger_delete,
-    handle_trigger_get,
     handle_trigger_run,
-    handle_trigger_stop,
 )
-from eve.user import User
 
 app_name = f"api-{db.lower()}"
 logging.getLogger("ably").setLevel(logging.WARNING)
@@ -124,10 +116,7 @@ async def remote_prompt_session(
     """
     Remotely prompt an existing session with a user message.
 
-    This function:
-    1. Loads the session, agent, and user from MongoDB
-    2. Creates and saves the user message to the session
-    3. Builds LLM context and runs the prompt session
+    Uses the unified orchestrator for full observability (Sentry, Langfuse, logging).
 
     Args:
         session_id: The session to prompt
@@ -137,56 +126,20 @@ async def remote_prompt_session(
         attachments: Optional list of attachment URLs
         extra_tools: Optional list of additional tool keys to load
     """
-    import uuid
-
-    attachments = attachments or []
-    extra_tools = extra_tools or []
+    from eve.agent.session.orchestrator import orchestrate_remote
 
     logger.info(
         f"Remote prompt: session={session_id}, agent={agent_id}, user={user_id}"
     )
 
-    # Load models
-    session = Session.from_mongo(session_id)
-    agent = Agent.from_mongo(agent_id)
-    user = User.from_mongo(user_id)
-
-    # Create user message input
-    new_message = ChatMessageRequestInput(
-        role="user",
-        content=content or "",
-        attachments=attachments,
+    await orchestrate_remote(
+        session_id=session_id,
+        agent_id=agent_id,
+        user_id=user_id,
+        content=content,
+        attachments=attachments or [],
+        extra_tools=extra_tools or [],
     )
-
-    # Build context
-    prompt_context = PromptSessionContext(
-        session=session,
-        initiating_user_id=str(user.id),
-        message=new_message,
-        llm_config=LLMConfig(model="claude-sonnet-4-5-20250929"),
-        actor_agent_ids=[str(agent.id)],
-    )
-
-    if extra_tools:
-        prompt_context.extra_tools = {k: Tool.load(k) for k in extra_tools}
-
-    # Add message to session if there's content or attachments
-    if content or attachments:
-        await add_chat_message(session, prompt_context)
-
-    # Build LLM context and prompt
-    llm_context = await build_llm_context(
-        session,
-        agent,
-        prompt_context,
-        trace_id=str(uuid.uuid4()),
-    )
-
-    # Run the prompt
-    async for _ in async_prompt_session(
-        session, llm_context, agent, context=prompt_context
-    ):
-        pass
 
     logger.info(f"Remote prompt completed for session {session_id}")
 
@@ -299,39 +252,11 @@ async def replicate_webhook(request: Request):
     return await handle_replicate_webhook(data)
 
 
-@web_app.post("/triggers/create")
-async def trigger_create(
-    request: CreateTriggerRequest,
-    background_tasks: BackgroundTasks,
-    _: dict = Depends(auth.authenticate_admin),
-):
-    return await handle_trigger_create(request, background_tasks)
-
-
-@web_app.post("/triggers/stop")
-async def trigger_stop(
-    request: DeleteTriggerRequest, _: dict = Depends(auth.authenticate_admin)
-):
-    return await handle_trigger_stop(request)
-
-
-@web_app.post("/triggers/delete")
-async def trigger_delete(
-    request: DeleteTriggerRequest, _: dict = Depends(auth.authenticate_admin)
-):
-    return await handle_trigger_delete(request)
-
-
 @web_app.post("/triggers/run")
 async def trigger_run(
     request: RunTriggerRequest, _: dict = Depends(auth.authenticate_admin)
 ):
     return await handle_trigger_run(request)
-
-
-@web_app.get("/triggers/{trigger_id}")
-async def trigger_get(trigger_id: str, _: dict = Depends(auth.authenticate_admin)):
-    return await handle_trigger_get(trigger_id)
 
 
 @web_app.post("/agent/tools/update")
@@ -412,6 +337,15 @@ async def update_session_status(
     return await handle_session_status_update(request)
 
 
+@web_app.post("/sessions/update")
+async def update_session_fields(
+    request: UpdateSessionFieldsRequest,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    """Update session fields like context, title, etc."""
+    return await handle_session_fields_update(request)
+
+
 @web_app.post("/reaction")
 async def react_to_message(
     request: ReactionRequest,
@@ -465,6 +399,27 @@ async def deployment_email_inbound(request: Request):
 @web_app.post("/v2/deployments/emission")
 async def deployment_emission(request: DeploymentEmissionRequest):
     return await handle_v2_deployment_emission(request)
+
+
+# Discord channel management routes
+@web_app.get("/v2/deployments/{deployment_id}/discord-channels")
+async def get_discord_channels(
+    deployment_id: str,
+    user_id: str,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    request = GetDiscordChannelsRequest(deployment_id=deployment_id, user_id=user_id)
+    return await handle_get_discord_channels(request)
+
+
+@web_app.post("/v2/deployments/{deployment_id}/discord-refresh")
+async def refresh_discord_channels(
+    deployment_id: str,
+    request: RefreshDiscordChannelsRequest,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    request.deployment_id = deployment_id
+    return await handle_refresh_discord_channels(request)
 
 
 # Notification routes
@@ -738,6 +693,11 @@ cleanup_stale_busy_states_modal = app.function(
 )(cleanup_stale_busy_states)
 
 
+cleanup_stuck_triggers_modal = app.function(
+    image=image, max_containers=1, schedule=modal.Period(minutes=5), timeout=300
+)(cleanup_stuck_triggers)
+
+
 embed_recent_creations_modal = app.function(
     image=image, max_containers=1, schedule=modal.Period(minutes=5), timeout=600
 )(embed_recent_creations)
@@ -767,9 +727,14 @@ create_concept_thumbnail = app.function(
 ########################################################
 
 
-@app.function(image=image, max_containers=4)
-async def execute_trigger_fn(trigger_id: str) -> Session:
-    return await execute_trigger(trigger_id)
+@app.function(image=image, max_containers=4, timeout=3600)
+async def execute_trigger_fn(
+    trigger_id: str, skip_message_add: bool = False
+) -> Session:
+    """Modal function to execute triggers asynchronously."""
+    from eve.trigger import execute_trigger_async
+
+    return await execute_trigger_async(trigger_id, skip_message_add=skip_message_add)
 
 
 @app.function(

@@ -1,0 +1,20 @@
+name: instagram_post
+description: Post an image to Instagram
+tip: |-
+  Use this to publish an image to Instagram.
+  Provide a direct HTTPS image URL (JPG/PNG recommended) and an optional caption.
+  Only use when the user explicitly asks to post to Instagram.
+cost_estimate: 1
+output_type: string
+active: true
+handler: local
+visible: false
+parameters:
+  image_url:
+    type: string
+    description: URL of the image to post to Instagram
+    required: true
+  caption:
+    type: string
+    description: Caption for the Instagram post
+    required: false

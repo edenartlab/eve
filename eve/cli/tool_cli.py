@@ -293,7 +293,9 @@ def run(ctx, tool: str, db: str):
     else:
         result = prepare_result(result)
         click.echo(
-            click.style(f"\nResult for {tool.key}: {dumps_json(result)}", fg=color)
+            click.style(
+                f"\nResult for {tool.key}: {dumps_json(result, indent=4)}", fg=color
+            )
         )
 
     return result
@@ -393,7 +395,7 @@ def test(
                 test_info = f" [{test_name}]" if test_name else ""
                 click.echo(
                     click.style(
-                        f"\nResult for {tool.key}{test_info}: {dumps_json(result)}",
+                        f"\nResult for {tool.key}{test_info}:\n{dumps_json(result, indent=2)}",
                         fg=color,
                     )
                 )

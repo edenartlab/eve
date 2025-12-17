@@ -37,7 +37,7 @@ async def async_title_session(session: Session, initial_message_content: str):
 
         # Add a system message and the initial user message for title generation
         system_message = ChatMessage(
-            session=session.id,
+            session=[session.id],
             sender=ObjectId("000000000000000000000000"),  # System sender
             role="system",
             content="You are an expert at creating concise titles for chat sessions.",
@@ -45,7 +45,7 @@ async def async_title_session(session: Session, initial_message_content: str):
 
         # Add the initial user message
         user_message = ChatMessage(
-            session=session.id,
+            session=[session.id],
             sender=ObjectId("000000000000000000000000"),  # System sender (placeholder)
             role="user",
             content=initial_message_content,
@@ -53,7 +53,7 @@ async def async_title_session(session: Session, initial_message_content: str):
 
         # Add request message for title generation
         request_message = ChatMessage(
-            session=session.id,
+            session=[session.id],
             sender=ObjectId("000000000000000000000000"),  # System sender
             role="user",
             content="Come up with a title for this session based on the user's message.",

@@ -16,6 +16,13 @@ from fastapi import FastAPI, Header, HTTPException, Request
 
 import eve.mongo
 from eve.agent.agent import Agent
+from eve.agent.deployments.discord_gateway import (
+    convert_discord_mentions_to_usernames,
+    fetch_discord_channel_history_full,
+    get_or_create_discord_message,
+    unpack_discord_message,
+    upload_discord_media_to_s3,
+)
 from eve.agent.deployments.gmail import (
     GmailClient,
     parse_inbound_email,
@@ -27,16 +34,27 @@ from eve.agent.deployments.typing_manager import (
 )
 from eve.agent.deployments.utils import get_api_url
 from eve.agent.llm.file_config import SUPPORTED_NON_MEDIA_EXTENSIONS
+from eve.agent.session.context import (
+    add_chat_message,
+    add_user_to_session,
+)
 from eve.agent.session.models import (
+    Channel,
+    ChatMessage,
     ChatMessageRequestInput,
     ClientType,
     Deployment,
+    LLMConfig,
+    PromptSessionContext,
     Session,
     SessionUpdateConfig,
+    UpdateType,
 )
-from eve.api.api_requests import PromptSessionRequest, SessionCreationArgs
+from eve.api.api_requests import PromptSessionRequest
 from eve.api.errors import APIError
-from eve.user import User
+from eve.mongo import MongoDocumentNotFound
+from eve.tool import Tool
+from eve.user import User, increment_message_count
 
 # Override the imported db with uppercase version for Ably channel consistency
 db = os.getenv("DB", "STAGE").upper()
@@ -60,6 +78,54 @@ def _is_gmail_platform(platform: Any) -> bool:
     if isinstance(platform, ClientType):
         return platform == ClientType.GMAIL
     return str(platform) == ClientType.GMAIL.value
+
+
+async def fetch_discord_channel_name(channel_id: str, bot_token: str) -> Optional[str]:
+    """
+    Fetch the channel name from Discord API.
+
+    Args:
+        channel_id: Discord channel ID
+        bot_token: Bot token for authentication
+
+    Returns:
+        Channel name or None if not found
+    """
+    try:
+        async with aiohttp.ClientSession() as session:
+            headers = {"Authorization": f"Bot {bot_token}"}
+            url = f"https://discord.com/api/v10/channels/{channel_id}"
+            async with session.get(url, headers=headers) as response:
+                if response.status == 200:
+                    channel_data = await response.json()
+                    return channel_data.get("name")
+    except Exception:
+        pass
+    return None
+
+
+async def fetch_discord_guild_name(guild_id: str, bot_token: str) -> Optional[str]:
+    """
+    Fetch the guild (server) name from Discord API.
+
+    Args:
+        guild_id: Discord guild ID
+        bot_token: Bot token for authentication
+
+    Returns:
+        Guild name or None if not found
+    """
+    try:
+        async with aiohttp.ClientSession() as session:
+            headers = {"Authorization": f"Bot {bot_token}"}
+            url = f"https://discord.com/api/v10/guilds/{guild_id}"
+            async with session.get(url, headers=headers) as response:
+                if response.status == 200:
+                    guild_data = await response.json()
+                    return guild_data.get("name")
+    except Exception:
+        pass
+    return None
 
 
 logger = logging.getLogger(__name__)
@@ -100,8 +166,8 @@ image = (
     )
     .pip_install_from_pyproject(str(root_dir / "pyproject.toml"))
     .env({"DB": db})
-    .env({"LOCAL_API_URL": os.getenv("LOCAL_API_URL") or ""})
-    .env({"LOCAL_USER_ID": os.getenv("LOCAL_USER_ID") or ""})
+    # .env({"LOCAL_API_URL": os.getenv("LOCAL_API_URL") or ""})
+    # .env({"LOCAL_USER_ID": os.getenv("LOCAL_USER_ID") or ""})
     .add_local_python_source("eve", ignore=[])
 )
 
@@ -122,6 +188,8 @@ class GatewayOpCode:
 class GatewayEvent:
     READY = "READY"
     MESSAGE_CREATE = "MESSAGE_CREATE"
+    MESSAGE_REACTION_ADD = "MESSAGE_REACTION_ADD"
+    MESSAGE_REACTION_REMOVE = "MESSAGE_REACTION_REMOVE"
 
 
 def _is_non_media_file_url(url: str) -> bool:
@@ -171,6 +239,500 @@ def _select_attachment_url(attachment: dict) -> str:
 
     # Otherwise prefer proxy_url (for images/videos), fall back to url
     return proxy_url or url
+
+
+# ============================================================================
+# DISCORD PRIVATE WORKSPACE PATTERN - Processing Functions
+# ============================================================================
+
+
+async def find_all_following_deployments(channel_id: str) -> List[Deployment]:
+    """
+    Find all Discord deployments that follow this channel (read or write access).
+
+    Args:
+        channel_id: Discord channel ID
+
+    Returns:
+        List of Deployment objects
+    """
+    all_deployments = list(
+        Deployment.find(
+            {
+                "platform": ClientType.DISCORD.value,
+                "valid": {"$ne": False},
+            }
+        )
+    )
+
+    following = []
+    for deployment in all_deployments:
+        if not deployment.config or not deployment.config.discord:
+            continue
+
+        # Check channel_allowlist (write access)
+        channel_allowlist = deployment.config.discord.channel_allowlist or []
+        allowed_ids = [str(item.id) for item in channel_allowlist if item]
+
+        # Check read_access_channels (read only)
+        read_access = deployment.config.discord.read_access_channels or []
+        read_ids = [str(item.id) for item in read_access if item]
+
+        all_following_ids = set(allowed_ids + read_ids)
+
+        if channel_id in all_following_ids:
+            following.append(deployment)
+
+    return following
+
+
+def deployment_can_write_to_channel(deployment: Deployment, channel_id: str) -> bool:
+    """
+    Check if a deployment has write access to a channel.
+
+    Args:
+        deployment: The deployment to check
+        channel_id: Discord channel ID
+
+    Returns:
+        True if the channel is in the deployment's channel_allowlist (write access)
+    """
+    if not deployment.config or not deployment.config.discord:
+        return False
+
+    channel_allowlist = deployment.config.discord.channel_allowlist or []
+    allowed_ids = [str(item.id) for item in channel_allowlist if item]
+
+    return channel_id in allowed_ids
+
+
+async def backfill_discord_channel(
+    session: Session,
+    channel_id: str,
+    guild_id: Optional[str],
+    token: str,
+    agent: Agent,
+    deployment: Deployment,
+    max_messages: int = 200,
+    max_days: int = 90,
+) -> int:
+    """
+    Backfill a session with recent channel history.
+
+    Args:
+        session: Eve session to backfill
+        channel_id: Discord channel ID
+        guild_id: Discord guild ID (None for DMs)
+        token: Bot token for API calls
+        agent: The agent this session belongs to
+        deployment: The agent's deployment
+        max_messages: Maximum messages to fetch
+        max_days: Maximum age of messages
+
+    Returns:
+        Number of messages backfilled
+    """
+    logger.info(f"Backfilling session {session.id} with channel {channel_id} history")
+
+    messages = await fetch_discord_channel_history_full(
+        channel_id=channel_id,
+        token=token,
+        max_messages=max_messages,
+        max_days=max_days,
+    )
+
+    if not messages:
+        logger.info(f"No messages to backfill for channel {channel_id}")
+        return 0
+
+    agent_discord_id = deployment.secrets.discord.application_id
+    backfilled_count = 0
+
+    for msg in messages:
+        try:
+            (
+                message_id,
+                author_id,
+                author_username,
+                content,
+                media_urls,
+                timestamp,
+                reply_to_id,
+            ) = unpack_discord_message(msg)
+
+            # Convert Discord mentions to readable @username format
+            content = convert_discord_mentions_to_usernames(
+                content=content,
+                mentions_data=msg.get("mentions"),
+                bot_discord_id=deployment.secrets.discord.application_id,
+                bot_name=agent.name,
+            )
+
+            # Skip empty messages
+            if not content and not media_urls:
+                continue
+
+            # Upload media to S3
+            if media_urls:
+                media_urls = await upload_discord_media_to_s3(media_urls)
+
+            # Determine role: assistant if from agent, user otherwise
+            if author_id == agent_discord_id:
+                role = "assistant"
+                sender = agent
+            else:
+                role = "user"
+                sender = User.from_discord(author_id, author_username)
+
+            # Check if ChatMessage already exists for this Discord message (across ALL sessions)
+            existing_chat = ChatMessage.find_one(
+                {
+                    "channel.key": message_id,
+                    "channel.type": "discord",
+                }
+            )
+
+            if existing_chat:
+                # Message exists - add this session to it if not already present
+                if session.id not in existing_chat.session:
+                    ChatMessage.get_collection().update_one(
+                        {"_id": existing_chat.id},
+                        {"$addToSet": {"session": session.id}},
+                    )
+                    logger.info(
+                        f"[backfill] Added session {session.id} to existing ChatMessage {existing_chat.id}"
+                    )
+                else:
+                    logger.info(
+                        f"[backfill] Session already in ChatMessage, skipping discord_id={message_id}"
+                    )
+                chat_message = existing_chat
+            else:
+                # Build Discord message URL
+                if guild_id:
+                    discord_url = f"https://discord.com/channels/{guild_id}/{channel_id}/{message_id}"
+                else:
+                    discord_url = (
+                        f"https://discord.com/channels/@me/{channel_id}/{message_id}"
+                    )
+
+                # Create new ChatMessage
+                logger.info(
+                    f"[backfill] Creating new message discord_id={message_id}, role={role}, content_preview={content[:50] if content else '(empty)'}..."
+                )
+                chat_message = ChatMessage(
+                    createdAt=timestamp,
+                    session=[session.id],
+                    channel=Channel(type="discord", key=message_id, url=discord_url),
+                    role=role,
+                    content=content,
+                    sender=sender.id,
+                    attachments=media_urls if media_urls else None,
+                )
+                chat_message.save()
+
+            # Track in DiscordMessage collection (adds to arrays atomically)
+            get_or_create_discord_message(
+                msg, session_id=session.id, eve_message_id=chat_message.id
+            )
+
+            # Increment message count
+            increment_message_count(sender.id)
+
+            # Add user to session
+            if role == "user":
+                add_user_to_session(session, sender.id)
+
+            backfilled_count += 1
+
+        except Exception as e:
+            logger.error(f"Error backfilling message {msg.get('id')}: {e}")
+            continue
+
+    logger.info(f"Backfilled {backfilled_count} messages for session {session.id}")
+    return backfilled_count
+
+
+async def process_discord_message_for_agent(
+    message_data: Dict[str, Any],
+    deployment: Deployment,
+    channel_id: str,
+    guild_id: Optional[str],
+    should_prompt: bool = False,
+    trace_id: str = None,
+) -> Dict[str, Any]:
+    """
+    Process a Discord message for a single agent.
+
+    This creates/updates the agent's private session and optionally prompts the LLM.
+
+    Args:
+        message_data: Raw Discord message data
+        deployment: The agent's deployment
+        channel_id: Discord channel ID
+        guild_id: Discord guild ID (None for DMs)
+        should_prompt: Whether to prompt the agent to respond
+        trace_id: Trace ID for logging
+
+    Returns:
+        Status dict with session_id, message_id, etc.
+    """
+    trace_id = (
+        trace_id or f"discord-{deployment.id}-{message_data.get('id', 'unknown')}"
+    )
+
+    try:
+        # Load agent
+        agent = Agent.from_mongo(deployment.agent)
+        if not agent:
+            logger.error(f"[{trace_id}] Agent not found for deployment {deployment.id}")
+            return {"status": "error", "error": "Agent not found"}
+
+        # Extract message details
+        (
+            message_id,
+            author_id,
+            author_username,
+            content,
+            media_urls,
+            timestamp,
+            reply_to_id,
+        ) = unpack_discord_message(message_data)
+
+        # Convert Discord mentions to readable @username format
+        content = convert_discord_mentions_to_usernames(
+            content=content,
+            mentions_data=message_data.get("mentions"),
+            bot_discord_id=deployment.secrets.discord.application_id,
+            bot_name=agent.name,
+        )
+
+        # Get or create user
+        user = User.from_discord(author_id, author_username)
+
+        # Upload media to S3
+        if media_urls:
+            media_urls = await upload_discord_media_to_s3(media_urls)
+
+        # Create session key: discord-{agent_id}-{guild_id}-{channel_id}
+        session_key = f"discord-{agent.id}-{guild_id or 'dm'}-{channel_id}"
+
+        # Find or create session
+        session = None
+        is_new_session = False
+
+        try:
+            session = Session.load(session_key=session_key)
+            if session.platform != "discord":
+                session.update(platform="discord")
+            if session.discord_channel_id != channel_id:
+                session.update(discord_channel_id=channel_id)
+            if session.deleted:
+                session.update(deleted=False, status="active")
+
+            # Check if session title needs updating (migrate old titles like "Discord #123")
+            logger.info(
+                f"[{trace_id}] Checking session title update for channel_id={channel_id}, guild_id={guild_id}"
+            )
+
+            if guild_id:
+                # Guild channel - use "Guild: Channel" format
+                channel_name = await fetch_discord_channel_name(
+                    channel_id, deployment.secrets.discord.token
+                )
+                logger.info(f"[{trace_id}] Fetched channel_name={channel_name}")
+                guild_name = await fetch_discord_guild_name(
+                    guild_id, deployment.secrets.discord.token
+                )
+                logger.info(f"[{trace_id}] Fetched guild_name={guild_name}")
+
+                if guild_name and channel_name:
+                    expected_title = f"{guild_name}: {channel_name}"
+                elif channel_name:
+                    expected_title = channel_name
+                else:
+                    expected_title = None
+            else:
+                # DM - use the author's username
+                expected_title = author_username
+
+            logger.info(
+                f"[{trace_id}] Current title='{session.title}', expected_title='{expected_title}'"
+            )
+            if expected_title and session.title != expected_title:
+                old_title = session.title
+                session.update(title=expected_title)
+                logger.info(
+                    f"[{trace_id}] Updated session title from '{old_title}' to '{expected_title}'"
+                )
+            else:
+                logger.info(
+                    f"[{trace_id}] Session title unchanged (already matches or no expected title)"
+                )
+
+            logger.info(f"[{trace_id}] Found existing session: {session.id}")
+        except MongoDocumentNotFound:
+            # Build session title based on channel type
+            if guild_id:
+                # Guild channel - use "Guild: Channel" format
+                channel_name = await fetch_discord_channel_name(
+                    channel_id, deployment.secrets.discord.token
+                )
+                guild_name = await fetch_discord_guild_name(
+                    guild_id, deployment.secrets.discord.token
+                )
+
+                if guild_name and channel_name:
+                    session_title = f"{guild_name}: {channel_name}"
+                elif channel_name:
+                    session_title = channel_name
+                else:
+                    session_title = f"#{channel_id}"
+            else:
+                # DM - use the author's username
+                session_title = author_username
+
+            # Create new session
+            session = Session(
+                owner=agent.owner,
+                agents=[agent.id],
+                title=session_title,
+                session_key=session_key,
+                platform="discord",
+                discord_channel_id=channel_id,
+                session_type="passive",
+                status="active",
+            )
+            session.save()
+            is_new_session = True
+            logger.info(f"[{trace_id}] Created new session: {session.id}")
+
+        # Build Discord message URL
+        if guild_id:
+            discord_url = (
+                f"https://discord.com/channels/{guild_id}/{channel_id}/{message_id}"
+            )
+        else:
+            discord_url = f"https://discord.com/channels/@me/{channel_id}/{message_id}"
+
+        # Create prompt context
+        prompt_context = PromptSessionContext(
+            session=session,
+            initiating_user_id=str(user.id),
+            message=ChatMessageRequestInput(
+                channel=Channel(type="discord", key=message_id, url=discord_url),
+                content=content,
+                sender_name=author_username,
+                attachments=media_urls if media_urls else None,
+            ),
+            update_config=SessionUpdateConfig(
+                deployment_id=str(deployment.id),
+                # NO update_endpoint - disables auto-emission
+                discord_channel_id=channel_id,
+                discord_message_id=message_id,
+            ),
+            llm_config=LLMConfig(model="claude-sonnet-4-5-20250929"),
+        )
+
+        # Add discord_post tool if we're prompting
+        if should_prompt:
+            discord_post_tool = Tool.load("discord_post")
+            prompt_context.extra_tools = {"discord_post": discord_post_tool}
+
+        logger.info(
+            f"[{trace_id}] About to add_chat_message for discord_message_id={message_id}"
+        )
+
+        # Check if ChatMessage already exists for this Discord message (shared across sessions)
+        existing_chat = ChatMessage.find_one(
+            {
+                "channel.key": message_id,
+                "channel.type": "discord",
+            }
+        )
+
+        if existing_chat:
+            # Message exists - add this session to it
+            if session.id not in existing_chat.session:
+                ChatMessage.get_collection().update_one(
+                    {"_id": existing_chat.id}, {"$addToSet": {"session": session.id}}
+                )
+                logger.info(
+                    f"[{trace_id}] Added session {session.id} to existing ChatMessage {existing_chat.id}"
+                )
+            message = existing_chat
+        else:
+            # Create new ChatMessage via add_chat_message
+            message = await add_chat_message(session, prompt_context)
+            logger.info(
+                f"[{trace_id}] Created new chat message: eve_message_id={message.id}, discord_message_id={message_id}"
+            )
+
+        # Track in DiscordMessage collection (adds to arrays atomically)
+        get_or_create_discord_message(
+            message_data, session_id=session.id, eve_message_id=message.id
+        )
+
+        # Add user to session
+        add_user_to_session(session, user.id)
+
+        # Increment message count
+        increment_message_count(user.id)
+
+        # Backfill if new session (do this AFTER adding current message so backfill can skip it)
+        if is_new_session and guild_id:  # Only backfill for guild channels, not DMs
+            try:
+                await backfill_discord_channel(
+                    session=session,
+                    channel_id=channel_id,
+                    guild_id=guild_id,
+                    token=deployment.secrets.discord.token,
+                    agent=agent,
+                    deployment=deployment,
+                )
+            except Exception as e:
+                logger.error(f"[{trace_id}] Error backfilling channel: {e}")
+
+        logger.info(
+            f"[{trace_id}] should_prompt={should_prompt} - about to decide whether to prompt LLM"
+        )
+
+        # If should_prompt, run the LLM
+        if should_prompt:
+            logger.info(
+                f"[{trace_id}] >>> PROMPTING agent {agent.username} to respond <<<"
+            )
+
+            # Use unified orchestrator for full observability
+            from eve.agent.session.orchestrator import orchestrate_deployment
+
+            new_messages = []
+            async for update in orchestrate_deployment(
+                session=session,
+                agent=agent,
+                user_id=str(user.id),
+                message=prompt_context.message,
+                update_config=prompt_context.update_config,
+            ):
+                if update.get("type") == UpdateType.ASSISTANT_MESSAGE.value:
+                    new_messages.append(update.get("message"))
+
+            logger.info(
+                f"[{trace_id}] Agent {agent.username} generated {len(new_messages)} messages"
+            )
+        else:
+            logger.info(f"[{trace_id}] >>> NOT prompting (should_prompt=False) <<<")
+
+        return {
+            "status": "completed",
+            "session_id": str(session.id),
+            "message_id": str(message.id),
+            "prompted": should_prompt,
+        }
+
+    except Exception as e:
+        logger.exception(f"[{trace_id}] Error processing Discord message: {e}")
+        return {"status": "error", "error": str(e)}
 
 
 class DiscordGatewayClient:
@@ -230,9 +792,11 @@ class DiscordGatewayClient:
                     "op": GatewayOpCode.IDENTIFY,
                     "d": {
                         "token": self.token,
-                        "intents": 1 << 9
-                        | 1 << 12
-                        | 1 << 15,  # GUILD_MESSAGES | DIRECT_MESSAGES | MESSAGE_CONTENT
+                        "intents": 1 << 9  # GUILD_MESSAGES
+                        | 1 << 10  # GUILD_MESSAGE_REACTIONS
+                        | 1 << 12  # DIRECT_MESSAGES
+                        | 1 << 13  # DIRECT_MESSAGE_REACTIONS
+                        | 1 << 15,  # MESSAGE_CONTENT
                         "properties": {
                             "$os": "linux",
                             "$browser": "eve",
@@ -597,7 +1161,6 @@ class DiscordGatewayClient:
                     force_reply = True
                     logger.info(f"Detected mention in raw content for app_id {app_id}")
 
-        content = content or "..."
         return content, attachments, force_reply, mentioned_agent_ids
 
     def _create_session_key(self, message_data: dict, user_id: str) -> str:
@@ -856,7 +1419,18 @@ class DiscordGatewayClient:
                     logger.info(f"[{trace_id}] Session request successful")
 
     async def handle_message(self, data: dict):
-        """Main handler for Discord messages - coordinates the full message processing pipeline"""
+        """
+        Main handler for Discord messages - Private Workspace Pattern.
+
+        This handler implements the Twitter/Farcaster pattern where:
+        1. Each agent following the channel gets their own private session
+        2. Messages are added to all following agents' sessions
+        3. Only mentioned agents are prompted to respond
+        4. Agents use discord_post tool to respond (no auto-emission)
+        """
+
+        logger.info("\n\n\n\n===============\n\n\n\n")
+
         trace_id = self._create_trace_id(data)
         logger.info(
             f"[{trace_id}] Processing message from user {data.get('author', {}).get('username', 'Unknown')}"
@@ -869,67 +1443,243 @@ class DiscordGatewayClient:
 
         # Early exit checks
         if self._should_skip_bot_message(data, trace_id):
+            logger.info(f"[{trace_id}] Skipping message from bot")
             return
 
-        deployment = await self._validate_deployment_config(trace_id)
-        if not deployment:
-            return
+        # Extract basic info
+        channel_id = str(data["channel_id"])
+        guild_id = data.get("guild_id")
+        is_dm = not guild_id
+        logger.info(f"[{trace_id}] is_dm: {is_dm}")
 
-        # Determine if this is a DM
-        is_dm = not data.get("guild_id")
+        # Note: Global deduplication removed - each deployment processes messages independently
+        # to maintain their own private sessions (Private Workspace Pattern).
+        # Session-level deduplication in process_discord_message_for_agent handles duplicates.
 
-        # Handle DM routing
+        # Handle DMs separately (existing behavior for now)
         if is_dm:
+            deployment = await self._validate_deployment_config(trace_id)
+            if not deployment:
+                return
             if not await self._handle_dm_routing(data, trace_id, deployment):
                 return
-
-        # Extract message details
-        channel_id = str(data["channel_id"])
-        user_id, username, user = self._extract_user_info(data)
-        content, attachments, force_reply, mentioned_agent_ids = (
-            self._process_message_content(data, is_dm=is_dm)
-        )
-        logger.info(f"[{trace_id}] mentioned_agent_ids: {mentioned_agent_ids}")
-        session_key = self._create_session_key(data, user_id)
-
-        logger.debug(
-            f"[{trace_id}] Session key: {session_key}, force_reply: {force_reply}, mentioned_agents: {mentioned_agent_ids}"
-        )
-
-        # Channel-specific logic (skipped for DMs)
-        if not await self._should_process_channel_logic(
-            is_dm, channel_id, deployment, force_reply, trace_id
-        ):
+            # For DMs, process only for this deployment's agent
+            mentioned_agent_ids = [str(self.deployment.agent)]
+            await process_discord_message_for_agent(
+                message_data=data,
+                deployment=deployment,
+                channel_id=channel_id,
+                guild_id=None,
+                should_prompt=True,
+                trace_id=trace_id,
+            )
             return
 
-        # Load or create session
-        session = await self._load_existing_session(session_key, trace_id)
-        request = self._create_session_request(
-            user,
-            username,
-            content,
-            attachments,
-            channel_id,
-            str(data["id"]),
-            mentioned_agent_ids,
-            is_dm,
+        # Check if THIS deployment follows this channel (read or write)
+        # Refresh deployment from database to get latest config (channel allowlist changes, etc.)
+        deployment = Deployment.from_mongo(str(self.deployment.id))
+        if not deployment or not deployment.config or not deployment.config.discord:
+            logger.debug(f"[{trace_id}] No valid deployment config")
+            return
+
+        # Check if channel is in allowlist (write) or read_access (read-only)
+        can_write = deployment_can_write_to_channel(deployment, channel_id)
+        channel_allowlist = deployment.config.discord.channel_allowlist or []
+        read_access = deployment.config.discord.read_access_channels or []
+        allowed_ids = [str(item.id) for item in channel_allowlist if item]
+        read_ids = [str(item.id) for item in read_access if item]
+        all_following_ids = set(allowed_ids + read_ids)
+
+        logger.info(
+            f"[{trace_id}] Channel check: channel_id={channel_id}, allowed_ids={allowed_ids}, read_ids={read_ids}, can_write={can_write}"
         )
 
-        if session:
-            request.session_id = str(session.id)
-            logger.info(f"[{trace_id}] Using existing session: {session.id}")
-        else:
-            request.creation_args = SessionCreationArgs(
-                owner_id=str(user.id),
-                agents=[str(self.deployment.agent)],
-                title=f"Discord {session_key}",
-                session_key=session_key,
-                platform="discord",
+        if channel_id not in all_following_ids:
+            logger.info(
+                f"[{trace_id}] Deployment {deployment.id} does NOT follow channel {channel_id}, skipping"
             )
-            logger.info(f"[{trace_id}] Creating new session")
+            return
 
-        # Send the request
-        await self._send_session_request(request, trace_id)
+        logger.info(
+            f"[{trace_id}] Deployment {deployment.id} follows channel {channel_id} (can_write={can_write})"
+        )
+
+        # Parse mentioned agents
+        mentioned_agent_ids = self._parse_mentioned_agents(data)
+        agent_id = str(deployment.agent)
+        is_mentioned = agent_id in mentioned_agent_ids
+
+        logger.info(
+            f"[{trace_id}] Mentioned agent IDs: {mentioned_agent_ids}, this agent: {agent_id}, is_mentioned={is_mentioned}"
+        )
+
+        # Only prompt if agent was mentioned AND has write access to the channel
+        should_prompt = is_mentioned and can_write
+
+        logger.info(
+            f"[{trace_id}] DECISION: is_mentioned={is_mentioned}, can_write={can_write}, should_prompt={should_prompt}"
+        )
+
+        if not can_write and is_mentioned:
+            logger.info(
+                f"[{trace_id}] Agent mentioned but channel is READ-ONLY, will NOT prompt"
+            )
+
+        result = await process_discord_message_for_agent(
+            message_data=data,
+            deployment=deployment,
+            channel_id=channel_id,
+            guild_id=guild_id,
+            should_prompt=should_prompt,
+            trace_id=trace_id,
+        )
+
+        if isinstance(result, Exception):
+            logger.error(
+                f"[{trace_id}] Error processing for deployment {deployment.id}: {result}"
+            )
+        else:
+            logger.info(
+                f"[{trace_id}] Processed for deployment {deployment.id}: {result}"
+            )
+
+    async def handle_reaction_add(self, data: dict):
+        """
+        Handle Discord reaction add events.
+
+        Finds the corresponding ChatMessage and adds the reaction.
+
+        Discord reaction event data structure:
+        {
+            "user_id": "...",
+            "message_id": "...",
+            "emoji": {"name": "👍", "id": null/string, "animated": bool},
+            "channel_id": "...",
+            "guild_id": "...",
+            "member": {...}
+        }
+        """
+        try:
+            discord_message_id = data.get("message_id")
+            user_id = data.get("user_id")
+            emoji_data = data.get("emoji", {})
+            member_data = data.get("member", {})
+
+            # Get emoji string - use name for unicode, or name:id for custom
+            emoji_name = emoji_data.get("name", "")
+            emoji_id = emoji_data.get("id")
+            if emoji_id:
+                # Custom emoji format: <:name:id> or <a:name:id> for animated
+                animated = emoji_data.get("animated", False)
+                emoji_str = f"<{'a' if animated else ''}:{emoji_name}:{emoji_id}>"
+            else:
+                emoji_str = emoji_name
+
+            logger.info(
+                f"Reaction add: message={discord_message_id}, user={user_id}, emoji={emoji_str}"
+            )
+
+            # Skip reactions from bots (check if it's our own bot)
+            if self.deployment.secrets.discord.application_id == user_id:
+                logger.info("Skipping reaction from self")
+                return
+
+            # Find the ChatMessage directly by Discord message ID (shared across sessions)
+            chat_msg = ChatMessage.find_one(
+                {
+                    "channel.key": discord_message_id,
+                    "channel.type": "discord",
+                }
+            )
+
+            if not chat_msg:
+                logger.info(
+                    f"No ChatMessage found for Discord message {discord_message_id}"
+                )
+                return
+
+            # Get or create the user
+            username = (
+                member_data.get("user", {}).get("username")
+                or member_data.get("nick")
+                or "User"
+            )
+            user = User.from_discord(user_id, username)
+
+            # Add the reaction
+            chat_msg.react(user.id, emoji_str)
+            chat_msg.save()
+
+            logger.info(
+                f"Added reaction {emoji_str} from user {username} to ChatMessage {chat_msg.id}"
+            )
+
+        except Exception as e:
+            logger.error(f"Error handling reaction add: {e}", exc_info=True)
+
+    async def handle_reaction_remove(self, data: dict):
+        """
+        Handle Discord reaction remove events.
+
+        Finds the corresponding ChatMessage and removes the reaction.
+        """
+        try:
+            discord_message_id = data.get("message_id")
+            user_id = data.get("user_id")
+            emoji_data = data.get("emoji", {})
+
+            # Get emoji string - same format as add
+            emoji_name = emoji_data.get("name", "")
+            emoji_id = emoji_data.get("id")
+            if emoji_id:
+                animated = emoji_data.get("animated", False)
+                emoji_str = f"<{'a' if animated else ''}:{emoji_name}:{emoji_id}>"
+            else:
+                emoji_str = emoji_name
+
+            logger.info(
+                f"Reaction remove: message={discord_message_id}, user={user_id}, emoji={emoji_str}"
+            )
+
+            # Find the ChatMessage directly by Discord message ID (shared across sessions)
+            chat_msg = ChatMessage.find_one(
+                {
+                    "channel.key": discord_message_id,
+                    "channel.type": "discord",
+                }
+            )
+            if not chat_msg:
+                logger.info(
+                    f"No ChatMessage found for Discord message {discord_message_id}"
+                )
+                return
+
+            # Get the user to match their ID
+            user = User.from_discord(user_id, "User")
+
+            # Remove the matching reaction
+            if chat_msg.reactions:
+                original_count = len(chat_msg.reactions)
+                chat_msg.reactions = [
+                    r
+                    for r in chat_msg.reactions
+                    if not (str(r.user_id) == str(user.id) and r.reaction == emoji_str)
+                ]
+
+                if len(chat_msg.reactions) < original_count:
+                    chat_msg.save()
+                    logger.info(
+                        f"Removed reaction {emoji_str} from user {user_id} on ChatMessage {chat_msg.id}"
+                    )
+                else:
+                    logger.info(
+                        f"No matching reaction found to remove for user {user_id}, emoji {emoji_str}"
+                    )
+            else:
+                logger.info(f"ChatMessage {chat_msg.id} has no reactions to remove")
+
+        except Exception as e:
+            logger.error(f"Error handling reaction remove: {e}", exc_info=True)
 
     async def setup_ably(self):
         """Set up Ably for listening to busy state updates"""
@@ -1109,6 +1859,16 @@ class DiscordGatewayClient:
                                 logger.info(
                                     f"Gateway connected for deployment {self.deployment.id}"
                                 )
+                            elif data["t"] == GatewayEvent.MESSAGE_REACTION_ADD:
+                                logger.info(
+                                    f"Reaction add event for deployment {self.deployment.id}"
+                                )
+                                await self.handle_reaction_add(data["d"])
+                            elif data["t"] == GatewayEvent.MESSAGE_REACTION_REMOVE:
+                                logger.info(
+                                    f"Reaction remove event for deployment {self.deployment.id}"
+                                )
+                                await self.handle_reaction_remove(data["d"])
 
             except (
                 websockets.exceptions.ConnectionClosed,
@@ -1553,32 +2313,22 @@ class GatewayManager:
 
     async def load_deployments(self):
         """Load all Discord HTTP deployments from database"""
-        # Filter deployments based on LOCAL_API_URL environment variable
-        local_api_url = os.getenv("LOCAL_API_URL")
-        local_user_id = os.getenv("LOCAL_USER_ID")
+        local_api_url = os.getenv("EDEN_API_URL")
+        # local_user_id = os.getenv("LOCAL_USER_ID")
+
+        # Base filter for Discord deployments
+        deployment_filter = {"platform": ClientType.DISCORD.value}
 
         if local_api_url and local_api_url != "":
-            # If LOCAL_API_URL is set, only load local deployments
-            deployment_filter = {"platform": ClientType.DISCORD.value, "local": True}
-            logger.info("LOCAL_API_URL is set, loading only local deployments")
+            # Local mode: just load deployments (filtered by user if specified)
+            logger.info(f"EDEN_API_URL is set ({local_api_url}), running in local mode")
         else:
-            # Otherwise, load non-local deployments (or deployments where local doesn't exist)
-            deployment_filter = {
-                "platform": ClientType.DISCORD.value,
-                "$or": [{"local": {"$exists": False}}, {"local": {"$ne": True}}],
-            }
+            # Production mode: exclude deployments marked as local-only
+            deployment_filter["$or"] = [
+                {"local": {"$exists": False}},
+                {"local": {"$ne": True}},
+            ]
             logger.info("Loading non-local deployments")
-
-        # Add user filter if LOCAL_USER_ID is set
-        if local_user_id:
-            try:
-                user_oid = ObjectId(local_user_id)
-                deployment_filter["user"] = user_oid
-                logger.info(f"Filtering deployments for user: {local_user_id}")
-            except Exception as e:
-                logger.error(
-                    f"Invalid LOCAL_USER_ID format: {local_user_id}, error: {e}"
-                )
 
         try:
             deployments = list(Deployment.find(deployment_filter))
@@ -1596,6 +2346,9 @@ class GatewayManager:
                     logger.info(f"Skipping invalid deployment {deployment.id}")
                     continue
 
+                logger.info(
+                    f"Checking deployment {deployment.id}: secrets={deployment.secrets is not None}, discord={deployment.secrets.discord if deployment.secrets else None}, token={bool(deployment.secrets.discord.token) if deployment.secrets and deployment.secrets.discord else None}"
+                )
                 if deployment.secrets and deployment.secrets.discord.token:
                     await self.start_client(deployment)
             except Exception:
@@ -1612,16 +2365,6 @@ class GatewayManager:
                 "platform": ClientType.TELEGRAM.value,
                 "$or": [{"local": {"$exists": False}}, {"local": {"$ne": True}}],
             }
-
-        # Add user filter to Telegram deployments if LOCAL_USER_ID is set
-        if local_user_id:
-            try:
-                user_oid = ObjectId(local_user_id)
-                telegram_filter["user"] = user_oid
-            except Exception as e:
-                logger.error(
-                    f"Invalid LOCAL_USER_ID format for Telegram filter: {local_user_id}, error: {e}"
-                )
 
         try:
             telegram_deployments = list(Deployment.find(telegram_filter))

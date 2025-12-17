@@ -556,7 +556,9 @@ async def extract_memories_with_llm(
     if "suggestion" in active_memory_types:
         extraction_prompt = extraction_prompt.replace(
             SUGGESTION_MIN_TOKEN, str(active_memory_types["suggestion"].min_items)
-        ).replace(SUGGESTION_MAX_TOKEN, str(active_memory_types["suggestion"].max_items))
+        ).replace(
+            SUGGESTION_MAX_TOKEN, str(active_memory_types["suggestion"].max_items)
+        )
 
     # Dynamically create model with only requested fields (no max_length validation
     # since the LLM prompt already specifies the limits and we don't want validation

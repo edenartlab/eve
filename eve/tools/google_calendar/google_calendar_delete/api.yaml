@@ -1,0 +1,21 @@
+name: google_calendar_delete
+description: Delete an event from Google Calendar. Requires delete permission.
+cost_estimate: 1
+output_type: string
+active: true
+handler: local
+visible: false
+parameters:
+  event_id:
+    type: string
+    description: Event ID to delete
+    required: true
+  send_notifications:
+    type: boolean
+    description: Notify attendees of cancellation
+    required: false
+    default: true
+  confirm_title:
+    type: string
+    description: Safety check - event title must contain this text
+    required: false

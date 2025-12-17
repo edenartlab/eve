@@ -42,6 +42,17 @@ class UpdateSessionStatusRequest(BaseModel):
     status: Literal["active", "paused", "stopped", "archived"]
 
 
+class UpdateSessionFieldsRequest(BaseModel):
+    session_id: str
+    context: Optional[str] = Field(
+        default=None, description="Session context - use empty string to clear"
+    )
+    title: Optional[str] = None
+    # Add other updateable fields as needed
+
+    model_config = ConfigDict(extra="forbid")  # Prevent arbitrary fields
+
+
 class UpdateConfig(BaseModel):
     sub_channel_name: Optional[str] = None
     update_endpoint: Optional[str] = None
@@ -96,35 +107,9 @@ class CronSchedule(BaseModel):
         return {k: v for k, v in self.model_dump().items() if v is not None}
 
 
-class DeleteTriggerRequest(BaseModel):
-    id: str
-
-
 class AllowedChannel(BaseModel):
     id: str
     note: str
-
-
-class PostingInstructions(BaseModel):
-    session_id: Optional[str] = None
-    post_to: Optional[
-        Literal["same", "another", "discord", "telegram", "x", "farcaster", "shopify"]
-    ] = None
-    channel_id: Optional[str] = None
-    custom_instructions: Optional[str] = None
-
-
-class CreateTriggerRequest(BaseModel):
-    agent: str
-    user: str
-    name: str
-    context: str
-    trigger_prompt: str
-    posting_instructions: Optional[List[PostingInstructions]] = []
-    schedule: CronSchedule
-    update_config: Optional[UpdateConfig] = None
-    session_type: Literal["new", "another"] = "new"
-    session: Optional[str] = None
 
 
 class CreateConceptRequest(BaseModel):
@@ -282,3 +267,44 @@ class ReactionRequest(BaseModel):
     tool_call_id: Optional[str] = None  # If reacting to a specific tool call
     reaction: str  # The reaction emoji or key
     user_id: Optional[str] = None  # The user who reacted (optional)
+
+
+# Discord channel management requests
+class GetDiscordChannelsRequest(BaseModel):
+    deployment_id: str
+    user_id: str  # For ownership verification
+
+
+class DiscordChannelInfo(BaseModel):
+    id: str
+    name: str
+    type: int
+    type_name: str
+    category_id: Optional[str] = None
+    category_name: Optional[str] = None
+    position: int = 0
+
+
+class DiscordGuildInfo(BaseModel):
+    id: str
+    name: str
+    icon: Optional[str] = None
+    member_count: Optional[int] = None
+    channels: List[DiscordChannelInfo]
+
+
+class GetDiscordChannelsResponse(BaseModel):
+    guilds: List[DiscordGuildInfo]
+    last_refreshed_at: Optional[str] = None
+
+
+class RefreshDiscordChannelsRequest(BaseModel):
+    deployment_id: str
+    user_id: str
+
+
+class RefreshDiscordChannelsResponse(BaseModel):
+    success: bool
+    guilds_count: int
+    channels_count: int
+    guilds: List[Dict[str, Any]]

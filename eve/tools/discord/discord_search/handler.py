@@ -133,7 +133,7 @@ Behavior:
             )
 
         formatted_messages = _format_output_messages(messages)
-        return {"output": formatted_messages, "_skip_upload_processing": True}
+        return {"output": formatted_messages}
 
     finally:
         await http.close()

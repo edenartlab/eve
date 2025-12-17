@@ -1,12 +1,88 @@
+import asyncio
 import mimetypes
 import tempfile
 from urllib.parse import urlparse
 
 import requests
 from google import genai
+from google.genai import errors as genai_errors
 
 from eve.tool import ToolContext
 from eve.tools.google import create_gcp_client
+
+
+async def generate_content_with_retry(
+    client,
+    model: str,
+    contents: list,
+    config: genai.types.GenerateContentConfig,
+    max_retries: int = 3,
+    initial_delay: float = 1.0,
+):
+    """
+    Make a generate_content call with exponential backoff retry logic for rate limits.
+
+    Args:
+        client: The Google GenAI client
+        model: Model name to use
+        contents: Content to generate from
+        config: Generation configuration
+        max_retries: Maximum number of retry attempts (default: 3)
+        initial_delay: Initial delay in seconds before first retry (default: 1.0)
+
+    Returns:
+        The API response
+
+    Raises:
+        ValueError: With user-friendly error message
+    """
+    delay = initial_delay
+
+    for attempt in range(max_retries + 1):
+        try:
+            response = client.models.generate_content(
+                model=model,
+                contents=contents,
+                config=config,
+            )
+            return response
+
+        except genai_errors.ClientError as e:
+            # Handle rate limiting (429) with retry
+            if e.status_code == 429 and attempt < max_retries:
+                # Exponential backoff: wait 1s, 2s, 4s, etc.
+                await asyncio.sleep(delay)
+                delay *= 2
+                continue
+            elif e.status_code == 429:
+                raise ValueError(
+                    "Google API rate limit reached. Please try again in a few moments."
+                )
+            elif e.status_code == 403:
+                raise ValueError(
+                    "Google API access denied. Please check your API credentials and quotas."
+                )
+            elif e.status_code == 400:
+                raise ValueError(f"Invalid request to Google API: {e.message}")
+            else:
+                raise ValueError(f"Google API error ({e.status_code}): {e.message}")
+
+        except genai_errors.ServerError as e:
+            # Retry server errors (5xx) with backoff
+            if attempt < max_retries:
+                await asyncio.sleep(delay)
+                delay *= 2
+                continue
+            else:
+                raise ValueError(
+                    f"Google API server error. Please try again later. ({e.status_code})"
+                )
+
+        except Exception as e:
+            # Don't retry unexpected errors
+            raise ValueError(f"Unexpected error calling Google API: {str(e)}")
+
+    raise ValueError("Maximum retries exceeded for Google API call")
 
 
 def download_image(url: str) -> tuple[bytes, str]:
@@ -84,11 +160,14 @@ async def handler(context: ToolContext):
 
     generation_config = genai.types.GenerateContentConfig(**config_dict)
 
-    # Make the API call
-    response = client.models.generate_content(
+    # Make the API call with automatic retry and exponential backoff
+    response = await generate_content_with_retry(
+        client=client,
         model="gemini-3-pro-image-preview",
         contents=contents,
         config=generation_config,
+        max_retries=1,
+        initial_delay=10.0,
     )
 
     # Extract generated images and text

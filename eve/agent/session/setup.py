@@ -33,7 +33,7 @@ def create_eden_message(
 ) -> ChatMessage:
     """Create an eden message for agent operations"""
     eden_message = ChatMessage(
-        session=session_id,
+        session=[session_id],
         sender=ObjectId("000000000000000000000000"),  # System sender
         role="eden",
         content="",
@@ -97,6 +97,17 @@ def create_agent_sessions(
         if not agent:
             continue
 
+        # Build context explaining the private workspace purpose
+        workspace_context = (
+            f"This is your private workspace for the multi-agent chatroom '{parent_session.title or 'Untitled'}'. "
+            f"You receive messages from other participants as CHAT MESSAGE NOTIFICATIONS. "
+            f"Each notification includes the sender's name and a Message ID that references "
+            f"the original message in the shared chatroom. "
+            f"When you're ready to contribute to the conversation, use the post_to_chatroom tool "
+            f"to send your message to all participants in the chatroom. "
+            f"Remember, this space is private. The other participants cannot see anything you write or make here -- all they see is the messages you post via the post_to_chatroom tool."
+        )
+
         agent_session = Session(
             owner=parent_session.owner,
             users=parent_session.users.copy() if parent_session.users else [],
@@ -107,7 +118,7 @@ def create_agent_sessions(
             title=f"Workspace: {parent_session.title}"
             if parent_session.title
             else f"Workspace: {agent.username}",
-            # Don't inherit trigger or context - that's for the parent chatroom
+            context=workspace_context,  # Explain the private workspace purpose
         )
         agent_session.save()
 

@@ -19,7 +19,16 @@ def _discover_tools(subfolder: str):
 
 
 OUTPUT_TYPES = Literal[
-    "boolean", "string", "integer", "float", "array", "image", "video", "audio", "lora"
+    "boolean",
+    "string",
+    "integer",
+    "float",
+    "array",
+    "image",
+    "video",
+    "audio",
+    "lora",
+    "object",
 ]
 
 HANDLERS = Literal["local", "modal", "comfyui", "replicate", "gcp", "fal", "mcp"]
@@ -100,24 +109,33 @@ DISCORD_TOOLS = ["discord_post", "discord_search", "discord_broadcast_dm"]
 TELEGRAM_TOOLS = ["telegram_post"]
 TWITTER_TOOLS = ["tweet", "twitter_mentions", "twitter_search"]
 FARCASTER_TOOLS = ["farcaster_cast", "farcaster_mentions", "farcaster_search"]
+INSTAGRAM_TOOLS = ["instagram_post"]
 SHOPIFY_TOOLS = ["shopify"]
 PRINTIFY_TOOLS = ["printify"]
 CAPTIONS_TOOLS = ["captions"]
 TIKTOK_TOOLS = ["tiktok_post"]
 EMAIL_TOOLS = ["email_send"]
 GMAIL_TOOLS = ["gmail_send"]
+GOOGLE_CALENDAR_TOOLS = [
+    "google_calendar_query",
+    "google_calendar_edit",
+    "google_calendar_delete",
+]
 
 SOCIAL_MEDIA_TOOLS = [
     *TWITTER_TOOLS,
     *DISCORD_TOOLS,
     *FARCASTER_TOOLS,
     *TELEGRAM_TOOLS,
+    *INSTAGRAM_TOOLS,
     *SHOPIFY_TOOLS,
     *PRINTIFY_TOOLS,
     *CAPTIONS_TOOLS,
     *TIKTOK_TOOLS,
     *EMAIL_TOOLS,
     *GMAIL_TOOLS,
+    *GOOGLE_CALENDAR_TOOLS,
+    *INSTAGRAM_TOOLS,
 ]
 
 EDEN_DB_TOOLS = [
@@ -160,3 +178,6 @@ FLUX_LORA_TXT2IMG_TOOLS = ["flux_dev_lora", "flux_dev"]
 SDXL_LORA_TXT2IMG_TOOLS = ["txt2img"]
 
 AGENTIC_TOOLS = [*SOCIAL_MEDIA_TOOLS, "reel"]
+
+# Tools that should skip automatic upload processing of URLs in their results
+SKIP_UPLOAD_PROCESSING_TOOLS = [*SOCIAL_MEDIA_TOOLS]

@@ -29,12 +29,14 @@ def prepare_result(result, summarize=False):
         return result
 
 
-def upload_result(result, save_thumbnails=False, save_blurhash=False):
+def upload_result(result, save_thumbnails=False, save_blurhash=False, tool_key=None):
+    from ..tool_constants import SKIP_UPLOAD_PROCESSING_TOOLS
     from .media_utils import upload_media
 
+    if tool_key and tool_key in SKIP_UPLOAD_PROCESSING_TOOLS:
+        return result
+
     if isinstance(result, dict):
-        if result.get("_skip_upload_processing"):
-            return {k: v for k, v in result.items() if k != "_skip_upload_processing"}
         exlude_result_processing_keys = ["subtool_calls"]
         return {
             k: upload_result(

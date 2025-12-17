@@ -352,6 +352,8 @@ def get_platform_client(
     from eve.agent.deployments.email import EmailClient
     from eve.agent.deployments.farcaster import FarcasterClient
     from eve.agent.deployments.gmail import GmailClient
+    from eve.agent.deployments.google_calendar import GoogleCalendarClient
+    from eve.agent.deployments.instagram import InstagramClient
     from eve.agent.deployments.printify import PrintifyClient
     from eve.agent.deployments.shopify import ShopifyClient
     from eve.agent.deployments.telegram import TelegramClient
@@ -374,10 +376,16 @@ def get_platform_client(
         return CaptionsClient(agent=agent, deployment=deployment)
     elif platform == ClientType.TIKTOK:
         return TiktokClient(agent=agent, deployment=deployment)
+    elif platform == ClientType.INSTAGRAM:
+        return InstagramClient(agent=agent, deployment=deployment)
     elif platform == ClientType.EMAIL:
         return EmailClient(agent=agent, deployment=deployment)
     elif platform == ClientType.GMAIL:
         return GmailClient(agent=agent, deployment=deployment)
+    elif platform == ClientType.GOOGLE_CALENDAR:
+        return GoogleCalendarClient(agent=agent, deployment=deployment)
+    else:
+        raise ValueError(f"Unknown platform: {platform}")
 
 
 def authenticate_modal_key() -> bool:

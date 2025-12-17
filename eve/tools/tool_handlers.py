@@ -23,6 +23,8 @@ HANDLER_PATHS = {
     "search_models": "mongo_utils.search_models.handler",
     "search_collections": "mongo_utils.search_collections.handler",
     "add_to_collection": "mongo_utils.add_to_collection.handler",
+    "get_messages": "eden_utils.get_messages.handler",
+    "get_messages_digest": "gigabrain.get_messages_digest.handler",
     "twitter_mentions": "twitter.twitter_mentions.handler",
     "twitter_search": "twitter.twitter_search.handler",
     "tweet": "twitter.tweet.handler",
@@ -33,6 +35,7 @@ HANDLER_PATHS = {
     "farcaster_cast": "farcaster.farcaster_cast.handler",
     "farcaster_mentions": "farcaster.farcaster_mentions.handler",
     "farcaster_search": "farcaster.farcaster_search.handler",
+    "instagram_post": "instagram.instagram_post.handler",
     "shopify": "shopify.handler",
     "news": "news.handler",
     "reel": "media_utils.reel.handler",
@@ -59,6 +62,10 @@ HANDLER_PATHS = {
     "post_to_chatroom": "post_to_chatroom.handler",
     "email_send": "email.email_send.handler",
     "gmail_send": "gmail.gmail_send.handler",
+    # Google Calendar tools
+    "google_calendar_query": "google_calendar.google_calendar_query.handler",
+    "google_calendar_edit": "google_calendar.google_calendar_edit.handler",
+    "google_calendar_delete": "google_calendar.google_calendar_delete.handler",
     # Agent tools are added dynamically below
     **{tool: f"abraham.{tool}.handler" for tool in ABRAHAM_TOOLS},
     **{tool: f"verdelis.{tool}.handler" for tool in VERDELIS_TOOLS},

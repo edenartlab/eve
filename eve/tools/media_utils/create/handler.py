@@ -936,6 +936,7 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
             "duration": duration,
             "fast": True if quality == "standard" else False,
             "aspect_ratio": aspect_ratio,
+            "generate_audio": True if sound_effects else False,
         }
 
         if start_image:

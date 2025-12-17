@@ -1,0 +1,8 @@
+{
+  "agent_id": "69366bd16ab3a4e06604f629",
+  "action": "find_free_slots",
+  "start_time": "2026-02-01",
+  "end_time": "2026-02-07",
+  "duration_minutes": 60,
+  "max_results": 5
+}

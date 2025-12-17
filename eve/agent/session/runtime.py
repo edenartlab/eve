@@ -41,6 +41,7 @@ from .context import (
     build_llm_context,
     convert_message_roles,
     determine_actors,
+    get_last_eden_message_for_llm,
     label_message_channels,
 )
 from .instrumentation import PromptSessionInstrumentation
@@ -273,6 +274,14 @@ class PromptSessionRuntime:
 
     async def _refresh_llm_messages(self):
         fresh_messages = select_messages(self.session)
+
+        # Add the last eden message (converted to user role) if it exists
+        # Eden messages are filtered out by select_messages, so we query separately
+        last_eden = get_last_eden_message_for_llm(self.session.id)
+        if last_eden:
+            fresh_messages.append(last_eden)
+            fresh_messages.sort(key=lambda m: m.createdAt)
+
         system_message = self.llm_context.messages[0]
         system_extras = []
 
@@ -282,22 +291,11 @@ class PromptSessionRuntime:
             else:
                 break
 
-        if self.session.trigger:
-            from eve.trigger import Trigger
-
-            trigger = Trigger.from_mongo(self.session.trigger)
-            trigger_message = ChatMessage(
-                session=self.session.id,
-                role="system",
-                content=f"<Full Task Context>\n{trigger.context}\n</Full Task Context>",
-            )
-            system_extras.append(trigger_message)
-
         refreshed_messages = [system_message]
         if system_extras:
             refreshed_messages.extend(system_extras)
         refreshed_messages.extend(fresh_messages)
-        refreshed_messages = label_message_channels(refreshed_messages)
+        refreshed_messages = label_message_channels(refreshed_messages, self.session)
         refreshed_messages = convert_message_roles(refreshed_messages, self.actor.id)
         self.llm_context.messages = refreshed_messages
         self.llm_context.metadata.generation_id = str(uuid.uuid4())
@@ -430,7 +428,7 @@ class PromptSessionRuntime:
                 usage_obj = usage_payload
 
         assistant_message = ChatMessage(
-            session=self.session.id,
+            session=[self.session.id],
             sender=ObjectId(self.llm_context.metadata.trace_metadata.agent_id),
             role="assistant",
             content=llm_result["content"],
@@ -497,7 +495,7 @@ class PromptSessionRuntime:
         """Persist a rate limit error message as an Eden message."""
         error_text = getattr(error, "detail", None) or str(error)
         eden_message = ChatMessage(
-            session=self.session.id,
+            session=[self.session.id],
             sender=ObjectId("000000000000000000000000"),
             role="eden",
             content=error_text,
@@ -515,7 +513,7 @@ class PromptSessionRuntime:
         """Persist a billing/manna error as an Eden message."""
         error_text = getattr(error, "detail", None) or str(error)
         eden_message = ChatMessage(
-            session=self.session.id,
+            session=[self.session.id],
             sender=ObjectId("000000000000000000000000"),
             role="eden",
             content=error_text,
@@ -736,7 +734,7 @@ class PromptSessionRuntime:
                         last_message.save()
 
             cancel_message = ChatMessage(
-                session=self.session.id,
+                session=[self.session.id],
                 sender=ObjectId("000000000000000000000000"),
                 role="system",
                 content="Response cancelled by user",

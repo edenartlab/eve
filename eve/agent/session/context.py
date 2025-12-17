@@ -27,6 +27,8 @@ from eve.agent.session.models import (
     Channel,
     ChatMessage,
     Deployment,
+    EdenMessageData,
+    EdenMessageType,
     LLMConfig,
     LLMContext,
     LLMContextMetadata,
@@ -55,6 +57,22 @@ farcaster_notification_template = Template("""
 │ 📨 FARCASTER NOTIFICATION
 │ From: {{ farcaster_username }} (FID {{ fid }})
 │ Farcaster Hash: {{ farcaster_hash }}
+├─────────────────────────────────────
+{{ content }}
+""")
+
+discord_notification_template = Template("""
+│ 📨 DISCORD NOTIFICATION
+│ From: {{ username }}
+│ Message ID: {{ message_id }}
+├─────────────────────────────────────
+{{ content }}
+""")
+
+eden_notification_template = Template("""
+│ 📨 CHAT MESSAGE NOTIFICATION
+│ From: {{ username }}
+│ Message ID: {{ message_id }}
 ├─────────────────────────────────────
 {{ content }}
 """)
@@ -199,6 +217,9 @@ def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
     Re-assembles messages from perspective of actor (assistant) and everyone else (user)
     """
 
+    # Social media channel types that use notification decorators instead of [name]: prefix
+    social_media_channels = {"discord", "twitter", "farcaster"}
+
     # Get sender name mapping for all messages
     sender_name_map = get_sender_id_to_sender_name_map(messages)
 
@@ -211,18 +232,37 @@ def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
         else:
             user_message = message.as_user_message()
             # Include sender name in the message content if available
-            if message.sender and message.sender in sender_name_map:
-                sender_name = sender_name_map[message.sender]
+            # Skip for social media messages - they use notification decorators instead
+            has_social_channel = (
+                message.channel and message.channel.type in social_media_channels
+            )
+            if (
+                message.sender
+                and message.sender in sender_name_map
+                and not has_social_channel
+            ):
+                is_system_message = (
+                    user_message.content
+                    and user_message.content.startswith("<SystemMessage>")
+                    and user_message.content.endswith("</SystemMessage>")
+                )
                 # Prepend the sender name to the content
-                user_message.content = f"[{sender_name}]: {user_message.content}"
+                if not is_system_message:
+                    sender_name = sender_name_map[message.sender]
+                    user_message.content = f"[{sender_name}]: {user_message.content}"
+
             converted_messages.append(user_message)
 
     return converted_messages
 
 
-def label_message_channels(messages: List[ChatMessage]):
+def label_message_channels(messages: List[ChatMessage], session: "Session" = None):
     """
-    Prepends channel metadata to message content for Farcaster and Twitter messages
+    Prepends channel metadata to message content for Farcaster, Twitter, and Discord messages.
+
+    Args:
+        messages: List of chat messages to label
+        session: Optional session to use as fallback for determining platform
     """
     # Collect all unique sender IDs from messages
     sender_ids = list({msg.sender for msg in messages if msg.sender})
@@ -237,7 +277,20 @@ def label_message_channels(messages: List[ChatMessage]):
     # Process messages and prepend channel info for social media messages
     labeled_messages = []
     for message in messages:
-        if message.channel and message.channel.type == "farcaster" and message.sender:
+        # Determine channel type - prefer message.channel, fallback to session.platform
+        channel_type = None
+        if message.channel and message.channel.type:
+            channel_type = message.channel.type
+        elif session and session.platform:
+            channel_type = session.platform
+
+        # Only apply social media decorators to user messages (except eden which handles both)
+        # Eden messages can come from other agents (assistant role) in multi-agent sessions
+        if message.role != "user" and channel_type != "eden":
+            labeled_messages.append(message)
+            continue
+
+        if channel_type == "farcaster" and message.sender:
             sender = user_map.get(message.sender)
 
             # Wrap message content in Farcaster metadata using rich template
@@ -248,13 +301,52 @@ def label_message_channels(messages: List[ChatMessage]):
                 content=message.content,
             )
 
-        elif message.channel and message.channel.type == "twitter" and message.sender:
+        elif channel_type == "twitter" and message.sender:
             sender = user_map.get(message.sender)
 
             # Wrap message content in Twitter metadata using rich template
             message.content = twitter_notification_template.render(
                 username=sender.twitterUsername if sender else "Unknown",
-                tweet_id=message.channel.key,
+                tweet_id=message.channel.key if message.channel else "Unknown",
+                content=message.content,
+            )
+
+        elif channel_type == "discord" and message.sender:
+            sender = user_map.get(message.sender)
+
+            # Wrap message content in Discord metadata using rich template
+            # channel.key contains the Discord message ID
+            # Fallback chain: discordUsername -> username -> "Unknown"
+            discord_username = "Unknown"
+            if sender:
+                discord_username = (
+                    sender.discordUsername or sender.username or "Unknown"
+                )
+            message.content = discord_notification_template.render(
+                username=discord_username,
+                message_id=message.channel.key
+                if message.channel and message.channel.key
+                else "Unknown",
+                content=message.content,
+            )
+
+        elif channel_type == "eden" and message.sender:
+            sender = user_map.get(message.sender)
+            # For eden, sender could be a user or agent - look up agent if not found
+            sender_username = "Unknown"
+            if sender:
+                sender_username = sender.username or "Unknown"
+            else:
+                # Try to find agent (they share the users collection)
+                agent_sender = Agent.from_mongo(message.sender)
+                if agent_sender:
+                    sender_username = agent_sender.username or "Unknown"
+
+            message.content = eden_notification_template.render(
+                username=sender_username,
+                message_id=message.channel.key
+                if message.channel and message.channel.key
+                else "Unknown",
                 content=message.content,
             )
 
@@ -297,6 +389,9 @@ async def build_system_message(
 
     # Build social media instructions if this is a social media platform session
     social_instructions = None
+    logger.info(
+        f"[build_system_message] session.platform={session.platform}, actor.id={actor.id}"
+    )
     if session.platform == "farcaster":
         deployment = Deployment.find_one({"agent": actor.id, "platform": "farcaster"})
         if deployment and deployment.config and deployment.config.farcaster:
@@ -319,6 +414,29 @@ async def build_system_message(
             has_twitter=True,
             twitter_instructions=twitter_instructions,
         )
+    elif session.platform == "discord":
+        logger.info(
+            "[build_system_message] Discord platform detected, looking for deployment"
+        )
+        deployment = Deployment.find_one({"agent": actor.id, "platform": "discord"})
+        logger.info(
+            f"[build_system_message] Found deployment: {deployment.id if deployment else None}"
+        )
+        discord_instructions = ""
+        if deployment and deployment.config and deployment.config.discord:
+            discord_instructions = (
+                getattr(deployment.config.discord, "instructions", "") or ""
+            )
+        # Use discord_channel_id directly from session
+        discord_channel_id = session.discord_channel_id or ""
+        social_instructions = social_media_template.render(
+            has_discord=True,
+            discord_instructions=discord_instructions,
+            discord_channel_id=discord_channel_id,
+        )
+        logger.info(
+            f"[build_system_message] Discord social_instructions generated: {len(social_instructions) if social_instructions else 0} chars"
+        )
 
     current_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
@@ -334,9 +452,10 @@ async def build_system_message(
         voice=actor.voice,
         memory=memory,
         social_instructions=social_instructions,
+        session_context=session.context,
     )
 
-    return ChatMessage(session=session.id, role="system", content=content)
+    return ChatMessage(session=[session.id], role="system", content=content)
 
 
 async def build_system_extras(
@@ -349,7 +468,7 @@ async def build_system_extras(
         context_prompt = f"<Full Task Context>\n{session.context}\n\n**IMPORTANT: Ignore me, the user! You are just speaking to the other agents now. Make sure you stay relevant to the full task context throughout the conversation.</Full Task Context>"
         extras.append(
             ChatMessage(
-                session=session.id,
+                session=[session.id],
                 # debug this
                 # role="system",
                 role="user",
@@ -357,22 +476,6 @@ async def build_system_extras(
                 content=context_prompt,
             )
         )
-
-    # add trigger context (prefer session.trigger but fall back to context.trigger)
-    trigger_id = session.trigger or context.trigger
-    if trigger_id:
-        from eve.trigger import Trigger
-
-        trigger = Trigger.from_mongo(trigger_id)
-        if trigger and trigger.context:
-            extras.append(
-                ChatMessage(
-                    session=session.id,
-                    role="user",
-                    sender=ObjectId(str(context.initiating_user_id)),
-                    content=trigger.context,
-                )
-            )
 
     return context, extras
 
@@ -400,21 +503,42 @@ async def add_chat_message(
         else None
     )
 
+    # Ensure all attachments are on Eden
+    attachments = context.message.attachments or []
+    if attachments:
+        from eve.s3 import upload_attachments_to_eden
+
+        attachments = await upload_attachments_to_eden(attachments)
+
+    # Set eden_message_data for trigger messages with eden role
+    eden_message_data = None
+    if context.trigger and context.message.role == "eden":
+        eden_message_data = EdenMessageData(message_type=EdenMessageType.TRIGGER)
+
     new_message = ChatMessage(
-        session=session.id,
+        session=[session.id],
         sender=ObjectId(str(context.initiating_user_id)),
         role=context.message.role,
         content=context.message.content,
-        attachments=context.message.attachments or [],
+        attachments=attachments,
         trigger=context.trigger,
         apiKey=ObjectId(context.api_key_id) if context.api_key_id else None,
         triggering_user=triggering_user_id,
         billed_user=triggering_user_id,
+        eden_message_data=eden_message_data,
     )
 
     # Save channel origin info for social media platforms
-    if context.update_config:
-        if context.update_config.farcaster_hash:
+    # First check if channel is already set on the message input
+    if context.message.channel:
+        new_message.channel = context.message.channel
+    # Fallback to update_config for backwards compatibility
+    elif context.update_config:
+        if context.update_config.discord_message_id:
+            new_message.channel = Channel(
+                type="discord", key=context.update_config.discord_message_id
+            )
+        elif context.update_config.farcaster_hash:
             new_message.channel = Channel(
                 type="farcaster", key=context.update_config.farcaster_hash
             )
@@ -425,6 +549,18 @@ async def add_chat_message(
     if pin:
         new_message.pinned = True
     new_message.save()
+
+    # Distribute to agent_sessions for multi-agent automatic sessions
+    if (
+        session.session_type == "automatic"
+        and session.agent_sessions
+        and len(session.agent_sessions) > 0
+    ):
+        await distribute_message_to_agent_sessions(
+            parent_session=session,
+            message=new_message,
+            exclude_agent_id=None,  # User messages go to all agents
+        )
 
     # Increment message count for sender
     if context.initiating_user_id:
@@ -476,6 +612,86 @@ async def add_chat_message(
         logger.error(f"Failed to broadcast user message to SSE: {e}")
 
     return new_message
+
+
+async def distribute_message_to_agent_sessions(
+    parent_session: Session,
+    message: ChatMessage,
+    exclude_agent_id: Optional[ObjectId] = None,
+) -> None:
+    """Distribute a message to all agent_sessions in a multi-agent session.
+
+    When a message is added to a parent session (by user or agent), this function
+    ensures it's also added to all OTHER agent_sessions. This enables real-time
+    message distribution instead of bulk sync.
+
+    Args:
+        parent_session: The parent chatroom session
+        message: The ChatMessage that was just created
+        exclude_agent_id: If sender is an agent, exclude their agent_session
+    """
+    if not parent_session.agent_sessions:
+        return
+
+    target_sessions = []
+    for agent_id_str, agent_session_id in parent_session.agent_sessions.items():
+        # Skip the sender's own agent_session if they're an agent
+        if exclude_agent_id and agent_id_str == str(exclude_agent_id):
+            continue
+        target_sessions.append(agent_session_id)
+
+    if not target_sessions:
+        return
+
+    logger.info(
+        f"[DISTRIBUTE] Distributing message {message.id} to {len(target_sessions)} agent_sessions"
+    )
+
+    # Add channel reference if not set (use update() to only modify channel field)
+    # Convert to dict for MongoDB encoding
+    if not message.channel:
+        channel = Channel(type="eden", key=str(message.id))
+        message.update(channel=channel.model_dump())
+
+    # Add agent_session IDs to the message's session list atomically
+    ChatMessage.get_collection().update_one(
+        {"_id": message.id},
+        {"$addToSet": {"session": {"$each": target_sessions}}},
+    )
+    # Update in-memory object
+    message.session = list(set(message.session + target_sessions))
+
+    logger.info(
+        f"[DISTRIBUTE] Message {message.id} now in sessions: {[str(s) for s in message.session]}"
+    )
+
+
+def get_last_eden_message_for_llm(session_id: ObjectId) -> Optional[ChatMessage]:
+    """
+    Get the last eden message for a session, converted for LLM consumption.
+    Eden messages are excluded from select_messages(), so we query separately.
+    The last eden message is converted to user role with content wrapped in SystemMessage tags.
+    Returns None if no eden messages exist.
+    """
+    messages = ChatMessage.get_collection()
+    eden_messages = list(
+        messages.find({"session": session_id, "role": "eden"})
+        .sort("createdAt", -1)
+        .limit(1)
+    )
+
+    if not eden_messages:
+        return None
+
+    eden_msg = ChatMessage(**eden_messages[0])
+
+    # Convert: change role to user, wrap content in SystemMessage tags
+    return eden_msg.model_copy(
+        update={
+            "role": "user",
+            "content": f"<SystemMessage>{eden_msg.content}</SystemMessage>",
+        }
+    )
 
 
 async def build_llm_context(
@@ -543,8 +759,16 @@ async def build_llm_context(
         messages.extend(system_extras)
 
     existing_messages = select_messages(session)
+
+    # Add the last eden message (converted to user role) if it exists
+    # Eden messages are filtered out by select_messages, so we query separately
+    last_eden = get_last_eden_message_for_llm(session.id)
+    if last_eden:
+        existing_messages.append(last_eden)
+        existing_messages.sort(key=lambda m: m.createdAt)
+
     messages.extend(existing_messages)
-    messages = label_message_channels(messages)
+    messages = label_message_channels(messages, session)
     messages = convert_message_roles(messages, actor.id)
 
     config = copy.deepcopy(context.llm_config) if context.llm_config else None
@@ -587,92 +811,6 @@ async def build_llm_context(
 # =============================================================================
 # Agent Session Context Building Functions
 # =============================================================================
-
-
-def get_new_parent_messages(
-    parent_session: Session,
-    last_parent_message_id: Optional[ObjectId],
-) -> List[ChatMessage]:
-    """Get all parent session messages since the last sync point.
-
-    Args:
-        parent_session: The parent chatroom session
-        last_parent_message_id: The last message ID that was synced to the agent_session
-
-    Returns:
-        List of ChatMessages that are new since last sync, sorted by creation time
-    """
-    query = {"session": parent_session.id, "role": {"$ne": "eden"}}
-
-    if last_parent_message_id:
-        # Get the timestamp of the last synced message
-        last_msg = ChatMessage.from_mongo(last_parent_message_id)
-        if last_msg and last_msg.createdAt:
-            query["createdAt"] = {"$gt": last_msg.createdAt}
-
-    messages = list(ChatMessage.find(query))
-    return sorted(messages, key=lambda m: m.createdAt if m.createdAt else datetime.min)
-
-
-def format_parent_messages_for_agent_session(
-    parent_messages: List[ChatMessage],
-    agent_id: ObjectId,
-) -> str:
-    """Format parent chatroom messages as a bulk update for the agent_session.
-
-    Creates an XML-formatted string with all messages since last sync,
-    properly attributed with sender names and marked if from self.
-
-    Args:
-        parent_messages: List of new messages from parent session
-        agent_id: The agent's ObjectId (to mark self messages)
-
-    Returns:
-        XML-formatted string describing the chatroom updates
-    """
-    if not parent_messages:
-        return "<ChatroomUpdate>No new messages in the chatroom.</ChatroomUpdate>"
-
-    # Get sender name mapping
-    sender_name_map = get_sender_id_to_sender_name_map(parent_messages)
-
-    lines = [
-        "<ChatroomUpdate>",
-        "The following messages have been posted to the chatroom:",
-    ]
-
-    for msg in parent_messages:
-        sender_name = sender_name_map.get(msg.sender, "Unknown")
-        is_self = msg.sender == agent_id
-
-        if is_self:
-            lines.append(f"\n[You ({sender_name})]: {msg.content}")
-        else:
-            lines.append(f"\n[{sender_name}]: {msg.content}")
-
-        # Include attachments info
-        if msg.attachments:
-            lines.append(f"  Attachments: {', '.join(msg.attachments)}")
-
-        # Include tool call results (media created, etc.)
-        if msg.tool_calls:
-            for tc in msg.tool_calls:
-                if tc.status == "completed" and tc.result:
-                    result_urls = []
-                    for r in tc.result:
-                        for o in r.get("output", []):
-                            if isinstance(o, dict) and o.get("url"):
-                                result_urls.append(o["url"])
-                    if result_urls:
-                        lines.append(f"  Created media: {', '.join(result_urls)}")
-
-    lines.append("\n</ChatroomUpdate>")
-    lines.append(
-        "\nRespond to the conversation by using tools as needed, "
-        "then post your message with `post_to_chatroom`."
-    )
-
-    return "\n".join(lines)
 
 
 async def build_agent_session_system_message(
@@ -742,7 +880,7 @@ async def build_agent_session_system_message(
         memory=memory,
     )
 
-    return ChatMessage(session=agent_session.id, role="system", content=content)
+    return ChatMessage(session=[agent_session.id], role="system", content=content)
 
 
 async def build_agent_session_llm_context(
@@ -757,8 +895,12 @@ async def build_agent_session_llm_context(
 
     This context includes:
     1. Agent_session system prompt (chatroom framing with private workspace emphasis)
-    2. Agent_session's own message history (private work from previous turns)
-    3. New parent messages as a user message (bulk update from chatroom)
+    2. Agent_session's own message history (includes messages from other agents
+       that were distributed in real-time)
+
+    Messages from the parent session (from other agents) are automatically
+    distributed to agent_sessions when created, so they're already in the
+    agent_session's message history - no bulk sync needed.
 
     Args:
         agent_session: The agent's private workspace session
@@ -806,45 +948,10 @@ async def build_agent_session_llm_context(
 
     messages = [system_message]
 
-    # Add agent_session's own history (private work from previous turns)
+    # Add agent_session's own history (includes messages from other agents
+    # that were distributed in real-time via distribute_message_to_agent_sessions)
     existing_messages = select_messages(agent_session)
     messages.extend(existing_messages)
-
-    # Get new messages from parent since last sync
-    new_parent_messages = get_new_parent_messages(
-        parent_session,
-        agent_session.last_parent_message_id,
-    )
-
-    # Format and add as user message (the bulk update)
-    if new_parent_messages:
-        bulk_update_content = format_parent_messages_for_agent_session(
-            new_parent_messages, actor.id
-        )
-
-        # Collect all attachments from parent messages
-        all_attachments = []
-        for msg in new_parent_messages:
-            if msg.attachments:
-                all_attachments.extend(msg.attachments)
-
-        # Get the outer owning user (first user from parent session)
-        owner_id = (
-            parent_session.users[0]
-            if parent_session.users
-            else context.initiating_user_id
-        )
-
-        # Create a temporary ChatMessage for the bulk update
-        # Note: This is not persisted here - the runtime will save it
-        bulk_update_message = ChatMessage(
-            session=agent_session.id,
-            role="user",
-            sender=ObjectId(str(owner_id)) if owner_id else None,
-            content=bulk_update_content,
-            attachments=all_attachments,
-        )
-        messages.append(bulk_update_message)
 
     # Convert message roles (agent's messages -> assistant, others -> user)
     messages = convert_message_roles(messages, actor.id)

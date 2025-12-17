@@ -54,6 +54,48 @@ def get_full_url(filename):
     return f"{get_root_url()}/{filename}"
 
 
+def is_eden_url(url: str) -> bool:
+    """Check if a URL is already on Eden (S3 or CloudFront)."""
+    if not url:
+        return False
+
+    # Check for S3 URL pattern
+    AWS_BUCKET_NAME = os.getenv("AWS_BUCKET_NAME")
+    if AWS_BUCKET_NAME and f"{AWS_BUCKET_NAME}.s3." in url and ".amazonaws.com" in url:
+        return True
+
+    # Check for CloudFront URL pattern
+    CLOUDFRONT_URL = os.getenv("CLOUDFRONT_URL")
+    if CLOUDFRONT_URL and url.startswith(CLOUDFRONT_URL):
+        return True
+
+    return False
+
+
+async def upload_attachments_to_eden(urls: list[str]) -> list[str]:
+    """Re-upload attachment URLs to Eden, skipping URLs already on Eden."""
+    if not urls:
+        return []
+
+    eden_urls = []
+    for url in urls:
+        if is_eden_url(url):
+            eden_urls.append(url)
+        else:
+            try:
+                s3_url, _ = upload_file_from_url(url)
+                eden_urls.append(s3_url)
+            except Exception as e:
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    f"Failed to upload attachment {url} to Eden: {e}"
+                )
+                eden_urls.append(url)
+
+    return eden_urls
+
+
 def upload_file_from_url(url, name=None, file_type=None):
     """Uploads a file to an S3 bucket by downloading it to a temporary file and uploading it to S3."""
 

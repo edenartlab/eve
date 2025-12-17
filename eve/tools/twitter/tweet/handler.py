@@ -14,7 +14,9 @@ async def handler(context: ToolContext):
     deployment = Deployment.load(agent=agent_obj.id, platform="twitter")
     if not deployment:
         raise Exception("No valid twitter deployments found")
+
     x = X(deployment)
+
     if context.args.get("images"):
         media_ids = [x.tweet_media(image) for image in context.args.get("images", [])]
         response = x.post(
@@ -33,6 +35,7 @@ async def handler(context: ToolContext):
         response = x.post(
             text=context.args.get("content"), reply=context.args.get("reply_to")
         )
+
     tweet_id = response.get("data", {}).get("id")
     url = f"https://x.com/{deployment.config.twitter.username}/status/{tweet_id}"
 

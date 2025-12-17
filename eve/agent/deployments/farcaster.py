@@ -3,7 +3,6 @@ import hmac
 import logging
 import os
 import secrets as python_secrets
-import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional
 
@@ -22,7 +21,6 @@ from eve.agent.deployments.utils import get_api_url
 from eve.agent.session.context import (
     add_chat_message,
     add_user_to_session,
-    build_llm_context,
 )
 from eve.agent.session.models import (
     Channel,
@@ -38,7 +36,6 @@ from eve.agent.session.models import (
     SessionUpdateConfig,
     UpdateType,
 )
-from eve.agent.session.runtime import async_prompt_session
 from eve.api.errors import APIError
 from eve.mongo import Collection, Document, MongoDocumentNotFound
 from eve.tool import Tool
@@ -123,7 +120,7 @@ async def post_cast(
 
         cast_info = {
             "hash": cast_hash,
-            "url": f"https://warpcast.com/{username}/{cast_hash}"
+            "url": f"https://farcaster.xyz/{username}/{cast_hash}"
             if username and cast_hash
             else None,
             "thread_hash": thread_hash,
@@ -140,7 +137,7 @@ async def post_cast(
         cast_hash = result.cast.hash
         cast_info = {
             "hash": cast_hash,
-            "url": f"https://warpcast.com/{user_info.username}/{cast_hash}",
+            "url": f"https://farcaster.xyz/{user_info.username}/{cast_hash}",
             "thread_hash": result.cast.thread_hash,
         }
         logger.info(f"Successfully posted cast via mnemonic: {cast_info}")
@@ -332,7 +329,7 @@ async def process_farcaster_cast(
                 # owner=user.id,
                 owner=agent.owner,
                 agents=[agent.id],
-                title="Farcaster session",
+                title=f"@{author_username}",
                 session_key=session_key,
                 platform="farcaster",
                 status="active",
@@ -371,10 +368,17 @@ async def process_farcaster_cast(
                                 author_fid_, author_username_
                             )
 
+                        # Build Farcaster URL
+                        farcaster_url = (
+                            f"https://farcaster.xyz/{author_username_}/{cast_hash_}"
+                        )
+
                         message = ChatMessage(
                             createdAt=created_at,
-                            session=session.id,
-                            channel=Channel(type="farcaster", key=cast_hash_),
+                            session=[session.id],
+                            channel=Channel(
+                                type="farcaster", key=cast_hash_, url=farcaster_url
+                            ),
                             role=role,
                             content=text_,
                             sender=cast_user.id,
@@ -394,12 +398,15 @@ async def process_farcaster_cast(
         # Load farcaster tool
         farcaster_tool = Tool.load("farcaster_cast")
 
+        # Build Farcaster URL
+        farcaster_url = f"https://farcaster.xyz/{author_username}/{cast_hash}"
+
         # Create prompt context
         prompt_context = PromptSessionContext(
             session=session,
             initiating_user_id=str(user.id),
             message=ChatMessageRequestInput(
-                channel=Channel(type="farcaster", key=cast_hash),
+                channel=Channel(type="farcaster", key=cast_hash, url=farcaster_url),
                 content=content,
                 sender_name=author_username,
                 attachments=media_urls if media_urls else None,
@@ -417,23 +424,28 @@ async def process_farcaster_cast(
         # Add user message to session
         message = await add_chat_message(session, prompt_context)
 
-        # Build LLM context
-        llm_context = await build_llm_context(
-            session,
-            agent,
-            prompt_context,
-            trace_id=str(uuid.uuid4()),
-        )
+        # Use unified orchestrator for full observability
+        # Note: message=None because we already added it above (needed message.id for event doc)
+        from eve.agent.session.orchestrator import orchestrate_deployment
 
-        # Execute prompt session
+        logger.info(
+            f"[FARCASTER] Calling orchestrate_deployment for session {session.id}"
+        )
         new_messages = []
-        async for update in async_prompt_session(
-            session, llm_context, agent, context=prompt_context, is_client_platform=True
+        async for update in orchestrate_deployment(
+            session=session,
+            agent=agent,
+            user_id=str(user.id),
+            message=None,  # Already added above
+            update_config=prompt_context.update_config,
         ):
-            logger.info("farcaster cast update")
-            logger.info(update)
-            if update.type == UpdateType.ASSISTANT_MESSAGE:
-                new_messages.append(update.message)
+            logger.info(f"[FARCASTER] Update: {update.get('type')}")
+            if update.get("type") == UpdateType.ASSISTANT_MESSAGE.value:
+                new_messages.append(update.get("message"))
+
+        logger.info(
+            f"[FARCASTER] orchestrate_deployment completed, {len(new_messages)} assistant messages"
+        )
 
         # Update event doc with success
         event_doc.update(

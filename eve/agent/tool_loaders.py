@@ -23,6 +23,7 @@ PLATFORM_TOOL_SETS = {
     "printify": None,
     "captions": None,
     "tiktok": None,
+    "google_calendar": None,
 }
 
 
@@ -36,6 +37,8 @@ def _get_platform_tool_sets():
             EMAIL_TOOLS,
             FARCASTER_TOOLS,
             GMAIL_TOOLS,
+            GOOGLE_CALENDAR_TOOLS,
+            INSTAGRAM_TOOLS,
             PRINTIFY_TOOLS,
             SHOPIFY_TOOLS,
             TELEGRAM_TOOLS,
@@ -53,8 +56,10 @@ def _get_platform_tool_sets():
                 "printify": PRINTIFY_TOOLS,
                 "captions": CAPTIONS_TOOLS,
                 "tiktok": TIKTOK_TOOLS,
+                "instagram": INSTAGRAM_TOOLS,
                 "email": EMAIL_TOOLS,
                 "gmail": GMAIL_TOOLS,
+                "google_calendar": GOOGLE_CALENDAR_TOOLS,
             }
         )
     return PLATFORM_TOOL_SETS
@@ -77,21 +82,25 @@ def get_agent_specific_tools(
 
     # TODO: systemize this for other agents
     if username == "abraham":
-        result.extend([
-            "abraham_publish",
-            "abraham_daily",
-            "abraham_covenant",
-            "abraham_rest",
-            "abraham_seed",
-        ])
+        result.extend(
+            [
+                "abraham_publish",
+                "abraham_daily",
+                "abraham_covenant",
+                "abraham_rest",
+                "abraham_seed",
+            ]
+        )
     elif username == "verdelis":
-        result.extend([
-            "verdelis_seed",
-            "verdelis_plant_seed",
-            "verdelis_storyboard",
-            "verdelis_draft_storyboard",
-            "verdelis_film",
-        ])
+        result.extend(
+            [
+                "verdelis_seed",
+                "verdelis_plant_seed",
+                "verdelis_storyboard",
+                "verdelis_draft_storyboard",
+                "verdelis_film",
+            ]
+        )
 
     # Check for gigabrain tools via tools config toggle
     if tools_config and tools_config.get("gigabrain_tools"):

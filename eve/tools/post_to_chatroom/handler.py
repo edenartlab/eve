@@ -8,7 +8,7 @@ orchestration to contribute to the conversation after doing private work.
 from loguru import logger
 
 from eve.agent import Agent
-from eve.agent.session.models import ChatMessage, Session
+from eve.agent.session.models import Channel, ChatMessage, Session
 from eve.tool import ToolContext
 from eve.user import increment_message_count
 
@@ -57,16 +57,35 @@ async def handler(context: ToolContext):
 
     content = context.args.get("content", "")
     attachments = context.args.get("attachments") or []
+    if attachments:
+        from eve.s3 import upload_attachments_to_eden
+
+        attachments = await upload_attachments_to_eden(attachments)
 
     # Create message in the parent session
     new_message = ChatMessage(
         role="assistant",
         sender=agent.id,
-        session=parent_session.id,
+        session=[parent_session.id],
         content=content,
         attachments=attachments,
     )
     new_message.save()
+
+    # Add channel reference for tracking (use update() to only modify channel field)
+    # Convert to dict for MongoDB encoding
+    channel = Channel(type="eden", key=str(new_message.id))
+    new_message.update(channel=channel.model_dump())
+
+    # Distribute to OTHER agent_sessions (exclude the posting agent's own session)
+    if parent_session.agent_sessions and len(parent_session.agent_sessions) > 0:
+        from eve.agent.session.context import distribute_message_to_agent_sessions
+
+        await distribute_message_to_agent_sessions(
+            parent_session=parent_session,
+            message=new_message,
+            exclude_agent_id=agent.id,  # Don't send to the agent who just posted
+        )
 
     # Increment message count for the agent
     increment_message_count(agent.id)

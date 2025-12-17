@@ -57,7 +57,9 @@ async def rotate_agent_metadata_fn():
 async def process_cold_sessions_fn():
     """Scheduled function to process cold sessions for memory formation"""
     try:
-        from eve.agent.memory.memory_cold_sessions_processor import process_cold_sessions
+        from eve.agent.memory.memory_cold_sessions_processor import (
+            process_cold_sessions,
+        )
 
         await process_cold_sessions()
     except Exception as e:
@@ -87,7 +89,7 @@ async def run(
         tool_call_id=str(tool_call_id) if tool_call_id else None,
     )
     result = await handler(context)
-    return utils.upload_result(result)
+    return utils.upload_result(result, tool_key=tool_key)
 
 
 @task_handler_func
@@ -240,6 +242,118 @@ async def cleanup_stale_busy_states():
     except Exception as e:
         logger.error(f"Error in cleanup_stale_busy_states job: {e}", exc_info=True)
         sentry_sdk.capture_exception(e)
+
+
+async def cleanup_stuck_triggers():
+    """Detect and auto-pause triggers stuck in 'running' state for >65 minutes.
+
+    This function runs periodically to handle cases where triggers get stuck due to:
+    - Modal container crashes (OOM, SIGKILL)
+    - Network partitions
+    - Infrastructure issues
+    - Timeouts that bypass finally blocks
+
+    Also fixes triggers with broken next_scheduled_run values:
+    - Triggers with schedule but next_scheduled_run=None
+    """
+    try:
+        from datetime import datetime, timedelta, timezone
+
+        from eve.trigger import STUCK_TRIGGER_THRESHOLD_MINUTES, Trigger
+
+        threshold = datetime.now(timezone.utc) - timedelta(
+            minutes=STUCK_TRIGGER_THRESHOLD_MINUTES
+        )
+        logger.info(
+            f"[CLEANUP_TRIGGERS] Starting stuck trigger cleanup (threshold: {STUCK_TRIGGER_THRESHOLD_MINUTES} minutes)..."
+        )
+
+        stuck_triggers = list(
+            Trigger.find({"status": "running", "last_run_time": {"$lte": threshold}})
+        )
+
+        if not stuck_triggers:
+            logger.info("[CLEANUP_TRIGGERS] No stuck triggers found")
+            return 0
+
+        logger.warning(f"[CLEANUP_TRIGGERS] Found {len(stuck_triggers)} stuck triggers")
+
+        for trigger in stuck_triggers:
+            logger.warning(
+                f"[CLEANUP_TRIGGERS] Auto-pausing stuck trigger: id={trigger.id}, "
+                f"name='{trigger.name}', last_run_time={trigger.last_run_time}"
+            )
+
+            trigger.update(
+                status="paused",
+                error_count=2,  # Set to MAX_ERROR_COUNT to indicate auto-paused
+                last_error=f"Trigger stuck in running state since {trigger.last_run_time}. Auto-paused by cleanup job.",
+            )
+
+            # Send notification to user
+            from eve.trigger import notify_trigger_paused
+
+            notify_trigger_paused(
+                trigger,
+                f"Trigger was stuck in running state for over {STUCK_TRIGGER_THRESHOLD_MINUTES} minutes since {trigger.last_run_time}",
+            )
+
+        logger.info(
+            f"[CLEANUP_TRIGGERS] Auto-paused {len(stuck_triggers)} stuck triggers"
+        )
+
+        # Also check for triggers with broken next_scheduled_run values
+        # Conservative: only fix obviously wrong cases
+        logger.info(
+            "[CLEANUP_TRIGGERS] Checking for broken next_scheduled_run values..."
+        )
+
+        broken_triggers = list(
+            Trigger.find(
+                {
+                    "status": "active",  # Only fix active triggers
+                    "schedule": {"$ne": None, "$exists": True},  # Must have a schedule
+                    "next_scheduled_run": None,  # But next_scheduled_run is missing
+                }
+            )
+        )
+
+        if broken_triggers:
+            logger.warning(
+                f"[CLEANUP_TRIGGERS] Found {len(broken_triggers)} triggers with schedule but no next_scheduled_run"
+            )
+
+            from eve.trigger import calculate_next_scheduled_run
+
+            for trigger in broken_triggers:
+                try:
+                    next_run = calculate_next_scheduled_run(trigger.schedule)
+                    if next_run:
+                        trigger.update(next_scheduled_run=next_run)
+                        logger.info(
+                            f"[CLEANUP_TRIGGERS] Fixed trigger {trigger.id} ({trigger.name}): "
+                            f"set next_scheduled_run={next_run}"
+                        )
+                    else:
+                        # Schedule is exhausted, mark as finished
+                        trigger.update(status="finished")
+                        logger.info(
+                            f"[CLEANUP_TRIGGERS] Trigger {trigger.id} ({trigger.name}) schedule exhausted, "
+                            f"marked as finished"
+                        )
+                except Exception as e:
+                    logger.error(
+                        f"[CLEANUP_TRIGGERS] Failed to fix trigger {trigger.id}: {e}"
+                    )
+        else:
+            logger.info("[CLEANUP_TRIGGERS] No broken next_scheduled_run values found")
+
+        return len(stuck_triggers)
+
+    except Exception as e:
+        logger.error(f"Error in cleanup_stuck_triggers job: {e}", exc_info=True)
+        sentry_sdk.capture_exception(e)
+        return 0
 
 
 async def embed_recent_creations():

@@ -215,6 +215,7 @@ class EdenMessageType(Enum):
     AGENT_ADD = "agent_add"
     AGENT_REMOVE = "agent_remove"
     RATE_LIMIT = "rate_limit"
+    TRIGGER = "trigger"
 
 
 class EdenMessageAgentData(BaseModel):
@@ -239,6 +240,7 @@ class EdenMessageData(BaseModel):
 class Channel(Document):
     type: Literal["eden", "discord", "telegram", "twitter", "farcaster", "app"]
     key: Optional[str] = None
+    url: Optional[str] = None  # Permanent link to the message on the platform
 
 
 class TokenUsageBreakdown(BaseModel):
@@ -339,7 +341,7 @@ class ChatMessage(Document):
     name: Optional[str] = None
 
     channel: Optional[Channel] = None
-    session: Optional[ObjectId] = None
+    session: Optional[List[ObjectId]] = Field(default_factory=list)
     sender: Optional[ObjectId] = None
     triggering_user: Optional[ObjectId] = None
     billed_user: Optional[ObjectId] = None
@@ -759,6 +761,20 @@ class ChatMessage(Document):
 
             return schema
 
+    @classmethod
+    def ensure_indexes(cls):
+        """Ensure indexes exist for optimal query performance"""
+        collection = cls.get_collection()
+
+        # Index for looking up messages by channel (Discord message ID, etc.)
+        # Used for deduplication when multiple agents share a ChatMessage
+        collection.create_index(
+            [("channel.type", 1), ("channel.key", 1)],
+            name="channel_lookup_idx",
+            background=True,
+            sparse=True,
+        )
+
 
 @dataclass
 class ChatMessageRequestInput:
@@ -953,6 +969,7 @@ class Session(Document):
     platform: Optional[
         Literal["discord", "telegram", "twitter", "farcaster", "gmail", "app"]
     ] = None
+    discord_channel_id: Optional[str] = None  # Discord channel ID for discord_post tool
     trigger: Optional[ObjectId] = None
     active_requests: Optional[List[str]] = []
     extras: Optional[SessionExtras] = None  # Additional session configuration flags
@@ -1070,6 +1087,7 @@ class ClientType(Enum):
     TELEGRAM = "telegram"
     FARCASTER = "farcaster"
     TWITTER = "twitter"
+    INSTAGRAM = "instagram"
     SHOPIFY = "shopify"
     PRINTIFY = "printify"
     CAPTIONS = "captions"
@@ -1077,6 +1095,7 @@ class ClientType(Enum):
     GMAIL = "gmail"
     EMAIL = "email"
     APP = "app"
+    GOOGLE_CALENDAR = "google_calendar"
 
 
 class NotificationType(Enum):
@@ -1226,6 +1245,19 @@ class DeploymentSecretsTiktok(BaseModel):
     username: Optional[str] = None
 
 
+# Instagram Models (placeholder until full implementation)
+class DeploymentSettingsInstagram(BaseModel):
+    username: Optional[str] = None
+    ig_user_id: Optional[str] = None
+
+
+class DeploymentSecretsInstagram(BaseModel):
+    access_token: Optional[str] = None
+    refresh_token: Optional[str] = None
+    expires_at: Optional[datetime] = None
+    username: Optional[str] = None
+
+
 class DeploymentSettingsEmail(BaseModel):
     domain_id: Optional[str] = None
     sender_email: Optional[str] = None
@@ -1264,18 +1296,50 @@ class DeploymentSecretsGmail(BaseModel):
     reply_alias: Optional[str] = None
 
 
+# Google Calendar Models
+class DeploymentSettingsGoogleCalendar(BaseModel):
+    """User-configurable settings for Google Calendar deployment"""
+
+    calendar_id: str  # The specific calendar to use (e.g., "primary" or calendar ID)
+    calendar_name: Optional[str] = None  # Human-readable calendar name for UI
+    allow_write: bool = False  # Whether agent can create/modify events
+    allow_delete: bool = False  # Whether agent can delete events
+    default_reminder_minutes: Optional[int] = (
+        None  # Default reminder for created events
+    )
+    time_zone: Optional[str] = (
+        None  # Override timezone (defaults to calendar's timezone)
+    )
+
+
+class DeploymentSecretsGoogleCalendar(BaseModel):
+    """OAuth credentials for Google Calendar - automatically encrypted by KMS"""
+
+    access_token: str
+    refresh_token: str  # Required for long-term access
+    token_uri: str = "https://oauth2.googleapis.com/token"
+    client_id: str
+    client_secret: str
+    scopes: List[str] = ["https://www.googleapis.com/auth/calendar"]
+    expires_at: Optional[datetime] = None  # Token expiration time
+    google_user_id: Optional[str] = None  # Google account ID (sub claim)
+    google_email: str  # Email of the connected Google account
+
+
 # Combined Models
 class DeploymentSecrets(BaseModel):
     discord: DeploymentSecretsDiscord | None = None
     telegram: DeploymentSecretsTelegram | None = None
     farcaster: DeploymentSecretsFarcaster | None = None
     twitter: DeploymentSecretsTwitter | None = None
+    instagram: DeploymentSecretsInstagram | None = None
     shopify: DeploymentSecretsShopify | None = None
     printify: DeploymentSecretsPrintify | None = None
     captions: DeploymentSecretsCaptions | None = None
     tiktok: DeploymentSecretsTiktok | None = None
     email: DeploymentSecretsEmail | None = None
     gmail: DeploymentSecretsGmail | None = None
+    google_calendar: DeploymentSecretsGoogleCalendar | None = None
 
 
 class DeploymentConfig(BaseModel):
@@ -1283,12 +1347,14 @@ class DeploymentConfig(BaseModel):
     telegram: DeploymentSettingsTelegram | None = None
     farcaster: DeploymentSettingsFarcaster | None = None
     twitter: DeploymentSettingsTwitter | None = None
+    instagram: DeploymentSettingsInstagram | None = None
     shopify: DeploymentSettingsShopify | None = None
     printify: DeploymentSettingsPrintify | None = None
     captions: DeploymentSettingsCaptions | None = None
     tiktok: DeploymentSettingsTiktok | None = None
     email: DeploymentSettingsEmail | None = None
     gmail: DeploymentSettingsGmail | None = None
+    google_calendar: DeploymentSettingsGoogleCalendar | None = None
 
 
 @Collection("deployments2")

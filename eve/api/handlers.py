@@ -22,6 +22,7 @@ from eve.agent.memory.memory_models import messages_to_text, select_messages
 from eve.agent.session.models import (
     ChatMessage,
     ChatMessageRequestInput,
+    ClientType,
     Deployment,
     DeploymentConfig,
     DeploymentSecrets,
@@ -49,8 +50,10 @@ from eve.api.api_requests import (
     DeleteDeploymentRequestV2,
     DeploymentEmissionRequest,
     DeploymentInteractRequest,
+    GetDiscordChannelsRequest,
     PromptSessionRequest,
     ReactionRequest,
+    RefreshDiscordChannelsRequest,
     SessionCreationArgs,
     TaskRequest,
     UpdateDeploymentRequestV2,
@@ -173,23 +176,65 @@ async def handle_agent_tools_delete(request: AgentToolsDeleteRequest):
 async def handle_prompt_session(
     request: PromptSessionRequest, background_tasks: BackgroundTasks
 ):
-    handle = create_prompt_session_handle(request, background_tasks)
-    session_id = handle.session_id
+    """
+    Prompt a session using the unified orchestrator.
 
-    # Add user message first (decoupled from orchestration)
-    await handle.add_message()
+    This handler uses the new orchestrate() function which provides
+    full observability (Sentry, Langfuse, structured logging).
+    """
+    from eve.agent.session.orchestrator import (
+        OrchestrationMode,
+        OrchestrationRequest,
+        orchestrate,
+    )
+    from eve.agent.session.setup import setup_session
+
+    # Setup session first to get session_id
+    session = setup_session(
+        background_tasks=background_tasks,
+        session_id=request.session_id,
+        user_id=request.user_id,
+        request=request,
+    )
+    session_id = str(session.id)
+
+    # Build orchestration request
+    orch_request = OrchestrationRequest(
+        initiating_user_id=request.user_id,
+        session=session,
+        actor_agent_ids=request.actor_agent_ids,
+        message=request.message,
+        llm_config=request.llm_config,
+        update_config=request.update_config,
+        notification_config=request.notification_config,
+        thinking_override=request.thinking,
+        acting_user_id=request.acting_user_id,
+        api_key_id=request.api_key_id,
+        trigger_id=request.trigger,
+        mode=OrchestrationMode.API_REQUEST,
+        stream=request.stream,
+        background_tasks=background_tasks,
+    )
 
     if request.stream:
 
         async def event_generator():
             try:
+                from eve.api.sse_manager import sse_manager
                 from eve.utils import dumps_json
 
-                async for data in handle.stream_updates():
+                async for data in orchestrate(orch_request):
+                    # Broadcast to SSE manager for connected clients
+                    try:
+                        await sse_manager.broadcast(session_id, data)
+                    except Exception as sse_error:
+                        logger.error(f"Failed to broadcast to SSE: {sse_error}")
                     yield f"data: {dumps_json({'event': 'update', 'data': data})}\n\n"
                 yield f"data: {dumps_json({'event': 'done', 'data': ''})}\n\n"
             except Exception as e:
                 logger.error("Error in event_generator", exc_info=True)
+                from eve.utils import dumps_json
+
                 yield f"data: {dumps_json({'event': 'error', 'data': {'error': str(e)}})}\n\n"
 
         return StreamingResponse(
@@ -201,9 +246,14 @@ async def handle_prompt_session(
             },
         )
 
-    background_tasks.add_task(
-        handle.run,
-    )
+    # Non-streaming: run in background
+    async def run_orchestration():
+        from eve.api.helpers import emit_update
+
+        async for data in orchestrate(orch_request):
+            await emit_update(request.update_config, data, session_id=session_id)
+
+    background_tasks.add_task(run_orchestration)
 
     return {"session_id": session_id}
 
@@ -234,25 +284,63 @@ async def handle_session_run(
 
     Same interface as /sessions/prompt, but only runs orchestration.
     Requires session_id to be provided.
+
+    Uses the unified orchestrator for full observability.
     """
+    from eve.agent.session.orchestrator import (
+        OrchestrationMode,
+        OrchestrationRequest,
+        orchestrate,
+    )
+    from eve.agent.session.setup import setup_session
+
     if not request.session_id:
         raise APIError("session_id is required for /sessions/run", status_code=400)
 
-    handle = create_prompt_session_handle(request, background_tasks)
-    session_id = handle.session_id
+    # Load existing session
+    session = setup_session(
+        background_tasks=background_tasks,
+        session_id=request.session_id,
+        user_id=request.user_id,
+        request=request,
+    )
+    session_id = str(session.id)
 
-    # Run orchestration only (no message addition)
+    # Build orchestration request WITHOUT a message
+    orch_request = OrchestrationRequest(
+        initiating_user_id=request.user_id,
+        session=session,
+        actor_agent_ids=request.actor_agent_ids,
+        message=None,  # No message - just run orchestration
+        llm_config=request.llm_config,
+        update_config=request.update_config,
+        notification_config=request.notification_config,
+        thinking_override=request.thinking,
+        acting_user_id=request.acting_user_id,
+        api_key_id=request.api_key_id,
+        mode=OrchestrationMode.API_REQUEST,
+        stream=request.stream,
+        background_tasks=background_tasks,
+    )
+
     if request.stream:
 
         async def event_generator():
             try:
+                from eve.api.sse_manager import sse_manager
                 from eve.utils import dumps_json
 
-                async for data in handle.stream_updates():
+                async for data in orchestrate(orch_request):
+                    try:
+                        await sse_manager.broadcast(session_id, data)
+                    except Exception as sse_error:
+                        logger.error(f"Failed to broadcast to SSE: {sse_error}")
                     yield f"data: {dumps_json({'event': 'update', 'data': data})}\n\n"
                 yield f"data: {dumps_json({'event': 'done', 'data': ''})}\n\n"
             except Exception as e:
                 logger.error("Error in event_generator", exc_info=True)
+                from eve.utils import dumps_json
+
                 yield f"data: {dumps_json({'event': 'error', 'data': {'error': str(e)}})}\n\n"
 
         return StreamingResponse(
@@ -264,9 +352,14 @@ async def handle_session_run(
             },
         )
 
-    background_tasks.add_task(
-        handle.run,
-    )
+    # Non-streaming: run in background
+    async def run_orchestration():
+        from eve.api.helpers import emit_update
+
+        async for data in orchestrate(orch_request):
+            await emit_update(request.update_config, data, session_id=session_id)
+
+    background_tasks.add_task(run_orchestration)
 
     return {"session_id": session_id}
 
@@ -388,6 +481,42 @@ async def handle_session_cancel(request: CancelSessionRequest):
     except Exception as e:
         logger.error(f"Error sending session cancel signal: {e}", exc_info=True)
         raise APIError(f"Failed to send cancel signal: {str(e)}", status_code=500)
+
+
+@handle_errors
+async def handle_session_fields_update(request):
+    """Update session fields like context, title, etc.
+
+    This endpoint properly handles empty strings - an empty string will clear the field,
+    while None (omitted field) will leave it unchanged.
+    """
+    from bson import ObjectId
+
+    logger.info(f"[SESSION_UPDATE] Updating session {request.session_id}")
+
+    try:
+        session = Session.from_mongo(ObjectId(request.session_id))
+
+        # Build update dict - only include fields that were explicitly provided
+        # Use model_dump to get all fields, then filter based on what was set
+        request_data = request.model_dump(exclude={"session_id"}, exclude_unset=True)
+
+        # IMPORTANT: For fields that can be empty strings, we need special handling
+        # model_dump(exclude_unset=True) will include fields set to "" or None if explicitly provided
+        if request_data:
+            logger.info(
+                f"[SESSION_UPDATE] Updating fields: {list(request_data.keys())}"
+            )
+            logger.info(f"[SESSION_UPDATE] Values: {request_data}")
+            session.update(**request_data)
+            logger.info(f"[SESSION_UPDATE] Successfully updated session {session.id}")
+        else:
+            logger.info("[SESSION_UPDATE] No fields to update")
+
+        return {"success": True, "session_id": str(session.id)}
+    except Exception as e:
+        logger.error(f"[SESSION_UPDATE] Error updating session: {e}")
+        raise
 
 
 @handle_errors
@@ -566,7 +695,15 @@ async def handle_v2_deployment_update(request: UpdateDeploymentRequestV2):
 
     # Update deployment with both config and secrets if provided
     if update_dict:
-        deployment.update(**update_dict)
+        # Apply updates to deployment object and use save() to ensure
+        # secrets are encrypted via convert_to_mongo() hook
+        # (deployment.update() bypasses encryption)
+        if "config" in update_dict:
+            deployment.config = DeploymentConfig(**update_dict["config"])
+        if "secrets" in update_dict:
+            deployment.secrets = DeploymentSecrets(**update_dict["secrets"])
+
+        deployment.save()
 
         # Call platform-specific update hook if it exists
         try:
@@ -575,27 +712,12 @@ async def handle_v2_deployment_update(request: UpdateDeploymentRequestV2):
                 agent=agent, platform=deployment.platform, deployment=deployment
             )
 
-            # Reload deployment to get updated values from MongoDB
-            deployment.reload()
-
-            # Convert reloaded config/secrets to proper objects (MongoDB returns dicts)
-            new_config = (
-                DeploymentConfig(**deployment.config)
-                if isinstance(deployment.config, dict)
-                else deployment.config
-            )
-            new_secrets = (
-                DeploymentSecrets(**deployment.secrets)
-                if isinstance(deployment.secrets, dict)
-                else deployment.secrets
-            )
-
             # Call platform-specific update hook
             await client.update(
                 old_config=old_config,
-                new_config=new_config,
+                new_config=deployment.config,
                 old_secrets=old_secrets,
-                new_secrets=new_secrets,
+                new_secrets=deployment.secrets,
             )
         except Exception as e:
             logger.error(f"Error calling platform update hook: {e}")
@@ -1251,3 +1373,105 @@ async def handle_reaction(request: ReactionRequest):
             "message_id": request.message_id,
             "reactions": message.reactions,
         }
+
+
+@handle_errors
+async def handle_get_discord_channels(request: GetDiscordChannelsRequest):
+    """Get all guilds and channels for a Discord deployment."""
+    import logging
+
+    logger = logging.getLogger(__name__)
+    from eve.agent.deployments.discord_gateway import DiscordGuild
+
+    logger.info(
+        f"[handle_get_discord_channels] Request: deployment_id={request.deployment_id}, user_id={request.user_id}"
+    )
+
+    # Load deployment
+    deployment = Deployment.from_mongo(ObjectId(request.deployment_id))
+    if not deployment:
+        logger.warning(
+            f"[handle_get_discord_channels] Deployment not found: {request.deployment_id}"
+        )
+        raise APIError("Deployment not found", status_code=404)
+
+    logger.info(
+        f"[handle_get_discord_channels] Deployment found: user={deployment.user}, platform={deployment.platform}"
+    )
+
+    # Verify ownership - skip for admin calls (user_id from trusted backend)
+    # Note: The Eden API passes the requesting user's ID
+    # if str(deployment.user) != request.user_id:
+    #     logger.warning(f"[handle_get_discord_channels] Unauthorized: deployment.user={deployment.user}, request.user_id={request.user_id}")
+    #     raise APIError("Unauthorized", status_code=403)
+
+    # Verify it's a Discord deployment
+    if deployment.platform != ClientType.DISCORD:
+        logger.warning(
+            f"[handle_get_discord_channels] Not a Discord deployment: {deployment.platform}"
+        )
+        raise APIError("Not a Discord deployment", status_code=400)
+
+    # Query guilds from MongoDB
+    logger.info(
+        f"[handle_get_discord_channels] Querying guilds for deployment_id={request.deployment_id}"
+    )
+    guilds = list(DiscordGuild.find({"deployment_id": ObjectId(request.deployment_id)}))
+    logger.info(f"[handle_get_discord_channels] Found {len(guilds)} guilds")
+
+    # Get latest refresh time
+    last_refreshed = None
+    if guilds:
+        refresh_times = [g.last_refreshed_at for g in guilds if g.last_refreshed_at]
+        if refresh_times:
+            last_refreshed = max(refresh_times)
+
+    # Format response
+    guild_list = []
+    for guild in guilds:
+        guild_list.append(
+            {
+                "id": guild.guild_id,
+                "name": guild.name,
+                "icon": guild.icon,
+                "member_count": guild.member_count,
+                "channels": guild.channels,
+            }
+        )
+
+    logger.info(f"[handle_get_discord_channels] Returning {len(guild_list)} guilds")
+    return {
+        "guilds": guild_list,
+        "last_refreshed_at": last_refreshed.isoformat() if last_refreshed else None,
+    }
+
+
+@handle_errors
+async def handle_refresh_discord_channels(request: RefreshDiscordChannelsRequest):
+    """Refresh guilds and channels from Discord API."""
+    from eve.agent.deployments.discord_gateway import (
+        refresh_discord_guilds_and_channels,
+    )
+
+    # Load deployment
+    deployment = Deployment.from_mongo(ObjectId(request.deployment_id))
+    if not deployment:
+        raise APIError("Deployment not found", status_code=404)
+
+    # Verify ownership
+    if str(deployment.user) != request.user_id:
+        raise APIError("Unauthorized", status_code=403)
+
+    # Verify it's a Discord deployment
+    if deployment.platform != ClientType.DISCORD:
+        raise APIError("Not a Discord deployment", status_code=400)
+
+    # Call refresh function
+    result = await refresh_discord_guilds_and_channels(request.deployment_id)
+
+    return {
+        "success": True,
+        "guilds_count": result["guilds_count"],
+        "channels_count": result["channels_count"],
+        "guilds": result["guilds"],
+    }
