@@ -117,6 +117,8 @@ class PromptSessionRuntime:
         self.cancellation_event = asyncio.Event()
         self.tool_cancellation_events: Dict[str, asyncio.Event] = {}
         self.tool_was_cancelled = False
+        self.cancelled_tool_signatures: set[str] = set()
+        self.cancelled_tool_requests: Dict[str, Dict[str, Any]] = {}
         self.ably_client = None
         self.transaction = None
         self.active_request_registered = False
@@ -294,6 +296,9 @@ class PromptSessionRuntime:
         refreshed_messages = [system_message]
         if system_extras:
             refreshed_messages.extend(system_extras)
+        cancelled_note = self._build_cancelled_tool_notice()
+        if cancelled_note:
+            refreshed_messages.append(cancelled_note)
         refreshed_messages.extend(fresh_messages)
         refreshed_messages = label_message_channels(refreshed_messages, self.session)
         refreshed_messages = convert_message_roles(refreshed_messages, self.actor.id)
@@ -301,9 +306,56 @@ class PromptSessionRuntime:
         self.llm_context.metadata.generation_id = str(uuid.uuid4())
 
     def _maybe_disable_tools(self):
-        if self.tool_was_cancelled:
-            self.llm_context.tools = {}
-            self.llm_context.tool_choice = "none"
+        # Tool cancellations are handled per-call. Keep tools available for
+        # other calls instead of globally disabling them.
+        return
+
+    def _tool_signature(self, tool_call: ToolCall) -> str:
+        try:
+            args_payload = tool_call.args or {}
+            args_json = json.dumps(
+                args_payload,
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            )
+        except Exception:
+            args_json = ""
+        return f"{tool_call.tool}:{args_json}"
+
+    def _record_cancelled_tool_call(self, tool_call: ToolCall) -> None:
+        signature = self._tool_signature(tool_call)
+        if signature in self.cancelled_tool_signatures:
+            return
+        self.cancelled_tool_signatures.add(signature)
+        self.cancelled_tool_requests[signature] = {
+            "tool": tool_call.tool,
+            "args": tool_call.args or {},
+        }
+
+    def _build_cancelled_tool_notice(self) -> Optional[ChatMessage]:
+        if not self.cancelled_tool_requests:
+            return None
+
+        lines = [
+            "Tool calls cancelled by the user in this session run must NOT be retried",
+            "unless the user explicitly asks to retry them.",
+            "Cancelled calls:",
+        ]
+        for payload in self.cancelled_tool_requests.values():
+            try:
+                args = json.dumps(
+                    payload.get("args", {}),
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    default=str,
+                )
+            except Exception:
+                args = str(payload.get("args", {}))
+            lines.append(f"- {payload.get('tool')}: {args}")
+
+        content = "\n".join(lines)
+        return ChatMessage(role="system", content=content)
 
     def _select_provider(self):
         provider = get_provider(self.llm_context, instrumentation=self.instrumentation)
@@ -600,6 +652,26 @@ class PromptSessionRuntime:
         if not assistant_message.tool_calls:
             return
 
+        # Auto-cancel tool calls that match previously cancelled signatures.
+        for idx, tool_call in enumerate(assistant_message.tool_calls):
+            if tool_call.status == "cancelled":
+                continue
+            signature = self._tool_signature(tool_call)
+            if signature in self.cancelled_tool_signatures:
+                tool_call.status = "cancelled"
+                if assistant_message.tool_calls and idx < len(
+                    assistant_message.tool_calls
+                ):
+                    assistant_message.update_tool_call(idx, status="cancelled")
+                self.tool_was_cancelled = True
+                yield SessionUpdate(
+                    type=UpdateType.TOOL_CANCELLED,
+                    tool_name=tool_call.tool,
+                    tool_index=idx,
+                    result={"status": "cancelled", "reason": "previously_cancelled"},
+                    session_run_id=self.session_run_id,
+                )
+
         async with trace_async_operation(
             "tools.process_all", tool_count=len(assistant_message.tool_calls)
         ):
@@ -615,6 +687,11 @@ class PromptSessionRuntime:
                 self._ensure_not_cancelled()
                 if update.type == UpdateType.TOOL_CANCELLED:
                     self.tool_was_cancelled = True
+                    if update.tool_index is not None and assistant_message.tool_calls:
+                        if update.tool_index < len(assistant_message.tool_calls):
+                            self._record_cancelled_tool_call(
+                                assistant_message.tool_calls[update.tool_index]
+                            )
                 yield update
 
     def _register_active_request(self):

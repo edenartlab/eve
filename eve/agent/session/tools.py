@@ -51,6 +51,17 @@ def create_fake_tool_result(
     }
 
 
+def _get_tool_from_context(llm_context: LLMContext, tool_name: str) -> Optional[Tool]:
+    tools = llm_context.tools or {}
+    if isinstance(tools, dict):
+        return tools.get(tool_name)
+    # tools may be a list
+    for tool in tools:
+        if getattr(tool, "name", None) == tool_name:
+            return tool
+    return None
+
+
 async def async_run_tool_call_with_cancellation(
     llm_context: LLMContext,
     tool_call: ToolCall,
@@ -69,7 +80,14 @@ async def async_run_tool_call_with_cancellation(
     if tool_call.tool == "web_search":
         return tool_call.result
 
-    tool = llm_context.tools[tool_call.tool]
+    tool = _get_tool_from_context(llm_context, tool_call.tool)
+    if not tool:
+        return {
+            "status": "cancelled",
+            "error": "Tool unavailable",
+            "cost": 0,
+            "task": None,
+        }
 
     if is_fake_llm_mode() or should_force_fake_response(llm_context):
         return create_fake_tool_result(
@@ -364,7 +382,7 @@ async def process_tool_calls(
             if tool_call_id not in tool_cancellation_events:
                 tool_cancellation_events[tool_call_id] = asyncio.Event()
 
-            if tool_call.status == "completed":
+            if tool_call.status in ["completed", "cancelled"]:
                 continue
 
             tasks.append(
