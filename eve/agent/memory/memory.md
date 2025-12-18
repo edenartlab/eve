@@ -12,6 +12,7 @@
 4. [Proposed New Architecture](#4-proposed-new-architecture)
 5. [Open Questions & Decisions](#5-open-questions--decisions)
 6. [Implementation Plan](#6-implementation-plan)
+7. [MongoDB Atlas Setup Requirements](#7-mongodb-atlas-setup-requirements)
 
 ---
 
@@ -92,7 +93,7 @@ All memory types follow a fundamental pattern:
 
 ### `memory/__init__.py`
 **Purpose**: Public exports for the memory module
-**Exports**: `GraphitiConfig`, `init_graphiti`, `MemoryBackend`, `MongoMemoryBackend`, `GraphitiMemoryBackend`, `MemoryService`, `memory_service`
+**Exports**: `MemoryBackend`, `MongoMemoryBackend`, `MemoryService`, `memory_service`
 
 ### `memory/memory_models.py` (546 lines)
 **Purpose**: Data models and utility functions
@@ -269,11 +270,6 @@ class MemoryService:
 **Classes:**
 - `MemoryBackend` (ABC) - Abstract interface
 - `MongoMemoryBackend` - Concrete implementation (wraps existing functions)
-- `GraphitiMemoryBackend` - Stub for future implementation
-
-### `memory/graphiti.py` (96 lines)
-**Purpose**: Graphiti (graph-based memory) initialization helpers
-**Status**: Optional dependency, not fully integrated
 
 ### `memory/memory_update_shard.py` (81 lines)
 **Purpose**: Utility script to update shard facts manually
@@ -329,6 +325,7 @@ This is expensive and adds latency.
 - Atomic items (facts, episodes) are stored but not vector-indexed
 - No semantic search capability
 - Currently relies on FIFO recency, not relevance
+- **Solution**: Adopt MongoDB Atlas vector search pipeline (see Section 4)
 
 ---
 
@@ -432,10 +429,19 @@ class MemoryAtom(Document):
     atom_type: Literal["consolidated", "atomic"]
     content: str
 
+    # Temporal (CRITICAL: every memory must have formation timestamp)
+    formed_at: datetime  # When this memory was extracted/formed
+    created_at: datetime = datetime.now(timezone.utc)
+
     # Provenance
     source_session_id: ObjectId
     source_message_ids: List[ObjectId] = []
     related_users: List[ObjectId] = []
+
+    # RAG support (for long-term storage atoms)
+    embedding: Optional[List[float]] = None  # 1536-dim vector for text-embedding-3-small
+    embedding_model: Optional[str] = None
+    rag_indexed: bool = False  # Whether this atom is searchable via RAG
 ```
 
 ### 4.3 Stream Type Mappings
@@ -523,7 +529,419 @@ class MemoryStreamOps:
         self.stream.last_updated_at = datetime.now(timezone.utc)
 ```
 
-### 4.5 Proposed File Structure
+### 4.5 MongoDB RAG Pipeline Integration
+
+The RAG system is adopted from the MongoDB-RAG-Agent pattern and provides semantic retrieval for long-term memory storage.
+
+#### 4.5.1 Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        MEMORY RETRIEVAL FLOW                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Session Context (query)                                                    │
+│       │                                                                      │
+│       ▼                                                                      │
+│  ┌─────────────────────────────────────────────────────────────┐            │
+│  │ 1. Always-in-Context Layer                                   │            │
+│  │   ├── Consolidated memory blobs (fully_formed)              │            │
+│  │   └── Recent unabsorbed atoms (awaiting consolidation)      │            │
+│  └─────────────────────────────────────────────────────────────┘            │
+│       │                                                                      │
+│       ▼                                                                      │
+│  ┌─────────────────────────────────────────────────────────────┐            │
+│  │ 2. RAG Augmentation Layer (MongoDB Vector Search)           │            │
+│  │   ├── Query embedding generation (OpenAI text-embedding-3)  │            │
+│  │   ├── Hybrid search (semantic + keyword via RRF)            │            │
+│  │   └── Filter by stream scope (session/user/agent)           │            │
+│  └─────────────────────────────────────────────────────────────┘            │
+│       │                                                                      │
+│       ▼                                                                      │
+│  ┌─────────────────────────────────────────────────────────────┐            │
+│  │ 3. Assembled Memory Context (XML)                            │            │
+│  │   ├── Static: consolidated blobs + recent atoms             │            │
+│  │   └── Dynamic: RAG-retrieved relevant memories              │            │
+│  └─────────────────────────────────────────────────────────────┘            │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 4.5.2 MongoDB Collections & Indexes
+
+**`memory_atoms` Collection Schema:**
+```python
+{
+  "_id": ObjectId,
+  "stream_id": ObjectId,           # Foreign key to memory_streams
+  "atom_type": "consolidated" | "atomic",
+  "content": str,                  # The memory text
+  "embedding": [float, ...],       # 1536-dim vector (MUST be native array, NOT string)
+  "formed_at": datetime,           # When memory was extracted (CRITICAL)
+  "created_at": datetime,
+  "source_session_id": ObjectId,
+  "source_message_ids": [ObjectId],
+  "related_users": [ObjectId],
+  "embedding_model": str,
+  "rag_indexed": bool
+}
+```
+
+**Required MongoDB Atlas Search Indexes:**
+
+1. **Vector Search Index** (`memory_vector_index`):
+```json
+{
+  "fields": [
+    {
+      "type": "vector",
+      "path": "embedding",
+      "numDimensions": 1536,
+      "similarity": "cosine"
+    },
+    {
+      "type": "filter",
+      "path": "stream_id"
+    },
+    {
+      "type": "filter",
+      "path": "rag_indexed"
+    }
+  ]
+}
+```
+
+2. **Text Search Index** (`memory_text_index`):
+```json
+{
+  "mappings": {
+    "dynamic": false,
+    "fields": {
+      "content": {
+        "type": "string",
+        "analyzer": "lucene.standard"
+      }
+    }
+  }
+}
+```
+
+#### 4.5.3 Embedding Generation
+
+```python
+class MemoryEmbedder:
+    """Generates embeddings for memory atoms."""
+
+    def __init__(
+        self,
+        model: str = "text-embedding-3-small",
+        batch_size: int = 100
+    ):
+        self.model = model
+        self.batch_size = batch_size
+        self.dimensions = 1536
+        self.client = openai.AsyncOpenAI()
+
+    async def embed_atoms(
+        self,
+        atoms: List[MemoryAtom]
+    ) -> List[MemoryAtom]:
+        """Generate embeddings for atoms in batches."""
+        for i in range(0, len(atoms), self.batch_size):
+            batch = atoms[i:i + self.batch_size]
+            texts = [atom.content for atom in batch]
+
+            response = await self.client.embeddings.create(
+                model=self.model,
+                input=texts
+            )
+
+            for atom, embedding_data in zip(batch, response.data):
+                atom.embedding = embedding_data.embedding  # Native list[float]
+                atom.embedding_model = self.model
+                atom.rag_indexed = True
+
+        return atoms
+```
+
+#### 4.5.4 Hybrid Search with Reciprocal Rank Fusion
+
+```python
+async def search_memories(
+    query: str,
+    stream_ids: List[ObjectId],       # Filter by relevant streams
+    match_count: int = 10,
+    formed_after: Optional[datetime] = None,  # Temporal filtering
+    search_type: str = "hybrid"       # "hybrid", "semantic", or "text"
+) -> List[MemorySearchResult]:
+    """
+    Search memories using MongoDB Atlas hybrid search.
+
+    Combines:
+    - Semantic search: vector similarity on embeddings
+    - Text search: keyword matching with fuzzy support
+    - Reciprocal Rank Fusion: merge rankings without score normalization
+    """
+
+    if search_type == "hybrid":
+        # Run both searches concurrently
+        semantic_results, text_results = await asyncio.gather(
+            _semantic_search(query, stream_ids, match_count * 2, formed_after),
+            _text_search(query, stream_ids, match_count * 2, formed_after)
+        )
+
+        # Merge with RRF (k=60 is industry standard)
+        return _reciprocal_rank_fusion(
+            [semantic_results, text_results],
+            k=60,
+            limit=match_count
+        )
+    elif search_type == "semantic":
+        return await _semantic_search(query, stream_ids, match_count, formed_after)
+    else:
+        return await _text_search(query, stream_ids, match_count, formed_after)
+
+
+async def _semantic_search(
+    query: str,
+    stream_ids: List[ObjectId],
+    match_count: int,
+    formed_after: Optional[datetime]
+) -> List[MemorySearchResult]:
+    """MongoDB $vectorSearch aggregation."""
+
+    query_embedding = await get_embedding(query)
+
+    # Build filter for stream scope
+    filter_conditions = {
+        "stream_id": {"$in": stream_ids},
+        "rag_indexed": True
+    }
+    if formed_after:
+        filter_conditions["formed_at"] = {"$gte": formed_after}
+
+    pipeline = [
+        {
+            "$vectorSearch": {
+                "index": "memory_vector_index",
+                "queryVector": query_embedding,
+                "path": "embedding",
+                "numCandidates": match_count * 10,  # 10x for quality
+                "limit": match_count,
+                "filter": filter_conditions
+            }
+        },
+        {
+            "$project": {
+                "content": 1,
+                "stream_id": 1,
+                "formed_at": 1,
+                "similarity": {"$meta": "vectorSearchScore"}
+            }
+        }
+    ]
+
+    collection = db.memory_atoms
+    return [doc async for doc in collection.aggregate(pipeline)]
+
+
+def _reciprocal_rank_fusion(
+    result_lists: List[List[MemorySearchResult]],
+    k: int = 60,
+    limit: int = 10
+) -> List[MemorySearchResult]:
+    """
+    Merge ranked lists using RRF.
+
+    Formula: RRF_score(d) = Σ(1 / (k + rank))
+
+    Benefits:
+    - Scale-independent: works with different scoring systems
+    - No normalization needed
+    - k=60 is battle-tested across datasets
+    """
+    rrf_scores: Dict[str, float] = {}
+    atom_map: Dict[str, MemorySearchResult] = {}
+
+    for results in result_lists:
+        for rank, result in enumerate(results):
+            atom_id = str(result["_id"])
+            rrf_score = 1.0 / (k + rank)
+
+            if atom_id in rrf_scores:
+                rrf_scores[atom_id] += rrf_score
+            else:
+                rrf_scores[atom_id] = rrf_score
+                atom_map[atom_id] = result
+
+    sorted_ids = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
+    return [atom_map[atom_id] for atom_id, _ in sorted_ids[:limit]]
+```
+
+#### 4.5.5 Memory Flow: Extraction → Storage → RAG
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          UNIFIED MEMORY FLOW                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  STEP 1: EXTRACTION (Single LLM Call)                                       │
+│  ─────────────────────────────────────                                       │
+│  Conversation messages → Single extraction prompt with sub-prompts:          │
+│                                                                              │
+│  ┌───────────────────────────────────────────────────────────────┐          │
+│  │ <extraction_prompt>                                            │          │
+│  │   <session_memories>                                           │          │
+│  │     Extract session episodes (temporary, for current context)  │          │
+│  │   </session_memories>                                          │          │
+│  │                                                                │          │
+│  │   <user_memories>                                              │          │
+│  │     Extract user directives (long-term, for RAG)               │          │
+│  │   </user_memories>                                             │          │
+│  │                                                                │          │
+│  │   <collective_memories>                                        │          │
+│  │     For each active shard:                                     │          │
+│  │       Extract facts (long-term, for RAG)                       │          │
+│  │       Extract suggestions (for consolidation)                  │          │
+│  │   </collective_memories>                                       │          │
+│  │ </extraction_prompt>                                           │          │
+│  └───────────────────────────────────────────────────────────────┘          │
+│       │                                                                      │
+│       ▼                                                                      │
+│  STEP 2: ROUTING (Based on memory_type)                                     │
+│  ──────────────────────────────────────                                      │
+│  Each extracted memory has:                                                  │
+│    - memory_type: session | user | collective                               │
+│    - storage_type: temporary | long_term                                    │
+│    - formed_at: timestamp (ALWAYS present)                                  │
+│                                                                              │
+│  ┌────────────────┬──────────────────────────────────────────────┐          │
+│  │ Memory Type    │ Destination                                  │          │
+│  ├────────────────┼──────────────────────────────────────────────┤          │
+│  │ session        │ Temporary: recent context list only          │          │
+│  │ user           │ Long-term: RAG-indexed + consolidation       │          │
+│  │ collective     │ Long-term: RAG-indexed + consolidation       │          │
+│  └────────────────┴──────────────────────────────────────────────┘          │
+│       │                                                                      │
+│       ▼                                                                      │
+│  STEP 3: STORAGE & EMBEDDING                                                │
+│  ────────────────────────────                                               │
+│  For long-term memories:                                                    │
+│    1. Generate embedding (text-embedding-3-small)                           │
+│    2. Store in memory_atoms with embedding                                  │
+│    3. Add to stream's unabsorbed list                                       │
+│    4. Trigger consolidation if threshold met                                │
+│                                                                              │
+│  For temporary memories:                                                    │
+│    1. Store in memory_atoms (no embedding)                                  │
+│    2. Add to stream's recent list (FIFO)                                    │
+│       │                                                                      │
+│       ▼                                                                      │
+│  STEP 4: CONTEXT ASSEMBLY (On each message)                                 │
+│  ─────────────────────────────────────────                                  │
+│  ┌─────────────────────────────────────────────────────────────┐            │
+│  │ Always-in-Context:                                          │            │
+│  │   ├── Session: recent episodes (FIFO, no embedding)         │            │
+│  │   ├── User: consolidated blob + recent directives           │            │
+│  │   └── Collective: consolidated blobs + recent suggestions   │            │
+│  │                                                             │            │
+│  │ RAG-Augmented (query = session context summary):            │            │
+│  │   ├── User memories: top-K relevant facts                  │            │
+│  │   └── Collective memories: top-K relevant facts per shard  │            │
+│  └─────────────────────────────────────────────────────────────┘            │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 4.5.6 Context Assembly with RAG
+
+```python
+async def assemble_memory_context(
+    session: Session,
+    agent: Agent,
+    user: User,
+    enable_rag: bool = True,
+    rag_match_count: int = 5
+) -> str:
+    """
+    Assemble complete memory context for prompt injection.
+
+    Combines:
+    1. Static: consolidated blobs + recent unabsorbed atoms
+    2. Dynamic: RAG-retrieved relevant memories (when enabled)
+    """
+
+    # Get all relevant streams
+    session_stream = await get_stream(stream_type="session", scope={"session_id": session.id})
+    user_stream = await get_stream(stream_type="user", scope={"agent_id": agent.id, "user_id": user.id})
+    agent_streams = await get_streams(stream_type="agent", scope={"agent_id": agent.id}, is_active=True)
+
+    # Collect stream IDs for RAG query
+    all_stream_ids = [user_stream.id] + [s.id for s in agent_streams]
+
+    # Build query from recent session context
+    rag_query = _build_rag_query(session)
+
+    # Get RAG results if enabled
+    rag_results = []
+    if enable_rag and rag_query:
+        rag_results = await search_memories(
+            query=rag_query,
+            stream_ids=all_stream_ids,
+            match_count=rag_match_count,
+            search_type="hybrid"
+        )
+
+    # Build XML context
+    return _build_memory_xml(
+        session_stream=session_stream,
+        user_stream=user_stream,
+        agent_streams=agent_streams,
+        rag_results=rag_results
+    )
+
+
+def _build_memory_xml(
+    session_stream: MemoryStream,
+    user_stream: MemoryStream,
+    agent_streams: List[MemoryStream],
+    rag_results: List[MemorySearchResult]
+) -> str:
+    """Build XML memory context with RAG augmentation."""
+
+    parts = ['<MemoryContext>']
+
+    # Collective/Agent memories
+    parts.append('  <CollectiveMemory>')
+    for stream in agent_streams:
+        parts.append(f'    <MemoryShard name="{stream.name}">')
+        parts.append(f'      {stream.fully_formed}')
+        parts.append('    </MemoryShard>')
+    parts.append('  </CollectiveMemory>')
+
+    # User memory
+    parts.append('  <UserMemory>')
+    parts.append(f'    {user_stream.fully_formed}')
+    parts.append('  </UserMemory>')
+
+    # Session context
+    parts.append('  <CurrentConversation>')
+    parts.append(f'    {session_stream.fully_formed}')
+    parts.append('  </CurrentConversation>')
+
+    # RAG-retrieved memories (augmentation)
+    if rag_results:
+        parts.append('  <RelevantMemories description="Contextually retrieved from long-term storage">')
+        for result in rag_results:
+            age = _format_age(result["formed_at"])
+            parts.append(f'    - {result["content"]} (formed: {age})')
+        parts.append('  </RelevantMemories>')
+
+    parts.append('</MemoryContext>')
+    return '\n'.join(parts)
+```
+
+### 4.6 Proposed File Structure
 
 ```
 eve/agent/memory2/              # New folder alongside existing memory/
@@ -534,8 +952,10 @@ eve/agent/memory2/              # New folder alongside existing memory/
 ├── prompts.py                  # Default prompt templates
 ├── context.py                  # assemble_memory_context()
 ├── formation.py                # maybe_form_memories(), form_memories()
-├── extraction.py               # LLM extraction logic (single or batched)
+├── extraction.py               # LLM extraction logic (single batched call)
 ├── consolidation.py            # LLM consolidation logic
+├── embedder.py                 # MemoryEmbedder class for embedding generation
+├── rag.py                      # search_memories(), hybrid search, RRF
 ├── migration.py                # One-time migration script
 ├── service.py                  # High-level MemoryService facade
 └── backends.py                 # Backend abstraction
@@ -545,64 +965,68 @@ eve/agent/memory2/              # New folder alongside existing memory/
 
 ## 5. Open Questions & Decisions
 
-### 5.1 LLM Call Efficiency (MAJOR DECISION NEEDED)
+### 5.1 LLM Call Efficiency (DECIDED)
 
 **Problem**: Multiple LLM calls per memory formation is expensive.
 
-**Options:**
+**Decision**: **Option A - Batched Multi-Stream Extraction**
 
-#### Option A: Batched Multi-Stream Extraction (Recommended for cost)
-Single LLM call extracts for ALL streams at once.
+Single LLM call extracts for ALL active memory types at once. The prompt includes sub-prompts for each memory type that is active (session, user, collective).
 
 ```python
-BATCHED_PROMPT = """
-Extract memories for multiple streams:
+UNIFIED_EXTRACTION_PROMPT = """
+Extract memories from this conversation for multiple memory types.
 
 <conversation>{conversation_text}</conversation>
 
-<stream id="1" name="Session Episodes">
-<context>{session_context}</context>
-<instructions>Extract 1 episode summary (≤50 words)</instructions>
-</stream>
+{# Only include sub-prompts for active memory types #}
+{% if session_active %}
+<session_memories>
+Extract 1-2 session episodes summarizing key events (≤50 words each).
+These are temporary memories for current conversation context only.
+</session_memories>
+{% endif %}
 
-<stream id="2" name="User Preferences">
-<context>{user_context}</context>
-<instructions>Extract 0-4 directives (≤25 words each)</instructions>
-</stream>
+{% if user_active %}
+<user_memories>
+Extract 0-4 user directives about preferences, instructions, or context (≤25 words each).
+These will be stored long-term and indexed for RAG retrieval.
+</user_memories>
+{% endif %}
 
-<stream id="3" name="Project Alpha">
-<context>{shard_context}</context>
+{% if collective_active %}
+<collective_memories>
+{% for shard in active_shards %}
+<shard name="{shard.name}">
+<context>{shard.extraction_prompt}</context>
 <instructions>
-  consolidated: 0-5 suggestions (≤35 words)
-  atomic: 0-2 facts (≤30 words)
+  - facts: 0-3 factual observations (≤30 words, long-term RAG storage)
+  - suggestions: 0-2 behavioral suggestions (≤35 words, for consolidation)
 </instructions>
-</stream>
+</shard>
+{% endfor %}
+</collective_memories>
+{% endif %}
 
-Return JSON: {"1": {...}, "2": {...}, "3": {...}}
+Return JSON with formed_at timestamp for each memory:
+{
+  "session": [{"content": "...", "formed_at": "ISO8601"}],
+  "user": [{"content": "...", "formed_at": "ISO8601"}],
+  "collective": {
+    "shard_name": {
+      "facts": [{"content": "...", "formed_at": "ISO8601"}],
+      "suggestions": [{"content": "...", "formed_at": "ISO8601"}]
+    }
+  }
+}
 """
 ```
 
-**Pros**: Single call regardless of stream count, 75-90% cost reduction
-**Cons**: Complex prompt, potential cross-contamination between streams
-
-#### Option B: Two-Stage Pipeline
-1. Single call extracts ALL memorable content as raw candidates
-2. Route candidates to streams (can be rule-based or embedding-based)
-
-**Pros**: Clean separation, routing can be cheaper
-**Cons**: Two stages add latency, routing accuracy may suffer
-
-#### Option C: Parallel Separate Calls (Current)
-Keep separate prompts, run in parallel with `asyncio.gather`.
-
-**Pros**: Isolated quality per stream
-**Cons**: Multiple API calls, cost adds up
-
-#### Option D: Configurable Per-Stream
-Allow streams to opt into batching or request isolated extraction.
-
-**Pros**: Flexibility
-**Cons**: Complexity in orchestration
+**Benefits**:
+- Single LLM call regardless of active stream count
+- 75-90% cost reduction compared to separate calls
+- All memories extracted with consistent timestamps
+- Sub-prompts can be conditionally included based on active memory types
 
 ### 5.2 Session Consolidation
 
@@ -633,41 +1057,128 @@ This provides maximum flexibility but requires careful prompt management.
 ## 6. Implementation Plan
 
 ### Phase 1: Core Models & Basic Operations
-1. Create `memory2/models.py` with `MemoryStream` and `MemoryAtom`
+1. Create `memory2/models.py` with `MemoryStream` and `MemoryAtom` (including `formed_at` timestamp, embedding fields)
 2. Create `memory2/ops.py` with `MemoryStreamOps` class
-3. Create `memory2/prompts.py` with default prompts
-4. Create `memory2/constants.py` with default values
+3. Create `memory2/prompts.py` with default prompts (unified extraction prompt)
+4. Create `memory2/constants.py` with default values and embedding config
 
-### Phase 2: Extraction & Consolidation
-1. Create `memory2/extraction.py` - start with separate calls, optimize later
-2. Create `memory2/consolidation.py` - generic consolidation logic
-3. Wire up extraction → add → consolidation flow
+### Phase 2: Unified Extraction
+1. Create `memory2/extraction.py` with single-call batched extraction
+2. Implement prompt templating for conditional sub-prompts (session/user/collective)
+3. Parse structured JSON output with `formed_at` timestamps for each memory
+4. Route extracted memories to appropriate streams based on type
 
-### Phase 3: Context Assembly
+### Phase 3: Embedding & RAG Infrastructure
+1. Create `memory2/embedder.py` with `MemoryEmbedder` class
+   - Batch embedding generation using OpenAI text-embedding-3-small
+   - Store embeddings as native MongoDB arrays (NOT strings)
+2. Create `memory2/rag.py` with search functions:
+   - `search_memories()` - main entry point
+   - `_semantic_search()` - MongoDB $vectorSearch aggregation
+   - `_text_search()` - MongoDB Atlas Search with fuzzy matching
+   - `_reciprocal_rank_fusion()` - merge rankings with k=60
+3. Create MongoDB Atlas Search indexes:
+   - Vector index on `memory_atoms.embedding` (1536 dim, cosine)
+   - Text index on `memory_atoms.content`
+
+### Phase 4: Consolidation
+1. Create `memory2/consolidation.py` - generic consolidation logic
+2. Wire up extraction → embedding → storage → consolidation flow
+3. Handle long-term vs temporary memory routing:
+   - Long-term (user/collective facts): embed + index + consolidate
+   - Temporary (session episodes): store without embedding, FIFO eviction
+
+### Phase 5: Context Assembly with RAG
 1. Create `memory2/context.py` with `assemble_memory_context()`
-2. Handle all stream types uniformly
-3. Generate XML output compatible with current format
+2. Implement two-layer context assembly:
+   - **Always-in-Context**: consolidated blobs + recent unabsorbed atoms
+   - **RAG-Augmented**: query long-term storage for relevant memories
+3. Build RAG query from recent session context
+4. Generate XML output with `<RelevantMemories>` section for RAG results
+5. Include `formed_at` age formatting for all memories
 
-### Phase 4: Formation Orchestration
+### Phase 6: Formation Orchestration
 1. Create `memory2/formation.py` with `maybe_form_memories()`, `form_memories()`
-2. Get streams for context (session, user, agent shards)
-3. Extract, add, assemble in unified flow
+2. Determine active memory types (session, user, collective) based on config
+3. Single LLM call for extraction with conditional sub-prompts
+4. Route memories, generate embeddings for long-term, save atoms
+5. Update stream states, trigger consolidation if thresholds met
 
-### Phase 5: Service Layer & Integration
+### Phase 7: Service Layer & Integration
 1. Create `memory2/service.py` facade
 2. Create `memory2/backends.py` with new backend
-3. Allow switching between old and new via config
+3. Add config flag to switch between old and new memory system
+4. Implement graceful fallback if RAG search fails
 
-### Phase 6: Migration
+### Phase 8: Migration
 1. Create `memory2/migration.py` script
 2. Migrate `UserMemory` → user streams
 3. Migrate `AgentMemory` → agent streams
-4. Validate data integrity
+4. Backfill embeddings for existing atoms (batch process)
+5. Create MongoDB Atlas Search indexes
+6. Validate data integrity and search functionality
 
-### Phase 7: LLM Optimization (Post-Validation)
-1. Implement batched extraction (Option A)
-2. Measure quality vs cost tradeoff
-3. Add fallback to separate calls if batch fails
+### Phase 9: Testing & Optimization
+1. Test hybrid search quality (semantic vs text vs hybrid)
+2. Tune RAG parameters (match_count, RRF k value)
+3. Monitor embedding costs and latency
+4. Add caching for frequent queries if needed
+
+---
+
+## 7. MongoDB Atlas Setup Requirements
+
+### 7.1 Required Search Indexes
+
+These must be created manually in MongoDB Atlas UI:
+
+**1. Vector Search Index** (name: `memory_vector_index`, collection: `memory_atoms`):
+```json
+{
+  "fields": [
+    {
+      "type": "vector",
+      "path": "embedding",
+      "numDimensions": 1536,
+      "similarity": "cosine"
+    },
+    {
+      "type": "filter",
+      "path": "stream_id"
+    },
+    {
+      "type": "filter",
+      "path": "rag_indexed"
+    },
+    {
+      "type": "filter",
+      "path": "formed_at"
+    }
+  ]
+}
+```
+
+**2. Text Search Index** (name: `memory_text_index`, collection: `memory_atoms`):
+```json
+{
+  "mappings": {
+    "dynamic": false,
+    "fields": {
+      "content": {
+        "type": "string",
+        "analyzer": "lucene.standard"
+      }
+    }
+  }
+}
+```
+
+### 7.2 Cost Considerations
+
+- **MongoDB Atlas M0 (Free Tier)**: Supports vector search and Atlas Search
+- **Embedding API costs**: ~$0.02 per 1M tokens for text-embedding-3-small
+- **Estimated memory extraction**: ~50 tokens per memory → ~$0.001 per 1000 memories embedded
+- **Search is free**: No additional cost for vector/text search queries
 
 ---
 
@@ -735,4 +1246,4 @@ async def assemble_memory_context(session, agent, user, ...):
 
 ---
 
-*End of document. Last updated: 2025-12-18*
+*End of document. Last updated: 2025-12-18 (Updated with MongoDB RAG integration plan)*
