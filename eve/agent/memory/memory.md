@@ -433,6 +433,10 @@ class MemoryAtom(Document):
     formed_at: datetime  # When this memory was extracted/formed
     created_at: datetime = datetime.now(timezone.utc)
 
+    # Access tracking (for future memory decay/importance scoring)
+    access_count: int = 0  # Incremented each time this memory is retrieved via RAG
+    last_accessed_at: Optional[datetime] = None  # Updated on RAG retrieval
+
     # Provenance
     source_session_id: ObjectId
     source_message_ids: List[ObjectId] = []
@@ -495,20 +499,39 @@ class MemoryStreamOps:
         self.stream.save()
 
     async def consolidate(self) -> None:
-        """Merge unabsorbed atoms into consolidated_content"""
+        """
+        Merge unabsorbed atoms into consolidated_content.
+
+        ERROR HANDLING STRATEGY:
+        - NEVER remove atoms from unabsorbed_consolidated_ids until consolidated_content is saved
+        - If consolidation fails, atoms remain in unabsorbed list (now 1+ over threshold)
+        - Next memory formation will trigger consolidation again
+        - This ensures we never lose memories even if LLM call fails
+        """
         if not self.stream.consolidation_prompt:
             return
 
         unabsorbed = MemoryAtom.find({"_id": {"$in": self.stream.unabsorbed_consolidated_ids}})
-        new_content = await llm_consolidate(
-            self.stream.consolidation_prompt,
-            self.stream.consolidated_content,
-            unabsorbed,
-            max_words=self.stream.consolidated_max_words
-        )
 
-        self.stream.consolidated_content = new_content
-        self.stream.unabsorbed_consolidated_ids = []
+        try:
+            new_content = await llm_consolidate(
+                self.stream.consolidation_prompt,
+                self.stream.consolidated_content,
+                unabsorbed,
+                max_words=self.stream.consolidated_max_words
+            )
+
+            # CRITICAL: Only clear unabsorbed list AFTER successful save
+            # This is atomic - if save fails, unabsorbed_consolidated_ids remain intact
+            self.stream.consolidated_content = new_content
+            self.stream.unabsorbed_consolidated_ids = []
+            self.stream.save()
+
+        except Exception as e:
+            # Consolidation failed - DO NOT clear unabsorbed_consolidated_ids
+            # They will be retried on next memory formation
+            logger.error(f"Consolidation failed for stream {self.stream.id}: {e}")
+            # Stream state unchanged, memories safe in unabsorbed list
 
     async def regenerate_fully_formed(self) -> None:
         """Build fully_formed string from current state"""
@@ -540,32 +563,39 @@ The RAG system is adopted from the MongoDB-RAG-Agent pattern and provides semant
 │                        MEMORY RETRIEVAL FLOW                                 │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  Session Context (query)                                                    │
-│       │                                                                      │
-│       ▼                                                                      │
+│  AUTOMATIC (every message):                                                 │
+│  ─────────────────────────                                                  │
 │  ┌─────────────────────────────────────────────────────────────┐            │
-│  │ 1. Always-in-Context Layer                                   │            │
+│  │ Always-in-Context Layer (Static)                             │            │
 │  │   ├── Consolidated memory blobs (fully_formed)              │            │
 │  │   └── Recent unabsorbed atoms (awaiting consolidation)      │            │
 │  └─────────────────────────────────────────────────────────────┘            │
 │       │                                                                      │
 │       ▼                                                                      │
+│  Assembled Memory Context (XML) injected into prompt                        │
+│                                                                              │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│                                                                              │
+│  ON-DEMAND (agent tool call):                                               │
+│  ────────────────────────────                                               │
 │  ┌─────────────────────────────────────────────────────────────┐            │
-│  │ 2. RAG Augmentation Layer (MongoDB Vector Search)           │            │
+│  │ Agent calls search_long_term_memory() tool when needed      │            │
 │  │   ├── Query embedding generation (OpenAI text-embedding-3)  │            │
 │  │   ├── Hybrid search (semantic + keyword via RRF)            │            │
-│  │   └── Filter by stream scope (session/user/agent)           │            │
+│  │   ├── Filter by stream scope (user/collective)              │            │
+│  │   └── Update access_count & last_accessed_at on results     │            │
 │  └─────────────────────────────────────────────────────────────┘            │
 │       │                                                                      │
 │       ▼                                                                      │
-│  ┌─────────────────────────────────────────────────────────────┐            │
-│  │ 3. Assembled Memory Context (XML)                            │            │
-│  │   ├── Static: consolidated blobs + recent atoms             │            │
-│  │   └── Dynamic: RAG-retrieved relevant memories              │            │
-│  └─────────────────────────────────────────────────────────────┘            │
+│  RAG results returned to agent as tool response                             │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+**Key Design Decision**: RAG is NOT automatic. The agent decides when to search long-term memory, which:
+- Avoids unnecessary queries when answers are in consolidated context
+- Reduces latency and API costs
+- Lets the agent craft specific, targeted queries
 
 #### 4.5.2 MongoDB Collections & Indexes
 
@@ -778,7 +808,7 @@ def _reciprocal_rank_fusion(
     return [atom_map[atom_id] for atom_id, _ in sorted_ids[:limit]]
 ```
 
-#### 4.5.5 Memory Flow: Extraction → Storage → RAG
+#### 4.5.5 Memory Flow: Extraction → Storage → Retrieval
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -814,6 +844,8 @@ def _reciprocal_rank_fusion(
 │    - memory_type: session | user | collective                               │
 │    - storage_type: temporary | long_term                                    │
 │    - formed_at: timestamp (ALWAYS present)                                  │
+│    - access_count: 0 (initialized)                                          │
+│    - last_accessed_at: None (until first RAG retrieval)                     │
 │                                                                              │
 │  ┌────────────────┬──────────────────────────────────────────────┐          │
 │  │ Memory Type    │ Destination                                  │          │
@@ -830,45 +862,112 @@ def _reciprocal_rank_fusion(
 │    1. Generate embedding (text-embedding-3-small)                           │
 │    2. Store in memory_atoms with embedding                                  │
 │    3. Add to stream's unabsorbed list                                       │
-│    4. Trigger consolidation if threshold met                                │
+│    4. Trigger consolidation if threshold met (error-safe: never lose atoms) │
 │                                                                              │
 │  For temporary memories:                                                    │
 │    1. Store in memory_atoms (no embedding)                                  │
 │    2. Add to stream's recent list (FIFO)                                    │
 │       │                                                                      │
 │       ▼                                                                      │
-│  STEP 4: CONTEXT ASSEMBLY (On each message)                                 │
-│  ─────────────────────────────────────────                                  │
+│  STEP 4: CONTEXT ASSEMBLY (Automatic, on each message)                      │
+│  ─────────────────────────────────────────────────────                      │
 │  ┌─────────────────────────────────────────────────────────────┐            │
-│  │ Always-in-Context:                                          │            │
+│  │ Always-in-Context (STATIC):                                 │            │
 │  │   ├── Session: recent episodes (FIFO, no embedding)         │            │
 │  │   ├── User: consolidated blob + recent directives           │            │
 │  │   └── Collective: consolidated blobs + recent suggestions   │            │
-│  │                                                             │            │
-│  │ RAG-Augmented (query = session context summary):            │            │
-│  │   ├── User memories: top-K relevant facts                  │            │
-│  │   └── Collective memories: top-K relevant facts per shard  │            │
+│  └─────────────────────────────────────────────────────────────┘            │
+│       │                                                                      │
+│       ▼                                                                      │
+│  STEP 5: RAG RETRIEVAL (On-demand, agent tool call)                         │
+│  ──────────────────────────────────────────────────                         │
+│  Agent calls search_long_term_memory() when needed:                         │
+│  ┌─────────────────────────────────────────────────────────────┐            │
+│  │ search_long_term_memory(query, memory_types, match_count)   │            │
+│  │   1. Embed query                                            │            │
+│  │   2. Hybrid search (semantic + text + RRF)                  │            │
+│  │   3. Update access_count & last_accessed_at on results      │            │
+│  │   4. Return formatted results to agent                      │            │
 │  └─────────────────────────────────────────────────────────────┘            │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-#### 4.5.6 Context Assembly with RAG
+#### 4.5.6 RAG as Agent Tool Call
+
+**Important**: RAG retrieval is NOT automatic on every message. Instead, RAG is exposed as an **agent tool call** that the agent can invoke when it needs to search long-term memory.
+
+This approach has several benefits:
+- Agent decides when RAG is needed (avoids unnecessary queries)
+- If answer is already in consolidated context, no RAG needed
+- Reduces latency and costs for simple conversations
+- Agent can craft specific queries for better results
+
+```python
+# RAG is exposed as a tool the agent can call:
+@tool
+async def search_long_term_memory(
+    query: str,
+    memory_types: List[str] = ["user", "collective"],  # Which streams to search
+    match_count: int = 5
+) -> str:
+    """
+    Search your long-term memory for relevant information.
+
+    Use this when:
+    - The user asks about something from past conversations
+    - You need to recall specific facts or context not in your current memory
+    - The consolidated memory summary doesn't have enough detail
+
+    Args:
+        query: Natural language query describing what you're looking for
+        memory_types: Types of memory to search ("user", "collective", or both)
+        match_count: Maximum number of results to return
+    """
+    # Get relevant stream IDs based on current agent/user context
+    stream_ids = await _get_stream_ids_for_search(memory_types)
+
+    # Perform hybrid search
+    results = await search_memories(
+        query=query,
+        stream_ids=stream_ids,
+        match_count=match_count,
+        search_type="hybrid"
+    )
+
+    # Update access tracking for retrieved atoms
+    atom_ids = [r["_id"] for r in results]
+    await MemoryAtom.update_many(
+        {"_id": {"$in": atom_ids}},
+        {
+            "$inc": {"access_count": 1},
+            "$set": {"last_accessed_at": datetime.now(timezone.utc)}
+        }
+    )
+
+    # Format results for agent
+    return _format_rag_results(results)
+```
+
+#### 4.5.7 Context Assembly (Without Automatic RAG)
+
+Context assembly provides the "always-in-context" layer only. RAG results are added separately when the agent invokes the search tool.
 
 ```python
 async def assemble_memory_context(
     session: Session,
     agent: Agent,
     user: User,
-    enable_rag: bool = True,
-    rag_match_count: int = 5
 ) -> str:
     """
-    Assemble complete memory context for prompt injection.
+    Assemble memory context for prompt injection.
 
-    Combines:
-    1. Static: consolidated blobs + recent unabsorbed atoms
-    2. Dynamic: RAG-retrieved relevant memories (when enabled)
+    This provides the STATIC always-in-context layer:
+    1. Session: recent episodes (FIFO)
+    2. User: consolidated blob + recent unabsorbed directives
+    3. Collective: consolidated blobs per shard + recent suggestions
+
+    RAG retrieval is handled separately via agent tool call.
     """
 
     # Get all relevant streams
@@ -876,28 +975,11 @@ async def assemble_memory_context(
     user_stream = await get_stream(stream_type="user", scope={"agent_id": agent.id, "user_id": user.id})
     agent_streams = await get_streams(stream_type="agent", scope={"agent_id": agent.id}, is_active=True)
 
-    # Collect stream IDs for RAG query
-    all_stream_ids = [user_stream.id] + [s.id for s in agent_streams]
-
-    # Build query from recent session context
-    rag_query = _build_rag_query(session)
-
-    # Get RAG results if enabled
-    rag_results = []
-    if enable_rag and rag_query:
-        rag_results = await search_memories(
-            query=rag_query,
-            stream_ids=all_stream_ids,
-            match_count=rag_match_count,
-            search_type="hybrid"
-        )
-
-    # Build XML context
+    # Build XML context (no RAG - agent will call tool if needed)
     return _build_memory_xml(
         session_stream=session_stream,
         user_stream=user_stream,
-        agent_streams=agent_streams,
-        rag_results=rag_results
+        agent_streams=agent_streams
     )
 
 
@@ -905,9 +987,8 @@ def _build_memory_xml(
     session_stream: MemoryStream,
     user_stream: MemoryStream,
     agent_streams: List[MemoryStream],
-    rag_results: List[MemorySearchResult]
 ) -> str:
-    """Build XML memory context with RAG augmentation."""
+    """Build XML memory context (static always-in-context layer)."""
 
     parts = ['<MemoryContext>']
 
@@ -929,33 +1010,110 @@ def _build_memory_xml(
     parts.append(f'    {session_stream.fully_formed}')
     parts.append('  </CurrentConversation>')
 
-    # RAG-retrieved memories (augmentation)
-    if rag_results:
-        parts.append('  <RelevantMemories description="Contextually retrieved from long-term storage">')
-        for result in rag_results:
-            age = _format_age(result["formed_at"])
-            parts.append(f'    - {result["content"]} (formed: {age})')
-        parts.append('  </RelevantMemories>')
+    # Note: RAG results are NOT included here.
+    # Agent retrieves them via search_long_term_memory() tool call when needed.
 
     parts.append('</MemoryContext>')
     return '\n'.join(parts)
 ```
 
-### 4.6 Proposed File Structure
+### 4.6 Cross-Session Memory Synchronization
+
+When an agent is interacting with multiple users in parallel sessions, memories formed in one session need to propagate to other sessions. The current system uses a simple time-based refresh strategy.
+
+#### 4.6.1 Current Implementation (to preserve)
+
+From `memory_assemble_context.py`:
+```python
+SYNC_MEMORIES_ACROSS_SESSIONS_EVERY_N_MINUTES = 5
+
+# In assemble_memory_context():
+if session.memory_context.cached_memory_context is not None and not force_refresh:
+    time_since_context_refresh = datetime.now(timezone.utc) - memory_timestamp
+
+    if time_since_context_refresh < timedelta(minutes=SYNC_MEMORIES_ACROSS_SESSIONS_EVERY_N_MINUTES):
+        return session.memory_context.cached_memory_context  # Use cache
+    else:
+        reason = "syncing_session_memories"  # Force refresh to sync
+```
+
+This approach:
+- Sessions cache their assembled memory context
+- Cache is valid for 5 minutes
+- After 5 minutes, context is rebuilt to pick up any updates from other sessions
+- Simple, low-overhead, works well for typical conversation cadence
+
+#### 4.6.2 New System Integration
+
+The MemoryStream architecture should preserve this pattern:
+
+```python
+class Session:
+    memory_context: MemoryContext  # Existing field
+
+class MemoryContext:
+    # Existing cache fields
+    cached_memory_context: Optional[str] = None
+    memory_context_timestamp: Optional[datetime] = None
+
+    # Stream-specific timestamps for targeted refresh
+    stream_timestamps: Dict[str, datetime] = {}  # {stream_id: last_fetched_at}
+
+async def assemble_memory_context(session, agent, user):
+    """
+    Assembles memory context with cross-session sync support.
+
+    Sync Strategy:
+    1. Use cached context if < SYNC_INTERVAL old
+    2. After SYNC_INTERVAL, check if any relevant streams have updated
+    3. Only rebuild sections that have changed
+    """
+
+    if session.memory_context.cached_memory_context and not force_refresh:
+        age = datetime.now(timezone.utc) - session.memory_context.memory_context_timestamp
+
+        if age < timedelta(minutes=SYNC_MEMORIES_ACROSS_SESSIONS_EVERY_N_MINUTES):
+            return session.memory_context.cached_memory_context
+
+    # Rebuild context (existing logic)
+    ...
+```
+
+#### 4.6.3 Freshness Check (Optional Enhancement)
+
+The current system has a disabled `check_memory_freshness()` function that compares timestamps. This can be enabled for more aggressive sync when needed:
+
+```python
+async def check_memory_freshness(session: Session, streams: List[MemoryStream]) -> bool:
+    """
+    Returns True if all relevant streams are older than session's cached timestamps.
+    Returns False if any stream has been updated since last cache.
+    """
+    for stream in streams:
+        cached_ts = session.memory_context.stream_timestamps.get(str(stream.id))
+        if cached_ts and stream.last_updated_at > cached_ts:
+            return False  # Stream was updated, cache is stale
+    return True
+```
+
+This is currently disabled (line 356 in current code: `if 1:`) because the simple 5-minute refresh works well and avoids extra queries on every message.
+
+### 4.8 Proposed File Structure
 
 ```
 eve/agent/memory2/              # New folder alongside existing memory/
 ├── __init__.py                 # Public API exports
-├── models.py                   # MemoryStream, MemoryAtom
+├── models.py                   # MemoryStream, MemoryAtom (with access_count, last_accessed_at)
 ├── ops.py                      # MemoryStreamOps class
-├── constants.py                # Default values, LLM models
+├── constants.py                # Default values, LLM models, SYNC_MEMORIES_ACROSS_SESSIONS_EVERY_N_MINUTES
 ├── prompts.py                  # Default prompt templates
-├── context.py                  # assemble_memory_context()
+├── context.py                  # assemble_memory_context() - static always-in-context layer
+├── tools.py                    # search_long_term_memory() agent tool for RAG
 ├── formation.py                # maybe_form_memories(), form_memories()
 ├── extraction.py               # LLM extraction logic (single batched call)
-├── consolidation.py            # LLM consolidation logic
+├── consolidation.py            # LLM consolidation logic (error-safe, never loses memories)
 ├── embedder.py                 # MemoryEmbedder class for embedding generation
-├── rag.py                      # search_memories(), hybrid search, RRF
+├── rag.py                      # search_memories(), hybrid search, RRF, access tracking
 ├── migration.py                # One-time migration script
 ├── service.py                  # High-level MemoryService facade
 └── backends.py                 # Backend abstraction
@@ -1057,10 +1215,13 @@ This provides maximum flexibility but requires careful prompt management.
 ## 6. Implementation Plan
 
 ### Phase 1: Core Models & Basic Operations
-1. Create `memory2/models.py` with `MemoryStream` and `MemoryAtom` (including `formed_at` timestamp, embedding fields)
+1. Create `memory2/models.py` with `MemoryStream` and `MemoryAtom`:
+   - `formed_at` timestamp (when memory was extracted)
+   - `access_count` and `last_accessed_at` for future memory decay/importance scoring
+   - Embedding fields for RAG support
 2. Create `memory2/ops.py` with `MemoryStreamOps` class
 3. Create `memory2/prompts.py` with default prompts (unified extraction prompt)
-4. Create `memory2/constants.py` with default values and embedding config
+4. Create `memory2/constants.py` with default values, embedding config, and sync interval (`SYNC_MEMORIES_ACROSS_SESSIONS_EVERY_N_MINUTES`)
 
 ### Phase 2: Unified Extraction
 1. Create `memory2/extraction.py` with single-call batched extraction
@@ -1077,24 +1238,38 @@ This provides maximum flexibility but requires careful prompt management.
    - `_semantic_search()` - MongoDB $vectorSearch aggregation
    - `_text_search()` - MongoDB Atlas Search with fuzzy matching
    - `_reciprocal_rank_fusion()` - merge rankings with k=60
-3. Create MongoDB Atlas Search indexes:
+3. **Update access tracking on retrieval**:
+   - Increment `access_count` for each retrieved atom
+   - Update `last_accessed_at` timestamp
+4. Create MongoDB Atlas Search indexes:
    - Vector index on `memory_atoms.embedding` (1536 dim, cosine)
    - Text index on `memory_atoms.content`
 
 ### Phase 4: Consolidation
 1. Create `memory2/consolidation.py` - generic consolidation logic
-2. Wire up extraction → embedding → storage → consolidation flow
-3. Handle long-term vs temporary memory routing:
+2. **Implement error-safe consolidation**:
+   - NEVER remove atoms from `unabsorbed_consolidated_ids` until `consolidated_content` is successfully saved
+   - If consolidation fails, atoms remain in unabsorbed list (will retry on next formation)
+   - Log errors but don't block memory formation
+3. Wire up extraction → embedding → storage → consolidation flow
+4. Handle long-term vs temporary memory routing:
    - Long-term (user/collective facts): embed + index + consolidate
    - Temporary (session episodes): store without embedding, FIFO eviction
 
-### Phase 5: Context Assembly with RAG
+### Phase 5: Context Assembly & RAG Tool
 1. Create `memory2/context.py` with `assemble_memory_context()`
-2. Implement two-layer context assembly:
-   - **Always-in-Context**: consolidated blobs + recent unabsorbed atoms
-   - **RAG-Augmented**: query long-term storage for relevant memories
-3. Build RAG query from recent session context
-4. Generate XML output with `<RelevantMemories>` section for RAG results
+2. Implement **static always-in-context layer only**:
+   - Session: recent episodes (FIFO)
+   - User: consolidated blob + recent unabsorbed directives
+   - Collective: consolidated blobs per shard + recent suggestions
+3. **RAG is NOT automatic** - create `memory2/tools.py` with agent tool:
+   - `search_long_term_memory()` tool that agent invokes when needed
+   - Agent decides when to search (avoids unnecessary queries)
+   - Tool updates access tracking on retrieval
+4. Preserve cross-session sync mechanism from current system:
+   - Cache memory context in session
+   - Refresh cache after `SYNC_MEMORIES_ACROSS_SESSIONS_EVERY_N_MINUTES` (5 min)
+   - Simple time-based sync (no per-stream freshness check needed initially)
 5. Include `formed_at` age formatting for all memories
 
 ### Phase 6: Formation Orchestration
@@ -1108,7 +1283,7 @@ This provides maximum flexibility but requires careful prompt management.
 1. Create `memory2/service.py` facade
 2. Create `memory2/backends.py` with new backend
 3. Add config flag to switch between old and new memory system
-4. Implement graceful fallback if RAG search fails
+4. Register `search_long_term_memory` tool with agent tool registry
 
 ### Phase 8: Migration
 1. Create `memory2/migration.py` script
@@ -1122,7 +1297,7 @@ This provides maximum flexibility but requires careful prompt management.
 1. Test hybrid search quality (semantic vs text vs hybrid)
 2. Tune RAG parameters (match_count, RRF k value)
 3. Monitor embedding costs and latency
-4. Add caching for frequent queries if needed
+4. Verify cross-session sync works correctly with new system
 
 ---
 
