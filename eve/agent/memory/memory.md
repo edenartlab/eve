@@ -78,14 +78,18 @@ The memory system has **three distinct memory types** that share conceptual simi
 ### Key Insight: Two-Part Memory Pattern
 
 All memory types follow a fundamental pattern:
-1. **Consolidated Content**: Evolving summary, always injected into context
-2. **Atomic Statements**: Growing list of discrete items (for RAG retrieval in future)
+1. **Consolidated Content**: Evolving summary built from observations, always injected into context
+2. **Facts**: Growing list of discrete items (for RAG retrieval)
 
-| Type | Has Consolidated? | Has Atomics? |
-|------|-------------------|--------------|
-| Session Episode | No (could add) | Yes (episodes) |
-| User Directive | Yes (directives) | No (could add) |
-| Agent Shard | Yes (suggestions) | Yes (facts) |
+**Memory Atom Types:**
+- **Observation**: Temporary item that accumulates in a buffer until consolidated into a summary blob
+- **Fact**: Discrete item stored long-term with RAG indexing for semantic retrieval
+
+| Type | Has Observations? | Has Facts? |
+|------|-------------------|------------|
+| Session | No (could add) | Yes (session facts) |
+| User | Yes (user observations → consolidation) | No (could add) |
+| Agent Shard | Yes (shard observations → consolidation) | Yes (shard facts → RAG) |
 
 ---
 
@@ -347,32 +351,32 @@ A **MemoryStream** is a unified primitive that handles all memory operations. Ea
 ├─────────────────────────────────────────────────────────────────────┤
 │ EXTRACTION CONFIG (fully stored in DB)                              │
 │   extraction_prompt: str                                            │
-│   extraction_fields: ["consolidated", "atomic"]                     │
-│   consolidated_extraction_min/max: int                              │
-│   consolidated_atom_max_words: int                                  │
-│   atomic_extraction_min/max: int                                    │
-│   atomic_item_max_words: int                                        │
+│   extraction_fields: ["observation", "fact"]                        │
+│   observation_extraction_min/max: int                               │
+│   observation_max_words: int                                        │
+│   fact_extraction_min/max: int                                      │
+│   fact_max_words: int                                               │
 ├─────────────────────────────────────────────────────────────────────┤
 │ CONSOLIDATION CONFIG                                                │
 │   consolidation_prompt: Optional[str]                               │
 │   consolidation_trigger: int                                        │
 │   consolidated_max_words: int                                       │
 ├─────────────────────────────────────────────────────────────────────┤
-│ ATOMIC BUFFER CONFIG                                                │
-│   atomic_buffer_max: int (FIFO limit)                               │
-│   atomic_rag_enabled: bool (future)                                 │
+│ FACT BUFFER CONFIG                                                  │
+│   fact_buffer_max: int (FIFO limit)                                 │
+│   fact_rag_enabled: bool (future)                                   │
 ├─────────────────────────────────────────────────────────────────────┤
 │ STATE                                                               │
 │   consolidated_content: Optional[str]                               │
-│   unabsorbed_consolidated_ids: List[ObjectId]                       │
-│   atomic_ids: List[ObjectId] (FIFO buffer)                          │
+│   unabsorbed_observation_ids: List[ObjectId]                        │
+│   fact_ids: List[ObjectId] (FIFO buffer)                            │
 │   fully_formed: Optional[str]                                       │
 │   last_updated_at: datetime                                         │
 ├─────────────────────────────────────────────────────────────────────┤
 │ OPERATIONS                                                          │
 │   extract(conversation_text) → Dict[str, List[MemoryAtom]]          │
 │   add(atoms) → triggers consolidation if threshold met              │
-│   consolidate() → merges unabsorbed into consolidated               │
+│   consolidate() → merges unabsorbed observations into consolidated  │
 │   assemble() → builds fully_formed context string                   │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -392,27 +396,27 @@ class MemoryStream(Document):
 
     # Extraction config (full prompts in DB)
     extraction_prompt: str
-    extraction_fields: List[str] = ["consolidated", "atomic"]
-    consolidated_extraction_min: int = 0
-    consolidated_extraction_max: int = 1
-    consolidated_atom_max_words: int = 50
-    atomic_extraction_min: int = 0
-    atomic_extraction_max: int = 5
-    atomic_item_max_words: int = 30
+    extraction_fields: List[str] = ["observation", "fact"]  # observation=pre-consolidation, fact=long-term RAG
+    observation_extraction_min: int = 0
+    observation_extraction_max: int = 1
+    observation_max_words: int = 50
+    fact_extraction_min: int = 0
+    fact_extraction_max: int = 5
+    fact_max_words: int = 30
 
     # Consolidation config
     consolidation_prompt: Optional[str] = None
     consolidation_trigger: int = 10
     consolidated_max_words: int = 500
 
-    # Atomic buffer config
-    atomic_buffer_max: int = 100
-    atomic_rag_enabled: bool = False
+    # Fact buffer config (long-term RAG storage)
+    fact_buffer_max: int = 100
+    fact_rag_enabled: bool = False
 
     # State
     consolidated_content: Optional[str] = None
-    unabsorbed_consolidated_ids: List[ObjectId] = []
-    atomic_ids: List[ObjectId] = []
+    unabsorbed_observation_ids: List[ObjectId] = []  # Observations awaiting consolidation
+    fact_ids: List[ObjectId] = []  # Long-term facts for RAG retrieval
     fully_formed: Optional[str] = None
     last_updated_at: Optional[datetime] = None
 
@@ -426,7 +430,7 @@ class MemoryAtom(Document):
     """Single extracted memory unit - replaces SessionMemory"""
 
     stream_id: ObjectId
-    atom_type: Literal["consolidated", "atomic"]
+    atom_type: Literal["observation", "fact"]  # observation=pre-consolidation buffer, fact=long-term RAG storage
     content: str
 
     # Temporal (CRITICAL: every memory must have formation timestamp)
@@ -452,9 +456,9 @@ class MemoryAtom(Document):
 
 | Current Type | Stream Config |
 |-------------|---------------|
-| **Session Episode** | `stream_type="session"`, `extraction_fields=["atomic"]` (or `["consolidated", "atomic"]` if adding session summaries), `consolidation_prompt=None` or session summary prompt, scope=`{session_id}` |
-| **User Directive** | `stream_type="user"`, `extraction_fields=["consolidated"]`, `consolidation_prompt=USER_PROMPT`, scope=`{agent_id, user_id}` |
-| **Agent Shard** | `stream_type="agent"`, `extraction_fields=["consolidated", "atomic"]`, `consolidation_prompt=AGENT_PROMPT`, scope=`{agent_id, shard_name}` |
+| **Session Episode** | `stream_type="session"`, `extraction_fields=["fact"]` (or `["observation", "fact"]` if adding session summaries), `consolidation_prompt=None` or session summary prompt, scope=`{session_id}` |
+| **User Directive** | `stream_type="user"`, `extraction_fields=["observation"]`, `consolidation_prompt=USER_PROMPT`, scope=`{agent_id, user_id}` |
+| **Agent Shard** | `stream_type="agent"`, `extraction_fields=["observation", "fact"]`, `consolidation_prompt=AGENT_PROMPT`, scope=`{agent_id, shard_name}` |
 
 ### 4.4 Operations Interface
 
@@ -473,45 +477,45 @@ class MemoryStreamOps:
         """Extract atoms from conversation using stream's extraction_prompt"""
         prompt = self._prepare_prompt(conversation_text)
         response = await llm_extract(prompt, self.stream.extraction_fields)
-        return {"consolidated": [...], "atomic": [...]}
+        return {"observation": [...], "fact": [...]}
 
     async def add(self, atoms: Dict[str, List[MemoryAtom]]) -> None:
         """Add atoms to stream, triggering consolidation if needed"""
-        # Add to unabsorbed_consolidated_ids
-        for atom in atoms.get("consolidated", []):
+        # Add observations to unabsorbed list (awaiting consolidation)
+        for atom in atoms.get("observation", []):
             atom.save()
-            self.stream.unabsorbed_consolidated_ids.append(atom.id)
+            self.stream.unabsorbed_observation_ids.append(atom.id)
 
         # Check consolidation trigger
-        if len(self.stream.unabsorbed_consolidated_ids) >= self.stream.consolidation_trigger:
+        if len(self.stream.unabsorbed_observation_ids) >= self.stream.consolidation_trigger:
             await self.consolidate()
 
-        # Add to atomic_ids (FIFO)
-        for atom in atoms.get("atomic", []):
+        # Add facts to fact_ids (FIFO, long-term RAG storage)
+        for atom in atoms.get("fact", []):
             atom.save()
-            self.stream.atomic_ids.append(atom.id)
+            self.stream.fact_ids.append(atom.id)
 
-        # FIFO eviction
-        if len(self.stream.atomic_ids) > self.stream.atomic_buffer_max:
-            self.stream.atomic_ids = self.stream.atomic_ids[-self.stream.atomic_buffer_max:]
+        # FIFO eviction for facts
+        if len(self.stream.fact_ids) > self.stream.fact_buffer_max:
+            self.stream.fact_ids = self.stream.fact_ids[-self.stream.fact_buffer_max:]
 
         await self.regenerate_fully_formed()
         self.stream.save()
 
     async def consolidate(self) -> None:
         """
-        Merge unabsorbed atoms into consolidated_content.
+        Merge unabsorbed observations into consolidated_content.
 
         ERROR HANDLING STRATEGY:
-        - NEVER remove atoms from unabsorbed_consolidated_ids until consolidated_content is saved
-        - If consolidation fails, atoms remain in unabsorbed list (now 1+ over threshold)
+        - NEVER remove observations from unabsorbed_observation_ids until consolidated_content is saved
+        - If consolidation fails, observations remain in unabsorbed list (now 1+ over threshold)
         - Next memory formation will trigger consolidation again
         - This ensures we never lose memories even if LLM call fails
         """
         if not self.stream.consolidation_prompt:
             return
 
-        unabsorbed = MemoryAtom.find({"_id": {"$in": self.stream.unabsorbed_consolidated_ids}})
+        unabsorbed = MemoryAtom.find({"_id": {"$in": self.stream.unabsorbed_observation_ids}})
 
         try:
             new_content = await llm_consolidate(
@@ -522,31 +526,31 @@ class MemoryStreamOps:
             )
 
             # CRITICAL: Only clear unabsorbed list AFTER successful save
-            # This is atomic - if save fails, unabsorbed_consolidated_ids remain intact
+            # This is atomic - if save fails, unabsorbed_observation_ids remain intact
             self.stream.consolidated_content = new_content
-            self.stream.unabsorbed_consolidated_ids = []
+            self.stream.unabsorbed_observation_ids = []
             self.stream.save()
 
         except Exception as e:
-            # Consolidation failed - DO NOT clear unabsorbed_consolidated_ids
+            # Consolidation failed - DO NOT clear unabsorbed_observation_ids
             # They will be retried on next memory formation
             logger.error(f"Consolidation failed for stream {self.stream.id}: {e}")
-            # Stream state unchanged, memories safe in unabsorbed list
+            # Stream state unchanged, observations safe in unabsorbed list
 
     async def regenerate_fully_formed(self) -> None:
         """Build fully_formed string from current state"""
         parts = []
 
-        if self.stream.atomic_ids:
-            atoms = MemoryAtom.find({"_id": {"$in": self.stream.atomic_ids}})
-            parts.append(self._format_atomics(atoms))
+        if self.stream.fact_ids:
+            facts = MemoryAtom.find({"_id": {"$in": self.stream.fact_ids}})
+            parts.append(self._format_facts(facts))
 
         if self.stream.consolidated_content:
             parts.append(f"## Memory:\n{self.stream.consolidated_content}")
 
-        if self.stream.unabsorbed_consolidated_ids:
-            unabsorbed = MemoryAtom.find({"_id": {"$in": self.stream.unabsorbed_consolidated_ids}})
-            parts.append(self._format_unabsorbed(unabsorbed))
+        if self.stream.unabsorbed_observation_ids:
+            observations = MemoryAtom.find({"_id": {"$in": self.stream.unabsorbed_observation_ids}})
+            parts.append(self._format_observations(observations))
 
         self.stream.fully_formed = "\n\n".join(parts)
         self.stream.last_updated_at = datetime.now(timezone.utc)
@@ -563,39 +567,58 @@ The RAG system is adopted from the MongoDB-RAG-Agent pattern and provides semant
 │                        MEMORY RETRIEVAL FLOW                                 │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  AUTOMATIC (every message):                                                 │
-│  ─────────────────────────                                                  │
+│  AUTOMATIC (every user message):                                            │
+│  ───────────────────────────────                                            │
+│                                                                              │
 │  ┌─────────────────────────────────────────────────────────────┐            │
-│  │ Always-in-Context Layer (Static)                             │            │
-│  │   ├── Consolidated memory blobs (fully_formed)              │            │
-│  │   └── Recent unabsorbed atoms (awaiting consolidation)      │            │
+│  │ STEP 1: RAG Query Generation (Fast LLM Call)                 │            │
+│  │                                                              │            │
+│  │   User message arrives                                       │            │
+│  │         │                                                    │            │
+│  │         ▼                                                    │            │
+│  │   A single, fast, cheap LLM call (e.g., gpt-4o-mini):        │            │
+│  │     INPUT:  Last N conversation messages + new user message  │            │
+│  │     OUTPUT: Query string for memory retrieval                │            │
+│  │             (or empty string if no retrieval needed)         │            │
+│  │                                                              │            │
+│  │   This is invisible to the main agent.                       │            │
 │  └─────────────────────────────────────────────────────────────┘            │
 │       │                                                                      │
 │       ▼                                                                      │
-│  Assembled Memory Context (XML) injected into prompt                        │
-│                                                                              │
-│  ─────────────────────────────────────────────────────────────────────────  │
-│                                                                              │
-│  ON-DEMAND (agent tool call):                                               │
-│  ────────────────────────────                                               │
 │  ┌─────────────────────────────────────────────────────────────┐            │
-│  │ Agent calls search_long_term_memory() tool when needed      │            │
-│  │   ├── Query embedding generation (OpenAI text-embedding-3)  │            │
-│  │   ├── Hybrid search (semantic + keyword via RRF)            │            │
-│  │   ├── Filter by stream scope (user/collective)              │            │
-│  │   └── Update access_count & last_accessed_at on results     │            │
+│  │ STEP 2: RAG Retrieval (if query string is non-empty)         │            │
+│  │   ├── Query embedding generation (OpenAI text-embedding-3)   │            │
+│  │   ├── Hybrid search (semantic + keyword via RRF)             │            │
+│  │   ├── Filter by stream scope (user/collective)               │            │
+│  │   └── Update access_count & last_accessed_at on results      │            │
 │  └─────────────────────────────────────────────────────────────┘            │
 │       │                                                                      │
 │       ▼                                                                      │
-│  RAG results returned to agent as tool response                             │
+│  ┌─────────────────────────────────────────────────────────────┐            │
+│  │ STEP 3: Context Assembly                                     │            │
+│  │   ├── Always-in-Context Layer (Static):                      │            │
+│  │   │     ├── Consolidated memory blobs (fully_formed)         │            │
+│  │   │     └── Recent unabsorbed observations                   │            │
+│  │   │                                                          │            │
+│  │   └── RAG Results Layer (Dynamic):                           │            │
+│  │         └── Retrieved memories from hybrid search            │            │
+│  └─────────────────────────────────────────────────────────────┘            │
+│       │                                                                      │
+│       ▼                                                                      │
+│  Complete Memory Context (XML) injected into main agent prompt              │
+│       │                                                                      │
+│       ▼                                                                      │
+│  Main agent responds (unaware that RAG query generation ran)                │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Key Design Decision**: RAG is NOT automatic. The agent decides when to search long-term memory, which:
-- Avoids unnecessary queries when answers are in consolidated context
-- Reduces latency and API costs
-- Lets the agent craft specific, targeted queries
+**Key Design Decision**: RAG query generation is handled by a **separate, fast LLM call that is invisible to the main agent**:
+- A fast, cheap LLM (e.g., gpt-4o-mini) examines the last N messages and generates a query string
+- The main agent never sees or knows about this query generation step
+- If the fast LLM determines no retrieval is needed, it returns an empty string and RAG is skipped
+- Retrieved memories are seamlessly added to the main agent's context before it responds
+- This keeps RAG automatic without burdening the main agent with tool-calling decisions
 
 #### 4.5.2 MongoDB Collections & Indexes
 
@@ -604,7 +627,7 @@ The RAG system is adopted from the MongoDB-RAG-Agent pattern and provides semant
 {
   "_id": ObjectId,
   "stream_id": ObjectId,           # Foreign key to memory_streams
-  "atom_type": "consolidated" | "atomic",
+  "atom_type": "observation" | "fact",  # observation=pre-consolidation, fact=long-term RAG
   "content": str,                  # The memory text
   "embedding": [float, ...],       # 1536-dim vector (MUST be native array, NOT string)
   "formed_at": datetime,           # When memory was extracted (CRITICAL)
@@ -838,44 +861,45 @@ def _reciprocal_rank_fusion(
 │  └───────────────────────────────────────────────────────────────┘          │
 │       │                                                                      │
 │       ▼                                                                      │
-│  STEP 2: ROUTING (Based on memory_type)                                     │
-│  ──────────────────────────────────────                                      │
+│  STEP 2: ROUTING (Based on memory_type and atom_type)                       │
+│  ─────────────────────────────────────────────────────                       │
 │  Each extracted memory has:                                                  │
 │    - memory_type: session | user | collective                               │
-│    - storage_type: temporary | long_term                                    │
+│    - atom_type: observation | fact                                          │
 │    - formed_at: timestamp (ALWAYS present)                                  │
 │    - access_count: 0 (initialized)                                          │
 │    - last_accessed_at: None (until first RAG retrieval)                     │
 │                                                                              │
-│  ┌────────────────┬──────────────────────────────────────────────┐          │
-│  │ Memory Type    │ Destination                                  │          │
-│  ├────────────────┼──────────────────────────────────────────────┤          │
-│  │ session        │ Temporary: recent context list only          │          │
-│  │ user           │ Long-term: RAG-indexed + consolidation       │          │
-│  │ collective     │ Long-term: RAG-indexed + consolidation       │          │
-│  └────────────────┴──────────────────────────────────────────────┘          │
+│  ┌────────────────┬────────────────┬─────────────────────────────┐          │
+│  │ Memory Type    │ Atom Type      │ Destination                 │          │
+│  ├────────────────┼────────────────┼─────────────────────────────┤          │
+│  │ session        │ fact           │ Temporary: recent context   │          │
+│  │ user           │ observation    │ Pre-consolidation buffer    │          │
+│  │ collective     │ observation    │ Pre-consolidation buffer    │          │
+│  │ collective     │ fact           │ Long-term: RAG-indexed      │          │
+│  └────────────────┴────────────────┴─────────────────────────────┘          │
 │       │                                                                      │
 │       ▼                                                                      │
 │  STEP 3: STORAGE & EMBEDDING                                                │
 │  ────────────────────────────                                               │
-│  For long-term memories:                                                    │
+│  For facts (long-term RAG storage):                                         │
 │    1. Generate embedding (text-embedding-3-small)                           │
 │    2. Store in memory_atoms with embedding                                  │
-│    3. Add to stream's unabsorbed list                                       │
-│    4. Trigger consolidation if threshold met (error-safe: never lose atoms) │
+│    3. Add to stream's fact_ids list (FIFO)                                  │
 │                                                                              │
-│  For temporary memories:                                                    │
-│    1. Store in memory_atoms (no embedding)                                  │
-│    2. Add to stream's recent list (FIFO)                                    │
+│  For observations (pre-consolidation buffer):                               │
+│    1. Store in memory_atoms (no embedding needed)                           │
+│    2. Add to stream's unabsorbed_observation_ids list                       │
+│    3. Trigger consolidation if threshold met (error-safe: never lose obs)   │
 │       │                                                                      │
 │       ▼                                                                      │
 │  STEP 4: CONTEXT ASSEMBLY (Automatic, on each message)                      │
 │  ─────────────────────────────────────────────────────                      │
 │  ┌─────────────────────────────────────────────────────────────┐            │
 │  │ Always-in-Context (STATIC):                                 │            │
-│  │   ├── Session: recent episodes (FIFO, no embedding)         │            │
-│  │   ├── User: consolidated blob + recent directives           │            │
-│  │   └── Collective: consolidated blobs + recent suggestions   │            │
+│  │   ├── Session: recent facts (FIFO, no embedding)            │            │
+│  │   ├── User: consolidated blob + recent observations         │            │
+│  │   └── Collective: consolidated blobs + recent observations  │            │
 │  └─────────────────────────────────────────────────────────────┘            │
 │       │                                                                      │
 │       ▼                                                                      │
@@ -893,93 +917,174 @@ def _reciprocal_rank_fusion(
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-#### 4.5.6 RAG as Agent Tool Call
+#### 4.5.6 Automatic RAG via Query Generation LLM
 
-**Important**: RAG retrieval is NOT automatic on every message. Instead, RAG is exposed as an **agent tool call** that the agent can invoke when it needs to search long-term memory.
+**Important**: RAG retrieval is automatic on every user message, but the query generation is handled by a **separate, fast LLM call** that runs before the main agent sees the message. The main agent is completely unaware of this step.
 
-This approach has several benefits:
-- Agent decides when RAG is needed (avoids unnecessary queries)
-- If answer is already in consolidated context, no RAG needed
-- Reduces latency and costs for simple conversations
-- Agent can craft specific queries for better results
+**How it works:**
+
+1. **User message arrives** - before the main agent processes it
+2. **Fast LLM generates query** - a cheap, fast model (e.g., gpt-4o-mini) examines:
+   - The last N conversation messages (for context)
+   - The new user message
+   - Outputs a query string optimized for memory retrieval (or empty if no retrieval needed)
+3. **RAG executes** - if query is non-empty, hybrid search retrieves relevant memories
+4. **Context assembled** - retrieved memories are added to the main agent's context
+5. **Main agent responds** - sees enriched context, unaware of the RAG mechanics
+
+**Benefits of this approach:**
+- Main agent doesn't need to decide when to search—it's automatic
+- Fast LLM can intelligently skip RAG when not needed (returns empty query)
+- Query is optimized for retrieval, not constrained by agent's tool-calling format
+- Reduces main agent complexity and token usage
+- Low latency: fast LLM + parallel embedding generation
 
 ```python
-# RAG is exposed as a tool the agent can call:
-@tool
-async def search_long_term_memory(
-    query: str,
-    memory_types: List[str] = ["user", "collective"],  # Which streams to search
-    match_count: int = 5
+# RAG query generation happens BEFORE the main agent runs:
+
+RAG_QUERY_GENERATION_PROMPT = """
+You are a memory retrieval assistant. Given a conversation and a new user message,
+generate a search query to retrieve relevant memories from long-term storage.
+
+CONVERSATION (last {N} messages):
+{conversation_context}
+
+NEW USER MESSAGE:
+{user_message}
+
+INSTRUCTIONS:
+- If the user is asking about past events, preferences, or context that might be in memory, generate a search query
+- If the conversation is casual/simple and doesn't need memory retrieval, return an empty string
+- The query should be optimized for semantic search (natural language, not keywords)
+- Keep the query concise (1-2 sentences max)
+
+OUTPUT: Return ONLY the query string, or empty string if no retrieval needed.
+"""
+
+async def generate_rag_query(
+    conversation_messages: List[ChatMessage],
+    user_message: str,
+    n_context_messages: int = 10
 ) -> str:
     """
-    Search your long-term memory for relevant information.
-
-    Use this when:
-    - The user asks about something from past conversations
-    - You need to recall specific facts or context not in your current memory
-    - The consolidated memory summary doesn't have enough detail
-
-    Args:
-        query: Natural language query describing what you're looking for
-        memory_types: Types of memory to search ("user", "collective", or both)
-        match_count: Maximum number of results to return
+    Generate a RAG query using a fast, cheap LLM.
+    Returns empty string if no retrieval is needed.
     """
-    # Get relevant stream IDs based on current agent/user context
-    stream_ids = await _get_stream_ids_for_search(memory_types)
+    # Get last N messages for context
+    context = conversation_messages[-n_context_messages:]
+    context_text = messages_to_text(context)
 
-    # Perform hybrid search
+    prompt = RAG_QUERY_GENERATION_PROMPT.format(
+        N=n_context_messages,
+        conversation_context=context_text,
+        user_message=user_message
+    )
+
+    # Use fast, cheap model for query generation
+    response = await llm_call(
+        model="gpt-4o-mini",  # Fast and cheap
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=100
+    )
+
+    return response.strip()
+
+
+async def retrieve_memories_for_message(
+    session: Session,
+    agent: Agent,
+    user: User,
+    user_message: str
+) -> List[MemorySearchResult]:
+    """
+    Main entry point: generates query and retrieves memories.
+    Called automatically before main agent processes the message.
+    """
+    # Step 1: Generate query with fast LLM
+    query = await generate_rag_query(
+        conversation_messages=session.messages,
+        user_message=user_message
+    )
+
+    # Step 2: If no query needed, skip retrieval
+    if not query:
+        return []
+
+    # Step 3: Get relevant stream IDs
+    stream_ids = await _get_stream_ids_for_search(
+        agent_id=agent.id,
+        user_id=user.id,
+        memory_types=["user", "collective"]
+    )
+
+    # Step 4: Perform hybrid search
     results = await search_memories(
         query=query,
         stream_ids=stream_ids,
-        match_count=match_count,
+        match_count=5,
         search_type="hybrid"
     )
 
-    # Update access tracking for retrieved atoms
-    atom_ids = [r["_id"] for r in results]
-    await MemoryAtom.update_many(
-        {"_id": {"$in": atom_ids}},
-        {
-            "$inc": {"access_count": 1},
-            "$set": {"last_accessed_at": datetime.now(timezone.utc)}
-        }
-    )
+    # Step 5: Update access tracking
+    if results:
+        atom_ids = [r["_id"] for r in results]
+        await MemoryAtom.update_many(
+            {"_id": {"$in": atom_ids}},
+            {
+                "$inc": {"access_count": 1},
+                "$set": {"last_accessed_at": datetime.now(timezone.utc)}
+            }
+        )
 
-    # Format results for agent
-    return _format_rag_results(results)
+    return results
 ```
 
-#### 4.5.7 Context Assembly (Without Automatic RAG)
+#### 4.5.7 Context Assembly (With Automatic RAG)
 
-Context assembly provides the "always-in-context" layer only. RAG results are added separately when the agent invokes the search tool.
+Context assembly combines the static "always-in-context" layer with dynamically retrieved RAG results. The RAG retrieval happens automatically before context assembly via the fast LLM query generation (see 4.5.6).
 
 ```python
 async def assemble_memory_context(
     session: Session,
     agent: Agent,
     user: User,
+    user_message: str,
 ) -> str:
     """
     Assemble memory context for prompt injection.
 
-    This provides the STATIC always-in-context layer:
-    1. Session: recent episodes (FIFO)
-    2. User: consolidated blob + recent unabsorbed directives
-    3. Collective: consolidated blobs per shard + recent suggestions
+    This provides BOTH layers:
+    1. STATIC always-in-context layer:
+       - Session: recent episodes (FIFO)
+       - User: consolidated blob + recent unabsorbed directives
+       - Collective: consolidated blobs per shard + recent suggestions
 
-    RAG retrieval is handled separately via agent tool call.
+    2. DYNAMIC RAG layer (automatic, invisible to main agent):
+       - Fast LLM generates query from conversation context
+       - Hybrid search retrieves relevant memories
+       - Results included in context
     """
 
-    # Get all relevant streams
+    # Get all relevant streams (static layer)
     session_stream = await get_stream(stream_type="session", scope={"session_id": session.id})
     user_stream = await get_stream(stream_type="user", scope={"agent_id": agent.id, "user_id": user.id})
     agent_streams = await get_streams(stream_type="agent", scope={"agent_id": agent.id}, is_active=True)
 
-    # Build XML context (no RAG - agent will call tool if needed)
+    # Automatic RAG retrieval (dynamic layer)
+    # This runs a fast LLM to generate the query - invisible to main agent
+    rag_results = await retrieve_memories_for_message(
+        session=session,
+        agent=agent,
+        user=user,
+        user_message=user_message
+    )
+
+    # Build XML context with both layers
     return _build_memory_xml(
         session_stream=session_stream,
         user_stream=user_stream,
-        agent_streams=agent_streams
+        agent_streams=agent_streams,
+        rag_results=rag_results
     )
 
 
@@ -987,12 +1092,13 @@ def _build_memory_xml(
     session_stream: MemoryStream,
     user_stream: MemoryStream,
     agent_streams: List[MemoryStream],
+    rag_results: List[MemorySearchResult],
 ) -> str:
-    """Build XML memory context (static always-in-context layer)."""
+    """Build XML memory context with static and dynamic layers."""
 
     parts = ['<MemoryContext>']
 
-    # Collective/Agent memories
+    # Collective/Agent memories (static)
     parts.append('  <CollectiveMemory>')
     for stream in agent_streams:
         parts.append(f'    <MemoryShard name="{stream.name}">')
@@ -1000,18 +1106,23 @@ def _build_memory_xml(
         parts.append('    </MemoryShard>')
     parts.append('  </CollectiveMemory>')
 
-    # User memory
+    # User memory (static)
     parts.append('  <UserMemory>')
     parts.append(f'    {user_stream.fully_formed}')
     parts.append('  </UserMemory>')
 
-    # Session context
+    # Session context (static)
     parts.append('  <CurrentConversation>')
     parts.append(f'    {session_stream.fully_formed}')
     parts.append('  </CurrentConversation>')
 
-    # Note: RAG results are NOT included here.
-    # Agent retrieves them via search_long_term_memory() tool call when needed.
+    # RAG results (dynamic - retrieved based on current message)
+    if rag_results:
+        parts.append('  <RetrievedMemories description="Relevant memories retrieved for this message">')
+        for result in rag_results:
+            age = _format_age(result.get("formed_at"))
+            parts.append(f'    - {result["content"]} ({age})')
+        parts.append('  </RetrievedMemories>')
 
     parts.append('</MemoryContext>')
     return '\n'.join(parts)
@@ -1106,9 +1217,10 @@ eve/agent/memory2/              # New folder alongside existing memory/
 ├── models.py                   # MemoryStream, MemoryAtom (with access_count, last_accessed_at)
 ├── ops.py                      # MemoryStreamOps class
 ├── constants.py                # Default values, LLM models, SYNC_MEMORIES_ACROSS_SESSIONS_EVERY_N_MINUTES
-├── prompts.py                  # Default prompt templates
-├── context.py                  # assemble_memory_context() - static always-in-context layer
-├── tools.py                    # search_long_term_memory() agent tool for RAG
+├── prompts.py                  # Default prompt templates (including RAG_QUERY_GENERATION_PROMPT)
+├── context.py                  # assemble_memory_context() - static + dynamic RAG layer
+├── query_generation.py         # generate_rag_query(), retrieve_memories_for_message()
+│                               # Fast LLM call to generate RAG query (invisible to main agent)
 ├── formation.py                # maybe_form_memories(), form_memories()
 ├── extraction.py               # LLM extraction logic (single batched call)
 ├── consolidation.py            # LLM consolidation logic (error-safe, never loses memories)
@@ -1140,15 +1252,15 @@ Extract memories from this conversation for multiple memory types.
 {# Only include sub-prompts for active memory types #}
 {% if session_active %}
 <session_memories>
-Extract 1-2 session episodes summarizing key events (≤50 words each).
-These are temporary memories for current conversation context only.
+Extract 1-2 session facts summarizing key events (≤50 words each).
+These are temporary facts for current conversation context only.
 </session_memories>
 {% endif %}
 
 {% if user_active %}
 <user_memories>
-Extract 0-4 user directives about preferences, instructions, or context (≤25 words each).
-These will be stored long-term and indexed for RAG retrieval.
+Extract 0-4 user observations about preferences, instructions, or context (≤25 words each).
+These observations will be consolidated into the user's long-term memory.
 </user_memories>
 {% endif %}
 
@@ -1158,8 +1270,8 @@ These will be stored long-term and indexed for RAG retrieval.
 <shard name="{shard.name}">
 <context>{shard.extraction_prompt}</context>
 <instructions>
-  - facts: 0-3 factual observations (≤30 words, long-term RAG storage)
-  - suggestions: 0-2 behavioral suggestions (≤35 words, for consolidation)
+  - facts: 0-3 factual items (≤30 words, long-term RAG storage)
+  - observations: 0-2 behavioral observations (≤35 words, for consolidation)
 </instructions>
 </shard>
 {% endfor %}
@@ -1168,12 +1280,12 @@ These will be stored long-term and indexed for RAG retrieval.
 
 Return JSON with formed_at timestamp for each memory:
 {
-  "session": [{"content": "...", "formed_at": "ISO8601"}],
-  "user": [{"content": "...", "formed_at": "ISO8601"}],
+  "session": [{"content": "...", "formed_at": "ISO8601", "atom_type": "fact"}],
+  "user": [{"content": "...", "formed_at": "ISO8601", "atom_type": "observation"}],
   "collective": {
     "shard_name": {
-      "facts": [{"content": "...", "formed_at": "ISO8601"}],
-      "suggestions": [{"content": "...", "formed_at": "ISO8601"}]
+      "facts": [{"content": "...", "formed_at": "ISO8601", "atom_type": "fact"}],
+      "observations": [{"content": "...", "formed_at": "ISO8601", "atom_type": "observation"}]
     }
   }
 }
@@ -1191,9 +1303,9 @@ Return JSON with formed_at timestamp for each memory:
 **Decision Made**: Yes, add session consolidation (session summary blob).
 
 This means session streams will have:
-- `extraction_fields=["consolidated", "atomic"]`
+- `extraction_fields=["observation", "fact"]`
 - `consolidation_prompt` for session summary
-- `atomic_ids` for recent episodes
+- `fact_ids` for recent session facts
 - `consolidated_content` for evolving session summary
 
 ### 5.3 Migration Strategy
@@ -1201,7 +1313,7 @@ This means session streams will have:
 **Decision Made**: Hack migration approach:
 - Jam existing `UserMemory.content` into stream's `consolidated_content`
 - Jam existing `AgentMemory.content` into stream's `consolidated_content`
-- Copy `AgentMemory.facts` to stream's `atomic_ids`
+- Copy `AgentMemory.facts` to stream's `fact_ids`
 - Discard episodes (ephemeral anyway)
 
 ### 5.4 Prompt Storage
@@ -1248,29 +1360,35 @@ This provides maximum flexibility but requires careful prompt management.
 ### Phase 4: Consolidation
 1. Create `memory2/consolidation.py` - generic consolidation logic
 2. **Implement error-safe consolidation**:
-   - NEVER remove atoms from `unabsorbed_consolidated_ids` until `consolidated_content` is successfully saved
-   - If consolidation fails, atoms remain in unabsorbed list (will retry on next formation)
+   - NEVER remove observations from `unabsorbed_observation_ids` until `consolidated_content` is successfully saved
+   - If consolidation fails, observations remain in unabsorbed list (will retry on next formation)
    - Log errors but don't block memory formation
 3. Wire up extraction → embedding → storage → consolidation flow
-4. Handle long-term vs temporary memory routing:
-   - Long-term (user/collective facts): embed + index + consolidate
-   - Temporary (session episodes): store without embedding, FIFO eviction
+4. Handle fact vs observation routing:
+   - Facts (collective): embed + index for RAG retrieval
+   - Observations (user/collective): store in buffer, consolidate when threshold met
+   - Session facts: store without embedding, FIFO eviction
 
-### Phase 5: Context Assembly & RAG Tool
+### Phase 5: Context Assembly & Automatic RAG
 1. Create `memory2/context.py` with `assemble_memory_context()`
-2. Implement **static always-in-context layer only**:
-   - Session: recent episodes (FIFO)
-   - User: consolidated blob + recent unabsorbed directives
-   - Collective: consolidated blobs per shard + recent suggestions
-3. **RAG is NOT automatic** - create `memory2/tools.py` with agent tool:
-   - `search_long_term_memory()` tool that agent invokes when needed
-   - Agent decides when to search (avoids unnecessary queries)
-   - Tool updates access tracking on retrieval
-4. Preserve cross-session sync mechanism from current system:
+2. Implement **static always-in-context layer**:
+   - Session: recent facts (FIFO)
+   - User: consolidated blob + recent unabsorbed observations
+   - Collective: consolidated blobs per shard + recent observations
+3. Create `memory2/query_generation.py` with **automatic RAG via fast LLM**:
+   - `generate_rag_query()` - fast, cheap LLM call (e.g., gpt-4o-mini) that examines last N conversation messages + new user message and generates a query string for memory retrieval
+   - Returns empty string if no retrieval is needed (fast LLM decides)
+   - `retrieve_memories_for_message()` - main entry point called automatically before main agent processes message
+   - This is **invisible to the main agent** - it simply receives enriched context
+4. Integrate RAG results into context assembly:
+   - `_build_memory_xml()` includes both static layer and dynamic RAG results
+   - RAG results appear in `<RetrievedMemories>` section of XML context
+   - Update access tracking (`access_count`, `last_accessed_at`) on retrieval
+5. Preserve cross-session sync mechanism from current system:
    - Cache memory context in session
    - Refresh cache after `SYNC_MEMORIES_ACROSS_SESSIONS_EVERY_N_MINUTES` (5 min)
    - Simple time-based sync (no per-stream freshness check needed initially)
-5. Include `formed_at` age formatting for all memories
+6. Include `formed_at` age formatting for all memories
 
 ### Phase 6: Formation Orchestration
 1. Create `memory2/formation.py` with `maybe_form_memories()`, `form_memories()`
@@ -1283,13 +1401,15 @@ This provides maximum flexibility but requires careful prompt management.
 1. Create `memory2/service.py` facade
 2. Create `memory2/backends.py` with new backend
 3. Add config flag to switch between old and new memory system
-4. Register `search_long_term_memory` tool with agent tool registry
+4. Wire up automatic RAG in message processing pipeline:
+   - Call `retrieve_memories_for_message()` before main agent processes user message
+   - Pass RAG results to `assemble_memory_context()` for inclusion in prompt
 
 ### Phase 8: Migration
 1. Create `memory2/migration.py` script
-2. Migrate `UserMemory` → user streams
-3. Migrate `AgentMemory` → agent streams
-4. Backfill embeddings for existing atoms (batch process)
+2. Migrate `UserMemory` → user streams (observations)
+3. Migrate `AgentMemory` → agent streams (facts + observations)
+4. Backfill embeddings for existing facts (batch process)
 5. Create MongoDB Atlas Search indexes
 6. Validate data integrity and search functionality
 
