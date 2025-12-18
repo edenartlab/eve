@@ -519,10 +519,12 @@ class FarcasterClient(PlatformClient):
             self.add_tools()
 
             # Update agent with farcaster info
+            social_accounts = self.agent.social_accounts or {}
+            social_accounts["farcaster"] = farcaster_username
             self.agent.update(
                 farcasterId=str(farcaster_fid) if farcaster_fid else None,
                 farcasterUsername=farcaster_username,
-                **{"social_accounts.farcaster": farcaster_username},
+                social_accounts=social_accounts,
             )
 
             # Also save username to config
