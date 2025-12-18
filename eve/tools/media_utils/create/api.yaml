@@ -3,8 +3,10 @@ description: Generate or edit images and videos from an objective, single-scene 
 tip: |-
   Images:
     - For multi-image consistency sets, prefer model_preference=nano_banana with n_samples=1, and generate images consecutively using previous outputs as reference images.
-    - For text-heavy designs (infographics, logos, signage), prefer model_preference=nano_banana or openai.
-  
+    - For text-heavy designs (infographics, logos, signage), prefer model_preference=nano_banana.
+    - NEVER use model_preference=flux unless a trained LoRA model is explicitly specified in the lora parameter. Flux requires a lora to function.
+    - ONLY use model_preference=openai when the user explicitly requests OpenAI/DALL-E/GPT image generation. Prefer nano_banana otherwise.
+
   Videos:
     - If reference_images or reference_video are provided, describe only motion/camera/dynamics in the prompt and refer to the specific references; do not re-prompt existing content already provided by references.
     - Use sound_effects if you need synthesized dialogue/foley/music. Do not mix a separate audio file unless using extras.talking_head.
@@ -164,8 +166,9 @@ parameters:
     label: Model preference
     description: Optional preference for specific model provider
     tip: |-
-      Optionally choose a provider. If omitted, the system auto-selects based on task.
-      Videos: kling, seedance, runway, veo. Images: seedream, openai, flux, nano_banana.
+      If omitted, auto-selects based on task.
+      Videos: kling, seedance, runway, veo. Images: seedream, nano_banana, openai.
+      flux: ONLY with lora specified. openai: ONLY if user explicitly requests it.
     choices: ["kling", "seedream", "seedance", "sdxl", "runway", "openai", "flux", "veo", "nano_banana"]
   audio:
     type: audio

@@ -187,10 +187,16 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
     intermediate_outputs = {}
 
-    # default image tool
+    # default image tools
+    # txt2img default: nano_banana for subscribed, seedream4 for non-subscribed
     default_image_tool = "seedream4"
     if nano_banana_enabled:
         default_image_tool = "nano_banana"
+
+    # image editing default: nano_banana for subscribed, seedream4 for non-subscribed
+    default_image_edit_tool = "seedream4"
+    if nano_banana_enabled:
+        default_image_edit_tool = "nano_banana"
 
     # Determine tool
     if init_image:
@@ -202,7 +208,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
             "openai": "openai_image_edit",
             "nano_banana": "nano_banana",
             "sdxl": "txt2img",
-        }.get(model_preference, default_image_tool)
+        }.get(model_preference, default_image_edit_tool)
 
     else:
         if loras:
@@ -211,8 +217,10 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
             else:
                 image_tool = "flux_dev_lora"
         else:
+            # Note: "flux" is NOT included here because flux_dev_lora should ONLY be used
+            # when a lora is explicitly provided. Without a lora, "flux" preference falls
+            # through to the default tool.
             image_tool = {
-                "flux": "flux_dev_lora",
                 "seedream": "seedream4",
                 "openai": "openai_image_generate",
                 "nano_banana": "nano_banana",

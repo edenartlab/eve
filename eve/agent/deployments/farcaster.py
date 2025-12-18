@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional
 import aiohttp
 import modal
 from bson import ObjectId
-from farcaster import Warpcast
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
@@ -75,9 +74,10 @@ async def get_farcaster_user_info(secrets: DeploymentSecrets) -> Dict[str, Any]:
         )
         return {"fid": user_info.get("fid"), "username": user_info.get("username")}
     else:
-        client = Warpcast(mnemonic=secrets.farcaster.mnemonic)
-        user_info = client.get_me()
-        return {"fid": user_info.fid, "username": user_info.username}
+        raise Exception(
+            "Mnemonic-based Farcaster auth is no longer supported. "
+            "Warpcast has deprecated their API. Please migrate to Neynar managed signer."
+        )
 
 
 async def get_fid(secrets: DeploymentSecrets) -> int:
@@ -128,20 +128,12 @@ async def post_cast(
         logger.info(f"Successfully posted cast via managed signer: {cast_info}")
         return cast_info
     else:
-        # Use Warpcast client for mnemonic
-        client = Warpcast(mnemonic=secrets.farcaster.mnemonic)
-        result = client.post_cast(text=text, embeds=embeds, parent=parent)
-
-        # Convert to dict format for consistency
-        user_info = client.get_me()
-        cast_hash = result.cast.hash
-        cast_info = {
-            "hash": cast_hash,
-            "url": f"https://farcaster.xyz/{user_info.username}/{cast_hash}",
-            "thread_hash": result.cast.thread_hash,
-        }
-        logger.info(f"Successfully posted cast via mnemonic: {cast_info}")
-        return cast_info
+        # Mnemonic/Warpcast API is deprecated - no longer works
+        raise Exception(
+            "Mnemonic-based Farcaster auth is no longer supported. "
+            "Warpcast has deprecated their API. Please migrate to Neynar managed signer "
+            "by setting up a signer_uuid in your deployment secrets."
+        )
 
 
 # ========================================================================
@@ -499,11 +491,13 @@ class FarcasterClient(PlatformClient):
                 farcaster_fid = user_info.get("fid")
                 farcaster_username = user_info.get("username")
             else:
-                # Verify mnemonic credentials
-                client = Warpcast(mnemonic=secrets.farcaster.mnemonic)
-                user_info = client.get_me()
-                farcaster_fid = user_info.fid
-                farcaster_username = user_info.username
+                # Mnemonic/Warpcast API is deprecated
+                raise APIError(
+                    "Mnemonic-based Farcaster auth is no longer supported. "
+                    "Warpcast has deprecated their API. Please use Neynar managed signer "
+                    "by providing a signer_uuid in your deployment secrets.",
+                    status_code=400,
+                )
         except APIError:
             raise
         except Exception as e:
