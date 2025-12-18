@@ -217,10 +217,8 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
             else:
                 image_tool = "flux_dev_lora"
         else:
-            # Note: "flux" is NOT included here because flux_dev_lora should ONLY be used
-            # when a lora is explicitly provided. Without a lora, "flux" preference falls
-            # through to the default tool.
             image_tool = {
+                "flux": "flux_dev_lora",
                 "seedream": "seedream45",
                 "openai": "openai_image_generate",
                 "nano_banana": "nano_banana",
@@ -324,7 +322,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
         args = {
             "prompt": prompt,
-            "denoise": 1.0 if init_image else 0.8,
+            "denoise": 1.0,
             "n_samples": min(4, n_samples),
             "speed_quality_tradeoff": 0.7,
         }
@@ -620,8 +618,8 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
         if result.get("status") == "failed" or "output" not in result:
             raise Exception(f"Error in Seedream4.5: {result.get('error')}")
 
-        # retry once if n_samples not satisfied
-        if len(result.get("output", [])) != n_samples:
+        # retry once if fewer images than requested
+        if len(result.get("output", [])) < n_samples:
             result = await seedream45.async_run(args, save_thumbnails=True)
 
     else:
@@ -1086,7 +1084,7 @@ def get_loras(lora1, lora2):
     loras = []
     for lora_id in [lora1, lora2]:
         if lora_id:
-            if lora_id.lower() in ["null", "None"]:
+            if lora_id.lower() in ["null", "none", "None"]:
                 continue
             if not ObjectId.is_valid(str(lora_id)):
                 continue
