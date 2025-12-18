@@ -59,7 +59,7 @@ ALL_TOOLS = [
     # more image generation
     "outpaint",
     "seedream3",
-    "seedream4",
+    "seedream45",
     # video
     "runway",
     "runway2",

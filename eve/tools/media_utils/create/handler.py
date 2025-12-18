@@ -188,13 +188,13 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
     intermediate_outputs = {}
 
     # default image tools
-    # txt2img default: nano_banana for subscribed, seedream4 for non-subscribed
-    default_image_tool = "seedream4"
+    # txt2img default: nano_banana for subscribed, seedream45 for non-subscribed
+    default_image_tool = "seedream45"
     if nano_banana_enabled:
         default_image_tool = "nano_banana"
 
-    # image editing default: nano_banana for subscribed, seedream4 for non-subscribed
-    default_image_edit_tool = "seedream4"
+    # image editing default: nano_banana for subscribed, seedream45 for non-subscribed
+    default_image_edit_tool = "seedream45"
     if nano_banana_enabled:
         default_image_edit_tool = "nano_banana"
 
@@ -204,7 +204,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
         # init image takes precedence over lora
         image_tool = {
             "flux": "flux_kontext",
-            "seedream": "seedream4",
+            "seedream": "seedream45",
             "openai": "openai_image_edit",
             "nano_banana": "nano_banana",
             "sdxl": "txt2img",
@@ -221,7 +221,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
             # when a lora is explicitly provided. Without a lora, "flux" preference falls
             # through to the default tool.
             image_tool = {
-                "seedream": "seedream4",
+                "seedream": "seedream45",
                 "openai": "openai_image_generate",
                 "nano_banana": "nano_banana",
                 "sdxl": "txt2img",
@@ -234,7 +234,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
     # Downgrade from Nano Banana if not enabled
     if image_tool == "nano_banana" and not nano_banana_enabled:
-        image_tool = "seedream4"
+        image_tool = "seedream45"
 
     tool_calls = []
 
@@ -583,9 +583,9 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
         result = await seedream3.async_run(args, save_thumbnails=True)
 
     #########################################################
-    # Seedream 4
-    elif image_tool == "seedream4":
-        seedream4 = Tool.load("seedream4")
+    # Seedream 4.5
+    elif image_tool == "seedream45":
+        seedream45 = Tool.load("seedream45")
 
         args = {
             "prompt": prompt,
@@ -600,7 +600,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
         if aspect_ratio != "auto":
             aspect_ratio = snap_aspect_ratio_to_model(
-                aspect_ratio, "seedream4", start_image_attributes
+                aspect_ratio, "seedream45", start_image_attributes
             )
             args["aspect_ratio"] = aspect_ratio
 
@@ -614,15 +614,15 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
                 f"Use sequential_image_generation to generate exactly **{n_samples}** individual images in sequence. Do **NOT** make a grid/contact sheet/collage/panel layout. Make {n_samples} images. {prompt}"
             )
 
-        result = await seedream4.async_run(args, save_thumbnails=True)
+        result = await seedream45.async_run(args, save_thumbnails=True)
 
         # throw exception if there was an error
         if result.get("status") == "failed" or "output" not in result:
-            raise Exception(f"Error in Seedream4: {result.get('error')}")
+            raise Exception(f"Error in Seedream4.5: {result.get('error')}")
 
         # retry once if n_samples not satisfied
         if len(result.get("output", [])) != n_samples:
-            result = await seedream4.async_run(args, save_thumbnails=True)
+            result = await seedream45.async_run(args, save_thumbnails=True)
 
     else:
         raise Exception("Invalid args", args, image_tool)
@@ -1121,7 +1121,7 @@ def snap_aspect_ratio_to_model(aspect_ratio, model_name, start_image_attributes)
     """
 
     presets = {
-        "seedream4": {
+        "seedream45": {
             "21:9": 21 / 9,
             "16:9": 16 / 9,
             "4:3": 4 / 3,
