@@ -3,7 +3,7 @@ description: Creates an edited or extended image given one or more source images
 tip: |-
   This endpoint can take a mask image to enable inpainting and can also be used to edit or extend images based on a prompt.
 output_type: image
-cost_estimate: 8
+cost_estimate: 5 * num_images
 handler: fal
 fal_endpoint: fal-ai/gpt-image-1.5/edit
 parameter_presets:

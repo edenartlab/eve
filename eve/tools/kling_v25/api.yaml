@@ -3,7 +3,7 @@ description: Generate 5s or 10s videos from a starting image using Kling v2.5 vi
 tip: |-
   Generate high-quality videos from a starting image. Supports optional end image for more controlled video generation.
 output_type: video
-cost_estimate: 50
+cost_estimate: 'duration == "5" ? 50 : 100'
 handler: fal
 fal_endpoint: fal-ai/kling-video/v2.5-turbo/pro/image-to-video
 thumbnail: app/kling.mp4
