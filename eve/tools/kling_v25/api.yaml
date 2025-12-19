@@ -1,0 +1,59 @@
+name: Kling v2.5 Image to Video
+description: Generate 5s or 10s videos from a starting image using Kling v2.5 via FAL.
+tip: |-
+  Generate high-quality videos from a starting image. Supports optional end image for more controlled video generation.
+output_type: video
+cost_estimate: 50
+handler: fal
+fal_endpoint: fal-ai/kling-video/v2.5-turbo/pro/image-to-video
+thumbnail: app/kling.mp4
+visible: true
+active: true
+parameters:
+  prompt:
+    label: Prompt
+    type: string
+    required: true
+    description: Text description of the video to generate.
+    tip: |-
+      Describe the motion and action you want in the video. Be specific about movements and visual elements.
+  image_url:
+    label: Input Image
+    type: image
+    required: true
+    description: URL of the image to be used as the starting frame of the video.
+    tip: |-
+      This image will be used as the first frame of the video. The model will animate from this starting point based on your prompt.
+  duration:
+    label: Duration
+    type: string
+    required: false
+    default: "5"
+    choices:
+      - "5"
+      - "10"
+    description: The duration of the generated video in seconds.
+  negative_prompt:
+    label: Negative Prompt
+    type: string
+    required: false
+    default: "blur, distort, and low quality"
+    description: Things to avoid in the video generation.
+    tip: |-
+      Describe anything you do NOT want to appear in the video or any behaviors to avoid.
+  cfg_scale:
+    label: Guidance Scale
+    type: float
+    required: false
+    default: 0.5
+    minimum: 0
+    maximum: 1
+    step: 0.01
+    description: How closely to follow the prompt. Lower values give more creative freedom, higher values stick closer to the prompt.
+  tail_image_url:
+    label: End Image
+    type: image
+    required: false
+    description: URL of the image to be used as the last frame of the video.
+    tip: |-
+      Optional. If provided, the video will transition from the starting image to this end image.

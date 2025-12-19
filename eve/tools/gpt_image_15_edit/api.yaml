@@ -1,0 +1,67 @@
+name: GPT Image 1.5 Edit
+description: Creates an edited or extended image given one or more source images and a prompt, using fal.ai's GPT Image 1.5 model.
+tip: |-
+  This endpoint can take a mask image to enable inpainting and can also be used to edit or extend images based on a prompt.
+output_type: image
+cost_estimate: 8
+handler: fal
+fal_endpoint: fal-ai/gpt-image-1.5/edit
+parameter_presets:
+  quality: medium
+  output_format: webp
+  background: auto
+thumbnail: app/openai_edit.jpg
+visible: true
+active: true
+parameters:
+  prompt:
+    label: Prompt
+    type: string
+    required: true
+    description: A description of what you want the model to do with your images.
+    tip: |-
+      Describe the edits you want to make to the image.
+  image_urls:
+    label: Input Image(s)
+    type: array
+    items:
+      type: image
+    required: true
+    description: The image(s) to edit. These will be used as reference for the generation.
+    min_length: 1
+    max_length: 10
+  mask_image_url:
+    label: Mask Image (optional)
+    type: image
+    required: false
+    description: The mask image to use for the generation. White areas indicate where the image should be edited.
+  image_size:
+    label: Image Size
+    type: string
+    required: false
+    default: auto
+    choices:
+      - auto
+      - 1024x1024
+      - 1536x1024
+      - 1024x1536
+    description: Aspect ratio for the generated image.
+  input_fidelity:
+    label: Input Fidelity
+    type: string
+    required: false
+    default: high
+    choices:
+      - low
+      - high
+    description: How strongly to preserve the input image's content.
+    tip: |-
+      High fidelity preserves more of the original details like text, faces, logos, etc.
+  num_images:
+    label: Number of Images
+    type: integer
+    required: false
+    default: 1
+    minimum: 1
+    maximum: 4
+    description: Number of images to generate.
