@@ -1,0 +1,72 @@
+name: Seedream-4.5
+description: ByteDance's advanced text-to-image model generation
+tip: |-
+  Ultra-high quality text-to-image generation with resolutions up to 4K. Supports flexible aspect ratios and reference images.
+cost_estimate: 4
+output_type: image
+active: true
+visible: true
+replicate_model: bytedance/seedream-4.5
+thumbnail: app/seeddream4.jpg
+handler: replicate
+parameters:
+  prompt:
+    type: string
+    label: Prompt
+    description: Text prompt for image generation
+    required: true
+  size:
+    type: string
+    label: Size
+    description: Image resolution preset
+    default: "2K"
+    choices: ["1K", "2K", "4K", "custom"]
+    tip: |-
+      1K: 1024px, 2K: 2048px, 4K: 4096px, custom: use width/height parameters
+  width:
+    type: integer
+    label: Width
+    description: Custom image width in pixels (only used when size is 'custom')
+    default: 2048
+    minimum: 1024
+    maximum: 4096
+  height:
+    type: integer
+    label: Height
+    description: Custom image height in pixels (only used when size is 'custom')
+    default: 2048
+    minimum: 1024
+    maximum: 4096
+  aspect_ratio:
+    type: string
+    label: Aspect ratio
+    description: Aspect ratio for the generated image
+    tip: |-
+      Set aspect ratio manually (not "match_input_image") if you do not have any image inputs
+    default: "match_input_image"
+    choices: ["match_input_image", "1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3", "21:9"]
+  image_input:
+    type: array
+    items:
+      type: image
+    label: Input images
+    description: Optional input image(s) to use as references
+    min_length: 0
+    max_length: 10
+    tip: |-
+      Optional input images for image-to-image transformation or object/style reference
+  max_images:
+    type: integer
+    label: Number of images
+    description: Maximum number of images to generate when sequential generation is enabled
+    default: 1
+    minimum: 1
+    maximum: 15
+  sequential_image_generation:
+    type: string
+    label: Sequential generation
+    description: Group image generation mode
+    tip: |-
+      When enabled, the model will generate a batch of up to max_images images with consistency
+    default: "disabled"
+    choices: ["disabled", "auto"]

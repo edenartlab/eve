@@ -40,7 +40,7 @@ dependencies = [
     "py-cord>=2.4.1",
     "python-telegram-bot>=21.7",
     "requests-oauthlib>=1.3.1",
-    "farcaster>=0.7.11",
+    "farcaster",
     "ably>=2.0.7",
     "colorama>=0.4.6",
     "web3<7.6.1",

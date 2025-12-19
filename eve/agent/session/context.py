@@ -290,7 +290,7 @@ def label_message_channels(messages: List[ChatMessage], session: "Session" = Non
             labeled_messages.append(message)
             continue
 
-        if channel_type == "farcaster" and message.sender:
+        if channel_type == "farcaster" and message.sender and message.channel:
             sender = user_map.get(message.sender)
 
             # Wrap message content in Farcaster metadata using rich template
@@ -301,17 +301,17 @@ def label_message_channels(messages: List[ChatMessage], session: "Session" = Non
                 content=message.content,
             )
 
-        elif channel_type == "twitter" and message.sender:
+        elif channel_type == "twitter" and message.sender and message.channel:
             sender = user_map.get(message.sender)
 
             # Wrap message content in Twitter metadata using rich template
             message.content = twitter_notification_template.render(
                 username=sender.twitterUsername if sender else "Unknown",
-                tweet_id=message.channel.key if message.channel else "Unknown",
+                tweet_id=message.channel.key,
                 content=message.content,
             )
 
-        elif channel_type == "discord" and message.sender:
+        elif channel_type == "discord" and message.sender and message.channel:
             sender = user_map.get(message.sender)
 
             # Wrap message content in Discord metadata using rich template
@@ -324,9 +324,7 @@ def label_message_channels(messages: List[ChatMessage], session: "Session" = Non
                 )
             message.content = discord_notification_template.render(
                 username=discord_username,
-                message_id=message.channel.key
-                if message.channel and message.channel.key
-                else "Unknown",
+                message_id=message.channel.key or "Unknown",
                 content=message.content,
             )
 

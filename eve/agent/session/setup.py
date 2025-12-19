@@ -1,3 +1,4 @@
+import asyncio
 from typing import List, Optional
 
 from bson import ObjectId
@@ -94,8 +95,25 @@ def generate_session_title(
             session.title = "test thread"
         return
 
-    if background_tasks:
-        background_tasks.add_task(async_title_session, session, request.message.content)
+    # IMPORTANT: Don't put session titling ahead of orchestration in the request-scoped
+    # BackgroundTasks queue. Starlette executes BackgroundTasks sequentially, so a slow
+    # LLM title call can delay orchestration start by ~seconds (often ~10s), which looks
+    # like "prompt accepted but orchestrator started late".
+    content = getattr(getattr(request, "message", None), "content", None)
+    if not content:
+        return
+
+    if not background_tasks:
+        return
+
+    # Prefer true fire-and-forget scheduling when an event loop is available.
+    # Fallback to BackgroundTasks if called without a running loop.
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        background_tasks.add_task(async_title_session, session, content)
+    else:
+        loop.create_task(async_title_session(session, content))
 
 
 def create_agent_sessions(

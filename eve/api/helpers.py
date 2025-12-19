@@ -37,15 +37,14 @@ async def emit_update(
         data: The update data to emit
         session_id: Optional session ID for SSE broadcasting
     """
-    from eve.agent.session.debug_logger import SessionDebugger
-
-    debugger = SessionDebugger(session_id)
-
     if not update_config and not session_id:
         return
 
+    from eve.agent.session.debug_logger import SessionDebugger
+
     # Emit through configured channels (HTTP or Ably)
     if update_config:
+        debugger = SessionDebugger(session_id)
         if update_config.update_endpoint:
             debugger.log(
                 "HTTP emit",
@@ -75,15 +74,15 @@ async def emit_update(
             connection_count = sse_manager.get_connection_count(session_id)
 
             if connection_count > 0:
+                debugger = SessionDebugger(session_id)
                 debugger.log(
                     "SSE broadcast",
                     {"connections": connection_count, "type": data.get("type", "?")},
                     emoji="broadcast",
                 )
                 await sse_manager.broadcast(session_id, data)
-            else:
-                debugger.log("No SSE connections", emoji="warning")
         except Exception as e:
+            debugger = SessionDebugger(session_id)
             debugger.log_error("SSE failed", e)
             logger.error(f"Failed to broadcast to SSE connections: {str(e)}")
 
