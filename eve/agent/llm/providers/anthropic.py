@@ -135,6 +135,25 @@ class AnthropicProvider(LLMProvider):
                     langfuse_input = dict(base_input_payload)
                     langfuse_input["model"] = effective_model
                     langfuse_input["attempt"] = attempt_index + 1
+
+                    # save conversation to file
+                    # Save conversation messages for debugging and traceability
+                    import json
+                    from datetime import datetime
+
+                    timestamp = datetime.utcnow().strftime("%Y-%m-%d_%H-%M-%S")
+                    conversation_filename = f"conversation_{timestamp}.json"
+                    try:
+                        with open(conversation_filename, "w", encoding="utf-8") as f:
+                            json.dump(conversation, f, ensure_ascii=False, indent=2)
+                        logger.info(
+                            f"[ANTHROPIC_PAYLOAD] Conversation saved to {conversation_filename}"
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"[ANTHROPIC_PAYLOAD] Failed to save conversation to {conversation_filename}: {e}"
+                        )
+
                     request_kwargs = {
                         "model": effective_model,
                         "system": system_prompt,
@@ -143,36 +162,68 @@ class AnthropicProvider(LLMProvider):
                     }
 
                     # Log the actual messages being sent to the API
+                    session_info = llm_call_metadata.get("session", "unknown")
                     logger.info(
-                        f"[ANTHROPIC_MESSAGES] === Messages being sent to API ({len(conversation)} total) ==="
+                        "[ANTHROPIC_PAYLOAD] ========== FULL LLM PAYLOAD =========="
                     )
-                    for i, msg in enumerate(conversation[:5]):  # Log first 5 messages
+                    logger.info(f"[ANTHROPIC_PAYLOAD] Session: {session_info}")
+                    logger.info(f"[ANTHROPIC_PAYLOAD] Model: {effective_model}")
+                    logger.info(
+                        f"[ANTHROPIC_PAYLOAD] Total messages: {len(conversation)}"
+                    )
+
+                    # Log system prompt (first 500 chars)
+                    if system_prompt:
+                        logger.info(
+                            f"[ANTHROPIC_PAYLOAD] System prompt length: {len(system_prompt)}"
+                        )
+                        logger.info(
+                            f"[ANTHROPIC_PAYLOAD] System prompt (first 500): {system_prompt[:500]}..."
+                        )
+
+                    # Log FULL content of first 3 messages to debug session.context
+                    logger.info(
+                        "[ANTHROPIC_PAYLOAD] --- First 3 messages (FULL CONTENT) ---"
+                    )
+                    for i, msg in enumerate(conversation[:3]):
                         role = msg.get("role", "unknown")
                         content = msg.get("content", "")
                         # Handle content that might be a list (for multimodal)
                         if isinstance(content, list):
-                            content_preview = (
-                                str(content)[:200] + "..."
-                                if len(str(content)) > 200
-                                else str(content)
+                            # For list content, show first text block fully
+                            text_blocks = [
+                                b
+                                for b in content
+                                if isinstance(b, dict) and b.get("type") == "text"
+                            ]
+                            if text_blocks:
+                                full_content = text_blocks[0].get("text", "")
+                            else:
+                                full_content = str(content)
+                        else:
+                            full_content = content or ""
+
+                        has_system_tag = "<SystemMessage>" in str(full_content)
+                        logger.info(
+                            f"[ANTHROPIC_PAYLOAD] msg[{i}]: role={role}, len={len(full_content)}, has_system_tag={has_system_tag}"
+                        )
+                        # Log full content for debugging (up to 2000 chars)
+                        if len(full_content) > 2000:
+                            logger.info(
+                                f"[ANTHROPIC_PAYLOAD] msg[{i}] CONTENT (first 2000):\n{full_content[:2000]}\n... (truncated)"
                             )
                         else:
-                            content_preview = (
-                                (content[:200] + "...")
-                                if content and len(content) > 200
-                                else content
+                            logger.info(
+                                f"[ANTHROPIC_PAYLOAD] msg[{i}] CONTENT:\n{full_content}"
                             )
-                        has_system_tag = (
-                            "<SystemMessage>" in str(content) if content else False
-                        )
+
+                    if len(conversation) > 3:
                         logger.info(
-                            f"[ANTHROPIC_MESSAGES] msg[{i}]: role={role}, has_system_tag={has_system_tag}, "
-                            f"content_preview={content_preview}"
+                            f"[ANTHROPIC_PAYLOAD] ... and {len(conversation) - 3} more messages"
                         )
-                    if len(conversation) > 5:
-                        logger.info(
-                            f"[ANTHROPIC_MESSAGES] ... and {len(conversation) - 5} more messages"
-                        )
+                    logger.info(
+                        "[ANTHROPIC_PAYLOAD] =========================================="
+                    )
 
                     # Build tools list with web search support
                     all_tools = []

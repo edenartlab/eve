@@ -284,17 +284,26 @@ class PromptSessionRuntime:
             fresh_messages.sort(key=lambda m: m.createdAt)
 
         system_message = self.llm_context.messages[0]
-        system_extras = []
+        pinned_messages = []
 
+        # Preserve system messages AND pinned context messages (with <SystemMessage> tag)
+        # These are created in-memory and not stored in the database, so they would be lost
+        # if we only fetched from fresh_messages
         for msg in self.llm_context.messages[1:]:
-            if msg.role == "system":
-                system_extras.append(msg)
+            is_system_role = msg.role == "system"
+            is_pinned_context = (
+                msg.content
+                and "<SystemMessage>" in msg.content
+                and "</SystemMessage>" in msg.content
+            )
+            if is_system_role or is_pinned_context:
+                pinned_messages.append(msg)
             else:
                 break
 
         refreshed_messages = [system_message]
-        if system_extras:
-            refreshed_messages.extend(system_extras)
+        if pinned_messages:
+            refreshed_messages.extend(pinned_messages)
         refreshed_messages.extend(fresh_messages)
         refreshed_messages = label_message_channels(refreshed_messages, self.session)
         refreshed_messages = convert_message_roles(refreshed_messages, self.actor.id)

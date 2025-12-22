@@ -16,6 +16,7 @@ from loguru import logger
 
 from eve.agent import Agent
 from eve.agent.session.context import build_agent_session_llm_context
+from eve.agent.session.instrumentation import PromptSessionInstrumentation
 from eve.agent.session.models import (
     ChatMessageRequestInput,
     PromptSessionContext,
@@ -73,6 +74,22 @@ async def run_agent_session_turn(
     session_run_id = str(uuid.uuid4())
     logger.info(f"[AGENT_SESSION] Session run ID: {session_run_id}")
 
+    # Create instrumentation for Langfuse/Sentry tracing
+    instrumentation = PromptSessionInstrumentation(
+        session_id=str(agent_session.id),
+        session_run_id=session_run_id,
+        agent_id=str(actor.id),
+        user_id=str(parent_session.owner),
+        trace_name=f"agent_session_{actor.username}",
+    )
+    instrumentation.ensure_sentry_transaction(
+        name=f"agent_session_{actor.username}",
+        op="session.agent_turn",
+    )
+    logger.info(
+        f"[AGENT_SESSION] Instrumentation created: trace_name={instrumentation.trace_name}"
+    )
+
     # Build context for this turn
     context = PromptSessionContext(
         session=agent_session,
@@ -91,6 +108,7 @@ async def run_agent_session_turn(
         actor=actor,
         context=context,
         trace_id=session_run_id,
+        instrumentation=instrumentation,
     )
     logger.info("[AGENT_SESSION] LLM context built successfully")
 
@@ -106,6 +124,7 @@ async def run_agent_session_turn(
         session_run_id=session_run_id,
         api_key_id=None,
         context=context,
+        instrumentation=instrumentation,
     )
 
     posted_to_parent = False
@@ -135,6 +154,8 @@ async def run_agent_session_turn(
             f"[AGENT_SESSION] Turn completed: {actor.username} did NOT post to chatroom"
         )
 
+    # Finalize instrumentation (flush to Langfuse)
+    instrumentation.finalize(success=posted_to_parent)
     logger.info("[AGENT_SESSION] ========== run_agent_session_turn END ==========")
 
 
@@ -180,6 +201,19 @@ async def run_agent_session_turn_streaming(
     session_run_id = str(uuid.uuid4())
     logger.info(f"[AGENT_SESSION_STREAM] Session run ID: {session_run_id}")
 
+    # Create instrumentation for Langfuse/Sentry tracing
+    instrumentation = PromptSessionInstrumentation(
+        session_id=str(agent_session.id),
+        session_run_id=session_run_id,
+        agent_id=str(actor.id),
+        user_id=str(parent_session.owner),
+        trace_name=f"agent_session_{actor.username}",
+    )
+    instrumentation.ensure_sentry_transaction(
+        name=f"agent_session_{actor.username}",
+        op="session.agent_turn",
+    )
+
     context = PromptSessionContext(
         session=agent_session,
         initiating_user_id=str(parent_session.owner),
@@ -196,6 +230,7 @@ async def run_agent_session_turn_streaming(
         actor=actor,
         context=context,
         trace_id=session_run_id,
+        instrumentation=instrumentation,
     )
     logger.info("[AGENT_SESSION_STREAM] LLM context built")
 
@@ -212,6 +247,7 @@ async def run_agent_session_turn_streaming(
         session_run_id=session_run_id,
         api_key_id=None,
         context=context,
+        instrumentation=instrumentation,
     )
 
     posted_to_parent = False
@@ -244,6 +280,8 @@ async def run_agent_session_turn_streaming(
             f"[AGENT_SESSION_STREAM] Turn completed: {actor.username} did NOT post to chatroom"
         )
 
+    # Finalize instrumentation (flush to Langfuse)
+    instrumentation.finalize(success=posted_to_parent)
     logger.info(
         "[AGENT_SESSION_STREAM] ========== run_agent_session_turn_streaming END =========="
     )
