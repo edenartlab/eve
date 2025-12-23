@@ -1480,7 +1480,14 @@ async def handle_refresh_discord_channels(request: RefreshDiscordChannelsRequest
 
 @handle_errors
 async def handle_sync_discord_channels(request: SyncDiscordChannelsRequest):
-    """Find Discord channels that don't have corresponding Eden sessions."""
+    """
+    Find Discord channels without sessions, create sessions, and backfill messages.
+    """
+    import aiohttp
+
+    from eve.agent.agent import Agent
+    from eve.agent.deployments.gateway_v2 import backfill_discord_channel
+    from eve.agent.session.models import Channel
 
     # Load deployment
     deployment = Deployment.from_mongo(ObjectId(request.deployment_id))
@@ -1494,6 +1501,11 @@ async def handle_sync_discord_channels(request: SyncDiscordChannelsRequest):
     # Verify it's a Discord deployment
     if deployment.platform != ClientType.DISCORD:
         raise APIError("Not a Discord deployment", status_code=400)
+
+    # Get the agent for this deployment
+    agent = Agent.from_mongo(deployment.agent)
+    if not agent:
+        raise APIError("Agent not found for deployment", status_code=404)
 
     # Get all subscribed channel IDs (both read and write access)
     all_channel_ids: set[str] = set()
@@ -1514,26 +1526,31 @@ async def handle_sync_discord_channels(request: SyncDiscordChannelsRequest):
         return {
             "success": True,
             "total_channels": 0,
-            "channels_with_sessions": 0,
+            "channels_with_sessions": {},
             "channels_without_sessions": [],
+            "sessions_created": [],
+            "backfill_results": {},
         }
 
     # Find sessions with matching Discord channels
-    sessions_collection = get_collection(Session)
+    sessions_collection = Session.get_collection()
     sessions_with_channels = sessions_collection.find(
         {
             "channel.type": "discord",
             "channel.key": {"$in": list(all_channel_ids)},
         },
-        {"channel.key": 1},
+        {"_id": 1, "channel.key": 1},
     )
 
-    # Get the set of channel IDs that have sessions
+    # Get the set of channel IDs that have sessions, and map channel -> session
     channels_with_sessions: set[str] = set()
+    channel_to_session: dict[str, str] = {}
     for session in sessions_with_channels:
         channel = session.get("channel", {})
         if channel and channel.get("key"):
-            channels_with_sessions.add(channel["key"])
+            channel_key = channel["key"]
+            channels_with_sessions.add(channel_key)
+            channel_to_session[channel_key] = str(session["_id"])
 
     # Find channels without sessions
     channels_without_sessions = all_channel_ids - channels_with_sessions
@@ -1546,12 +1563,112 @@ async def handle_sync_discord_channels(request: SyncDiscordChannelsRequest):
         f"{len(channels_without_sessions)} without sessions"
     )
 
+    if channel_to_session:
+        logger.info(f"Channels with sessions: {channel_to_session}")
+
     if channels_without_sessions:
         logger.info(f"Channels without sessions: {list(channels_without_sessions)}")
+
+    # Create sessions and backfill for channels without sessions
+    sessions_created: list[dict] = []
+    backfill_results: dict[str, int] = {}
+    bot_token = deployment.secrets.discord.token
+
+    async with aiohttp.ClientSession() as http_session:
+        for channel_id in channels_without_sessions:
+            try:
+                # Fetch channel info from Discord API
+                headers = {"Authorization": f"Bot {bot_token}"}
+                url = f"https://discord.com/api/v10/channels/{channel_id}"
+
+                async with http_session.get(url, headers=headers) as response:
+                    if response.status != 200:
+                        logger.error(
+                            f"Failed to fetch channel {channel_id}: {response.status}"
+                        )
+                        continue
+
+                    channel_data = await response.json()
+
+                guild_id = channel_data.get("guild_id")
+                channel_name = channel_data.get("name", f"channel-{channel_id}")
+
+                # Build session title
+                if guild_id:
+                    # Fetch guild name
+                    guild_url = f"https://discord.com/api/v10/guilds/{guild_id}"
+                    async with http_session.get(
+                        guild_url, headers=headers
+                    ) as guild_response:
+                        if guild_response.status == 200:
+                            guild_data = await guild_response.json()
+                            guild_name = guild_data.get("name", "Unknown Server")
+                            session_title = f"{guild_name}: #{channel_name}"
+                        else:
+                            session_title = f"#{channel_name}"
+                else:
+                    session_title = f"#{channel_name}"
+
+                # Create session key (same format as gateway)
+                session_key = f"discord:{channel_id}"
+
+                # Create new session
+                new_session = Session(
+                    owner=agent.owner,
+                    agents=[agent.id],
+                    title=session_title,
+                    session_key=session_key,
+                    platform="discord",
+                    channel=Channel(type="discord", key=channel_id),
+                    discord_channel_id=channel_id,
+                    session_type="passive",
+                    status="active",
+                )
+                new_session.save()
+
+                logger.info(
+                    f"Created session {new_session.id} for channel {channel_id} ({session_title})"
+                )
+
+                sessions_created.append(
+                    {
+                        "session_id": str(new_session.id),
+                        "channel_id": channel_id,
+                        "title": session_title,
+                    }
+                )
+
+                # Update tracking
+                channel_to_session[channel_id] = str(new_session.id)
+
+                # Backfill messages (only for guild channels, not DMs)
+                if guild_id:
+                    try:
+                        backfill_count = await backfill_discord_channel(
+                            session=new_session,
+                            channel_id=channel_id,
+                            guild_id=guild_id,
+                            token=bot_token,
+                            agent=agent,
+                            deployment=deployment,
+                        )
+                        backfill_results[channel_id] = backfill_count
+                        logger.info(
+                            f"Backfilled {backfill_count} messages for channel {channel_id}"
+                        )
+                    except Exception as e:
+                        logger.error(f"Error backfilling channel {channel_id}: {e}")
+                        backfill_results[channel_id] = -1  # Indicate error
+
+            except Exception as e:
+                logger.error(f"Error creating session for channel {channel_id}: {e}")
+                continue
 
     return {
         "success": True,
         "total_channels": len(all_channel_ids),
-        "channels_with_sessions": len(channels_with_sessions),
-        "channels_without_sessions": list(channels_without_sessions),
+        "channels_with_sessions": channel_to_session,
+        "channels_without_sessions": [],  # All processed now
+        "sessions_created": sessions_created,
+        "backfill_results": backfill_results,
     }

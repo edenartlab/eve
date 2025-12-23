@@ -318,5 +318,7 @@ class SyncDiscordChannelsRequest(BaseModel):
 class SyncDiscordChannelsResponse(BaseModel):
     success: bool
     total_channels: int
-    channels_with_sessions: int
+    channels_with_sessions: Dict[str, str]  # channel_id -> session_id
     channels_without_sessions: List[str]
+    sessions_created: List[Dict[str, Any]]  # [{session_id, channel_id, title}]
+    backfill_results: Dict[str, int]  # channel_id -> messages_backfilled

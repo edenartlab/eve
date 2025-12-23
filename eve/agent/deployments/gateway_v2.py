@@ -605,6 +605,7 @@ async def process_discord_message_for_agent(
                 title=session_title,
                 session_key=session_key,
                 platform="discord",
+                channel=Channel(type="discord", key=channel_id),
                 discord_channel_id=channel_id,
                 session_type="passive",
                 status="active",

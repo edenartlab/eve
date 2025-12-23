@@ -684,10 +684,11 @@ def get_last_eden_message_for_llm(session_id: ObjectId) -> Optional[ChatMessage]
     eden_msg = ChatMessage(**eden_messages[0])
 
     # Convert: change role to user, wrap content in SystemMessage tags
+    current_dt = datetime.now(timezone.utc).strftime("%Y %b %-d, %-I:%M%p")
     return eden_msg.model_copy(
         update={
             "role": "user",
-            "content": f"<SystemMessage>{eden_msg.content}</SystemMessage>",
+            "content": f'<SystemMessage current_date_time="{current_dt}">{eden_msg.content}</SystemMessage>',
         }
     )
 
