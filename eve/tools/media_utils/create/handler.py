@@ -188,13 +188,13 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
     intermediate_outputs = {}
 
     # default image tools
-    # txt2img default: nano_banana for subscribed, seedream4 for non-subscribed
-    default_image_tool = "seedream4"
+    # txt2img default: nano_banana for subscribed, seedream45 for non-subscribed
+    default_image_tool = "seedream45"
     if nano_banana_enabled:
         default_image_tool = "nano_banana"
 
-    # image editing default: nano_banana for subscribed, seedream4 for non-subscribed
-    default_image_edit_tool = "seedream4"
+    # image editing default: nano_banana for subscribed, gpt_image_15_edit for non-subscribed
+    default_image_edit_tool = "gpt_image_15_edit"
     if nano_banana_enabled:
         default_image_edit_tool = "nano_banana"
 
@@ -204,8 +204,8 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
         # init image takes precedence over lora
         image_tool = {
             "flux": "flux_kontext",
-            "seedream": "seedream4",
-            "openai": "openai_image_edit",
+            "seedream": "seedream45",
+            "openai": "gpt_image_15_edit",
             "nano_banana": "nano_banana",
             "sdxl": "txt2img",
         }.get(model_preference, default_image_edit_tool)
@@ -217,11 +217,9 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
             else:
                 image_tool = "flux_dev_lora"
         else:
-            # Note: "flux" is NOT included here because flux_dev_lora should ONLY be used
-            # when a lora is explicitly provided. Without a lora, "flux" preference falls
-            # through to the default tool.
             image_tool = {
-                "seedream": "seedream4",
+                "flux": "flux_dev_lora",
+                "seedream": "seedream45",
                 "openai": "openai_image_generate",
                 "nano_banana": "nano_banana",
                 "sdxl": "txt2img",
@@ -234,7 +232,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
     # Downgrade from Nano Banana if not enabled
     if image_tool == "nano_banana" and not nano_banana_enabled:
-        image_tool = "seedream4"
+        image_tool = "seedream45"
 
     tool_calls = []
 
@@ -324,7 +322,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
         args = {
             "prompt": prompt,
-            "denoise": 1.0 if init_image else 0.8,
+            "denoise": 1.0,
             "n_samples": min(4, n_samples),
             "speed_quality_tradeoff": 0.7,
         }
@@ -583,9 +581,9 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
         result = await seedream3.async_run(args, save_thumbnails=True)
 
     #########################################################
-    # Seedream 4
-    elif image_tool == "seedream4":
-        seedream4 = Tool.load("seedream4")
+    # Seedream 4.5
+    elif image_tool == "seedream45":
+        seedream45 = Tool.load("seedream45")
 
         args = {
             "prompt": prompt,
@@ -600,7 +598,7 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
 
         if aspect_ratio != "auto":
             aspect_ratio = snap_aspect_ratio_to_model(
-                aspect_ratio, "seedream4", start_image_attributes
+                aspect_ratio, "seedream45", start_image_attributes
             )
             args["aspect_ratio"] = aspect_ratio
 
@@ -614,15 +612,44 @@ async def handle_image_creation(args: dict, user: str = None, agent: str = None)
                 f"Use sequential_image_generation to generate exactly **{n_samples}** individual images in sequence. Do **NOT** make a grid/contact sheet/collage/panel layout. Make {n_samples} images. {prompt}"
             )
 
-        result = await seedream4.async_run(args, save_thumbnails=True)
+        result = await seedream45.async_run(args, save_thumbnails=True)
 
         # throw exception if there was an error
         if result.get("status") == "failed" or "output" not in result:
-            raise Exception(f"Error in Seedream4: {result.get('error')}")
+            raise Exception(f"Error in Seedream4.5: {result.get('error')}")
 
-        # retry once if n_samples not satisfied
-        if len(result.get("output", [])) != n_samples:
-            result = await seedream4.async_run(args, save_thumbnails=True)
+        # retry once if fewer images than requested
+        if len(result.get("output", [])) < n_samples:
+            result = await seedream45.async_run(args, save_thumbnails=True)
+
+    #########################################################
+    # GPT Image 1.5 Edit
+    elif image_tool == "gpt_image_15_edit":
+        gpt_image_15_edit = Tool.load("gpt_image_15_edit")
+
+        # Use auto most of the time, only set explicit size for exact matches
+        # 1536x1024 = 3:2, 1024x1536 = 2:3, 1024x1024 = 1:1
+        image_size = "auto"
+        prompt_with_ar = prompt
+        if aspect_ratio == "3:2":
+            image_size = "1536x1024"
+        elif aspect_ratio == "2:3":
+            image_size = "1024x1536"
+        elif aspect_ratio == "1:1":
+            image_size = "1024x1024"
+        elif aspect_ratio != "auto":
+            # Include aspect ratio hint in prompt for other aspect ratios
+            prompt_with_ar = f"{prompt} (aspect ratio: {aspect_ratio})"
+
+        args = {
+            "prompt": prompt_with_ar,
+            "image_urls": reference_images if reference_images else [init_image],
+            "image_size": image_size,
+            "input_fidelity": "high",
+            "num_images": min(4, n_samples),
+        }
+
+        result = await gpt_image_15_edit.async_run(args, save_thumbnails=True)
 
     else:
         raise Exception("Invalid args", args, image_tool)
@@ -736,12 +763,22 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
         video_tool = "hedra"
     # Go by model preference
     else:
-        video_tool = {
-            "kling": "kling",
-            "seedance": "seedance1",
-            "veo": "veo3",
-            "runway": "runway",
-        }.get(model_preference, "veo3")
+        # img2vid (with start_image): default to kling_v25
+        # txt2vid (no start_image): default to veo3
+        if start_image:
+            video_tool = {
+                "kling": "kling_v25",
+                "seedance": "seedance1",
+                "veo": "veo3",
+                "runway": "runway",
+            }.get(model_preference, "kling_v25")
+        else:
+            video_tool = {
+                "kling": "kling",
+                "seedance": "seedance1",
+                "veo": "veo3",
+                "runway": "runway",
+            }.get(model_preference, "veo3")
 
         if not veo3_enabled and video_tool == "veo3":
             video_tool = "seedance1"
@@ -858,6 +895,25 @@ async def handle_video_creation(args: dict, user: str = None, agent: str = None)
                 args.update({"end_image": end_image})
 
             result = await kling.async_run(args, save_thumbnails=True)
+
+    #########################################################
+    # Kling v2.5 (img2vid via FAL)
+    elif video_tool == "kling_v25":
+        kling_v25 = Tool.load("kling_v25")
+
+        # Kling v2.5 can only produce 5 or 10s videos (as strings)
+        duration_str = "10" if duration > 7.5 else "5"
+
+        args = {
+            "prompt": prompt,
+            "image_url": start_image,
+            "duration": duration_str,
+        }
+
+        if end_image:
+            args["tail_image_url"] = end_image
+
+        result = await kling_v25.async_run(args, save_thumbnails=True)
 
     #########################################################
     # Seedance
@@ -1086,7 +1142,7 @@ def get_loras(lora1, lora2):
     loras = []
     for lora_id in [lora1, lora2]:
         if lora_id:
-            if lora_id.lower() in ["null", "None"]:
+            if lora_id.lower() in ["null", "none", "None"]:
                 continue
             if not ObjectId.is_valid(str(lora_id)):
                 continue
@@ -1121,7 +1177,7 @@ def snap_aspect_ratio_to_model(aspect_ratio, model_name, start_image_attributes)
     """
 
     presets = {
-        "seedream4": {
+        "seedream45": {
             "21:9": 21 / 9,
             "16:9": 16 / 9,
             "4:3": 4 / 3,

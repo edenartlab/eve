@@ -549,7 +549,21 @@ class Tool(Document, ABC):
 
                 paying_user = user
                 if agent_id:
-                    agent = Agent.from_mongo(agent_id)
+                    acting_agent_id = agent_id
+
+                    # if it's a subsession, use the agent that called the subsession
+                    if session_id:
+                        from .agent.session.models import Session
+
+                        session = Session.from_mongo(session_id)
+                        while True:
+                            if session.parent_session:
+                                session = Session.from_mongo(session.parent_session)
+                                acting_agent_id = session.agents[0]
+                            else:
+                                break
+
+                    agent = Agent.from_mongo(acting_agent_id)
                     if agent.owner_pays == "full" or (
                         agent.owner_pays == "deployments" and is_client_platform
                     ):
