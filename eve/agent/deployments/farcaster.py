@@ -233,25 +233,21 @@ async def unpack_cast(cast: Dict[str, Any]):
     author = cast.get("author") or {}
     author_fid = author.get("fid")
     author_username = author.get("username")
+    author_pfp = author.get("pfp_url")
     text = cast.get("text") or ""
     embed_urls = extract_embed_urls(cast.get("embeds"))
     split = split_media(embed_urls)
     media_urls = split.get("media_urls") or []
     timestamp = cast.get("timestamp")
-    return cast_hash, author_fid, author_username, text, media_urls, timestamp
-
-
-async def induct_user(user: User, author: Dict[str, Any]):
-    """Update user metadata from Farcaster profile"""
-    from eve.s3 import upload_file_from_url
-
-    pfp = author.get("pfp_url")
-    if pfp and pfp != user.userImage:
-        try:
-            pfp_url, _ = upload_file_from_url(pfp)
-            user.update(userImage=pfp_url.split("/")[-1])
-        except Exception as e:
-            logger.error(f"Error uploading pfp {pfp} for user {str(user.id)}: {str(e)}")
+    return (
+        cast_hash,
+        author_fid,
+        author_username,
+        author_pfp,
+        text,
+        media_urls,
+        timestamp,
+    )
 
 
 async def process_farcaster_cast(
@@ -290,9 +286,11 @@ async def process_farcaster_cast(
         content = cast_data.get("text", "")
         # parent_hash = cast_data.get("parent_hash")
 
-        # Get or create user and update profile
-        user = User.from_farcaster(author_fid, author_username)
-        await induct_user(user, author)
+        # Get or create user (avatar is handled via platformUserImage in from_farcaster)
+        author_pfp = author.get("pfp_url")
+        user = User.from_farcaster(
+            author_fid, author_username, farcaster_avatar_url=author_pfp
+        )
 
         # Handle attachments/embeds
         embed_urls = extract_embed_urls(cast_data.get("embeds"))
@@ -342,6 +340,7 @@ async def process_farcaster_cast(
                             cast_hash_,
                             author_fid_,
                             author_username_,
+                            author_pfp_,
                             text_,
                             media_urls_,
                             timestamp_,
@@ -357,7 +356,9 @@ async def process_farcaster_cast(
                         else:
                             role = "user"
                             cast_user = User.from_farcaster(
-                                author_fid_, author_username_
+                                author_fid_,
+                                author_username_,
+                                farcaster_avatar_url=author_pfp_,
                             )
 
                         # Build Farcaster URL
