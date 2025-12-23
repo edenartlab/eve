@@ -308,3 +308,15 @@ class RefreshDiscordChannelsResponse(BaseModel):
     guilds_count: int
     channels_count: int
     guilds: List[Dict[str, Any]]
+
+
+class SyncDiscordChannelsRequest(BaseModel):
+    deployment_id: str
+    user_id: str
+
+
+class SyncDiscordChannelsResponse(BaseModel):
+    success: bool
+    total_channels: int
+    channels_with_sessions: int
+    channels_without_sessions: List[str]

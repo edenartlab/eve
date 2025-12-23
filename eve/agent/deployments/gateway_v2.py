@@ -382,7 +382,10 @@ async def backfill_discord_channel(
                 sender = agent
             else:
                 role = "user"
-                sender = User.from_discord(author_id, author_username)
+                author_avatar = msg.get("author", {}).get("avatar")
+                sender = User.from_discord(
+                    author_id, author_username, discord_avatar=author_avatar
+                )
 
             # Check if ChatMessage already exists for this Discord message (across ALL sessions)
             existing_chat = ChatMessage.find_one(
@@ -508,7 +511,10 @@ async def process_discord_message_for_agent(
         )
 
         # Get or create user
-        user = User.from_discord(author_id, author_username)
+        author_avatar = message_data.get("author", {}).get("avatar")
+        user = User.from_discord(
+            author_id, author_username, discord_avatar=author_avatar
+        )
 
         # Upload media to S3
         if media_urls:
@@ -1092,9 +1098,11 @@ class DiscordGatewayClient:
 
     def _extract_user_info(self, message_data: dict) -> Tuple[str, str, User]:
         """Extract user information from message data"""
-        user_id = message_data.get("author", {}).get("id")
-        username = message_data.get("author", {}).get("username", "User")
-        user = User.from_discord(user_id, username)
+        author = message_data.get("author", {})
+        user_id = author.get("id")
+        username = author.get("username", "User")
+        avatar = author.get("avatar")  # Discord avatar hash
+        user = User.from_discord(user_id, username, discord_avatar=avatar)
         return user_id, username, user
 
     def _process_message_content(
@@ -1599,12 +1607,10 @@ class DiscordGatewayClient:
                 return
 
             # Get or create the user
-            username = (
-                member_data.get("user", {}).get("username")
-                or member_data.get("nick")
-                or "User"
-            )
-            user = User.from_discord(user_id, username)
+            user_data = member_data.get("user", {})
+            username = user_data.get("username") or member_data.get("nick") or "User"
+            avatar = user_data.get("avatar")
+            user = User.from_discord(user_id, username, discord_avatar=avatar)
 
             # Add the reaction
             chat_msg.react(user.id, emoji_str)

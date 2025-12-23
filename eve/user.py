@@ -138,7 +138,9 @@ class User(Document):
             )
 
     @classmethod
-    def from_discord(cls, discord_id, discord_username):
+    def from_discord(
+        cls, discord_id, discord_username, discord_avatar: Optional[str] = None
+    ):
         discord_id = str(discord_id)
         discord_username = str(discord_username)
         users = get_collection(cls.collection_name)
@@ -152,12 +154,64 @@ class User(Document):
                 eden_user_id=None,
                 username=username,
             )
+            # Try to set user image from Discord avatar
+            if discord_avatar:
+                try:
+                    user_image = cls._upload_discord_avatar(discord_id, discord_avatar)
+                    if user_image:
+                        new_user.userImage = user_image
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to upload Discord avatar for new user {discord_id}: {e}"
+                    )
             new_user.save()
             return new_user
 
         # Find user with userId if any exist
         user_with_id = next((u for u in matching_users if u.get("userId")), None)
-        return cls(**(user_with_id or matching_users[0]))
+        user = cls(**(user_with_id or matching_users[0]))
+
+        # If existing user doesn't have userImage and we have discord_avatar, try to set it
+        if not user.userImage and discord_avatar:
+            try:
+                user_image = cls._upload_discord_avatar(discord_id, discord_avatar)
+                if user_image:
+                    user.userImage = user_image
+                    user.save()
+            except Exception as e:
+                logger.warning(
+                    f"Failed to upload Discord avatar for existing user {discord_id}: {e}"
+                )
+
+        return user
+
+    @classmethod
+    def _upload_discord_avatar(cls, discord_id: str, avatar_hash: str) -> Optional[str]:
+        """
+        Upload a Discord avatar to Eden S3.
+
+        Args:
+            discord_id: The Discord user ID
+            avatar_hash: The Discord avatar hash
+
+        Returns:
+            The S3 URL of the uploaded avatar, or None if upload failed
+        """
+        from .s3 import upload_file_from_url
+
+        # Determine avatar format - animated avatars start with "a_"
+        ext = "gif" if avatar_hash.startswith("a_") else "png"
+        avatar_url = (
+            f"https://cdn.discordapp.com/avatars/{discord_id}/{avatar_hash}.{ext}"
+        )
+
+        try:
+            s3_url, _ = upload_file_from_url(avatar_url)
+            logger.info(f"Uploaded Discord avatar for user {discord_id}: {s3_url}")
+            return s3_url
+        except Exception as e:
+            logger.warning(f"Failed to upload Discord avatar from {avatar_url}: {e}")
+            return None
 
     @classmethod
     def from_farcaster(cls, farcaster_id, farcaster_username):

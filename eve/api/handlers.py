@@ -55,6 +55,7 @@ from eve.api.api_requests import (
     ReactionRequest,
     RefreshDiscordChannelsRequest,
     SessionCreationArgs,
+    SyncDiscordChannelsRequest,
     TaskRequest,
     UpdateDeploymentRequestV2,
 )
@@ -1474,4 +1475,83 @@ async def handle_refresh_discord_channels(request: RefreshDiscordChannelsRequest
         "guilds_count": result["guilds_count"],
         "channels_count": result["channels_count"],
         "guilds": result["guilds"],
+    }
+
+
+@handle_errors
+async def handle_sync_discord_channels(request: SyncDiscordChannelsRequest):
+    """Find Discord channels that don't have corresponding Eden sessions."""
+
+    # Load deployment
+    deployment = Deployment.from_mongo(ObjectId(request.deployment_id))
+    if not deployment:
+        raise APIError("Deployment not found", status_code=404)
+
+    # Verify ownership
+    if str(deployment.user) != request.user_id:
+        raise APIError("Unauthorized", status_code=403)
+
+    # Verify it's a Discord deployment
+    if deployment.platform != ClientType.DISCORD:
+        raise APIError("Not a Discord deployment", status_code=400)
+
+    # Get all subscribed channel IDs (both read and write access)
+    all_channel_ids: set[str] = set()
+
+    discord_config = deployment.config.discord if deployment.config else None
+    if discord_config:
+        if discord_config.channel_allowlist:
+            for item in discord_config.channel_allowlist:
+                all_channel_ids.add(item.id)
+        if discord_config.read_access_channels:
+            for item in discord_config.read_access_channels:
+                all_channel_ids.add(item.id)
+
+    if not all_channel_ids:
+        logger.info(
+            f"No subscribed Discord channels for deployment {request.deployment_id}"
+        )
+        return {
+            "success": True,
+            "total_channels": 0,
+            "channels_with_sessions": 0,
+            "channels_without_sessions": [],
+        }
+
+    # Find sessions with matching Discord channels
+    sessions_collection = get_collection(Session)
+    sessions_with_channels = sessions_collection.find(
+        {
+            "channel.type": "discord",
+            "channel.key": {"$in": list(all_channel_ids)},
+        },
+        {"channel.key": 1},
+    )
+
+    # Get the set of channel IDs that have sessions
+    channels_with_sessions: set[str] = set()
+    for session in sessions_with_channels:
+        channel = session.get("channel", {})
+        if channel and channel.get("key"):
+            channels_with_sessions.add(channel["key"])
+
+    # Find channels without sessions
+    channels_without_sessions = all_channel_ids - channels_with_sessions
+
+    # Log the results
+    logger.info(
+        f"Discord sync for deployment {request.deployment_id}: "
+        f"{len(all_channel_ids)} total channels, "
+        f"{len(channels_with_sessions)} with sessions, "
+        f"{len(channels_without_sessions)} without sessions"
+    )
+
+    if channels_without_sessions:
+        logger.info(f"Channels without sessions: {list(channels_without_sessions)}")
+
+    return {
+        "success": True,
+        "total_channels": len(all_channel_ids),
+        "channels_with_sessions": len(channels_with_sessions),
+        "channels_without_sessions": list(channels_without_sessions),
     }
