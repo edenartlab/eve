@@ -1,9 +1,11 @@
+import io
 import logging
 import os
 import time
 from datetime import datetime, timedelta, timezone
 
 import requests
+from PIL import Image
 
 from eve.agent.deployments import Deployment
 
@@ -492,6 +494,96 @@ class X:
             logging.error(f"Error uploading media {media_url} to Twitter: {e}")
             raise e
 
+    def _compress_image(
+        self, content: bytes, max_size_mb: float = 5.0, min_quality: int = 50
+    ) -> bytes:
+        """
+        Compress an image to fit within the specified size limit.
+
+        Attempts compression strategies in order:
+        1. Convert PNG/WebP to JPEG (loses transparency but much smaller)
+        2. Progressively reduce JPEG quality
+        3. Resize image if still too large
+
+        Args:
+            content: Binary content of the image file
+            max_size_mb: Maximum file size in MB (default 5.0 for Twitter)
+            min_quality: Minimum JPEG quality to try before resizing (default 50)
+
+        Returns:
+            Compressed image bytes
+        """
+        max_size_bytes = int(max_size_mb * 1024 * 1024)
+        original_size = len(content)
+
+        if original_size <= max_size_bytes:
+            return content
+
+        logging.info(
+            f"Image too large ({original_size / (1024*1024):.2f}MB), attempting compression..."
+        )
+
+        try:
+            img = Image.open(io.BytesIO(content))
+            original_mode = img.mode
+
+            # Convert to RGB if necessary (for JPEG conversion)
+            if img.mode in ("RGBA", "P", "LA"):
+                # Create white background for transparent images
+                background = Image.new("RGB", img.size, (255, 255, 255))
+                if img.mode == "P":
+                    img = img.convert("RGBA")
+                if img.mode in ("RGBA", "LA"):
+                    background.paste(img, mask=img.split()[-1])
+                    img = background
+                else:
+                    img = img.convert("RGB")
+                logging.info(f"Converted {original_mode} to RGB for JPEG compression")
+
+            # Try progressively lower quality settings
+            for quality in range(95, min_quality - 1, -5):
+                output = io.BytesIO()
+                img.save(output, format="JPEG", quality=quality, optimize=True)
+                compressed = output.getvalue()
+
+                if len(compressed) <= max_size_bytes:
+                    logging.info(
+                        f"Compressed from {original_size / (1024*1024):.2f}MB to "
+                        f"{len(compressed) / (1024*1024):.2f}MB (JPEG quality={quality})"
+                    )
+                    return compressed
+
+            # If still too large, try resizing
+            current_img = img
+            for scale in [0.75, 0.5, 0.25]:
+                new_size = (int(img.width * scale), int(img.height * scale))
+                resized = current_img.resize(new_size, Image.Resampling.LANCZOS)
+
+                output = io.BytesIO()
+                resized.save(output, format="JPEG", quality=min_quality, optimize=True)
+                compressed = output.getvalue()
+
+                if len(compressed) <= max_size_bytes:
+                    logging.info(
+                        f"Compressed from {original_size / (1024*1024):.2f}MB to "
+                        f"{len(compressed) / (1024*1024):.2f}MB "
+                        f"(resized to {new_size[0]}x{new_size[1]}, quality={min_quality})"
+                    )
+                    return compressed
+
+            # If we still can't get it small enough, return the smallest we could make
+            logging.warning(
+                f"Could not compress image below {max_size_mb}MB, "
+                f"best effort: {len(compressed) / (1024*1024):.2f}MB"
+            )
+            return compressed
+
+        except Exception as e:
+            logging.error(f"Error compressing image: {e}")
+            raise ValueError(
+                f"Failed to compress image from {original_size / (1024*1024):.2f}MB: {e}"
+            )
+
     def _upload_image(self, content: bytes) -> str:
         """
         Upload image content to X using v2 API with OAuth 2.0.
@@ -499,6 +591,8 @@ class X:
         Automatically routes to one-shot (simple) or chunked upload based on file size.
         - Images < 5MB: One-shot upload
         - Images >= 5MB or GIFs > 5MB: Chunked upload
+
+        If an image is too large, attempts to compress it first.
 
         Args:
             content: Binary content of the image file
@@ -518,9 +612,15 @@ class X:
                 f"GIF file too large ({file_size_mb:.2f}MB). Maximum is 15MB."
             )
         elif not is_gif and file_size_mb > 5:
-            raise ValueError(
-                f"Image file too large ({file_size_mb:.2f}MB). Maximum is 5MB."
-            )
+            # Try to compress the image instead of failing
+            content = self._compress_image(content)
+            file_size_mb = len(content) / (1024 * 1024)
+            media_type = "image/jpeg"  # Compression converts to JPEG
+
+            if file_size_mb > 5:
+                raise ValueError(
+                    f"Image still too large after compression ({file_size_mb:.2f}MB). Maximum is 5MB."
+                )
 
         # Get media category for both upload paths
         media_category = self._get_media_category(media_type, is_gif)
