@@ -89,6 +89,9 @@ class User(Document):
     # profile
     username: str
     userImage: Optional[str] = None
+    platformUserImage: Optional[str] = (
+        None  # Original platform avatar URL (Discord CDN, Farcaster, Twitter)
+    )
     stats: Optional[UserStats] = UserStats()
     social_accounts: Optional[Dict[str, Any]] = {}
 
@@ -138,11 +141,19 @@ class User(Document):
             )
 
     @classmethod
-    def from_discord(cls, discord_id, discord_username):
+    def from_discord(
+        cls, discord_id, discord_username, discord_avatar: Optional[str] = None
+    ):
         discord_id = str(discord_id)
         discord_username = str(discord_username)
         users = get_collection(cls.collection_name)
         matching_users = list(users.find({"discordId": discord_id}))
+
+        # Build the platform avatar URL if we have an avatar hash
+        platform_avatar_url = None
+        if discord_avatar:
+            ext = "gif" if discord_avatar.startswith("a_") else "png"
+            platform_avatar_url = f"https://cdn.discordapp.com/avatars/{discord_id}/{discord_avatar}.{ext}"
 
         if not matching_users:
             username = cls._get_unique_username(f"discord_{discord_username}")
@@ -152,20 +163,74 @@ class User(Document):
                 eden_user_id=None,
                 username=username,
             )
+            # Upload avatar for new user
+            if platform_avatar_url:
+                try:
+                    uploaded_url = cls._upload_platform_avatar(platform_avatar_url)
+                    if uploaded_url:
+                        new_user.platformUserImage = platform_avatar_url
+                        new_user.userImage = uploaded_url
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to upload Discord avatar for new user {discord_id}: {e}"
+                    )
             new_user.save()
             return new_user
 
         # Find user with userId if any exist
         user_with_id = next((u for u in matching_users if u.get("userId")), None)
-        return cls(**(user_with_id or matching_users[0]))
+        user = cls(**(user_with_id or matching_users[0]))
+
+        # Check if avatar has changed (or is new)
+        if platform_avatar_url and platform_avatar_url != user.platformUserImage:
+            try:
+                uploaded_url = cls._upload_platform_avatar(platform_avatar_url)
+                if uploaded_url:
+                    user.update(
+                        platformUserImage=platform_avatar_url, userImage=uploaded_url
+                    )
+                    logger.info(f"Updated Discord avatar for user {discord_id}")
+            except Exception as e:
+                logger.warning(
+                    f"Failed to upload Discord avatar for user {discord_id}: {e}"
+                )
+
+        return user
 
     @classmethod
-    def from_farcaster(cls, farcaster_id, farcaster_username):
+    def _upload_platform_avatar(cls, avatar_url: str) -> Optional[str]:
+        """
+        Upload a platform avatar to Eden S3.
+
+        Args:
+            avatar_url: The full URL to the avatar image
+
+        Returns:
+            The S3 URL of the uploaded avatar, or None if upload failed
+        """
+        from .s3 import upload_file_from_url
+
+        try:
+            s3_url, _ = upload_file_from_url(avatar_url)
+            logger.info(f"Uploaded platform avatar: {s3_url}")
+            return s3_url
+        except Exception as e:
+            logger.warning(f"Failed to upload platform avatar from {avatar_url}: {e}")
+            return None
+
+    @classmethod
+    def from_farcaster(
+        cls,
+        farcaster_id,
+        farcaster_username,
+        farcaster_avatar_url: Optional[str] = None,
+    ):
         farcaster_id = str(farcaster_id)
         farcaster_username = str(farcaster_username)
         users = get_collection(cls.collection_name)
-        user = users.find_one({"farcasterId": farcaster_id})
-        if not user:
+        user_doc = users.find_one({"farcasterId": farcaster_id})
+
+        if not user_doc:
             username = cls._get_unique_username(f"farcaster_{farcaster_username}")
             new_user = cls(
                 farcasterId=farcaster_id,
@@ -173,17 +238,48 @@ class User(Document):
                 eden_user_id=None,
                 username=username,
             )
+            # Upload avatar for new user
+            if farcaster_avatar_url:
+                try:
+                    uploaded_url = cls._upload_platform_avatar(farcaster_avatar_url)
+                    if uploaded_url:
+                        new_user.platformUserImage = farcaster_avatar_url
+                        new_user.userImage = uploaded_url
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to upload Farcaster avatar for new user {farcaster_id}: {e}"
+                    )
             new_user.save()
             return new_user
-        return cls(**user)
+
+        user = cls(**user_doc)
+
+        # Check if avatar has changed (or is new)
+        if farcaster_avatar_url and farcaster_avatar_url != user.platformUserImage:
+            try:
+                uploaded_url = cls._upload_platform_avatar(farcaster_avatar_url)
+                if uploaded_url:
+                    user.update(
+                        platformUserImage=farcaster_avatar_url, userImage=uploaded_url
+                    )
+                    logger.info(f"Updated Farcaster avatar for user {farcaster_id}")
+            except Exception as e:
+                logger.warning(
+                    f"Failed to upload Farcaster avatar for user {farcaster_id}: {e}"
+                )
+
+        return user
 
     @classmethod
-    def from_twitter(cls, twitter_id, twitter_username):
+    def from_twitter(
+        cls, twitter_id, twitter_username, twitter_avatar_url: Optional[str] = None
+    ):
         twitter_id = str(twitter_id)
         twitter_username = str(twitter_username)
         users = get_collection(cls.collection_name)
-        user = users.find_one({"twitterId": twitter_id})
-        if not user:
+        user_doc = users.find_one({"twitterId": twitter_id})
+
+        if not user_doc:
             username = cls._get_unique_username(f"twitter_{twitter_username}")
             new_user = cls(
                 twitterId=twitter_id,
@@ -191,9 +287,37 @@ class User(Document):
                 eden_user_id=None,
                 username=username,
             )
+            # Upload avatar for new user
+            if twitter_avatar_url:
+                try:
+                    uploaded_url = cls._upload_platform_avatar(twitter_avatar_url)
+                    if uploaded_url:
+                        new_user.platformUserImage = twitter_avatar_url
+                        new_user.userImage = uploaded_url
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to upload Twitter avatar for new user {twitter_id}: {e}"
+                    )
             new_user.save()
             return new_user
-        return cls(**user)
+
+        user = cls(**user_doc)
+
+        # Check if avatar has changed (or is new)
+        if twitter_avatar_url and twitter_avatar_url != user.platformUserImage:
+            try:
+                uploaded_url = cls._upload_platform_avatar(twitter_avatar_url)
+                if uploaded_url:
+                    user.update(
+                        platformUserImage=twitter_avatar_url, userImage=uploaded_url
+                    )
+                    logger.info(f"Updated Twitter avatar for user {twitter_id}")
+            except Exception as e:
+                logger.warning(
+                    f"Failed to upload Twitter avatar for user {twitter_id}: {e}"
+                )
+
+        return user
 
     @classmethod
     def from_telegram(cls, telegram_id, telegram_username):

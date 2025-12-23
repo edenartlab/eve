@@ -2,7 +2,7 @@ name: Seedream-4.5
 description: ByteDance's advanced text-to-image model generation
 tip: |-
   Ultra-high quality text-to-image generation with resolutions up to 4K. Supports flexible aspect ratios and reference images.
-cost_estimate: 4
+cost_estimate: 4 * max_images
 output_type: image
 active: true
 visible: true

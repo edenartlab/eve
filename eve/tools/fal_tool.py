@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import re
 from typing import Any, List
 
 import fal_client
@@ -15,13 +16,26 @@ from ..tool import Tool, ToolContext, tool_context
 logger = logging.getLogger(__name__)
 
 
+def is_valid_url(value: Any) -> bool:
+    """Check if a value is a valid URL string."""
+    if not isinstance(value, str):
+        return False
+    if len(value) < 10:
+        return False
+    # Basic URL pattern: starts with http:// or https://
+    url_pattern = re.compile(
+        r"^https?://"  # http:// or https://
+        r"[a-zA-Z0-9]"  # at least one alphanumeric char after protocol
+    )
+    return bool(url_pattern.match(value))
+
+
 @tool_context("fal")
 class FalTool(Tool):
     fal_endpoint: str
     with_logs: bool = Field(
         default=True, description="Whether to include logs in the response"
     )
-    # output_handler: str = "normal" # Removed, logic now uses output_schema
 
     @Tool.handle_run
     async def async_run(self, context: ToolContext):
@@ -40,8 +54,76 @@ class FalTool(Tool):
             on_queue_update=on_queue_update if self.with_logs else None,
         )
 
+        # Extract URLs from common FAL response structures (e.g., {"images": [{"url": "..."}]})
+        output_urls = self._extract_urls_from_fal_result(result)
+
+        if output_urls:
+            # Upload each URL and return normalized structure
+            processed_outputs = []
+            for url in output_urls:
+                try:
+                    logger.info(f"Uploading FAL URL to Eden: {url}")
+                    uploaded_data = utils.upload_result(
+                        {"output": url},
+                        save_thumbnails=True,
+                        save_blurhash=True,
+                    )
+                    processed_outputs.append(uploaded_data.get("output", uploaded_data))
+                except Exception as e:
+                    logger.error(f"Failed to upload result URL {url}: {e}")
+                    continue
+
+            if processed_outputs:
+                # Return normalized structure: {"output": [{"url": ...}, ...]}
+                return {"output": processed_outputs}
+
+        # Fallback: return raw result wrapped with upload_result
         result = utils.upload_result({"output": result})
         return result
+
+    def _extract_urls_from_fal_result(self, result: dict) -> List[str]:
+        """Extract URLs from common FAL API response structures."""
+        output_urls = []
+
+        if not isinstance(result, dict):
+            return output_urls
+
+        # Check for "images" array (common in image generation endpoints)
+        if "images" in result and isinstance(result["images"], list):
+            for item in result["images"]:
+                if isinstance(item, dict) and "url" in item:
+                    url_value = item["url"]
+                    if is_valid_url(url_value):
+                        output_urls.append(url_value)
+
+        # Check for "video" field (common in video generation endpoints)
+        elif "video" in result and isinstance(result["video"], dict):
+            if "url" in result["video"]:
+                url_value = result["video"]["url"]
+                if is_valid_url(url_value):
+                    output_urls.append(url_value)
+
+        # Check for direct "url" field
+        elif "url" in result:
+            url_value = result["url"]
+            if is_valid_url(url_value):
+                output_urls.append(url_value)
+
+        # Check for "output" field with URL
+        elif "output" in result:
+            output = result["output"]
+            if is_valid_url(output):
+                output_urls.append(output)
+            elif isinstance(output, list):
+                for item in output:
+                    if is_valid_url(item):
+                        output_urls.append(item)
+                    elif isinstance(item, dict) and "url" in item:
+                        url_value = item["url"]
+                        if is_valid_url(url_value):
+                            output_urls.append(url_value)
+
+        return output_urls
 
     @Tool.handle_start_task
     async def async_start_task(self, task: Task, webhook: bool = True):
@@ -135,51 +217,14 @@ class FalTool(Tool):
         return current
 
     def _process_result(self, result, task):
-        """Process the result from FAL API using the output_schema as a direct path."""
+        """Process the result from FAL API by extracting URLs from common response structures."""
 
-        # output_schema is now expected to be a list of keys (the path)
-        output_path = self.output_schema
-
-        if not isinstance(output_path, list):
-            logger.error(
-                f"Invalid output_schema format for tool {self.name}. Expected list, got {type(output_path)}."
-            )
-            # Return raw result if schema is misconfigured
-            return {"output": result}
-
-        # logger.debug(f"Using output path from schema: {output_path}") # Optional: uncomment for debugging
-        raw_output_value = self._get_value_by_path(result, output_path)
-
-        if raw_output_value is None:
-            logger.error(
-                f"Could not extract value using path {output_path} from result for tool {self.name}"
-            )
-            output_urls = []
-        elif isinstance(raw_output_value, str):
-            output_urls = [raw_output_value]  # Single URL
-            logger.info(f"Extracted single URL: {output_urls}")
-        elif isinstance(raw_output_value, list):
-            # If the path points to a list, assume it's a list of output URLs
-            output_urls = [item for item in raw_output_value if isinstance(item, str)]
-            if not output_urls:
-                logger.warning(
-                    f"Output path {output_path} points to a list, but couldn't extract string URLs directly."
-                )
-                # Attempt basic extraction if list contains dicts with 'url' key - simplistic fallback
-                output_urls = [
-                    item["url"]
-                    for item in raw_output_value
-                    if isinstance(item, dict) and "url" in item
-                ]
-        else:
-            logger.warning(
-                f"Unexpected type for output value at path {output_path}: {type(raw_output_value)}"
-            )
-            output_urls = []
+        # Extract URLs using common FAL response patterns
+        output_urls = self._extract_urls_from_fal_result(result)
 
         if not output_urls:
             logger.error(
-                f"No output URLs extracted using path {output_path} for tool {self.name}, task {task.id}. Returning raw result."
+                f"No output URLs extracted from FAL result for tool {self.name}, task {task.id}. Returning raw result."
             )
             return {"output": result}  # Return raw result if extraction fails
 
@@ -207,9 +252,9 @@ class FalTool(Tool):
             # Return raw result if processing/uploading failed
             return {"output": result}
 
-        # Structure for database: list of outputs, each potentially with multiple results (though usually 1 for FAL)
-        # We create one 'result' entry containing all processed outputs.
-        final_result_structure = [{"output": processed_outputs}]
+        # Structure for database: match replicate format - each output gets its own result entry
+        # This matches: result = [{"output": [out]} for out in output]
+        final_result_structure = [{"output": [out]} for out in processed_outputs]
 
         # Create creation object(s) based on processed outputs
         for r, res_item in enumerate(final_result_structure):
@@ -272,5 +317,5 @@ def get_webhook_url():
 
 
 def check_fal_api_token():
-    if not os.getenv("FAL_API_KEY"):
-        raise Exception("FAL_API_KEY is not set")
+    if not os.getenv("FAL_KEY"):
+        raise Exception("FAL_KEY is not set")

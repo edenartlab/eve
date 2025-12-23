@@ -183,21 +183,6 @@ async def unpack_tweet(tweet: Dict[str, Any], includes: Dict[str, Any]):
     )
 
 
-async def induct_user(user: User, author_data: Dict[str, Any]):
-    """Update user metadata from Twitter profile"""
-    if not author_data:
-        return
-
-    pfp = author_data.get("profile_image_url")
-    if pfp and pfp != user.userImage:
-        try:
-            # Upload profile image to S3
-            pfp_url, _ = upload_file_from_url(pfp)
-            user.update(userImage=pfp_url.split("/")[-1])
-        except Exception as e:
-            logger.error(f"Error uploading pfp {pfp} for user {str(user.id)}: {str(e)}")
-
-
 async def process_twitter_tweet(
     tweet_id: str,
     tweet_data: Dict[str, Any],
@@ -236,9 +221,11 @@ async def process_twitter_tweet(
             logger.error(f"Could not find author username for tweet {tweet_id}")
             return {"status": "failed", "error": "Author not found"}
 
-        # Get or create user and update profile
-        user = User.from_twitter(author_id, author_username)
-        await induct_user(user, author_data)
+        # Get or create user (avatar is handled via platformUserImage in from_twitter)
+        author_pfp = author_data.get("profile_image_url") if author_data else None
+        user = User.from_twitter(
+            author_id, author_username, twitter_avatar_url=author_pfp
+        )
 
         # Handle attachments/media - upload to S3
         media_urls = []
@@ -362,7 +349,16 @@ async def process_twitter_tweet(
                             tweet_user = agent
                         else:
                             role = "user"
-                            tweet_user = User.from_twitter(author_id_, author_username_)
+                            author_pfp_ = (
+                                author_data_.get("profile_image_url")
+                                if author_data_
+                                else None
+                            )
+                            tweet_user = User.from_twitter(
+                                author_id_,
+                                author_username_,
+                                twitter_avatar_url=author_pfp_,
+                            )
 
                         # Build Twitter URL
                         twitter_url = (

@@ -700,11 +700,12 @@ def get_all_eden_messages_for_llm(session_id: ObjectId) -> List[ChatMessage]:
     for doc in eden_messages:
         eden_msg = ChatMessage(**doc)
         # Convert: change role to user, wrap content in SystemMessage tags
+        current_dt = datetime.now(timezone.utc).strftime("%Y %b %-d, %-I:%M%p")
         converted.append(
             eden_msg.model_copy(
                 update={
                     "role": "user",
-                    "content": f"<SystemMessage>{eden_msg.content}</SystemMessage>",
+                    "content": f'<SystemMessage current_date_time="{current_dt}">{eden_msg.content}</SystemMessage>',
                 }
             )
         )
