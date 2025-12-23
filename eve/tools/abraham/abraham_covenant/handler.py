@@ -203,7 +203,7 @@ async def handler(context: ToolContext):
     abraham_seed = AbrahamSeed.find_one({"session_id": ObjectId(session_id)})
     num_creations = len(AbrahamSeed.find({"status": "creation"}))
     num_rest_days = num_creations // 6
-    index = num_creations + num_rest_days + 1
+    index = num_creations + num_rest_days
 
     # Commit to blockchain
     try:

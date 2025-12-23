@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field, ValidationError, create_model
 
 from . import utils
 from .agent.agent import Agent
+from .agent.session.models import Session
 from .api.rate_limiter import RateLimiter
 from .base import parse_schema
 from .mongo import Collection, Document, get_collection
@@ -549,7 +550,19 @@ class Tool(Document, ABC):
 
                 paying_user = user
                 if agent_id:
-                    agent = Agent.from_mongo(agent_id)
+                    acting_agent_id = agent_id
+
+                    # if it's a subsession, use the agent that called the subsession
+                    if session_id:
+                        session = Session.from_mongo(session_id)
+                        while True:
+                            if session.parent_session:
+                                session = Session.from_mongo(session.parent_session)
+                                acting_agent_id = session.agents[0]
+                            else:
+                                break
+
+                    agent = Agent.from_mongo(acting_agent_id)
                     if agent.owner_pays == "full" or (
                         agent.owner_pays == "deployments" and is_client_platform
                     ):
