@@ -129,11 +129,7 @@ def mint_seed(
             network=Network.BASE_SEPOLIA,
         )
 
-        contract_function = contract.functions.submitSeed(
-            f"ipfs://{ipfs_hash}",
-            title,
-            tagline,
-        )
+        contract_function = contract.functions.submitSeed(f"ipfs://{ipfs_hash}")
 
         # Send transaction
         tx_hex, _ = safe_send(

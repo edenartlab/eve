@@ -216,6 +216,11 @@ class EdenMessageType(Enum):
     AGENT_REMOVE = "agent_remove"
     RATE_LIMIT = "rate_limit"
     TRIGGER = "trigger"
+    # Conductor message types for multi-agent orchestration
+    CONDUCTOR_INIT = "conductor_init"  # Initial context generation output
+    CONDUCTOR_TURN = "conductor_turn"  # Turn selection decision
+    CONDUCTOR_HINT = "conductor_hint"  # Hint for selected speaker
+    CONDUCTOR_FINISH = "conductor_finish"  # Session summary
 
 
 class EdenMessageAgentData(BaseModel):

@@ -21,9 +21,16 @@ import asyncio
 import os
 import traceback
 
+from bson import ObjectId
 from loguru import logger
 
-from eve.agent.session.models import Session
+from eve.agent import Agent
+from eve.agent.session.models import (
+    ChatMessage,
+    EdenMessageData,
+    EdenMessageType,
+    Session,
+)
 
 # Default delay between automatic session steps (seconds)
 DEFAULT_REPLY_DELAY = 60
@@ -156,25 +163,73 @@ async def run_automatic_session_step(session: Session) -> None:
         # Select next actor via conductor
         logger.info("[AUTO] ===== Conductor Selection =====")
         logger.info("[AUTO] Calling conductor_select_actor...")
-        actor = await conductor_select_actor(session)
+        actor, conductor_response = await conductor_select_actor(session)
         logger.info(
             f"[AUTO] Conductor selected actor: {actor.username} (id={actor.id})"
         )
+        logger.info(f"[AUTO] Conductor hint: {conductor_response.hint}")
+        logger.info(f"[AUTO] Conductor finish: {conductor_response.finish}")
+
+        # Check if conductor wants to finish the session
+        if conductor_response.finish:
+            logger.info("[AUTO] Conductor requested session finish")
+            from eve.agent.session.conductor import conductor_finish_session
+            from eve.agent.session.setup import create_eden_message_json
+
+            # Generate summary and save as CONDUCTOR_FINISH eden message
+            finish_response = await conductor_finish_session(session)
+            create_eden_message_json(
+                session_id=session.id,
+                message_type=EdenMessageType.CONDUCTOR_FINISH,
+                content=finish_response.model_dump_json(),
+            )
+            # Pause the session
+            session.update(status="paused")
+            logger.info("[AUTO] Session finished and paused")
+            logger.info(
+                "[AUTO] ========== run_automatic_session_step END (finished) =========="
+            )
+            return
+
+        # Create turn notification for selected agent's workspace
+        # Always send this so agent knows it's their turn and must post
+        if session.agent_sessions:
+            agent_session_id = session.agent_sessions.get(str(actor.id))
+            if agent_session_id:
+                logger.info(f"[AUTO] Creating turn notification for {actor.username}")
+                # Include reminder to use post_to_chatroom
+                if conductor_response.hint:
+                    hint_content = f"""🎯 IT'S YOUR TURN!
+
+{conductor_response.hint}
+
+⚠️ IMPORTANT: You MUST use the post_to_chatroom tool to respond. Your response will not be seen by others unless you post it."""
+                else:
+                    hint_content = """🎯 IT'S YOUR TURN!
+
+⚠️ IMPORTANT: You MUST use the post_to_chatroom tool to respond. Your response will not be seen by others unless you post it."""
+                hint_message = ChatMessage(
+                    session=[agent_session_id],  # Only to this agent's workspace
+                    sender=ObjectId("000000000000000000000000"),
+                    role="eden",
+                    content=hint_content,
+                    eden_message_data=EdenMessageData(
+                        message_type=EdenMessageType.CONDUCTOR_HINT
+                    ),
+                )
+                hint_message.save()
+                logger.info("[AUTO] Turn notification message saved")
 
         # Ensure agent_sessions exist for multi-agent sessions
-        # Normally these should be created at session setup time, but we create them
-        # lazily here as a fallback for existing sessions created before this feature
+        # For automatic sessions, this should already be done via conductor init
         if len(session.agents) > 1 and not session.agent_sessions:
             logger.warning(
-                f"[AUTO] Multi-agent session {session.id} missing agent_sessions, creating lazily. "
-                "Note: agent_sessions should ideally be created at session setup time."
+                f"[AUTO] Multi-agent session {session.id} missing agent_sessions. "
+                "This shouldn't happen - conductor init should have created them."
             )
-            from eve.agent.session.setup import create_agent_sessions
-
-            agent_sessions = create_agent_sessions(session, session.agents)
-            session.update(agent_sessions=agent_sessions)
-            session.agent_sessions = agent_sessions
-            logger.info(f"[AUTO] Created agent_sessions: {list(agent_sessions.keys())}")
+            # Fallback: call conductor init now
+            await _initialize_conductor_for_session(session)
+            session = Session.from_mongo(session.id)
 
         # Check if this is a multi-agent session with agent_sessions
         logger.info("[AUTO] ===== Execution Path Decision =====")
@@ -215,6 +270,41 @@ async def run_automatic_session_step(session: Session) -> None:
             logger.info(
                 f"[AUTO] orchestrate_automatic completed, {update_count} updates"
             )
+
+        # Increment turn counter after successful execution
+        logger.info("[AUTO] ===== Turn Counter Update =====")
+        if session.budget:
+            new_turns = (session.budget.turns_spent or 0) + 1
+            # Update the budget object and save via MongoDB set operation
+            session.budget.turns_spent = new_turns
+            Session.get_collection().update_one(
+                {"_id": session.id},
+                {"$set": {"budget.turns_spent": new_turns}},
+            )
+            logger.info(f"[AUTO] Turns spent: {new_turns}")
+
+            # Check hard turn limit - finish if budget exhausted
+            if session.budget.turn_budget and new_turns >= session.budget.turn_budget:
+                logger.info(
+                    f"[AUTO] Turn budget exhausted ({new_turns}/{session.budget.turn_budget})"
+                )
+                from eve.agent.session.conductor import conductor_finish_session
+                from eve.agent.session.setup import create_eden_message_json
+
+                # Generate summary and save as CONDUCTOR_FINISH eden message
+                finish_response = await conductor_finish_session(session)
+                create_eden_message_json(
+                    session_id=session.id,
+                    message_type=EdenMessageType.CONDUCTOR_FINISH,
+                    content=finish_response.model_dump_json(),
+                )
+                # Pause the session
+                session.update(status="paused")
+                logger.info("[AUTO] Session finished due to turn budget exhaustion")
+                logger.info(
+                    "[AUTO] ========== run_automatic_session_step END (budget) =========="
+                )
+                return
 
         # Success - set back to active
         logger.info("[AUTO] ===== Post-Execution Status Update =====")
@@ -264,6 +354,59 @@ async def run_automatic_session_step(session: Session) -> None:
         raise
 
 
+async def _initialize_conductor_for_session(session: Session) -> None:
+    """Initialize conductor for a multi-agent automatic session.
+
+    This generates personalized contexts for each agent and creates
+    their private workspace sessions (agent_sessions).
+
+    Called once when an automatic session first becomes active.
+    """
+    from eve.agent.session.conductor import conductor_initialize_session
+    from eve.agent.session.setup import (
+        create_agent_sessions_with_contexts,
+        create_eden_message_json,
+    )
+
+    logger.info(f"[AUTO] ===== Conductor Initialization for {session.id} =====")
+
+    # Load agents
+    agents = {
+        agent.username: agent
+        for agent in [Agent.from_mongo(a) for a in session.agents]
+        if agent
+    }
+    logger.info(f"[AUTO] Loaded agents: {list(agents.keys())}")
+
+    # Generate personalized contexts via conductor
+    logger.info("[AUTO] Calling conductor_initialize_session...")
+    init_response = await conductor_initialize_session(session, agents)
+    logger.info(
+        f"[AUTO] Conductor generated {len(init_response.agent_contexts)} contexts"
+    )
+    logger.info(f"[AUTO] Finish criteria: {init_response.finish_criteria}")
+
+    # Save as CONDUCTOR_INIT eden message
+    create_eden_message_json(
+        session_id=session.id,
+        message_type=EdenMessageType.CONDUCTOR_INIT,
+        content=init_response.model_dump_json(),
+    )
+    logger.info("[AUTO] Saved CONDUCTOR_INIT eden message")
+
+    # Create agent_sessions with personalized contexts
+    agent_sessions = create_agent_sessions_with_contexts(
+        parent_session=session,
+        agents=session.agents,
+        init_response=init_response,
+    )
+
+    # Update session with agent_sessions
+    session.update(agent_sessions=agent_sessions)
+    logger.info(f"[AUTO] Created agent_sessions: {list(agent_sessions.keys())}")
+    logger.info("[AUTO] ===== Conductor Initialization Complete =====")
+
+
 async def start_automatic_session(session_id: str) -> None:
     """Start an automatic session when user sets status to 'active'.
 
@@ -298,6 +441,15 @@ async def start_automatic_session(session_id: str) -> None:
         raise ValueError(
             f"Session {session_id} status is '{session.status}', expected 'active'"
         )
+
+    # Initialize conductor for multi-agent sessions (if not already done)
+    if len(session.agents) > 1 and not session.agent_sessions:
+        logger.info(
+            f"[AUTO] Multi-agent session {session_id} needs conductor initialization"
+        )
+        await _initialize_conductor_for_session(session)
+        # Reload session to get updated agent_sessions
+        session = Session.from_mongo(session_id)
 
     # Run the first step immediately
     logger.info(f"[AUTO] Starting first step for session {session_id}")

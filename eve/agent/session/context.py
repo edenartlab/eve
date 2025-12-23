@@ -461,14 +461,12 @@ async def build_system_extras(
 ):
     extras = []
 
-    # add trigger context
+    # add trigger context (pinned as first user message with SystemMessage tag)
     if hasattr(session, "context") and session.context:
-        context_prompt = f"<Full Task Context>\n{session.context}\n\n**IMPORTANT: Ignore me, the user! You are just speaking to the other agents now. Make sure you stay relevant to the full task context throughout the conversation.</Full Task Context>"
+        context_prompt = f"<SystemMessage>{session.context}\n\n**IMPORTANT: Ignore me, the user! You are just speaking to the other agents now. Make sure you stay relevant to the full task context throughout the conversation.</SystemMessage>"
         extras.append(
             ChatMessage(
                 session=[session.id],
-                # debug this
-                # role="system",
                 role="user",
                 sender=ObjectId(str(context.initiating_user_id)),
                 content=context_prompt,
@@ -659,38 +657,71 @@ async def distribute_message_to_agent_sessions(
     # Update in-memory object
     message.session = list(set(message.session + target_sessions))
 
+    # Add the message sender to each target agent_session's users array
+    # This ensures agent_sessions track all users who've sent messages to them
+    # Using batch update with $addToSet (idempotent - won't add duplicates)
+    if message.sender and target_sessions:
+        Session.get_collection().update_many(
+            {"_id": {"$in": target_sessions}},
+            {"$addToSet": {"users": message.sender}},
+        )
+        logger.info(
+            f"[DISTRIBUTE] Added sender {message.sender} to users of {len(target_sessions)} agent_sessions"
+        )
+
     logger.info(
         f"[DISTRIBUTE] Message {message.id} now in sessions: {[str(s) for s in message.session]}"
     )
 
 
-def get_last_eden_message_for_llm(session_id: ObjectId) -> Optional[ChatMessage]:
+def get_all_eden_messages_for_llm(session_id: ObjectId) -> List[ChatMessage]:
     """
-    Get the last eden message for a session, converted for LLM consumption.
+    Get ALL eden messages for a session, converted for LLM consumption.
+
     Eden messages are excluded from select_messages(), so we query separately.
-    The last eden message is converted to user role with content wrapped in SystemMessage tags.
-    Returns None if no eden messages exist.
+    Each eden message is converted to user role with content wrapped in SystemMessage tags.
+
+    This includes all conductor messages (CONDUCTOR_INIT, CONDUCTOR_TURN, CONDUCTOR_HINT,
+    CONDUCTOR_FINISH) as well as other eden messages (AGENT_ADD, RATE_LIMIT, TRIGGER).
+
+    Returns empty list if no eden messages exist.
     """
-    messages = ChatMessage.get_collection()
+    messages_collection = ChatMessage.get_collection()
     eden_messages = list(
-        messages.find({"session": session_id, "role": "eden"})
-        .sort("createdAt", -1)
-        .limit(1)
+        messages_collection.find({"session": session_id, "role": "eden"}).sort(
+            "createdAt", 1
+        )  # Chronological order
     )
 
     if not eden_messages:
-        return None
+        return []
 
-    eden_msg = ChatMessage(**eden_messages[0])
+    converted = []
+    for doc in eden_messages:
+        eden_msg = ChatMessage(**doc)
+        # Convert: change role to user, wrap content in SystemMessage tags
+        current_dt = datetime.now(timezone.utc).strftime("%Y %b %-d, %-I:%M%p")
+        converted.append(
+            eden_msg.model_copy(
+                update={
+                    "role": "user",
+                    "content": f'<SystemMessage current_date_time="{current_dt}">{eden_msg.content}</SystemMessage>',
+                }
+            )
+        )
 
-    # Convert: change role to user, wrap content in SystemMessage tags
-    current_dt = datetime.now(timezone.utc).strftime("%Y %b %-d, %-I:%M%p")
-    return eden_msg.model_copy(
-        update={
-            "role": "user",
-            "content": f'<SystemMessage current_date_time="{current_dt}">{eden_msg.content}</SystemMessage>',
-        }
-    )
+    return converted
+
+
+# Keep old function for backward compatibility but mark as deprecated
+def get_last_eden_message_for_llm(session_id: ObjectId) -> Optional[ChatMessage]:
+    """
+    DEPRECATED: Use get_all_eden_messages_for_llm() instead.
+
+    Get the last eden message for a session, converted for LLM consumption.
+    """
+    all_eden = get_all_eden_messages_for_llm(session_id)
+    return all_eden[-1] if all_eden else None
 
 
 async def build_llm_context(
@@ -759,11 +790,12 @@ async def build_llm_context(
 
     existing_messages = select_messages(session)
 
-    # Add the last eden message (converted to user role) if it exists
+    # Add ALL eden messages (converted to user role) to the context
     # Eden messages are filtered out by select_messages, so we query separately
-    last_eden = get_last_eden_message_for_llm(session.id)
-    if last_eden:
-        existing_messages.append(last_eden)
+    # This includes conductor messages (CONDUCTOR_INIT, CONDUCTOR_TURN, CONDUCTOR_HINT, etc.)
+    eden_messages = get_all_eden_messages_for_llm(session.id)
+    if eden_messages:
+        existing_messages.extend(eden_messages)
         existing_messages.sort(key=lambda m: m.createdAt)
 
     messages.extend(existing_messages)
@@ -947,13 +979,86 @@ async def build_agent_session_llm_context(
 
     messages = [system_message]
 
+    # Pin agent_session.context as first message after system (never ages out)
+    # This contains the conductor-generated personalized context for this agent
+    logger.info(
+        f"[AGENT_SESSION_CONTEXT] agent_session.id={agent_session.id}, "
+        f"has_context={bool(agent_session.context)}, "
+        f"context_len={len(agent_session.context) if agent_session.context else 0}"
+    )
+    if agent_session.context:
+        logger.info(
+            f"[AGENT_SESSION_CONTEXT] Pinning context (first 200 chars): "
+            f"{agent_session.context[:200]}..."
+        )
+        context_message = ChatMessage(
+            session=[agent_session.id],
+            role="user",
+            sender=ObjectId(str(context.initiating_user_id))
+            if context.initiating_user_id
+            else ObjectId("000000000000000000000000"),
+            content=f"<SystemMessage>{agent_session.context}</SystemMessage>",
+        )
+        messages.append(context_message)
+        logger.info(
+            "[AGENT_SESSION_CONTEXT] Context pinned as first user message with <SystemMessage> tag"
+        )
+    else:
+        logger.warning(
+            f"[AGENT_SESSION_CONTEXT] No context to pin for agent_session {agent_session.id}"
+        )
+
     # Add agent_session's own history (includes messages from other agents
     # that were distributed in real-time via distribute_message_to_agent_sessions)
     existing_messages = select_messages(agent_session)
+
+    # Add ALL eden messages (converted to user role) to the context
+    # This includes CONDUCTOR_HINT messages which are specific to this agent_session
+    eden_messages = get_all_eden_messages_for_llm(agent_session.id)
+    if eden_messages:
+        existing_messages.extend(eden_messages)
+        existing_messages.sort(key=lambda m: m.createdAt)
+
     messages.extend(existing_messages)
+
+    # Log messages before role conversion to debug context presence
+    logger.info(
+        f"[AGENT_SESSION_CONTEXT] === Messages before convert_message_roles ({len(messages)} total) ==="
+    )
+    for i, msg in enumerate(messages):
+        content_preview = (
+            (msg.content[:100] + "...")
+            if msg.content and len(msg.content) > 100
+            else msg.content
+        )
+        has_system_tag = (
+            msg.content and "<SystemMessage>" in msg.content if msg.content else False
+        )
+        logger.info(
+            f"[AGENT_SESSION_CONTEXT] msg[{i}]: role={msg.role}, sender={msg.sender}, "
+            f"has_system_tag={has_system_tag}, content_preview={content_preview}"
+        )
 
     # Convert message roles (agent's messages -> assistant, others -> user)
     messages = convert_message_roles(messages, actor.id)
+
+    # Log messages after role conversion
+    logger.info(
+        f"[AGENT_SESSION_CONTEXT] === Messages after convert_message_roles ({len(messages)} total) ==="
+    )
+    for i, msg in enumerate(messages):
+        content_preview = (
+            (msg.content[:100] + "...")
+            if msg.content and len(msg.content) > 100
+            else msg.content
+        )
+        has_system_tag = (
+            msg.content and "<SystemMessage>" in msg.content if msg.content else False
+        )
+        logger.info(
+            f"[AGENT_SESSION_CONTEXT] msg[{i}]: role={msg.role}, has_system_tag={has_system_tag}, "
+            f"content_preview={content_preview}"
+        )
 
     # Build LLM config
     config = None
