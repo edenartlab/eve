@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import re
+import socket
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -484,6 +485,14 @@ async def process_discord_message_for_agent(
         trace_id or f"discord-{deployment.id}-{message_data.get('id', 'unknown')}"
     )
 
+    # Add process identifier to help detect multiple gateway instances
+    process_id = os.getpid()
+    hostname = socket.gethostname()
+    logger.info(
+        f"[{trace_id}] process_discord_message_for_agent called from "
+        f"host={hostname}, pid={process_id}, deployment={deployment.id}, should_prompt={should_prompt}"
+    )
+
     try:
         # Load agent
         agent = Agent.from_mongo(deployment.agent)
@@ -599,8 +608,10 @@ async def process_discord_message_for_agent(
                 session_title = author_username
 
             # Create new session
+            # For DMs, the Discord user owns the session; for guild channels, the agent owner does
+            session_owner = user.id if not guild_id else agent.owner
             session = Session(
-                owner=agent.owner,
+                owner=session_owner,
                 agents=[agent.id],
                 title=session_title,
                 session_key=session_key,
@@ -660,6 +671,10 @@ async def process_discord_message_for_agent(
 
         if existing_chat:
             # Message exists - add this session to it
+            logger.info(
+                f"[{trace_id}] DUPLICATE CHECK: ChatMessage ALREADY EXISTS for discord_message_id={message_id}. "
+                f"existing_chat.id={existing_chat.id}, existing_sessions={existing_chat.session}"
+            )
             if session.id not in existing_chat.session:
                 ChatMessage.get_collection().update_one(
                     {"_id": existing_chat.id}, {"$addToSet": {"session": session.id}}
@@ -667,9 +682,16 @@ async def process_discord_message_for_agent(
                 logger.info(
                     f"[{trace_id}] Added session {session.id} to existing ChatMessage {existing_chat.id}"
                 )
+            else:
+                logger.info(
+                    f"[{trace_id}] Session {session.id} already in ChatMessage {existing_chat.id} - no update needed"
+                )
             message = existing_chat
         else:
             # Create new ChatMessage via add_chat_message
+            logger.info(
+                f"[{trace_id}] DUPLICATE CHECK: No existing ChatMessage for discord_message_id={message_id}. Creating new one."
+            )
             message = await add_chat_message(session, prompt_context)
             logger.info(
                 f"[{trace_id}] Created new chat message: eve_message_id={message.id}, discord_message_id={message_id}"
@@ -718,7 +740,7 @@ async def process_discord_message_for_agent(
                 session=session,
                 agent=agent,
                 user_id=str(user.id),
-                message=prompt_context.message,
+                message=None,  # Already added above at line 673
                 update_config=prompt_context.update_config,
             ):
                 if update.get("type") == UpdateType.ASSISTANT_MESSAGE.value:
@@ -878,40 +900,85 @@ class DiscordGatewayClient:
             discord_id = mention.get("id")
             if discord_id:
                 discord_ids.append(discord_id)
+                logger.info(
+                    f"[_parse_mentioned_agents] Found mention: username={mention.get('username')}, id={discord_id}, is_bot={mention.get('bot', False)}"
+                )
 
         # Check role mentions
         mention_roles = message_data.get("mention_roles", [])
         for role_id in mention_roles:
             if role_id:
                 discord_ids.append(role_id)
+                logger.info(
+                    f"[_parse_mentioned_agents] Found role mention: role_id={role_id}"
+                )
 
         # If no Discord IDs to look up, return empty list
         if not discord_ids:
+            logger.info(
+                "[_parse_mentioned_agents] No Discord IDs found in mentions, returning empty list"
+            )
             return mentioned_agent_ids
 
+        logger.info(
+            f"[_parse_mentioned_agents] Looking up deployments for Discord IDs: {discord_ids}"
+        )
+
         # Look up deployments that match these Discord application IDs
+        # Try both oauth_client_id AND secrets.discord.application_id
         try:
             deployments = list(
                 Deployment.find(
                     {
                         "platform": ClientType.DISCORD.value,
-                        "config.discord.oauth_client_id": {"$in": discord_ids},
+                        "$or": [
+                            {"config.discord.oauth_client_id": {"$in": discord_ids}},
+                            {"secrets.discord.application_id": {"$in": discord_ids}},
+                        ],
                         "valid": {"$ne": False},
                     }
                 )
             )
 
+            logger.info(
+                f"[_parse_mentioned_agents] Found {len(deployments)} matching deployments"
+            )
+
             for deployment in deployments:
                 agent_id = str(deployment.agent)
+                oauth_id = (
+                    deployment.config.discord.oauth_client_id
+                    if deployment.config and deployment.config.discord
+                    else None
+                )
+                app_id = (
+                    deployment.secrets.discord.application_id
+                    if deployment.secrets and deployment.secrets.discord
+                    else None
+                )
+                logger.info(
+                    f"[_parse_mentioned_agents] Deployment {deployment.id}: agent={agent_id}, oauth_client_id={oauth_id}, application_id={app_id}"
+                )
+
                 if agent_id not in mentioned_agent_ids:
                     mentioned_agent_ids.append(agent_id)
                     logger.info(
-                        f"Found mentioned agent: {agent_id} (Discord app ID: {deployment.secrets.discord.application_id})"
+                        f"[_parse_mentioned_agents] Added agent to mentioned list: {agent_id}"
                     )
 
         except Exception as e:
-            logger.error(f"Error looking up mentioned agents: {e}")
+            logger.error(
+                f"[_parse_mentioned_agents] Error looking up mentioned agents: {e}"
+            )
+            import traceback
 
+            logger.error(
+                f"[_parse_mentioned_agents] Traceback: {traceback.format_exc()}"
+            )
+
+        logger.info(
+            f"[_parse_mentioned_agents] Final mentioned_agent_ids: {mentioned_agent_ids}"
+        )
         return mentioned_agent_ids
 
     async def _is_channel_allowlisted(
@@ -1441,9 +1508,29 @@ class DiscordGatewayClient:
         logger.info("\n\n\n\n===============\n\n\n\n")
 
         trace_id = self._create_trace_id(data)
+
+        # Detailed logging of incoming message
+        author = data.get("author", {})
+        author_username = author.get("username", "Unknown")
+        author_id = author.get("id", "Unknown")
+        content = data.get("content", "")[:200]  # First 200 chars
+        mentions_raw = data.get("mentions", [])
+        mention_usernames = [m.get("username") for m in mentions_raw]
+        mention_ids = [m.get("id") for m in mentions_raw]
+
+        logger.info(f"[{trace_id}] ========== INCOMING DISCORD MESSAGE ==========")
+        logger.info(f"[{trace_id}] From: {author_username} (id={author_id})")
+        logger.info(f"[{trace_id}] Content: {content}")
+        logger.info(f"[{trace_id}] Mentions (usernames): {mention_usernames}")
+        logger.info(f"[{trace_id}] Mentions (ids): {mention_ids}")
+        logger.info(f"[{trace_id}] This deployment's agent: {self.deployment.agent}")
         logger.info(
-            f"[{trace_id}] Processing message from user {data.get('author', {}).get('username', 'Unknown')}"
+            f"[{trace_id}] This deployment's app_id: {self.deployment.secrets.discord.application_id if self.deployment.secrets.discord else 'N/A'}"
         )
+        logger.info(
+            f"[{trace_id}] This deployment's oauth_client_id: {self.deployment.config.discord.oauth_client_id if self.deployment.config and self.deployment.config.discord else 'N/A'}"
+        )
+        logger.info(f"[{trace_id}] ================================================")
 
         # Skip all bot messages
         if data.get("author", {}).get("bot", False):
@@ -1529,9 +1616,20 @@ class DiscordGatewayClient:
             f"[{trace_id}] DECISION: is_mentioned={is_mentioned}, can_write={can_write}, should_prompt={should_prompt}"
         )
 
-        if not can_write and is_mentioned:
+        # Log clear reason for NOT prompting
+        if not should_prompt:
+            if not is_mentioned:
+                logger.info(
+                    f"[{trace_id}] NOT PROMPTING: Agent was not mentioned. "
+                    f"Expected agent_id={agent_id} to be in mentioned_agent_ids={mentioned_agent_ids}"
+                )
+            elif not can_write:
+                logger.info(
+                    f"[{trace_id}] NOT PROMPTING: Agent mentioned but channel is READ-ONLY (not in write allowlist)"
+                )
+        else:
             logger.info(
-                f"[{trace_id}] Agent mentioned but channel is READ-ONLY, will NOT prompt"
+                f"[{trace_id}] WILL PROMPT: Agent {agent_id} was mentioned and has write access"
             )
 
         result = await process_discord_message_for_agent(
