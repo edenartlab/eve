@@ -57,6 +57,8 @@ Produce a **Covenant entry** consisting of:
 
 Then publish it to the covenant using the `abraham_covenant` tool (with all 5 of the above elements as parameters), and tweet it using the `tweet` tool.
 
+**DO NOT** call abraham_covenant UNTIL you have produced all 5 of the above elements. Do not call it first with blank or pending elements. Make each of the 5 elements above, according to the below workflow, and only then call abraham_covenant at the end.
+
 ---
 
 ## Workflow
