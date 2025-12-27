@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 import requests
 from google import genai
 from google.genai import errors as genai_errors
+from loguru import logger
 
 from eve.tool import ToolContext
 from eve.tools.google import create_gcp_client
@@ -189,6 +190,7 @@ async def handler(context: ToolContext):
                         output_text.append(part.text)
 
     if not output_images:
+        logger.error(f"No images were generated: {response}")
         raise ValueError("No images were generated")
 
     result = {"output": output_images}

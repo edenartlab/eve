@@ -35,6 +35,7 @@ class DiscordUser(BaseModel):
     discord_username: str
     message_count: int
     last_seen: str
+    discord_avatar: Optional[str] = None  # Discord avatar hash
 
 
 async def handler(context: ToolContext):
@@ -211,6 +212,7 @@ async def discover_active_users(
             author = msg.get("author", {})
             author_id = author.get("id")
             author_username = author.get("username")
+            author_avatar = author.get("avatar")
             timestamp = msg.get("timestamp", "")
             is_bot = author.get("bot", False)
 
@@ -221,9 +223,13 @@ async def discover_active_users(
             if author_id not in user_activity:
                 user_activity[author_id] = {
                     "username": author_username,
+                    "avatar": author_avatar,
                     "message_count": 0,
                     "last_seen": timestamp,
                 }
+            # Update avatar if we get a newer one (avatars can change)
+            elif author_avatar and not user_activity[author_id].get("avatar"):
+                user_activity[author_id]["avatar"] = author_avatar
 
             user_activity[author_id]["message_count"] += 1
             # Keep the most recent timestamp
@@ -240,6 +246,7 @@ async def discover_active_users(
                         discord_username=data["username"],
                         message_count=data["message_count"],
                         last_seen=data["last_seen"],
+                        discord_avatar=data.get("avatar"),
                     )
                 )
 
@@ -331,6 +338,7 @@ async def discover_thread_users(
                     author = msg.get("author", {})
                     author_id = author.get("id")
                     author_username = author.get("username")
+                    author_avatar = author.get("avatar")
                     timestamp = msg.get("timestamp", "")
                     is_bot = author.get("bot", False)
 
@@ -341,9 +349,12 @@ async def discover_thread_users(
                     if author_id not in user_activity:
                         user_activity[author_id] = {
                             "username": author_username,
+                            "avatar": author_avatar,
                             "message_count": 0,
                             "last_seen": timestamp,
                         }
+                    elif author_avatar and not user_activity[author_id].get("avatar"):
+                        user_activity[author_id]["avatar"] = author_avatar
 
                     user_activity[author_id]["message_count"] += 1
                     if timestamp > user_activity[author_id]["last_seen"]:
@@ -358,6 +369,7 @@ async def discover_thread_users(
                                 discord_username=data["username"],
                                 message_count=data["message_count"],
                                 last_seen=data["last_seen"],
+                                discord_avatar=data.get("avatar"),
                             )
                         )
 
@@ -396,12 +408,18 @@ async def fetch_users_by_ids(
                 # Fetch user from Discord API
                 discord_user = await client.fetch_user(user_id_int)
 
+                # Get avatar hash from discord.py User object
+                avatar_hash = None
+                if discord_user.avatar:
+                    avatar_hash = discord_user.avatar.key
+
                 users.append(
                     DiscordUser(
                         discord_id=user_id,
                         discord_username=discord_user.name,
                         message_count=0,
                         last_seen="",
+                        discord_avatar=avatar_hash,
                     )
                 )
             except discord.NotFound:
@@ -430,7 +448,9 @@ async def map_discord_to_eden_users(
         try:
             # Use existing User.from_discord method
             eden_user = User.from_discord(
-                discord_user.discord_id, discord_user.discord_username
+                discord_user.discord_id,
+                discord_user.discord_username,
+                discord_avatar=discord_user.discord_avatar,
             )
             mapped_users.append((discord_user, eden_user))
         except Exception as e:

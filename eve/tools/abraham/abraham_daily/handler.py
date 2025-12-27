@@ -57,6 +57,8 @@ Produce a **Covenant entry** consisting of:
 
 Then publish it to the covenant using the `abraham_covenant` tool (with all 5 of the above elements as parameters), and tweet it using the `tweet` tool.
 
+**DO NOT** call abraham_covenant UNTIL you have produced all 5 of the above elements. Do not call it first with blank or pending elements. Make each of the 5 elements above, according to the below workflow, and only then call abraham_covenant at the end.
+
 ---
 
 ## Workflow
@@ -113,6 +115,7 @@ Create a **video** representing the entire creation. Use the `reel` tool to crea
 
 Generate a **16:9 poster image** representing the entire creation.
 
+* **ALWAYS** use nano_banana model preference to make this image.
 * The poster should integrate or reference multiple session images for visual cohesion.
 * The **title must be clearly visible** and legible within the image.
 * You may retry generation multiple times if legibility or composition is poor.
@@ -136,6 +139,15 @@ Only after publishing to the Covenant, and confirming that the Covenant entry is
 
 The tweet should strictly have only the following content: "{title} {link}" where title is the title of the Creation and link is the url returned by the abraham_covenant tool. Do not include any other text or any media_urls / attachments.
 """)
+
+
+# daily_message_template = Template("""
+# Finish minting the new creation to the Covenant.
+
+# You've already completed the blog post, above. The reel in the last step also did indeed finish. The url to the reel video is https://d14i3advvh2bvd.cloudfront.net/aab2ee3c89bec8b0ffe2bcc22441532307a3ed1f4b2144fdbce743c8e98f2bfc.mp4
+
+# Now just make the poster image, publish to the covenant, along with the above, and then tweet it.
+# You have already made the video and blog post, just need the poster image still. Once you have that, publish it all to the covenant using the `abraham_covenant` tool.""")
 
 
 async def commit_daily_work(agent: Agent, session: str):

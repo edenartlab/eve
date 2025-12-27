@@ -54,6 +54,7 @@ from eve.api.api_requests import (
     RegenerateAgentMemoryRequest,
     RegenerateUserMemoryRequest,
     RunTriggerRequest,
+    SyncDiscordChannelsRequest,
     TaskRequest,
     UpdateConceptRequest,
     UpdateDeploymentRequestV2,
@@ -80,6 +81,7 @@ from eve.api.handlers import (
     handle_session_message,
     handle_session_run,
     handle_session_status_update,
+    handle_sync_discord_channels,
     handle_v2_deployment_create,
     handle_v2_deployment_delete,
     handle_v2_deployment_email_inbound,
@@ -420,6 +422,16 @@ async def refresh_discord_channels(
 ):
     request.deployment_id = deployment_id
     return await handle_refresh_discord_channels(request)
+
+
+@web_app.post("/v2/deployments/{deployment_id}/discord-sync")
+async def sync_discord_channels(
+    deployment_id: str,
+    request: SyncDiscordChannelsRequest,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    request.deployment_id = deployment_id
+    return await handle_sync_discord_channels(request)
 
 
 # Notification routes
