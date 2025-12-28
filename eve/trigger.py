@@ -1,3 +1,4 @@
+import copy
 import logging
 import os
 from datetime import datetime, timezone
@@ -155,6 +156,146 @@ def notify_trigger_paused(trigger: Trigger, reason: str):
         sentry_sdk.capture_exception(e)
 
 
+def check_agent_access(agent_id: ObjectId, user_id: ObjectId) -> bool:
+    """Check if user has access to an agent (owner, editor, or member).
+
+    Returns:
+        True if user has access, False otherwise
+    """
+    from eve.agent.agent import AgentPermission
+
+    agent = Agent.from_mongo(agent_id)
+    if not agent:
+        return False
+
+    # Check if user is agent owner
+    if agent.owner == user_id:
+        return True
+
+    # Check if user has permission (owner, editor, or member)
+    try:
+        permission = AgentPermission.load(agent=agent_id, user=user_id)
+        return permission and permission.level in ["owner", "editor", "member"]
+    except Exception:
+        return False
+
+
+async def subscribe_to_trigger(trigger_id: str, subscriber_user_id: str) -> "Trigger":
+    """Subscribe a user to a trigger, creating a child trigger copy.
+
+    Args:
+        trigger_id: ID of the parent trigger to subscribe to
+        subscriber_user_id: ID of the user subscribing
+
+    Returns:
+        The newly created child trigger
+
+    Raises:
+        APIError: If validation fails
+    """
+    subscriber_id = ObjectId(subscriber_user_id)
+
+    # Load and validate parent trigger
+    parent = Trigger.from_mongo(trigger_id)
+    if not parent:
+        raise APIError(f"Trigger {trigger_id} not found", status_code=404)
+
+    if parent.deleted:
+        raise APIError("Cannot subscribe to a deleted trigger", status_code=400)
+
+    if not parent.subscribable:
+        raise APIError("This trigger does not allow subscriptions", status_code=403)
+
+    if parent.parent_trigger is not None:
+        raise APIError(
+            "Cannot subscribe to a child trigger. Subscribe to the parent instead.",
+            status_code=400,
+        )
+
+    # Check subscriber has agent access
+    if not parent.agent:
+        raise APIError("Parent trigger has no agent configured", status_code=400)
+
+    if not check_agent_access(parent.agent, subscriber_id):
+        raise APIError("You do not have permission to use this agent", status_code=403)
+
+    # Check not already subscribed
+    existing = Trigger.find_one(
+        {
+            "parent_trigger": parent.id,
+            "user": subscriber_id,
+            "deleted": {"$ne": True},
+        }
+    )
+    if existing:
+        raise APIError(
+            "You are already subscribed to this trigger",
+            status_code=409,
+        )
+
+    # Calculate next run time for the child
+    next_run = None
+    if parent.schedule:
+        next_run = calculate_next_scheduled_run(parent.schedule)
+
+    # Create child trigger (snapshot copy)
+    child_trigger = Trigger(
+        name=parent.name,
+        prompt=parent.prompt,
+        schedule=copy.deepcopy(parent.schedule) if parent.schedule else None,
+        user=subscriber_id,
+        agent=parent.agent,
+        session=None,  # Created on first run
+        parent_trigger=parent.id,
+        subscribable=False,  # Children cannot be subscribed to
+        status="active",
+        next_scheduled_run=next_run,
+    )
+    child_trigger.save()
+
+    logger.info(
+        f"[SUBSCRIPTION] User {subscriber_user_id} subscribed to trigger {trigger_id}, "
+        f"created child trigger {child_trigger.id}"
+    )
+
+    return child_trigger
+
+
+async def unsubscribe_from_trigger(trigger_id: str, user_id: str) -> bool:
+    """Unsubscribe a user from a trigger.
+
+    Args:
+        trigger_id: ID of the parent trigger
+        user_id: ID of the user unsubscribing
+
+    Returns:
+        True if successfully unsubscribed, False if no subscription found
+    """
+    user_oid = ObjectId(user_id)
+
+    # Find the child trigger for this user
+    child = Trigger.find_one(
+        {
+            "parent_trigger": ObjectId(trigger_id),
+            "user": user_oid,
+            "deleted": {"$ne": True},
+        }
+    )
+
+    if not child:
+        return False
+
+    # Soft delete and pause the child trigger
+    child.update(deleted=True, status="paused")
+
+    logger.info(
+        f"[SUBSCRIPTION] User {user_id} unsubscribed from trigger {trigger_id}, "
+        f"deleted child trigger {child.id}"
+    )
+
+    return True
+
+
 async def _ensure_trigger_has_session(trigger: Trigger) -> Trigger:
     """Ensure trigger has a session. If not, create one.
 
@@ -292,6 +433,16 @@ async def execute_trigger_async(
     trigger = Trigger.from_mongo(trigger_id)
     if not trigger:
         raise APIError(f"Trigger not found: {trigger_id}", status_code=404)
+
+    # For child triggers, check if parent is still active
+    if trigger.parent_trigger:
+        parent = Trigger.from_mongo(trigger.parent_trigger)
+        if not parent or parent.deleted or parent.status == "paused":
+            logger.info(
+                f"[TRIGGER_ASYNC] Skipping child trigger {trigger_id} - parent is inactive/deleted"
+            )
+            trigger.update(status="paused")
+            return None
 
     # For scheduled triggers, atomically set to running
     # For manual triggers (skip_message_add=True), status was already set by handle_trigger_run
