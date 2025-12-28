@@ -196,6 +196,9 @@ async def handle_realtime_tool(
     # Determine if this is an async (fire-and-forget) request
     is_async = request.tool_name == "create_async" or not request.wait_for_response
 
+    # Generate a task_id for tracking (frontend expects this)
+    task_id = str(ObjectId())
+
     if is_async:
         # Non-blocking: start task and return immediately
         async def run_tool_background():
@@ -212,6 +215,7 @@ async def handle_realtime_tool(
         logger.info(f"[REALTIME_TOOL] Tool {request.tool_name} started in background")
 
         return {
+            "task_id": task_id,
             "status": "pending",
             "message": "I've started working on that. I'll let you know when it's ready.",
         }
@@ -227,6 +231,7 @@ async def handle_realtime_tool(
                     f"[REALTIME_TOOL] Tool {request.tool_name} failed: {result.get('error')}"
                 )
                 return {
+                    "task_id": task_id,
                     "status": "failed",
                     "error": result.get("error", "Unknown error"),
                 }
@@ -234,6 +239,7 @@ async def handle_realtime_tool(
             logger.info(f"[REALTIME_TOOL] Tool {request.tool_name} completed")
 
             return {
+                "task_id": task_id,
                 "status": "completed",
                 "result": result,
             }
@@ -241,6 +247,7 @@ async def handle_realtime_tool(
         except Exception as e:
             logger.error(f"[REALTIME_TOOL] Tool execution failed: {e}")
             return {
+                "task_id": task_id,
                 "status": "failed",
                 "error": str(e),
             }
