@@ -243,7 +243,7 @@ def convert_message_roles(messages: List[ChatMessage], actor_id: ObjectId):
             ):
                 is_system_message = (
                     user_message.content
-                    and user_message.content.startswith("<SystemMessage>")
+                    and user_message.content.startswith("<SystemMessage")
                     and user_message.content.endswith("</SystemMessage>")
                 )
                 # Prepend the sender name to the content

@@ -275,7 +275,7 @@ def _format_messages_for_conductor(
         # Skip name prefix for messages wrapped in SystemMessage tags
         is_system_message = (
             msg.content
-            and msg.content.startswith("<SystemMessage>")
+            and msg.content.startswith("<SystemMessage")
             and msg.content.endswith("</SystemMessage>")
         )
 

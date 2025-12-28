@@ -1,0 +1,66 @@
+name: display
+description: Control the Chiba kiosk display - play videos, show URLs, sync collections, or turn off the screen
+tip: |-
+  This tool controls the Chiba digital signage display. Use it to:
+  - Play a single video file (loops continuously)
+  - Display a website in an iframe
+  - Sync and play an Eden collection as a playlist
+  - Cache a video from a URL and optionally play it
+  - Turn off the display
+  - Check the current status and available files
+cost_estimate: 0
+output_type: string
+active: true
+handler: local
+visible: false
+parameters:
+  action:
+    type: string
+    label: Action
+    description: The action to perform on the display
+    required: true
+    choices:
+      - status
+      - files
+      - play
+      - off
+      - url
+      - cache
+      - sync
+      - sync_and_play
+    choices_labels:
+      - Get Status
+      - List Files
+      - Play File
+      - Turn Off
+      - Show URL
+      - Cache Video
+      - Sync Collection
+      - Sync and Play
+  file:
+    type: string
+    label: File
+    description: The filename to play (required for 'play' action)
+    required: false
+  url:
+    type: string
+    label: URL
+    description: The URL to display or cache (required for 'url' and 'cache' actions)
+    required: false
+  collection_id:
+    type: string
+    label: Collection ID
+    description: Eden collection ID to sync (required for 'sync' and 'sync_and_play' actions)
+    required: false
+  loop:
+    type: boolean
+    label: Loop
+    description: Whether to loop the playlist (for sync_and_play action)
+    default: true
+    required: false
+  play_after_cache:
+    type: boolean
+    label: Play After Cache
+    description: Whether to play the video after caching it
+    default: false
+    required: false
