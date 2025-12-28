@@ -152,9 +152,11 @@ async def handle_realtime_tool(
     For blocking tools: waits for completion and returns result.
     For async tools: returns immediately with task_id for tracking.
     """
+    # Log full request for debugging
     logger.info(
         f"[REALTIME_TOOL] Received request: tool={request.tool_name}, "
-        f"wait={request.wait_for_response}, session={request.session_id}"
+        f"wait={request.wait_for_response}, session={request.session_id}, "
+        f"args={json.dumps(request.args, default=str)}"
     )
 
     # Get agent_id from session
@@ -193,6 +195,11 @@ async def handle_realtime_tool(
     args["agent_id"] = agent_id
     args["session_id"] = request.session_id
 
+    # Log prepared args
+    logger.info(
+        f"[REALTIME_TOOL] Prepared args for {actual_tool_key}: {json.dumps(args, default=str)}"
+    )
+
     # Determine if this is an async (fire-and-forget) request
     is_async = request.tool_name == "create_async" or not request.wait_for_response
 
@@ -205,10 +212,12 @@ async def handle_realtime_tool(
             try:
                 result = await tool.async_run(args)
                 logger.info(
-                    f"[REALTIME_TOOL] Background task {request.tool_name} completed: {result.get('status')}"
+                    f"[REALTIME_TOOL] Background task {request.tool_name} completed: {json.dumps(result, default=str)}"
                 )
             except Exception as e:
-                logger.error(f"[REALTIME_TOOL] Background task failed: {e}")
+                logger.error(
+                    f"[REALTIME_TOOL] Background task failed: {e}", exc_info=True
+                )
 
         background_tasks.add_task(run_tool_background)
 
@@ -226,17 +235,26 @@ async def handle_realtime_tool(
         try:
             result = await tool.async_run(args)
 
+            # Log full result for debugging
+            logger.info(
+                f"[REALTIME_TOOL] Tool {request.tool_name} raw result: {json.dumps(result, default=str)}"
+            )
+
             if result.get("status") == "failed":
+                error_msg = result.get("error", "Unknown error")
                 logger.error(
-                    f"[REALTIME_TOOL] Tool {request.tool_name} failed: {result.get('error')}"
+                    f"[REALTIME_TOOL] Tool {request.tool_name} failed: {error_msg}. Args: {json.dumps(args, default=str)}"
                 )
                 return {
                     "task_id": task_id,
                     "status": "failed",
-                    "error": result.get("error", "Unknown error"),
+                    "error": error_msg,
+                    "args": args,  # Include args in error response for debugging
                 }
 
-            logger.info(f"[REALTIME_TOOL] Tool {request.tool_name} completed")
+            logger.info(
+                f"[REALTIME_TOOL] Tool {request.tool_name} completed successfully"
+            )
 
             return {
                 "task_id": task_id,
@@ -245,11 +263,15 @@ async def handle_realtime_tool(
             }
 
         except Exception as e:
-            logger.error(f"[REALTIME_TOOL] Tool execution failed: {e}")
+            logger.error(
+                f"[REALTIME_TOOL] Tool execution failed: {e}. Args: {json.dumps(args, default=str)}",
+                exc_info=True,
+            )
             return {
                 "task_id": task_id,
                 "status": "failed",
                 "error": str(e),
+                "args": args,  # Include args in error response for debugging
             }
 
 
