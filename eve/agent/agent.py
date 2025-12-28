@@ -34,7 +34,7 @@ class AgentPermission(BaseModel):
 
     agent: ObjectId
     user: ObjectId
-    level: Literal["editor", "owner"]
+    level: Literal["editor", "owner", "member"]
     grantedBy: ObjectId
     grantedAt: Optional[datetime] = None
     model_config = ConfigDict(arbitrary_types_allowed=True)

@@ -359,6 +359,7 @@ async def build_system_message(
     user: Optional[User],
     tools: Dict[str, Tool],
     instrumentation=None,
+    trigger_context: Optional[dict] = None,  # {"name": str, "prompt": str}
 ):  # Get the last speaker ID for memory prioritization
     # Get concepts
     concepts = Concept.find({"agent": actor.id, "deleted": {"$ne": True}})
@@ -451,6 +452,8 @@ async def build_system_message(
         memory=memory,
         social_instructions=social_instructions,
         session_context=session.context,
+        trigger_task=trigger_context.get("prompt") if trigger_context else None,
+        trigger_task_name=trigger_context.get("name") if trigger_context else None,
     )
 
     return ChatMessage(session=[session.id], role="system", content=content)
@@ -699,13 +702,27 @@ def get_all_eden_messages_for_llm(session_id: ObjectId) -> List[ChatMessage]:
     converted = []
     for doc in eden_messages:
         eden_msg = ChatMessage(**doc)
-        # Convert: change role to user, wrap content in SystemMessage tags
         current_dt = datetime.now(timezone.utc).strftime("%Y %b %-d, %-I:%M%p")
+
+        # For TRIGGER messages, simplify content since full prompt is now in system message
+        content = eden_msg.content
+        if (
+            eden_msg.eden_message_data
+            and eden_msg.eden_message_data.message_type == EdenMessageType.TRIGGER
+            and eden_msg.trigger
+        ):
+            from eve.trigger import Trigger
+
+            trigger = Trigger.from_mongo(eden_msg.trigger)
+            if trigger:
+                content = f'Run Task "{trigger.name}"'
+
+        # Convert: change role to user, wrap content in SystemMessage tags
         converted.append(
             eden_msg.model_copy(
                 update={
                     "role": "user",
-                    "content": f'<SystemMessage current_date_time="{current_dt}">{eden_msg.content}</SystemMessage>',
+                    "content": f'<SystemMessage current_date_time="{current_dt}">{content}</SystemMessage>',
                 }
             )
         )
@@ -772,6 +789,15 @@ async def build_llm_context(
     )
     force_fake = is_fake_llm_mode() or is_test_mode_prompt(raw_prompt_text)
 
+    # Load trigger context if present
+    trigger_context = None
+    if context.trigger:
+        from eve.trigger import Trigger
+
+        trigger = Trigger.from_mongo(context.trigger)
+        if trigger:
+            trigger_context = {"name": trigger.name, "prompt": trigger.prompt}
+
     # build messages first to have context for thinking routing
     system_message = await build_system_message(
         session,
@@ -779,6 +805,7 @@ async def build_llm_context(
         user,
         tools,
         instrumentation=instrumentation,
+        trigger_context=trigger_context,
     )
 
     messages = [system_message]

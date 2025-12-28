@@ -46,9 +46,15 @@ class Trigger(Document):
     session: Optional[ObjectId] = None
     agent: Optional[ObjectId] = None  # Used when creating new session if session=None
 
+    # Subscription support
+    parent_trigger: Optional[ObjectId] = (
+        None  # Reference to parent if this is a subscription copy
+    )
+
     # Status and execution tracking
     status: Literal["active", "paused", "running", "finished"] = "active"
     deleted: bool = False
+    subscribable: bool = False
     last_run_time: Optional[datetime] = None
     next_scheduled_run: Optional[datetime] = None
 
@@ -183,7 +189,11 @@ async def _ensure_trigger_has_session(trigger: Trigger) -> Trigger:
     is_agent_owner = agent.owner == trigger.user
     try:
         permission = AgentPermission.load(agent=trigger.agent, user=trigger.user)
-        has_permission = permission and permission.level in ["owner", "editor"]
+        has_permission = permission and permission.level in [
+            "owner",
+            "editor",
+            "member",
+        ]
     except Exception:
         has_permission = False
 
