@@ -1,5 +1,6 @@
 import io
 import os
+from typing import List
 
 import aiohttp
 import discord
@@ -9,6 +10,55 @@ from eve.agent.agent import Agent
 from eve.agent.deployments.discord_gateway import convert_usernames_to_discord_mentions
 from eve.agent.session.models import Deployment
 from eve.tool import ToolContext
+
+DISCORD_MAX_LENGTH = 2000
+
+
+def split_content_into_chunks(
+    content: str, max_length: int = DISCORD_MAX_LENGTH
+) -> List[str]:
+    """
+    Split content into chunks of max_length, preferring to break at spaces.
+
+    Args:
+        content: The text content to split
+        max_length: Maximum length per chunk (default: Discord's 2000 char limit)
+
+    Returns:
+        List of content chunks, each <= max_length
+    """
+    if not content or len(content) <= max_length:
+        return [content] if content else []
+
+    chunks = []
+    remaining = content
+
+    while remaining:
+        if len(remaining) <= max_length:
+            chunks.append(remaining)
+            break
+
+        # Find a good break point (prefer space, then newline)
+        chunk = remaining[:max_length]
+
+        # Look for the last space or newline within the chunk
+        break_point = -1
+        for delimiter in ["\n", " "]:
+            last_pos = chunk.rfind(delimiter)
+            if last_pos > max_length // 2:  # Only use if in the second half
+                break_point = last_pos
+                break
+
+        if break_point > 0:
+            # Split at the delimiter
+            chunks.append(remaining[:break_point])
+            remaining = remaining[break_point + 1 :]  # Skip the delimiter
+        else:
+            # No good break point, hard split at max_length
+            chunks.append(chunk)
+            remaining = remaining[max_length:]
+
+    return chunks
 
 
 async def handler(context: ToolContext):
@@ -120,22 +170,28 @@ async def send_dm(
         # Get the user object
         user = await client.fetch_user(user_id_int)
 
-        # Truncate content to 2000 characters (Discord limit)
-        # Todo: make this multiple messages instead of truncating
-        content = content[:2000]
+        # Split content into chunks (Discord limit is 2000 chars)
+        chunks = split_content_into_chunks(content)
+        if not chunks:
+            chunks = [""]  # Allow empty content if files are provided
 
-        # Send DM with files if provided
-        if files:
-            message = await user.send(content=content, files=files)
-        else:
-            message = await user.send(content=content)
+        messages = []
+        last_idx = len(chunks) - 1
+        for i, chunk in enumerate(chunks):
+            # Attach files to the last message so they appear at the end
+            if i == last_idx and files:
+                message = await user.send(content=chunk, files=files)
+            else:
+                message = await user.send(content=chunk)
+            messages.append(message)
 
-        # Return with dummy URL since DMs don't have public URLs
+        # Return URLs for all messages
         return {
             "output": [
                 {
-                    "url": f"https://discord.com/channels/@me/{user.dm_channel.id}/{message.id}",
+                    "url": f"https://discord.com/channels/@me/{user.dm_channel.id}/{msg.id}",
                 }
+                for msg in messages
             ]
         }
 
@@ -173,38 +229,54 @@ async def send_channel_message(
             f"Channel {channel_id} is not in the allowlist. Allowed channels (note: id): {allowed_channels_info}"
         )
 
-    # Truncate content to 2000 characters (Discord limit)
-    # Todo: make this multiple messages instead of truncating
-    content = content[:2000]
+    # Split content into chunks (Discord limit is 2000 chars)
+    chunks = split_content_into_chunks(content)
+    if not chunks:
+        chunks = [""]  # Allow empty content if files are provided
 
-    # Get the channel and post the message with files if provided
+    # Get the channel
     channel = await client.fetch_channel(int(channel_id))
 
-    # Build message reference if replying
+    # Build message reference if replying (only for first message)
     reference = None
     if reply_to:
         reference = discord.MessageReference(
             message_id=int(reply_to), channel_id=int(channel_id)
         )
 
-    if files:
-        message = await channel.send(content=content, files=files, reference=reference)
-    else:
-        message = await channel.send(content=content, reference=reference)
+    messages = []
+    last_idx = len(chunks) - 1
+    for i, chunk in enumerate(chunks):
+        # First message gets reply reference, last message gets files
+        is_first = i == 0
+        is_last = i == last_idx
 
-    # Build URL - handle both guild channels and DM channels
-    if hasattr(channel, "guild") and channel.guild:
-        url = (
-            f"https://discord.com/channels/{channel.guild.id}/{channel.id}/{message.id}"
-        )
-    else:
-        # DM channel
-        url = f"https://discord.com/channels/@me/{channel.id}/{message.id}"
+        if is_first and is_last:
+            # Single chunk: gets both reply reference and files
+            message = await channel.send(
+                content=chunk, files=files if files else None, reference=reference
+            )
+        elif is_first:
+            # First of multiple: reply reference only
+            message = await channel.send(content=chunk, reference=reference)
+        elif is_last:
+            # Last of multiple: files only
+            message = await channel.send(content=chunk, files=files if files else None)
+        else:
+            # Middle chunks: plain text
+            message = await channel.send(content=chunk)
+        messages.append(message)
 
-    return {
-        "output": [
-            {
-                "url": url,
-            }
-        ]
-    }
+    # Build URLs - handle both guild channels and DM channels
+    output = []
+    for msg in messages:
+        if hasattr(channel, "guild") and channel.guild:
+            url = (
+                f"https://discord.com/channels/{channel.guild.id}/{channel.id}/{msg.id}"
+            )
+        else:
+            # DM channel
+            url = f"https://discord.com/channels/@me/{channel.id}/{msg.id}"
+        output.append({"url": url})
+
+    return {"output": output}
