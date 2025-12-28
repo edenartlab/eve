@@ -24,6 +24,17 @@ class TaskRequest(BaseModel):
     public: bool = False
 
 
+class RealtimeToolRequest(BaseModel):
+    """Request for realtime tool execution from ElevenLabs client tools."""
+
+    tool_name: str  # "create", "display", "create_async"
+    args: Dict[str, Any]
+    user_id: str
+    session_id: str
+    wait_for_response: bool = True  # True for blocking, False for fire-and-forget
+    timeout_seconds: int = 120  # Max wait time for blocking calls
+
+
 class CancelRequest(BaseModel):
     taskId: str
     user: str

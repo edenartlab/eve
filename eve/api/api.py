@@ -50,6 +50,7 @@ from eve.api.api_requests import (
     GetDiscordChannelsRequest,
     PromptSessionRequest,
     ReactionRequest,
+    RealtimeToolRequest,
     RefreshDiscordChannelsRequest,
     RegenerateAgentMemoryRequest,
     RegenerateUserMemoryRequest,
@@ -72,6 +73,7 @@ from eve.api.handlers import (
     handle_get_discord_channels,
     handle_prompt_session,
     handle_reaction,
+    handle_realtime_tool,
     handle_refresh_discord_channels,
     handle_regenerate_agent_memory,
     handle_regenerate_user_memory,
@@ -231,6 +233,15 @@ async def create(request: TaskRequest, _: dict = Depends(auth.authenticate_admin
 @web_app.post("/cancel")
 async def cancel(request: CancelRequest, _: dict = Depends(auth.authenticate_admin)):
     return await handle_cancel(request)
+
+
+@web_app.post("/realtime/tool")
+async def realtime_tool(
+    request: RealtimeToolRequest,
+    background_tasks: BackgroundTasks,
+    _: dict = Depends(auth.authenticate_admin),
+):
+    return await handle_realtime_tool(request, background_tasks)
 
 
 @web_app.post("/update")
