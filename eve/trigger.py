@@ -162,6 +162,13 @@ def check_agent_access(agent_id: ObjectId, user_id: ObjectId) -> bool:
     Returns:
         True if user has access, False otherwise
     """
+
+    # For now, we ar e just making access public.
+    # The code below is still valid and left for the future.
+    # When asked, enforce the code below.
+    return True
+
+    # If checking permissions
     from eve.agent.agent import AgentPermission
 
     agent = Agent.from_mongo(agent_id)
@@ -325,24 +332,23 @@ async def _ensure_trigger_has_session(trigger: Trigger) -> Trigger:
 
     # Check if user has permissions for this agent
     # User must be either: 1) agent owner, or 2) have owner/editor permission
-    from eve.agent.agent import AgentPermission
 
-    is_agent_owner = agent.owner == trigger.user
-    try:
-        permission = AgentPermission.load(agent=trigger.agent, user=trigger.user)
-        has_permission = permission and permission.level in [
-            "owner",
-            "editor",
-            "member",
-        ]
-    except Exception:
-        has_permission = False
+    # is_agent_owner = agent.owner == trigger.user
+    # try:
+    #     permission = AgentPermission.load(agent=trigger.agent, user=trigger.user)
+    #     has_permission = permission and permission.level in [
+    #         "owner",
+    #         "editor",
+    #         "member",
+    #     ]
+    # except Exception:
+    #     has_permission = False
 
-    if not is_agent_owner and not has_permission:
-        raise APIError(
-            f"User does not have permission to use agent {agent.username}",
-            status_code=403,
-        )
+    # if not is_agent_owner and not has_permission:
+    #     raise APIError(
+    #         f"User does not have permission to use agent {agent.username}",
+    #         status_code=403,
+    #     )
 
     # Create new session
     new_session = Session(
