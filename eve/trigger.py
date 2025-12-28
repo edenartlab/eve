@@ -442,10 +442,18 @@ async def execute_trigger_async(
 
     # For child triggers, check if parent is still active
     if trigger.parent_trigger:
-        parent = Trigger.from_mongo(trigger.parent_trigger)
-        if not parent or parent.deleted or parent.status == "paused":
+        try:
+            parent = Trigger.from_mongo(trigger.parent_trigger)
+            if not parent or parent.deleted or parent.status == "paused":
+                logger.info(
+                    f"[TRIGGER_ASYNC] Skipping child trigger {trigger_id} - parent is inactive/deleted"
+                )
+                trigger.update(status="paused")
+                return None
+        except ValueError:
+            # Parent trigger was deleted, pause child trigger
             logger.info(
-                f"[TRIGGER_ASYNC] Skipping child trigger {trigger_id} - parent is inactive/deleted"
+                f"[TRIGGER_ASYNC] Skipping child trigger {trigger_id} - parent was deleted"
             )
             trigger.update(status="paused")
             return None

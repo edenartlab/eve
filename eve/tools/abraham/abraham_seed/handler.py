@@ -70,6 +70,47 @@ class AbrahamSeed(Document):
     creation: Optional[AbrahamCreation] = None
 
 
+def _check_contract_access(w3, contract, owner_address: str) -> None:
+    """
+    Pre-flight check to verify contract state and access before minting.
+    Raises BlockchainError with specific diagnostic message if issues found.
+    """
+    try:
+        # Check if contract is paused
+        is_paused = contract.functions.paused().call()
+        if is_paused:
+            raise BlockchainError("Contract is paused - cannot submit seeds")
+
+        # Check if caller has CREATOR_ROLE
+        creator_role = contract.functions.CREATOR_ROLE().call()
+        has_role = contract.functions.hasRole(creator_role, owner_address).call()
+        if not has_role:
+            raise BlockchainError(
+                f"Wallet {owner_address} does not have CREATOR_ROLE on the contract. "
+                f"An admin needs to call addCreator('{owner_address}') on the contract."
+            )
+
+        # Check seed limits
+        try:
+            seed_count = contract.functions.seedCount().call()
+            max_seeds = contract.functions.MAX_TOTAL_SEEDS().call()
+            if seed_count >= max_seeds:
+                raise BlockchainError(
+                    f"Max total seeds reached ({seed_count}/{max_seeds})"
+                )
+        except Exception:
+            pass  # These checks are optional
+
+        logger.info(
+            f"Pre-flight checks passed: paused={is_paused}, has_creator_role={has_role}"
+        )
+
+    except BlockchainError:
+        raise
+    except Exception as e:
+        logger.warning(f"Pre-flight check failed (non-critical): {e}")
+
+
 def mint_seed(
     title: str,
     tagline: str,
@@ -128,6 +169,9 @@ def mint_seed(
             private_key=ABRAHAM_PRIVATE_KEY,
             network=Network.BASE_SEPOLIA,
         )
+
+        # Pre-flight checks for better error messages
+        _check_contract_access(w3, contract, owner.address)
 
         contract_function = contract.functions.submitSeed(f"ipfs://{ipfs_hash}")
 

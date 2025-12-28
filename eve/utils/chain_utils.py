@@ -214,15 +214,47 @@ def simulate_call(
         # Call with only essentials; don't pass gas/fees to avoid masking errors.
         contract_function.call({"from": from_address, "value": value})
     except ContractLogicError as e:
-        # Try to decode custom error if ABI provided
+        # Extract error information from exception
         error_msg = str(e)
-        if abi and hasattr(e, "args") and e.args:
+        error_data = None
+
+        # ContractLogicError.args can be:
+        # - ('execution reverted', 'no data') - no revert data
+        # - ('execution reverted', '0x...') - with hex error data
+        # - ('0x...',) - just hex data
+        # - (('execution reverted', 'no data'),) - nested tuple
+        if hasattr(e, "args") and e.args:
+            first_arg = e.args[0]
+
+            # Handle nested tuple case
+            if isinstance(first_arg, tuple):
+                if len(first_arg) >= 2:
+                    potential_data = first_arg[1]
+                    if isinstance(potential_data, str) and potential_data.startswith(
+                        "0x"
+                    ):
+                        error_data = potential_data
+                    elif potential_data == "no data":
+                        error_msg = "execution reverted (no revert data - likely a require() without message, access control, or wrong contract address)"
+            # Handle direct hex data
+            elif isinstance(first_arg, str) and first_arg.startswith("0x"):
+                error_data = first_arg
+            # Handle ('execution reverted', '0x...') or ('execution reverted', 'no data')
+            elif len(e.args) >= 2:
+                second_arg = e.args[1]
+                if isinstance(second_arg, str) and second_arg.startswith("0x"):
+                    error_data = second_arg
+                elif second_arg == "no data":
+                    error_msg = "execution reverted (no revert data - likely a require() without message, access control, or wrong contract address)"
+
+        # Try to decode custom error if we have hex data and ABI
+        if error_data and abi:
             try:
-                error_data = e.args[0] if isinstance(e.args[0], str) else str(e.args[0])
                 decoded = decode_custom_error(error_data, abi)
                 error_msg = decoded
             except Exception:
                 pass  # Fall back to original error message
+
         raise BlockchainError(f"Simulation reverted: {error_msg}") from e
     except ValueError as e:
         msg = (

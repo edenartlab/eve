@@ -713,9 +713,13 @@ def get_all_eden_messages_for_llm(session_id: ObjectId) -> List[ChatMessage]:
         ):
             from eve.trigger import Trigger
 
-            trigger = Trigger.from_mongo(eden_msg.trigger)
-            if trigger:
-                content = f'Run Task "{trigger.name}"'
+            try:
+                trigger = Trigger.from_mongo(eden_msg.trigger)
+                if trigger:
+                    content = f'Run Task "{trigger.name}"'
+            except ValueError:
+                # Trigger was deleted, use original content
+                pass
 
         # Convert: change role to user, wrap content in SystemMessage tags
         converted.append(
@@ -794,9 +798,13 @@ async def build_llm_context(
     if context.trigger:
         from eve.trigger import Trigger
 
-        trigger = Trigger.from_mongo(context.trigger)
-        if trigger:
-            trigger_context = {"name": trigger.name, "prompt": trigger.prompt}
+        try:
+            trigger = Trigger.from_mongo(context.trigger)
+            if trigger:
+                trigger_context = {"name": trigger.name, "prompt": trigger.prompt}
+        except ValueError:
+            # Trigger was deleted, continue without trigger context
+            pass
 
     # build messages first to have context for thinking routing
     system_message = await build_system_message(
