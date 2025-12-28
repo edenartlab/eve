@@ -144,103 +144,106 @@ async def handle_realtime_tool(
     """
     Handle realtime tool calls from ElevenLabs client tools.
 
-    For wait_for_response=True: Returns mock result after random delay (5-15s).
-    For wait_for_response=False: Returns immediately with acknowledgment.
+    Supported tools:
+    - "create": Run the create tool with default args (blocking)
+    - "display": Run the display tool (blocking)
+    - "create_async": Run create tool in background, return immediately
 
-    Creates a Task document in both cases for tracking.
+    For blocking tools: waits for completion and returns result.
+    For async tools: returns immediately with task_id for tracking.
     """
-    from datetime import datetime, timezone
-
-    from bson import ObjectId
-
     logger.info(
         f"[REALTIME_TOOL] Received request: tool={request.tool_name}, "
         f"wait={request.wait_for_response}, session={request.session_id}"
     )
 
-    # Create a mock task document for tracking
-    tasks_collection = get_collection("tasks3")
-    task_id = ObjectId()
+    # Get agent_id from session
+    agent_id = None
+    if request.session_id:
+        try:
+            session = Session.from_mongo(ObjectId(request.session_id))
+            if session and session.agents:
+                agent_id = str(session.agents[0])
+                logger.info(f"[REALTIME_TOOL] Found agent_id from session: {agent_id}")
+        except Exception as e:
+            logger.warning(f"[REALTIME_TOOL] Could not load session: {e}")
 
-    task_doc = {
-        "_id": task_id,
-        "tool": f"realtime_{request.tool_name}",
-        "args": request.args,
-        "user": ObjectId(request.user_id),
-        "session": ObjectId(request.session_id) if request.session_id else None,
-        "status": "pending",
-        "createdAt": datetime.now(timezone.utc),
-        "updatedAt": datetime.now(timezone.utc),
+    # Map tool names to actual tool keys
+    tool_key_map = {
+        "create": "create",
+        "create_async": "create",
+        "display": "display",
     }
-    tasks_collection.insert_one(task_doc)
 
-    if request.wait_for_response:
-        # Blocking: simulate work with random delay (5-15 seconds)
-        delay = random.uniform(5, 15)
-        logger.info(
-            f"[REALTIME_TOOL] Waiting {delay:.1f}s for tool {request.tool_name}"
-        )
-        await asyncio.sleep(delay)
+    actual_tool_key = tool_key_map.get(request.tool_name)
+    if not actual_tool_key:
+        raise APIError(f"Unknown tool: {request.tool_name}", status_code=400)
 
-        # Update task status to completed
-        tasks_collection.update_one(
-            {"_id": task_id},
-            {
-                "$set": {
-                    "status": "completed",
-                    "updatedAt": datetime.now(timezone.utc),
-                }
-            },
-        )
+    # Load the tool
+    tool = Tool.load(key=actual_tool_key)
 
-        # Return mock result
-        mock_result = {
-            "output": [
-                {
-                    "url": f"https://eden-media.s3.amazonaws.com/mock/{task_id}.png",
-                    "mediaType": "image",
-                    "filename": f"mock_{task_id}.png",
-                }
-            ]
-        }
+    # Prepare args - for create tool, use defaults if prompt not provided
+    args = request.args.copy()
+    if actual_tool_key == "create" and "prompt" not in args:
+        args["prompt"] = "A beautiful abstract image"
+        args["output"] = args.get("output", "image")
 
-        logger.info(f"[REALTIME_TOOL] Tool {request.tool_name} completed (mock)")
+    # Add context IDs
+    args["user_id"] = request.user_id
+    args["agent_id"] = agent_id
+    args["session_id"] = request.session_id
 
-        return {
-            "task_id": str(task_id),
-            "status": "completed",
-            "result": mock_result,
-        }
-    else:
-        # Non-blocking: return immediately, task runs in background
-        async def background_task():
-            # Simulate work in background
-            delay = random.uniform(5, 15)
-            await asyncio.sleep(delay)
+    # Determine if this is an async (fire-and-forget) request
+    is_async = request.tool_name == "create_async" or not request.wait_for_response
 
-            # Update task status to completed
-            tasks_collection.update_one(
-                {"_id": task_id},
-                {
-                    "$set": {
-                        "status": "completed",
-                        "updatedAt": datetime.now(timezone.utc),
-                    }
-                },
-            )
-            logger.info(
-                f"[REALTIME_TOOL] Background task {request.tool_name} completed (mock)"
-            )
+    if is_async:
+        # Non-blocking: start task and return immediately
+        async def run_tool_background():
+            try:
+                result = await tool.async_run(args)
+                logger.info(
+                    f"[REALTIME_TOOL] Background task {request.tool_name} completed: {result.get('status')}"
+                )
+            except Exception as e:
+                logger.error(f"[REALTIME_TOOL] Background task failed: {e}")
 
-        background_tasks.add_task(background_task)
+        background_tasks.add_task(run_tool_background)
 
         logger.info(f"[REALTIME_TOOL] Tool {request.tool_name} started in background")
 
         return {
-            "task_id": str(task_id),
             "status": "pending",
             "message": "I've started working on that. I'll let you know when it's ready.",
         }
+    else:
+        # Blocking: run and wait for result
+        logger.info(f"[REALTIME_TOOL] Running tool {request.tool_name} (blocking)")
+
+        try:
+            result = await tool.async_run(args)
+
+            if result.get("status") == "failed":
+                logger.error(
+                    f"[REALTIME_TOOL] Tool {request.tool_name} failed: {result.get('error')}"
+                )
+                return {
+                    "status": "failed",
+                    "error": result.get("error", "Unknown error"),
+                }
+
+            logger.info(f"[REALTIME_TOOL] Tool {request.tool_name} completed")
+
+            return {
+                "status": "completed",
+                "result": result,
+            }
+
+        except Exception as e:
+            logger.error(f"[REALTIME_TOOL] Tool execution failed: {e}")
+            return {
+                "status": "failed",
+                "error": str(e),
+            }
 
 
 async def handle_replicate_webhook(body: dict):
