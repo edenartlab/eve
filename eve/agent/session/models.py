@@ -1068,6 +1068,7 @@ class PromptSessionContext:
     acting_user_id: Optional[str] = None
     trigger: Optional[ObjectId] = None
     api_key_id: Optional[str] = None
+    selection_limit: Optional[int] = None  # Override default message selection limit
 
 
 @dataclass

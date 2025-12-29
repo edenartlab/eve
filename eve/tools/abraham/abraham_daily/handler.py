@@ -222,6 +222,7 @@ async def commit_daily_work(agent: Agent, session: str):
             "prompt": True,
             "async": True,
             "extra_tools": ["abraham_covenant", "reel", "tweet"],
+            "selection_limit": 75,  # Need more context for daily summary
         }
     )
 

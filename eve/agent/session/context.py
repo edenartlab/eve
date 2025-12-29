@@ -756,6 +756,7 @@ async def build_llm_context(
 
     # Load trigger context if present
     trigger_context = None
+    trigger_selection_limit = None
     if context.trigger:
         from eve.trigger import Trigger
 
@@ -763,6 +764,7 @@ async def build_llm_context(
             trigger = Trigger.from_mongo(context.trigger)
             if trigger:
                 trigger_context = {"name": trigger.name, "prompt": trigger.prompt}
+                trigger_selection_limit = trigger.selection_limit
         except ValueError:
             # Trigger was deleted, continue without trigger context
             pass
@@ -786,7 +788,14 @@ async def build_llm_context(
 
     # Select messages including eden messages - all under the same limit
     # Eden messages are converted to user role with SystemMessage tags in convert_message_roles()
-    existing_messages = select_messages(session)
+    # Priority: context.selection_limit > trigger.selection_limit > default (30)
+    effective_selection_limit = context.selection_limit or trigger_selection_limit
+    if effective_selection_limit is not None:
+        existing_messages = select_messages(
+            session, selection_limit=effective_selection_limit
+        )
+    else:
+        existing_messages = select_messages(session)
     messages.extend(existing_messages)
     messages = label_message_channels(messages, session)
     messages = convert_message_roles(messages, actor.id)

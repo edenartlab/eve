@@ -156,6 +156,7 @@ async def handler(context: ToolContext):
         "extra_tools": ["media_editor"],
         "message_id": context.message,
         "tool_call_id": context.tool_call_id,
+        "selection_limit": 60,  # Need more context for reel production
     }
 
     if context.args.get("resume_session"):
