@@ -464,6 +464,7 @@ async def process_discord_message_for_agent(
     guild_id: Optional[str],
     should_prompt: bool = False,
     trace_id: str = None,
+    session_channel_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Process a Discord message for a single agent.
@@ -473,10 +474,13 @@ async def process_discord_message_for_agent(
     Args:
         message_data: Raw Discord message data
         deployment: The agent's deployment
-        channel_id: Discord channel ID
+        channel_id: Discord channel ID (the actual channel/thread where the message was sent)
         guild_id: Discord guild ID (None for DMs)
         should_prompt: Whether to prompt the agent to respond
         trace_id: Trace ID for logging
+        session_channel_id: Channel ID to use for session key (parent channel for threads).
+                           If None, uses channel_id. This ensures thread messages go to
+                           the same session as their parent channel.
 
     Returns:
         Status dict with session_id, message_id, etc.
@@ -530,7 +534,11 @@ async def process_discord_message_for_agent(
             media_urls = await upload_discord_media_to_s3(media_urls)
 
         # Create session key: discord-{agent_id}-{guild_id}-{channel_id}
-        session_key = f"discord-{agent.id}-{guild_id or 'dm'}-{channel_id}"
+        # Use session_channel_id if provided (for threads, this is the parent channel)
+        effective_channel_for_session = session_channel_id or channel_id
+        session_key = (
+            f"discord-{agent.id}-{guild_id or 'dm'}-{effective_channel_for_session}"
+        )
 
         # Find or create session
         session = None
@@ -1036,6 +1044,64 @@ class DiscordGatewayClient:
                 f"[trace:{trace_id}] Error checking if channel {channel_id} is allowlisted: {e}"
             )
             return False
+
+    async def _get_channel_info_for_allowlist(
+        self, channel_id: str, allowed_channels: list, trace_id: str
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Check if a channel is allowlisted and return thread parent info.
+
+        Returns:
+            Tuple of (is_allowed, parent_channel_id)
+            - is_allowed: True if channel or its parent is in allowlist
+            - parent_channel_id: The parent channel ID if this is a thread, else None
+        """
+        # First check if the channel is directly allowlisted
+        if channel_id in allowed_channels:
+            logger.info(
+                f"[trace:{trace_id}] Channel {channel_id} is directly allowlisted"
+            )
+            return True, None
+
+        # If not directly allowlisted, check if this might be a thread
+        try:
+            async with aiohttp.ClientSession() as session:
+                headers = {
+                    "Authorization": f"Bot {self.token}",
+                }
+                url = f"https://discord.com/api/v10/channels/{channel_id}"
+
+                async with session.get(url, headers=headers) as response:
+                    if response.status == 200:
+                        channel_data = await response.json()
+                        channel_type = channel_data.get("type")
+
+                        # Discord thread types: 10 (GUILD_NEWS_THREAD), 11 (GUILD_PUBLIC_THREAD), 12 (GUILD_PRIVATE_THREAD)
+                        if channel_type in [10, 11, 12]:
+                            parent_id = channel_data.get("parent_id")
+                            if parent_id and parent_id in allowed_channels:
+                                logger.info(
+                                    f"[trace:{trace_id}] Thread {channel_id} has allowlisted parent channel {parent_id}"
+                                )
+                                return True, parent_id
+                            else:
+                                logger.info(
+                                    f"[trace:{trace_id}] Thread {channel_id} has non-allowlisted parent channel {parent_id}"
+                                )
+                                return False, parent_id
+                        else:
+                            logger.info(
+                                f"[trace:{trace_id}] Channel {channel_id} is not a thread (type: {channel_type}) and not allowlisted"
+                            )
+                            return False, None
+                    else:
+                        logger.warning(
+                            f"[trace:{trace_id}] Failed to fetch channel info for {channel_id}: {response.status}"
+                        )
+                        return False, None
+        except Exception as e:
+            logger.error(f"[trace:{trace_id}] Error checking channel {channel_id}: {e}")
+            return False, None
 
     def _create_trace_id(self, message_data: dict) -> str:
         """Create a unique trace ID for this deployment-message combination"""
@@ -1579,25 +1645,41 @@ class DiscordGatewayClient:
             return
 
         # Check if channel is in allowlist (write) or read_access (read-only)
-        can_write = deployment_can_write_to_channel(deployment, channel_id)
+        # Also check if it's a thread with an allowlisted parent channel
         channel_allowlist = deployment.config.discord.channel_allowlist or []
         read_access = deployment.config.discord.read_access_channels or []
         allowed_ids = [str(item.id) for item in channel_allowlist if item]
         read_ids = [str(item.id) for item in read_access if item]
-        all_following_ids = set(allowed_ids + read_ids)
+        all_following_ids = list(set(allowed_ids + read_ids))
 
         logger.info(
-            f"[{trace_id}] Channel check: channel_id={channel_id}, allowed_ids={allowed_ids}, read_ids={read_ids}, can_write={can_write}"
+            f"[{trace_id}] Channel check: channel_id={channel_id}, allowed_ids={allowed_ids}, read_ids={read_ids}"
         )
 
-        if channel_id not in all_following_ids:
+        # Check if channel is allowed (directly or via thread parent)
+        is_allowed, parent_channel_id = await self._get_channel_info_for_allowlist(
+            channel_id, all_following_ids, trace_id
+        )
+
+        if not is_allowed:
             logger.info(
                 f"[{trace_id}] Deployment {deployment.id} does NOT follow channel {channel_id}, skipping"
             )
             return
 
+        # For threads, use parent channel for session; for regular channels, use channel_id
+        # This ensures thread messages go to the same session as the parent channel
+        session_channel_id = parent_channel_id if parent_channel_id else channel_id
+
+        # Determine write access: check if the effective channel (or parent for threads) is in write allowlist
+        effective_channel_for_write = (
+            parent_channel_id if parent_channel_id else channel_id
+        )
+        can_write = effective_channel_for_write in allowed_ids
+
         logger.info(
-            f"[{trace_id}] Deployment {deployment.id} follows channel {channel_id} (can_write={can_write})"
+            f"[{trace_id}] Deployment {deployment.id} follows channel {channel_id} "
+            f"(parent={parent_channel_id}, session_channel={session_channel_id}, can_write={can_write})"
         )
 
         # Parse mentioned agents
@@ -1639,6 +1721,7 @@ class DiscordGatewayClient:
             guild_id=guild_id,
             should_prompt=should_prompt,
             trace_id=trace_id,
+            session_channel_id=session_channel_id,
         )
 
         if isinstance(result, Exception):
