@@ -105,6 +105,7 @@ def get_agent_specific_tools(
         result.extend(
             [
                 "display",
+                "eden_search",
             ]
         )
 

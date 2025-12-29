@@ -175,6 +175,7 @@ async def handle_realtime_tool(
         "create": "create",
         "create_async": "create",
         "display": "display",
+        "eden_search": "eden_search",
     }
 
     actual_tool_key = tool_key_map.get(request.tool_name)
