@@ -554,14 +554,16 @@ async def process_discord_message_for_agent(
                 session.update(deleted=False, status="active")
 
             # Check if session title needs updating (migrate old titles like "Discord #123")
+            # Use the session channel (parent channel for threads) for the title
             logger.info(
-                f"[{trace_id}] Checking session title update for channel_id={channel_id}, guild_id={guild_id}"
+                f"[{trace_id}] Checking session title update for channel_id={channel_id}, session_channel={effective_channel_for_session}, guild_id={guild_id}"
             )
 
             if guild_id:
                 # Guild channel - use "Guild: Channel" format
+                # Use effective_channel_for_session so threads use parent channel name
                 channel_name = await fetch_discord_channel_name(
-                    channel_id, deployment.secrets.discord.token
+                    effective_channel_for_session, deployment.secrets.discord.token
                 )
                 logger.info(f"[{trace_id}] Fetched channel_name={channel_name}")
                 guild_name = await fetch_discord_guild_name(
@@ -598,8 +600,9 @@ async def process_discord_message_for_agent(
             # Build session title based on channel type
             if guild_id:
                 # Guild channel - use "Guild: Channel" format
+                # Use effective_channel_for_session so threads use parent channel name
                 channel_name = await fetch_discord_channel_name(
-                    channel_id, deployment.secrets.discord.token
+                    effective_channel_for_session, deployment.secrets.discord.token
                 )
                 guild_name = await fetch_discord_guild_name(
                     guild_id, deployment.secrets.discord.token
