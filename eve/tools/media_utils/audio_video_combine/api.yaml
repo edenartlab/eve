@@ -3,7 +3,7 @@ description: Combine audio and video
 cost_estimate: 0.1
 output_type: video
 active: true
-handler: modal
+handler: local
 visible: false
 parameters:
   video:
