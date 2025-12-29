@@ -41,22 +41,52 @@ async def create_session_message_notification(
 ):
     """Create a notification for a new session message via the Fastify API"""
     import httpx
+    from bson import ObjectId
 
     try:
         api_url = os.getenv("EDEN_FASTIFY_API_URL")
         if not api_url:
             return
 
+        # Fetch session details for thread title
+        session = Session.find_one({"_id": ObjectId(session_id)})
+        thread_title = session.title if session and session.title else "Session"
+
+        # Fetch the latest message content
+        from eve.agent.session.models import ChatMessage
+
+        # Use the built-in sort parameter instead of chaining .sort()
+        latest_message = ChatMessage.find(
+            {"session": ObjectId(session_id)}, sort="createdAt", desc=True, limit=1
+        )
+        message_content = ""
+        if latest_message:
+            content = latest_message[0].content or ""
+            # Truncate message to ~100 chars
+            message_content = content[:100] + "..." if len(content) > 100 else content
+
+        # Fetch agent details for name and avatar
+        from eve.mongo import get_db
+
+        db = get_db()
+        agent = db.agents.find_one({"_id": ObjectId(agent_id)})
+        agent_name = agent.get("name", "Agent") if agent else "Agent"
+        agent_avatar = agent.get("picture") if agent else None
+
         notification_data = {
             "user_id": user_id,
             "type": "session_message",
-            "title": "New message",
-            "message": "You have a new message in your session",
+            "title": thread_title,  # Thread/session title
+            "message": message_content or "New message",  # Message content (truncated)
             "priority": "normal",
             "session_id": session_id,
             "agent_id": agent_id,
             "action_url": f"/sessions/{session_id}",
             "channels": ["in_app", "push"],
+            "metadata": {
+                "sender_name": agent_name,  # Sending user name
+                "sender_avatar": agent_avatar,  # Profile picture URL
+            },
         }
 
         async with httpx.AsyncClient() as client:

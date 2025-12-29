@@ -1,0 +1,23 @@
+[
+  {
+    "role": "user",
+    "content": "<SystemMessage current_date_time=\"2025 Dec 29, 5:22PM\"></SystemMessage>"
+  },
+  {
+    "role": "user",
+    "content": "[jmill-preview (user)]: hey"
+  },
+  {
+    "role": "assistant",
+    "content": [
+      {
+        "type": "text",
+        "text": "Yo! 🔥 What's good? What're you cooking up today?"
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "content": "[jmill-preview (user)]: z"
+  }
+]

@@ -524,8 +524,20 @@ class PromptSessionInstrumentation:
         if self._sentry_transaction:
             return self._sentry_transaction
         transaction_name = name or self.trace_name
+        # Use session_run_id as trace_id for consistency
+        import uuid
+
+        # Ensure trace_id is a valid UUID format
+        trace_id = self.session_run_id
+        try:
+            # Validate it's a valid UUID
+            uuid.UUID(trace_id)
+        except (ValueError, TypeError):
+            # If not valid, generate a new one
+            trace_id = str(uuid.uuid4())
+
         transaction = sentry_sdk.start_transaction(
-            name=transaction_name, op=op, sampled=sampled
+            name=transaction_name, op=op, sampled=sampled, trace_id=trace_id
         )
         if transaction:
             transaction.set_tag("session_id", self.session_id)
@@ -534,6 +546,9 @@ class PromptSessionInstrumentation:
                 transaction.set_tag("user_id", self.user_id)
             if self.agent_id:
                 transaction.set_tag("agent_id", self.agent_id)
+            # Add environment tag
+            environment = os.getenv("ENV", os.getenv("ENVIRONMENT", "local"))
+            transaction.set_tag("environment", environment)
             for key, value in self.extra_metadata.items():
                 transaction.set_tag(key, value)
             sentry_sdk.Hub.current.scope.span = transaction  # type: ignore[attr-defined]

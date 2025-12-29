@@ -1,5 +1,6 @@
 import json
 import traceback
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional
 
@@ -13,6 +14,11 @@ from ..models import Model
 from ..mongo import Collection, get_collection
 from ..tool_constants import TOOL_SETS
 from ..user import Manna, User
+
+try:
+    import sentry_sdk
+except ImportError:
+    sentry_sdk = None
 
 
 class Suggestion(BaseModel):
@@ -179,30 +185,51 @@ class Agent(User):
             load_lora_docs,
         )
 
-        # Load deployments to memory
-        self.deployments = load_deployments(self.id, Deployment)
+        # Load deployments to memory (triggers KMS decryption for all deployments)
+        span_context = (
+            sentry_sdk.start_span(
+                op="agent.load_deployments", description=f"agent={self.username}"
+            )
+            if sentry_sdk
+            else nullcontext()
+        )
+        with span_context:
+            self.deployments = load_deployments(self.id, Deployment)
 
         # Load loras to memory
-        models_collection = get_collection(Model.collection_name)
-        self.lora_docs = load_lora_docs(self.models, models_collection)
+        span_context = (
+            sentry_sdk.start_span(op="agent.load_loras")
+            if sentry_sdk
+            else nullcontext()
+        )
+        with span_context:
+            models_collection = get_collection(Model.collection_name)
+            self.lora_docs = load_lora_docs(self.models, models_collection)
 
-        # Collect all tools needed
-        tools_to_load = []
-        for tool_set, set_tools in TOOL_SETS.items():
-            if not self.tools.get(tool_set):
-                continue
-            tools_to_load.extend(set_tools)
+        # Load tools from mongo
+        span_context = (
+            sentry_sdk.start_span(op="agent.load_tools")
+            if sentry_sdk
+            else nullcontext()
+        )
+        with span_context:
+            # Collect all tools needed
+            tools_to_load = []
+            for tool_set, set_tools in TOOL_SETS.items():
+                if not self.tools.get(tool_set):
+                    continue
+                tools_to_load.extend(set_tools)
 
-        # Load extra tools
-        tools_to_load.extend(extra_tools)
+            # Load extra tools
+            tools_to_load.extend(extra_tools)
 
-        # Load agent-specific tools
-        tools_to_load.extend(get_agent_specific_tools(self.username, self.tools))
+            # Load agent-specific tools
+            tools_to_load.extend(get_agent_specific_tools(self.username, self.tools))
 
-        if tools_to_load:
-            self.tools_ = get_tools_from_mongo(tools_to_load)
-        else:
-            self.tools_ = {}
+            if tools_to_load:
+                self.tools_ = get_tools_from_mongo(tools_to_load)
+            else:
+                self.tools_ = {}
 
     def get_tools(self, cache=True, auth_user: str = None, extra_tools: list[str] = []):
         from .tool_loaders import (

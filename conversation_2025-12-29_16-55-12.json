@@ -1,0 +1,49 @@
+[
+  {
+    "role": "user",
+    "content": "<SystemMessage current_date_time=\"2025 Dec 29, 4:55PM\"></SystemMessage>"
+  },
+  {
+    "role": "user",
+    "content": "[jmill-believer (user)]: ===test"
+  },
+  {
+    "role": "assistant",
+    "content": [
+      {
+        "type": "text",
+        "text": "[Simulated Response]\nThis is a simulated response.\n\n(Original prompt: [jmill-believer (user)]: ===test)"
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "content": "[jmill-believer (user)]: ===test"
+  },
+  {
+    "role": "assistant",
+    "content": [
+      {
+        "type": "text",
+        "text": "[Simulated Response]\nThis is a simulated response.\n\n(Original prompt: [jmill-believer (user)]: ===test)"
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "content": "[jmill-believer (user)]: ===test"
+  },
+  {
+    "role": "assistant",
+    "content": [
+      {
+        "type": "text",
+        "text": "[Simulated Response]\nThis is a simulated response.\n\n(Original prompt: [jmill-believer (user)]: ===test)"
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "content": "[jmill-believer (user)]: hey"
+  }
+]

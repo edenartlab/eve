@@ -752,126 +752,150 @@ async def build_llm_context(
     trace_id: Optional[str] = str(uuid.uuid4()),
     instrumentation=None,
 ):
-    instrumentation = getattr(context, "instrumentation", None)
-    if context.initiating_user_id:
-        user = User.from_mongo(context.initiating_user_id)
-        tier = (
-            "premium" if user.subscriptionTier and user.subscriptionTier > 0 else "free"
+    try:
+        from contextlib import nullcontext
+
+        import sentry_sdk
+    except ImportError:
+        sentry_sdk = None
+        from contextlib import nullcontext
+
+    # Wrap entire function in a span
+    span_context = (
+        sentry_sdk.start_span(
+            op="context.build_initial", description="build_llm_context"
         )
-    else:
-        user = None
-        tier = "free"
-
-    auth_user_id = context.acting_user_id or context.initiating_user_id
-    if context.tools:
-        tools = context.tools
-    else:
-        tools = actor.get_tools(cache=False, auth_user=auth_user_id)
-
-    if context.extra_tools:
-        # Deduplicate tools based on tool.name attribute, not just dict key
-        # This prevents duplicate tool names when tools are converted to a list for LLM
-        existing_tool_names = {
-            tool.name for tool in tools.values() if hasattr(tool, "name")
-        }
-        for tool_key, tool in context.extra_tools.items():
-            tool_name = tool.name if hasattr(tool, "name") else tool_key
-            if tool_name not in existing_tool_names:
-                tools[tool_key] = tool
-                existing_tool_names.add(tool_name)
-
-    # setup tool_choice
-    if tools:
-        tool_choice = context.tool_choice or "auto"
-    else:
-        tool_choice = "none"
-    if tool_choice not in ["auto", "none"]:
-        tool_choice = {"type": "function", "function": {"name": context.tool_choice}}
-
-    raw_prompt_text = (
-        context.message.content if context.message and context.message.content else None
+        if sentry_sdk
+        else nullcontext()
     )
-    force_fake = is_fake_llm_mode() or is_test_mode_prompt(raw_prompt_text)
-
-    # Load trigger context if present
-    trigger_context = None
-    if context.trigger:
-        from eve.trigger import Trigger
-
-        try:
-            trigger = Trigger.from_mongo(context.trigger)
-            if trigger:
-                trigger_context = {"name": trigger.name, "prompt": trigger.prompt}
-        except ValueError:
-            # Trigger was deleted, continue without trigger context
-            pass
-
-    # build messages first to have context for thinking routing
-    system_message = await build_system_message(
-        session,
-        actor,
-        user,
-        tools,
-        instrumentation=instrumentation,
-        trigger_context=trigger_context,
-    )
-
-    messages = [system_message]
-    context, system_extras = await build_system_extras(
-        session, context, context.llm_config
-    )
-    if len(system_extras) > 0:
-        messages.extend(system_extras)
-
-    existing_messages = select_messages(session)
-
-    # Add ALL eden messages (converted to user role) to the context
-    # Eden messages are filtered out by select_messages, so we query separately
-    # This includes conductor messages (CONDUCTOR_INIT, CONDUCTOR_TURN, CONDUCTOR_HINT, etc.)
-    eden_messages = get_all_eden_messages_for_llm(session.id)
-    if eden_messages:
-        existing_messages.extend(eden_messages)
-        existing_messages.sort(key=lambda m: m.createdAt)
-
-    messages.extend(existing_messages)
-    messages = label_message_channels(messages, session)
-    messages = convert_message_roles(messages, actor.id)
-
-    config = copy.deepcopy(context.llm_config) if context.llm_config else None
-    if not config:
-        if actor.llm_settings and not force_fake:
-            config = await build_llm_config_from_agent_settings(
-                actor,
-                tier,
-                thinking_override=getattr(context, "thinking_override", None),
-                context_messages=messages,
+    with span_context:
+        instrumentation = getattr(context, "instrumentation", None)
+        if context.initiating_user_id:
+            user = User.from_mongo(context.initiating_user_id)
+            tier = (
+                "premium"
+                if user.subscriptionTier and user.subscriptionTier > 0
+                else "free"
             )
         else:
-            config = get_default_session_llm_config(
-                "premium" if tier != "free" else "free"
-            )
+            user = None
+            tier = "free"
 
-    llm_context = LLMContext(
-        messages=messages,
-        tools=tools,
-        tool_choice=tool_choice,
-        config=config,
-        metadata=LLMContextMetadata(
-            session_id=f"{os.getenv('DB')}-{str(context.session.id)}",
-            trace_name="prompt_session",
-            trace_id=trace_id,
-            generation_name="prompt_session",
-            trace_metadata=LLMTraceMetadata(
-                user_id=str(context.initiating_user_id)
-                if context.initiating_user_id
-                else None,
-                agent_id=str(actor.id),
-                session_id=str(context.session.id),
+        auth_user_id = context.acting_user_id or context.initiating_user_id
+        if context.tools:
+            tools = context.tools
+        else:
+            tools = actor.get_tools(cache=False, auth_user=auth_user_id)
+
+        if context.extra_tools:
+            # Deduplicate tools based on tool.name attribute, not just dict key
+            # This prevents duplicate tool names when tools are converted to a list for LLM
+            existing_tool_names = {
+                tool.name for tool in tools.values() if hasattr(tool, "name")
+            }
+            for tool_key, tool in context.extra_tools.items():
+                tool_name = tool.name if hasattr(tool, "name") else tool_key
+                if tool_name not in existing_tool_names:
+                    tools[tool_key] = tool
+                    existing_tool_names.add(tool_name)
+
+        # setup tool_choice
+        if tools:
+            tool_choice = context.tool_choice or "auto"
+        else:
+            tool_choice = "none"
+        if tool_choice not in ["auto", "none"]:
+            tool_choice = {
+                "type": "function",
+                "function": {"name": context.tool_choice},
+            }
+
+        raw_prompt_text = (
+            context.message.content
+            if context.message and context.message.content
+            else None
+        )
+        force_fake = is_fake_llm_mode() or is_test_mode_prompt(raw_prompt_text)
+
+        # Load trigger context if present
+        trigger_context = None
+        if context.trigger:
+            from eve.trigger import Trigger
+
+            try:
+                trigger = Trigger.from_mongo(context.trigger)
+                if trigger:
+                    trigger_context = {"name": trigger.name, "prompt": trigger.prompt}
+            except ValueError:
+                # Trigger was deleted, continue without trigger context
+                pass
+
+        # build messages first to have context for thinking routing
+        system_message = await build_system_message(
+            session,
+            actor,
+            user,
+            tools,
+            instrumentation=instrumentation,
+            trigger_context=trigger_context,
+        )
+
+        messages = [system_message]
+        context, system_extras = await build_system_extras(
+            session, context, context.llm_config
+        )
+        if len(system_extras) > 0:
+            messages.extend(system_extras)
+
+        existing_messages = select_messages(session)
+
+        # Add ALL eden messages (converted to user role) to the context
+        # Eden messages are filtered out by select_messages, so we query separately
+        # This includes conductor messages (CONDUCTOR_INIT, CONDUCTOR_TURN, CONDUCTOR_HINT, etc.)
+        eden_messages = get_all_eden_messages_for_llm(session.id)
+        if eden_messages:
+            existing_messages.extend(eden_messages)
+            existing_messages.sort(key=lambda m: m.createdAt)
+
+        messages.extend(existing_messages)
+        messages = label_message_channels(messages, session)
+        messages = convert_message_roles(messages, actor.id)
+
+        config = copy.deepcopy(context.llm_config) if context.llm_config else None
+        if not config:
+            if actor.llm_settings and not force_fake:
+                config = await build_llm_config_from_agent_settings(
+                    actor,
+                    tier,
+                    thinking_override=getattr(context, "thinking_override", None),
+                    context_messages=messages,
+                )
+            else:
+                config = get_default_session_llm_config(
+                    "premium" if tier != "free" else "free"
+                )
+
+        llm_context = LLMContext(
+            messages=messages,
+            tools=tools,
+            tool_choice=tool_choice,
+            config=config,
+            metadata=LLMContextMetadata(
+                session_id=f"{os.getenv('DB')}-{str(context.session.id)}",
+                trace_name="prompt_session",
+                trace_id=trace_id,
+                generation_name="prompt_session",
+                trace_metadata=LLMTraceMetadata(
+                    user_id=str(context.initiating_user_id)
+                    if context.initiating_user_id
+                    else None,
+                    agent_id=str(actor.id),
+                    session_id=str(context.session.id),
+                ),
             ),
-        ),
-    )
-    llm_context.instrumentation = instrumentation
-    return llm_context
+        )
+        llm_context.instrumentation = instrumentation
+        return llm_context
 
 
 # =============================================================================

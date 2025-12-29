@@ -1,0 +1,10 @@
+[
+  {
+    "role": "user",
+    "content": "<SystemMessage current_date_time=\"2025 Dec 29, 5:06PM\"></SystemMessage>"
+  },
+  {
+    "role": "user",
+    "content": "[jmill-preview (user)]: hey"
+  }
+]

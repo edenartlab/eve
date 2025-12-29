@@ -240,42 +240,51 @@ def inject_deployment_parameters(
     Returns:
         Updated tools dict
     """
-    for tool_name, tool in tools.items():
-        if tool_name not in TOOL_PARAMETER_LOADERS:
-            continue
+    # Add span for deployment parameter injection (includes KMS decryption)
+    with sentry_sdk.start_span(
+        op="tools.inject_deployment_parameters",
+        description=f"{len(tools)} tools, {len(deployments)} deployments",
+    ):
+        for tool_name, tool in tools.items():
+            if tool_name not in TOOL_PARAMETER_LOADERS:
+                continue
 
-        # Infer platform from tool name (e.g., "discord_post" -> "discord")
-        platform = tool_name.split("_")[0]
+            # Infer platform from tool name (e.g., "discord_post" -> "discord")
+            platform = tool_name.split("_")[0]
 
-        if platform not in deployments:
-            continue
+            if platform not in deployments:
+                continue
 
-        deployment = deployments[platform]
-        loader = TOOL_PARAMETER_LOADERS[tool_name]
+            deployment = deployments[platform]
+            loader = TOOL_PARAMETER_LOADERS[tool_name]
 
-        try:
-            param_updates = loader(deployment)
-            if param_updates:
-                tool.update_parameters(param_updates)
-        except Exception as e:
-            logger.error(f"Error loading parameters for {tool_name}: {e}")
-            with sentry_sdk.push_scope() as scope:
-                scope.set_tag("component", "tool_loader")
-                scope.set_tag("tool_name", tool_name)
-                scope.set_tag("platform", platform)
-                if agent_username:
-                    scope.set_tag("agent_username", agent_username)
-                scope.set_context(
-                    "tool_loader_context",
-                    {
-                        "tool_name": tool_name,
-                        "platform": platform,
-                        "agent_username": agent_username,
-                        "error_message": str(e),
-                        "traceback": traceback.format_exc(),
-                    },
-                )
-                sentry_sdk.capture_exception(e)
+            try:
+                # Each tool parameter load may trigger KMS decryption
+                with sentry_sdk.start_span(
+                    op="tools.load_parameters", description=tool_name
+                ):
+                    param_updates = loader(deployment)
+                    if param_updates:
+                        tool.update_parameters(param_updates)
+            except Exception as e:
+                logger.error(f"Error loading parameters for {tool_name}: {e}")
+                with sentry_sdk.push_scope() as scope:
+                    scope.set_tag("component", "tool_loader")
+                    scope.set_tag("tool_name", tool_name)
+                    scope.set_tag("platform", platform)
+                    if agent_username:
+                        scope.set_tag("agent_username", agent_username)
+                    scope.set_context(
+                        "tool_loader_context",
+                        {
+                            "tool_name": tool_name,
+                            "platform": platform,
+                            "agent_username": agent_username,
+                            "error_message": str(e),
+                            "traceback": traceback.format_exc(),
+                        },
+                    )
+                    sentry_sdk.capture_exception(e)
 
     return tools
 

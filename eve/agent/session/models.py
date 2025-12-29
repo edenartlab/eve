@@ -370,6 +370,10 @@ class ChatMessage(Document):
     apiKey: Optional[ObjectId] = None
     llm_call: Optional[ObjectId] = None  # Reference to LLMCall document
 
+    # Trace URLs for debugging (populated for assistant messages when available)
+    sentry_trace_url: Optional[str] = None
+    langfuse_trace_url: Optional[str] = None
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @field_validator("reactions", mode="before")
@@ -1027,6 +1031,194 @@ class Session(Document):
                 ("status", 1),
             ],
             name="cold_sessions_idx",
+            background=True,
+        )
+
+
+@Collection("session_runs")
+class SessionRun(Document):
+    """Tracks individual prompt session runs for observability and correlation.
+
+    Each SessionRun represents a single execution of the prompt loop,
+    providing a persistent record that correlates traces across Sentry and Langfuse.
+    """
+
+    # Core identifiers
+    session: ObjectId  # Reference to parent Session
+    run_id: str  # UUID that becomes trace_id everywhere
+    status: Literal["started", "in_progress", "completed", "failed", "cancelled"] = (
+        "started"
+    )
+    environment: str  # staging, production, local
+
+    # Trace references for correlation
+    sentry_trace_id: Optional[str] = None
+    langfuse_trace_id: Optional[str] = None
+
+    # Timing
+    started_at: datetime
+    completed_at: Optional[datetime] = None
+    duration_ms: Optional[float] = None
+
+    # Actor info
+    agent_id: Optional[ObjectId] = None
+    user_id: Optional[ObjectId] = None
+    api_key_id: Optional[str] = None
+
+    # Metrics
+    total_tokens: Optional[int] = 0
+    prompt_tokens: Optional[int] = 0
+    completion_tokens: Optional[int] = 0
+    cached_tokens: Optional[int] = 0
+    total_cost_usd: Optional[float] = 0.0
+    message_count: int = 0
+    tool_calls_count: int = 0
+
+    # Platform info
+    platform: Optional[
+        Literal["discord", "telegram", "twitter", "farcaster", "gmail", "app"]
+    ] = None
+    is_streaming: bool = False
+
+    # Error tracking
+    error_type: Optional[str] = None
+    error_message: Optional[str] = None
+
+    # Web URLs for debugging
+    sentry_url: Optional[str] = None
+    langfuse_url: Optional[str] = None
+
+    # Additional metadata
+    metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    def complete(
+        self,
+        status: Literal["completed", "failed", "cancelled"] = "completed",
+        error: Optional[Exception] = None,
+    ):
+        """Mark the session run as complete and calculate duration."""
+        self.status = status
+        self.completed_at = datetime.now(timezone.utc)
+
+        if self.started_at:
+            duration = (self.completed_at - self.started_at).total_seconds() * 1000
+            self.duration_ms = round(duration, 2)
+
+        if error:
+            self.error_type = type(error).__name__
+            self.error_message = str(error)
+
+        self.save()
+
+    def update_metrics(
+        self,
+        tokens: Optional[int] = None,
+        prompt_tokens: Optional[int] = None,
+        completion_tokens: Optional[int] = None,
+        cached_tokens: Optional[int] = None,
+        cost: Optional[float] = None,
+        messages: Optional[int] = None,
+        tool_calls: Optional[int] = None,
+    ):
+        """Update cumulative metrics for the session run."""
+        if tokens is not None:
+            self.total_tokens = (self.total_tokens or 0) + tokens
+        if prompt_tokens is not None:
+            self.prompt_tokens = (self.prompt_tokens or 0) + prompt_tokens
+        if completion_tokens is not None:
+            self.completion_tokens = (self.completion_tokens or 0) + completion_tokens
+        if cached_tokens is not None:
+            self.cached_tokens = (self.cached_tokens or 0) + cached_tokens
+        if cost is not None:
+            self.total_cost_usd = (self.total_cost_usd or 0.0) + cost
+        if messages is not None:
+            self.message_count = (self.message_count or 0) + messages
+        if tool_calls is not None:
+            self.tool_calls_count = (self.tool_calls_count or 0) + tool_calls
+
+        self.save()
+
+    def build_trace_urls(self) -> Dict[str, str]:
+        """Build web URLs for viewing traces in Sentry and Langfuse."""
+        import urllib.parse
+
+        urls = {}
+
+        # Sentry URL
+        sentry_dsn = os.getenv("SENTRY_DSN", "")
+        sentry_org = os.getenv("SENTRY_ORG", "edenlabs")  # Default to edenlabs
+
+        # Extract project ID from DSN if available
+        sentry_project_id = None
+        if sentry_dsn:
+            # DSN format: https://key@org.ingest.sentry.io/project_id
+            try:
+                parts = sentry_dsn.split("/")
+                if parts:
+                    sentry_project_id = parts[-1]
+            except (IndexError, AttributeError):
+                pass
+
+        if self.sentry_trace_id and sentry_project_id:
+            # Sentry uses trace IDs without hyphens (hex format)
+            sentry_trace_hex = self.sentry_trace_id.replace("-", "")
+
+            # Build Sentry explore URL with proper query parameters
+            params = {
+                "project": sentry_project_id,
+                "source": "traces",
+                "statsPeriod": "30d",
+            }
+            query_string = urllib.parse.urlencode(params)
+            urls["sentry"] = (
+                f"https://{sentry_org}.sentry.io/explore/traces/trace/{sentry_trace_hex}/?{query_string}"
+            )
+
+        # Langfuse URL
+        langfuse_host = os.getenv("LANGFUSE_HOST", "https://us.cloud.langfuse.com")
+        langfuse_project_id = os.getenv("LANGFUSE_PROJECT_ID")
+
+        if self.langfuse_trace_id and langfuse_project_id:
+            # Build Langfuse URL with peek parameter
+            environment_filter = f"environment;stringOptions;;any of;{self.environment}"
+            params = {
+                "filter": environment_filter,
+                "peek": self.langfuse_trace_id,
+            }
+            query_string = urllib.parse.urlencode(params)
+            urls["langfuse"] = (
+                f"{langfuse_host}/project/{langfuse_project_id}/traces?{query_string}"
+            )
+
+        return urls
+
+    @classmethod
+    def ensure_indexes(cls):
+        """Ensure indexes for efficient querying."""
+        collection = cls.get_collection()
+
+        # Index for finding runs by session
+        collection.create_index(
+            [("session", 1), ("started_at", -1)],
+            name="session_runs_idx",
+            background=True,
+        )
+
+        # Index for finding incomplete runs
+        collection.create_index(
+            [("status", 1), ("started_at", 1)],
+            name="incomplete_runs_idx",
+            background=True,
+            partialFilterExpression={"status": {"$in": ["started", "in_progress"]}},
+        )
+
+        # Index for trace correlation
+        collection.create_index(
+            [("run_id", 1)],
+            name="run_id_idx",
+            unique=True,
             background=True,
         )
 

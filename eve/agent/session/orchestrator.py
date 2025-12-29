@@ -14,6 +14,7 @@ Design Principles:
 from __future__ import annotations
 
 import uuid
+from contextlib import nullcontext
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, AsyncIterator, Dict, List, Optional
@@ -182,27 +183,38 @@ async def orchestrate(
     logger.info(f"[ORCHESTRATE] Resolved agent ID for instrumentation: {agent_id}")
 
     # 3. Create or use provided instrumentation
-    instrumentation = request.instrumentation
-    if not instrumentation:
-        logger.info("[ORCHESTRATE] Creating new instrumentation...")
-        instrumentation = PromptSessionInstrumentation(
-            session_id=request.session_id
-            or (str(request.session.id) if request.session else None),
-            session_run_id=session_run_id,
-            user_id=request.initiating_user_id,
-            agent_id=agent_id,
-            trace_name=request.trace_name or f"orchestrate_{request.mode.value}",
-            metadata={
-                "mode": request.mode.value,
-                "trigger_id": request.trigger_id,
-                "has_message": request.message is not None,
-            },
-        )
-        logger.info(
-            f"[ORCHESTRATE] Instrumentation created: trace_name={instrumentation.trace_name}"
-        )
-    else:
-        logger.info("[ORCHESTRATE] Using provided instrumentation")
+    try:
+        import sentry_sdk
+    except ImportError:
+        sentry_sdk = None
+
+    span_context = (
+        sentry_sdk.start_span(op="orchestrate.setup_instrumentation")
+        if sentry_sdk
+        else None
+    )
+    with span_context if span_context else nullcontext():
+        instrumentation = request.instrumentation
+        if not instrumentation:
+            logger.info("[ORCHESTRATE] Creating new instrumentation...")
+            instrumentation = PromptSessionInstrumentation(
+                session_id=request.session_id
+                or (str(request.session.id) if request.session else None),
+                session_run_id=session_run_id,
+                user_id=request.initiating_user_id,
+                agent_id=agent_id,
+                trace_name=request.trace_name or f"orchestrate_{request.mode.value}",
+                metadata={
+                    "mode": request.mode.value,
+                    "trigger_id": request.trigger_id,
+                    "has_message": request.message is not None,
+                },
+            )
+            logger.info(
+                f"[ORCHESTRATE] Instrumentation created: trace_name={instrumentation.trace_name}"
+            )
+        else:
+            logger.info("[ORCHESTRATE] Using provided instrumentation")
 
     # 4. Ensure Sentry transaction exists
     logger.info(
