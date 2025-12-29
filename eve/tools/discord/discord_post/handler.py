@@ -191,7 +191,9 @@ async def send_dm(
                 {
                     "url": f"https://discord.com/channels/@me/{user.dm_channel.id}/{msg.id}",
                 }
-                for msg in messages
+                for msg in messages[
+                    :1
+                ]  # return just the first url if messages are split
             ]
         }
 
@@ -278,5 +280,8 @@ async def send_channel_message(
             # DM channel
             url = f"https://discord.com/channels/@me/{channel.id}/{msg.id}"
         output.append({"url": url})
+
+    # return just the first url if messages are split
+    output = output[:1]
 
     return {"output": output}
