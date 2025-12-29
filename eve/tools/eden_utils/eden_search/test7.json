@@ -1,0 +1,9 @@
+{
+  "collection": "models",
+  "filter": {
+    "agent": "65284b18f8bbb9bff13ebe65"
+  },
+  "sort_by": "creationCount",
+  "sort_order": "desc",
+  "limit": 10
+}

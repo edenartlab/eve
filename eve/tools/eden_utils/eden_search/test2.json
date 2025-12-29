@@ -1,0 +1,7 @@
+{
+  "collection": "collections",
+  "query": "texture flow",
+  "limit": 5,
+  "sort_by": "name",
+  "sort_order": "asc"
+}

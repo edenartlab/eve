@@ -1,0 +1,9 @@
+{
+  "collection": "models",
+  "query": "style",
+  "filter": {
+    "agent": "Abraham",
+    "base_model": "flux-dev"
+  },
+  "limit": 10
+}

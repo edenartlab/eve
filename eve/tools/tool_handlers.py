@@ -29,6 +29,7 @@ HANDLER_PATHS = {
     "search_collections": "mongo_utils.search_collections.handler",
     "add_to_collection": "mongo_utils.add_to_collection.handler",
     "get_messages": "eden_utils.get_messages.handler",
+    "eden_search": "eden_utils.eden_search.handler",
     "get_messages_digest": "gigabrain.get_messages_digest.handler",
     "twitter_mentions": "twitter.twitter_mentions.handler",
     "twitter_search": "twitter.twitter_search.handler",

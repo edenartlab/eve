@@ -1,0 +1,8 @@
+{
+  "collection": "creations",
+  "include_own_only": true,
+  "limit": 50,
+  "sort_by": "createdAt",
+  "sort_order": "desc",
+  "user_id": "6526f38042a1043421aa28e6"
+}

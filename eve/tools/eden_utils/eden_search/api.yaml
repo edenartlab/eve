@@ -1,0 +1,97 @@
+name: Eden Search
+description: |
+  Search across Eden database collections (creations, collections, models, concepts, agents).
+  Returns fuzzy-matched results prioritizing user-owned items over public ones.
+  Private items from other users are never returned.
+
+  Available filters by collection:
+  - creations: agent (username or ID), tool
+  - collections: (date filters only)
+  - models: agent (username or ID), base_model
+  - concepts: agent (username or ID) [owner-only access]
+  - agents: (date filters only)
+tip: |
+  Text search is case-insensitive and typo-tolerant. The agent filter accepts either
+  a username (fuzzy matched) or an ObjectId string. Self-owned items are always prioritized.
+  Use include_own_only=true to only see your own items.
+cost_estimate: 0
+output_type: object
+active: true
+visible: false
+handler: modal
+
+parameters:
+  collection:
+    type: string
+    label: Collection
+    description: The database collection to search
+    enum:
+      - creations
+      - collections
+      - models
+      - concepts
+      - agents
+    required: true
+
+  query:
+    type: string
+    label: Query
+    description: Fuzzy text search query (searches name/username/description fields depending on collection)
+    tip: Case-insensitive and typo-tolerant. Leave empty to return all accessible items.
+    default: ""
+
+  filter:
+    type: object
+    label: Filter
+    description: |
+      MongoDB-style filter object with allowed keys per collection.
+      - creations: agent (username or ObjectId), tool (e.g., "flux_dev_lora")
+      - models: agent (username or ObjectId), base_model (e.g., "flux-dev", "sdxl")
+      - concepts: agent (username or ObjectId)
+      Note: user filter only works for self (current user).
+    default: {}
+
+  created_after:
+    type: string
+    label: Created After
+    description: Filter by creation date. Supports ISO datetime (e.g., "2024-01-01T00:00:00Z") or relative hours (e.g., "24h", "48h")
+    default: ""
+
+  created_before:
+    type: string
+    label: Created Before
+    description: Filter by creation date. Supports ISO datetime (e.g., "2024-12-31T23:59:59Z") or relative hours (e.g., "2h")
+    default: ""
+
+  limit:
+    type: number
+    label: Limit
+    description: Maximum number of results
+    default: 20
+    minimum: 1
+    maximum: 100
+
+  sort_by:
+    type: string
+    label: Sort By
+    description: Field to sort results by
+    enum:
+      - createdAt
+      - name
+      - creationCount
+    default: createdAt
+
+  sort_order:
+    type: string
+    label: Sort Order
+    description: Sort direction
+    enum:
+      - desc
+      - asc
+    default: desc
+
+  include_own_only:
+    type: boolean
+    label: Include Own Only
+    description: If true, only return items owned by the current user (excludes public items from others)
+    default: false
