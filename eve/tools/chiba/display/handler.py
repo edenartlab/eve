@@ -153,7 +153,7 @@ async def handler(context: ToolContext):
             raise ValueError(
                 f"collection_id parameter is required for 'sync' action. Received args: {context.args}"
             )
-        request_data = {"collectionId": collection_id}
+        request_data = {"collectionId": collection_id, "db": os.getenv("DB", "STAGE")}
         response = requests.post(
             f"{base_url}/sync",
             headers=headers,
@@ -173,7 +173,11 @@ async def handler(context: ToolContext):
                 f"collection_id parameter is required for 'sync_and_play' action. Received args: {context.args}"
             )
         loop = context.args.get("loop", True)
-        request_data = {"collectionId": collection_id, "loop": loop}
+        request_data = {
+            "collectionId": collection_id,
+            "loop": loop,
+            "db": os.getenv("DB", "STAGE"),
+        }
         response = requests.post(
             f"{base_url}/sync_and_play",
             headers=headers,
