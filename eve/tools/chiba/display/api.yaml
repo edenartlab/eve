@@ -1,10 +1,14 @@
 name: display
-description: Control the Chiba kiosk display - play videos, show URLs, sync collections, or turn off the screen
+description: Control the Chiba kiosk display - play videos, show URLs, manage playlists, control volume, or turn off the screen
 tip: |-
   This tool controls the Chiba digital signage display. Use it to:
   - Play a single video file (loops continuously)
   - Display a website in an iframe
   - Sync and play an Eden collection as a playlist
+  - Create custom playlists from files or URLs (including YouTube)
+  - Navigate playlists (next, previous, restart)
+  - Control playback (pause, resume)
+  - Adjust volume (0-10, where 0 is mute and 10 is max)
   - Cache a video from a URL and optionally play it
   - Turn off the display
   - Check the current status and available files
@@ -28,6 +32,14 @@ parameters:
       - cache
       - sync
       - sync_and_play
+      - playlist
+      - next
+      - previous
+      - restart
+      - pause
+      - resume
+      - get_volume
+      - volume
     choices_labels:
       - Get Status
       - List Files
@@ -37,6 +49,14 @@ parameters:
       - Cache Video
       - Sync Collection
       - Sync and Play
+      - Create Playlist
+      - Next Track
+      - Previous Track
+      - Restart Playlist
+      - Pause Playback
+      - Resume Playback
+      - Get Volume
+      - Set Volume
   file:
     type: string
     label: File
@@ -55,7 +75,7 @@ parameters:
   loop:
     type: boolean
     label: Loop
-    description: Whether to loop the playlist (for sync_and_play action)
+    description: Whether to loop the playlist (for sync_and_play and playlist actions)
     default: true
     required: false
   play_after_cache:
@@ -63,4 +83,16 @@ parameters:
     label: Play After Cache
     description: Whether to play the video after caching it
     default: false
+    required: false
+  playlist:
+    type: array
+    label: Playlist Items
+    description: List of items for playlist creation. Each item is an object with either "file" (cached filename) or "url" (URL to download, including YouTube URLs)
+    required: false
+    items:
+      type: object
+  level:
+    type: integer
+    label: Volume Level
+    description: Volume level from 0 (mute) to 10 (max). Required for 'volume' action.
     required: false

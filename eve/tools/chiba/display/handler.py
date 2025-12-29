@@ -11,7 +11,8 @@ async def handler(context: ToolContext):
     """
     Control the Chiba kiosk display via HTTP API.
 
-    Supports actions: status, files, play, off, url, cache, sync, sync_and_play
+    Supports actions: status, files, play, off, url, cache, sync, sync_and_play,
+    playlist, next, previous, restart, pause, resume, volume, get_volume
     """
     # Log incoming args for debugging
     logger.info(f"[DISPLAY] Received args: {json.dumps(context.args, default=str)}")
@@ -187,8 +188,83 @@ async def handler(context: ToolContext):
         logger.info(f"[DISPLAY] sync_and_play result: {result}")
         return {"output": result}
 
+    elif action == "playlist":
+        playlist = context.args.get("playlist")
+        if not playlist:
+            logger.error(
+                f"[DISPLAY] Missing 'playlist' for playlist action. Args: {context.args}"
+            )
+            raise ValueError(
+                f"playlist parameter is required for 'playlist' action. Received args: {context.args}"
+            )
+        loop = context.args.get("loop", True)
+        request_data = {"items": playlist, "loop": loop}
+        response = requests.post(
+            f"{base_url}/playlist",
+            headers=headers,
+            json=request_data,
+        )
+        result = handle_response(response, "playlist", request_data)
+        logger.info(f"[DISPLAY] playlist result: {result}")
+        return {"output": result}
+
+    elif action == "next":
+        response = requests.post(f"{base_url}/next", headers=headers, json={})
+        result = handle_response(response, "next")
+        logger.info(f"[DISPLAY] next result: {result}")
+        return {"output": result}
+
+    elif action == "previous":
+        response = requests.post(f"{base_url}/previous", headers=headers, json={})
+        result = handle_response(response, "previous")
+        logger.info(f"[DISPLAY] previous result: {result}")
+        return {"output": result}
+
+    elif action == "restart":
+        response = requests.post(f"{base_url}/restart", headers=headers, json={})
+        result = handle_response(response, "restart")
+        logger.info(f"[DISPLAY] restart result: {result}")
+        return {"output": result}
+
+    elif action == "pause":
+        response = requests.post(f"{base_url}/pause", headers=headers, json={})
+        result = handle_response(response, "pause")
+        logger.info(f"[DISPLAY] pause result: {result}")
+        return {"output": result}
+
+    elif action == "resume":
+        response = requests.post(f"{base_url}/resume", headers=headers, json={})
+        result = handle_response(response, "resume")
+        logger.info(f"[DISPLAY] resume result: {result}")
+        return {"output": result}
+
+    elif action == "get_volume":
+        response = requests.get(f"{base_url}/volume")
+        result = handle_response(response, "get_volume")
+        logger.info(f"[DISPLAY] get_volume result: {result}")
+        return {"output": result}
+
+    elif action == "volume":
+        level = context.args.get("level")
+        if level is None:
+            logger.error(
+                f"[DISPLAY] Missing 'level' for volume action. Args: {context.args}"
+            )
+            raise ValueError(
+                f"level parameter is required for 'volume' action. Received args: {context.args}"
+            )
+        request_data = {"level": level}
+        response = requests.post(
+            f"{base_url}/volume",
+            headers=headers,
+            json=request_data,
+        )
+        result = handle_response(response, "volume", request_data)
+        logger.info(f"[DISPLAY] volume result: {result}")
+        return {"output": result}
+
     else:
         logger.error(f"[DISPLAY] Unknown action '{action}'. Args: {context.args}")
         raise ValueError(
-            f"Unknown action: {action}. Valid actions: status, files, play, off, url, cache, sync, sync_and_play. Received args: {context.args}"
+            f"Unknown action: {action}. Valid actions: status, files, play, off, url, cache, sync, sync_and_play, playlist, next, previous, restart, pause, resume, get_volume, volume. Received args: {context.args}"
         )
