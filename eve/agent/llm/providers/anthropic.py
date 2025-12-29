@@ -13,9 +13,7 @@ from loguru import logger
 from pydantic import BaseModel
 
 from eve import db
-from eve.agent.llm.formatting import (
-    construct_anthropic_tools,
-)
+from eve.agent.llm.formatting import construct_anthropic_tools
 from eve.agent.llm.providers import LLMProvider
 from eve.agent.llm.util import (
     calculate_cost_usd,
@@ -135,24 +133,6 @@ class AnthropicProvider(LLMProvider):
                     langfuse_input = dict(base_input_payload)
                     langfuse_input["model"] = effective_model
                     langfuse_input["attempt"] = attempt_index + 1
-
-                    # save conversation to file
-                    # Save conversation messages for debugging and traceability
-                    import json
-                    from datetime import datetime
-
-                    timestamp = datetime.utcnow().strftime("%Y-%m-%d_%H-%M-%S")
-                    conversation_filename = f"conversation_{timestamp}.json"
-                    try:
-                        with open(conversation_filename, "w", encoding="utf-8") as f:
-                            json.dump(conversation, f, ensure_ascii=False, indent=2)
-                        logger.info(
-                            f"[ANTHROPIC_PAYLOAD] Conversation saved to {conversation_filename}"
-                        )
-                    except Exception as e:
-                        logger.warning(
-                            f"[ANTHROPIC_PAYLOAD] Failed to save conversation to {conversation_filename}: {e}"
-                        )
 
                     request_kwargs = {
                         "model": effective_model,
