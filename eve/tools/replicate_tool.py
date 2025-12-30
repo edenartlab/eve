@@ -158,8 +158,11 @@ class ReplicateTool(Tool):
                 if is_number:
                     new_args[field] = float(args[field])
                 elif is_array:
+                    # Use parent_tool if available, since child tools inherit
+                    # the parent's Replicate cog which expects pipe-separated strings
+                    key_to_check = self.parent_tool or self.key
                     is_pipe = any(
-                        n in self.key
+                        n in key_to_check
                         for n in [
                             "legacy",
                             "real2real",
