@@ -6,6 +6,7 @@ import os
 import subprocess
 import tempfile
 import textwrap
+from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 from typing import List
 
@@ -81,6 +82,18 @@ def get_media_attributes(file):
     return media_attributes, thumbnail
 
 
+def _generate_and_upload_thumbnail(thumbnail: Image.Image, sha: str, width: int):
+    """Generate a single thumbnail and upload to S3. Used for parallel processing."""
+    try:
+        img = thumbnail.copy()
+        if width < thumbnail.width:
+            img.thumbnail((width, 2560), Image.Resampling.LANCZOS)
+        img_bytes = PIL_to_bytes(img)
+        s3.upload_buffer(img_bytes, name=f"{sha}_{width}", file_type=".webp")
+    except Exception as e:
+        logger.error(f"Error generating thumbnail {width}px: {e}")
+
+
 def upload_media(output, save_thumbnails=True, save_blurhash=True):
     file_url, sha = s3.upload_file(output)
     filename = file_url.split("/")[-1]
@@ -88,14 +101,17 @@ def upload_media(output, save_thumbnails=True, save_blurhash=True):
     media_attributes, thumbnail = get_media_attributes(output)
 
     if save_thumbnails and thumbnail:
-        for width in [384, 768, 1024, 2560]:
-            img = thumbnail.copy()
-            img.thumbnail(
-                (width, 2560), Image.Resampling.LANCZOS
-            ) if width < thumbnail.width else thumbnail
-            img_bytes = PIL_to_bytes(img)
-            s3.upload_buffer(img_bytes, name=f"{sha}_{width}", file_type=".webp")
-            # s3.upload_buffer(img_bytes, name=f"{sha}_{width}", file_type=".jpg")
+        # Parallelize thumbnail generation (max 4 workers to avoid OOM)
+        thumbnail_sizes = [384, 768, 1024, 2560]
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            # list() forces evaluation of the iterator, ensuring all uploads complete
+            list(
+                executor.map(
+                    lambda width: _generate_and_upload_thumbnail(thumbnail, sha, width),
+                    thumbnail_sizes,
+                )
+            )
+
     if save_blurhash and thumbnail:
         try:
             img = thumbnail.copy()
