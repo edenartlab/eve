@@ -593,20 +593,39 @@ async def process_discord_message_for_agent(
         except MongoDocumentNotFound:
             # Build session title based on channel type
             if guild_id:
-                # Guild channel - use "Guild: Channel" format
-                channel_name = await fetch_discord_channel_name(
-                    channel_id, deployment.secrets.discord.token
-                )
                 guild_name = await fetch_discord_guild_name(
                     guild_id, deployment.secrets.discord.token
                 )
 
-                if guild_name and channel_name:
-                    session_title = f"{guild_name}: {channel_name}"
-                elif channel_name:
-                    session_title = channel_name
+                if parent_channel_id:
+                    # This is a thread - use "Guild: ParentChannel: ThreadName" format
+                    thread_name = await fetch_discord_channel_name(
+                        channel_id, deployment.secrets.discord.token
+                    )
+                    parent_channel_name = await fetch_discord_channel_name(
+                        parent_channel_id, deployment.secrets.discord.token
+                    )
+                    if guild_name and parent_channel_name and thread_name:
+                        session_title = (
+                            f"{guild_name}: {parent_channel_name}: {thread_name}"
+                        )
+                    elif parent_channel_name and thread_name:
+                        session_title = f"{parent_channel_name}: {thread_name}"
+                    elif thread_name:
+                        session_title = thread_name
+                    else:
+                        session_title = f"#{channel_id}"
                 else:
-                    session_title = f"#{channel_id}"
+                    # Regular channel - use "Guild: Channel" format
+                    channel_name = await fetch_discord_channel_name(
+                        channel_id, deployment.secrets.discord.token
+                    )
+                    if guild_name and channel_name:
+                        session_title = f"{guild_name}: {channel_name}"
+                    elif channel_name:
+                        session_title = channel_name
+                    else:
+                        session_title = f"#{channel_id}"
             else:
                 # DM - use the author's username
                 session_title = author_username

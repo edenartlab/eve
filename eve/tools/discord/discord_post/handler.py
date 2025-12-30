@@ -1,6 +1,6 @@
 import io
 import os
-from typing import List
+from typing import List, Optional
 
 import aiohttp
 import discord
@@ -8,7 +8,7 @@ from loguru import logger
 
 from eve.agent.agent import Agent
 from eve.agent.deployments.discord_gateway import convert_usernames_to_discord_mentions
-from eve.agent.session.models import Deployment
+from eve.agent.session.models import Deployment, Session
 from eve.tool import ToolContext
 
 DISCORD_MAX_LENGTH = 2000
@@ -88,6 +88,22 @@ async def handler(context: ToolContext):
     if content:
         content = convert_usernames_to_discord_mentions(content)
 
+    # Check if we can skip allowlist validation (fast path)
+    # If channel_id matches session's discord_channel_id, it was already validated
+    skip_allowlist_check = False
+    if channel_id and context.session:
+        try:
+            session = Session.from_mongo(context.session)
+            if session and session.discord_channel_id == channel_id:
+                skip_allowlist_check = True
+                logger.info(
+                    f"discord_post: Skipping allowlist check - channel {channel_id} matches session's discord_channel_id"
+                )
+        except Exception as e:
+            logger.warning(
+                f"discord_post: Failed to load session for allowlist check: {e}"
+            )
+
     # Create Discord client
     client = discord.Client(intents=discord.Intents.default())
 
@@ -110,7 +126,13 @@ async def handler(context: ToolContext):
         else:
             # Send message to channel (existing functionality)
             return await send_channel_message(
-                client, deployment, channel_id, content, files, reply_to
+                client,
+                deployment,
+                channel_id,
+                content,
+                files,
+                reply_to,
+                skip_allowlist_check=skip_allowlist_check,
             )
 
     finally:
@@ -208,6 +230,60 @@ async def send_dm(
         raise Exception(f"Failed to send DM to user {discord_user_id}: {str(e)}")
 
 
+async def check_thread_parent_allowlist(
+    channel_id: str, allowed_ids: List[str], token: str
+) -> tuple[bool, Optional[str]]:
+    """
+    Check if a channel is a thread with an allowlisted parent.
+
+    Args:
+        channel_id: The Discord channel ID to check
+        allowed_ids: List of allowed channel IDs
+        token: Discord bot token for API calls
+
+    Returns:
+        Tuple of (is_allowed, parent_id)
+        - is_allowed: True if this is a thread with an allowlisted parent
+        - parent_id: The parent channel ID if this is a thread, else None
+    """
+    try:
+        async with aiohttp.ClientSession() as session:
+            headers = {"Authorization": f"Bot {token}"}
+            url = f"https://discord.com/api/v10/channels/{channel_id}"
+
+            async with session.get(url, headers=headers) as response:
+                if response.status == 200:
+                    channel_data = await response.json()
+                    channel_type = channel_data.get("type")
+
+                    # Discord thread types: 10 (GUILD_NEWS_THREAD), 11 (GUILD_PUBLIC_THREAD), 12 (GUILD_PRIVATE_THREAD)
+                    if channel_type in [10, 11, 12]:
+                        parent_id = channel_data.get("parent_id")
+                        if parent_id and parent_id in allowed_ids:
+                            logger.info(
+                                f"discord_post: Thread {channel_id} has allowlisted parent {parent_id}"
+                            )
+                            return True, parent_id
+                        else:
+                            logger.info(
+                                f"discord_post: Thread {channel_id} parent {parent_id} not in allowlist"
+                            )
+                            return False, parent_id
+                    else:
+                        logger.info(
+                            f"discord_post: Channel {channel_id} is not a thread (type: {channel_type})"
+                        )
+                        return False, None
+                else:
+                    logger.warning(
+                        f"discord_post: Failed to fetch channel info for {channel_id}: {response.status}"
+                    )
+                    return False, None
+    except Exception as e:
+        logger.error(f"discord_post: Error checking thread parent: {e}")
+        return False, None
+
+
 async def send_channel_message(
     client: discord.Client,
     deployment: Deployment,
@@ -215,21 +291,30 @@ async def send_channel_message(
     content: str,
     files: list = None,
     reply_to: str = None,
+    skip_allowlist_check: bool = False,
 ):
     """Send a message to a Discord channel (existing functionality)."""
-    # Get allowed channels from deployment config
-    allowed_channels = deployment.config.discord.channel_allowlist
-    if not allowed_channels:
-        raise Exception("No channels configured for this deployment")
+    if not skip_allowlist_check:
+        # Get allowed channels from deployment config
+        allowed_channels = deployment.config.discord.channel_allowlist or []
+        allowed_ids = [str(channel.id) for channel in allowed_channels]
 
-    # Verify the channel is in the allowlist
-    if not any(str(channel.id) == channel_id for channel in allowed_channels):
-        allowed_channels_info = {
-            channel.note: str(channel.id) for channel in allowed_channels
-        }
-        raise Exception(
-            f"Channel {channel_id} is not in the allowlist. Allowed channels (note: id): {allowed_channels_info}"
-        )
+        # Check if channel is directly in allowlist
+        is_allowed = channel_id in allowed_ids
+
+        # If not directly allowed, check if it's a thread with an allowlisted parent
+        if not is_allowed:
+            is_allowed, _ = await check_thread_parent_allowlist(
+                channel_id, allowed_ids, deployment.secrets.discord.token
+            )
+
+        if not is_allowed:
+            allowed_channels_info = {
+                channel.note: str(channel.id) for channel in allowed_channels
+            }
+            raise Exception(
+                f"Channel {channel_id} is not in the allowlist. Allowed channels (note: id): {allowed_channels_info}"
+            )
 
     # Split content into chunks (Discord limit is 2000 chars)
     chunks = split_content_into_chunks(content)
