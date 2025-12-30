@@ -44,6 +44,39 @@ from eve.models import Model
 from eve.tool import Tool
 from eve.user import User, increment_message_count
 
+
+def substitute_trigger_variables(prompt: str, user: Optional[User]) -> str:
+    """
+    Substitute dynamic variables in trigger prompts.
+
+    Supported variables:
+    - {{discordId}}: Replaced with user's Discord ID, or the entire line is removed if not set
+
+    Args:
+        prompt: The trigger prompt text with potential {{variable}} placeholders
+        user: The User object to extract values from (may be None)
+
+    Returns:
+        The prompt with variables substituted or lines removed
+    """
+    if not prompt:
+        return prompt
+
+    # Handle {{discordId}} - replace with value or remove the line
+    discord_id = user.discordId if user else None
+
+    if discord_id:
+        # Replace {{discordId}} with the actual value
+        prompt = prompt.replace("{{discordId}}", discord_id)
+    else:
+        # Remove any line containing {{discordId}}
+        lines = prompt.split("\n")
+        lines = [line for line in lines if "{{discordId}}" not in line]
+        prompt = "\n".join(lines)
+
+    return prompt
+
+
 # Rich notification templates for social media channels
 twitter_notification_template = Template("""
 │ 📨 TWITTER NOTIFICATION
@@ -763,7 +796,10 @@ async def build_llm_context(
         try:
             trigger = Trigger.from_mongo(context.trigger)
             if trigger:
-                trigger_context = {"name": trigger.name, "prompt": trigger.prompt}
+                # Substitute dynamic variables in the trigger prompt
+                # e.g., {{discordId}} -> user's Discord ID (or remove line if not set)
+                processed_prompt = substitute_trigger_variables(trigger.prompt, user)
+                trigger_context = {"name": trigger.name, "prompt": processed_prompt}
                 trigger_selection_limit = trigger.selection_limit
         except ValueError:
             # Trigger was deleted, continue without trigger context

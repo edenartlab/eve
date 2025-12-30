@@ -464,7 +464,7 @@ async def process_discord_message_for_agent(
     guild_id: Optional[str],
     should_prompt: bool = False,
     trace_id: str = None,
-    session_channel_id: Optional[str] = None,
+    parent_channel_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Process a Discord message for a single agent.
@@ -478,9 +478,8 @@ async def process_discord_message_for_agent(
         guild_id: Discord guild ID (None for DMs)
         should_prompt: Whether to prompt the agent to respond
         trace_id: Trace ID for logging
-        session_channel_id: Channel ID to use for session key (parent channel for threads).
-                           If None, uses channel_id. This ensures thread messages go to
-                           the same session as their parent channel.
+        parent_channel_id: Parent channel ID if this is a thread. Used to look up
+                          the parent session for inheritance when creating thread sessions.
 
     Returns:
         Status dict with session_id, message_id, etc.
@@ -534,11 +533,8 @@ async def process_discord_message_for_agent(
             media_urls = await upload_discord_media_to_s3(media_urls)
 
         # Create session key: discord-{agent_id}-{guild_id}-{channel_id}
-        # Use session_channel_id if provided (for threads, this is the parent channel)
-        effective_channel_for_session = session_channel_id or channel_id
-        session_key = (
-            f"discord-{agent.id}-{guild_id or 'dm'}-{effective_channel_for_session}"
-        )
+        # Each channel/thread gets its own session
+        session_key = f"discord-{agent.id}-{guild_id or 'dm'}-{channel_id}"
 
         # Find or create session
         session = None
@@ -554,16 +550,14 @@ async def process_discord_message_for_agent(
                 session.update(deleted=False, status="active")
 
             # Check if session title needs updating (migrate old titles like "Discord #123")
-            # Use the session channel (parent channel for threads) for the title
             logger.info(
-                f"[{trace_id}] Checking session title update for channel_id={channel_id}, session_channel={effective_channel_for_session}, guild_id={guild_id}"
+                f"[{trace_id}] Checking session title update for channel_id={channel_id}, guild_id={guild_id}"
             )
 
             if guild_id:
                 # Guild channel - use "Guild: Channel" format
-                # Use effective_channel_for_session so threads use parent channel name
                 channel_name = await fetch_discord_channel_name(
-                    effective_channel_for_session, deployment.secrets.discord.token
+                    channel_id, deployment.secrets.discord.token
                 )
                 logger.info(f"[{trace_id}] Fetched channel_name={channel_name}")
                 guild_name = await fetch_discord_guild_name(
@@ -600,9 +594,8 @@ async def process_discord_message_for_agent(
             # Build session title based on channel type
             if guild_id:
                 # Guild channel - use "Guild: Channel" format
-                # Use effective_channel_for_session so threads use parent channel name
                 channel_name = await fetch_discord_channel_name(
-                    effective_channel_for_session, deployment.secrets.discord.token
+                    channel_id, deployment.secrets.discord.token
                 )
                 guild_name = await fetch_discord_guild_name(
                     guild_id, deployment.secrets.discord.token
@@ -618,12 +611,39 @@ async def process_discord_message_for_agent(
                 # DM - use the author's username
                 session_title = author_username
 
+            # For threads, look up parent session to inherit from
+            parent_session_obj = None
+            inherited_users = []
+            inherited_agents = [agent.id]
+            inherited_settings = None
+
+            if parent_channel_id and guild_id:
+                # This is a thread - try to find parent channel's session
+                parent_session_key = (
+                    f"discord-{agent.id}-{guild_id}-{parent_channel_id}"
+                )
+                try:
+                    parent_session_obj = Session.load(session_key=parent_session_key)
+                    # Inherit users, agents, and settings from parent
+                    inherited_users = parent_session_obj.users or []
+                    inherited_agents = parent_session_obj.agents or [agent.id]
+                    inherited_settings = parent_session_obj.settings
+                    logger.info(
+                        f"[{trace_id}] Thread session inheriting from parent session {parent_session_obj.id}: "
+                        f"users={len(inherited_users)}, agents={len(inherited_agents)}"
+                    )
+                except MongoDocumentNotFound:
+                    logger.info(
+                        f"[{trace_id}] No parent session found for thread (parent_key={parent_session_key})"
+                    )
+
             # Create new session
             # For DMs, the Discord user owns the session; for guild channels, the agent owner does
             session_owner = user.id if not guild_id else agent.owner
             session = Session(
                 owner=session_owner,
-                agents=[agent.id],
+                users=inherited_users,
+                agents=inherited_agents,
                 title=session_title,
                 session_key=session_key,
                 platform="discord",
@@ -631,10 +651,15 @@ async def process_discord_message_for_agent(
                 discord_channel_id=channel_id,
                 session_type="passive",
                 status="active",
+                parent_session=parent_session_obj.id if parent_session_obj else None,
+                settings=inherited_settings,
             )
             session.save()
             is_new_session = True
-            logger.info(f"[{trace_id}] Created new session: {session.id}")
+            logger.info(
+                f"[{trace_id}] Created new session: {session.id}"
+                + (f" (parent: {parent_session_obj.id})" if parent_session_obj else "")
+            )
 
         # Build Discord message URL
         if guild_id:
@@ -1670,10 +1695,6 @@ class DiscordGatewayClient:
             )
             return
 
-        # For threads, use parent channel for session; for regular channels, use channel_id
-        # This ensures thread messages go to the same session as the parent channel
-        session_channel_id = parent_channel_id if parent_channel_id else channel_id
-
         # Determine write access: check if the effective channel (or parent for threads) is in write allowlist
         effective_channel_for_write = (
             parent_channel_id if parent_channel_id else channel_id
@@ -1682,7 +1703,7 @@ class DiscordGatewayClient:
 
         logger.info(
             f"[{trace_id}] Deployment {deployment.id} follows channel {channel_id} "
-            f"(parent={parent_channel_id}, session_channel={session_channel_id}, can_write={can_write})"
+            f"(is_thread={parent_channel_id is not None}, parent={parent_channel_id}, can_write={can_write})"
         )
 
         # Parse mentioned agents
@@ -1724,7 +1745,7 @@ class DiscordGatewayClient:
             guild_id=guild_id,
             should_prompt=should_prompt,
             trace_id=trace_id,
-            session_channel_id=session_channel_id,
+            parent_channel_id=parent_channel_id,
         )
 
         if isinstance(result, Exception):
