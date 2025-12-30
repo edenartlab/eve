@@ -191,6 +191,7 @@ async def handler(context: ToolContext):
             "prompt": True,
             "async": True,
             "extra_tools": ["discord_post", "add_to_collection"],
+            "visible": True,
         }
     )
 
