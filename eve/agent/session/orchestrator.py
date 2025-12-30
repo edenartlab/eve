@@ -93,6 +93,9 @@ class OrchestrationRequest:
     trigger_id: Optional[str] = None
     trigger_context: Optional[str] = None
 
+    # Context window configuration
+    selection_limit: Optional[int] = None  # Override default message selection limit
+
     # Thinking/reasoning
     thinking_override: Optional[bool] = None
 
@@ -392,6 +395,7 @@ async def orchestrate_remote(
     content: Optional[str] = None,
     attachments: Optional[List[str]] = None,
     extra_tools: Optional[List[str]] = None,
+    selection_limit: Optional[int] = None,
 ) -> None:
     """Convenience wrapper for remote prompt sessions (Modal invocation)."""
     logger.info(f"[ORCHESTRATE_REMOTE] Called for session_id={session_id}")
@@ -424,6 +428,7 @@ async def orchestrate_remote(
         extra_tools=extra_tools_dict,
         mode=OrchestrationMode.REMOTE_PROMPT,
         trace_name=f"remote_{session_id[:8]}",
+        selection_limit=selection_limit,
     )
 
     update_count = 0
@@ -600,4 +605,5 @@ def _build_prompt_context(
         api_key_id=request.api_key_id,
         trigger=ObjectId(request.trigger_id) if request.trigger_id else None,
         session_run_id=session_run_id,
+        selection_limit=request.selection_limit,
     )

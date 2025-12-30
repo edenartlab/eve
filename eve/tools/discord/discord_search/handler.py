@@ -40,6 +40,7 @@ async def handler(context: ToolContext):
         raise Exception("Query parameter is required")
 
     include_thread_messages = context.args.get("include_thread_messages", True)
+    include_message_ids = context.args.get("include_message_ids", False)
 
     # Get allowed channels from deployment config
     allowed_channels = deployment.config.discord.channel_allowlist or []
@@ -132,8 +133,13 @@ Behavior:
                 http=http, messages=messages, user=context.user
             )
 
-        formatted_messages = _format_output_messages(messages)
-        return {"output": formatted_messages}
+        formatted_messages, url_templates = _format_output_messages(
+            messages, include_message_ids
+        )
+        result: Dict[str, Any] = {"output": formatted_messages}
+        if url_templates:
+            result["url_templates"] = url_templates
+        return result
 
     finally:
         await http.close()
@@ -342,10 +348,13 @@ def _format_timestamp_for_output(timestamp: Optional[str]) -> Optional[str]:
     return dt.strftime("%m-%d %H:%M")
 
 
-def _format_output_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _format_output_messages(
+    messages: List[Dict[str, Any]], include_message_ids: bool = False
+) -> tuple[List[Dict[str, Any]], Optional[Dict[str, str]]]:
     formatted: List[Dict[str, Any]] = []
-    include_url = True
+    include_url = not include_message_ids  # Only include full URL if not using IDs
     include_channel_name = True
+    url_templates: Dict[str, str] = {}
 
     for message in messages:
         formatted_timestamp = _format_timestamp_for_output(message.get("created_at"))
@@ -359,7 +368,18 @@ def _format_output_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, An
         if include_channel_name:
             entry["channel_name"] = message.get("channel_name") or "Unknown"
 
-        if include_url:
+        if include_message_ids:
+            message_id = message.get("id")
+            if message_id:
+                entry["id"] = message_id
+                # Build URL template for this channel if not already done
+                guild_id = message.get("guild_id")
+                channel_id = message.get("channel_id")
+                if guild_id and channel_id and channel_id not in url_templates:
+                    url_templates[channel_id] = (
+                        f"https://discord.com/channels/{guild_id}/{channel_id}/{{id}}"
+                    )
+        elif include_url:
             url = _build_message_url(
                 guild_id=message.get("guild_id"),
                 channel_id=message.get("channel_id"),
@@ -374,7 +394,7 @@ def _format_output_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, An
         include_channel_name = False
         include_url = False
 
-    return formatted
+    return formatted, url_templates if url_templates else None
 
 
 async def _collect_thread_messages(

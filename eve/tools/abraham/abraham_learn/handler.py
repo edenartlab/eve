@@ -141,6 +141,7 @@ async def commit_daily_work(agent: Agent, session: str):
             # "pin": True,
             "prompt": True,
             "async": True,
+            "visible": True,
             "extra_tools": ["abraham_covenant"],
         }
     )

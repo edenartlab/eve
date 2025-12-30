@@ -42,7 +42,6 @@ from .context import (
     build_llm_context,
     convert_message_roles,
     determine_actors,
-    get_all_eden_messages_for_llm,
     label_message_channels,
 )
 from .instrumentation import PromptSessionInstrumentation
@@ -239,9 +238,13 @@ class PromptSessionRuntime:
                 sentry_sdk = None
 
             # Run initialization tasks in parallel
-            with sentry_sdk.start_span(
-                op="session.parallel_init", description="Parallel initialization"
-            ) if sentry_sdk else nullcontext():
+            with (
+                sentry_sdk.start_span(
+                    op="session.parallel_init", description="Parallel initialization"
+                )
+                if sentry_sdk
+                else nullcontext()
+            ):
                 init_tasks = [
                     asyncio.create_task(update_session_run()),
                     asyncio.create_task(load_billing_user()),
@@ -265,10 +268,14 @@ class PromptSessionRuntime:
                 except ImportError:
                     sentry_sdk = None
 
-                with sentry_sdk.start_span(
-                    op="session.pre_llm_checks",
-                    description="Rate limits and billing checks",
-                ) if sentry_sdk else nullcontext():
+                with (
+                    sentry_sdk.start_span(
+                        op="session.pre_llm_checks",
+                        description="Rate limits and billing checks",
+                    )
+                    if sentry_sdk
+                    else nullcontext()
+                ):
                     # Check rate limits before LLM call
                     if self.rate_limiter and self.billing_user_doc:
                         try:
@@ -369,16 +376,9 @@ class PromptSessionRuntime:
         )
 
     async def _refresh_llm_messages(self):
-        # Run both database queries in parallel using thread pool
-        fresh_messages, eden_messages = await asyncio.gather(
-            asyncio.to_thread(select_messages, self.session),
-            asyncio.to_thread(get_all_eden_messages_for_llm, self.session.id),
-        )
-
-        # Combine and sort messages
-        if eden_messages:
-            fresh_messages.extend(eden_messages)
-            fresh_messages.sort(key=lambda m: m.createdAt)
+        # Select messages including eden messages - all under the same limit
+        # Eden messages are converted to user role with SystemMessage tags in convert_message_roles()
+        fresh_messages = select_messages(self.session)
 
         system_message = self.llm_context.messages[0]
         pinned_messages = []
@@ -785,9 +785,13 @@ class PromptSessionRuntime:
         except ImportError:
             sentry_sdk = None
 
-        with sentry_sdk.start_span(
-            op="notification.check", description="Check if user needs notification"
-        ) if sentry_sdk else nullcontext():
+        with (
+            sentry_sdk.start_span(
+                op="notification.check", description="Check if user needs notification"
+            )
+            if sentry_sdk
+            else nullcontext()
+        ):
             try:
                 is_active_response = await check_if_session_active(
                     str(self.session.owner), str(self.session.id)

@@ -326,6 +326,9 @@ def setup_session(
 
         session_kwargs["settings"] = SessionSettings(**request.creation_args.settings)
 
+    if request.creation_args.visible is not None:
+        session_kwargs["visible"] = request.creation_args.visible
+
     session = Session(**session_kwargs)
 
     if _is_test_prompt_request(request):

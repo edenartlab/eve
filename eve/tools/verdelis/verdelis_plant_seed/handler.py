@@ -258,6 +258,7 @@ async def handler(context: ToolContext):
         "extra_tools": ["verdelis_seed"],
         "message_id": context.message,
         "tool_call_id": context.tool_call_id,
+        "visible": True,
     }
 
     if context.args.get("resume_session"):

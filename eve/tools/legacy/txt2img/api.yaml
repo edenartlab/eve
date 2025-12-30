@@ -5,7 +5,7 @@ parent_tool: legacy_sdxl_pipelines
 active: true
 visible: true
 thumbnail: app/eden_logo_trans.png
-handler: modal
+handler: local
 parameters:
   mode:
     default: create

@@ -6,7 +6,7 @@ thumbnail: app/runway-tree-orb-woman2-opt.mp4
 cost_estimate: 7.5 * duration
 output_type: video
 base_model: runway
-handler: modal
+handler: local
 active: true
 parameters:
   start_image:

@@ -59,6 +59,11 @@ class Trigger(Document):
     last_run_time: Optional[datetime] = None
     next_scheduled_run: Optional[datetime] = None
 
+    # Context window configuration
+    selection_limit: Optional[int] = (
+        None  # Override default message selection limit (30)
+    )
+
     # Error handling
     error_count: int = 0
     last_error: Optional[str] = None

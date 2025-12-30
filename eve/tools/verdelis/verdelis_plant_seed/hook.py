@@ -104,6 +104,7 @@ Run verdelis_draft_storyboard to draft a storyboard based on this seed, taking i
                     "prompt": True,
                     "async": True,  # Returns immediately
                     "extra_tools": ["verdelis_draft_storyboard"],
+                    "visible": True,
                 }
             )
 

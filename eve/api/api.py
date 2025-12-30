@@ -116,6 +116,7 @@ async def remote_prompt_session(
     content: Optional[str] = None,
     attachments: Optional[List[str]] = None,
     extra_tools: Optional[List[str]] = None,
+    selection_limit: Optional[int] = None,
 ):
     """
     Remotely prompt an existing session with a user message.
@@ -129,6 +130,7 @@ async def remote_prompt_session(
         content: Optional message content
         attachments: Optional list of attachment URLs
         extra_tools: Optional list of additional tool keys to load
+        selection_limit: Optional override for message selection limit (default 30)
     """
     from eve.agent.session.orchestrator import orchestrate_remote
 
@@ -143,6 +145,7 @@ async def remote_prompt_session(
         content=content,
         attachments=attachments or [],
         extra_tools=extra_tools or [],
+        selection_limit=selection_limit,
     )
 
     logger.info(f"Remote prompt completed for session {session_id}")
@@ -807,6 +810,7 @@ async def remote_prompt_session_fn(
     content: Optional[str] = None,
     attachments: Optional[List[str]] = None,
     extra_tools: Optional[List[str]] = None,
+    selection_limit: Optional[int] = None,
 ):
     """Modal wrapper for remote_prompt_session that can be spawned asynchronously."""
     return await remote_prompt_session(
@@ -816,6 +820,7 @@ async def remote_prompt_session_fn(
         content=content,
         attachments=attachments or [],
         extra_tools=extra_tools or [],
+        selection_limit=selection_limit,
     )
 
 

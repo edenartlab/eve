@@ -5,7 +5,7 @@ cost_estimate: 40 * duration * n_samples
 output_type: video
 active: true
 visible: true
-handler: modal
+handler: local
 thumbnail: app/veo2.webp
 parameters:
   prompt:

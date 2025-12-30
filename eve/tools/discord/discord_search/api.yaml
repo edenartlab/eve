@@ -31,3 +31,8 @@ parameters:
     description: Whether to include thread messages
     required: false
     default: true
+  include_message_ids:
+    type: boolean
+    description: Include message IDs and URL template to enable linking to specific messages. Only set to true if you need to reference specific messages with hyperlinks in your response.
+    required: false
+    default: false

@@ -125,6 +125,7 @@ async def handler(context: ToolContext):
             "async": True,
             "extra_tools": ["farcaster_cast", "abraham_seed"],
             "public": True,
+            "visible": True,
         }
     )
 

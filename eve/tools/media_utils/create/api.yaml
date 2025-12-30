@@ -17,7 +17,7 @@ cost_estimate: '(output == "video" ? (((quality == "pro" ? 40 : 20) + (sound_eff
 output_type: image
 active: true
 visible: true
-handler: modal
+handler: local
 parameters:
   output:
     type: string
@@ -182,5 +182,5 @@ parameters:
     description: Optional synthesized dialogue, foley, or music to generate over the video.
     tip: |-
       Videos only. Use when you want the system to synthesize audio (dialogue in quotes, foley, ambience, music).
-      If an audio track is provided for talking_head, sound_effects are ignored.
+      If an audio track is provided for talking_head, sound_effects are ignored. (not possible with Kling)
     required: false
